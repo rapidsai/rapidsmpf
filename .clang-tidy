@@ -1,0 +1,26 @@
+Checks:
+      'modernize-*,
+       -modernize-use-equals-default,
+       -modernize-concat-nested-namespaces,
+       -modernize-use-trailing-return-type,
+       -modernize-return-braced-init-list,
+       -modernize-use-bool-literals,
+       clang-analyzer-*,
+       -clang-analyzer-cplusplus.NewDeleteLeaks,
+       -clang-analyzer-optin.core.EnumCastOutOfRange,
+       -clang-analyzer-optin.cplusplus.UninitializedObject,
+       -clang-analyzer-optin.mpi.MPI-Checker'
+
+WarningsAsErrors: '*'
+FormatStyle:     none
+CheckOptions:
+ - key:             modernize-loop-convert.MaxCopySize
+   value:           '16'
+ - key:             modernize-loop-convert.MinConfidence
+   value:           reasonable
+ - key:             modernize-pass-by-value.IncludeStyle
+   value:           llvm
+ - key:             modernize-replace-auto-ptr.IncludeStyle
+   value:           llvm
+ - key:             modernize-use-nullptr.NullMacros
+   value:           'NULL'

@@ -1,0 +1,65 @@
+BasedOnStyle: Google
+
+AlignAfterOpenBracket: BlockIndent
+AlignTrailingComments: false
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BinPackArguments: false
+BinPackParameters: false
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterClass: false
+  AfterControlStatement: MultiLine
+  AfterEnum: false
+  AfterFunction: false
+  AfterNamespace: false
+  AfterObjCDeclaration: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeCatch: false
+  BeforeElse: false
+  IndentBraces: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+  BeforeLambdaBody: false
+  BeforeWhile: false
+BitFieldColonSpacing: After
+BreakBeforeBinaryOperators: NonAssignment
+BreakBeforeBraces: Custom
+BreakStringLiterals: true
+ColumnLimit: 90
+DerivePointerAlignment: false
+IndentCaseBlocks: true
+IndentCaseLabels: false
+IndentWidth: 4
+SeparateDefinitionBlocks: Always
+MaxEmptyLinesToKeep: 2
+PointerAlignment: Left
+SortIncludes: CaseSensitive
+SpaceBeforeParens: ControlStatementsExceptControlMacros
+UseTab: Never
+Standard: c++17
+AccessModifierOffset: -2
+IncludeCategories:
+  - Regex: '^<([a-z0-9_-]+)>$'
+    Priority: 10  # Standard library headers
+  - Regex: '^<.*\.h>'
+    Priority: 20
+  - Regex: '^<(cooperative_groups|cuco|cuda.h|cuda_runtime|device_types|math_constants|nvtx3)'
+    Priority: 30 # CUDA includes
+  - Regex: '^<(thrust|cub|cuda)/'
+    Priority: 40 # CCCL includes
+  - Regex: '^<(cudf.*|rmm|cugraph|cuml|cuspatial|raft|kvikio)'
+    Priority: 50 # RAPIDS includes
+  - Regex: '^<rapidsmp/'
+    Priority: 60
+  - Regex: '^"'
+    Priority: 70 # quoted includes

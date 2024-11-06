@@ -1,0 +1,7 @@
+*.*~
+build
+*.so
+.cache
+.vscode
+.mypy_cache
+.hypothesis
