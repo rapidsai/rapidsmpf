@@ -31,7 +31,8 @@ mpirun -np 2 build/gtests/mpi_tests
 
 We can also run the shuffle benchmark using MPI. However, to assign each MPI rank its own GPU and NIC, we use a [bind script](https://github.com/LStuber/binding/blob/master/binder.sh):
 ```
-wget https://github.com/LStuber/binding/blob/master/binder.sh
+# The binder script requires numactl `mamba install numactl`
+wget https://raw.githubusercontent.com/LStuber/binding/refs/heads/master/binder.sh
 chmod a+x binder.sh
 mpirun -np 2 ./binder.sh build/benchmarks/bench_shuffle 
 ```
