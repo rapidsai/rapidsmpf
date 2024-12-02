@@ -13,16 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-#include <chrono>
-#include <sstream>
+#pragma once
 
 #include <cudf/column/column.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
-
-using Clock = std::chrono::high_resolution_clock;
-using Duration = std::chrono::duration<double>;
 
 /**
  * @brief Generates a random numeric column (std::int32_t).
@@ -71,20 +66,3 @@ cudf::table random_table(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 );
-
-template <typename T>
-std::string to_precision(T value, int precision = 2) {
-    std::stringstream ss;
-    ss.precision(precision);
-    ss << std::fixed;
-    ss << value;
-    return ss.str();
-}
-
-std::string inline to_precision(Duration value, int precision = 2) {
-    return to_precision(value.count(), precision);
-}
-
-std::string inline to_mib(double nbytes, int precision = 2) {
-    return to_precision(nbytes / (1 << 20), precision);
-}

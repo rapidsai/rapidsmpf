@@ -31,7 +31,7 @@ mpirun -np 2 build/gtests/mpi_tests
 
 We can also run the shuffle benchmark using MPI. However, to assign each MPI rank its own GPU, we set `CUDA_VISIBLE_DEVICES`:
 ```
-mpirun -np 1 -x CUDA_VISIBLE_DEVICES=0 build/benchmarks/bench_shuffle : -np 1 -x CUDA_VISIBLE_DEVICES=1
+mpirun -np 1 -x CUDA_VISIBLE_DEVICES=0 build/benchmarks/bench_shuffle : -np 1 -x CUDA_VISIBLE_DEVICES=1 build/benchmarks/bench_shuffle
 ```
 
 ## Algorithms

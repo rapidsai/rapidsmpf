@@ -23,7 +23,7 @@
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 
-#include "utils.hpp"
+#include "random_data.hpp"
 
 std::unique_ptr<cudf::column> random_column(
     cudf::size_type nrows,
