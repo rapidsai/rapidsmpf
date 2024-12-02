@@ -77,6 +77,8 @@ rapids_find_package(
   INSTALL_EXPORT_SET rapidsmp-exports
 )
 
+include(../cmake/thirdparty/get_nvtx.cmake)
+
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 if(RAPIDSMP_BUILD_TESTS)
