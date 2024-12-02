@@ -6,7 +6,7 @@ Collection of multi-gpu, distributed memory algorithms.
 
 Currently, there is no conda or pip packages for rapidsmp thus we have to build from source.
 
-First we clone rapidsmp and install the dependencies in a conda environment:
+Clone rapidsmp and install the dependencies in a conda environment:
 ```
 git clone https://github.com/rapidsai/rapids-multi-gpu.git
 cd rapids-multi-gpu
@@ -20,7 +20,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-Let's run the test suite using MPI:
+Run the test suite using MPI:
 ```
 # When using OpenMP, we need to enable CUDA support.
 export OMPI_MCA_opal_cuda_support=1
@@ -29,9 +29,9 @@ export OMPI_MCA_opal_cuda_support=1
 mpirun -np 2 build/gtests/mpi_tests
 ```
 
-We can also run the shuffle benchmark using MPI:
+We can also run the shuffle benchmark using MPI. However, to assign each MPI rank its own GPU, we set `CUDA_VISIBLE_DEVICES`:
 ```
-mpirun -np 2  build/benchmarks/bench_shuffle
+mpirun -np 1 -x CUDA_VISIBLE_DEVICES=0 build/benchmarks/bench_shuffle : -np 1 -x CUDA_VISIBLE_DEVICES=1
 ```
 
 ## Algorithms
