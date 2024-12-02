@@ -29,9 +29,11 @@ export OMPI_MCA_opal_cuda_support=1
 mpirun -np 2 build/gtests/mpi_tests
 ```
 
-We can also run the shuffle benchmark using MPI. However, to assign each MPI rank its own GPU, we set `CUDA_VISIBLE_DEVICES`:
+We can also run the shuffle benchmark using MPI. However, to assign each MPI rank its own GPU and NIC, we use a [bind script](https://github.com/LStuber/binding/blob/master/binder.sh):
 ```
-mpirun -np 1 -x CUDA_VISIBLE_DEVICES=0 build/benchmarks/bench_shuffle : -np 1 -x CUDA_VISIBLE_DEVICES=1 build/benchmarks/bench_shuffle
+wget https://github.com/LStuber/binding/blob/master/binder.sh
+chmod a+x binder.sh
+mpirun -np 2 ./binder.sh build/benchmarks/bench_shuffle 
 ```
 
 ## Algorithms
