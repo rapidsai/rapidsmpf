@@ -13,7 +13,7 @@
 # =============================================================================
 
 file(GLOB UTILS_SOURCES "utils/*.cpp" "utils/*.cu")
-add_executable(bench_shuffle "shuffle.cpp" ${UTILS_SOURCES})
+add_executable(bench_shuffle "bench_shuffle.cpp" ${UTILS_SOURCES})
 set_target_properties(
   bench_shuffle
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMP_BINARY_DIR}/benchmarks>"
