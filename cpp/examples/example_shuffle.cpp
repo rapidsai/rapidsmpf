@@ -14,13 +14,11 @@
  * limitations under the License.
  */
 
-#include <string>
 #include <vector>
 
 #include <mpi.h>
 #include <unistd.h>
 
-#include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
