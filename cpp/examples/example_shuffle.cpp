@@ -92,18 +92,19 @@ int main(int argc, char** argv) {
         shuffler.insert_finished(i);
     }
 
+    // Vector to hold the local results of the shuffle operation.
     std::vector<std::unique_ptr<cudf::table>> local_outputs;
+
+    // Wait for and process the shuffle results for each partition.
     while (!shuffler.finished()) {
-        // When we are ready to receive the result of a partition, we can wait on any of
-        // them. `wait_any` is blocking until a partition is finished and returns its
-        // partition ID.
+        // Block until a partition is ready and retrieve its partition ID.
         rapidsmp::shuffler::PartID finished_partition = shuffler.wait_any();
 
-        // Then we can extract the finished partition.
+        // Extract the finished partition's data from the Shuffler.
         auto packed_chunks = shuffler.extract(finished_partition);
 
-        // And unpack (deserialize) and concatenate each chunk of the partition using
-        // a convenience function.
+        // Unpack (deserialize) and concatenate the chunks into a single table using a
+        // convenience function.
         local_outputs.push_back(
             rapidsmp::shuffler::unpack_and_concat(std::move(packed_chunks))
         );
@@ -112,8 +113,7 @@ int main(int argc, char** argv) {
     // Let's log the result.
     log.info("Finished shuffle with ", local_outputs.size(), " local output partitions");
 
-    // We have to shutdown the shuffle, either explicitly or by letting it go out of
-    // scope.
+    // Shutdown the Shuffler explicitly or let it go out of scope for cleanup.
     shuffler.shutdown();
 
     // Finalize the execution, `RAPIDSMP_MPI` is a convenience macro that
