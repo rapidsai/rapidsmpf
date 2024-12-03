@@ -53,34 +53,34 @@ struct rapidsmp_domain {
 };
 
 // Macro to concatenate two tokens x and y.
-#define KVIKIO_CONCAT_HELPER(x, y) x##y
-#define KVIKIO_CONCAT(x, y) KVIKIO_CONCAT_HELPER(x, y)
+#define RAPIDSMP_CONCAT_HELPER(x, y) x##y
+#define RAPIDSMP_CONCAT(x, y) RAPIDSMP_CONCAT_HELPER(x, y)
 
 // Macro to create a static, registered string that will not have a name conflict with any
 // registered string defined in the same scope.
-#define KVIKIO_REGISTER_STRING(msg)                                           \
+#define RAPIDSMP_REGISTER_STRING(msg)                                         \
     [](const char* a_msg) -> auto& {                                          \
         static nvtx3::registered_string_in<rapidsmp_domain> a_reg_str{a_msg}; \
         return a_reg_str;                                                     \
     }(msg)
 
-// Macro overloads of KVIKIO_NVTX_FUNC_RANGE
-#define KVIKIO_NVTX_FUNC_RANGE_IMPL() NVTX3_FUNC_RANGE_IN(rapidsmp_domain)
+// Macro overloads of RAPIDSMP_NVTX_FUNC_RANGE
+#define RAPIDSMP_NVTX_FUNC_RANGE_IMPL() NVTX3_FUNC_RANGE_IN(rapidsmp_domain)
 
-#define KVIKIO_NVTX_SCOPED_RANGE_IMPL(msg, val)            \
-    nvtx3::scoped_range_in<rapidsmp_domain> KVIKIO_CONCAT( \
-        _kvikio_nvtx_range, __LINE__                       \
-    ) {                                                    \
-        nvtx3::event_attributes {                          \
-            KVIKIO_REGISTER_STRING(msg), nvtx3::payload {  \
-                convert_to_64bit(val)                      \
-            }                                              \
-        }                                                  \
+#define RAPIDSMP_NVTX_SCOPED_RANGE_IMPL(msg, val)            \
+    nvtx3::scoped_range_in<rapidsmp_domain> RAPIDSMP_CONCAT( \
+        _rapidsmp_nvtx_range, __LINE__                       \
+    ) {                                                      \
+        nvtx3::event_attributes {                            \
+            RAPIDSMP_REGISTER_STRING(msg), nvtx3::payload {  \
+                convert_to_64bit(val)                        \
+            }                                                \
+        }                                                    \
     }
 
-#define KVIKIO_NVTX_MARKER_IMPL(msg, val)                                  \
-    nvtx3::mark_in<rapidsmp_domain>(nvtx3::event_attributes{               \
-        KVIKIO_REGISTER_STRING(msg), nvtx3::payload{convert_to_64bit(val)} \
+#define RAPIDSMP_NVTX_MARKER_IMPL(msg, val)                                  \
+    nvtx3::mark_in<rapidsmp_domain>(nvtx3::event_attributes{                 \
+        RAPIDSMP_REGISTER_STRING(msg), nvtx3::payload{convert_to_64bit(val)} \
     })
 
 /**
@@ -93,12 +93,12 @@ struct rapidsmp_domain {
  * Example:
  * ```
  * void some_function(){
- *    KVIKIO_NVTX_FUNC_RANGE();  // The name `some_function` is used as the message
+ *    RAPIDSMP_NVTX_FUNC_RANGE();  // The name `some_function` is used as the message
  *    ...
  * }
  * ```
  */
-#define KVIKIO_NVTX_FUNC_RANGE() KVIKIO_NVTX_FUNC_RANGE_IMPL()
+#define RAPIDSMP_NVTX_FUNC_RANGE() RAPIDSMP_NVTX_FUNC_RANGE_IMPL()
 
 /**
  * @brief Convenience macro for generating an NVTX scoped range in the `rapidsmp` domain
@@ -109,28 +109,18 @@ struct rapidsmp_domain {
  * Example:
  * ```
  * void some_function(){
- *    KVIKIO_NVTX_SCOPED_RANGE("my function", 42);
+ *    RAPIDSMP_NVTX_SCOPED_RANGE("my function", 42);
  *    ...
  * }
  * ```
  */
-#define KVIKIO_NVTX_SCOPED_RANGE(msg, val) KVIKIO_NVTX_SCOPED_RANGE_IMPL(msg, val)
+#define RAPIDSMP_NVTX_SCOPED_RANGE(msg, val) RAPIDSMP_NVTX_SCOPED_RANGE_IMPL(msg, val)
 
 /**
  * @brief Convenience macro for generating an NVTX marker in the `rapidsmp` domain to
  * annotate a certain time point.
  *
- * Takes two arguments (message, payload). Use this macro to annotate asynchronous I/O
- * operations, where the payload refers to the I/O size.
- *
- * Example:
- * ```
- * std::future<void> some_function(){
- *     size_t io_size{2077};
- *     KVIKIO_NVTX_MARKER("I/O operation", io_size);
- *     perform_async_io_operation(io_size);
- *     ...
- * }
- * ```
+ * Takes two arguments (message, payload). Use this macro to annotate asynchronous
+ * operations.
  */
-#define KVIKIO_NVTX_MARKER(message, payload) KVIKIO_NVTX_MARKER_IMPL(message, payload)
+#define RAPIDSMP_NVTX_MARKER(message, payload) RAPIDSMP_NVTX_MARKER_IMPL(message, payload)
