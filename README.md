@@ -39,6 +39,9 @@ mpirun -np 2 ./binder.sh build/benchmarks/bench_shuffle
 
 ## Algorithms
 ### Table Shuffle Service
+Example of a MPI program that uses the shuffler:
+
+https://github.com/madsbk/rapids-multi-gpu/blob/6026d00a4262299e8f2e98fdf0e7010f6da67198/cpp/examples/example_shuffle.cpp
 
 ## Communicator
 
