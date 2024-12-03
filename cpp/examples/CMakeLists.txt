@@ -12,11 +12,10 @@
 # the License.
 # =============================================================================
 
-file(GLOB UTILS_SOURCES "utils/*.cpp" "utils/*.cu")
-add_executable(bench_shuffle "bench_shuffle.cpp" ${UTILS_SOURCES})
+add_executable(example_shuffle "example_shuffle.cpp" "../benchmarks/utils/random_data.cu")
 set_target_properties(
-  bench_shuffle
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMP_BINARY_DIR}/benchmarks>"
+  example_shuffle
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMP_BINARY_DIR}/examples>"
              CXX_STANDARD 17
              CXX_STANDARD_REQUIRED ON
              # For std:: support of __int128_t. Can be removed once using cuda::std
@@ -25,10 +24,9 @@ set_target_properties(
              CUDA_STANDARD_REQUIRED ON
 )
 target_compile_options(
-  bench_shuffle PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMP_CXX_FLAGS}>"
-                        "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMP_CUDA_FLAGS}>"
+  example_shuffle PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMP_CXX_FLAGS}>"
+                          "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMP_CUDA_FLAGS}>"
 )
-
 target_link_libraries(
-  bench_shuffle PRIVATE rapidsmp::rapidsmp MPI::MPI_C $<TARGET_NAME_IF_EXISTS:conda_env>
+  example_shuffle PRIVATE rapidsmp::rapidsmp MPI::MPI_C $<TARGET_NAME_IF_EXISTS:conda_env>
 )

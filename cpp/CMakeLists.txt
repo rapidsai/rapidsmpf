@@ -44,6 +44,7 @@ rapids_cmake_build_type(Release)
 
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
+option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
 option(BUILD_SHARED_LIBS "Build rapids-mp shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
@@ -51,6 +52,7 @@ option(RAPIDSMP_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during c
 
 set(RAPIDSMP_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMP_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
+set(RAPIDSMP_BUILD_EXAMPLES ${BUILD_EXAMPLES})
 
 # ##################################################################################################
 # * conda environment -----------------------------------------------------------------------------
@@ -192,6 +194,13 @@ endif()
 # -------------------------------------------------------------------------------------
 if(RAPIDSMP_BUILD_BENCHMARKS)
   add_subdirectory(benchmarks)
+endif()
+
+# ##################################################################################################
+# * add examples
+# -------------------------------------------------------------------------------------
+if(RAPIDSMP_BUILD_BENCHMARKS)
+  add_subdirectory(examples)
 endif()
 
 # ##################################################################################################
