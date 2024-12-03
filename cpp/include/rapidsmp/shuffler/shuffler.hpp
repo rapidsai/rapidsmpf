@@ -30,6 +30,7 @@
 
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/error.hpp>
+#include <rapidsmp/nvtx.hpp>
 #include <rapidsmp/shuffler/chunk.hpp>
 #include <rapidsmp/shuffler/postbox.hpp>
 #include <rapidsmp/utils.hpp>
@@ -400,6 +401,7 @@ class Shuffler {
      * @return The partition ID of the next finished partition.
      */
     PartID wait_any() {
+        RAPIDSMP_NVTX_FUNC_RANGE();
         return finish_counter_.wait_any();
     }
 
