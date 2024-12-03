@@ -34,7 +34,7 @@ We can also run the shuffle benchmark. To assign each MPI rank its own GPU, we u
 # The binder script requires numactl `mamba install numactl`
 wget https://raw.githubusercontent.com/LStuber/binding/refs/heads/master/binder.sh
 chmod a+x binder.sh
-mpirun -np 2 ./binder.sh build/benchmarks/bench_shuffle 
+mpirun -np 2 ./binder.sh build/benchmarks/bench_shuffle
 ```
 
 ## Algorithms
