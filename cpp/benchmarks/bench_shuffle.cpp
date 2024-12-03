@@ -23,6 +23,7 @@
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/error.hpp>
+#include <rapidsmp/nvtx.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
 #include <rapidsmp/shuffler/shuffler.hpp>
 
@@ -120,38 +121,44 @@ Duration run(
     stream.synchronize();
     RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
+    std::vector<cudf::table> output_partitions;
     auto const t0_elapsed = Clock::now();
-
-    rapidsmp::shuffler::Shuffler shuffler(
-        comm, total_num_partitions, rapidsmp::shuffler::Shuffler::round_robin, stream, mr
-    );
-
-    for (auto&& partition : input_partitions) {
-        // Partition, pack, and insert this partition into the shuffler.
-        shuffler.insert(rapidsmp::shuffler::partition_and_pack(
-            partition,
-            {0},
+    {
+        RAPIDSMP_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
+        rapidsmp::shuffler::Shuffler shuffler(
+            comm,
             total_num_partitions,
-            cudf::hash_id::HASH_MURMUR3,
-            cudf::DEFAULT_HASH_SEED,
+            rapidsmp::shuffler::Shuffler::round_robin,
             stream,
             mr
-        ));
-    }
-    // Tell the shuffler that we have no more data.
-    for (rapidsmp::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-        shuffler.insert_finished(i);
-    }
-
-    std::vector<cudf::table> output_partitions;
-    while (!shuffler.finished()) {
-        auto finished_partition = shuffler.wait_any();
-        auto packed_chunks = shuffler.extract(finished_partition);
-        output_partitions.push_back(
-            *rapidsmp::shuffler::unpack_and_concat(std::move(packed_chunks), stream, mr)
         );
+
+        for (auto&& partition : input_partitions) {
+            // Partition, pack, and insert this partition into the shuffler.
+            shuffler.insert(rapidsmp::shuffler::partition_and_pack(
+                partition,
+                {0},
+                total_num_partitions,
+                cudf::hash_id::HASH_MURMUR3,
+                cudf::DEFAULT_HASH_SEED,
+                stream,
+                mr
+            ));
+        }
+        // Tell the shuffler that we have no more data.
+        for (rapidsmp::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+            shuffler.insert_finished(i);
+        }
+
+        while (!shuffler.finished()) {
+            auto finished_partition = shuffler.wait_any();
+            auto packed_chunks = shuffler.extract(finished_partition);
+            output_partitions.push_back(*rapidsmp::shuffler::unpack_and_concat(
+                std::move(packed_chunks), stream, mr
+            ));
+        }
+        stream.synchronize();
     }
-    stream.synchronize();
     auto const t1_elapsed = Clock::now();
 
     // Check the shuffle result
