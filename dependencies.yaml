@@ -49,6 +49,7 @@ dependencies:
           - cxx-compiler
           - &cudf_unsuffixed cudf==25.02.*,>=0.0.0a0
           - openmpi
+          - spdlog>=1.14.1,<1.15
     specific:
       - output_types: conda
         matrices:
