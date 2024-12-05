@@ -29,23 +29,27 @@
 
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"
+#include "utils/rmm_stack.hpp"
 
 class ArgumentParser {
   public:
     ArgumentParser(rapidsmp::Communicator& comm, int argc, char* const* argv) {
         int option;
-        while ((option = getopt(argc, argv, "hr:c:n:p:")) != -1) {
+        while ((option = getopt(argc, argv, "hr:c:n:p:m:")) != -1) {
             switch (option) {
             case 'h':
                 {
                     std::stringstream ss;
                     ss << "Usage: " << argv[0] << " [options]\n"
                        << "Options:\n"
-                       << "  -r <num>        Number of runs\n"
-                       << "  -c <num>        Number of columns in the input tables\n"
-                       << "  -n <num>        Number of rows per rank\n"
+                       << "  -r <num>        Number of runs (default 1)\n"
+                       << "  -c <num>        Number of columns in the input tables "
+                          "(default 1)\n"
+                       << "  -n <num>        Number of rows per rank (default 1M)\n"
                        << "  -p <num>        Number of partitions (input tables) per "
-                          "rank\n"
+                          "rank (default 1)\n"
+                       << "  -m <mr>         RMM memory resource {cuda, pool, async} "
+                          "(cuda)\n"
                        << "  -h              Display this help message\n";
                     if (comm.rank() == 0) {
                         std::cerr << ss.str();
@@ -63,6 +67,17 @@ class ArgumentParser {
                 break;
             case 'p':
                 num_local_partitions = std::stoull(optarg);
+                break;
+            case 'm':
+                rmm_mr = std::string{optarg};
+                if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async")) {
+                    if (comm.rank() == 0) {
+                        std::cerr << "-m (RMM memory resource) must be one of "
+                                     "{cuda, pool, async}"
+                                  << std::endl;
+                    }
+                    exit(-1);
+                }
                 break;
             case '?':
                 exit(-1);
@@ -91,6 +106,7 @@ class ArgumentParser {
         ss << "  -c " << num_runs << " (number of columns)\n";
         ss << "  -n " << num_local_rows << " (number of rows per rank)\n";
         ss << "  -p " << num_local_partitions << " (number of partitions per rank)\n";
+        ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
         if (comm.rank() == 0) {
             std::cout << ss.str();
         }
@@ -100,16 +116,17 @@ class ArgumentParser {
     std::uint32_t num_columns{1};
     std::uint64_t num_local_rows{1 << 20};
     rapidsmp::shuffler::PartID num_local_partitions{1};
+    std::string rmm_mr{"cuda"};
 };
 
 Duration run(
     std::shared_ptr<rapidsmp::Communicator> comm,
     ArgumentParser const& args,
-    std::int32_t const min_val,
-    std::int32_t const max_val,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
+    std::int32_t const min_val = 0;
+    std::int32_t const max_val = args.num_local_rows;
     rapidsmp::shuffler::PartID const total_num_partitions =
         args.num_local_partitions * comm->nranks();
     std::vector<cudf::table> input_partitions;
@@ -190,14 +207,12 @@ int main(int argc, char** argv) {
     std::shared_ptr<rapidsmp::Communicator> comm =
         std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
     auto& log = comm->logger();
-    rmm::cuda_stream_view stream = cudf::get_default_stream();
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
     ArgumentParser args{*comm, argc, argv};
     args.pprint(*comm);
 
-    std::int32_t const min_val = 0;
-    std::int32_t const max_val = args.num_local_rows;
-
+    auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
+    rmm::cuda_stream_view stream = cudf::get_default_stream();
+    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
 
     // Print benchmark/hardware info.
     {
@@ -206,10 +221,12 @@ int main(int argc, char** argv) {
         CUDF_CUDA_TRY(cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), 0));
         cudaDeviceProp properties;
         CUDF_CUDA_TRY(cudaGetDeviceProperties(&properties, 0));
+        auto current_dev = rmm::get_current_cuda_device().value();
         ss << "Shuffle benchmark: \n";
         ss << "  GPU (" << properties.name << "): \n";
+        ss << "    Device number: " << current_dev << "\n";
         ss << "    PCI Bus ID: " << pci_bus_id << "\n";
-        ss << "    Total Memory: " << to_mib(properties.totalGlobalMem) << " MiB\n";
+        ss << "    Total Memory: " << to_mib(properties.totalGlobalMem, 0) << " MiB\n";
         ss << "  Comm: " << *comm << "\n";
         log.warn(ss.str());
     }
@@ -219,7 +236,7 @@ int main(int argc, char** argv) {
     auto const total_nbytes = local_nbytes * comm->nranks();
 
     for (auto i = 0; i < args.num_runs; ++i) {
-        auto elapsed = run(comm, args, min_val, max_val, stream, mr);
+        auto elapsed = run(comm, args, stream, mr);
         log.warn(
             "elapsed: ",
             to_precision(elapsed),
