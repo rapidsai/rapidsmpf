@@ -47,7 +47,7 @@ dependencies:
         packages:
           - c-compiler
           - cxx-compiler
-          - &cudf_unsuffixed cudf==25.02.*,>=0.0.0a0
+          - &cudf_unsuffixed libcudf==25.02.*,>=0.0.0a0
           - openmpi
           - spdlog>=1.14.1,<1.15
     specific:

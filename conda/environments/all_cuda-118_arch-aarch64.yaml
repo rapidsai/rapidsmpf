@@ -10,10 +10,10 @@ dependencies:
 - cuda-sanitizer-api
 - cuda-version=11.8
 - cudatoolkit
-- cudf==25.02.*,>=0.0.0a0
 - cxx-compiler
 - doxygen=1.9.1
 - gcc_linux-aarch64=11.*
+- libcudf==25.02.*,>=0.0.0a0
 - libcurand-dev
 - ninja
 - nvcc_linux-aarch64=11.8
