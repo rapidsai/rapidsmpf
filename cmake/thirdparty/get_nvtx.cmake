@@ -18,7 +18,7 @@ function(find_and_configure_nvtx)
   include(${rapids-cmake-dir}/cpm/nvtx3.cmake)
 
   # Find or install nvtx3
-  rapids_cpm_nvtx3(BUILD_EXPORT_SET kvikio-exports INSTALL_EXPORT_SET kvikio-exports)
+  rapids_cpm_nvtx3(BUILD_EXPORT_SET rapidsmp-exports INSTALL_EXPORT_SET rapidsmp-exports)
 
 endfunction()
 
