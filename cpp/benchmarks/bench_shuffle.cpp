@@ -78,6 +78,15 @@ class ArgumentParser {
                     }
                     exit(-1);
                 }
+                if (rmm_mr == "cuda") {
+                    if (comm.rank() == 0) {
+                        std::cout << "WARNING: using the default cuda memory resource "
+                                     "(-m cuda) might leak memory! A bug in UCX means "
+                                     "that device memory received through IPC is never "
+                                     "freed. Hopefully, this will be fixed in UCX v1.19."
+                                  << std::endl;
+                    }
+                }
                 break;
             case '?':
                 exit(-1);
