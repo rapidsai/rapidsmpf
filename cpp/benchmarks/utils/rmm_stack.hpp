@@ -43,11 +43,14 @@ set_current_rmm_stack(std::string const& name) {
         ret = std::make_shared<rmm::mr::cuda_async_memory_resource>();
     } else if (name == "pool") {
         ret = rmm::mr::make_owning_wrapper<rmm::mr::pool_memory_resource>(
-            std::make_shared<rmm::mr::cuda_memory_resource>(), 0
+            std::make_shared<rmm::mr::cuda_memory_resource>(),
+            rmm::percent_of_free_device_memory(80)
         );
     } else {
         RAPIDSMP_FAIL("unknown RMM stack name: " + name);
     }
+    // Note, RMM maintains two default resources, we set both here.
+    rmm::mr::set_current_device_resource(ret.get());
     rmm::mr::set_current_device_resource_ref(*ret);
     return ret;
 }

@@ -217,14 +217,15 @@ int main(int argc, char** argv) {
     // Print benchmark/hardware info.
     {
         std::stringstream ss;
+        auto const cur_dev = rmm::get_current_cuda_device().value();
         std::string pci_bus_id(16, '\0');  // Preallocate space for the PCI bus ID
-        CUDF_CUDA_TRY(cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), 0));
+        CUDF_CUDA_TRY(cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), cur_dev)
+        );
         cudaDeviceProp properties;
         CUDF_CUDA_TRY(cudaGetDeviceProperties(&properties, 0));
-        auto current_dev = rmm::get_current_cuda_device().value();
         ss << "Shuffle benchmark: \n";
         ss << "  GPU (" << properties.name << "): \n";
-        ss << "    Device number: " << current_dev << "\n";
+        ss << "    Device number: " << cur_dev << "\n";
         ss << "    PCI Bus ID: " << pci_bus_id << "\n";
         ss << "    Total Memory: " << to_mib(properties.totalGlobalMem, 0) << " MiB\n";
         ss << "  Comm: " << *comm << "\n";
