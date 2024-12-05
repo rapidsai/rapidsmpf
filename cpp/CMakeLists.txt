@@ -34,7 +34,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/")
 
 # Write the version header
-rapids_cmake_write_version_file(include/kvikio/version_config.hpp)
+rapids_cmake_write_version_file(include/rapidsmp/version_config.hpp)
 
 # Set a default build type if none was specified
 rapids_cmake_build_type(Release)
