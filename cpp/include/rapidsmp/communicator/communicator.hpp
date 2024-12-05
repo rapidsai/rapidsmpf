@@ -234,7 +234,7 @@ class Communicator {
      * @brief Retrieves the total number of ranks.
      * @return The total number of ranks.
      */
-    [[nodiscard]] virtual std::uint32_t nranks() const = 0;
+    [[nodiscard]] virtual int nranks() const = 0;
 
     /**
      * @brief Sends a host message to a specific rank.
