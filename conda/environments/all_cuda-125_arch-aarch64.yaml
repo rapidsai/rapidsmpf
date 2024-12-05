@@ -13,7 +13,7 @@ dependencies:
 - cuda-nvtx-dev
 - cuda-sanitizer-api
 - cuda-version=12.5
-- cudf==24.12.*,>=0.0.0a0
+- cudf==25.02.*,>=0.0.0a0
 - cxx-compiler
 - doxygen=1.9.1
 - gcc_linux-aarch64=11.*
