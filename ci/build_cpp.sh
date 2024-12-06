@@ -14,7 +14,9 @@ export CMAKE_GENERATOR=Ninja
 rapids-print-env
 
 rapids-logger "Begin cpp build"
-conda config --set path_conflict prevent
+
+# TODO: for now, we need to accept clobber of the fmt and librmm package.
+conda config --set path_conflict warn
 
 sccache --zero-stats
 
