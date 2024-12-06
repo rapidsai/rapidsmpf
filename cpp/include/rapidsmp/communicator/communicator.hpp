@@ -42,7 +42,7 @@ namespace rapidsmp {
  *
  * @note Ranks are always consecutive integers from zero to the total number of ranks.
  */
-using Rank = std::uint32_t;
+using Rank = int;
 
 /**
  * @brief Abstract base class for a communication mechanism between nodes.
@@ -234,7 +234,7 @@ class Communicator {
      * @brief Retrieves the total number of ranks.
      * @return The total number of ranks.
      */
-    [[nodiscard]] virtual std::uint32_t nranks() const = 0;
+    [[nodiscard]] virtual int nranks() const = 0;
 
     /**
      * @brief Sends a host message to a specific rank.

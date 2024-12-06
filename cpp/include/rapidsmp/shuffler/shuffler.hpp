@@ -21,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -145,7 +146,7 @@ class FinishCounter {
      *
      * @return The partition ID of a finished partition.
      *
-     * @throw cudf::logic_error If all partitions have already been waited on.
+     * @throw std::out_of_range If all partitions have already been waited on.
      */
     PartID wait_any() {
         std::unique_lock<std::mutex> lock(mutex_);
@@ -173,6 +174,49 @@ class FinishCounter {
     }
 
     /**
+     * @brief Returns a vector of partition ids that are finished and
+     * haven't been waited on (blocking).
+     *
+     * This function blocks until at least one partition is finished and ready to be
+     * processed.
+     *
+     * @note It is the caller's responsibility to process all returned
+     * partition IDs.
+     *
+     * @return vector of finished partitions.
+     *
+     * @throw std::out_of_range If all partitions have been waited on.
+     */
+    std::vector<PartID> wait_some() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        RAPIDSMP_EXPECTS(
+            !partitions_ready_to_wait_on_.empty(),
+            "no more partitions to wait on",
+            std::out_of_range
+        );
+        cv_.wait(lock, [&]() {
+            return std::any_of(
+                partitions_ready_to_wait_on_.begin(),
+                partitions_ready_to_wait_on_.end(),
+                [](auto const& item) { return item.second; }
+            );
+        });
+        std::vector<PartID> result{};
+        // TODO: hand-writing iteration rather than range for to avoid
+        // needing to rehash the key during extract_key. Needs
+        // std::ranges, I think.
+        for (auto it = partitions_ready_to_wait_on_.begin();
+             it != partitions_ready_to_wait_on_.end();
+             *it++)
+        {
+            if (it->second) {
+                result.push_back(extract_key(partitions_ready_to_wait_on_, it));
+            }
+        }
+        return result;
+    }
+
+    /**
      * @brief Returns a description of this instance.
      * @return The description.
      */
@@ -191,7 +235,7 @@ class FinishCounter {
     // A partition has three states:
     //   - If it is false, the partition isn't finished.
     //   - If it is true, the partition is finished and can be waited on.
-    //   - If it is absent, the partition is finished and has already been wainted on.
+    //   - If it is absent, the partition is finished and has already been waited on.
     std::unordered_map<PartID, bool> partitions_ready_to_wait_on_;
     mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
     mutable std::condition_variable cv_;
@@ -403,6 +447,16 @@ class Shuffler {
     PartID wait_any() {
         RAPIDSMP_NVTX_FUNC_RANGE();
         return finish_counter_.wait_any();
+    }
+
+    /**
+     * @brief Wait for at least one partition to finish.
+     *
+     * @return The partition IDs of all finished partitions.
+     */
+    std::vector<PartID> wait_some() {
+        RAPIDSMP_NVTX_FUNC_RANGE();
+        return finish_counter_.wait_some();
     }
 
     /**

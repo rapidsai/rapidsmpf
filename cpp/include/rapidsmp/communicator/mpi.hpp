@@ -136,7 +136,7 @@ class MPI final : public Communicator {
     /**
      * @copydoc Communicator::nranks
      */
-    [[nodiscard]] std::uint32_t nranks() const override {
+    [[nodiscard]] int nranks() const override {
         return nranks_;
     }
 
