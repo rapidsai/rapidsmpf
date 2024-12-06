@@ -55,6 +55,7 @@ requirements:
     - spdlog {{ spdlog_version }}
     - librmm ={{ minor_version }}
     - libcudf ={{ minor_version }}
+    - openmpi
 
 outputs:
   - name: librapidsmp
