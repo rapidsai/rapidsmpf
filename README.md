@@ -15,9 +15,7 @@ cd rapids-multi-gpu
 mamba env create --name rapidsmp-dev --file conda/environments/all_cuda-125_arch-x86_64.yaml
 
 # Build
-cd cpp
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+./build.sh
 ```
 
 Run the test suite using MPI:
