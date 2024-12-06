@@ -64,6 +64,8 @@ void Shuffler::run_event_loop_iteration(
 
     auto& log = self.comm_->logger();
 
+    // HEJ
+
     // Check for new chunks in the inbox and send off their metadata.
     for (auto&& chunk : self.inbox_.extract_all()) {
         auto dst = self.partition_owner(self.comm_, chunk.pid);
