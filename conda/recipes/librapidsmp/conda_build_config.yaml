@@ -19,12 +19,8 @@ c_stdlib:
 c_stdlib_version:
   - "2.17"
 
-# The CTK libraries below are missing from the conda-forge::cudatoolkit package
-# for CUDA 11. The "*_host_*" version specifiers correspond to `11.8` packages
-# and the "*_run_*" version specifiers correspond to `11.x` packages.
+fmt_version:
+  - ">=11.0.2,<12"
 
-cuda11_librapidsmp_host_version:
-  - "1.4.0.31"
-
-cuda11_librapidsmp_run_version:
-  - ">=1.0.0.82,<=1.4.0.31"
+spdlog_version:
+  - ">=1.14.1,<1.15"

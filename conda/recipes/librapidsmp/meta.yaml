@@ -51,6 +51,9 @@ requirements:
     {% else %}
     - cuda-cudart-dev
     {% endif %}
+    - fmt {{ fmt_version }}
+    - spdlog {{ spdlog_version }}
+    - librmm ={{ minor_version }}
     - libcudf ={{ minor_version }}
 
 outputs:
