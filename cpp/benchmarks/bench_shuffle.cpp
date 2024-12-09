@@ -36,7 +36,7 @@ class ArgumentParser {
   public:
     ArgumentParser(rapidsmp::Communicator& comm, int argc, char* const* argv) {
         int option;
-        while ((option = getopt(argc, argv, "hr:w:c:n:p:m:")) != -1) {
+        while ((option = getopt(argc, argv, "hr:w:c:n:p:m:x")) != -1) {
             switch (option) {
             case 'h':
                 {
@@ -52,6 +52,7 @@ class ArgumentParser {
                           "rank (default: 1)\n"
                        << "  -m <mr>    RMM memory resource {cuda, pool, async} "
                           "(default: cuda)\n"
+                       << "  -x         Enable memory profiler (default: disabled)\n"
                        << "  -h         Display this help message\n";
                     if (comm.rank() == 0) {
                         std::cerr << ss.str();
@@ -83,6 +84,9 @@ class ArgumentParser {
                     }
                     RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                 }
+                break;
+            case 'x':
+                enable_memory_profiler = true;
                 break;
             case '?':
                 RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
@@ -135,6 +139,8 @@ class ArgumentParser {
         ss << "  -n " << num_local_rows << " (number of rows per rank)\n";
         ss << "  -p " << num_local_partitions << " (number of partitions per rank)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
+        ss << "  -x " << std::boolalpha << enable_memory_profiler
+           << " (Enable memory profiler)\n";
         ss << "Local size: " << rapidsmp::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmp::format_nbytes(total_nbytes) << "\n";
         std::cout << ss.str() << std::endl;
@@ -148,6 +154,7 @@ class ArgumentParser {
     std::string rmm_mr{"cuda"};
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
+    bool enable_memory_profiler{false};
 };
 
 Duration run(
@@ -242,6 +249,11 @@ int main(int argc, char** argv) {
     args.pprint(*comm);
 
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
+    std::shared_ptr<memory_profiler_adaptor> memory_profiler;
+    if (args.enable_memory_profiler) {
+        memory_profiler = set_memory_profiler();
+    }
+
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
 
@@ -291,6 +303,13 @@ int main(int argc, char** argv) {
            << rapidsmp::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | total throughput: "
            << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
+        log.warn(ss.str());
+    }
+    if (memory_profiler) {
+        auto const counter = memory_profiler->get_bytes_counter();
+        std::stringstream ss;
+        ss << "device memory peak: " << rapidsmp::format_nbytes(counter.peak)
+           << " | total: " << rapidsmp::format_nbytes(counter.total) << "\n";
         log.warn(ss.str());
     }
     RAPIDSMP_MPI(MPI_Finalize());
