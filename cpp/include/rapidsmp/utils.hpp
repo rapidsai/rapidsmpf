@@ -15,7 +15,9 @@
  */
 #pragma once
 
+#include <cmath>
 #include <cstdlib>
+#include <sstream>
 #include <string>
 
 #include <cudf/column/column_view.hpp>
@@ -67,6 +69,42 @@ std::string str(
     rmm::cuda_stream_view stream = cudf::get_default_stream(),
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()
 );
+
+/**
+ * @brief Formats value to a string with a specified number of decimal places.
+ *
+ * @tparam T The type of the value to format.
+ * @param value The value to format.
+ * @param precision The number of decimal places to include.
+ * @return A string representation of the value with the specified precision.
+ */
+template <typename T>
+std::string to_precision(T value, int precision = 2) {
+    std::stringstream ss;
+    ss.precision(precision);
+    ss << std::fixed;
+    ss << value;
+    return ss.str();
+}
+
+/**
+ * @brief Format number of bytes to a human readable string representation.
+ *
+ * @param nbytes The number of bytes to convert.
+ * @param precision The number of decimal places to include.
+ * @return A string representation of the byte size with the specified precision.
+ */
+std::string inline format_nbytes(int64_t nbytes, int precision = 2) {
+    constexpr std::array<const char*, 6> units = {" B", " KiB", " MiB", " GiB", " TiB"};
+    auto n = static_cast<double>(nbytes);
+    for (auto const& unit : units) {
+        if (std::abs(n) < 1024.0) {
+            return to_precision(n, precision) + unit;
+        }
+        n /= 1024.0;
+    }
+    return to_precision(n, precision) + " PiB";
+}
 
 /**
  * @brief Extracts the value associated with a specific key from a map, removing the

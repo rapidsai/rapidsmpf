@@ -26,6 +26,7 @@
 #include <rapidsmp/nvtx.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
 #include <rapidsmp/shuffler/shuffler.hpp>
+#include <rapidsmp/utils.hpp>
 
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"
@@ -236,7 +237,8 @@ int main(int argc, char** argv) {
         ss << "  GPU (" << properties.name << "): \n";
         ss << "    Device number: " << cur_dev << "\n";
         ss << "    PCI Bus ID: " << pci_bus_id << "\n";
-        ss << "    Total Memory: " << to_mib(properties.totalGlobalMem, 0) << " MiB\n";
+        ss << "    Total Memory: "
+           << rapidsmp::format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
         log.warn(ss.str());
     }
@@ -249,18 +251,18 @@ int main(int argc, char** argv) {
         auto elapsed = run(comm, args, stream, mr);
         log.warn(
             "elapsed: ",
-            to_precision(elapsed),
+            rapidsmp::to_precision(elapsed.count()),
             " sec, ",
             "local size: ",
-            to_mib(local_nbytes),
-            " MiB (",
-            to_mib(local_nbytes / elapsed.count()),
-            " MiB/s), ",
+            rapidsmp::format_nbytes(local_nbytes),
+            " (",
+            rapidsmp::format_nbytes(local_nbytes / elapsed.count()),
+            "/s), ",
             "total size: ",
-            to_mib(total_nbytes),
-            " MiB (",
-            to_mib(total_nbytes / elapsed.count()),
-            " MiB/s), "
+            rapidsmp::format_nbytes(total_nbytes),
+            " (",
+            rapidsmp::format_nbytes(total_nbytes / elapsed.count()),
+            "/s), "
         );
     }
 

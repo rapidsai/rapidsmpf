@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-#include <sstream>
-
 #include <cudf/copying.hpp>
 
 #include <rapidsmp/error.hpp>
@@ -84,7 +82,6 @@ std::string str(
     ss << (tbl.num_columns() == 0 ? "])" : "\b\b])");
     return ss.str();
 }
-
 
 #if __has_include(<valgrind/valgrind.h>)
 #include <valgrind/valgrind.h>
