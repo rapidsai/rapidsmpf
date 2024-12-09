@@ -54,7 +54,7 @@ class ArgumentParser {
                     if (comm.rank() == 0) {
                         std::cerr << ss.str();
                     }
-                    exit(0);
+                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
                 }
             case 'r':
                 num_runs = std::stoi(optarg);
@@ -76,7 +76,7 @@ class ArgumentParser {
                                      "{cuda, pool, async}"
                                   << std::endl;
                     }
-                    exit(-1);
+                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                 }
                 if (rmm_mr == "cuda") {
                     if (comm.rank() == 0) {
@@ -89,7 +89,7 @@ class ArgumentParser {
                 }
                 break;
             case '?':
-                exit(-1);
+                RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
             default:
                 throw std::runtime_error("Error parsing arguments.");
             }
@@ -98,13 +98,13 @@ class ArgumentParser {
             if (comm.rank() == 0) {
                 std::cerr << "Unknown option: " << argv[optind] << std::endl;
             }
-            exit(-1);
+            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
         if (num_local_rows < 1000) {
             if (comm.rank() == 0) {
                 std::cerr << "-n (number of rows per rank) must be greater than 1000\n";
             }
-            exit(-1);
+            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
     }
 
