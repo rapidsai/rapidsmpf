@@ -96,6 +96,12 @@ class ArgumentParser {
             }
             RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
+        if (num_runs < 1) {
+            if (comm.rank() == 0) {
+                std::cerr << "-r (number of runs) must be greater than 0\n";
+            }
+            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+        }
         if (num_local_rows < 1000) {
             if (comm.rank() == 0) {
                 std::cerr << "-n (number of rows per rank) must be greater than 1000\n";
@@ -258,19 +264,34 @@ int main(int argc, char** argv) {
         log.warn(ss.str());
     }
 
+    std::vector<double> elapsed_vec;
     for (auto i = 0; i < args.num_warmups + args.num_runs; ++i) {
-        auto elapsed = run(comm, args, stream, mr);
+        auto const elapsed = run(comm, args, stream, mr).count();
         std::stringstream ss;
-        ss << "elapsed: " << rapidsmp::to_precision(elapsed.count())
+        ss << "elapsed: " << rapidsmp::to_precision(elapsed)
            << " sec | local throughput: "
-           << rapidsmp::format_nbytes(args.local_nbytes / elapsed.count())
+           << rapidsmp::format_nbytes(args.local_nbytes / elapsed)
            << "/s | total throughput: "
-           << rapidsmp::format_nbytes(args.total_nbytes / elapsed.count()) << "/s";
+           << rapidsmp::format_nbytes(args.total_nbytes / elapsed) << "/s";
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
         log.warn(ss.str());
+        if (i >= args.num_warmups) {
+            elapsed_vec.push_back(elapsed);
+        }
     }
 
+    RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
+    {
+        auto const elapsed_mean = harmonic_mean(elapsed_vec);
+        std::stringstream ss;
+        ss << "means: " << rapidsmp::to_precision(elapsed_mean)
+           << " sec | local throughput: "
+           << rapidsmp::format_nbytes(args.local_nbytes / elapsed_mean)
+           << "/s | total throughput: "
+           << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
+        log.warn(ss.str());
+    }
     RAPIDSMP_MPI(MPI_Finalize());
 }
