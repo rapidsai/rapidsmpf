@@ -15,9 +15,6 @@ rapids-print-env
 
 rapids-logger "Begin cpp build"
 
-# TODO: for now, we need to accept clobber of the fmt and librmm package.
-conda config --set path_conflict warn
-
 sccache --zero-stats
 
 RAPIDS_PACKAGE_VERSION=$(rapids-generate-version) rapids-conda-retry mambabuild \
