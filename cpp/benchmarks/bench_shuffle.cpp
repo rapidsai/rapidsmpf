@@ -36,7 +36,7 @@ class ArgumentParser {
   public:
     ArgumentParser(rapidsmp::Communicator& comm, int argc, char* const* argv) {
         int option;
-        while ((option = getopt(argc, argv, "hr:c:n:p:m:")) != -1) {
+        while ((option = getopt(argc, argv, "hr:w:c:n:p:m:")) != -1) {
             switch (option) {
             case 'h':
                 {
@@ -44,6 +44,7 @@ class ArgumentParser {
                     ss << "Usage: " << argv[0] << " [options]\n"
                        << "Options:\n"
                        << "  -r <num>   Number of runs (default: 1)\n"
+                       << "  -w <num>   Number of warmup runs (default: 0)\n"
                        << "  -c <num>   Number of columns in the input tables "
                           "(default: 1)\n"
                        << "  -n <num>   Number of rows per rank (default: 1M)\n"
@@ -59,6 +60,9 @@ class ArgumentParser {
                 }
             case 'r':
                 num_runs = std::stoi(optarg);
+                break;
+            case 'w':
+                num_warmups = std::stoi(optarg);
                 break;
             case 'c':
                 num_columns = std::stoul(optarg);
@@ -120,6 +124,7 @@ class ArgumentParser {
         std::stringstream ss;
         ss << "Arguments:\n";
         ss << "  -r " << num_runs << " (number of runs)\n";
+        ss << "  -w " << num_warmups << " (number of warmup runs)\n";
         ss << "  -c " << num_columns << " (number of columns)\n";
         ss << "  -n " << num_local_rows << " (number of rows per rank)\n";
         ss << "  -p " << num_local_partitions << " (number of partitions per rank)\n";
@@ -130,6 +135,7 @@ class ArgumentParser {
     }
 
     int num_runs{1};
+    int num_warmups{0};
     std::uint32_t num_columns{1};
     std::uint64_t num_local_rows{1 << 20};
     rapidsmp::shuffler::PartID num_local_partitions{1};
@@ -252,17 +258,18 @@ int main(int argc, char** argv) {
         log.warn(ss.str());
     }
 
-    for (auto i = 0; i < args.num_runs; ++i) {
+    for (auto i = 0; i < args.num_warmups + args.num_runs; ++i) {
         auto elapsed = run(comm, args, stream, mr);
-        log.warn(
-            "elapsed: ",
-            rapidsmp::to_precision(elapsed.count()),
-            " sec | local throughput: ",
-            rapidsmp::format_nbytes(args.local_nbytes / elapsed.count()),
-            "/s | total throughput: ",
-            rapidsmp::format_nbytes(args.total_nbytes / elapsed.count()),
-            "/s"
-        );
+        std::stringstream ss;
+        ss << "elapsed: " << rapidsmp::to_precision(elapsed.count())
+           << " sec | local throughput: "
+           << rapidsmp::format_nbytes(args.local_nbytes / elapsed.count())
+           << "/s | total throughput: "
+           << rapidsmp::format_nbytes(args.total_nbytes / elapsed.count()) << "/s";
+        if (i < args.num_warmups) {
+            ss << " (warmup run)";
+        }
+        log.warn(ss.str());
     }
 
     RAPIDSMP_MPI(MPI_Finalize());
