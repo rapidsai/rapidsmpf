@@ -26,6 +26,7 @@
 #include <rapidsmp/nvtx.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
 #include <rapidsmp/shuffler/shuffler.hpp>
+#include <rapidsmp/utils.hpp>
 
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"
@@ -35,29 +36,34 @@ class ArgumentParser {
   public:
     ArgumentParser(rapidsmp::Communicator& comm, int argc, char* const* argv) {
         int option;
-        while ((option = getopt(argc, argv, "hr:c:n:p:m:")) != -1) {
+        while ((option = getopt(argc, argv, "hr:w:c:n:p:m:x")) != -1) {
             switch (option) {
             case 'h':
                 {
                     std::stringstream ss;
                     ss << "Usage: " << argv[0] << " [options]\n"
                        << "Options:\n"
-                       << "  -r <num>        Number of runs (default 1)\n"
-                       << "  -c <num>        Number of columns in the input tables "
-                          "(default 1)\n"
-                       << "  -n <num>        Number of rows per rank (default 1M)\n"
-                       << "  -p <num>        Number of partitions (input tables) per "
-                          "rank (default 1)\n"
-                       << "  -m <mr>         RMM memory resource {cuda, pool, async} "
-                          "(cuda)\n"
-                       << "  -h              Display this help message\n";
+                       << "  -r <num>   Number of runs (default: 1)\n"
+                       << "  -w <num>   Number of warmup runs (default: 0)\n"
+                       << "  -c <num>   Number of columns in the input tables "
+                          "(default: 1)\n"
+                       << "  -n <num>   Number of rows per rank (default: 1M)\n"
+                       << "  -p <num>   Number of partitions (input tables) per "
+                          "rank (default: 1)\n"
+                       << "  -m <mr>    RMM memory resource {cuda, pool, async} "
+                          "(default: cuda)\n"
+                       << "  -x         Enable memory profiler (default: disabled)\n"
+                       << "  -h         Display this help message\n";
                     if (comm.rank() == 0) {
                         std::cerr << ss.str();
                     }
-                    exit(0);
+                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
                 }
             case 'r':
                 num_runs = std::stoi(optarg);
+                break;
+            case 'w':
+                num_warmups = std::stoi(optarg);
                 break;
             case 'c':
                 num_columns = std::stoul(optarg);
@@ -76,20 +82,14 @@ class ArgumentParser {
                                      "{cuda, pool, async}"
                                   << std::endl;
                     }
-                    exit(-1);
-                }
-                if (rmm_mr == "cuda") {
-                    if (comm.rank() == 0) {
-                        std::cout << "WARNING: using the default cuda memory resource "
-                                     "(-m cuda) might leak memory! A bug in UCX means "
-                                     "that device memory received through IPC is never "
-                                     "freed. Hopefully, this will be fixed in UCX v1.19."
-                                  << std::endl;
-                    }
+                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                 }
                 break;
+            case 'x':
+                enable_memory_profiler = true;
+                break;
             case '?':
-                exit(-1);
+                RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
             default:
                 throw std::runtime_error("Error parsing arguments.");
             }
@@ -98,34 +98,64 @@ class ArgumentParser {
             if (comm.rank() == 0) {
                 std::cerr << "Unknown option: " << argv[optind] << std::endl;
             }
-            exit(-1);
+            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+        }
+        if (num_runs < 1) {
+            if (comm.rank() == 0) {
+                std::cerr << "-r (number of runs) must be greater than 0\n";
+            }
+            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
         if (num_local_rows < 1000) {
             if (comm.rank() == 0) {
                 std::cerr << "-n (number of rows per rank) must be greater than 1000\n";
             }
-            exit(-1);
+            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+        }
+        local_nbytes =
+            num_columns * num_local_rows * num_local_partitions * sizeof(std::int32_t);
+        total_nbytes = local_nbytes * comm.nranks();
+
+        if (rmm_mr == "cuda") {
+            if (comm.rank() == 0) {
+                std::cout << "WARNING: using the default cuda memory resource "
+                             "(-m cuda) might leak memory! A bug in UCX means "
+                             "that device memory received through IPC is never "
+                             "freed. Hopefully, this will be fixed in UCX v1.19."
+                          << std::endl;
+            }
         }
     }
 
     void pprint(rapidsmp::Communicator& comm) const {
+        if (comm.rank() > 0) {
+            return;
+        }
         std::stringstream ss;
         ss << "Arguments:\n";
-        ss << "  -r " << num_columns << " (number of runs)\n";
-        ss << "  -c " << num_runs << " (number of columns)\n";
+        ss << "  -r " << num_runs << " (number of runs)\n";
+        ss << "  -w " << num_warmups << " (number of warmup runs)\n";
+        ss << "  -c " << num_columns << " (number of columns)\n";
         ss << "  -n " << num_local_rows << " (number of rows per rank)\n";
         ss << "  -p " << num_local_partitions << " (number of partitions per rank)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
-        if (comm.rank() == 0) {
-            std::cout << ss.str();
+        if (enable_memory_profiler) {
+            ss << "  -x (enable memory profiling, which comes with an overhead)\n";
         }
+        ss << "Local size: " << rapidsmp::format_nbytes(local_nbytes) << "\n";
+        ss << "Total size: " << rapidsmp::format_nbytes(total_nbytes) << "\n";
+        std::cout << ss.str() << std::endl;
     }
 
     int num_runs{1};
+    int num_warmups{0};
     std::uint32_t num_columns{1};
     std::uint64_t num_local_rows{1 << 20};
     rapidsmp::shuffler::PartID num_local_partitions{1};
     std::string rmm_mr{"cuda"};
+    std::uint64_t local_nbytes;
+    std::uint64_t total_nbytes;
+    bool enable_memory_profiler{false};
 };
 
 Duration run(
@@ -220,6 +250,11 @@ int main(int argc, char** argv) {
     args.pprint(*comm);
 
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
+    std::shared_ptr<memory_profiler_adaptor> memory_profiler;
+    if (args.enable_memory_profiler) {
+        memory_profiler = set_memory_profiler();
+    }
+
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
 
@@ -232,37 +267,49 @@ int main(int argc, char** argv) {
         );
         cudaDeviceProp properties;
         CUDF_CUDA_TRY(cudaGetDeviceProperties(&properties, 0));
-        ss << "Shuffle benchmark: \n";
+        ss << "Hardware setup: \n";
         ss << "  GPU (" << properties.name << "): \n";
         ss << "    Device number: " << cur_dev << "\n";
         ss << "    PCI Bus ID: " << pci_bus_id << "\n";
-        ss << "    Total Memory: " << to_mib(properties.totalGlobalMem, 0) << " MiB\n";
+        ss << "    Total Memory: "
+           << rapidsmp::format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
         log.warn(ss.str());
     }
 
-    auto const local_nbytes = args.num_columns * args.num_local_rows
-                              * args.num_local_partitions * sizeof(std::int32_t);
-    auto const total_nbytes = local_nbytes * comm->nranks();
-
-    for (auto i = 0; i < args.num_runs; ++i) {
-        auto elapsed = run(comm, args, stream, mr);
-        log.warn(
-            "elapsed: ",
-            to_precision(elapsed),
-            " sec, ",
-            "local size: ",
-            to_mib(local_nbytes),
-            " MiB (",
-            to_mib(local_nbytes / elapsed.count()),
-            " MiB/s), ",
-            "total size: ",
-            to_mib(total_nbytes),
-            " MiB (",
-            to_mib(total_nbytes / elapsed.count()),
-            " MiB/s), "
-        );
+    std::vector<double> elapsed_vec;
+    for (auto i = 0; i < args.num_warmups + args.num_runs; ++i) {
+        auto const elapsed = run(comm, args, stream, mr).count();
+        std::stringstream ss;
+        ss << "elapsed: " << rapidsmp::to_precision(elapsed)
+           << " sec | local throughput: "
+           << rapidsmp::format_nbytes(args.local_nbytes / elapsed)
+           << "/s | total throughput: "
+           << rapidsmp::format_nbytes(args.total_nbytes / elapsed) << "/s";
+        if (i < args.num_warmups) {
+            ss << " (warmup run)";
+        }
+        log.warn(ss.str());
+        if (i >= args.num_warmups) {
+            elapsed_vec.push_back(elapsed);
+        }
     }
 
+    RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
+    {
+        auto const elapsed_mean = harmonic_mean(elapsed_vec);
+        std::stringstream ss;
+        ss << "means: " << rapidsmp::to_precision(elapsed_mean)
+           << " sec | local throughput: "
+           << rapidsmp::format_nbytes(args.local_nbytes / elapsed_mean)
+           << "/s | total throughput: "
+           << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
+        if (memory_profiler) {
+            auto const counter = memory_profiler->get_bytes_counter();
+            ss << " | rmm device memory peak: " << rapidsmp::format_nbytes(counter.peak)
+               << " | total: " << rapidsmp::format_nbytes(counter.total);
+        }
+        log.warn(ss.str());
+    }
     RAPIDSMP_MPI(MPI_Finalize());
 }

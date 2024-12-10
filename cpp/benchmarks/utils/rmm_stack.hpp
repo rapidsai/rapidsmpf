@@ -22,6 +22,7 @@
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
+#include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
 #include <rapidsmp/error.hpp>
 
@@ -50,6 +51,23 @@ set_current_rmm_stack(std::string const& name) {
         RAPIDSMP_FAIL("unknown RMM stack name: " + name);
     }
     // Note, RMM maintains two default resources, we set both here.
+    rmm::mr::set_current_device_resource(ret.get());
+    rmm::mr::set_current_device_resource_ref(*ret);
+    return ret;
+}
+
+using memory_profiler_adaptor =
+    rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource>;
+
+/**
+ * @brief Create and set a memory profiler on the current RMM stack.
+ *
+ * @return A owning memory resource, which must be kept alive.
+ */
+[[nodiscard]] inline std::shared_ptr<memory_profiler_adaptor> set_memory_profiler() {
+    auto ret =
+        std::make_shared<memory_profiler_adaptor>(cudf::get_current_device_resource_ref()
+        );
     rmm::mr::set_current_device_resource(ret.get());
     rmm::mr::set_current_device_resource_ref(*ret);
     return ret;

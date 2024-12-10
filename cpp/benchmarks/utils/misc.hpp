@@ -16,50 +16,38 @@
 #pragma once
 
 #include <chrono>
-#include <sstream>
-
-#include <cudf/column/column.hpp>
-#include <cudf/table/table.hpp>
-#include <cudf/types.hpp>
+#include <stdexcept>
+#include <vector>
 
 using Clock = std::chrono::high_resolution_clock;
 using Duration = std::chrono::duration<double>;
 
 /**
- * @brief Formats value to a string with a specified number of decimal places.
+ * @brief Computes the harmonic mean of a set of values.
  *
- * @tparam T The type of the value to format.
- * @param value The value to format.
- * @param precision The number of decimal places to include.
- * @return A string representation of the value with the specified precision.
- */
-template <typename T>
-std::string to_precision(T value, int precision = 2) {
-    std::stringstream ss;
-    ss.precision(precision);
-    ss << std::fixed;
-    ss << value;
-    return ss.str();
-}
-
-/**
- * @brief Formats a duration to a string with a specified number of decimal places.
+ * The harmonic mean is defined as:
+ * \f[
+ * \text{HM} = \frac{n}{\sum_{i=1}^n \frac{1}{x_i}}
+ * \f]
+ * where \f$n\f$ is the number of values, and \f$x_i\f$ are the individual values.
  *
- * @param value The duration to format.
- * @param precision The number of decimal places to include.
- * @return A string representation of the duration with the specified precision.
- */
-std::string inline to_precision(Duration value, int precision = 2) {
-    return to_precision(value.count(), precision);
-}
-
-/**
- * @brief Converts number of bytes to a string representation in MiB.
+ * @param values A vector of double values for which the harmonic mean is to be computed.
+ *               All values must be non-zero, and the vector must not be empty.
+ * @return The harmonic mean as a `double`.
  *
- * @param nbytes The number of bytes to convert.
- * @param precision The number of decimal places to include.
- * @return A string representation of the byte size in MiB with the specified precision.
+ * @throws std::invalid_argument If the input vector is empty.
+ * @throws std::domain_error If any value in the input vector is zero.
  */
-std::string inline to_mib(double nbytes, int precision = 2) {
-    return to_precision(nbytes / (1 << 20), precision);
+double harmonic_mean(std::vector<double> const& values) {
+    if (values.empty()) {
+        throw std::invalid_argument("The input vector is empty.");
+    }
+    double sum = 0.0;
+    for (double value : values) {
+        if (value == 0.0) {
+            throw std::domain_error("Cannot compute harmonic mean with zero values.");
+        }
+        sum += 1.0 / value;
+    }
+    return static_cast<double>(values.size()) / sum;
 }
