@@ -14,6 +14,7 @@ jobs:
     needs:
       - checks
       - conda-cpp-build
+      - conda-cpp-tests
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-25.02
     if: always()
@@ -26,5 +27,11 @@ jobs:
     needs: checks
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@branch-25.02
+    with:
+      build_type: pull-request
+  conda-cpp-tests:
+    needs: conda-cpp-build
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@branch-25.02
     with:
       build_type: pull-request

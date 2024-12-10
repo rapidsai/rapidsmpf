@@ -45,3 +45,4 @@ rapids_test_add(
   COMMAND mpi_tests
   INSTALL_COMPONENT_SET testing
 )
+rapids_test_install_relocatable(INSTALL_COMPONENT_SET testing DESTINATION bin/tests/librapidsmp)
