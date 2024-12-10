@@ -36,16 +36,22 @@ rapids-logger "Check GPU usage"
 nvidia-smi
 
 # Support invoking test_cpp.sh outside the script directory
-"$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/run_ctests.sh \
- && EXITCODE=$? || EXITCODE=$?;
+cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 
-# # Ensure that benchmarks are runnable
-# rapids-logger "Run tests of libcudf benchmarks"
+# Trap ERR so that `EXITCODE=1` is set when a command fails
+EXITCODE=0
+trap "EXITCODE=1" ERR
+set +e
 
-# if (( ${SUITEERROR} == 0 )); then
-#     ./ci/run_cudf_benchmark_smoketests.sh
-#     SUITEERROR=$?
-# fi
+rapids-logger "Run librapidsmp gtests"
+./run_ctests.sh
+
+# Ensure that benchmarks are runnable
+rapids-logger "Run benchmark smoketests"
+
+if (( ${EXITCODE} == 0 )); then
+    ./run_cpp_benchmark_smoketests.sh
+fi
 
 rapids-logger "Test script exiting with value: $EXITCODE"
 exit ${EXITCODE}
