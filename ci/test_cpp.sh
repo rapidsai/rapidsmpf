@@ -46,6 +46,13 @@ set +e
 rapids-logger "Run librapidsmp gtests"
 ./run_ctests.sh
 
+# Ensure that examples are runnable
+rapids-logger "Run example smoketests"
+
+if (( ${EXITCODE} == 0 )); then
+    ./run_cpp_example_smoketests.sh
+fi
+
 # Ensure that benchmarks are runnable
 rapids-logger "Run benchmark smoketests"
 

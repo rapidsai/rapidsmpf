@@ -30,3 +30,9 @@ target_compile_options(
 target_link_libraries(
   example_shuffle PRIVATE rapidsmp::rapidsmp MPI::MPI_C $<TARGET_NAME_IF_EXISTS:conda_env>
 )
+install(
+  TARGETS example_shuffle
+  COMPONENT testing
+  DESTINATION bin/examples/librapidsmp
+  EXCLUDE_FROM_ALL
+)

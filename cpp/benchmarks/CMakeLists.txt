@@ -28,11 +28,9 @@ target_compile_options(
   bench_shuffle PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMP_CXX_FLAGS}>"
                         "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMP_CUDA_FLAGS}>"
 )
-
 target_link_libraries(
   bench_shuffle PRIVATE rapidsmp::rapidsmp MPI::MPI_C $<TARGET_NAME_IF_EXISTS:conda_env>
 )
-
 install(
   TARGETS bench_shuffle
   COMPONENT testing
