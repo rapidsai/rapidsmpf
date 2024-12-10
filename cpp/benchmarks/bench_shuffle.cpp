@@ -139,8 +139,9 @@ class ArgumentParser {
         ss << "  -n " << num_local_rows << " (number of rows per rank)\n";
         ss << "  -p " << num_local_partitions << " (number of partitions per rank)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
-        ss << "  -x " << std::boolalpha << enable_memory_profiler
-           << " (Enable memory profiler)\n";
+        if (enable_memory_profiler) {
+            ss << "  -x (enable memory profiling, which comes with an overhead)\n";
+        }
         ss << "Local size: " << rapidsmp::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmp::format_nbytes(total_nbytes) << "\n";
         std::cout << ss.str() << std::endl;
@@ -303,13 +304,11 @@ int main(int argc, char** argv) {
            << rapidsmp::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | total throughput: "
            << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
-        log.warn(ss.str());
-    }
-    if (memory_profiler) {
-        auto const counter = memory_profiler->get_bytes_counter();
-        std::stringstream ss;
-        ss << "device memory peak: " << rapidsmp::format_nbytes(counter.peak)
-           << " | total: " << rapidsmp::format_nbytes(counter.total) << "\n";
+        if (memory_profiler) {
+            auto const counter = memory_profiler->get_bytes_counter();
+            ss << " | device memory peak: " << rapidsmp::format_nbytes(counter.peak)
+               << " | total: " << rapidsmp::format_nbytes(counter.total);
+        }
         log.warn(ss.str());
     }
     RAPIDSMP_MPI(MPI_Finalize());
