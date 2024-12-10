@@ -53,7 +53,7 @@ requirements:
     {% endif %}
     - librmm ={{ minor_version }}
     - libcudf ={{ minor_version }}
-    - openmpi
+    - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
 
 outputs:
   - name: librapidsmp
