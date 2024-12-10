@@ -306,7 +306,7 @@ int main(int argc, char** argv) {
            << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
         if (memory_profiler) {
             auto const counter = memory_profiler->get_bytes_counter();
-            ss << " | device memory peak: " << rapidsmp::format_nbytes(counter.peak)
+            ss << " | rmm device memory peak: " << rapidsmp::format_nbytes(counter.peak)
                << " | total: " << rapidsmp::format_nbytes(counter.total);
         }
         log.warn(ss.str());
