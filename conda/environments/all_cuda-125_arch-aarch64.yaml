@@ -17,7 +17,6 @@ dependencies:
 - doxygen=1.9.1
 - gcc_linux-aarch64=11.*
 - libcudf==25.02.*,>=0.0.0a0
-- libcurand-dev
 - ninja
 - openmpi
 - pre-commit

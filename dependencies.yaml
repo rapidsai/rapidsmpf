@@ -136,7 +136,6 @@ dependencies:
         packages:
           - *cmake_ver
           - openmpi
-          - libcurand-dev
           - valgrind
           - cuda-sanitizer-api
   docs:
