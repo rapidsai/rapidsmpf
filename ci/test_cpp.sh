@@ -6,32 +6,31 @@ set -x
 . /opt/conda/etc/profile.d/conda.sh
 
 RAPIDS_VERSION="$(rapids-version)"
+CPP_CHANNEL=$(rapids-download-conda-from-s3 cpp)
 
 rapids-logger "Generate C++ testing dependencies"
-
 rapids-dependency-file-generator \
   --output conda \
   --file-key test_cpp \
-  --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch)" | tee env.yaml
+  --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch)" \
+  --prepend-channel "${CPP_CHANNEL}" \
+  | tee env.yaml
 
-rapids-mamba-retry env create --yes -f env.yaml -n test
+# Insert the two librapidsmp packages previously built by CI.
+sed -i "/dependencies:/a \- librapidsmp=${RAPIDS_VERSION}" env.yaml
+sed -i "/dependencies:/a \- librapidsmp-tests=${RAPIDS_VERSION}" env.yaml
+# And create the conda environment.
+rapids-mamba-retry env create -qy -f env.yaml -n test
 
 # Temporarily allow unbound variables for conda activation.
 set +u
 conda activate test
 set -u
 
-CPP_CHANNEL=$(rapids-download-conda-from-s3 cpp)
 RAPIDS_TESTS_DIR=${RAPIDS_TESTS_DIR:-"${PWD}/test-results"}/
 mkdir -p "${RAPIDS_TESTS_DIR}"
-SUITEERROR=0
 
 rapids-print-env
-
-rapids-mamba-retry install \
-  --channel "${CPP_CHANNEL}" \
-  "librapidsmp=${RAPIDS_VERSION}" \
-  "librapidsmp-tests=${RAPIDS_VERSION}"
 
 rapids-logger "Check GPU usage"
 nvidia-smi
