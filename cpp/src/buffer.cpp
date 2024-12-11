@@ -21,22 +21,22 @@ namespace rapidsmp {
 
 
 Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
-    : mem_type{MemType::device},
-      stream{device_buffer->stream()},
-      mr{device_buffer->memory_resource()},
-      size{device_buffer ? device_buffer->size() : 0},
-      device_buffer_{std::move(device_buffer)} {}
+    : device_buffer_{std::move(device_buffer)},
+      mem_type{MemType::device},
+      stream{device_buffer_->stream()},
+      mr{device_buffer_->memory_resource()},
+      size{device_buffer_ ? device_buffer_->size() : 0} {}
 
 Buffer::Buffer(
     std::unique_ptr<rmm::device_buffer> device_buffer,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 )
-    : mem_type{MemType::device},
+    : device_buffer_{std::move(device_buffer)},
+      mem_type{MemType::device},
       stream{stream},
       mr{mr},
-      size{device_buffer ? device_buffer->size() : 0},
-      device_buffer_{std::move(device_buffer)} {
+      size{device_buffer_ ? device_buffer_->size() : 0} {
     RAPIDSMP_EXPECTS(
         device_buffer_->stream() == stream,
         "the CUDA streams doesn't match",
@@ -52,11 +52,11 @@ Buffer::Buffer(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 )
-    : mem_type{MemType::host},
+    : host_buffer_{std::move(host_buffer)},
+      mem_type{MemType::host},
       stream{stream},
       mr{mr},
-      size{host_buffer ? host_buffer->size() : 0},
-      host_buffer_{std::move(host_buffer)} {}
+      size{host_buffer_ ? host_buffer_->size() : 0} {}
 
 std::unique_ptr<Buffer> Buffer::copy_to_device() const {
     std::unique_ptr<rmm::device_buffer> ret;

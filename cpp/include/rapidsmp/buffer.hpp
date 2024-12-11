@@ -37,10 +37,6 @@ class Buffer {
         host,  ///< Host memory
         device  ///< Device memory
     };
-    MemType const mem_type;  ///< Memory type.
-    rmm::cuda_stream_view const stream;  ///< The CUDA stream used.
-    rmm::device_async_resource_ref const mr;  ///< The RMM memory resource used.
-    size_t const size;  ///< The size of the buffer in bytes.
 
     /**
      * @brief Construct a Buffer from host memory.
@@ -161,6 +157,12 @@ class Buffer {
     std::unique_ptr<std::vector<uint8_t>> host_buffer_;
     /// @brief The underlying device memory buffer (if applicable).
     std::unique_ptr<rmm::device_buffer> device_buffer_;
+
+  public:
+    MemType const mem_type;  ///< Memory type.
+    rmm::cuda_stream_view const stream;  ///< The CUDA stream used.
+    rmm::device_async_resource_ref const mr;  ///< The RMM memory resource used.
+    size_t const size;  ///< The size of the buffer in bytes.
 };
 
 
