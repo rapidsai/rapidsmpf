@@ -8,25 +8,30 @@ files:
     includes:
       - build-universal
       - build-cpp
-      - build_python_common
+      - build-py-wrapper
       - checks
       - cuda
       - cuda_version
       - py_version
-      - depends_on_pylibcudf
-      - rapids_build_skbuild
-      - rapids_build_setuptools
       - test_cpp
+      - test_python
       - docs
   test_cpp:
     output: none
     includes:
       - cuda_version
       - test_cpp
+  test_python:
+    output: none
+    includes:
+      - cuda_version
+      - py_version
+      - test_python
   checks:
     output: none
     includes:
       - checks
+      - py_version
   docs:
     output: none
     includes:
@@ -34,6 +39,30 @@ files:
       - cuda_version
       - docs
       - py_version
+  py_build_rapidsmp:
+    output: pyproject
+    pyproject_dir: python/rapidsmp
+    extras:
+      table: build-system
+    includes:
+      - rapids_build_skbuild
+  py_run_rapidsmp:
+    output: pyproject
+    pyproject_dir: python/rapidsmp
+    extras:
+      table: project
+    includes:
+      - depends_on_pylibcudf
+  py_rapids_build_rapidsmp:
+    output: pyproject
+    pyproject_dir: python/rapidsmp
+    extras:
+      table: tool.rapids-build-backend
+      key: requires
+    includes:
+      - build-universal
+      - build-cpp
+      - build-py-wrapper
 
 channels:
   - rapidsai
@@ -42,7 +71,7 @@ channels:
 dependencies:
   build-universal:
     common:
-      - output_types: conda
+      - output_types: [conda, pyproject]
         packages:
           - &cmake_ver cmake>=3.26.4,!=3.30.0
           - ninja
@@ -101,9 +130,9 @@ dependencies:
           - *rapids_build_backend
           - setuptools
           - wheel
-  build_python_common:
+  build-py-wrapper:
     common:
-      - output_types: [conda, requirements, pyproject]
+      - output_types: [conda, pyproject]
         packages:
           - cython>=3.0.3
   checks:
@@ -185,6 +214,12 @@ dependencies:
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
           - valgrind
           - cuda-sanitizer-api
+  test_python:
+    common:
+      - output_types: [conda, pyproject]
+        packages:
+          - pytest
+          - pytest-cov
   docs:
     common:
       - output_types: [conda]
