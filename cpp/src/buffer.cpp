@@ -19,33 +19,14 @@
 
 namespace rapidsmp {
 
-
-Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
-    : device_buffer_{std::move(device_buffer)},
-      mem_type{MemType::device},
-      stream{device_buffer_->stream()},
-      mr{device_buffer_->memory_resource()},
-      size{device_buffer_ ? device_buffer_->size() : 0} {}
-
-Buffer::Buffer(
-    std::unique_ptr<rmm::device_buffer> device_buffer,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
-)
-    : device_buffer_{std::move(device_buffer)},
-      mem_type{MemType::device},
-      stream{stream},
-      mr{mr},
-      size{device_buffer_ ? device_buffer_->size() : 0} {
-    RAPIDSMP_EXPECTS(
-        device_buffer_->stream() == stream,
-        "the CUDA streams doesn't match",
-        std::invalid_argument
-    );
-    RAPIDSMP_EXPECTS(
-        device_buffer_->memory_resource() == mr, "the RMM memory resources doesn't match"
-    );
+namespace {
+// Check that `ptr` isn't null.
+template <typename T>
+[[nodiscard]] std::unique_ptr<T> check_null(std::unique_ptr<T> ptr) {
+    RAPIDSMP_EXPECTS(ptr, "unique pointer cannot be null", std::invalid_argument);
+    return std::move(ptr);
 }
+}  // namespace
 
 Buffer::Buffer(
     std::unique_ptr<std::vector<uint8_t>> host_buffer,
@@ -57,6 +38,33 @@ Buffer::Buffer(
       stream{stream},
       mr{mr},
       size{host_buffer_ ? host_buffer_->size() : 0} {}
+
+Buffer::Buffer(
+    std::unique_ptr<rmm::device_buffer> device_buffer,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
+)
+    : device_buffer_{check_null(std::move(device_buffer))},
+      mem_type{MemType::device},
+      stream{stream},
+      mr{mr},
+      size{device_buffer_->size()} {
+    RAPIDSMP_EXPECTS(
+        device_buffer_->stream() == stream,
+        "the CUDA streams doesn't match",
+        std::invalid_argument
+    );
+    RAPIDSMP_EXPECTS(
+        device_buffer_->memory_resource() == mr, "the RMM memory resources doesn't match"
+    );
+}
+
+Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
+    : device_buffer_{check_null(std::move(device_buffer))},
+      mem_type{MemType::device},
+      stream{device_buffer_->stream()},
+      mr{device_buffer_->memory_resource()},
+      size{device_buffer_->size()} {}
 
 std::unique_ptr<Buffer> Buffer::copy_to_device() const {
     std::unique_ptr<rmm::device_buffer> ret;

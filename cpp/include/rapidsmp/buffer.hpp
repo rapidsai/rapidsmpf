@@ -44,6 +44,8 @@ class Buffer {
      * @param host_buffer A unique pointer to a vector containing host memory.
      * @param stream CUDA stream used for device memory operations and kernel launches.
      * @param mr Memory resource for device memory allocation.
+     *
+     * @throws std::invalid_argument if `host_buffer` is null.
      */
     Buffer(
         std::unique_ptr<std::vector<uint8_t>> host_buffer,
@@ -58,6 +60,7 @@ class Buffer {
      * @param stream CUDA stream used for device memory operations and kernel launches.
      * @param mr Memory resource for device memory allocation.
      *
+     * @throws std::invalid_argument if `device_buffer` is null.
      * @throws std::invalid_argument if `stream` or `mr` isn't the same used by
      * `device_buffer`.
      */
@@ -73,6 +76,8 @@ class Buffer {
      * The CUDA stream and RMM memory resource are inferred from `device_buffer`.
      *
      * @param device_buffer A unique pointer to a device buffer.
+     *
+     * @throws std::invalid_argument if `device_buffer` is null.
      */
     Buffer(std::unique_ptr<rmm::device_buffer> device_buffer);
 
