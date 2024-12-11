@@ -21,23 +21,32 @@ namespace rapidsmp {
 std::unique_ptr<Buffer> Buffer::copy_to_device(
     rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr
 ) const {
-    RAPIDSMP_EXPECTS(mem_type != MemType::device, "buffer already in device memory");
-    // Let the ctor of rmm::device_buffer copy the data to device memory.
-    auto dev_buf =
-        std::make_unique<rmm::device_buffer>(host()->data(), host()->size(), stream, mr);
-    return std::make_unique<Buffer>(std::move(dev_buf));
+    std::unique_ptr<rmm::device_buffer> ret;
+    if (mem_type == MemType::device) {
+        ret = std::make_unique<rmm::device_buffer>(
+            device()->data(), device()->size(), stream, mr
+        );
+    } else {
+        ret = std::make_unique<rmm::device_buffer>(
+            host()->data(), host()->size(), stream, mr
+        );
+    }
+    return std::make_unique<Buffer>(std::move(ret));
 }
 
 std::unique_ptr<Buffer> Buffer::copy_to_host(
     rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr
 ) const {
-    RAPIDSMP_EXPECTS(mem_type != MemType::host, "buffer already in host memory");
-
-    auto host_buf = std::make_unique<std::vector<uint8_t>>(device()->size());
-    RMM_CUDA_TRY(cudaMemcpy(
-        host_buf->data(), device()->data(), device()->size(), cudaMemcpyDeviceToHost
-    ));
-    return std::make_unique<Buffer>(std::move(host_buf));
+    std::unique_ptr<std::vector<uint8_t>> ret;
+    if (mem_type == MemType::host) {
+        ret = std::make_unique<std::vector<uint8_t>>(*host());
+    } else {
+        ret = std::make_unique<std::vector<uint8_t>>(device()->size());
+        RMM_CUDA_TRY(cudaMemcpy(
+            ret->data(), device()->data(), device()->size(), cudaMemcpyDeviceToHost
+        ));
+    }
+    return std::make_unique<Buffer>(std::move(ret));
 }
 
 std::unique_ptr<Buffer> Buffer::move(
