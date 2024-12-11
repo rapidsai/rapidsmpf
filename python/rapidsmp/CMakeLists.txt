@@ -33,8 +33,6 @@ find_package(CUDAToolkit REQUIRED)
 include(rapids-cython-core)
 rapids_cython_init()
 
-add_subdirectory(cmake)
-
 set(cython_lib_dir rapidsmp)
 
 add_subdirectory(rapidsmp/_lib)
