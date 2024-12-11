@@ -25,93 +25,141 @@
 namespace rapidsmp {
 
 /**
- * @brief
+ * @brief Buffer representing device or host memory.
  *
- * The memory type is constant so don't worry about the type changing underneath you
+ * The memory type (host or device) is constant and cannot change during the
+ * object's lifetime, which simplify multi-threading.
  */
 class Buffer {
   public:
+    /// @brief Enum representing the type of memory.
     enum class MemType {
-        host,
-        device
+        host,  ///< Host memory
+        device  ///< Device memory
     };
-    MemType const mem_type;
-    rmm::cuda_stream_view const stream;
-    rmm::device_async_resource_ref const mr;
-    size_t const size;
+    MemType const mem_type;  ///< Memory type.
+    rmm::cuda_stream_view const stream;  ///< The CUDA stream used.
+    rmm::device_async_resource_ref const mr;  ///< The RMM memory resource used.
+    size_t const size;  ///< The size of the buffer in bytes.
 
+    /**
+     * @brief Construct a Buffer from host memory.
+     *
+     * @param host_buffer A unique pointer to a vector containing host memory.
+     * @param stream CUDA stream used for device memory operations and kernel launches.
+     * @param mr Memory resource for device memory allocation.
+     */
     Buffer(
         std::unique_ptr<std::vector<uint8_t>> host_buffer,
         rmm::cuda_stream_view stream,
         rmm::device_async_resource_ref mr
-    )
-        : mem_type{MemType::host},
-          stream{stream},
-          mr{mr},
-          size{host_buffer ? host_buffer->size() : 0},
-          host_buffer_{std::move(host_buffer)} {}
+    );
 
+    /**
+     * @brief Construct a Buffer from device memory.
+     *
+     * @param device_buffer A unique pointer to a device buffer.
+     * @param stream CUDA stream used for device memory operations and kernel launches.
+     * @param mr Memory resource for device memory allocation.
+     *
+     * @throws std::invalid_argument if `stream` or `mr` isn't the same used by
+     * `device_buffer`.
+     */
     Buffer(
         std::unique_ptr<rmm::device_buffer> device_buffer,
         rmm::cuda_stream_view stream,
         rmm::device_async_resource_ref mr
-    )
-        : mem_type{MemType::device},
-          stream{stream},
-          mr{mr},
-          size{device_buffer ? device_buffer->size() : 0},
-          device_buffer_{std::move(device_buffer)} {
-        RAPIDSMP_EXPECTS(
-            device_buffer_->stream() == stream, "the CUDA streams doesn't match"
-        );
-        RAPIDSMP_EXPECTS(
-            device_buffer_->memory_resource() == mr,
-            "the RMM memory resources doesn't match"
-        );
-    }
+    );
 
-    Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
-        : mem_type{MemType::device},
-          stream{device_buffer->stream()},
-          mr{device_buffer->memory_resource()},
-          size{device_buffer ? device_buffer->size() : 0},
-          device_buffer_{std::move(device_buffer)} {}
+    /**
+     * @brief Construct a Buffer from device memory.
+     *
+     * The CUDA stream and RMM memory resource are inferred from `device_buffer`.
+     *
+     * @param device_buffer A unique pointer to a device buffer.
+     */
+    Buffer(std::unique_ptr<rmm::device_buffer> device_buffer);
 
+    /**
+     * @brief Access the underlying host memory buffer.
+     *
+     * @return A reference to the unique pointer managing the host memory.
+     *
+     * @throws std::logic_error if the buffer does not manage host memory.
+     */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>>& host() {
         RAPIDSMP_EXPECTS(mem_type == MemType::host, "buffer not is host memory");
         return host_buffer_;
     }
 
+    /**
+     * @brief Access the underlying host memory buffer (const).
+     *
+     * @return A reference to the unique pointer managing the host memory.
+     *
+     * @throws std::logic_error if the buffer does not manage host memory.
+     */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> const& host() const {
         RAPIDSMP_EXPECTS(mem_type == MemType::host, "buffer not is host memory");
         return host_buffer_;
     }
 
+    /**
+     * @brief Access the underlying device memory buffer.
+     *
+     * @return A reference to the unique pointer managing the device memory.
+     *
+     * @throws std::logic_error if the buffer does not manage device memory.
+     */
     [[nodiscard]] std::unique_ptr<rmm::device_buffer>& device() {
         RAPIDSMP_EXPECTS(mem_type == MemType::device, "buffer not in device memory");
         return device_buffer_;
     }
 
+    /**
+     * @brief Access the underlying device memory buffer (const).
+     *
+     * @return A const reference to the unique pointer managing the device memory.
+     *
+     * @throws std::logic_error if the buffer does not manage device memory.
+     */
     [[nodiscard]] std::unique_ptr<rmm::device_buffer> const& device() const {
         RAPIDSMP_EXPECTS(mem_type == MemType::device, "buffer not in device memory");
         return device_buffer_;
     }
 
-    [[nodiscard]] std::unique_ptr<Buffer> copy_to_device(
+    /**
+     * @brief Create a copy of this buffer in device memory.
+     *
+     * @return A unique pointer to a new Buffer containing the copied data in device
+     * memory.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> copy_to_device() const;
 
-    ) const;
+    /**
+     * @brief Create a copy of this buffer in host memory.
+     *
+     * @return A unique pointer to a new Buffer containing the copied data in host memory.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> copy_to_host() const;
 
-    [[nodiscard]] std::unique_ptr<Buffer> copy_to_host(
-
-    ) const;
-
+    /**
+     * @brief Move a buffer to the specified memory type.
+     *
+     * Copies the buffer if moving between memory types.
+     *
+     * @param buffer The buffer to move.
+     * @param target The target memory type.
+     * @return A unique pointer to the moved Buffer.
+     */
     [[nodiscard]] static std::unique_ptr<Buffer> move(
         std::unique_ptr<Buffer>&& buffer, MemType target
     );
 
-
   private:
+    /// @brief The underlying host memory buffer (if applicable).
     std::unique_ptr<std::vector<uint8_t>> host_buffer_;
+    /// @brief The underlying device memory buffer (if applicable).
     std::unique_ptr<rmm::device_buffer> device_buffer_;
 };
 
