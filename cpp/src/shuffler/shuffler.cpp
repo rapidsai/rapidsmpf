@@ -154,7 +154,6 @@ void Shuffler::run_event_loop_iteration(
             } else {
                 RAPIDSMP_FAIL("Not implemented");
             }
-
         } else {
             break;
         }
