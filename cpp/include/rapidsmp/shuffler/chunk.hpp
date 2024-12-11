@@ -22,6 +22,7 @@
 #include <cudf/contiguous_split.hpp>
 #include <cudf/table/table.hpp>
 
+#include <rapidsmp/buffer.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
 
 namespace rapidsmp::shuffler::detail {
