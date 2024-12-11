@@ -18,7 +18,7 @@
 enable_testing()
 
 include(rapids-test)
-# NB: calling `rapids_test_init()` to have CTest manage GPU resource doesn't work
+rapids_test_init()
 
 file(GLOB SOURCES "*.cpp")
 add_executable(mpi_tests ${SOURCES})
@@ -43,5 +43,7 @@ target_link_libraries(
 rapids_test_add(
   NAME mpi_tests
   COMMAND mpi_tests
+  GPUS 1
   INSTALL_COMPONENT_SET testing
 )
+rapids_test_install_relocatable(INSTALL_COMPONENT_SET testing DESTINATION bin/tests/librapidsmp)
