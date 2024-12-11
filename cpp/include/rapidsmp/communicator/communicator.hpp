@@ -25,8 +25,8 @@
 
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/memory_resource.hpp>
-#include <rmm/device_buffer.hpp>
 
+#include <rapidsmp/buffer.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/option.hpp>
 
@@ -323,7 +323,7 @@ class Communicator {
      * @param mr Device memory resource used to allocate the data.
      * @return A unique pointer to the GPU data buffer.
      */
-    [[nodiscard]] std::unique_ptr<rmm::device_buffer> virtual get_gpu_data(
+    [[nodiscard]] std::unique_ptr<Buffer> virtual get_gpu_data(
         std::unique_ptr<Communicator::Future> future,
         rmm::cuda_stream_view stream,
         rmm::device_async_resource_ref mr

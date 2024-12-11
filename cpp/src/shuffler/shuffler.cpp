@@ -129,8 +129,9 @@ void Shuffler::run_event_loop_iteration(
             );
         } else {
             if (chunk.gpu_data == nullptr) {
-                chunk.gpu_data =
-                    std::make_unique<rmm::device_buffer>(0, self.stream_, self.mr_);
+                chunk.gpu_data = std::make_unique<Buffer>(
+                    std::make_unique<rmm::device_buffer>(0, self.stream_, self.mr_)
+                );
             }
             self.insert_into_outbox(std::move(chunk));
         }
@@ -146,9 +147,14 @@ void Shuffler::run_event_loop_iteration(
             log.info(
                 "recv_any from ", src, ": ", ready_for_data_msg, ", sending: ", chunk
             );
-            fire_and_forget.push_back(self.comm_->send(
-                std::move(chunk.gpu_data), src, TAG::gpu_data, self.stream_
-            ));
+            if (chunk.gpu_data->mem_type == Buffer::MemType::device) {
+                fire_and_forget.push_back(self.comm_->send(
+                    std::move(chunk.gpu_data->device()), src, TAG::gpu_data, self.stream_
+                ));
+            } else {
+                RAPIDSMP_FAIL("Not implemented");
+            }
+
         } else {
             break;
         }
@@ -255,4 +261,5 @@ std::string detail::FinishCounter::str() const {
     ss << ")";
     return ss.str();
 }
+
 }  // namespace rapidsmp::shuffler

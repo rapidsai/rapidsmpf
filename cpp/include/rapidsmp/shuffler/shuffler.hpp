@@ -425,7 +425,10 @@ class Shuffler {
         std::vector<cudf::packed_columns> ret;
         ret.reserve(chunks.size());
         for (auto& [_, chunk] : chunks) {
-            ret.emplace_back(std::move(chunk.metadata), std::move(chunk.gpu_data));
+            // Make sure that the gpu_data is on device memory (copy if necessary).
+            auto dev_buf =
+                Buffer::move(std::move(chunk.gpu_data), Buffer::MemType::device);
+            ret.emplace_back(std::move(chunk.metadata), std::move(dev_buf->device()));
         }
         return ret;
     }

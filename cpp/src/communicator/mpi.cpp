@@ -223,14 +223,20 @@ std::vector<std::size_t> MPI::test_some(
     return ret;
 }
 
-std::unique_ptr<rmm::device_buffer> MPI::get_gpu_data(
+std::unique_ptr<Buffer> MPI::get_gpu_data(
     std::unique_ptr<Communicator::Future> future,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMP_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-    return std::move(mpi_future->gpu_data_);
+    if (mpi_future->host_data_) {
+        RAPIDSMP_EXPECTS(!mpi_future->gpu_data_, "Future: both host and device memory");
+        return std::make_unique<Buffer>(std::move(mpi_future->host_data_), stream, mr);
+    } else {
+        return std::make_unique<Buffer>(std::move(mpi_future->gpu_data_), stream, mr);
+    }
+    RAPIDSMP_FAIL("Future: empty");
 }
 
 std::string MPI::str() const {

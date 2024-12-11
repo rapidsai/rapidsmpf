@@ -18,9 +18,7 @@
 namespace rapidsmp {
 
 
-std::unique_ptr<Buffer> Buffer::copy_to_device(
-    rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr
-) const {
+std::unique_ptr<Buffer> Buffer::copy_to_device() const {
     std::unique_ptr<rmm::device_buffer> ret;
     if (mem_type == MemType::device) {
         ret = std::make_unique<rmm::device_buffer>(
@@ -31,12 +29,10 @@ std::unique_ptr<Buffer> Buffer::copy_to_device(
             host()->data(), host()->size(), stream, mr
         );
     }
-    return std::make_unique<Buffer>(std::move(ret));
+    return std::make_unique<Buffer>(std::move(ret), stream, mr);
 }
 
-std::unique_ptr<Buffer> Buffer::copy_to_host(
-    rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr
-) const {
+std::unique_ptr<Buffer> Buffer::copy_to_host() const {
     std::unique_ptr<std::vector<uint8_t>> ret;
     if (mem_type == MemType::host) {
         ret = std::make_unique<std::vector<uint8_t>>(*host());
@@ -44,39 +40,22 @@ std::unique_ptr<Buffer> Buffer::copy_to_host(
         ret = std::make_unique<std::vector<uint8_t>>(device()->size());
         RMM_CUDA_TRY(cudaMemcpy(
             ret->data(), device()->data(), device()->size(), cudaMemcpyDeviceToHost
-        ));
+        ));  // TODO: make async
     }
-    return std::make_unique<Buffer>(std::move(ret));
+    return std::make_unique<Buffer>(std::move(ret), stream, mr);
 }
 
-std::unique_ptr<Buffer> Buffer::move(
-    std::unique_ptr<Buffer>&& buffer,
-    MemType target,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
-) {
+std::unique_ptr<Buffer> Buffer::move(std::unique_ptr<Buffer>&& buffer, MemType target) {
     if (target != buffer->mem_type) {
         switch (buffer->mem_type) {
         case MemType::host:
-            return buffer->copy_to_device(stream, mr);
+            return buffer->copy_to_device();
         case MemType::device:
-            return buffer->copy_to_host(stream, mr);
+            return buffer->copy_to_host();
         }
     }
     return std::move(buffer);
 }
 
-std::vector<std::unique_ptr<Buffer>> Buffer::move(
-    std::vector<std::unique_ptr<Buffer>>&& buffers,
-    MemType target,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
-) {
-    std::vector<std::unique_ptr<Buffer>> ret;
-    ret.reserve(buffers.size());
-    for (auto& buf : buffers) {
-        ret.push_back(Buffer::move(std::move(buf), target, stream, mr));
-    }
-    return ret;
-}
+
 }  // namespace rapidsmp

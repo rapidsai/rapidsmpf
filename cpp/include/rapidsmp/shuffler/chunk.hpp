@@ -51,7 +51,7 @@ class Chunk {
     std::unique_ptr<std::vector<uint8_t>> metadata;
 
     /// GPU data buffer of the packed `cudf::table` associated with this chunk.
-    std::unique_ptr<rmm::device_buffer> gpu_data;
+    std::unique_ptr<Buffer> gpu_data;
 
     /**
      * @brief Construct a new chunk of a partition.
@@ -72,7 +72,7 @@ class Chunk {
         std::size_t expected_num_chunks,
         std::size_t gpu_data_size,
         std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<rmm::device_buffer> gpu_data
+        std::unique_ptr<Buffer> gpu_data
     );
 
     /**
