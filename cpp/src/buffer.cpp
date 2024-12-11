@@ -78,9 +78,9 @@ std::unique_ptr<Buffer> Buffer::copy_to_host() const {
         ret = std::make_unique<std::vector<uint8_t>>(*host());
     } else {
         ret = std::make_unique<std::vector<uint8_t>>(device()->size());
-        RMM_CUDA_TRY(cudaMemcpy(
+        RMM_CUDA_TRY(cudaMemcpyAsync(
             ret->data(), device()->data(), device()->size(), cudaMemcpyDeviceToHost
-        ));  // TODO: make async
+        ));
     }
     return std::make_unique<Buffer>(std::move(ret), stream, mr);
 }
