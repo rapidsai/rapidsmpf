@@ -7,4 +7,6 @@ set -euo pipefail
 cd "${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/examples/librapidsmp/"
 
 # Ensure that benchmarks are runnable
-OMPI_MCA_opal_cuda_support=1 mpirun --allow-run-as-root -np 2 ./example_shuffle
+set -x
+export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
+mpirun -np 2 ./example_shuffle
