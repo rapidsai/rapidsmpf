@@ -96,7 +96,9 @@ std::unique_ptr<Communicator::Future> MPI::send(
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
     );
-    return std::make_unique<Future>(req, std::move(msg));
+    return std::make_unique<Future>(
+        req, std::make_unique<Buffer>(std::move(msg), stream, mr)
+    );
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
@@ -109,7 +111,9 @@ std::unique_ptr<Communicator::Future> MPI::send(
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
     );
-    return std::make_unique<Future>(req, std::move(msg));
+    return std::make_unique<Future>(
+        req, std::make_unique<Buffer>(std::move(msg), stream, mr)
+    );
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
@@ -124,7 +128,9 @@ std::unique_ptr<Communicator::Future> MPI::recv(
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Irecv(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
     );
-    return std::make_unique<Future>(req, std::move(msg));
+    return std::make_unique<Future>(
+        req, std::make_unique<Buffer>(std::move(msg), stream, mr)
+    );
 }
 
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(int tag) {
@@ -238,13 +244,10 @@ std::unique_ptr<Buffer> MPI::get_gpu_data(
 ) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMP_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-    if (mpi_future->host_data_) {
-        RAPIDSMP_EXPECTS(!mpi_future->gpu_data_, "Future: both host and device memory");
-        return std::make_unique<Buffer>(std::move(mpi_future->host_data_), stream, mr);
-    } else {
-        return std::make_unique<Buffer>(std::move(mpi_future->gpu_data_), stream, mr);
-    }
-    RAPIDSMP_FAIL("Future: empty");
+    RAPIDSMP_EXPECTS(mpi_future->data_ != nullptr, "future has no data");
+    RAPIDSMP_EXPECTS(mpi_future->data_->stream == stream, "stream mismatch");
+    RAPIDSMP_EXPECTS(mpi_future->data_->mr == mr, "memory resource mismatch");
+    return std::move(mpi_future->data_);
 }
 
 std::string MPI::str() const {
