@@ -37,20 +37,17 @@ Chunk::Chunk(
       gpu_data{std::move(gpu_data)} {}
 
 Chunk::Chunk(PartID pid, ChunkID cid, std::size_t expected_num_chunks)
-    : pid{pid},
-      cid{cid},
-      expected_num_chunks{expected_num_chunks},
-      gpu_data_size{0},
-      metadata{nullptr},
-      gpu_data{nullptr} {}
+    : Chunk{pid, cid, expected_num_chunks, 0, nullptr, nullptr} {}
 
 Chunk::Chunk(PartID pid, ChunkID cid, cudf::packed_columns&& chunk)
-    : pid{pid},
-      cid{cid},
-      expected_num_chunks{0},
-      gpu_data_size{chunk.gpu_data ? chunk.gpu_data->size() : 0},
-      metadata{std::move(chunk.metadata)},
-      gpu_data{std::move(chunk.gpu_data)} {}
+    : Chunk{
+        pid,
+        cid,
+        0,
+        chunk.gpu_data ? chunk.gpu_data->size() : 0,
+        std::move(chunk.metadata),
+        std::move(chunk.gpu_data)
+    } {}
 
 std::unique_ptr<std::vector<uint8_t>> Chunk::to_metadata_message() const {
     auto metadata_size = metadata ? metadata->size() : 0;
