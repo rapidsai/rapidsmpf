@@ -78,6 +78,29 @@ dependencies:
               cuda: "12.*"
             packages:
               - cuda-nvcc
+  rapids_build_skbuild:
+    common:
+      - output_types: [conda, requirements, pyproject]
+        packages:
+          - &rapids_build_backend rapids-build-backend>=0.3.0,<0.4.0.dev0
+      - output_types: conda
+        packages:
+          - scikit-build-core>=0.10.0
+      - output_types: [requirements, pyproject]
+        packages:
+          - scikit-build-core[pyproject]>=0.10.0
+  rapids_build_setuptools:
+    common:
+      - output_types: [requirements, pyproject]
+        packages:
+          - *rapids_build_backend
+          - setuptools
+          - wheel
+  build_python_common:
+    common:
+      - output_types: [conda, requirements, pyproject]
+        packages:
+          - cython>=3.0.3
   checks:
     common:
       - output_types: conda

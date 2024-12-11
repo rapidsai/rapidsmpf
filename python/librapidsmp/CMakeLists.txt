@@ -12,11 +12,32 @@
 # the License.
 # =============================================================================
 
-set(cython_sources shuffle.pyx)
-set(linked_libraries lrapidsmp::rapidsmp)
+cmake_minimum_required(VERSION 3.26.4 FATAL_ERROR)
 
-rapids_cython_create_modules(
-  CXX ASSOCIATED_TARGETS pyrmp
-  SOURCE_FILES "${cython_sources}"
-  LINKED_LIBRARIES "${linked_libraries}"
+include(../../cmake/rapids_config.cmake)
+include(rapids-cpm)
+include(rapids-cuda)
+rapids_cuda_init_architectures(librapidsmp-python)
+rapids_cpm_init()
+
+project(
+  librapidsmp-python
+  VERSION "${RAPIDS_VERSION}"
+  LANGUAGES CXX
 )
+
+# Check if rapidsmp is already available. If so, it's the user's responsibility to ensure that the
+# CMake package is also available at build time of the Python rapidsmp package.
+find_package(rapidsmp "${RAPIDS_VERSION}")
+
+if(rapidsmp_FOUND)
+  return()
+endif()
+
+unset(rapidsmp_FOUND)
+
+set(rapidsmp_BUILD_EXAMPLES OFF)
+set(rapidsmp_BUILD_TESTS OFF)
+set(CUDA_STATIC_RUNTIME ON)
+
+add_subdirectory(../../cpp rapidsmp-cpp)

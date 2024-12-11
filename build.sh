@@ -18,22 +18,22 @@ ARGS=$*
 # script, and that this script resides in the repo dir!
 REPODIR=$(cd $(dirname $0); pwd)
 
-VALIDARGS="clean librapidsmp -v -g -n -h"
-HELP="$0 [clean] [librapidsmp] [-v] [-g] [-n] [--cmake-args=\"<args>\"] [-h]
+VALIDARGS="clean librapidsmp rapidsmp -v -g -n --pydevelop -h"
+HELP="$0 [clean] [librapidsmp] [rapidsmp] [-v] [-g] [-n] [--cmake-args=\"<args>\"] [-h]
    clean                       - remove all existing build artifacts and configuration (start over)
    librapidsmp                 - build and install the librapidsmp C++ code
-   pyrmp                       - build the rapidsmp Python package
+   rapidsmp                    - build the rapidsmp Python package
    -v                          - verbose build mode
    -g                          - build for debug
    -n                          - no install step
    --pydevelop                 - Install Python packages in editable mode
    --cmake-args=\\\"<args>\\\" - pass arbitrary list of CMake configuration options (escape all quotes in argument)
    -h                          - print this text
-   default action (no args) is to build and install the 'librapidsmp' then 'pyrmp' targets
+   default action (no args) is to build and install the 'librapidsmp' then 'rapidsmp' targets
 "
 LIBRAPIDSMP_BUILD_DIR=${LIBRAPIDSMP_BUILD_DIR:=${REPODIR}/cpp/build}
-PYRAPIDSMP_BUILD_DIR=${REPODIR}/python/pyrmp/build
-BUILD_DIRS="${LIBRAPIDSMP_BUILD_DIR} ${PYRAPIDSMP_BUILD_DIR}"
+PYRMP_BUILD_DIR=${REPODIR}/python/rapidsmp/build
+BUILD_DIRS="${LIBRAPIDSMP_BUILD_DIR} ${PYRMP_BUILD_DIR}"
 
 # Set defaults for vars modified by flags to this script
 VERBOSE_FLAG=""
@@ -151,8 +151,8 @@ fi
 
 
 # Build and install the rapidsmp Python package
-if (( NUMARGS == 0 )) || hasArg pyrmp; then
-
+if (( NUMARGS == 0 )) || hasArg rapidsmp; then
+    echo "building rapidsmp..."
     cd ${REPODIR}/python/rapidsmp
     SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBRAPIDSMP_BUILD_DIR};${EXTRA_CMAKE_ARGS}" \
         python ${PYTHON_ARGS_FOR_INSTALL} .

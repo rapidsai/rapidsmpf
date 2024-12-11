@@ -12,32 +12,10 @@
 # the License.
 # =============================================================================
 
-cmake_minimum_required(VERSION 3.26.4 FATAL_ERROR)
+set(cython_modules shuffler.pyx)
 
-include(../cmake/rapids_config.cmake)
-include(rapids-cmake)
-include(rapids-cpm)
-include(rapids-cuda)
-include(${rapids-cmake-dir}/cuda/set_runtime.cmake)
-include(rapids-export)
-include(rapids-find)
-
-rapids_cuda_init_architectures(pyrmp)
-
-project(
-  pyrmp
-  VERSION "${RAPIDS_VERSION}"
-  LANGUAGES CXX
+rapids_cython_create_modules(
+  CXX
+  SOURCE_FILES "${cython_modules}"
+  LINKED_LIBRARIES rapidsmp::rapidsmp
 )
-
-find_package(RAPIDSMP "${RAPIDS_VERSION}" REQUIRED)
-
-# ##################################################################################################
-# * dependencies ----------------------------------------------------------------------------------
-rapids_cpm_init()
-
-include(rapids-cython-core)
-
-rapids_cython_init()
-
-add_subdirectory(pyrmp)
