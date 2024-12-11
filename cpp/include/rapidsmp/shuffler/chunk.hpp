@@ -94,17 +94,6 @@ class Chunk {
     Chunk(PartID pid, ChunkID cid, cudf::packed_columns&& chunk);
 
     /**
-     * @brief Returns the chunk as a packed `cudf::table`.
-     *
-     * The metadata and gpu_data is moved out of this chunk.
-     *
-     * @returns The packed `cudf::table`.
-     */
-    cudf::packed_columns release() {
-        return cudf::packed_columns{std::move(metadata), std::move(gpu_data)};
-    }
-
-    /**
      * @brief Header of a metadata message.
      */
     struct MetadataMessageHeader {

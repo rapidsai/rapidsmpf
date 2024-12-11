@@ -425,7 +425,7 @@ class Shuffler {
         std::vector<cudf::packed_columns> ret;
         ret.reserve(chunks.size());
         for (auto& [_, chunk] : chunks) {
-            ret.push_back(chunk.release());
+            ret.emplace_back(std::move(chunk.metadata), std::move(chunk.gpu_data));
         }
         return ret;
     }
