@@ -87,7 +87,11 @@ MPI::MPI(MPI_Comm comm) : comm_{comm}, logger_{this} {
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, int tag
+    std::unique_ptr<std::vector<uint8_t>> msg,
+    Rank rank,
+    int tag,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
 ) {
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
@@ -96,7 +100,11 @@ std::unique_ptr<Communicator::Future> MPI::send(
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<rmm::device_buffer> msg, Rank rank, int tag, rmm::cuda_stream_view
+    std::unique_ptr<rmm::device_buffer> msg,
+    Rank rank,
+    int tag,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
 ) {
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)

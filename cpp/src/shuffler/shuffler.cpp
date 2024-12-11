@@ -70,9 +70,9 @@ void Shuffler::run_event_loop_iteration(
         log.info("send metadata to ", dst, ": ", chunk);
         RAPIDSMP_EXPECTS(dst != self.comm_->rank(), "sending chunk to ourselves");
 
-        fire_and_forget.push_back(
-            self.comm_->send(chunk.to_metadata_message(), dst, TAG::metadata)
-        );
+        fire_and_forget.push_back(self.comm_->send(
+            chunk.to_metadata_message(), dst, TAG::metadata, self.stream_, self.mr_
+        ));
         if (chunk.gpu_data_size > 0) {
             RAPIDSMP_EXPECTS(
                 outgoing_chunks.insert({chunk.cid, std::move(chunk)}).second,
@@ -113,7 +113,11 @@ void Shuffler::run_event_loop_iteration(
         if (chunk.gpu_data_size > 0) {
             // Tell the source of the chunk that we are ready to receive it.
             fire_and_forget.push_back(self.comm_->send(
-                ReadyForDataMessage{chunk.pid, chunk.cid}.pack(), src, TAG::ready_for_data
+                ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
+                src,
+                TAG::ready_for_data,
+                self.stream_,
+                self.mr_
             ));
             // Setup to receive the chunk into `in_transit_*`.
             auto future = self.comm_->recv(
@@ -149,7 +153,11 @@ void Shuffler::run_event_loop_iteration(
             );
             if (chunk.gpu_data->mem_type == Buffer::MemType::device) {
                 fire_and_forget.push_back(self.comm_->send(
-                    std::move(chunk.gpu_data->device()), src, TAG::gpu_data, self.stream_
+                    std::move(chunk.gpu_data->device()),
+                    src,
+                    TAG::gpu_data,
+                    self.stream_,
+                    self.mr_
                 ));
             } else {
                 RAPIDSMP_FAIL("Not implemented");

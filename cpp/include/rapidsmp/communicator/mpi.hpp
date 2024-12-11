@@ -144,19 +144,24 @@ class MPI final : public Communicator {
      * @copydoc Communicator::send
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, int tag
+        std::unique_ptr<std::vector<uint8_t>> msg,
+        Rank rank,
+        int tag,
+        rmm::cuda_stream_view stream,
+        rmm::device_async_resource_ref mr
     ) override;
 
     // clang-format off
     /**
-     * @copydoc Communicator::send(std::unique_ptr<rmm::device_buffer>, Rank, int, rmm::cuda_stream_view)
+     * @copydoc Communicator::send(std::unique_ptr<rmm::device_buffer>, Rank, int, rmm::cuda_stream_view, rmm::device_async_resource_ref)
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
         std::unique_ptr<rmm::device_buffer> msg,
         Rank rank,
         int tag,
-        rmm::cuda_stream_view stream
+        rmm::cuda_stream_view stream,
+        rmm::device_async_resource_ref mr
     ) override;
 
     /**

@@ -242,10 +242,16 @@ class Communicator {
      * @param msg Unique pointer to the message data (host memory).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
+     * @param stream CUDA stream used for device memory operations.
+     * @param mr Device memory resource used to allocate the received message.*
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, int tag
+        std::unique_ptr<std::vector<uint8_t>> msg,
+        Rank rank,
+        int tag,
+        rmm::cuda_stream_view stream,
+        rmm::device_async_resource_ref mr
     ) = 0;
 
 
@@ -256,13 +262,15 @@ class Communicator {
      * @param rank The destination rank.
      * @param tag Message tag for identification.
      * @param stream CUDA stream used for device memory operations.
+     * @param mr Device memory resource used to allocate the received message.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
         std::unique_ptr<rmm::device_buffer> msg,
         Rank rank,
         int tag,
-        rmm::cuda_stream_view stream
+        rmm::cuda_stream_view stream,
+        rmm::device_async_resource_ref mr
     ) = 0;
 
     /**
