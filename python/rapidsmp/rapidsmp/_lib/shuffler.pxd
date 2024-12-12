@@ -11,6 +11,3 @@ cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
             shared_ptr[cpp_Communicator] comm,
             uint32_t total_num_partitions,
         ) except +
-
-cdef class Shuffler:
-    cdef unique_ptr[cpp_Shuffler] shuffler
