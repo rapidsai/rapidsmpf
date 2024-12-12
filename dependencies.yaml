@@ -15,6 +15,7 @@ files:
       - py_version
       - test_cpp
       - test_python
+      - depends_on_mpi4py
       - docs
   test_cpp:
     output: none
@@ -52,6 +53,7 @@ files:
     extras:
       table: project
     includes:
+      - depends_on_mpi4py
       - depends_on_pylibcudf
   py_rapids_build_rapidsmp:
     output: pyproject
@@ -225,6 +227,11 @@ dependencies:
       - output_types: [conda]
         packages:
           - *doxygen
+  depends_on_mpi4py:
+    common:
+      - output_types: conda
+        packages:
+          - mpi4py
   depends_on_pylibcudf:
     common:
       - output_types: conda
