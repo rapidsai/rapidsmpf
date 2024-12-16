@@ -29,6 +29,7 @@
 #include <cudf/partitioning.hpp>
 #include <cudf/table/table.hpp>
 
+#include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/nvtx.hpp>
@@ -303,12 +304,12 @@ class Shuffler {
         PartID total_num_partitions,
         PartitionOwner partition_owner = round_robin,
         rmm::cuda_stream_view stream = cudf::get_default_stream(),
-        rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()
+        BufferResource br = BufferResource(cudf::get_current_device_resource_ref())
     )
         : total_num_partitions{total_num_partitions},
           partition_owner{partition_owner},
           stream_{stream},
-          mr_{mr},
+          br_{br},
           comm_{std::move(comm)},
           finish_counter_{
               comm_->nranks(),
@@ -493,7 +494,7 @@ class Shuffler {
 
   private:
     rmm::cuda_stream_view stream_;
-    rmm::device_async_resource_ref mr_;
+    BufferResource br_;
     bool active_{true};
     detail::PostBox inbox_;
     detail::PostBox outbox_;
