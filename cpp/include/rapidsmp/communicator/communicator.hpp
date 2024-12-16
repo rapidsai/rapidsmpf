@@ -27,6 +27,7 @@
 #include <cudf/utilities/memory_resource.hpp>
 
 #include <rapidsmp/buffer/buffer.hpp>
+#include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/option.hpp>
 
@@ -251,7 +252,7 @@ class Communicator {
         Rank rank,
         int tag,
         rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
+        BufferResource& br
     ) = 0;
 
 
@@ -262,15 +263,10 @@ class Communicator {
      * @param rank The destination rank.
      * @param tag Message tag for identification.
      * @param stream CUDA stream used for device memory operations.
-     * @param mr Device memory resource used to allocate the received message.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
-        std::unique_ptr<Buffer> msg,
-        Rank rank,
-        int tag,
-        rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
+        std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
     ) = 0;
 
     /**

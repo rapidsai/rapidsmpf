@@ -134,7 +134,7 @@ class MPI final : public Communicator {
         Rank rank,
         int tag,
         rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
+        BufferResource& br
     ) override;
 
     // clang-format off
@@ -143,11 +143,7 @@ class MPI final : public Communicator {
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<Buffer> msg,
-        Rank rank,
-        int tag,
-        rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
+        std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
     ) override;
 
     /**
