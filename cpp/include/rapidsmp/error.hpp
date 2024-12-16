@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <stdexcept>  // NOLINT(unused-includes)
+
 namespace rapidsmp {
 
 // Stringify a macro argument
