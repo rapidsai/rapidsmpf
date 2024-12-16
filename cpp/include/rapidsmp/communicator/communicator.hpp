@@ -274,17 +274,15 @@ class Communicator {
      *
      * @param rank The source rank.
      * @param tag Message tag for identification.
-     * @param nbytes Number of bytes to receive.
+     * @param recv_buffer The receive buffer.
      * @param stream CUDA stream used for device memory operations.
-     * @param mr Device memory resource used to allocate the received message.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> recv(
         Rank rank,
         int tag,
-        std::size_t nbytes,
-        rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
+        std::unique_ptr<Buffer> recv_buffer,
+        rmm::cuda_stream_view stream
     ) = 0;
 
     /**

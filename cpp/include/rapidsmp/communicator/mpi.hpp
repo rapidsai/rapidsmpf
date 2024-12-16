@@ -152,9 +152,8 @@ class MPI final : public Communicator {
     [[nodiscard]] std::unique_ptr<Communicator::Future> recv(
         Rank rank,
         int tag,
-        std::size_t nbytes,
-        rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
+        std::unique_ptr<Buffer> recv_buffer,
+        rmm::cuda_stream_view stream
     ) override;
 
     /**

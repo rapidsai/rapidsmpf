@@ -110,20 +110,13 @@ std::unique_ptr<Communicator::Future> MPI::send(
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
-    Rank rank,
-    int tag,
-    std::size_t nbytes,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    Rank rank, int tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
 ) {
-    // TODO: support host memory messages.
-    auto msg = std::make_unique<rmm::device_buffer>(nbytes, stream, mr);
     MPI_Request req;
-    RAPIDSMP_MPI(MPI_Irecv(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
-    );
-    return std::make_unique<Future>(
-        req, std::make_unique<Buffer>(std::move(msg), stream, mr)
-    );
+    RAPIDSMP_MPI(MPI_Irecv(
+        recv_buffer->data(), recv_buffer->size, MPI_UINT8_T, rank, tag, comm_, &req
+    ));
+    return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(int tag) {

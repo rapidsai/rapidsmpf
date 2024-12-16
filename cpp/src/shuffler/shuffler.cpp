@@ -119,13 +119,17 @@ void Shuffler::run_event_loop_iteration(
                 self.stream_,
                 self.br_
             ));
-            // Setup to receive the chunk into `in_transit_*`.
-            auto future = self.comm_->recv(
-                src,
-                TAG::gpu_data,
-                chunk.gpu_data_size,
+            // TODO: support host memory messages.
+            auto recv_buffer = std::make_unique<Buffer>(
+                std::make_unique<rmm::device_buffer>(
+                    chunk.gpu_data_size, self.stream_, self.br_.device_mr()
+                ),
                 self.stream_,
                 self.br_.device_mr()
+            );
+            // Setup to receive the chunk into `in_transit_*`.
+            auto future = self.comm_->recv(
+                src, TAG::gpu_data, std::move(recv_buffer), self.stream_
             );
             RAPIDSMP_EXPECTS(
                 in_transit_futures.insert({chunk.cid, std::move(future)}).second,
@@ -158,10 +162,7 @@ void Shuffler::run_event_loop_iteration(
             );
             if (chunk.gpu_data->mem_type == MemoryType::device) {
                 fire_and_forget.push_back(self.comm_->send(
-                    std::move(chunk.gpu_data),
-                    src,
-                    TAG::gpu_data,
-                    self.stream_
+                    std::move(chunk.gpu_data), src, TAG::gpu_data, self.stream_
                 ));
             } else {
                 RAPIDSMP_FAIL("Not implemented");
