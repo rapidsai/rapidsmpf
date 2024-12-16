@@ -89,7 +89,7 @@ endif()
 # ##################################################################################################
 # * library targets --------------------------------------------------------------------------------
 
-file(GLOB SOURCES "src/*.cpp" "src/shuffler/*.cpp" "src/communicator/*.cpp")
+file(GLOB SOURCES "src/*.cpp" "src/shuffler/*.cpp" "src/communicator/*.cpp" "src/buffer/*.cpp")
 add_library(rapidsmp ${SOURCES})
 
 set_target_properties(

@@ -22,6 +22,7 @@
 #include <cudf/contiguous_split.hpp>
 #include <cudf/table/table.hpp>
 
+#include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
 
 namespace rapidsmp::shuffler::detail {
@@ -50,7 +51,7 @@ class Chunk {
     std::unique_ptr<std::vector<uint8_t>> metadata;
 
     /// GPU data buffer of the packed `cudf::table` associated with this chunk.
-    std::unique_ptr<rmm::device_buffer> gpu_data;
+    std::unique_ptr<Buffer> gpu_data;
 
     /**
      * @brief Construct a new chunk of a partition.
@@ -71,7 +72,7 @@ class Chunk {
         std::size_t expected_num_chunks,
         std::size_t gpu_data_size,
         std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<rmm::device_buffer> gpu_data
+        std::unique_ptr<Buffer> gpu_data
     );
 
     /**
@@ -92,17 +93,6 @@ class Chunk {
      * @param chunk The chunk given as a packed `cudf::table`.
      */
     Chunk(PartID pid, ChunkID cid, cudf::packed_columns&& chunk);
-
-    /**
-     * @brief Returns the chunk as a packed `cudf::table`.
-     *
-     * The metadata and gpu_data is moved out of this chunk.
-     *
-     * @returns The packed `cudf::table`.
-     */
-    cudf::packed_columns release() {
-        return cudf::packed_columns{std::move(metadata), std::move(gpu_data)};
-    }
 
     /**
      * @brief Header of a metadata message.

@@ -68,7 +68,6 @@ void check_mpi_error(int error_code, const char* file, int line);
 }  // namespace mpi
 
 /**
- * @class MPI
  * @brief MPI communicator class that implements the `Communicator` interface.
  *
  * This class implements communication functions using MPI, allowing for data exchange
@@ -79,7 +78,6 @@ void check_mpi_error(int error_code, const char* file, int line);
 class MPI final : public Communicator {
   public:
     /**
-     * @class Future
      * @brief Represents the future result of an MPI operation.
      *
      * This class is used to handle the result of an MPI communication operation
@@ -90,31 +88,19 @@ class MPI final : public Communicator {
 
       public:
         /**
-         * @brief Construct a Future with host data.
+         * @brief Construct a Future.
          *
          * @param req The MPI request handle for the operation.
-         * @param host_data A unique pointer to the host data buffer.
+         * @param data A unique pointer to the data buffer.
          */
-        Future(MPI_Request req, std::unique_ptr<std::vector<uint8_t>> host_data)
-            : req_{req}, host_data_{std::move(host_data)} {}
-
-        /**
-         * @brief Construct a Future with GPU data.
-         *
-         * @param req The MPI request handle for the operation.
-         * @param gpu_data A unique pointer to the GPU data buffer.
-         */
-        Future(MPI_Request req, std::unique_ptr<rmm::device_buffer> gpu_data)
-            : req_{req}, gpu_data_{std::move(gpu_data)} {}
+        Future(MPI_Request req, std::unique_ptr<Buffer> data)
+            : req_{req}, data_{std::move(data)} {}
 
         ~Future() noexcept override = default;
 
       private:
         MPI_Request req_;  ///< The MPI request associated with the operation.
-        std::unique_ptr<std::vector<uint8_t>>
-            host_data_;  ///< Host data buffer (if applicable).
-        std::unique_ptr<rmm::device_buffer>
-            gpu_data_;  ///< GPU data buffer (if applicable).
+        std::unique_ptr<Buffer> data_;  ///< The data buffer.
     };
 
     /**
@@ -144,19 +130,24 @@ class MPI final : public Communicator {
      * @copydoc Communicator::send
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, int tag
+        std::unique_ptr<std::vector<uint8_t>> msg,
+        Rank rank,
+        int tag,
+        rmm::cuda_stream_view stream,
+        rmm::device_async_resource_ref mr
     ) override;
 
     // clang-format off
     /**
-     * @copydoc Communicator::send(std::unique_ptr<rmm::device_buffer>, Rank, int, rmm::cuda_stream_view)
+     * @copydoc Communicator::send(std::unique_ptr<rmm::device_buffer>, Rank, int, rmm::cuda_stream_view, rmm::device_async_resource_ref)
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
         std::unique_ptr<rmm::device_buffer> msg,
         Rank rank,
         int tag,
-        rmm::cuda_stream_view stream
+        rmm::cuda_stream_view stream,
+        rmm::device_async_resource_ref mr
     ) override;
 
     /**
@@ -196,7 +187,7 @@ class MPI final : public Communicator {
     /**
      * @copydoc Communicator::get_gpu_data
      */
-    [[nodiscard]] std::unique_ptr<rmm::device_buffer> get_gpu_data(
+    [[nodiscard]] std::unique_ptr<Buffer> get_gpu_data(
         std::unique_ptr<Communicator::Future> future,
         rmm::cuda_stream_view stream,
         rmm::device_async_resource_ref mr

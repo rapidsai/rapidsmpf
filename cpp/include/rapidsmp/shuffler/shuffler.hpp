@@ -174,14 +174,13 @@ class FinishCounter {
     }
 
     /**
-     * @brief Returns a vector of partition ids that are finished and
-     * haven't been waited on (blocking).
+     * @brief Returns a vector of partition ids that are finished and haven't been waited
+     * on (blocking).
      *
      * This function blocks until at least one partition is finished and ready to be
      * processed.
      *
-     * @note It is the caller's responsibility to process all returned
-     * partition IDs.
+     * @note It is the caller's responsibility to process all returned partition IDs.
      *
      * @return vector of finished partitions.
      *
@@ -202,7 +201,7 @@ class FinishCounter {
             );
         });
         std::vector<PartID> result{};
-        // TODO: hand-writing iteration rather than range for to avoid
+        // TODO: hand-writing iteration rather than range-for to avoid
         // needing to rehash the key during extract_key. Needs
         // std::ranges, I think.
         for (auto it = partitions_ready_to_wait_on_.begin();
@@ -425,7 +424,10 @@ class Shuffler {
         std::vector<cudf::packed_columns> ret;
         ret.reserve(chunks.size());
         for (auto& [_, chunk] : chunks) {
-            ret.push_back(chunk.release());
+            // TODO: make sure that the gpu_data is on device memory (copy if necessary).
+            ret.emplace_back(
+                std::move(chunk.metadata), std::move(chunk.gpu_data->device())
+            );
         }
         return ret;
     }
@@ -480,7 +482,7 @@ class Shuffler {
     [[nodiscard]] detail::ChunkID get_new_cid() {
         // Place the counter in the first 38 bits (supports 256G chunks).
         std::uint64_t upper = ++chunk_id_counter_ << 26;
-        // and place the rank in last 26 bits (supports 64M processes).
+        // and place the rank in last 26 bits (supports 64M ranks).
         std::uint64_t lower = comm_->rank();
         return upper | lower;
     }
