@@ -256,9 +256,9 @@ class Communicator {
 
 
     /**
-     * @brief Sends a GPU message to a specific rank.
+     * @brief Sends a message (device or host) to a specific rank.
      *
-     * @param msg Unique pointer to the message data (device memory).
+     * @param msg Unique pointer to the message data (Buffer).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
      * @param stream CUDA stream used for device memory operations.
@@ -266,7 +266,7 @@ class Communicator {
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
-        std::unique_ptr<rmm::device_buffer> msg,
+        std::unique_ptr<Buffer> msg,
         Rank rank,
         int tag,
         rmm::cuda_stream_view stream,

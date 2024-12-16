@@ -139,11 +139,11 @@ class MPI final : public Communicator {
 
     // clang-format off
     /**
-     * @copydoc Communicator::send(std::unique_ptr<rmm::device_buffer>, Rank, int, rmm::cuda_stream_view, rmm::device_async_resource_ref)
+     * @copydoc Communicator::send(std::unique_ptr<Buffer>, Rank, int, rmm::cuda_stream_view, rmm::device_async_resource_ref)
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<rmm::device_buffer> msg,
+        std::unique_ptr<Buffer> msg,
         Rank rank,
         int tag,
         rmm::cuda_stream_view stream,

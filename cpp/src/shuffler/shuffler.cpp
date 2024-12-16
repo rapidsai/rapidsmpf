@@ -153,11 +153,7 @@ void Shuffler::run_event_loop_iteration(
             );
             if (chunk.gpu_data->mem_type == MemoryType::device) {
                 fire_and_forget.push_back(self.comm_->send(
-                    std::move(chunk.gpu_data->device()),
-                    src,
-                    TAG::gpu_data,
-                    self.stream_,
-                    self.mr_
+                    std::move(chunk.gpu_data), src, TAG::gpu_data, self.stream_, self.mr_
                 ));
             } else {
                 RAPIDSMP_FAIL("Not implemented");

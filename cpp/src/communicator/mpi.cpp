@@ -102,18 +102,15 @@ std::unique_ptr<Communicator::Future> MPI::send(
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<rmm::device_buffer> msg,
+    std::unique_ptr<Buffer> msg,
     Rank rank,
     int tag,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
     MPI_Request req;
-    RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
-    );
-    return std::make_unique<Future>(
-        req, std::make_unique<Buffer>(std::move(msg), stream, mr)
-    );
+    RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
+    return std::make_unique<Future>(req, std::move(msg));
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
