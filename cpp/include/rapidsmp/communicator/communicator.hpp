@@ -244,7 +244,7 @@ class Communicator {
      * @param rank The destination rank.
      * @param tag Message tag for identification.
      * @param stream CUDA stream used for device memory operations.
-     * @param mr Device memory resource used to allocate the received message.*
+     * @param br Buffer resource used to allocate the received message.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(

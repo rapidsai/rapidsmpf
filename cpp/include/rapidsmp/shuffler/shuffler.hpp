@@ -295,9 +295,9 @@ class Shuffler {
      *
      * @param comm The communicator to use.
      * @param total_num_partitions Total number of partitions in the shuffle.
-     * @param partition_owner Function to determine partition ownership.
      * @param stream The CUDA stream for memory operations.
-     * @param mr The device memory resource.
+     * @param partition_owner Function to determine partition ownership.
+     * @param br Buffer resource used to allocate temporary and the shuffle result.
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,

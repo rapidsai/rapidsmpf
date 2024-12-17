@@ -91,7 +91,7 @@ class Buffer {
      * @brief Construct a Buffer from host memory.
      *
      * @param host_buffer A unique pointer to a vector containing host memory.
-     * @param mr Memory resource for device memory allocation.
+     * @param br Buffer resource for memory allocation.
      *
      * @throws std::invalid_argument if `host_buffer` is null.
      */
@@ -101,7 +101,7 @@ class Buffer {
      * @brief Construct a Buffer from device memory.
      *
      * @param device_buffer A unique pointer to a device buffer.
-     * @param mr Memory resource for device memory allocation.
+     * @param br Buffer resource for memory allocation.
      *
      * @throws std::invalid_argument if `device_buffer` is null.
      * @throws std::invalid_argument if `stream` or `br->mr` isn't the same used by
@@ -138,6 +138,7 @@ class Buffer {
     /**
      * @brief Create a copy of this buffer in device memory.
      *
+     * @param stream CUDA stream used for device memory operations.
      * @return A unique pointer to a new Buffer containing the copied data in device
      * memory.
      */
@@ -147,6 +148,7 @@ class Buffer {
     /**
      * @brief Create a copy of this buffer in host memory.
      *
+     * @param stream CUDA stream used for device memory operations.
      * @return A unique pointer to a new Buffer containing the copied data in host memory.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy_to_host(rmm::cuda_stream_view stream

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #pragma once
 
 #include <functional>
@@ -21,31 +22,61 @@
 #include <rapidsmp/error.hpp>
 
 namespace rapidsmp {
+
+/**
+ * @brief A function type that resolves the memory type based on a size input.
+ *
+ * Used to determine whether memory should be allocated on host or device
+ * given the buffer size.
+ */
 using MemoryTypeResolver = std::function<MemoryType(std::size_t)>;
 
 namespace memory_type_resolver {
 
+/**
+ * @brief A constant memory type resolver.
+ *
+ * Always returns the specified memory type, regardless of the allocation size.
+ */
 struct constant {
+    /**
+     * @brief Constructs a constant memory type resolver.
+     *
+     * @param mem_type The memory type to always resolve to.
+     */
     constant(MemoryType mem_type) : mem_type{mem_type} {}
 
-    MemoryType operator()(std::size_t) const {
-        std::cout << "memory_type_resolver: ";
-        if (mem_type == MemoryType::device) {
-            std::cout << "device";
-        } else {
-            std::cout << "host";
-        }
-        std::cout << std::endl;
+    /**
+     * @brief Resolve to the constant memory type.
+     *
+     * @param size Input size (ignored).
+     * @return The constant memory type.
+     */
+    MemoryType operator()(std::size_t size) const {
         return mem_type;
     }
 
-    MemoryType const mem_type;
+    MemoryType const mem_type;  ///< The constant memory type to resolve.
 };
 
 }  // namespace memory_type_resolver
 
+/**
+ * @brief Base class for managing buffer resources.
+ *
+ * This class handles memory allocation and transfers between different memory types
+ * (e.g., host and device). All memory operations in rapidsmp, such as those performed
+ * by the Shuffler, rely on a buffer resource for memory management.
+ */
 class BufferResource {
   public:
+    /**
+     * @brief Constructs a buffer resource that uses memory resolver to decide the memory
+     * type of each new allocation.
+     *
+     * @param mr Reference to the RMM device memory resource.
+     * @param resolver Memory type resolver, defaults to constant device memory.
+     */
     BufferResource(
         rmm::device_async_resource_ref mr,
         MemoryTypeResolver resolver = memory_type_resolver::constant(MemoryType::device)
@@ -55,14 +86,22 @@ class BufferResource {
     virtual ~BufferResource() noexcept = default;
 
     /**
-     * @brief The RMM resource used to allocate and deallocate device memory
+     * @brief Get the RMM device memory resource.
      *
-     * @return Reference to the RMM resource.
+     * @return Reference to the RMM resource used for device allocations.
      */
     [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
         return device_mr_;
     }
 
+    /**
+     * @brief Allocate a buffer of the specified memory type.
+     *
+     * @param mem_type The target memory type (host or device).
+     * @param size The size of the buffer in bytes.
+     * @param stream CUDA stream to use for device allocations.
+     * @return A unique pointer to the allocated Buffer.
+     */
     virtual std::unique_ptr<Buffer> allocate(
         MemoryType mem_type, size_t size, rmm::cuda_stream_view stream
     ) {
@@ -81,16 +120,37 @@ class BufferResource {
         RAPIDSMP_FAIL("MemoryType: unknown");
     }
 
+    /**
+     * @brief Allocate a buffer based on the memory type resolver.
+     *
+     * @param size The size of the buffer in bytes.
+     * @param stream CUDA stream to use for device allocations.
+     * @return A unique pointer to the allocated Buffer.
+     */
     virtual std::unique_ptr<Buffer> allocate(size_t size, rmm::cuda_stream_view stream) {
         return allocate(resolver_(size), size, stream);
     }
 
+    /**
+     * @brief Move host vector data into a Buffer.
+     *
+     * @param data A unique pointer to the vector containing host data.
+     * @param stream CUDA stream for any necessary operations.
+     * @return A unique pointer to the resulting Buffer.
+     */
     virtual std::unique_ptr<Buffer> move(
         std::unique_ptr<std::vector<uint8_t>> data, rmm::cuda_stream_view stream
     ) {
         return std::make_unique<Buffer>(Buffer{std::move(data), this});
     }
 
+    /**
+     * @brief Move device buffer data into a Buffer.
+     *
+     * @param data A unique pointer to the device buffer.
+     * @param stream CUDA stream for any necessary operations.
+     * @return A unique pointer to the resulting Buffer.
+     */
     virtual std::unique_ptr<Buffer> move(
         std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
     ) {
@@ -98,12 +158,13 @@ class BufferResource {
     }
 
     /**
-     * @brief Move a buffer to the specified memory type.
+     * @brief Move a Buffer to the specified memory type.
      *
-     * Copies the buffer if moving between memory types.
+     * If moving between different memory types, this will perform a copy.
      *
      * @param target The target memory type.
      * @param buffer The buffer to move.
+     * @param stream CUDA stream for the operation.
      * @return A unique pointer to the moved Buffer.
      */
     virtual std::unique_ptr<Buffer> move(
@@ -121,12 +182,26 @@ class BufferResource {
         return buffer;
     }
 
+    /**
+     * @brief Move a Buffer to a device buffer.
+     *
+     * @param buffer The buffer to move.
+     * @param stream CUDA stream for the operation.
+     * @return A unique pointer to the resulting device buffer.
+     */
     virtual std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
     ) {
         return std::move(move(MemoryType::device, std::move(buffer), stream)->device());
     }
 
+    /**
+     * @brief Move a Buffer to a host vector.
+     *
+     * @param buffer The buffer to move.
+     * @param stream CUDA stream for the operation.
+     * @return A unique pointer to the resulting host vector.
+     */
     virtual std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
     ) {
@@ -134,12 +209,13 @@ class BufferResource {
     }
 
     /**
-     * @brief Create a new copy of a buffer in the specified memory type.
+     * @brief Create a copy of a Buffer in the specified memory type.
      *
-     * As opposed to `move()`, this always copy data.
+     * Unlike `move()`, this always performs a copy operation.
      *
      * @param target The target memory type.
      * @param buffer The buffer to copy.
+     * @param stream CUDA stream for the operation.
      * @return A unique pointer to the new Buffer.
      */
     virtual std::unique_ptr<Buffer> copy(
@@ -157,9 +233,8 @@ class BufferResource {
     }
 
   protected:
-    rmm::device_async_resource_ref device_mr_;
-    MemoryTypeResolver resolver_;
+    rmm::device_async_resource_ref device_mr_;  ///< RMM device memory resource reference.
+    MemoryTypeResolver resolver_;  ///< Function to resolve memory type.
 };
-
 
 }  // namespace rapidsmp
