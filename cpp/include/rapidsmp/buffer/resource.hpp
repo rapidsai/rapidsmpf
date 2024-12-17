@@ -28,7 +28,9 @@ class BufferResource {
     virtual ~BufferResource() noexcept = default;
 
     /**
-     * @briefreturn{The RMM resource used to allocate and deallocate device memory}.
+     * @brief The RMM resource used to allocate and deallocate device memory
+     *
+     * @return Reference to the RMM resource.
      */
     [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
         return device_mr_;
