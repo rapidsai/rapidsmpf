@@ -321,14 +321,10 @@ class Communicator {
      * @brief Retrieves GPU data associated with a completed future.
      *
      * @param future The completed future.
-     * @param stream CUDA stream used for device memory operations.
-     * @param mr Device memory resource used to allocate the data.
      * @return A unique pointer to the GPU data buffer.
      */
     [[nodiscard]] std::unique_ptr<Buffer> virtual get_gpu_data(
-        std::unique_ptr<Communicator::Future> future,
-        rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
+        std::unique_ptr<Communicator::Future> future
     ) = 0;
 
     /**

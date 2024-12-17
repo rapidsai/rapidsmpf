@@ -183,9 +183,7 @@ class MPI final : public Communicator {
      * @copydoc Communicator::get_gpu_data
      */
     [[nodiscard]] std::unique_ptr<Buffer> get_gpu_data(
-        std::unique_ptr<Communicator::Future> future,
-        rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
+        std::unique_ptr<Communicator::Future> future
     ) override;
 
     /**

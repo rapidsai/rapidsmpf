@@ -223,16 +223,10 @@ std::vector<std::size_t> MPI::test_some(
     return ret;
 }
 
-std::unique_ptr<Buffer> MPI::get_gpu_data(
-    std::unique_ptr<Communicator::Future> future,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
-) {
+std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMP_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
     RAPIDSMP_EXPECTS(mpi_future->data_ != nullptr, "future has no data");
-    RAPIDSMP_EXPECTS(mpi_future->data_->stream == stream, "stream mismatch");
-    RAPIDSMP_EXPECTS(mpi_future->data_->mr == mr, "memory resource mismatch");
     return std::move(mpi_future->data_);
 }
 

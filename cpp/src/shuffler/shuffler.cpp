@@ -181,9 +181,7 @@ void Shuffler::run_event_loop_iteration(
         for (auto cid : finished) {
             auto chunk = extract_value(in_transit_chunks, cid);
             auto future = extract_value(in_transit_futures, cid);
-            chunk.gpu_data = self.comm_->get_gpu_data(
-                std::move(future), self.stream_, self.br_->device_mr()
-            );
+            chunk.gpu_data = self.comm_->get_gpu_data(std::move(future));
             self.insert_into_outbox(std::move(chunk));
         }
     }
