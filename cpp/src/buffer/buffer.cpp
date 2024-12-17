@@ -95,7 +95,7 @@ std::unique_ptr<Buffer> Buffer::copy_to_device() const {
             host()->data(), host()->size(), stream, br->device_mr()
         );
     }
-    return std::make_unique<Buffer>(std::move(ret), stream, br);
+    return std::make_unique<Buffer>(Buffer{std::move(ret), stream, br});
 }
 
 std::unique_ptr<Buffer> Buffer::copy_to_host() const {
@@ -108,7 +108,7 @@ std::unique_ptr<Buffer> Buffer::copy_to_host() const {
             ret->data(), device()->data(), device()->size(), cudaMemcpyDeviceToHost
         ));
     }
-    return std::make_unique<Buffer>(std::move(ret), stream, br);
+    return std::make_unique<Buffer>(Buffer{std::move(ret), stream, br});
 }
 
 

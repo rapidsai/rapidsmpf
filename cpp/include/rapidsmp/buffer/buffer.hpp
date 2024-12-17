@@ -39,6 +39,8 @@ enum class MemoryType : int {
  * object's lifetime, which simplify multi-threading.
  */
 class Buffer {
+    friend class BufferResource;
+
   public:
     /**
      * @brief Construct a Buffer from host memory.
@@ -54,6 +56,7 @@ class Buffer {
         rmm::cuda_stream_view stream,
         BufferResource* br
     );
+
 
     /**
      * @brief Construct a Buffer from device memory.
