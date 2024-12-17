@@ -41,9 +41,10 @@ int main(int argc, char** argv) {
     // The Communicator provides a logger.
     auto& log = comm->logger();
 
-    // We will use the same stream and memory resource throughout the example.
+    // We will use the same stream, memory, and buffer resource throughout the example.
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
+    rapidsmp::BufferResource br{mr};
 
     // As input data, we use a helper function from the benchmark suite. It creates a
     // random cudf table with 2 columns and 100 rows. In this example, each MPI rank
@@ -59,7 +60,7 @@ int main(int argc, char** argv) {
     // map partitions to their destination ranks. All ranks must use the same owner
     // function, in this example we use the included round-robin owner function.
     rapidsmp::shuffler::Shuffler shuffler(
-        comm, total_num_partitions, rapidsmp::shuffler::Shuffler::round_robin, stream, mr
+        comm, total_num_partitions, stream, &br, rapidsmp::shuffler::Shuffler::round_robin
     );
 
     // It is our own responsibility to partition and pack (serialize) the input for

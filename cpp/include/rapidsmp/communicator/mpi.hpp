@@ -134,7 +134,7 @@ class MPI final : public Communicator {
         Rank rank,
         int tag,
         rmm::cuda_stream_view stream,
-        BufferResource& br
+        BufferResource* br
     ) override;
 
     // clang-format off

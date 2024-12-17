@@ -252,7 +252,7 @@ class Communicator {
         Rank rank,
         int tag,
         rmm::cuda_stream_view stream,
-        BufferResource& br
+        BufferResource* br
     ) = 0;
 
 

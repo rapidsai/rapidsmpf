@@ -302,9 +302,9 @@ class Shuffler {
     Shuffler(
         std::shared_ptr<Communicator> comm,
         PartID total_num_partitions,
-        PartitionOwner partition_owner = round_robin,
-        rmm::cuda_stream_view stream = cudf::get_default_stream(),
-        BufferResource br = BufferResource(cudf::get_current_device_resource_ref())
+        rmm::cuda_stream_view stream,
+        BufferResource* br,
+        PartitionOwner partition_owner = round_robin
     )
         : total_num_partitions{total_num_partitions},
           partition_owner{partition_owner},
@@ -316,6 +316,7 @@ class Shuffler {
               local_partitions(comm_, total_num_partitions, partition_owner)
           } {
         event_loop_thread_ = std::thread(Shuffler::event_loop, this);
+        RAPIDSMP_EXPECTS(br_ != nullptr, "the BufferResource cannot be NULL");
     }
 
     ~Shuffler() {
@@ -390,7 +391,7 @@ class Shuffler {
             0,
             chunk.gpu_data ? chunk.gpu_data->size() : 0,
             std::move(chunk.metadata),
-            std::make_unique<Buffer>(std::move(chunk.gpu_data), stream_, br_.device_mr())
+            std::make_unique<Buffer>(std::move(chunk.gpu_data), stream_, br_->device_mr())
         });
     }
 
@@ -501,7 +502,7 @@ class Shuffler {
 
   private:
     rmm::cuda_stream_view stream_;
-    BufferResource br_;
+    BufferResource* br_;
     bool active_{true};
     detail::PostBox inbox_;
     detail::PostBox outbox_;

@@ -164,6 +164,7 @@ Duration run(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
+    rapidsmp::BufferResource br{mr};
     std::int32_t const min_val = 0;
     std::int32_t const max_val = args.num_local_rows;
     rapidsmp::shuffler::PartID const total_num_partitions =
@@ -184,9 +185,9 @@ Duration run(
         rapidsmp::shuffler::Shuffler shuffler(
             comm,
             total_num_partitions,
-            rapidsmp::shuffler::Shuffler::round_robin,
             stream,
-            mr
+            &br,
+            rapidsmp::shuffler::Shuffler::round_robin
         );
 
         for (auto&& partition : input_partitions) {

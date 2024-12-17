@@ -91,13 +91,13 @@ std::unique_ptr<Communicator::Future> MPI::send(
     Rank rank,
     int tag,
     rmm::cuda_stream_view stream,
-    BufferResource& br
+    BufferResource* br
 ) {
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
     );
     return std::make_unique<Future>(
-        req, std::make_unique<Buffer>(std::move(msg), stream, br.device_mr())
+        req, std::make_unique<Buffer>(std::move(msg), stream, br->device_mr())
     );
 }
 
