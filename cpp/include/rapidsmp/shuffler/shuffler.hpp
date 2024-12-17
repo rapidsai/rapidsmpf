@@ -434,8 +434,10 @@ class Shuffler {
         ret.reserve(chunks.size());
         for (auto& [_, chunk] : chunks) {
             // Make sure that the gpu_data is on device memory (copy if necessary).
-            auto gpu_data = br_->move(std::move(chunk.gpu_data), MemoryType::device);
-            ret.emplace_back(std::move(chunk.metadata), std::move(gpu_data->device()));
+            ret.emplace_back(
+                std::move(chunk.metadata),
+                br_->move_to_device_buffer(std::move(chunk.gpu_data), stream_)
+            );
         }
         return ret;
     }

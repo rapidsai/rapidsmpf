@@ -41,53 +41,7 @@ enum class MemoryType : int {
 class Buffer {
     friend class BufferResource;
 
-  private:
-    /**
-     * @brief Construct a Buffer from host memory.
-     *
-     * @param host_buffer A unique pointer to a vector containing host memory.
-     * @param stream CUDA stream used for device memory operations and kernel launches.
-     * @param mr Memory resource for device memory allocation.
-     *
-     * @throws std::invalid_argument if `host_buffer` is null.
-     */
-    Buffer(
-        std::unique_ptr<std::vector<uint8_t>> host_buffer,
-        rmm::cuda_stream_view stream,
-        BufferResource* br
-    );
-
-    /**
-     * @brief Construct a Buffer from device memory.
-     *
-     * @param device_buffer A unique pointer to a device buffer.
-     * @param stream CUDA stream used for device memory operations and kernel launches.
-     * @param mr Memory resource for device memory allocation.
-     *
-     * @throws std::invalid_argument if `device_buffer` is null.
-     * @throws std::invalid_argument if `stream` or `mr` isn't the same used by
-     * `device_buffer`.
-     */
-    Buffer(
-        std::unique_ptr<rmm::device_buffer> device_buffer,
-        rmm::cuda_stream_view stream,
-        BufferResource* br
-    );
-
   public:
-    /**
-     * @brief Access the underlying host memory buffer.
-     *
-     * @return A reference to the unique pointer managing the host memory.
-     *
-     * @throws std::logic_error if the buffer does not manage host memory.
-     */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>>& host() {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::host, "buffer is not host memory");
-        RAPIDSMP_EXPECTS(host_buffer_, "pointer is null, has the buffer been moved?");
-        return host_buffer_;
-    }
-
     /**
      * @brief Access the underlying host memory buffer (const).
      *
@@ -99,19 +53,6 @@ class Buffer {
         RAPIDSMP_EXPECTS(mem_type == MemoryType::host, "buffer is not host memory");
         RAPIDSMP_EXPECTS(host_buffer_, "pointer is null, has the buffer been moved?");
         return host_buffer_;
-    }
-
-    /**
-     * @brief Access the underlying device memory buffer.
-     *
-     * @return A reference to the unique pointer managing the device memory.
-     *
-     * @throws std::logic_error if the buffer does not manage device memory.
-     */
-    [[nodiscard]] std::unique_ptr<rmm::device_buffer>& device() {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::device, "buffer not in device memory");
-        RAPIDSMP_EXPECTS(device_buffer_, "pointer is null, has the buffer been moved?");
-        return device_buffer_;
     }
 
     /**
@@ -159,6 +100,66 @@ class Buffer {
      * @return A unique pointer to a new Buffer containing the copied data in host memory.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy_to_host() const;
+
+
+  private:
+    /**
+     * @brief Construct a Buffer from host memory.
+     *
+     * @param host_buffer A unique pointer to a vector containing host memory.
+     * @param stream CUDA stream used for device memory operations and kernel launches.
+     * @param mr Memory resource for device memory allocation.
+     *
+     * @throws std::invalid_argument if `host_buffer` is null.
+     */
+    Buffer(
+        std::unique_ptr<std::vector<uint8_t>> host_buffer,
+        rmm::cuda_stream_view stream,
+        BufferResource* br
+    );
+
+    /**
+     * @brief Construct a Buffer from device memory.
+     *
+     * @param device_buffer A unique pointer to a device buffer.
+     * @param stream CUDA stream used for device memory operations and kernel launches.
+     * @param mr Memory resource for device memory allocation.
+     *
+     * @throws std::invalid_argument if `device_buffer` is null.
+     * @throws std::invalid_argument if `stream` or `br->mr` isn't the same used by
+     * `device_buffer`.
+     */
+    Buffer(
+        std::unique_ptr<rmm::device_buffer> device_buffer,
+        rmm::cuda_stream_view stream,
+        BufferResource* br
+    );
+
+    /**
+     * @brief Access the underlying host memory buffer.
+     *
+     * @return A reference to the unique pointer managing the host memory.
+     *
+     * @throws std::logic_error if the buffer does not manage host memory.
+     */
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>>& host() {
+        RAPIDSMP_EXPECTS(mem_type == MemoryType::host, "buffer is not host memory");
+        RAPIDSMP_EXPECTS(host_buffer_, "pointer is null, has the buffer been moved?");
+        return host_buffer_;
+    }
+
+    /**
+     * @brief Access the underlying device memory buffer.
+     *
+     * @return A reference to the unique pointer managing the device memory.
+     *
+     * @throws std::logic_error if the buffer does not manage device memory.
+     */
+    [[nodiscard]] std::unique_ptr<rmm::device_buffer>& device() {
+        RAPIDSMP_EXPECTS(mem_type == MemoryType::device, "buffer not in device memory");
+        RAPIDSMP_EXPECTS(device_buffer_, "pointer is null, has the buffer been moved?");
+        return device_buffer_;
+    }
 
   private:
     /// @brief The underlying host memory buffer (if applicable).

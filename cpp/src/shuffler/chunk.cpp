@@ -82,10 +82,11 @@ std::unique_ptr<cudf::table> Chunk::unpack() const {
     RAPIDSMP_EXPECTS(metadata && gpu_data, "both meta and gpu data must be non-null");
     // Copy data.
     auto meta = std::make_unique<std::vector<uint8_t>>(*metadata);
-    auto gpu = gpu_data->copy_to_device();
+    auto gpu =
+        gpu_data->br->move_to_device_buffer(gpu_data->copy_to_device(), gpu_data->stream);
 
     std::vector<cudf::packed_columns> packed_vec;
-    packed_vec.emplace_back(std::move(meta), std::move(gpu->device()));
+    packed_vec.emplace_back(std::move(meta), std::move(gpu));
     return unpack_and_concat(
         std::move(packed_vec), gpu_data->stream, gpu_data->br->device_mr()
     );

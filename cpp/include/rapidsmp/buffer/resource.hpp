@@ -123,6 +123,18 @@ class BufferResource {
         return buffer;
     }
 
+    virtual std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
+        std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
+    ) {
+        return std::move(move(std::move(buffer), MemoryType::device)->device());
+    }
+
+    virtual std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
+        std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
+    ) {
+        return std::move(move(std::move(buffer), MemoryType::host)->host());
+    }
+
   protected:
     rmm::device_async_resource_ref device_mr_;
     MemoryTypeResolver resolver_;
