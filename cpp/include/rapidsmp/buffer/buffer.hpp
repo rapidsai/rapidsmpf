@@ -92,14 +92,16 @@ class Buffer {
      * @return A unique pointer to a new Buffer containing the copied data in device
      * memory.
      */
-    [[nodiscard]] std::unique_ptr<Buffer> copy_to_device() const;
+    [[nodiscard]] std::unique_ptr<Buffer> copy_to_device(rmm::cuda_stream_view stream
+    ) const;
 
     /**
      * @brief Create a copy of this buffer in host memory.
      *
      * @return A unique pointer to a new Buffer containing the copied data in host memory.
      */
-    [[nodiscard]] std::unique_ptr<Buffer> copy_to_host() const;
+    [[nodiscard]] std::unique_ptr<Buffer> copy_to_host(rmm::cuda_stream_view stream
+    ) const;
 
 
   private:

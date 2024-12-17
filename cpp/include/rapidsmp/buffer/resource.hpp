@@ -109,14 +109,14 @@ class BufferResource {
      * @return A unique pointer to the moved Buffer.
      */
     virtual std::unique_ptr<Buffer> move(
-        MemoryType target, std::unique_ptr<Buffer> buffer
+        MemoryType target, std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
     ) {
         if (target != buffer->mem_type) {
             switch (buffer->mem_type) {
             case MemoryType::host:
-                return buffer->copy_to_device();
+                return buffer->copy_to_device(stream);
             case MemoryType::device:
-                return buffer->copy_to_host();
+                return buffer->copy_to_host(stream);
             }
             RAPIDSMP_FAIL("MemoryType: unknown");
         }
@@ -126,13 +126,13 @@ class BufferResource {
     virtual std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
     ) {
-        return std::move(move(MemoryType::device, std::move(buffer))->device());
+        return std::move(move(MemoryType::device, std::move(buffer), stream)->device());
     }
 
     virtual std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
     ) {
-        return std::move(move(MemoryType::host, std::move(buffer))->host());
+        return std::move(move(MemoryType::host, std::move(buffer), stream)->host());
     }
 
   protected:

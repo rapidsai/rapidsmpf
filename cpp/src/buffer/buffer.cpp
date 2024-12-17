@@ -84,7 +84,7 @@ void const* Buffer::data() const {
     RAPIDSMP_FAIL("MemoryType: unknown");
 }
 
-std::unique_ptr<Buffer> Buffer::copy_to_device() const {
+std::unique_ptr<Buffer> Buffer::copy_to_device(rmm::cuda_stream_view stream) const {
     std::unique_ptr<rmm::device_buffer> ret;
     if (mem_type == MemoryType::device) {
         ret = std::make_unique<rmm::device_buffer>(
@@ -98,7 +98,7 @@ std::unique_ptr<Buffer> Buffer::copy_to_device() const {
     return std::make_unique<Buffer>(Buffer{std::move(ret), stream, br});
 }
 
-std::unique_ptr<Buffer> Buffer::copy_to_host() const {
+std::unique_ptr<Buffer> Buffer::copy_to_host(rmm::cuda_stream_view stream) const {
     std::unique_ptr<std::vector<uint8_t>> ret;
     if (mem_type == MemoryType::host) {
         ret = std::make_unique<std::vector<uint8_t>>(*host());
