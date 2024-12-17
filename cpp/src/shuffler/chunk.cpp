@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/shuffler/chunk.hpp>
 #include <rapidsmp/utils.hpp>
@@ -85,7 +86,9 @@ std::unique_ptr<cudf::table> Chunk::unpack() const {
 
     std::vector<cudf::packed_columns> packed_vec;
     packed_vec.emplace_back(std::move(meta), std::move(gpu->device()));
-    return unpack_and_concat(std::move(packed_vec), gpu_data->stream, gpu_data->mr);
+    return unpack_and_concat(
+        std::move(packed_vec), gpu_data->stream, gpu_data->br->device_mr()
+    );
 }
 
 std::string Chunk::str(std::size_t max_nbytes) const {

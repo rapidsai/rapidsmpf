@@ -44,13 +44,13 @@ class BufferResource {
             // TODO: use pinned memory, maybe use rmm::mr::pinned_memory_resource and
             // std::pmr::vector?
             return std::make_unique<Buffer>(
-                std::make_unique<std::vector<uint8_t>>(size), stream, device_mr_
+                std::make_unique<std::vector<uint8_t>>(size), stream, this
             );
         case MemoryType::device:
             return std::make_unique<Buffer>(
                 std::make_unique<rmm::device_buffer>(size, stream, device_mr_),
                 stream,
-                device_mr_
+                this
             );
         }
         RAPIDSMP_FAIL("MemoryType: unknown");
@@ -63,13 +63,13 @@ class BufferResource {
     virtual std::unique_ptr<Buffer> move(
         std::unique_ptr<std::vector<uint8_t>> data, rmm::cuda_stream_view stream
     ) {
-        return std::make_unique<Buffer>(std::move(data), stream, device_mr_);
+        return std::make_unique<Buffer>(std::move(data), stream, this);
     }
 
     virtual std::unique_ptr<Buffer> move(
         std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
     ) {
-        return std::make_unique<Buffer>(std::move(data), stream, device_mr_);
+        return std::make_unique<Buffer>(std::move(data), stream, this);
     }
 
     /**

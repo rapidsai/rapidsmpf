@@ -125,7 +125,7 @@ void Shuffler::run_event_loop_iteration(
                     chunk.gpu_data_size, self.stream_, self.br_->device_mr()
                 ),
                 self.stream_,
-                self.br_->device_mr()
+                self.br_
             );
             // Setup to receive the chunk into `in_transit_*`.
             auto future = self.comm_->recv(
@@ -146,7 +146,7 @@ void Shuffler::run_event_loop_iteration(
                         0, self.stream_, self.br_->device_mr()
                     ),
                     self.stream_,
-                    self.br_->device_mr()
+                    self.br_
                 );
             }
             self.insert_into_outbox(std::move(chunk));

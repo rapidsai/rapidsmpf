@@ -16,6 +16,7 @@
 #include <stdexcept>
 
 #include <rapidsmp/buffer/buffer.hpp>
+#include <rapidsmp/buffer/resource.hpp>
 
 namespace rapidsmp {
 
@@ -31,31 +32,35 @@ template <typename T>
 Buffer::Buffer(
     std::unique_ptr<std::vector<uint8_t>> host_buffer,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    BufferResource* br
 )
     : host_buffer_{std::move(host_buffer)},
       mem_type{MemoryType::host},
       stream{stream},
-      mr{mr},
-      size{host_buffer_ ? host_buffer_->size() : 0} {}
+      br{br},
+      size{host_buffer_ ? host_buffer_->size() : 0} {
+    RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
+}
 
 Buffer::Buffer(
     std::unique_ptr<rmm::device_buffer> device_buffer,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    BufferResource* br
 )
     : device_buffer_{check_null(std::move(device_buffer))},
       mem_type{MemoryType::device},
       stream{stream},
-      mr{mr},
+      br{br},
       size{device_buffer_->size()} {
     RAPIDSMP_EXPECTS(
         device_buffer_->stream() == stream,
         "the CUDA streams doesn't match",
         std::invalid_argument
     );
+    RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
     RAPIDSMP_EXPECTS(
-        device_buffer_->memory_resource() == mr, "the RMM memory resources doesn't match"
+        device_buffer_->memory_resource() == br->device_mr(),
+        "the RMM memory resources doesn't match"
     );
 }
 
@@ -83,14 +88,14 @@ std::unique_ptr<Buffer> Buffer::copy_to_device() const {
     std::unique_ptr<rmm::device_buffer> ret;
     if (mem_type == MemoryType::device) {
         ret = std::make_unique<rmm::device_buffer>(
-            device()->data(), device()->size(), stream, mr
+            device()->data(), device()->size(), stream, br->device_mr()
         );
     } else {
         ret = std::make_unique<rmm::device_buffer>(
-            host()->data(), host()->size(), stream, mr
+            host()->data(), host()->size(), stream, br->device_mr()
         );
     }
-    return std::make_unique<Buffer>(std::move(ret), stream, mr);
+    return std::make_unique<Buffer>(std::move(ret), stream, br);
 }
 
 std::unique_ptr<Buffer> Buffer::copy_to_host() const {
@@ -103,7 +108,7 @@ std::unique_ptr<Buffer> Buffer::copy_to_host() const {
             ret->data(), device()->data(), device()->size(), cudaMemcpyDeviceToHost
         ));
     }
-    return std::make_unique<Buffer>(std::move(ret), stream, mr);
+    return std::make_unique<Buffer>(std::move(ret), stream, br);
 }
 
 

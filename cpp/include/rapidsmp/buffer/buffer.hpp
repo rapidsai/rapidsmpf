@@ -24,6 +24,8 @@
 
 namespace rapidsmp {
 
+class BufferResource;
+
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
     host,  ///< Host memory
@@ -50,7 +52,7 @@ class Buffer {
     Buffer(
         std::unique_ptr<std::vector<uint8_t>> host_buffer,
         rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
+        BufferResource* br
     );
 
     /**
@@ -67,7 +69,7 @@ class Buffer {
     Buffer(
         std::unique_ptr<rmm::device_buffer> device_buffer,
         rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
+        BufferResource* br
     );
 
     /**
@@ -164,7 +166,7 @@ class Buffer {
   public:
     MemoryType const mem_type;  ///< Memory type.
     rmm::cuda_stream_view const stream;  ///< The CUDA stream used.
-    rmm::device_async_resource_ref const mr;  ///< The RMM memory resource used.
+    BufferResource* const br;  ///< The buffer resource used.
     size_t const size;  ///< The size of the buffer in bytes.
 };
 
