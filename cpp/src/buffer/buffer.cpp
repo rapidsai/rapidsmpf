@@ -59,13 +59,6 @@ Buffer::Buffer(
     );
 }
 
-Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
-    : device_buffer_{check_null(std::move(device_buffer))},
-      mem_type{MemoryType::device},
-      stream{device_buffer_->stream()},
-      mr{device_buffer_->memory_resource()},
-      size{device_buffer_->size()} {}
-
 void* Buffer::data() {
     switch (mem_type) {
     case MemoryType::host:

@@ -390,7 +390,7 @@ class Shuffler {
             0,
             chunk.gpu_data ? chunk.gpu_data->size() : 0,
             std::move(chunk.metadata),
-            std::make_unique<Buffer>(std::move(chunk.gpu_data))
+            std::make_unique<Buffer>(std::move(chunk.gpu_data), stream_, br_.device_mr())
         });
     }
 

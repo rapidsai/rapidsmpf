@@ -141,10 +141,13 @@ void Shuffler::run_event_loop_iteration(
             );
         } else {
             if (chunk.gpu_data == nullptr) {
-                chunk.gpu_data =
-                    std::make_unique<Buffer>(std::make_unique<rmm::device_buffer>(
+                chunk.gpu_data = std::make_unique<Buffer>(
+                    std::make_unique<rmm::device_buffer>(
                         0, self.stream_, self.br_.device_mr()
-                    ));
+                    ),
+                    self.stream_,
+                    self.br_.device_mr()
+                );
             }
             self.insert_into_outbox(std::move(chunk));
         }

@@ -46,7 +46,9 @@ class BufferResource {
             );
         case MemoryType::device:
             return std::make_unique<Buffer>(
-                std::make_unique<rmm::device_buffer>(size, stream, device_mr_)
+                std::make_unique<rmm::device_buffer>(size, stream, device_mr_),
+                stream,
+                device_mr_
             );
         }
         RAPIDSMP_FAIL("MemoryType: unknown");

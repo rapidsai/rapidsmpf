@@ -71,17 +71,6 @@ class Buffer {
     );
 
     /**
-     * @brief Construct a Buffer from device memory.
-     *
-     * The CUDA stream and RMM memory resource are inferred from `device_buffer`.
-     *
-     * @param device_buffer A unique pointer to a device buffer.
-     *
-     * @throws std::invalid_argument if `device_buffer` is null.
-     */
-    Buffer(std::unique_ptr<rmm::device_buffer> device_buffer);
-
-    /**
      * @brief Access the underlying host memory buffer.
      *
      * @return A reference to the unique pointer managing the host memory.
