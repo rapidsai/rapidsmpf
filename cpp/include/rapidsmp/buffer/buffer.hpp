@@ -41,7 +41,7 @@ enum class MemoryType : int {
 class Buffer {
     friend class BufferResource;
 
-  public:
+  private:
     /**
      * @brief Construct a Buffer from host memory.
      *
@@ -56,7 +56,6 @@ class Buffer {
         rmm::cuda_stream_view stream,
         BufferResource* br
     );
-
 
     /**
      * @brief Construct a Buffer from device memory.
@@ -75,6 +74,7 @@ class Buffer {
         BufferResource* br
     );
 
+  public:
     /**
      * @brief Access the underlying host memory buffer.
      *

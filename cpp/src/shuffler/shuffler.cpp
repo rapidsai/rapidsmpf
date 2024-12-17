@@ -119,14 +119,8 @@ void Shuffler::run_event_loop_iteration(
                 self.stream_,
                 self.br_
             ));
-            // TODO: support host memory messages.
-            auto recv_buffer = std::make_unique<Buffer>(
-                std::make_unique<rmm::device_buffer>(
-                    chunk.gpu_data_size, self.stream_, self.br_->device_mr()
-                ),
-                self.stream_,
-                self.br_
-            );
+            // Let the BufferResource decide the memory type (host or device).
+            auto recv_buffer = self.br_->allocate(chunk.gpu_data_size, self.stream_);
             // Setup to receive the chunk into `in_transit_*`.
             auto future = self.comm_->recv(
                 src, TAG::gpu_data, std::move(recv_buffer), self.stream_
@@ -141,13 +135,7 @@ void Shuffler::run_event_loop_iteration(
             );
         } else {
             if (chunk.gpu_data == nullptr) {
-                chunk.gpu_data = std::make_unique<Buffer>(
-                    std::make_unique<rmm::device_buffer>(
-                        0, self.stream_, self.br_->device_mr()
-                    ),
-                    self.stream_,
-                    self.br_
-                );
+                chunk.gpu_data = self.br_->allocate(0, self.stream_);
             }
             self.insert_into_outbox(std::move(chunk));
         }
