@@ -109,7 +109,7 @@ class BufferResource {
      * @return A unique pointer to the moved Buffer.
      */
     virtual std::unique_ptr<Buffer> move(
-        std::unique_ptr<Buffer> buffer, MemoryType target
+        MemoryType target, std::unique_ptr<Buffer> buffer
     ) {
         if (target != buffer->mem_type) {
             switch (buffer->mem_type) {
@@ -126,13 +126,13 @@ class BufferResource {
     virtual std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
     ) {
-        return std::move(move(std::move(buffer), MemoryType::device)->device());
+        return std::move(move(MemoryType::device, std::move(buffer))->device());
     }
 
     virtual std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
     ) {
-        return std::move(move(std::move(buffer), MemoryType::host)->host());
+        return std::move(move(MemoryType::host, std::move(buffer))->host());
     }
 
   protected:
