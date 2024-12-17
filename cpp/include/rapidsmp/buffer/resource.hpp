@@ -15,15 +15,42 @@
  */
 #pragma once
 
+#include <functional>
 
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/error.hpp>
 
 namespace rapidsmp {
+using MemoryTypeResolver = std::function<MemoryType(std::size_t)>;
+
+namespace memory_type_resolver {
+
+struct constant {
+    constant(MemoryType mem_type) : mem_type{mem_type} {}
+
+    MemoryType operator()(std::size_t) const {
+        std::cout << "memory_type_resolver: ";
+        if (mem_type == MemoryType::device) {
+            std::cout << "device";
+        } else {
+            std::cout << "host";
+        }
+        std::cout << std::endl;
+        return mem_type;
+    }
+
+    MemoryType const mem_type;
+};
+
+}  // namespace memory_type_resolver
 
 class BufferResource {
   public:
-    BufferResource(rmm::device_async_resource_ref device_mr) : device_mr_{device_mr} {}
+    BufferResource(
+        rmm::device_async_resource_ref mr,
+        MemoryTypeResolver resolver = memory_type_resolver::constant(MemoryType::device)
+    )
+        : device_mr_{mr}, resolver_{std::move(resolver)} {}
 
     virtual ~BufferResource() noexcept = default;
 
@@ -57,7 +84,7 @@ class BufferResource {
     }
 
     virtual std::unique_ptr<Buffer> allocate(size_t size, rmm::cuda_stream_view stream) {
-        return allocate(MemoryType::device, size, stream);
+        return allocate(resolver_(size), size, stream);
     }
 
     virtual std::unique_ptr<Buffer> move(
@@ -98,6 +125,7 @@ class BufferResource {
 
   protected:
     rmm::device_async_resource_ref device_mr_;
+    MemoryTypeResolver resolver_;
 };
 
 
