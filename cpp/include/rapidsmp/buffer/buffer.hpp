@@ -109,33 +109,23 @@ class Buffer {
      * @brief Construct a Buffer from host memory.
      *
      * @param host_buffer A unique pointer to a vector containing host memory.
-     * @param stream CUDA stream used for device memory operations and kernel launches.
      * @param mr Memory resource for device memory allocation.
      *
      * @throws std::invalid_argument if `host_buffer` is null.
      */
-    Buffer(
-        std::unique_ptr<std::vector<uint8_t>> host_buffer,
-        rmm::cuda_stream_view stream,
-        BufferResource* br
-    );
+    Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br);
 
     /**
      * @brief Construct a Buffer from device memory.
      *
      * @param device_buffer A unique pointer to a device buffer.
-     * @param stream CUDA stream used for device memory operations and kernel launches.
      * @param mr Memory resource for device memory allocation.
      *
      * @throws std::invalid_argument if `device_buffer` is null.
      * @throws std::invalid_argument if `stream` or `br->mr` isn't the same used by
      * `device_buffer`.
      */
-    Buffer(
-        std::unique_ptr<rmm::device_buffer> device_buffer,
-        rmm::cuda_stream_view stream,
-        BufferResource* br
-    );
+    Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource* br);
 
     /**
      * @brief Access the underlying host memory buffer.
@@ -171,7 +161,6 @@ class Buffer {
 
   public:
     MemoryType const mem_type;  ///< Memory type.
-    rmm::cuda_stream_view const stream;  ///< The CUDA stream used.
     BufferResource* const br;  ///< The buffer resource used.
     size_t const size;  ///< The size of the buffer in bytes.
 };

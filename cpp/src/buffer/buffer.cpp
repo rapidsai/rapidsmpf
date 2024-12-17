@@ -29,34 +29,19 @@ template <typename T>
 }
 }  // namespace
 
-Buffer::Buffer(
-    std::unique_ptr<std::vector<uint8_t>> host_buffer,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
-)
+Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br)
     : host_buffer_{std::move(host_buffer)},
       mem_type{MemoryType::host},
-      stream{stream},
       br{br},
       size{host_buffer_ ? host_buffer_->size() : 0} {
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 
-Buffer::Buffer(
-    std::unique_ptr<rmm::device_buffer> device_buffer,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
-)
+Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource* br)
     : device_buffer_{check_null(std::move(device_buffer))},
       mem_type{MemoryType::device},
-      stream{stream},
       br{br},
       size{device_buffer_->size()} {
-    RAPIDSMP_EXPECTS(
-        device_buffer_->stream() == stream,
-        "the CUDA streams doesn't match",
-        std::invalid_argument
-    );
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
     RAPIDSMP_EXPECTS(
         device_buffer_->memory_resource() == br->device_mr(),
@@ -95,7 +80,7 @@ std::unique_ptr<Buffer> Buffer::copy_to_device(rmm::cuda_stream_view stream) con
             host()->data(), host()->size(), stream, br->device_mr()
         );
     }
-    return std::make_unique<Buffer>(Buffer{std::move(ret), stream, br});
+    return std::make_unique<Buffer>(Buffer{std::move(ret), br});
 }
 
 std::unique_ptr<Buffer> Buffer::copy_to_host(rmm::cuda_stream_view stream) const {
@@ -105,10 +90,14 @@ std::unique_ptr<Buffer> Buffer::copy_to_host(rmm::cuda_stream_view stream) const
     } else {
         ret = std::make_unique<std::vector<uint8_t>>(device()->size());
         RMM_CUDA_TRY(cudaMemcpyAsync(
-            ret->data(), device()->data(), device()->size(), cudaMemcpyDeviceToHost
+            ret->data(),
+            device()->data(),
+            device()->size(),
+            cudaMemcpyDeviceToHost,
+            stream
         ));
     }
-    return std::make_unique<Buffer>(Buffer{std::move(ret), stream, br});
+    return std::make_unique<Buffer>(Buffer{std::move(ret), br});
 }
 
 

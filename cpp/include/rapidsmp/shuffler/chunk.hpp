@@ -119,17 +119,22 @@ class Chunk {
     /**
      * @brief Returns an unpacked (deserialized) chunk.
      *
+     * @param stream CUDA stream used for device memory operations and kernel launches.
      * @returns A `cudf::table` that represents the chunk data.
      */
-    [[nodiscard]] std::unique_ptr<cudf::table> unpack() const;
+    [[nodiscard]] std::unique_ptr<cudf::table> unpack(rmm::cuda_stream_view stream) const;
 
     /**
      * @brief Returns a description of this instance.
      *
      * @param max_nbytes The maximum size of the chunk data to include.
+     * @param stream CUDA stream used for device memory operations and kernel launches.
      * @return The description.
      */
-    [[nodiscard]] std::string str(std::size_t max_nbytes = 512) const;
+    [[nodiscard]] std::string str(
+        std::size_t max_nbytes = 512,
+        rmm::cuda_stream_view stream = cudf::get_default_stream()
+    ) const;
 };
 
 /**
