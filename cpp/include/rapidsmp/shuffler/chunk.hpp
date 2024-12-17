@@ -86,15 +86,6 @@ class Chunk {
     Chunk(PartID pid, ChunkID cid, std::size_t expected_num_chunks);
 
     /**
-     * @brief Construct a new chunk of a partition.
-     *
-     * @param pid The ID of the partition this chunk is part of.
-     * @param cid The ID of the chunk.
-     * @param chunk The chunk given as a packed `cudf::table`.
-     */
-    Chunk(PartID pid, ChunkID cid, cudf::packed_columns&& chunk);
-
-    /**
      * @brief Header of a metadata message.
      */
     struct MetadataMessageHeader {

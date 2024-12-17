@@ -39,16 +39,6 @@ Chunk::Chunk(
 Chunk::Chunk(PartID pid, ChunkID cid, std::size_t expected_num_chunks)
     : Chunk{pid, cid, expected_num_chunks, 0, nullptr, nullptr} {}
 
-Chunk::Chunk(PartID pid, ChunkID cid, cudf::packed_columns&& chunk)
-    : Chunk{
-        pid,
-        cid,
-        0,
-        chunk.gpu_data ? chunk.gpu_data->size() : 0,
-        std::move(chunk.metadata),
-        std::make_unique<Buffer>(std::move(chunk.gpu_data))
-    } {}
-
 std::unique_ptr<std::vector<uint8_t>> Chunk::to_metadata_message() const {
     auto metadata_size = metadata ? metadata->size() : 0;
     auto msg = std::make_unique<std::vector<uint8_t>>(

@@ -384,7 +384,14 @@ class Shuffler {
      * @param chunk The packed chunk, `cudf::table`, to insert.
      */
     void insert(PartID pid, cudf::packed_columns&& chunk) {
-        insert(detail::Chunk{pid, get_new_cid(), std::move(chunk)});
+        insert(detail::Chunk{
+            pid,
+            get_new_cid(),
+            0,
+            chunk.gpu_data ? chunk.gpu_data->size() : 0,
+            std::move(chunk.metadata),
+            std::make_unique<Buffer>(std::move(chunk.gpu_data))
+        });
     }
 
     /**
