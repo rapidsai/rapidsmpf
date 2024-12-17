@@ -102,8 +102,8 @@ class BufferResource {
      *
      * Copies the buffer if moving between memory types.
      *
-     * @param buffer The buffer to move.
      * @param target The target memory type.
+     * @param buffer The buffer to move.
      * @return A unique pointer to the moved Buffer.
      */
     virtual std::unique_ptr<Buffer> move(
@@ -131,6 +131,29 @@ class BufferResource {
         std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
     ) {
         return std::move(move(MemoryType::host, std::move(buffer), stream)->host());
+    }
+
+    /**
+     * @brief Create a new copy of a buffer in the specified memory type.
+     *
+     * As opposed to `move()`, this always copy data.
+     *
+     * @param target The target memory type.
+     * @param buffer The buffer to copy.
+     * @return A unique pointer to the new Buffer.
+     */
+    virtual std::unique_ptr<Buffer> copy(
+        MemoryType target,
+        std::unique_ptr<Buffer> const& buffer,
+        rmm::cuda_stream_view stream
+    ) {
+        switch (buffer->mem_type) {
+        case MemoryType::host:
+            return buffer->copy_to_device(stream);
+        case MemoryType::device:
+            return buffer->copy_to_host(stream);
+        }
+        RAPIDSMP_FAIL("MemoryType: unknown");
     }
 
   protected:

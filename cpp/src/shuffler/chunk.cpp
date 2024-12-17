@@ -80,14 +80,16 @@ Chunk Chunk::from_metadata_message(std::unique_ptr<std::vector<uint8_t>> const& 
 
 std::unique_ptr<cudf::table> Chunk::unpack(rmm::cuda_stream_view stream) const {
     RAPIDSMP_EXPECTS(metadata && gpu_data, "both meta and gpu data must be non-null");
+    auto br = gpu_data->br;
+
     // Copy data.
     auto meta = std::make_unique<std::vector<uint8_t>>(*metadata);
     auto gpu =
-        gpu_data->br->move_to_device_buffer(gpu_data->copy_to_device(stream), stream);
+        br->move_to_device_buffer(br->copy(MemoryType::device, gpu_data, stream), stream);
 
     std::vector<cudf::packed_columns> packed_vec;
     packed_vec.emplace_back(std::move(meta), std::move(gpu));
-    return unpack_and_concat(std::move(packed_vec), stream, gpu_data->br->device_mr());
+    return unpack_and_concat(std::move(packed_vec), stream, br->device_mr());
 }
 
 std::string Chunk::str(std::size_t max_nbytes, rmm::cuda_stream_view stream) const {
