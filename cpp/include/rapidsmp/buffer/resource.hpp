@@ -168,6 +168,8 @@ class BufferResource {
     /**
      * @brief Move a Buffer to a device buffer.
      *
+     * If and only if moving between different memory types will this perform a copy.
+     *
      * @param buffer The buffer to move.
      * @param stream CUDA stream for the operation.
      * @return A unique pointer to the resulting device buffer.
@@ -178,6 +180,8 @@ class BufferResource {
 
     /**
      * @brief Move a Buffer to a host vector.
+     *
+     * If and only if moving between different memory types will this perform a copy.
      *
      * @param buffer The buffer to move.
      * @param stream CUDA stream for the operation.
