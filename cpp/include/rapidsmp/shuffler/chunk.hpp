@@ -119,6 +119,8 @@ class Chunk {
     /**
      * @brief Returns an unpacked (deserialized) chunk.
      *
+     * @warning This copies the data and shouldn't be used in performance critical code.
+     *
      * @param stream CUDA stream used for device memory operations and kernel launches.
      * @returns A `cudf::table` that represents the chunk data.
      */
