@@ -111,7 +111,7 @@ class BufferResource {
      *
      * This can be used by derived classes to help determinate the memory type of upcoming
      * buffer allocations. E.g., the Shuffler could use this to preserve device memory for
-     * the next output pertition before move each individual chunk to device memory.
+     * the next output pertition before moving each individual chunk to device memory.
      *
      * The base implementation does nothing.
      *
