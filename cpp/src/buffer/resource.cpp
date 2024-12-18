@@ -53,13 +53,7 @@ std::unique_ptr<Buffer> BufferResource::move(
     MemoryType target, std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
 ) {
     if (target != buffer->mem_type) {
-        switch (buffer->mem_type) {
-        case MemoryType::HOST:
-            return buffer->copy_to_device(stream);
-        case MemoryType::DEVICE:
-            return buffer->copy_to_host(stream);
-        }
-        RAPIDSMP_FAIL("MemoryType: unknown");
+        return buffer->copy(target, stream);
     }
     return buffer;
 }
@@ -79,12 +73,6 @@ std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
 std::unique_ptr<Buffer> BufferResource::copy(
     MemoryType target, std::unique_ptr<Buffer> const& buffer, rmm::cuda_stream_view stream
 ) {
-    switch (buffer->mem_type) {
-    case MemoryType::HOST:
-        return buffer->copy_to_device(stream);
-    case MemoryType::DEVICE:
-        return buffer->copy_to_host(stream);
-    }
-    RAPIDSMP_FAIL("MemoryType: unknown");
+    return buffer->copy(target, stream);
 }
 }  // namespace rapidsmp

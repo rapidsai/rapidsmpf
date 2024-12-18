@@ -156,22 +156,22 @@ class Buffer {
     }
 
     /**
-     * @brief Create a copy of this buffer in device memory.
+     * @brief Create a copy of this buffer using the same memory type.
      *
      * @param stream CUDA stream used for device memory operations.
-     * @return A unique pointer to a new Buffer containing the copied data in device
-     * memory.
+     * @return A unique pointer to a new Buffer containing the copied data.
      */
-    [[nodiscard]] std::unique_ptr<Buffer> copy_to_device(rmm::cuda_stream_view stream
-    ) const;
+    [[nodiscard]] std::unique_ptr<Buffer> copy(rmm::cuda_stream_view stream) const;
 
     /**
-     * @brief Create a copy of this buffer in host memory.
+     * @brief Create a copy of this buffer using the specified memory type.
      *
+     * @param target The target memory type.
      * @param stream CUDA stream used for device memory operations.
-     * @return A unique pointer to a new Buffer containing the copied data in host memory.
+     * @return A unique pointer to a new Buffer containing the copied data.
      */
-    [[nodiscard]] std::unique_ptr<Buffer> copy_to_host(rmm::cuda_stream_view stream
+    [[nodiscard]] std::unique_ptr<Buffer> copy(
+        MemoryType target, rmm::cuda_stream_view stream
     ) const;
 
   private:
