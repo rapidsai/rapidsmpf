@@ -29,6 +29,12 @@ template <typename T>
 }
 }  // namespace
 
+Buffer::~Buffer() noexcept {
+    if (!is_moved()) {
+        br->finalizer(this);
+    }
+}
+
 Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br)
     : host_buffer_{std::move(host_buffer)},
       mem_type{MemoryType::host},

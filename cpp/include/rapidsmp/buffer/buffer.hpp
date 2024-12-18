@@ -94,7 +94,11 @@ class Buffer {
      */
     [[nodiscard]] void const* data() const;
 
-    virtual ~Buffer() noexcept = default;
+    /**
+     * @brief The destructor calls the buffer resource's finalizer, if this
+     * buffer hasn't already been moved.
+     */
+    virtual ~Buffer() noexcept;
 
     /// @brief Buffer has a move ctor but no copy or assign operator.
     Buffer(Buffer&&) = default;

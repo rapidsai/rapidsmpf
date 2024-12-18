@@ -203,6 +203,18 @@ class BufferResource {
         rmm::cuda_stream_view stream
     );
 
+    /**
+     * @brief This finalizer is called when a buffer is being destructured.
+     *
+     * This base implementation does nothing.
+     *
+     * @note This is only called on initialized buffers i.e. only if
+     * `buffer->is_moved() == false`.
+     *
+     * @param buffer The buffer being destructured.
+     */
+    virtual void finalizer(Buffer* const buffer) noexcept {}
+
   protected:
     rmm::device_async_resource_ref device_mr_;  ///< RMM device memory resource reference.
     MemoryTypeResolver resolver_;  ///< Function to resolve memory type.
