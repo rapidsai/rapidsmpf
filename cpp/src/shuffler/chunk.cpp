@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/shuffler/chunk.hpp>
