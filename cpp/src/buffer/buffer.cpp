@@ -37,7 +37,7 @@ Buffer::~Buffer() noexcept {
 
 Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br)
     : host_buffer_{std::move(host_buffer)},
-      mem_type{MemoryType::host},
+      mem_type{MemoryType::HOST},
       br{br},
       size{host_buffer_ ? host_buffer_->size() : 0} {
     RAPIDSMP_EXPECTS(host_buffer_ != nullptr, "the host_buffer cannot be NULL");
@@ -46,7 +46,7 @@ Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource
 
 Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource* br)
     : device_buffer_{check_null(std::move(device_buffer))},
-      mem_type{MemoryType::device},
+      mem_type{MemoryType::DEVICE},
       br{br},
       size{device_buffer_->size()} {
     RAPIDSMP_EXPECTS(device_buffer_ != nullptr, "the device_buffer_ cannot be NULL");
@@ -59,9 +59,9 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource
 
 bool Buffer::is_moved() const noexcept {
     switch (mem_type) {
-    case MemoryType::host:
+    case MemoryType::HOST:
         return host_buffer_ == nullptr;
-    case MemoryType::device:
+    case MemoryType::DEVICE:
         return device_buffer_ == nullptr;
     }
     // This cannot happen, `mem_type` is always a member of `MemoryType`.
@@ -70,9 +70,9 @@ bool Buffer::is_moved() const noexcept {
 
 void* Buffer::data() {
     switch (mem_type) {
-    case MemoryType::host:
+    case MemoryType::HOST:
         return host()->data();
-    case MemoryType::device:
+    case MemoryType::DEVICE:
         return device()->data();
     }
     RAPIDSMP_FAIL("MemoryType: unknown");
@@ -80,9 +80,9 @@ void* Buffer::data() {
 
 void const* Buffer::data() const {
     switch (mem_type) {
-    case MemoryType::host:
+    case MemoryType::HOST:
         return host()->data();
-    case MemoryType::device:
+    case MemoryType::DEVICE:
         return device()->data();
     }
     RAPIDSMP_FAIL("MemoryType: unknown");
@@ -90,7 +90,7 @@ void const* Buffer::data() const {
 
 std::unique_ptr<Buffer> Buffer::copy_to_device(rmm::cuda_stream_view stream) const {
     std::unique_ptr<rmm::device_buffer> ret;
-    if (mem_type == MemoryType::device) {
+    if (mem_type == MemoryType::DEVICE) {
         ret = std::make_unique<rmm::device_buffer>(
             device()->data(), device()->size(), stream, br->device_mr()
         );
@@ -104,7 +104,7 @@ std::unique_ptr<Buffer> Buffer::copy_to_device(rmm::cuda_stream_view stream) con
 
 std::unique_ptr<Buffer> Buffer::copy_to_host(rmm::cuda_stream_view stream) const {
     std::unique_ptr<std::vector<uint8_t>> ret;
-    if (mem_type == MemoryType::host) {
+    if (mem_type == MemoryType::HOST) {
         ret = std::make_unique<std::vector<uint8_t>>(*host());
     } else {
         ret = std::make_unique<std::vector<uint8_t>>(device()->size());

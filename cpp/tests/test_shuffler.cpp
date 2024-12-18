@@ -90,7 +90,7 @@ INSTANTIATE_TEST_SUITE_P(
     Shuffler,
     MemoryTypeAndNumPartition,
     testing::Combine(
-        testing::ValuesIn({rapidsmp::MemoryType::device, rapidsmp::MemoryType::host}),
+        testing::ValuesIn({rapidsmp::MemoryType::DEVICE, rapidsmp::MemoryType::HOST}),
         testing::Range(1, 10)
     )
 );

@@ -85,7 +85,7 @@ std::unique_ptr<cudf::table> Chunk::unpack(rmm::cuda_stream_view stream) const {
     // Copy data.
     auto meta = std::make_unique<std::vector<uint8_t>>(*metadata);
     auto gpu =
-        br->move_to_device_buffer(br->copy(MemoryType::device, gpu_data, stream), stream);
+        br->move_to_device_buffer(br->copy(MemoryType::DEVICE, gpu_data, stream), stream);
 
     std::vector<cudf::packed_columns> packed_vec;
     packed_vec.emplace_back(std::move(meta), std::move(gpu));

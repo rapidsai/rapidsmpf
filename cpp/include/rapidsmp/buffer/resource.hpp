@@ -91,7 +91,7 @@ class BufferResource {
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
-        MemoryTypeResolver resolver = memory_type_resolver::constant(MemoryType::device)
+        MemoryTypeResolver resolver = memory_type_resolver::constant(MemoryType::DEVICE)
     )
         : device_mr_{device_mr}, resolver_{std::move(resolver)} {}
 

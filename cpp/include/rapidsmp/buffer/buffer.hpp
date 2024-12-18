@@ -28,8 +28,8 @@ class BufferResource;
 
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
-    host,  ///< Host memory
-    device  ///< Device memory
+    HOST,  ///< Host memory
+    DEVICE  ///< Device memory
 };
 
 /**
@@ -58,7 +58,7 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage host memory.
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> const& host() const {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::host, "buffer is not host memory");
+        RAPIDSMP_EXPECTS(mem_type == MemoryType::HOST, "buffer is not host memory");
         RAPIDSMP_EXPECTS(host_buffer_, "pointer is null, has the buffer been moved?");
         return host_buffer_;
     }
@@ -71,7 +71,7 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage device memory.
      */
     [[nodiscard]] std::unique_ptr<rmm::device_buffer> const& device() const {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::device, "buffer not in device memory");
+        RAPIDSMP_EXPECTS(mem_type == MemoryType::DEVICE, "buffer not in device memory");
         RAPIDSMP_EXPECTS(device_buffer_, "pointer is null, has the buffer been moved?");
         return device_buffer_;
     }
@@ -137,7 +137,7 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage host memory.
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>>& host() {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::host, "buffer is not host memory");
+        RAPIDSMP_EXPECTS(mem_type == MemoryType::HOST, "buffer is not host memory");
         RAPIDSMP_EXPECTS(host_buffer_, "pointer is null, has the buffer been moved?");
         return host_buffer_;
     }
@@ -150,7 +150,7 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage device memory.
      */
     [[nodiscard]] std::unique_ptr<rmm::device_buffer>& device() {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::device, "buffer not in device memory");
+        RAPIDSMP_EXPECTS(mem_type == MemoryType::DEVICE, "buffer not in device memory");
         RAPIDSMP_EXPECTS(device_buffer_, "pointer is null, has the buffer been moved?");
         return device_buffer_;
     }

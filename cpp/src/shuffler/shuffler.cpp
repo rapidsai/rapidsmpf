@@ -151,7 +151,7 @@ void Shuffler::run_event_loop_iteration(
             log.info(
                 "recv_any from ", src, ": ", ready_for_data_msg, ", sending: ", chunk
             );
-            if (chunk.gpu_data->mem_type == MemoryType::device) {
+            if (chunk.gpu_data->mem_type == MemoryType::DEVICE) {
                 fire_and_forget.push_back(self.comm_->send(
                     std::move(chunk.gpu_data), src, TAG::gpu_data, self.stream_
                 ));
