@@ -87,6 +87,14 @@ class Buffer {
      */
     [[nodiscard]] void const* data() const;
 
+    virtual ~Buffer() noexcept = default;
+
+    /// @brief Buffer has a move ctor but no copy or assign operator.
+    Buffer(Buffer&&) = default;
+    Buffer(Buffer const&) = delete;
+    Buffer& operator=(Buffer& o) = delete;
+    Buffer& operator=(Buffer&& o) = delete;
+
   private:
     /**
      * @brief Construct a Buffer from host memory.

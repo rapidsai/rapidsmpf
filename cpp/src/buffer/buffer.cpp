@@ -34,6 +34,7 @@ Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource
       mem_type{MemoryType::host},
       br{br},
       size{host_buffer_ ? host_buffer_->size() : 0} {
+    RAPIDSMP_EXPECTS(host_buffer_ != nullptr, "the host_buffer cannot be NULL");
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 
@@ -42,6 +43,7 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource
       mem_type{MemoryType::device},
       br{br},
       size{device_buffer_->size()} {
+    RAPIDSMP_EXPECTS(device_buffer_ != nullptr, "the device_buffer_ cannot be NULL");
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
     RAPIDSMP_EXPECTS(
         device_buffer_->memory_resource() == br->device_mr(),
