@@ -116,21 +116,7 @@ class BufferResource {
      */
     virtual std::unique_ptr<Buffer> allocate(
         MemoryType mem_type, size_t size, rmm::cuda_stream_view stream
-    ) {
-        switch (mem_type) {
-        case MemoryType::host:
-            // TODO: use pinned memory, maybe use rmm::mr::pinned_memory_resource and
-            // std::pmr::vector?
-            return std::make_unique<Buffer>(
-                Buffer{std::make_unique<std::vector<uint8_t>>(size), this}
-            );
-        case MemoryType::device:
-            return std::make_unique<Buffer>(Buffer{
-                std::make_unique<rmm::device_buffer>(size, stream, device_mr_), this
-            });
-        }
-        RAPIDSMP_FAIL("MemoryType: unknown");
-    }
+    );
 
     /**
      * @brief Allocate a buffer based on the memory type resolver.
@@ -152,9 +138,7 @@ class BufferResource {
      */
     virtual std::unique_ptr<Buffer> move(
         std::unique_ptr<std::vector<uint8_t>> data, rmm::cuda_stream_view stream
-    ) {
-        return std::make_unique<Buffer>(Buffer{std::move(data), this});
-    }
+    );
 
     /**
      * @brief Move device buffer data into a Buffer.
@@ -165,9 +149,7 @@ class BufferResource {
      */
     virtual std::unique_ptr<Buffer> move(
         std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
-    ) {
-        return std::make_unique<Buffer>(Buffer{std::move(data), this});
-    }
+    );
 
     /**
      * @brief Move a Buffer to the specified memory type.
@@ -181,18 +163,7 @@ class BufferResource {
      */
     virtual std::unique_ptr<Buffer> move(
         MemoryType target, std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
-    ) {
-        if (target != buffer->mem_type) {
-            switch (buffer->mem_type) {
-            case MemoryType::host:
-                return buffer->copy_to_device(stream);
-            case MemoryType::device:
-                return buffer->copy_to_host(stream);
-            }
-            RAPIDSMP_FAIL("MemoryType: unknown");
-        }
-        return buffer;
-    }
+    );
 
     /**
      * @brief Move a Buffer to a device buffer.
@@ -203,9 +174,7 @@ class BufferResource {
      */
     virtual std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
-    ) {
-        return std::move(move(MemoryType::device, std::move(buffer), stream)->device());
-    }
+    );
 
     /**
      * @brief Move a Buffer to a host vector.
@@ -216,9 +185,7 @@ class BufferResource {
      */
     virtual std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
-    ) {
-        return std::move(move(MemoryType::host, std::move(buffer), stream)->host());
-    }
+    );
 
     /**
      * @brief Create a copy of a Buffer in the specified memory type.
@@ -234,15 +201,7 @@ class BufferResource {
         MemoryType target,
         std::unique_ptr<Buffer> const& buffer,
         rmm::cuda_stream_view stream
-    ) {
-        switch (buffer->mem_type) {
-        case MemoryType::host:
-            return buffer->copy_to_device(stream);
-        case MemoryType::device:
-            return buffer->copy_to_host(stream);
-        }
-        RAPIDSMP_FAIL("MemoryType: unknown");
-    }
+    );
 
   protected:
     rmm::device_async_resource_ref device_mr_;  ///< RMM device memory resource reference.
