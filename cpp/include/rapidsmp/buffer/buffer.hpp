@@ -44,6 +44,13 @@ class Buffer {
 
   public:
     /**
+     * @brief Check if the buffer has been moved and is now uninitialized.
+     *
+     * @return Returns true iff the buffer has been moved and should not be accessed.
+     */
+    [[nodiscard]] bool is_moved() const noexcept;
+
+    /**
      * @brief Access the underlying host memory buffer (const).
      *
      * @return A reference to the unique pointer managing the host memory.

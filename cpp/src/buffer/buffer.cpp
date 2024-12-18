@@ -51,6 +51,17 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource
     );
 }
 
+bool Buffer::is_moved() const noexcept {
+    switch (mem_type) {
+    case MemoryType::host:
+        return host_buffer_ == nullptr;
+    case MemoryType::device:
+        return device_buffer_ == nullptr;
+    }
+    // This cannot happen, `mem_type` is always a member of `MemoryType`.
+    return true;
+}
+
 void* Buffer::data() {
     switch (mem_type) {
     case MemoryType::host:
