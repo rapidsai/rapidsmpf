@@ -79,7 +79,7 @@ class Buffer {
     /**
      * @brief Access the underlying memory buffer (host or device memory).
      *
-     * @return A pointer to the managed host or device memory.
+     * @return A pointer to the underlying host or device memory.
      *
      * @throws std::logic_error if the buffer does not manage any memory.
      */
@@ -88,7 +88,7 @@ class Buffer {
     /**
      * @brief Access the underlying memory buffer (host or device memory).
      *
-     * @return A const pointer to the managed host or device memory.
+     * @return A const pointer to the underlying host or device memory.
      *
      * @throws std::logic_error if the buffer does not manage any memory.
      */
