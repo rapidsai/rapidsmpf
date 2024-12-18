@@ -107,6 +107,20 @@ class BufferResource {
     }
 
     /**
+     * @brief Preserve an amount of the specified memory type.
+     *
+     * This can be used by derived classes to help determinate the memory type of upcoming
+     * buffer allocations. E.g., the Shuffler could use this to preserve device memory for
+     * the next output pertition before move each individual chunk to device memory.
+     *
+     * The base implementation does nothing.
+     *
+     * @param mem_type The target memory type.
+     * @param size The number of bytes to preserve.
+     */
+    virtual void preserve(MemoryType mem_type, size_t size) {}
+
+    /**
      * @brief Allocate a buffer of the specified memory type.
      *
      * @param mem_type The target memory type (host or device).
@@ -210,7 +224,7 @@ class BufferResource {
     /**
      * @brief This finalizer is called when a buffer is being destructured.
      *
-     * This base implementation does nothing.
+     * The base implementation does nothing.
      *
      * @note This is only called on initialized buffers i.e. only if
      * `buffer->is_moved() == false`.
