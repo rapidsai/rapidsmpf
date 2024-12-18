@@ -35,8 +35,9 @@ enum class MemoryType : int {
 /**
  * @brief Buffer representing device or host memory.
  *
- * The memory type (host or device) is constant and cannot change during the
- * object's lifetime, which simplify multi-threading.
+ * @note The constructors are private, use `BufferResource` to construct buffers.
+ * @note The memory type (host or device) is constant and cannot change during
+ * the buffer's lifetime.
  */
 class Buffer {
     friend class BufferResource;

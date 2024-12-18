@@ -24,7 +24,7 @@
 namespace rapidsmp {
 
 /**
- * @brief A function type that resolves the memory type based on a size input.
+ * @brief Callback function to resolves the memory type based on a size input.
  *
  * Used to determine whether memory should be allocated on host or device
  * given the buffer size.
@@ -67,21 +67,33 @@ struct constant {
  * This class handles memory allocation and transfers between different memory types
  * (e.g., host and device). All memory operations in rapidsmp, such as those performed
  * by the Shuffler, rely on a buffer resource for memory management.
+ *
+ * This base class use the provided `MemoryTypeResolver` callback function to determine
+ * the memory type (host or device) of an allocation.
+ *
+ * An alternative allocation strategic can be implemented in a derived class by overriding
+ * one or more of the virtual methods.
+ *
+ * @note Similar to RMM's memory resource, the `BufferResource` instance must outlive all
+ * allocated buffers.
  */
 class BufferResource {
   public:
     /**
-     * @brief Constructs a buffer resource that uses memory resolver to decide the memory
-     * type of each new allocation.
+     * @brief Constructs a buffer resource that uses a memory resolver to decide the
+     * memory type of each new allocation.
      *
-     * @param mr Reference to the RMM device memory resource.
-     * @param resolver Memory type resolver, defaults to constant device memory.
+     * @param device_mr Reference to the RMM device memory resource used for all device
+     * allocations, which must outlive `BufferResource` and all the created buffers.
+     * @param resolver Memory type resolver, which is a callback function that takes an
+     * allocation size and returns a memory type. The default resolver always returns
+     * device memory.
      */
     BufferResource(
-        rmm::device_async_resource_ref mr,
+        rmm::device_async_resource_ref device_mr,
         MemoryTypeResolver resolver = memory_type_resolver::constant(MemoryType::device)
     )
-        : device_mr_{mr}, resolver_{std::move(resolver)} {}
+        : device_mr_{device_mr}, resolver_{std::move(resolver)} {}
 
     virtual ~BufferResource() noexcept = default;
 
@@ -160,7 +172,7 @@ class BufferResource {
     /**
      * @brief Move a Buffer to the specified memory type.
      *
-     * If moving between different memory types, this will perform a copy.
+     * If and only if moving between different memory types will this perform a copy.
      *
      * @param target The target memory type.
      * @param buffer The buffer to move.
