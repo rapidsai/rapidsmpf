@@ -44,7 +44,7 @@ struct constant {
      *
      * @param mem_type The memory type to always resolve to.
      */
-    constant(MemoryType mem_type) : mem_type{mem_type} {}
+    constexpr constant(MemoryType mem_type) : mem_type{mem_type} {}
 
     /**
      * @brief Resolve to the constant memory type.
@@ -52,7 +52,7 @@ struct constant {
      * @param size Input size (ignored).
      * @return The constant memory type.
      */
-    MemoryType operator()(std::size_t size) const {
+    constexpr MemoryType operator()([[maybe_unused]] std::size_t size) const noexcept {
         return mem_type;
     }
 
