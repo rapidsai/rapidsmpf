@@ -25,25 +25,71 @@
 
 namespace rapidsmp {
 
+/**
+ * @brief Represents a reservation for future memory allocation.
+ *
+ * A reservation is returned by `BufferResource::reserve` and must be used when allocating
+ * buffers through the `BufferResource`.
+ *
+ * @note A `MemoryReservation` is not copyable or movable to ensure proper ownership and
+ * lifetime management of the reserved memory thus normally it is wrapped in unique
+ * pointer.
+ */
 class MemoryReservation {
   public:
+    /**
+     * @brief Constructs a memory reservation.
+     *
+     * @param mem_type The type of memory associated with this reservation.
+     * @param br Pointer to the buffer resource managing this reservation.
+     * @param size The size of the reserved memory in bytes.
+     */
     constexpr MemoryReservation(
         MemoryType mem_type, BufferResource* const br, std::size_t size
     )
         : mem_type{mem_type}, br{br}, size_{size} {}
 
+    /**
+     * @brief Destructor for the memory reservation.
+     *
+     * Cleans up resources associated with the reservation.
+     */
     ~MemoryReservation() noexcept;
 
-    /// @brief An reservation isn't moveable or copyable.
+    /**
+     * @brief Deleted copy and move operations.
+     *
+     * A `MemoryReservation` is not copyable or movable to prevent unintended duplication
+     * or transfer of ownership.
+     */
     MemoryReservation(MemoryReservation&& other) = delete;
     MemoryReservation& operator=(MemoryReservation&&) = delete;
     MemoryReservation(MemoryReservation const&) = delete;
     MemoryReservation& operator=(MemoryReservation const&) = delete;
 
+    /**
+     * @brief Get the remaining size of the reserved memory.
+     *
+     * @return The size of the reserved memory in bytes.
+     */
     [[nodiscard]] std::size_t size() const {
         return size_;
     }
 
+    /**
+     * @brief Consume a portion of the reserved memory.
+     *
+     * Reduces the remaining size of the reserved memory by the specified amount.
+     * This method ensures the requested size does not exceed the reserved memory
+     * and validates that the memory type matches the reservation.
+     *
+     * @param target The memory type of the reservation.
+     * @param size The size to consume in bytes.
+     * @return The remaining size of the reserved memory after consumption.
+     *
+     * @throws std::invalid_argument if the memory type does not match the reservation.
+     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
+     */
     std::size_t use(MemoryType target, std::size_t size) {
         RAPIDSMP_EXPECTS(
             mem_type == target,
@@ -61,12 +107,12 @@ class MemoryReservation {
     }
 
   public:
-    MemoryType const mem_type;
-    BufferResource* const br;
+    MemoryType const mem_type;  ///< The type of memory for this reservation.
+    BufferResource* const br;  ///< The buffer resource that manages this reservation.
 
   private:
-    std::size_t size_;
-    std::mutex mutex_;
+    std::size_t size_;  ///< The remaining size of the reserved memory in bytes.
+    std::mutex mutex_;  ///< Mutex for thread-safe access to the reservation.
 };
 
 /**
@@ -144,7 +190,11 @@ class BufferResource {
      * @param mem_type The target memory type (host or device).
      * @param size The size of the buffer in bytes.
      * @param stream CUDA stream to use for device allocations.
+     * @param token The reservation to use for memory allocations.
      * @return A unique pointer to the allocated Buffer.
+     *
+     * @throws std::invalid_argument if the memory type does not match the reservation.
+     * @throws std::overflow_error if the reservation isn't big enough.
      */
     virtual std::unique_ptr<Buffer> allocate(
         MemoryType mem_type,
