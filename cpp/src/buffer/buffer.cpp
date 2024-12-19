@@ -49,7 +49,7 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource
       mem_type{MemoryType::DEVICE},
       br{br},
       size{device_buffer_->size()} {
-    RAPIDSMP_EXPECTS(device_buffer_ != nullptr, "the device_buffer_ cannot be NULL");
+    RAPIDSMP_EXPECTS(device_buffer_ != nullptr, "the device_buffer cannot be NULL");
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 

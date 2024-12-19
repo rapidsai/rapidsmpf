@@ -16,11 +16,56 @@
 
 #pragma once
 
+#include <mutex>
 
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/error.hpp>
 
+#include "rapidsmp/utils.hpp"
+
 namespace rapidsmp {
+
+class AllocToken {
+  public:
+    constexpr AllocToken(MemoryType mem_type, BufferResource* const br, std::size_t size)
+        : mem_type{mem_type}, br{br}, size_{size} {}
+
+    ~AllocToken() noexcept;
+
+    /// @brief An allocation token isn't moveable or copyable.
+    AllocToken(AllocToken&& other) = delete;
+    AllocToken& operator=(AllocToken&&) = delete;
+    AllocToken(AllocToken const&) = delete;
+    AllocToken& operator=(AllocToken const&) = delete;
+
+    [[nodiscard]] std::size_t size() const {
+        return size_;
+    }
+
+    std::size_t use(MemoryType target, std::size_t size) {
+        RAPIDSMP_EXPECTS(
+            mem_type == target,
+            "the memory type of AllocToken doesn't match",
+            std::invalid_argument
+        );
+        std::lock_guard const lock(mutex_);
+        RAPIDSMP_EXPECTS(
+            size <= size_,
+            "AllocToken(" + format_nbytes(size_) + ") isn't big enough ("
+                + format_nbytes(size) + ")",
+            std::overflow_error
+        );
+        return size_ -= size;
+    }
+
+  public:
+    MemoryType const mem_type;
+    BufferResource* const br;
+
+  private:
+    std::size_t size_;
+    std::mutex mutex_;
+};
 
 /**
  * @brief Base class for managing buffer resources.
@@ -35,7 +80,7 @@ namespace rapidsmp {
  * one or more of the virtual methods.
  *
  * @note Similar to RMM's memory resource, the `BufferResource` instance must outlive all
- * allocated buffers.
+ * allocated buffers and allocation tokens.
  */
 class BufferResource {
   public:
@@ -75,6 +120,23 @@ class BufferResource {
     }
 
     /**
+     * @brief Reserve an amount of the specified memory type.
+     *
+     * This can be used by derived classes to help determinate the memory type of upcoming
+     * buffer allocations. E.g., the Shuffler could use this to reserve device memory for
+     * the next output pertition before moving each individual chunk to device memory.
+     *
+     * @param mem_type The target memory type.
+     * @param size The number of bytes to reserve.
+     * @return An allocation token and the amount of "overbooking".
+     */
+    virtual std::pair<std::unique_ptr<AllocToken>, std::size_t> reserve(
+        MemoryType mem_type, size_t size
+    );
+
+    virtual void release(AllocToken const& token) noexcept;
+
+    /**
      * @brief Allocate a buffer of the specified memory type.
      *
      * @param mem_type The target memory type (host or device).
@@ -83,20 +145,27 @@ class BufferResource {
      * @return A unique pointer to the allocated Buffer.
      */
     virtual std::unique_ptr<Buffer> allocate(
-        MemoryType mem_type, size_t size, rmm::cuda_stream_view stream
+        MemoryType mem_type,
+        size_t size,
+        rmm::cuda_stream_view stream,
+        std::unique_ptr<AllocToken>& token
     );
 
     /**
      * @brief Allocate a new buffer.
      *
-     * The base implementation always use the highest memory type in the memory hierarchy.
+     * The base implementation always use the highest memory type in the memory
+     * hierarchy.
      *
      * @param size The size of the buffer in bytes.
      * @param stream CUDA stream to use for device allocations.
      * @return A unique pointer to the allocated Buffer.
      */
     virtual std::unique_ptr<Buffer> allocate(size_t size, rmm::cuda_stream_view stream) {
-        return allocate(memory_hierarchy().at(0), size, stream);
+        auto mem_type = memory_hierarchy().at(0);  // Always pick the highest memory type.
+        auto [token, overbooking] = reserve(mem_type, size);
+        // TODO: check overbooking, do we need to spill?
+        return allocate(mem_type, size, stream, token);
     }
 
     /**
@@ -132,7 +201,10 @@ class BufferResource {
      * @return A unique pointer to the moved Buffer.
      */
     virtual std::unique_ptr<Buffer> move(
-        MemoryType target, std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
+        MemoryType target,
+        std::unique_ptr<Buffer> buffer,
+        rmm::cuda_stream_view stream,
+        std::unique_ptr<AllocToken>& token
     );
 
     /**
@@ -145,7 +217,9 @@ class BufferResource {
      * @return A unique pointer to the resulting device buffer.
      */
     virtual std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
-        std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
+        std::unique_ptr<Buffer> buffer,
+        rmm::cuda_stream_view stream,
+        std::unique_ptr<AllocToken>& token
     );
 
     /**
@@ -158,7 +232,9 @@ class BufferResource {
      * @return A unique pointer to the resulting host vector.
      */
     virtual std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
-        std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
+        std::unique_ptr<Buffer> buffer,
+        rmm::cuda_stream_view stream,
+        std::unique_ptr<AllocToken>& token
     );
 
     /**
@@ -174,7 +250,8 @@ class BufferResource {
     virtual std::unique_ptr<Buffer> copy(
         MemoryType target,
         std::unique_ptr<Buffer> const& buffer,
-        rmm::cuda_stream_view stream
+        rmm::cuda_stream_view stream,
+        std::unique_ptr<AllocToken>& token
     );
 
     /**
@@ -193,5 +270,6 @@ class BufferResource {
     rmm::device_async_resource_ref device_mr_;  ///< RMM device memory resource reference.
     MemoryHierarchy memory_hierarchy_;  ///< The hierarchy of memory types to use.
 };
+
 
 }  // namespace rapidsmp

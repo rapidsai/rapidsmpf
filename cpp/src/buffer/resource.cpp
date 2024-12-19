@@ -14,27 +14,51 @@
  * limitations under the License.
  */
 
+#include <utility>
+
 #include <rapidsmp/buffer/resource.hpp>
 
 namespace rapidsmp {
 
 
-std::unique_ptr<Buffer> BufferResource::allocate(
-    MemoryType mem_type, size_t size, rmm::cuda_stream_view stream
+AllocToken::~AllocToken() noexcept {
+    br->release(*this);
+}
+
+std::pair<std::unique_ptr<AllocToken>, std::size_t> BufferResource::reserve(
+    MemoryType mem_type, size_t size
 ) {
+    constexpr std::size_t overbooking = 0;
+    return {std::make_unique<AllocToken>(mem_type, this, size), overbooking};
+}
+
+void BufferResource::release(AllocToken const& token) noexcept {}
+
+std::unique_ptr<Buffer> BufferResource::allocate(
+    MemoryType mem_type,
+    size_t size,
+    rmm::cuda_stream_view stream,
+    std::unique_ptr<AllocToken>& token
+) {
+    std::unique_ptr<Buffer> ret;
     switch (mem_type) {
     case MemoryType::HOST:
         // TODO: use pinned memory, maybe use rmm::mr::pinned_memory_resource and
         // std::pmr::vector?
-        return std::make_unique<Buffer>(
+        ret = std::make_unique<Buffer>(
             Buffer{std::make_unique<std::vector<uint8_t>>(size), this}
         );
+        break;
     case MemoryType::DEVICE:
-        return std::make_unique<Buffer>(
+        ret = std::make_unique<Buffer>(
             Buffer{std::make_unique<rmm::device_buffer>(size, stream, device_mr_), this}
         );
+        break;
+    default:
+        RAPIDSMP_FAIL("MemoryType: unknown");
     }
-    RAPIDSMP_FAIL("MemoryType: unknown");
+    token->use(mem_type, size);
+    return ret;
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
@@ -50,29 +74,48 @@ std::unique_ptr<Buffer> BufferResource::move(
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    MemoryType target, std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
+    MemoryType target,
+    std::unique_ptr<Buffer> buffer,
+    rmm::cuda_stream_view stream,
+    std::unique_ptr<AllocToken>& token
 ) {
     if (target != buffer->mem_type) {
-        return buffer->copy(target, stream);
+        auto ret = buffer->copy(target, stream);
+        token->use(target, ret->size);
+        return ret;
     }
     return buffer;
 }
 
 std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
-    std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
+    std::unique_ptr<Buffer> buffer,
+    rmm::cuda_stream_view stream,
+    std::unique_ptr<AllocToken>& token
 ) {
-    return std::move(move(MemoryType::DEVICE, std::move(buffer), stream)->device());
+    return std::move(move(MemoryType::DEVICE, std::move(buffer), stream, token)->device()
+    );
 }
 
 std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
-    std::unique_ptr<Buffer> buffer, rmm::cuda_stream_view stream
+    std::unique_ptr<Buffer> buffer,
+    rmm::cuda_stream_view stream,
+    std::unique_ptr<AllocToken>& token
 ) {
-    return std::move(move(MemoryType::HOST, std::move(buffer), stream)->host());
+    return std::move(move(MemoryType::HOST, std::move(buffer), stream, token)->host());
 }
 
 std::unique_ptr<Buffer> BufferResource::copy(
-    MemoryType target, std::unique_ptr<Buffer> const& buffer, rmm::cuda_stream_view stream
+    MemoryType target,
+    std::unique_ptr<Buffer> const& buffer,
+    rmm::cuda_stream_view stream,
+    std::unique_ptr<AllocToken>& token
 ) {
-    return buffer->copy(target, stream);
+    auto ret = buffer->copy(target, stream);
+    if (target != buffer->mem_type) {
+        token->use(target, ret->size);
+    }
+    return ret;
 }
+
+
 }  // namespace rapidsmp

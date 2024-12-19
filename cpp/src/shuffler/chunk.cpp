@@ -82,11 +82,14 @@ Chunk Chunk::from_metadata_message(std::unique_ptr<std::vector<uint8_t>> const& 
 std::unique_ptr<cudf::table> Chunk::unpack(rmm::cuda_stream_view stream) const {
     RAPIDSMP_EXPECTS(metadata && gpu_data, "both meta and gpu data must be non-null");
     auto br = gpu_data->br;
+    auto [token, overbooking] = br->reserve(MemoryType::DEVICE, gpu_data->size * 2);
+    // TODO: check overbooking, do we need to spill?
 
     // Copy data.
     auto meta = std::make_unique<std::vector<uint8_t>>(*metadata);
-    auto gpu =
-        br->move_to_device_buffer(br->copy(MemoryType::DEVICE, gpu_data, stream), stream);
+    auto gpu = br->move_to_device_buffer(
+        br->copy(MemoryType::DEVICE, gpu_data, stream, token), stream, token
+    );
 
     std::vector<cudf::packed_columns> packed_vec;
     packed_vec.emplace_back(std::move(meta), std::move(gpu));

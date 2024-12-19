@@ -190,5 +190,4 @@ class Buffer {
     size_t const size;  ///< The size of the buffer in bytes.
 };
 
-
 }  // namespace rapidsmp
