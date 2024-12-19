@@ -29,6 +29,7 @@
 #include <cudf/partitioning.hpp>
 #include <cudf/table/table.hpp>
 
+#include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/nvtx.hpp>
@@ -174,14 +175,13 @@ class FinishCounter {
     }
 
     /**
-     * @brief Returns a vector of partition ids that are finished and
-     * haven't been waited on (blocking).
+     * @brief Returns a vector of partition ids that are finished and haven't been waited
+     * on (blocking).
      *
      * This function blocks until at least one partition is finished and ready to be
      * processed.
      *
-     * @note It is the caller's responsibility to process all returned
-     * partition IDs.
+     * @note It is the caller's responsibility to process all returned partition IDs.
      *
      * @return vector of finished partitions.
      *
@@ -202,7 +202,7 @@ class FinishCounter {
             );
         });
         std::vector<PartID> result{};
-        // TODO: hand-writing iteration rather than range for to avoid
+        // TODO: hand-writing iteration rather than range-for to avoid
         // needing to rehash the key during extract_key. Needs
         // std::ranges, I think.
         for (auto it = partitions_ready_to_wait_on_.begin();
@@ -295,27 +295,28 @@ class Shuffler {
      *
      * @param comm The communicator to use.
      * @param total_num_partitions Total number of partitions in the shuffle.
-     * @param partition_owner Function to determine partition ownership.
      * @param stream The CUDA stream for memory operations.
-     * @param mr The device memory resource.
+     * @param br Buffer resource used to allocate temporary and the shuffle result.
+     * @param partition_owner Function to determine partition ownership.
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
         PartID total_num_partitions,
-        PartitionOwner partition_owner = round_robin,
-        rmm::cuda_stream_view stream = cudf::get_default_stream(),
-        rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()
+        rmm::cuda_stream_view stream,
+        BufferResource* br,
+        PartitionOwner partition_owner = round_robin
     )
         : total_num_partitions{total_num_partitions},
           partition_owner{partition_owner},
           stream_{stream},
-          mr_{mr},
+          br_{br},
           comm_{std::move(comm)},
           finish_counter_{
               comm_->nranks(),
               local_partitions(comm_, total_num_partitions, partition_owner)
           } {
         event_loop_thread_ = std::thread(Shuffler::event_loop, this);
+        RAPIDSMP_EXPECTS(br_ != nullptr, "the BufferResource cannot be NULL");
     }
 
     ~Shuffler() {
@@ -384,7 +385,14 @@ class Shuffler {
      * @param chunk The packed chunk, `cudf::table`, to insert.
      */
     void insert(PartID pid, cudf::packed_columns&& chunk) {
-        insert(detail::Chunk{pid, get_new_cid(), std::move(chunk)});
+        insert(detail::Chunk{
+            pid,
+            get_new_cid(),
+            0,
+            chunk.gpu_data ? chunk.gpu_data->size() : 0,
+            std::move(chunk.metadata),
+            br_->move(std::move(chunk.gpu_data), stream_)
+        });
     }
 
     /**
@@ -425,7 +433,11 @@ class Shuffler {
         std::vector<cudf::packed_columns> ret;
         ret.reserve(chunks.size());
         for (auto& [_, chunk] : chunks) {
-            ret.push_back(chunk.release());
+            // Make sure that the gpu_data is on device memory (copy if necessary).
+            ret.emplace_back(
+                std::move(chunk.metadata),
+                br_->move_to_device_buffer(std::move(chunk.gpu_data), stream_)
+            );
         }
         return ret;
     }
@@ -480,7 +492,7 @@ class Shuffler {
     [[nodiscard]] detail::ChunkID get_new_cid() {
         // Place the counter in the first 38 bits (supports 256G chunks).
         std::uint64_t upper = ++chunk_id_counter_ << 26;
-        // and place the rank in last 26 bits (supports 64M processes).
+        // and place the rank in last 26 bits (supports 64M ranks).
         std::uint64_t lower = comm_->rank();
         return upper | lower;
     }
@@ -491,7 +503,7 @@ class Shuffler {
 
   private:
     rmm::cuda_stream_view stream_;
-    rmm::device_async_resource_ref mr_;
+    BufferResource* br_;
     bool active_{true};
     detail::PostBox inbox_;
     detail::PostBox outbox_;

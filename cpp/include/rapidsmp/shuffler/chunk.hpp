@@ -22,6 +22,7 @@
 #include <cudf/contiguous_split.hpp>
 #include <cudf/table/table.hpp>
 
+#include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
 
 namespace rapidsmp::shuffler::detail {
@@ -50,7 +51,7 @@ class Chunk {
     std::unique_ptr<std::vector<uint8_t>> metadata;
 
     /// GPU data buffer of the packed `cudf::table` associated with this chunk.
-    std::unique_ptr<rmm::device_buffer> gpu_data;
+    std::unique_ptr<Buffer> gpu_data;
 
     /**
      * @brief Construct a new chunk of a partition.
@@ -71,7 +72,7 @@ class Chunk {
         std::size_t expected_num_chunks,
         std::size_t gpu_data_size,
         std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<rmm::device_buffer> gpu_data
+        std::unique_ptr<Buffer> gpu_data
     );
 
     /**
@@ -83,26 +84,6 @@ class Chunk {
      * expected to get from the sending rank. Ignored when it is zero.
      */
     Chunk(PartID pid, ChunkID cid, std::size_t expected_num_chunks);
-
-    /**
-     * @brief Construct a new chunk of a partition.
-     *
-     * @param pid The ID of the partition this chunk is part of.
-     * @param cid The ID of the chunk.
-     * @param chunk The chunk given as a packed `cudf::table`.
-     */
-    Chunk(PartID pid, ChunkID cid, cudf::packed_columns&& chunk);
-
-    /**
-     * @brief Returns the chunk as a packed `cudf::table`.
-     *
-     * The metadata and gpu_data is moved out of this chunk.
-     *
-     * @returns The packed `cudf::table`.
-     */
-    cudf::packed_columns release() {
-        return cudf::packed_columns{std::move(metadata), std::move(gpu_data)};
-    }
 
     /**
      * @brief Header of a metadata message.
@@ -138,17 +119,24 @@ class Chunk {
     /**
      * @brief Returns an unpacked (deserialized) chunk.
      *
+     * @warning This copies the data and shouldn't be used in performance critical code.
+     *
+     * @param stream CUDA stream used for device memory operations and kernel launches.
      * @returns A `cudf::table` that represents the chunk data.
      */
-    [[nodiscard]] std::unique_ptr<cudf::table> unpack() const;
+    [[nodiscard]] std::unique_ptr<cudf::table> unpack(rmm::cuda_stream_view stream) const;
 
     /**
      * @brief Returns a description of this instance.
      *
      * @param max_nbytes The maximum size of the chunk data to include.
+     * @param stream CUDA stream used for device memory operations and kernel launches.
      * @return The description.
      */
-    [[nodiscard]] std::string str(std::size_t max_nbytes = 512) const;
+    [[nodiscard]] std::string str(
+        std::size_t max_nbytes = 512,
+        rmm::cuda_stream_view stream = cudf::get_default_stream()
+    ) const;
 };
 
 /**

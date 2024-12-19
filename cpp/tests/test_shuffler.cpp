@@ -23,6 +23,7 @@
 #include <cudf_test/debug_utilities.hpp>
 #include <cudf_test/table_utilities.hpp>
 
+#include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/shuffler/shuffler.hpp>
 #include <rapidsmp/utils.hpp>
@@ -31,7 +32,7 @@
 
 class NumOfPartitions : public cudf::test::BaseFixtureWithParam<int> {};
 
-// test the allowed bit widths for dictionary encoding
+// test different `total_num_partitions`
 INSTANTIATE_TEST_SUITE_P(
     Shuffler, NumOfPartitions, testing::Range(1, 10), testing::PrintToStringParamName()
 );
@@ -81,16 +82,33 @@ TEST(MetadataMessage, round_trip) {
     EXPECT_EQ(metadata, *result.metadata);
 }
 
-TEST_P(NumOfPartitions, round_trip) {
+class MemoryTypeAndNumPartition
+    : public cudf::test::BaseFixtureWithParam<std::tuple<rapidsmp::MemoryType, int>> {};
+
+// test different `rapidsmp::MemoryType` and `total_num_partitions`.
+INSTANTIATE_TEST_SUITE_P(
+    Shuffler,
+    MemoryTypeAndNumPartition,
+    testing::Combine(
+        testing::ValuesIn({rapidsmp::MemoryType::DEVICE, rapidsmp::MemoryType::HOST}),
+        testing::Range(1, 10)
+    )
+);
+
+TEST_P(MemoryTypeAndNumPartition, round_trip) {
+    rapidsmp::MemoryType const mem_type = std::get<0>(GetParam());
+    rapidsmp::shuffler::PartID const total_num_partitions = std::get<1>(GetParam());
     std::int64_t const seed = 42;
     cudf::hash_id const hash_function = cudf::hash_id::HASH_MURMUR3;
-    rapidsmp::shuffler::PartID const total_num_partitions = GetParam();
+    auto stream = cudf::get_default_stream();
+    auto mr = cudf::get_current_device_resource_ref();
+    rapidsmp::BufferResource br{mr, rapidsmp::memory_type_resolver::constant(mem_type)};
 
     MPI_Comm mpi_comm;
     RAPIDSMP_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm));
     std::shared_ptr<rapidsmp::Communicator> comm =
         std::make_shared<rapidsmp::MPI>(mpi_comm);
-    rapidsmp::shuffler::Shuffler shuffler(comm, total_num_partitions);
+    rapidsmp::shuffler::Shuffler shuffler(comm, total_num_partitions, stream, &br);
 
     // Every rank creates the full input table and all the expected partitions (also
     // partitions this rank might not get after the shuffle).
