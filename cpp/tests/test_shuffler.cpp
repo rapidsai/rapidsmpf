@@ -82,27 +82,34 @@ TEST(MetadataMessage, round_trip) {
     EXPECT_EQ(metadata, *result.metadata);
 }
 
-class MemoryTypeAndNumPartition
-    : public cudf::test::BaseFixtureWithParam<std::tuple<rapidsmp::MemoryType, int>> {};
+class MemoryHierarchy_NumPartition : public cudf::test::BaseFixtureWithParam<
+                                         std::tuple<rapidsmp::MemoryHierarchy, int>> {};
 
-// test different `rapidsmp::MemoryType` and `total_num_partitions`.
+// test different `rapidsmp::MemoryHierarchy` and `total_num_partitions`.
 INSTANTIATE_TEST_SUITE_P(
     Shuffler,
-    MemoryTypeAndNumPartition,
+    MemoryHierarchy_NumPartition,
     testing::Combine(
-        testing::ValuesIn({rapidsmp::MemoryType::DEVICE, rapidsmp::MemoryType::HOST}),
+        testing::ValuesIn(
+            {rapidsmp::MemoryHierarchy{
+                 rapidsmp::MemoryType::DEVICE, rapidsmp::MemoryType::HOST
+             },
+             rapidsmp::MemoryHierarchy{
+                 rapidsmp::MemoryType::HOST, rapidsmp::MemoryType::DEVICE
+             }}
+        ),
         testing::Range(1, 10)
     )
 );
 
-TEST_P(MemoryTypeAndNumPartition, round_trip) {
-    rapidsmp::MemoryType const mem_type = std::get<0>(GetParam());
+TEST_P(MemoryHierarchy_NumPartition, round_trip) {
+    rapidsmp::MemoryHierarchy const memory_hierarchy = std::get<0>(GetParam());
     rapidsmp::shuffler::PartID const total_num_partitions = std::get<1>(GetParam());
     std::int64_t const seed = 42;
     cudf::hash_id const hash_function = cudf::hash_id::HASH_MURMUR3;
     auto stream = cudf::get_default_stream();
     auto mr = cudf::get_current_device_resource_ref();
-    rapidsmp::BufferResource br{mr, rapidsmp::memory_type_resolver::constant(mem_type)};
+    rapidsmp::BufferResource br{mr, memory_hierarchy};
 
     MPI_Comm mpi_comm;
     RAPIDSMP_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm));

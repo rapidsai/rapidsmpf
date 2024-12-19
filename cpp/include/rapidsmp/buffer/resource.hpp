@@ -16,50 +16,11 @@
 
 #pragma once
 
-#include <functional>
 
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/error.hpp>
 
 namespace rapidsmp {
-
-/**
- * @brief Callback function to resolves the memory type based on a size input.
- *
- * Used to determine whether memory should be allocated on host or device
- * given the buffer size.
- */
-using MemoryTypeResolver = std::function<MemoryType(std::size_t)>;
-
-namespace memory_type_resolver {
-
-/**
- * @brief A constant memory type resolver.
- *
- * Always returns the specified memory type, regardless of the allocation size.
- */
-struct constant {
-    /**
-     * @brief Constructs a constant memory type resolver.
-     *
-     * @param mem_type The memory type to always resolve to.
-     */
-    constexpr constant(MemoryType mem_type) : mem_type{mem_type} {}
-
-    /**
-     * @brief Resolve to the constant memory type.
-     *
-     * @param size Input size (ignored).
-     * @return The constant memory type.
-     */
-    constexpr MemoryType operator()([[maybe_unused]] std::size_t size) const noexcept {
-        return mem_type;
-    }
-
-    MemoryType const mem_type;  ///< The constant memory type to resolve.
-};
-
-}  // namespace memory_type_resolver
 
 /**
  * @brief Base class for managing buffer resources.
@@ -68,8 +29,7 @@ struct constant {
  * (e.g., host and device). All memory operations in rapidsmp, such as those performed
  * by the Shuffler, rely on a buffer resource for memory management.
  *
- * This base class use the provided `MemoryTypeResolver` callback function to determine
- * the memory type (host or device) of an allocation.
+ * This base class always use the highest memory type in the provided memory hierarchy.
  *
  * An alternative allocation strategic can be implemented in a derived class by overriding
  * one or more of the virtual methods.
@@ -80,20 +40,19 @@ struct constant {
 class BufferResource {
   public:
     /**
-     * @brief Constructs a buffer resource that uses a memory resolver to decide the
+     * @brief Constructs a buffer resource that uses a memory hierarchy to decide the
      * memory type of each new allocation.
      *
      * @param device_mr Reference to the RMM device memory resource used for all device
      * allocations, which must outlive `BufferResource` and all the created buffers.
-     * @param resolver Memory type resolver, which is a callback function that takes an
-     * allocation size and returns a memory type. The default resolver always returns
-     * device memory.
+     * @param memory_hierarchy The memory hierarchy to use (the base class always use the
+     * highest memory type).
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
-        MemoryTypeResolver resolver = memory_type_resolver::constant(MemoryType::DEVICE)
+        MemoryHierarchy memory_hierarchy = {MemoryType::DEVICE, MemoryType::HOST}
     )
-        : device_mr_{device_mr}, resolver_{std::move(resolver)} {}
+        : device_mr_{device_mr}, memory_hierarchy_{memory_hierarchy} {}
 
     virtual ~BufferResource() noexcept = default;
 
@@ -104,6 +63,15 @@ class BufferResource {
      */
     [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
         return device_mr_;
+    }
+
+    /**
+     * @brief Get the memory hierarchy.
+     *
+     * @return Reference to an array of memory types ordered by the hierarchy.
+     */
+    [[nodiscard]] MemoryHierarchy const& memory_hierarchy() const noexcept {
+        return memory_hierarchy_;
     }
 
     /**
@@ -119,14 +87,16 @@ class BufferResource {
     );
 
     /**
-     * @brief Allocate a buffer based on the memory type resolver.
+     * @brief Allocate a new buffer.
+     *
+     * The base implementation always use the highest memory type in the memory hierarchy.
      *
      * @param size The size of the buffer in bytes.
      * @param stream CUDA stream to use for device allocations.
      * @return A unique pointer to the allocated Buffer.
      */
     virtual std::unique_ptr<Buffer> allocate(size_t size, rmm::cuda_stream_view stream) {
-        return allocate(resolver_(size), size, stream);
+        return allocate(memory_hierarchy().at(0), size, stream);
     }
 
     /**
@@ -221,7 +191,7 @@ class BufferResource {
 
   protected:
     rmm::device_async_resource_ref device_mr_;  ///< RMM device memory resource reference.
-    MemoryTypeResolver resolver_;  ///< Function to resolve memory type.
+    MemoryHierarchy memory_hierarchy_;  ///< The hierarchy of memory types to use.
 };
 
 }  // namespace rapidsmp

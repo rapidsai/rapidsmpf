@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -31,6 +32,9 @@ enum class MemoryType : int {
     HOST,  ///< Host memory
     DEVICE  ///< Device memory
 };
+
+/// @brief Array that represents a hierarchy of all memory types in `MemoryType`.
+using MemoryHierarchy = std::array<MemoryType, 2>;
 
 /**
  * @brief Buffer representing device or host memory.
