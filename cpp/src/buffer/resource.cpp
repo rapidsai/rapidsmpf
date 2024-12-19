@@ -21,24 +21,24 @@
 namespace rapidsmp {
 
 
-AllocToken::~AllocToken() noexcept {
+MemoryReservation::~MemoryReservation() noexcept {
     br->release(*this);
 }
 
-std::pair<std::unique_ptr<AllocToken>, std::size_t> BufferResource::reserve(
+std::pair<std::unique_ptr<MemoryReservation>, std::size_t> BufferResource::reserve(
     MemoryType mem_type, size_t size
 ) {
     constexpr std::size_t overbooking = 0;
-    return {std::make_unique<AllocToken>(mem_type, this, size), overbooking};
+    return {std::make_unique<MemoryReservation>(mem_type, this, size), overbooking};
 }
 
-void BufferResource::release(AllocToken const& token) noexcept {}
+void BufferResource::release(MemoryReservation const& token) noexcept {}
 
 std::unique_ptr<Buffer> BufferResource::allocate(
     MemoryType mem_type,
     size_t size,
     rmm::cuda_stream_view stream,
-    std::unique_ptr<AllocToken>& token
+    std::unique_ptr<MemoryReservation>& token
 ) {
     std::unique_ptr<Buffer> ret;
     switch (mem_type) {
@@ -77,7 +77,7 @@ std::unique_ptr<Buffer> BufferResource::move(
     MemoryType target,
     std::unique_ptr<Buffer> buffer,
     rmm::cuda_stream_view stream,
-    std::unique_ptr<AllocToken>& token
+    std::unique_ptr<MemoryReservation>& token
 ) {
     if (target != buffer->mem_type) {
         auto ret = buffer->copy(target, stream);
@@ -90,7 +90,7 @@ std::unique_ptr<Buffer> BufferResource::move(
 std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     std::unique_ptr<Buffer> buffer,
     rmm::cuda_stream_view stream,
-    std::unique_ptr<AllocToken>& token
+    std::unique_ptr<MemoryReservation>& token
 ) {
     return std::move(move(MemoryType::DEVICE, std::move(buffer), stream, token)->device()
     );
@@ -99,7 +99,7 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
 std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
     std::unique_ptr<Buffer> buffer,
     rmm::cuda_stream_view stream,
-    std::unique_ptr<AllocToken>& token
+    std::unique_ptr<MemoryReservation>& token
 ) {
     return std::move(move(MemoryType::HOST, std::move(buffer), stream, token)->host());
 }
@@ -108,7 +108,7 @@ std::unique_ptr<Buffer> BufferResource::copy(
     MemoryType target,
     std::unique_ptr<Buffer> const& buffer,
     rmm::cuda_stream_view stream,
-    std::unique_ptr<AllocToken>& token
+    std::unique_ptr<MemoryReservation>& token
 ) {
     auto ret = buffer->copy(target, stream);
     if (target != buffer->mem_type) {

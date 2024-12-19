@@ -25,18 +25,20 @@
 
 namespace rapidsmp {
 
-class AllocToken {
+class MemoryReservation {
   public:
-    constexpr AllocToken(MemoryType mem_type, BufferResource* const br, std::size_t size)
+    constexpr MemoryReservation(
+        MemoryType mem_type, BufferResource* const br, std::size_t size
+    )
         : mem_type{mem_type}, br{br}, size_{size} {}
 
-    ~AllocToken() noexcept;
+    ~MemoryReservation() noexcept;
 
-    /// @brief An allocation token isn't moveable or copyable.
-    AllocToken(AllocToken&& other) = delete;
-    AllocToken& operator=(AllocToken&&) = delete;
-    AllocToken(AllocToken const&) = delete;
-    AllocToken& operator=(AllocToken const&) = delete;
+    /// @brief An reservation isn't moveable or copyable.
+    MemoryReservation(MemoryReservation&& other) = delete;
+    MemoryReservation& operator=(MemoryReservation&&) = delete;
+    MemoryReservation(MemoryReservation const&) = delete;
+    MemoryReservation& operator=(MemoryReservation const&) = delete;
 
     [[nodiscard]] std::size_t size() const {
         return size_;
@@ -45,13 +47,13 @@ class AllocToken {
     std::size_t use(MemoryType target, std::size_t size) {
         RAPIDSMP_EXPECTS(
             mem_type == target,
-            "the memory type of AllocToken doesn't match",
+            "the memory type of MemoryReservation doesn't match",
             std::invalid_argument
         );
         std::lock_guard const lock(mutex_);
         RAPIDSMP_EXPECTS(
             size <= size_,
-            "AllocToken(" + format_nbytes(size_) + ") isn't big enough ("
+            "MemoryReservation(" + format_nbytes(size_) + ") isn't big enough ("
                 + format_nbytes(size) + ")",
             std::overflow_error
         );
@@ -90,8 +92,8 @@ class BufferResource {
      *
      * @param device_mr Reference to the RMM device memory resource used for all device
      * allocations, which must outlive `BufferResource` and all the created buffers.
-     * @param memory_hierarchy The memory hierarchy to use (the base class always use the
-     * highest memory type).
+     * @param memory_hierarchy The memory hierarchy to use (the base class always uses
+     * the highest memory type).
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
@@ -130,11 +132,11 @@ class BufferResource {
      * @param size The number of bytes to reserve.
      * @return An allocation token and the amount of "overbooking".
      */
-    virtual std::pair<std::unique_ptr<AllocToken>, std::size_t> reserve(
+    virtual std::pair<std::unique_ptr<MemoryReservation>, std::size_t> reserve(
         MemoryType mem_type, size_t size
     );
 
-    virtual void release(AllocToken const& token) noexcept;
+    virtual void release(MemoryReservation const& token) noexcept;
 
     /**
      * @brief Allocate a buffer of the specified memory type.
@@ -148,7 +150,7 @@ class BufferResource {
         MemoryType mem_type,
         size_t size,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<AllocToken>& token
+        std::unique_ptr<MemoryReservation>& token
     );
 
     /**
@@ -204,7 +206,7 @@ class BufferResource {
         MemoryType target,
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<AllocToken>& token
+        std::unique_ptr<MemoryReservation>& token
     );
 
     /**
@@ -219,7 +221,7 @@ class BufferResource {
     virtual std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<AllocToken>& token
+        std::unique_ptr<MemoryReservation>& token
     );
 
     /**
@@ -234,7 +236,7 @@ class BufferResource {
     virtual std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<AllocToken>& token
+        std::unique_ptr<MemoryReservation>& token
     );
 
     /**
@@ -251,7 +253,7 @@ class BufferResource {
         MemoryType target,
         std::unique_ptr<Buffer> const& buffer,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<AllocToken>& token
+        std::unique_ptr<MemoryReservation>& token
     );
 
     /**
@@ -270,6 +272,5 @@ class BufferResource {
     rmm::device_async_resource_ref device_mr_;  ///< RMM device memory resource reference.
     MemoryHierarchy memory_hierarchy_;  ///< The hierarchy of memory types to use.
 };
-
 
 }  // namespace rapidsmp
