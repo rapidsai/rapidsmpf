@@ -80,8 +80,6 @@ class MemoryReservation {
      * @brief Consume a portion of the reserved memory.
      *
      * Reduces the remaining size of the reserved memory by the specified amount.
-     * This method ensures the requested size does not exceed the reserved memory
-     * and validates that the memory type matches the reservation.
      *
      * @param target The memory type of the reservation.
      * @param size The size to consume in bytes.
@@ -170,19 +168,24 @@ class BufferResource {
     /**
      * @brief Reserve an amount of the specified memory type.
      *
-     * This can be used by derived classes to help determinate the memory type of upcoming
-     * buffer allocations. E.g., the Shuffler could use this to reserve device memory for
-     * the next output pertition before moving each individual chunk to device memory.
+     * Creates a new reservation to inform about upcoming buffer allocations. E.g.,
+     * the `Shuffler::extract()` use this to reserve device memory for the next
+     * output pertition before moving each individual chunk to device memory.
+     *
+     * Additionally, the amount of "overbooking" is also returned.
+     *
+     *
+     *
      *
      * @param mem_type The target memory type.
      * @param size The number of bytes to reserve.
-     * @return An allocation token and the amount of "overbooking".
+     * @return An allocation reservation and the amount of "overbooking".
      */
     virtual std::pair<std::unique_ptr<MemoryReservation>, std::size_t> reserve(
         MemoryType mem_type, size_t size
     );
 
-    virtual void release(MemoryReservation const& token) noexcept;
+    virtual void release(MemoryReservation const& reservation) noexcept;
 
     /**
      * @brief Allocate a buffer of the specified memory type.
@@ -190,7 +193,7 @@ class BufferResource {
      * @param mem_type The target memory type (host or device).
      * @param size The size of the buffer in bytes.
      * @param stream CUDA stream to use for device allocations.
-     * @param token The reservation to use for memory allocations.
+     * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the allocated Buffer.
      *
      * @throws std::invalid_argument if the memory type does not match the reservation.
@@ -200,7 +203,7 @@ class BufferResource {
         MemoryType mem_type,
         size_t size,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<MemoryReservation>& token
+        std::unique_ptr<MemoryReservation>& reservation
     );
 
     /**
@@ -215,9 +218,9 @@ class BufferResource {
      */
     virtual std::unique_ptr<Buffer> allocate(size_t size, rmm::cuda_stream_view stream) {
         auto mem_type = memory_hierarchy().at(0);  // Always pick the highest memory type.
-        auto [token, overbooking] = reserve(mem_type, size);
+        auto [reservation, overbooking] = reserve(mem_type, size);
         // TODO: check overbooking, do we need to spill?
-        return allocate(mem_type, size, stream, token);
+        return allocate(mem_type, size, stream, reservation);
     }
 
     /**
@@ -256,7 +259,7 @@ class BufferResource {
         MemoryType target,
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<MemoryReservation>& token
+        std::unique_ptr<MemoryReservation>& reservation
     );
 
     /**
@@ -271,7 +274,7 @@ class BufferResource {
     virtual std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<MemoryReservation>& token
+        std::unique_ptr<MemoryReservation>& reservation
     );
 
     /**
@@ -286,7 +289,7 @@ class BufferResource {
     virtual std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<MemoryReservation>& token
+        std::unique_ptr<MemoryReservation>& reservation
     );
 
     /**
@@ -303,7 +306,7 @@ class BufferResource {
         MemoryType target,
         std::unique_ptr<Buffer> const& buffer,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<MemoryReservation>& token
+        std::unique_ptr<MemoryReservation>& reservation
     );
 
     /**
