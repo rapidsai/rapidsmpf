@@ -150,7 +150,7 @@ dependencies:
               - python=3.12
           - matrix:
             packages:
-              - python>=3.10,<31.13
+              - python>=3.10,<3.13
   test_cpp:
     common:
       - output_types: conda
