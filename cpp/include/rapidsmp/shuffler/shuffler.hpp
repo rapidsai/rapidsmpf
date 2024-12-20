@@ -280,15 +280,7 @@ class Shuffler {
         std::shared_ptr<Communicator> const& comm,
         PartID total_num_partitions,
         PartitionOwner partition_owner
-    ) {
-        std::vector<PartID> ret;
-        for (PartID i = 0; i < total_num_partitions; ++i) {
-            if (partition_owner(comm, i) == comm->rank()) {
-                ret.push_back(i);
-            }
-        }
-        return ret;
-    }
+    );
 
     /**
      * @brief Construct a new shuffler for a single shuffle.
@@ -305,40 +297,16 @@ class Shuffler {
         rmm::cuda_stream_view stream,
         BufferResource* br,
         PartitionOwner partition_owner = round_robin
-    )
-        : total_num_partitions{total_num_partitions},
-          partition_owner{partition_owner},
-          stream_{stream},
-          br_{br},
-          comm_{std::move(comm)},
-          finish_counter_{
-              comm_->nranks(),
-              local_partitions(comm_, total_num_partitions, partition_owner)
-          } {
-        event_loop_thread_ = std::thread(Shuffler::event_loop, this);
-        RAPIDSMP_EXPECTS(br_ != nullptr, "the BufferResource cannot be NULL");
-    }
+    );
 
-    ~Shuffler() {
-        if (active_) {
-            shutdown();
-        }
-    }
+    ~Shuffler();
 
     /**
      * @brief Shutdown the shuffle, blocking until all inflight communication is done.
      *
      * @throw cudf::logic_error If the shuffler is already inactive.
      */
-    void shutdown() {
-        RAPIDSMP_EXPECTS(active_, "shuffler is inactive");
-        auto& log = comm_->logger();
-        log.info("Shuffler.shutdown() - initiate");
-        event_loop_thread_run_.store(false);
-        event_loop_thread_.join();
-        log.info("Shuffler.shutdown() - done");
-        active_ = false;
-    }
+    void shutdown();
 
   private:
     /**
@@ -346,19 +314,7 @@ class Shuffler {
      *
      * @param chunk The chunk to insert.
      */
-    void insert_into_outbox(detail::Chunk&& chunk) {
-        auto& log = comm_->logger();
-        log.info("insert_into_outbox: ", chunk);
-        auto pid = chunk.pid;
-        if (chunk.expected_num_chunks) {
-            finish_counter_.move_goalpost(
-                comm_->rank(), chunk.pid, chunk.expected_num_chunks
-            );
-        } else {
-            outbox_.insert(std::move(chunk));
-        }
-        finish_counter_.add_finished_chunk(pid);
-    }
+    void insert_into_outbox(detail::Chunk&& chunk);
 
   public:
     /**
@@ -366,17 +322,7 @@ class Shuffler {
      *
      * @param chunk The chunk to insert.
      */
-    void insert(detail::Chunk&& chunk) {
-        {
-            std::lock_guard const lock(outbound_chunk_counter_mutex_);
-            ++outbound_chunk_counter_[chunk.pid];
-        }
-        if (partition_owner(comm_, chunk.pid) == comm_->rank()) {
-            insert_into_outbox(std::move(chunk));
-        } else {
-            inbox_.insert(std::move(chunk));
-        }
-    }
+    void insert(detail::Chunk&& chunk);
 
     /**
      * @brief Insert a packed (serialized) chunk into the shuffle.
@@ -384,27 +330,14 @@ class Shuffler {
      * @param pid The partition ID the chunk belong to.
      * @param chunk The packed chunk, `cudf::table`, to insert.
      */
-    void insert(PartID pid, cudf::packed_columns&& chunk) {
-        insert(detail::Chunk{
-            pid,
-            get_new_cid(),
-            0,
-            chunk.gpu_data ? chunk.gpu_data->size() : 0,
-            std::move(chunk.metadata),
-            br_->move(std::move(chunk.gpu_data), stream_)
-        });
-    }
+    void insert(PartID pid, cudf::packed_columns&& chunk);
 
     /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
      *
      * @param chunks A map of partition IDs and their packed chunks.
      */
-    void insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks) {
-        for (auto& [pid, packed_columns] : chunks) {
-            insert(pid, std::move(packed_columns));
-        }
-    }
+    void insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks);
 
     /**
      * @brief Insert a finish mark for a partition.
@@ -413,14 +346,7 @@ class Shuffler {
      *
      * @param pid The partition ID to mark as finished.
      */
-    void insert_finished(PartID pid) {
-        detail::ChunkID expected_num_chunks;
-        {
-            std::lock_guard const lock(outbound_chunk_counter_mutex_);
-            expected_num_chunks = outbound_chunk_counter_[pid];
-        }
-        insert(detail::Chunk{pid, get_new_cid(), expected_num_chunks + 1});
-    }
+    void insert_finished(PartID pid);
 
     /**
      * @brief Extract all chunks of a specific partition.
@@ -428,19 +354,7 @@ class Shuffler {
      * @param pid The partition ID.
      * @return A vector of packed columns (chunks) for the partition.
      */
-    [[nodiscard]] std::vector<cudf::packed_columns> extract(PartID pid) {
-        auto chunks = outbox_.extract(pid);
-        std::vector<cudf::packed_columns> ret;
-        ret.reserve(chunks.size());
-        for (auto& [_, chunk] : chunks) {
-            // Make sure that the gpu_data is on device memory (copy if necessary).
-            ret.emplace_back(
-                std::move(chunk.metadata),
-                br_->move_to_device_buffer(std::move(chunk.gpu_data), stream_)
-            );
-        }
-        return ret;
-    }
+    [[nodiscard]] std::vector<cudf::packed_columns> extract(PartID pid);
 
     /**
      * @brief Check if all partitions are finished.
@@ -489,13 +403,8 @@ class Shuffler {
             in_transit_futures
     );
 
-    [[nodiscard]] detail::ChunkID get_new_cid() {
-        // Place the counter in the first 38 bits (supports 256G chunks).
-        std::uint64_t upper = ++chunk_id_counter_ << 26;
-        // and place the rank in last 26 bits (supports 64M ranks).
-        std::uint64_t lower = comm_->rank();
-        return upper | lower;
-    }
+    /// @brief Get an new unique chunk ID.
+    [[nodiscard]] detail::ChunkID get_new_cid();
 
   public:
     PartID const total_num_partitions;  ///< Total number of partition in the shuffle.
