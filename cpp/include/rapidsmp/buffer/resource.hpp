@@ -44,9 +44,7 @@ class MemoryReservation {
      * @param br Pointer to the buffer resource managing this reservation.
      * @param size The size of the reserved memory in bytes.
      */
-    constexpr MemoryReservation(
-        MemoryType mem_type, BufferResource* br, std::size_t size
-    )
+    constexpr MemoryReservation(MemoryType mem_type, BufferResource* br, std::size_t size)
         : mem_type_{mem_type}, br_{br}, size_{size} {}
 
     /**
@@ -184,7 +182,7 @@ class BufferResource {
      * @param size The number of bytes to reserve.
      * @return An allocation reservation and the amount of "overbooking". Or null
      */
-    virtual std::pair<std::unique_ptr<MemoryReservation>, std::size_t> reserve(
+    virtual std::pair<MemoryReservation, std::size_t> reserve(
         MemoryType mem_type, size_t size, bool allow_overbooking
     );
 
@@ -206,7 +204,7 @@ class BufferResource {
         MemoryType mem_type,
         std::size_t size,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<MemoryReservation>& reservation
+        MemoryReservation& reservation
     );
 
     /**
@@ -265,7 +263,7 @@ class BufferResource {
         MemoryType target,
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<MemoryReservation>& reservation
+        MemoryReservation& reservation
     );
 
     /**
@@ -280,7 +278,7 @@ class BufferResource {
     virtual std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<MemoryReservation>& reservation
+        MemoryReservation& reservation
     );
 
     /**
@@ -295,7 +293,7 @@ class BufferResource {
     virtual std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<MemoryReservation>& reservation
+        MemoryReservation& reservation
     );
 
     /**
@@ -312,7 +310,7 @@ class BufferResource {
         MemoryType target,
         std::unique_ptr<Buffer> const& buffer,
         rmm::cuda_stream_view stream,
-        std::unique_ptr<MemoryReservation>& reservation
+        MemoryReservation& reservation
     );
 
     /**
