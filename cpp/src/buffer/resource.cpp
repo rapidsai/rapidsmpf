@@ -36,7 +36,7 @@ void BufferResource::release(MemoryReservation const& reservation) noexcept {}
 
 std::unique_ptr<Buffer> BufferResource::allocate(
     MemoryType mem_type,
-    size_t size,
+    std::size_t size,
     rmm::cuda_stream_view stream,
     std::unique_ptr<MemoryReservation>& reservation
 ) {

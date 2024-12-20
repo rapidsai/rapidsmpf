@@ -187,7 +187,7 @@ class Buffer {
   public:
     MemoryType const mem_type;  ///< Memory type.
     BufferResource* const br;  ///< The buffer resource used.
-    size_t const size;  ///< The size of the buffer in bytes.
+    std::size_t const size;  ///< The size of the buffer in bytes.
 };
 
 }  // namespace rapidsmp

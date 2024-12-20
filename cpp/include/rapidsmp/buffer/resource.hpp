@@ -201,7 +201,7 @@ class BufferResource {
      */
     virtual std::unique_ptr<Buffer> allocate(
         MemoryType mem_type,
-        size_t size,
+        std::size_t size,
         rmm::cuda_stream_view stream,
         std::unique_ptr<MemoryReservation>& reservation
     );
