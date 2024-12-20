@@ -23,7 +23,7 @@ namespace rapidsmp {
 
 MemoryReservation::~MemoryReservation() noexcept {
     if (size_ > 0) {
-        br_->release(*this);
+        br_->release(*this, mem_type_, size_);
     }
 }
 
@@ -31,10 +31,15 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, size_t size, bool allow_overbooking
 ) {
     constexpr std::size_t overbooking = 0;
-    return {MemoryReservation{mem_type, this, size}, overbooking};
+    return {create_memory_reservation(mem_type, this, size), overbooking};
 }
 
-void BufferResource::release(MemoryReservation const& reservation) noexcept {}
+std::size_t BufferResource::release(
+    MemoryReservation& reservation, MemoryType target, std::size_t size
+) {
+    std::lock_guard const lock(reservation_mutex_);
+    return release_memory_reservation(reservation, target, size);
+}
 
 std::unique_ptr<Buffer> BufferResource::allocate(
     MemoryType mem_type,
@@ -59,7 +64,7 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     default:
         RAPIDSMP_FAIL("MemoryType: unknown");
     }
-    reservation.use(mem_type, size);
+    release(reservation, mem_type, size);
     return ret;
 }
 
@@ -83,7 +88,7 @@ std::unique_ptr<Buffer> BufferResource::move(
 ) {
     if (target != buffer->mem_type) {
         auto ret = buffer->copy(target, stream);
-        reservation.use(target, ret->size);
+        release(reservation, target, ret->size);
         return ret;
     }
     return buffer;
@@ -117,7 +122,7 @@ std::unique_ptr<Buffer> BufferResource::copy(
 ) {
     auto ret = buffer->copy(target, stream);
     if (target != buffer->mem_type) {
-        reservation.use(target, ret->size);
+        release(reservation, target, ret->size);
     }
     return ret;
 }

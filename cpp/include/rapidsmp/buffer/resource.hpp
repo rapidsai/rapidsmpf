@@ -30,23 +30,11 @@ namespace rapidsmp {
  *
  * A reservation is returned by `BufferResource::reserve` and must be used when allocating
  * buffers through the `BufferResource`.
- *
- * @note A `MemoryReservation` is not copyable or movable to ensure proper ownership and
- * lifetime management of the reserved memory thus normally it is wrapped in unique
- * pointer.
  */
 class MemoryReservation {
-  public:
-    /**
-     * @brief Constructs a memory reservation.
-     *
-     * @param mem_type The type of memory associated with this reservation.
-     * @param br Pointer to the buffer resource managing this reservation.
-     * @param size The size of the reserved memory in bytes.
-     */
-    constexpr MemoryReservation(MemoryType mem_type, BufferResource* br, std::size_t size)
-        : mem_type_{mem_type}, br_{br}, size_{size} {}
+    friend class BufferResource;
 
+  public:
     /**
      * @brief Destructor for the memory reservation.
      *
@@ -79,36 +67,18 @@ class MemoryReservation {
         return size_;
     }
 
+  private:
     /**
-     * @brief Consume a portion of the reserved memory.
+     * @brief Constructs a memory reservation.
      *
-     * Reduces the remaining size of the reserved memory by the specified amount.
-     *
-     * @param target The memory type of the reservation.
-     * @param size The size to consume in bytes.
-     * @return The remaining size of the reserved memory after consumption.
-     *
-     * @throws std::invalid_argument if the memory type does not match the reservation.
-     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
+     * @param mem_type The type of memory associated with this reservation.
+     * @param br Pointer to the buffer resource managing this reservation.
+     * @param size The size of the reserved memory in bytes.
      */
-    std::size_t use(MemoryType target, std::size_t size) {
-        RAPIDSMP_EXPECTS(
-            mem_type_ == target,
-            "the memory type of MemoryReservation doesn't match",
-            std::invalid_argument
-        );
-        std::lock_guard const lock(mutex_);
-        RAPIDSMP_EXPECTS(
-            size <= size_,
-            "MemoryReservation(" + format_nbytes(size_) + ") isn't big enough ("
-                + format_nbytes(size) + ")",
-            std::overflow_error
-        );
-        return size_ -= size;
-    }
+    constexpr MemoryReservation(MemoryType mem_type, BufferResource* br, std::size_t size)
+        : mem_type_{mem_type}, br_{br}, size_{size} {}
 
   private:
-    std::mutex mutex_;  ///< Mutex for thread-safe access to the reservation.
     MemoryType mem_type_;  ///< The type of memory for this reservation.
     BufferResource* br_;  ///< The buffer resource that manages this reservation.
     std::size_t size_;  ///< The remaining size of the reserved memory in bytes.
@@ -186,7 +156,22 @@ class BufferResource {
         MemoryType mem_type, size_t size, bool allow_overbooking
     );
 
-    virtual void release(MemoryReservation const& reservation) noexcept;
+
+    /**
+     * @brief Consume a portion of the reserved memory.
+     *
+     * Reduces the remaining size of the reserved memory by the specified amount.
+     *
+     * @param target The memory type of the reservation.
+     * @param size The size to consume in bytes.
+     * @return The remaining size of the reserved memory after consumption.
+     *
+     * @throws std::invalid_argument if the memory type does not match the reservation.
+     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
+     */
+    virtual std::size_t release(
+        MemoryReservation& reservation, MemoryType target, std::size_t size
+    );
 
     /**
      * @brief Allocate a buffer of the specified memory type.
@@ -326,7 +311,34 @@ class BufferResource {
     virtual void finalizer(Buffer* const buffer) noexcept {}
 
   protected:
-    std::mutex reservation_mutex_;  ///< Mutex to guard access to memory reservations.
+    // Factory method to create a new memory reservation, needed since the
+    // MemoryReservation's ctor is private.
+    static MemoryReservation create_memory_reservation(
+        MemoryType mem_type, BufferResource* br, std::size_t size
+    ) {
+        return MemoryReservation{mem_type, br, size};
+    }
+
+    static std::size_t release_memory_reservation(
+        MemoryReservation& reservation, MemoryType target, std::size_t size
+    ) {
+        RAPIDSMP_EXPECTS(
+            reservation.mem_type_ == target,
+            "the memory type of MemoryReservation doesn't match",
+            std::invalid_argument
+        );
+        RAPIDSMP_EXPECTS(
+            size <= reservation.size_,
+            "MemoryReservation(" + format_nbytes(reservation.size_)
+                + ") isn't big enough (" + format_nbytes(size) + ")",
+            std::overflow_error
+        );
+        return reservation.size_ -= size;
+    }
+
+
+  protected:
+    std::mutex reservation_mutex_;  ///< For thread-safe access to memory reservations.
     rmm::device_async_resource_ref device_mr_;  ///< RMM device memory resource reference.
     MemoryHierarchy memory_hierarchy_;  ///< The hierarchy of memory types to use.
 };
