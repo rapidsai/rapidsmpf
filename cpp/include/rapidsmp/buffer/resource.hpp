@@ -45,9 +45,9 @@ class MemoryReservation {
      * @param size The size of the reserved memory in bytes.
      */
     constexpr MemoryReservation(
-        MemoryType mem_type, BufferResource* const br, std::size_t size
+        MemoryType mem_type, BufferResource* br, std::size_t size
     )
-        : mem_type{mem_type}, br{br}, size_{size} {}
+        : mem_type_{mem_type}, br_{br}, size_{size} {}
 
     /**
      * @brief Destructor for the memory reservation.
@@ -56,14 +56,19 @@ class MemoryReservation {
      */
     ~MemoryReservation() noexcept;
 
-    /**
-     * @brief Deleted copy and move operations.
-     *
-     * A `MemoryReservation` is not copyable or movable to prevent unintended duplication
-     * or transfer of ownership.
-     */
-    MemoryReservation(MemoryReservation&& other) = delete;
-    MemoryReservation& operator=(MemoryReservation&&) = delete;
+    /// @brief A memory reservation is moveable.
+    MemoryReservation(MemoryReservation&& o)
+        : MemoryReservation{o.mem_type_, o.br_, std::exchange(o.size_, 0)} {}
+
+    /// @brief A memory reservation is moveable.
+    MemoryReservation& operator=(MemoryReservation&& o) noexcept {
+        mem_type_ = o.mem_type_;
+        br_ = o.br_;
+        size_ = std::exchange(o.size_, 0);
+        return *this;
+    }
+
+    /// @brief A memory reservation is not copyable.
     MemoryReservation(MemoryReservation const&) = delete;
     MemoryReservation& operator=(MemoryReservation const&) = delete;
 
@@ -90,7 +95,7 @@ class MemoryReservation {
      */
     std::size_t use(MemoryType target, std::size_t size) {
         RAPIDSMP_EXPECTS(
-            mem_type == target,
+            mem_type_ == target,
             "the memory type of MemoryReservation doesn't match",
             std::invalid_argument
         );
@@ -104,13 +109,11 @@ class MemoryReservation {
         return size_ -= size;
     }
 
-  public:
-    MemoryType const mem_type;  ///< The type of memory for this reservation.
-    BufferResource* const br;  ///< The buffer resource that manages this reservation.
-
   private:
-    std::size_t size_;  ///< The remaining size of the reserved memory in bytes.
     std::mutex mutex_;  ///< Mutex for thread-safe access to the reservation.
+    MemoryType mem_type_;  ///< The type of memory for this reservation.
+    BufferResource* br_;  ///< The buffer resource that manages this reservation.
+    std::size_t size_;  ///< The remaining size of the reserved memory in bytes.
 };
 
 /**

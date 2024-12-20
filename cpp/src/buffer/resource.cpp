@@ -22,7 +22,9 @@ namespace rapidsmp {
 
 
 MemoryReservation::~MemoryReservation() noexcept {
-    br->release(*this);
+    if (size_ > 0) {
+        br_->release(*this);
+    }
 }
 
 std::pair<std::unique_ptr<MemoryReservation>, std::size_t> BufferResource::reserve(
