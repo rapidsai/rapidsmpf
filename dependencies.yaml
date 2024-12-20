@@ -11,8 +11,9 @@ files:
       - checks
       - cuda
       - cuda_version
-      - test_cpp
       - docs
+      - py_version
+      - test_cpp
   test_cpp:
     output: none
     includes:
@@ -22,6 +23,7 @@ files:
     output: none
     includes:
       - checks
+      - py_version
   docs:
     output: none
     includes:
@@ -130,6 +132,25 @@ dependencies:
               - cuda-cudart-dev
               - cuda-nvrtc-dev
               - cuda-nvtx-dev
+  py_version:
+    specific:
+      - output_types: conda
+        matrices:
+          - matrix:
+              py: "3.10"
+            packages:
+              - python=3.10
+          - matrix:
+              py: "3.11"
+            packages:
+              - python=3.11
+          - matrix:
+              py: "3.12"
+            packages:
+              - python=3.12
+          - matrix:
+            packages:
+              - python>=3.10,<31.13
   test_cpp:
     common:
       - output_types: conda
