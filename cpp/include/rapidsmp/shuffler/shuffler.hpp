@@ -15,13 +15,10 @@
  */
 #pragma once
 
-#include <algorithm>
 #include <atomic>
-#include <condition_variable>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -34,6 +31,7 @@
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/nvtx.hpp>
 #include <rapidsmp/shuffler/chunk.hpp>
+#include <rapidsmp/shuffler/finish_counter.hpp>
 #include <rapidsmp/shuffler/postbox.hpp>
 #include <rapidsmp/utils.hpp>
 
@@ -44,203 +42,6 @@
  * A shuffle service for cuDF tables. Use @ref Shuffler to perform a single shuffle.
  */
 namespace rapidsmp::shuffler {
-
-/**
- * @namespace rapidsmp::shuffler::detail
- * @brief Shuffler private interfaces.
- *
- * This namespace contains private interfaces for internal workings of the shuffler.
- * These interfaces may change without notice and should not be relied upon directly.
- */
-namespace detail {
-
-/**
- * @brief Helper to tally the finish status of a shuffle.
- *
- * The `FinishCounter` class tracks the completion of shuffle operations across different
- * ranks and partitions. Each rank maintains a counter for tracking how many chunks have
- * been received for each partition.
- */
-class FinishCounter {
-  public:
-    /**
-     * @brief Construct a finish counter.
-     *
-     * @param nranks The total number of ranks participating in the shuffle.
-     * @param local_partitions The partition IDs local to the current rank.
-     */
-    FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions)
-        : nranks_{nranks} {
-        // Initially, none of the partitions are ready to wait on.
-        for (auto pid : local_partitions) {
-            partitions_ready_to_wait_on_.insert({pid, false});
-        }
-    }
-
-    /**
-     * @brief Move the goalpost for a specific rank and partition.
-     *
-     * This function sets the number of chunks that need to be received from a specific
-     * rank and partition. It should only be called once per rank and partition.
-     *
-     * @param rank The rank the goalpost is assigned to.
-     * @param pid The partition ID the goalpost is assigned to.
-     * @param nchunks The number of chunks required.
-     *
-     * @throw cudf::logic_error If the goalpost is moved more than once for the same rank
-     * and partition.
-     */
-    void move_goalpost(Rank rank, PartID pid, ChunkID nchunks) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        auto& [rank_counter, chunk_goal] = goalposts_[pid];
-        RAPIDSMP_EXPECTS(
-            rank_counter++ < nranks_, "the goalpost was moved more than one per rank"
-        );
-        chunk_goal += nchunks;
-    }
-
-    /**
-     * @brief Add a finished chunk to a partition counter.
-     *
-     * This function increments the finished chunk counter for a specific partition.
-     * When the number of finished chunks matches the goalpost, the partition is marked as
-     * finished.
-     *
-     * @param pid The partition ID to update.
-     *
-     * @throw cudf::logic_error If the partition has already reached the goalpost.
-     */
-    void add_finished_chunk(PartID pid) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        auto& finished_chunk = ++finished_chunk_counters_[pid];
-        auto& [rank_counter, chunk_goal] = goalposts_[pid];
-
-        // The partition is finished if the goalpost has been set by all ranks
-        // and the number of finished chunks has reach the goal.
-        if (rank_counter == nranks_) {
-            if (finished_chunk == chunk_goal) {
-                partitions_ready_to_wait_on_.at(pid) = true;
-                cv_.notify_all();
-            } else {
-                RAPIDSMP_EXPECTS(
-                    finished_chunk < chunk_goal, "finished chunk exceeds the goal"
-                );
-            }
-        }
-    }
-
-    /**
-     * @brief Returns whether all partitions are finished (non-blocking).
-     *
-     * @return True if all partitions are finished, otherwise false.
-     */
-    [[nodiscard]] bool all_finished() const {
-        std::unique_lock<std::mutex> lock(mutex_);
-        return partitions_ready_to_wait_on_.empty();
-    }
-
-    /**
-     * @brief Returns the partition ID of a finished partition that hasn't been waited on
-     * (blocking).
-     *
-     * This function blocks until a partition is finished and ready to be processed.
-     *
-     * @return The partition ID of a finished partition.
-     *
-     * @throw std::out_of_range If all partitions have already been waited on.
-     */
-    PartID wait_any() {
-        std::unique_lock<std::mutex> lock(mutex_);
-        while (true) {
-            RAPIDSMP_EXPECTS(
-                !partitions_ready_to_wait_on_.empty(),
-                "no more partitions to wait on",
-                std::out_of_range
-            );
-
-            // Find the first ready partition (if any).
-            auto it = std::find_if(
-                partitions_ready_to_wait_on_.begin(),
-                partitions_ready_to_wait_on_.end(),
-                [](const auto& item) { return item.second; }
-            );
-            if (it == partitions_ready_to_wait_on_.end()) {
-                // No ready partitions, let's wait.
-                cv_.wait(lock);
-            } else {
-                // We extract the partition to avoid returning the same partition twice.
-                return extract_key(partitions_ready_to_wait_on_, it);
-            }
-        }
-    }
-
-    /**
-     * @brief Returns a vector of partition ids that are finished and haven't been waited
-     * on (blocking).
-     *
-     * This function blocks until at least one partition is finished and ready to be
-     * processed.
-     *
-     * @note It is the caller's responsibility to process all returned partition IDs.
-     *
-     * @return vector of finished partitions.
-     *
-     * @throw std::out_of_range If all partitions have been waited on.
-     */
-    std::vector<PartID> wait_some() {
-        std::unique_lock<std::mutex> lock(mutex_);
-        RAPIDSMP_EXPECTS(
-            !partitions_ready_to_wait_on_.empty(),
-            "no more partitions to wait on",
-            std::out_of_range
-        );
-        cv_.wait(lock, [&]() {
-            return std::any_of(
-                partitions_ready_to_wait_on_.begin(),
-                partitions_ready_to_wait_on_.end(),
-                [](auto const& item) { return item.second; }
-            );
-        });
-        std::vector<PartID> result{};
-        // TODO: hand-writing iteration rather than range-for to avoid
-        // needing to rehash the key during extract_key. Needs
-        // std::ranges, I think.
-        for (auto it = partitions_ready_to_wait_on_.begin();
-             it != partitions_ready_to_wait_on_.end();
-             *it++)
-        {
-            if (it->second) {
-                result.push_back(extract_key(partitions_ready_to_wait_on_, it));
-            }
-        }
-        return result;
-    }
-
-    /**
-     * @brief Returns a description of this instance.
-     * @return The description.
-     */
-    [[nodiscard]] std::string str() const;
-
-
-  private:
-    Rank const nranks_;
-    // The goalpost of each partition. The goal is a rank counter to track how many ranks
-    // has reported their goal, and a chunk counter that specifies the goal. It is only
-    // when all ranks has reported their goal that the goalpost is final.
-    std::unordered_map<PartID, std::pair<Rank, ChunkID>> goalposts_;
-    // The finished chunk counter of each partition. The goal of a partition has been
-    // reach when its counter equals the goalpost.
-    std::unordered_map<PartID, ChunkID> finished_chunk_counters_;
-    // A partition has three states:
-    //   - If it is false, the partition isn't finished.
-    //   - If it is true, the partition is finished and can be waited on.
-    //   - If it is absent, the partition is finished and has already been waited on.
-    std::unordered_map<PartID, bool> partitions_ready_to_wait_on_;
-    mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
-    mutable std::condition_variable cv_;
-};
-}  // namespace detail
 
 /**
  * @brief Shuffle service for cuDF tables.
@@ -427,21 +228,6 @@ class Shuffler {
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 };
-
-/**
- * @brief Overloads the stream insertion operator for the FinishCounter class.
- *
- * This function allows a description of a FinishCounter to be written to an output
- * stream.
- *
- * @param os The output stream to write to.
- * @param obj The object to write.
- * @return A reference to the modified output stream.
- */
-inline std::ostream& operator<<(std::ostream& os, detail::FinishCounter const& obj) {
-    os << obj.str();
-    return os;
-}
 
 /**
  * @brief Overloads the stream insertion operator for the Shuffler class.
