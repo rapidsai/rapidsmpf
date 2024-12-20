@@ -387,5 +387,4 @@ std::string detail::FinishCounter::str() const {
     return ss.str();
 }
 
-
 }  // namespace rapidsmp::shuffler

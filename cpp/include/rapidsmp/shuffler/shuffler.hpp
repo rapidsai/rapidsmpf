@@ -243,5 +243,4 @@ inline std::ostream& operator<<(std::ostream& os, Shuffler const& obj) {
     return os;
 }
 
-
 }  // namespace rapidsmp::shuffler
