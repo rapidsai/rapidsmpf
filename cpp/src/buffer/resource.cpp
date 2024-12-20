@@ -26,7 +26,7 @@ MemoryReservation::~MemoryReservation() noexcept {
 }
 
 std::pair<std::unique_ptr<MemoryReservation>, std::size_t> BufferResource::reserve(
-    MemoryType mem_type, size_t size
+    MemoryType mem_type, size_t size, bool allow_overbooking
 ) {
     constexpr std::size_t overbooking = 0;
     return {std::make_unique<MemoryReservation>(mem_type, this, size), overbooking};

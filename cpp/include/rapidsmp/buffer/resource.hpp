@@ -179,10 +179,10 @@ class BufferResource {
      *
      * @param mem_type The target memory type.
      * @param size The number of bytes to reserve.
-     * @return An allocation reservation and the amount of "overbooking".
+     * @return An allocation reservation and the amount of "overbooking". Or null
      */
     virtual std::pair<std::unique_ptr<MemoryReservation>, std::size_t> reserve(
-        MemoryType mem_type, size_t size
+        MemoryType mem_type, size_t size, bool allow_overbooking
     );
 
     virtual void release(MemoryReservation const& reservation) noexcept;
@@ -216,10 +216,13 @@ class BufferResource {
      * @param stream CUDA stream to use for device allocations.
      * @return A unique pointer to the allocated Buffer.
      */
-    virtual std::unique_ptr<Buffer> allocate(size_t size, rmm::cuda_stream_view stream) {
-        auto mem_type = memory_hierarchy().at(0);  // Always pick the highest memory type.
-        auto [reservation, overbooking] = reserve(mem_type, size);
-        // TODO: check overbooking, do we need to spill?
+    virtual std::unique_ptr<Buffer> allocate(
+        std::size_t size, rmm::cuda_stream_view stream
+    ) {
+        // Always pick the highest memory type.
+        auto mem_type = memory_hierarchy().at(0);
+        // Since we cannot spill, we allow and ignore overbooking.
+        auto [reservation, _] = reserve(mem_type, size, true);
         return allocate(mem_type, size, stream, reservation);
     }
 
@@ -322,6 +325,7 @@ class BufferResource {
     virtual void finalizer(Buffer* const buffer) noexcept {}
 
   protected:
+    std::mutex reservation_mutex_;  ///< Mutex to guard access to memory reservations.
     rmm::device_async_resource_ref device_mr_;  ///< RMM device memory resource reference.
     MemoryHierarchy memory_hierarchy_;  ///< The hierarchy of memory types to use.
 };

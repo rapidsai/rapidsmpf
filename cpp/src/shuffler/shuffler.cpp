@@ -133,11 +133,28 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
     auto chunks = outbox_.extract(pid);
     std::vector<cudf::packed_columns> ret;
     ret.reserve(chunks.size());
+
+    // Sum the total size of all chunks not in device memory already.
+    std::size_t non_device_size{0};
     for (auto& [_, chunk] : chunks) {
-        // Make sure that the gpu_data is on device memory (copy if necessary).
+        if (chunk.gpu_data->mem_type != MemoryType::DEVICE) {
+            non_device_size += chunk.gpu_data->size;
+        }
+    }
+    // This total sum is what we need to reserve before moving them to device.
+    auto [reservation, overbooking] =
+        br_->reserve(MemoryType::DEVICE, non_device_size, true);
+
+    // TODO: check overbooking, do we need to spill to host memory?
+    // if(overbooking > 0) {
+    //     spill chunks in inbox_ and outbox_
+    // }
+
+    // Move the gpu_data to device memory (copy if necessary).
+    for (auto& [_, chunk] : chunks) {
         ret.emplace_back(
             std::move(chunk.metadata),
-            br_->move_to_device_buffer(std::move(chunk.gpu_data), stream_)
+            br_->move_to_device_buffer(std::move(chunk.gpu_data), stream_, reservation)
         );
     }
     return ret;
