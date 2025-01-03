@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 
 #include <cstdlib>
 #include <memory>
+#include <variant>
 #include <vector>
 
 #include <ucxx/api.h>
@@ -67,13 +68,7 @@ void check_ucxx_error(int error_code, const char* file, int line);
 }  // namespace detail
 }  // namespace ucxx
 
-using EndpointsMap = std::unordered_map<ucp_ep_h, std::shared_ptr<Endpoint>>;
-
-struct ListenerContainer {
-    std::shared_ptr<ucxx::Listener> listener_{nullptr};
-    // TODO: We probably need to make endpoints thread-safe.
-    std::shared_ptr<EndpointsMap> endpoints_{nullptr};
-};
+using EndpointsMap = std::unordered_map<ucp_ep_h, std::shared_ptr<::ucxx::Endpoint>>;
 
 struct ListenerAddress {
     std::string host{};
@@ -81,8 +76,24 @@ struct ListenerAddress {
     Rank rank{};
 };
 
-using RankToEndpointMap = std::unordered_map<Rank, std::shared_ptr<Endpoint>>;
+using RankToEndpointMap = std::unordered_map<Rank, std::shared_ptr<::ucxx::Endpoint>>;
 using RankToListenerAddressMap = std::unordered_map<Rank, ListenerAddress>;
+
+struct ListenerContainer {
+    std::shared_ptr<::ucxx::Listener> listener_{nullptr};
+    // TODO: We probably need to make endpoints thread-safe.
+    std::shared_ptr<EndpointsMap> endpoints_{nullptr};
+    std::shared_ptr<RankToEndpointMap> rank_to_endpoint_{};
+    bool root_;
+};
+
+enum class ControlMessage {
+    AssignRank = 0,
+    RegisterEndpoint,
+    SetListenerAddress,
+    GetListenerAddress
+};
+using ControlData = std::variant<Rank, ListenerAddress>;
 
 /**
  * @brief UCXX communicator class that implements the `Communicator` interface.
@@ -110,13 +121,13 @@ class UCXX final : public Communicator {
          * @param req The UCXX request handle for the operation.
          * @param data A unique pointer to the data buffer.
          */
-        Future(std::shared_ptr<ucxx::Request> req, std::unique_ptr<Buffer> data)
+        Future(std::shared_ptr<::ucxx::Request> req, std::unique_ptr<Buffer> data)
             : req_{req}, data_{std::move(data)} {}
 
         ~Future() noexcept override = default;
 
       private:
-        std::shared_ptr<ucxx::Request>
+        std::shared_ptr<::ucxx::Request>
             req_;  ///< The UCXX request associated with the operation.
         std::unique_ptr<Buffer> data_;  ///< The data buffer.
     };
@@ -126,7 +137,7 @@ class UCXX final : public Communicator {
      *
      * @param comm The MPI communicator to be used for communication.
      */
-    UCXX(std::shared_ptr<ucxx::Worker> worker);
+    UCXX(std::shared_ptr<::ucxx::Worker> worker);
 
     ~UCXX() noexcept override = default;
 
@@ -217,15 +228,18 @@ class UCXX final : public Communicator {
     [[nodiscard]] std::string str() const override;
 
   private:
-    std::shared_ptr<ucxx::Worker> worker_;
-    std::shared_ptr<ucxx::Listener> listener_;
+    std::shared_ptr<::ucxx::Worker> worker_;
+    std::shared_ptr<::ucxx::Listener> listener_;
     ListenerContainer listener_container_;
     std::shared_ptr<EndpointsMap> endpoints_;
-    RankToEndpointMap rank_to_endpoint_;
-    RankToListenerAddressMap rank_to_listener_address_;
+    std::shared_ptr<RankToEndpointMap> rank_to_endpoint_;
+    std::shared_ptr<RankToListenerAddressMap> rank_to_listener_address_;
     Rank rank_;
     std::uint32_t nranks_;
+    Rank next_rank_;
     Logger logger_;
+
+    Rank get_next_worker_rank();
 };
 
 
