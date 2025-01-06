@@ -16,7 +16,9 @@
 
 #pragma once
 
+#include <limits>
 #include <mutex>
+#include <unordered_map>
 
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/error.hpp>
@@ -102,6 +104,15 @@ class MemoryReservation {
 class BufferResource {
   public:
     /**
+     * @brief
+     *
+     * Doesn't have to be thread-safe but cannot lock any resource that might reserve
+     * memory using this spill resource.
+     *
+     */
+    using MemoryAvailable = std::function<std::int64_t()>;
+
+    /**
      * @brief Constructs a buffer resource that uses a memory hierarchy to decide the
      * memory type of each new allocation.
      *
@@ -112,9 +123,11 @@ class BufferResource {
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
-        MemoryHierarchy memory_hierarchy = {MemoryType::DEVICE, MemoryType::HOST}
+        std::unordered_map<MemoryType, MemoryAvailable> memory_available =
+            {{MemoryType::DEVICE, std::numeric_limits<std::int64_t>::max},
+             {MemoryType::HOST, std::numeric_limits<std::int64_t>::max}}
     )
-        : device_mr_{device_mr}, memory_hierarchy_{memory_hierarchy} {}
+        : device_mr_{device_mr}, memory_available_{std::move(memory_available)} {}
 
     virtual ~BufferResource() noexcept = default;
 
@@ -125,15 +138,6 @@ class BufferResource {
      */
     [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
         return device_mr_;
-    }
-
-    /**
-     * @brief Get the memory hierarchy.
-     *
-     * @return Reference to an array of memory types ordered by the hierarchy.
-     */
-    [[nodiscard]] MemoryHierarchy const& memory_hierarchy() const noexcept {
-        return memory_hierarchy_;
     }
 
     /**
@@ -191,8 +195,7 @@ class BufferResource {
     /**
      * @brief Allocate a new buffer.
      *
-     * The base implementation always use the highest memory type in the memory
-     * hierarchy.
+     * The base implementation first try to reserve device memory then host memory.
      *
      * @param size The size of the buffer in bytes.
      * @param stream CUDA stream to use for device allocations.
@@ -200,13 +203,7 @@ class BufferResource {
      */
     virtual std::unique_ptr<Buffer> allocate(
         std::size_t size, rmm::cuda_stream_view stream
-    ) {
-        // Always pick the highest memory type.
-        auto mem_type = memory_hierarchy().at(0);
-        // Since we cannot spill, we allow and ignore overbooking.
-        auto [reservation, _] = reserve(mem_type, size, true);
-        return allocate(mem_type, size, stream, reservation);
-    }
+    );
 
     /**
      * @brief Move host vector data into a Buffer.
@@ -340,9 +337,12 @@ class BufferResource {
     }
 
   protected:
-    std::mutex reservation_mutex_;  ///< For thread-safe access to memory reservations.
+    std::mutex mutex_;  ///< For thread-safe access to memory reservations.
     rmm::device_async_resource_ref device_mr_;  ///< RMM device memory resource reference.
-    MemoryHierarchy memory_hierarchy_;  ///< The hierarchy of memory types to use.
+    std::unordered_map<MemoryType, MemoryAvailable> const memory_available_;
+    std::unordered_map<MemoryType, std::size_t> memory_reserved_{
+        {MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}
+    };
 };
 
 }  // namespace rapidsmp

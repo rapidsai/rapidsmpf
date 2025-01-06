@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,16 +28,33 @@ MemoryReservation::~MemoryReservation() noexcept {
 }
 
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
-    MemoryType mem_type, size_t size, bool allow_overbooking
+    MemoryType mem_type, std::size_t size, bool allow_overbooking
 ) {
-    constexpr std::size_t overbooking = 0;
+    auto const& available = memory_available_.at(mem_type);
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::size_t& reserved = memory_reserved_.at(mem_type);
+
+    // Calculate the available memory _after_ the memory has been reserved.
+    std::int64_t headroom = available() - (reserved + size);
+    // If negative, we are overbooking.
+    std::size_t overbooking = headroom < 0 ? -headroom : 0;
+
+    std::cout << "reserve() - size: " << size << ", headroom: " << headroom
+              << ", overbooking: " << overbooking << std::endl;
+
+    if (overbooking > 0 && !allow_overbooking) {
+        // Cancel the reservation, overbooking isn't allowed.
+        return {create_memory_reservation(mem_type, this, 0), overbooking};
+    }
+    // Make the reservation.
+    reserved += size;
     return {create_memory_reservation(mem_type, this, size), overbooking};
 }
 
 std::size_t BufferResource::release(
     MemoryReservation& reservation, MemoryType target, std::size_t size
 ) {
-    std::lock_guard const lock(reservation_mutex_);
+    std::lock_guard const lock(mutex_);
     return release_memory_reservation(reservation, target, size);
 }
 
@@ -66,6 +83,27 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     }
     release(reservation, mem_type, size);
     return ret;
+}
+
+std::unique_ptr<Buffer> BufferResource::allocate(
+    std::size_t size, rmm::cuda_stream_view stream
+) {
+    // First, try to reserve and allocate device memory.
+    {
+        auto [reservation, overbooking] = reserve(MemoryType::DEVICE, size, false);
+        if (reservation.size() > 0) {
+            RAPIDSMP_EXPECTS(overbooking <= 0, "got an overbooking reservation");
+            std::cout << "allocate(DEVICE) - size: " << size << std::endl;
+            return BufferResource::allocate(
+                MemoryType::DEVICE, size, stream, reservation
+            );
+        }
+    }
+    // If that didn't work because of overbooking, we allocate host memory instead.
+    // Since we cannot spill host memory, we allow and ignore overbooking.
+    auto [reservation, _] = reserve(MemoryType::HOST, size, true);
+    std::cout << "allocate(HOST) - size: " << size << std::endl;
+    return BufferResource::allocate(MemoryType::HOST, size, stream, reservation);
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
@@ -126,6 +164,4 @@ std::unique_ptr<Buffer> BufferResource::copy(
     }
     return ret;
 }
-
-
 }  // namespace rapidsmp
