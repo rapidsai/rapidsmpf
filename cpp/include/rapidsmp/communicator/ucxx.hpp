@@ -17,6 +17,7 @@
 
 #include <cstdlib>
 #include <memory>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -85,6 +86,7 @@ struct ListenerContainer {
     std::shared_ptr<EndpointsMap> endpoints_{nullptr};
     std::shared_ptr<RankToEndpointMap> rank_to_endpoint_{};
     bool root_;
+    std::function<Rank()> get_next_worker_rank_;
 };
 
 enum class ControlMessage {
@@ -122,7 +124,7 @@ class UCXX final : public Communicator {
          * @param data A unique pointer to the data buffer.
          */
         Future(std::shared_ptr<::ucxx::Request> req, std::unique_ptr<Buffer> data)
-            : req_{req}, data_{std::move(data)} {}
+            : req_{std::move(req)}, data_{std::move(data)} {}
 
         ~Future() noexcept override = default;
 
@@ -137,7 +139,7 @@ class UCXX final : public Communicator {
      *
      * @param comm The MPI communicator to be used for communication.
      */
-    UCXX(std::shared_ptr<::ucxx::Worker> worker);
+    UCXX(std::shared_ptr<::ucxx::Worker> worker, bool root, std::uint32_t nranks);
 
     ~UCXX() noexcept override = default;
 

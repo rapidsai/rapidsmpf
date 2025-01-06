@@ -17,8 +17,8 @@
 #include "rapidsmp/communicator/ucxx.hpp"
 
 #include <array>
+#include <utility>
 
-#include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/error.hpp>
 
 namespace rapidsmp {
@@ -78,6 +78,52 @@ namespace ucxx {
 // }
 // }  // namespace
 
+static size_t get_size(const rapidsmp::ControlData& data) {
+    return std::visit(
+        [](const auto& data) { return sizeof(std::decay_t<decltype(data)>); }, data
+    );
+}
+
+static std::string control_pack(
+    rapidsmp::ControlMessage control, rapidsmp::ControlData data
+) {
+    size_t offset{0};
+    const size_t total_size = sizeof(control) + get_size(data);
+
+    std::string packed(total_size, 0);
+
+    auto encode = [&offset, &packed](void const* data, size_t bytes) {
+        memcpy(packed.data() + offset, data, bytes);
+        offset += bytes;
+    };
+
+    encode(&control, sizeof(control));
+    // std::visit(
+    //     [&data, &encode](const ControlMessage& control) {
+    //         using T = std::decay_t<decltype(control)>;
+    //         if constexpr (std::is_same_v < T, ControlMessage::AssignRank>) {
+    //             auto rank = std::get<Rank>(data);
+    //             encode(&rank, sizeof(rank));
+    //         } else if constexpr (std::is_same_v < T,
+    //         ControlMessage::SetListenerAddress>)
+    //         {
+    //             auto listener_address = std::get<ListenerAddress>(data);
+    //             encode(&listener_address, sizeof(listener_address));
+    //         }
+    //     },
+    //     control
+    // );
+    if (control == ControlMessage::AssignRank) {
+        auto rank = std::get<Rank>(data);
+        encode(&rank, sizeof(rank));
+    } else if (control == ControlMessage::SetListenerAddress) {
+        auto listener_address = std::get<ListenerAddress>(data);
+        encode(&listener_address, sizeof(listener_address));
+    }
+
+    return packed;
+};
+
 static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
     auto listener_container = reinterpret_cast<ListenerContainer*>(arg);
 
@@ -91,23 +137,27 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
 
     auto endpoint =
         listener_container->listener_->createEndpointFromConnRequest(conn_request, true);
-    listener_container->endpoints_->at(endpoint->getHandle()) = endpoint;
+    (*listener_container->endpoints_)[endpoint->getHandle()] = endpoint;
 
     if (listener_container->root_) {
         // TODO: Reuse receive_rank_callback_info
         // ::ucxx::AmReceiverCallbackInfo receive_rank_callback_info("rapidsmp", 0);
         ::ucxx::AmReceiverCallbackInfo control_callback_info("rapidsmp", 0);
         // TODO: Ensure nextRank remains alive until request completes
-        Rank client_rank = get_next_worker_rank();
+        Rank client_rank = listener_container->get_next_worker_rank_();
+        auto packed_client_rank = control_pack(ControlMessage::AssignRank, client_rank);
         auto req = endpoint->amSend(
-            &client_rank, sizeof(client_rank), UCS_MEMORY_TYPE_HOST, control_callback_info
+            packed_client_rank.data(),
+            packed_client_rank.size(),
+            UCS_MEMORY_TYPE_HOST,
+            control_callback_info
         );
-        listener_container->rank_to_endpoint_->at(client_rank) = endpoint;
+        (*listener_container->rank_to_endpoint_)[client_rank] = endpoint;
     }
 }
 
 UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, bool root, std::uint32_t nranks)
-    : worker_(worker),
+    : worker_(std::move(worker)),
       endpoints_(std::make_shared<EndpointsMap>()),
       rank_to_endpoint_(std::make_shared<RankToEndpointMap>()),
       rank_to_listener_address_(std::make_shared<RankToListenerAddressMap>()),
@@ -127,7 +177,7 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, bool root, std::uint32_t nran
         auto context = ::ucxx::createContext({{}}, ::ucxx::Context::defaultFeatureFlags);
         worker_ = context->createWorker(false);
         // TODO: Allow other modes
-        worker_ = context->startProgressThread(true);
+        worker_->startProgressThread(true);
     }
 
     // Create listener
@@ -136,6 +186,11 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, bool root, std::uint32_t nran
     listener_container_.endpoints_ = endpoints_;
     listener_container_.rank_to_endpoint_ = rank_to_endpoint_;
     listener_container_.root_ = root;
+    listener_container_.get_next_worker_rank_ = [this]() {
+        return get_next_worker_rank();
+    };
+
+    ::ucxx::AmReceiverCallbackInfo control_callback_info("rapidsmp", 0);
 
     // ::ucxx::AmReceiverCallbackInfo receive_rank_callback_info("rapidsmp", 0);
     // auto receive_rank = ::ucxx::AmReceiverCallbackType(
@@ -176,102 +231,105 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, bool root, std::uint32_t nran
     //     receive_listener_address_callback_info, receive_listener_address
     // );
 
-    auto get_size = [](const auto& data) {
-        return std::visit(
-            [](const auto& data) { return sizeof(std::decay_t<decltype(data)>); }, data
-        );
+    auto control_unpack = [this, &control_callback_info](
+                              std::shared_ptr<::ucxx::Buffer> buffer, ucp_ep_h ep
+                          ) {
+        size_t offset{0};
+
+        auto decode = [&offset, &buffer](void* data, size_t bytes) {
+            memcpy(data, static_cast<const char*>(buffer->data()) + offset, bytes);
+            offset += bytes;
+        };
+
+        ControlMessage control;
+        decode(&control, sizeof(ControlMessage));
+
+        // std::visit(
+        //     [this, &decode](const ControlMessage& control) {
+        //         Logger& log = logger();
+
+        //         using T = std::decay_t<decltype(control)>;
+        //         if constexpr (std::is_same_v < T, ControlMessage::AssignRank>) {
+        //             decode(&rank_, sizeof(rank_));
+        //             log.warn("Received rank ", rank_);
+        //         } else if constexpr (std::is_same_v < T,
+        //         ControlMessage::RegisterEndpoint>)
+        //         {
+        //             Rank rank;
+        //             decode(&rank, sizeof(rank));
+        //             rank_to_endpoint_[rank] = ep;
+        //         } else if constexpr (std::is_same_v < T,
+        //         ControlMessage::SetListenerAddress>)
+        //         {
+        //             ListenerAddress listener_address;
+        //             decode(&listener_address, sizeof(listener_address));
+        //             rank_to_listener_address_[listener_address->rank] =
+        //                 listener_address;
+        //             log.warn(
+        //                 "Rank ",
+        //                 listener_address->rank,
+        //                 " at address ",
+        //                 listener_address->host,
+        //                 ":",
+        //                 listener_address->port
+        //             );
+        //         } else if constexpr (std::is_save_v < T,
+        //         ControlMessage::GetListenerAddress>)
+        //         {
+        //             Rank rank;
+        //             decode(&rank, sizeof(rank));
+        //             auto listener_address = rank_to_listener_address_[rank];
+        //             endpoint->amSend(
+        //                 static_cast<void*>(&listener_address),
+        //                 sizeof(listener_address),
+        //                 UCS_MEMORY_TYPE_HOST,
+        //                 control_callback_info
+        //             );
+        //         }
+        //     },
+        //     control
+        // );
+
+        Logger& log = logger();
+        if (control == ControlMessage::AssignRank) {
+            decode(&rank_, sizeof(rank_));
+            log.warn("Received rank ", rank_);
+        } else if (control == ControlMessage::RegisterEndpoint) {
+            Rank rank;
+            decode(&rank, sizeof(rank));
+            (*rank_to_endpoint_)[rank] = endpoints_->at(ep);
+        } else if (control == ControlMessage::SetListenerAddress) {
+            ListenerAddress listener_address;
+            decode(&listener_address, sizeof(listener_address));
+            (*rank_to_listener_address_)[listener_address.rank] = listener_address;
+            log.warn(
+                "Rank ",
+                listener_address.rank,
+                " at address ",
+                listener_address.host,
+                ":",
+                listener_address.port
+            );
+        } else if (control == ControlMessage::GetListenerAddress) {
+            Rank rank;
+            decode(&rank, sizeof(rank));
+            auto listener_address = rank_to_listener_address_->at(rank);
+            auto endpoint = endpoints_->at(ep);
+            auto packed_listener_address =
+                control_pack(ControlMessage::SetListenerAddress, listener_address);
+            auto req = endpoint->amSend(
+                packed_listener_address.data(),
+                packed_listener_address.size(),
+                UCS_MEMORY_TYPE_HOST,
+                control_callback_info
+            );
+            // TODO: Wait for completion
+            assert(req->isCompleted());
+        }
     };
 
-    auto control_pack =
-        [](ControlMessage control, ControlData data) {
-            size_t offset{0};
-            const size_t total_size = sizeof(control) + get_size(data);
-
-            std::string packed(total_size, 0);
-
-            auto encode =
-                [&offset, &packed](void const* data, size_t bytes) {
-                    memcpy(packed.data() + offset, data, bytes);
-                    offset += bytes;
-                }
-
-            encode(&control, sizeof(control));
-            std::visit(
-                [&data](const ControlMessage& control) {
-                    using T = std::decay_t<decltype(control)>;
-                    if constexpr (std::is_same_v < T, ControlMessage::AssignRank) {
-                        auto rank = std::get<Rank>(data);
-                        encode(&rank, sizeof(rank));
-                    } else if constexpr (std::is_same_v < T, ControlMessage::SetListenerAddress)
-                    {
-                        auto listener_address = std::get<ListenerAddress>(data);
-                        encode(&listener_address, sizeof(listener_address));
-                    }
-                },
-                control
-            );
-        }
-
-    auto control_unpack =
-        [this](std::shared_ptr<::ucxx::HostBuffer> buffer, ucp_ep_h ep) {
-            size_t offset{0};
-
-            auto decode =
-                [&offset, &buffer](void* data, size_t bytes) {
-                    memcpy(data, buffer->data() + offset, bytes);
-                    offset += bytes;
-                }
-
-            ControlMessage control;
-            decode(&control, sizeof(ControlMessage));
-
-            std::visit(
-                [this](const ControlMessage& control) {
-                    Logger& log = logger();
-
-                    using T = std::decay_t<decltype(control)>;
-                    if constexpr (std::is_same_v < T, ControlMessage::AssignRank) {
-                        decode(&rank_, sizeof(rank_));
-                        log.warn("Received rank ", rank_);
-                    } else if constexpr (std::is_same_v < T, ControlMessage::RegisterEndpoint)
-                    {
-                        Rank rank;
-                        decode(&rank, sizeof(rank));
-                        rank_to_endpoint_[rank] = ep;
-                    } else if constexpr (std::is_same_v < T, ControlMessage::SetListenerAddress)
-                    {
-                        ListenerAddress listener_address;
-                        decode(&listener_address, sizeof(listener_address));
-                        rank_to_listener_address_[listener_address->rank] =
-                            listener_address;
-                        log.warn(
-                            "Rank ",
-                            listener_address->rank,
-                            " at address ",
-                            listener_address->host,
-                            ":",
-                            listener_address->port
-                        );
-                    } else if constexpr (std::is_save_v < T, ControlMessage::GetListenerAddress)
-                    {
-                        Rank rank;
-                        decode(&rank, sizeof(rank));
-                        auto listener_address = rank_to_listener_address_[rank];
-                        endpoint->amSend(
-                            static_cast<void*>(&listener_address),
-                            sizeof(listener_address),
-                            UCS_MEMORY_TYPE_HOST,
-                            control_callback_info
-                        );
-                    }
-                },
-                control
-            );
-        }
-
-    ::ucxx::AmReceiverCallbackInfo control_callback_info("rapidsmp", 0);
     auto control_callback = ::ucxx::AmReceiverCallbackType(
-        [this](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
+        [&control_unpack](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
             control_unpack(req->getRecvBuffer(), ep);
         }
     );
@@ -282,9 +340,11 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, bool root, std::uint32_t nran
         rank_ = Rank(0);
     } else {
         // Connect to root
+        // auto endpoint = worker_->createEndpointFromHostname("localhost", port, true);
+        uint16_t port = 12345;
         auto endpoint = worker_->createEndpointFromHostname("localhost", port, true);
-        rank_to_endpoint_[Rank(0)] = endpoint->getHandle();
-        endpoints_[endpoint->getHandle()] = endpoint;
+        (*rank_to_endpoint_)[Rank(0)] = endpoint;
+        (*endpoints_)[endpoint->getHandle()] = endpoint;
 
         // Get my rank
         while (rank_ == Rank(-1)) {
@@ -295,13 +355,17 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, bool root, std::uint32_t nran
         ListenerAddress listener_address = ListenerAddress{
             .host = "localhost", .port = listener_->getPort(), .rank = rank_
         };
-        endpoint->amSend(
-            static_cast<void*>(&listener_address),
-            sizeof(listener_address),
+        auto packed_listener_address =
+            control_pack(ControlMessage::SetListenerAddress, listener_address);
+        auto req = endpoint->amSend(
+            packed_listener_address.data(),
+            packed_listener_address.size(),
             UCS_MEMORY_TYPE_HOST,
             // receive_listener_address_callback_info
             control_callback_info
         );
+        // TODO: Wait for completion
+        assert(req->isCompleted());
     }
 }
 
@@ -312,149 +376,149 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     rmm::cuda_stream_view stream,
     BufferResource* br
 ) {
-    RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
-    auto req = MPI_Request req;
-    RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
-    );
+    auto req =
+        rank_to_endpoint_->at(rank)->tagSend(msg->data(), msg->size(), ::ucxx::Tag(tag));
     return std::make_unique<Future>(req, br->move(std::move(msg), stream));
 }
 
-std::unique_ptr<Communicator::Future> MPI::send(
+std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
 ) {
-    MPI_Request req;
-    RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
+    auto req =
+        rank_to_endpoint_->at(rank)->tagSend(msg->data(), msg->size, ::ucxx::Tag(tag));
     return std::make_unique<Future>(req, std::move(msg));
 }
 
-std::unique_ptr<Communicator::Future> MPI::recv(
+std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, int tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
 ) {
-    MPI_Request req;
-    RAPIDSMP_MPI(MPI_Irecv(
-        recv_buffer->data(), recv_buffer->size, MPI_UINT8_T, rank, tag, comm_, &req
-    ));
+    auto req = rank_to_endpoint_->at(rank)->tagRecv(
+        recv_buffer->data(), recv_buffer->size, ::ucxx::Tag(tag), ::ucxx::TagMaskFull
+    );
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
-std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(int tag) {
+std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(int tag) {
     Logger& log = logger();
-    int msg_available;
-    MPI_Status probe_status;
-    RAPIDSMP_MPI(MPI_Iprobe(MPI_ANY_SOURCE, tag, comm_, &msg_available, &probe_status));
+    // int msg_available;
+    // MPI_Status probe_status;
+    // RAPIDSMP_MPI(MPI_Iprobe(MPI_ANY_SOURCE, tag, comm_, &msg_available,
+    // &probe_status));
+    auto probe = worker_->tagProbe(::ucxx::Tag(tag));
+    auto msg_available = probe.first;
+    auto info = probe.second;
     if (!msg_available) {
         return {nullptr, 0};
     }
-    RAPIDSMP_EXPECTS(
-        tag == probe_status.MPI_TAG || tag == MPI_ANY_TAG, "corrupt mpi tag"
-    );
-    MPI_Count size;
-    RAPIDSMP_MPI(MPI_Get_elements_x(&probe_status, MPI_UINT8_T, &size));
-    auto msg = std::make_unique<std::vector<uint8_t>>(size);  // TODO: uninitialize
+    // RAPIDSMP_EXPECTS(
+    //     tag == probe_status.MPI_TAG || tag == MPI_ANY_TAG, "corrupt mpi tag"
+    // );
+    // MPI_Count size;
+    // RAPIDSMP_MPI(MPI_Get_elements_x(&probe_status, MPI_UINT8_T, &size));
+    auto msg = std::make_unique<std::vector<uint8_t>>(info.length);  // TODO: uninitialize
 
-    MPI_Status msg_status;
-    RAPIDSMP_MPI(MPI_Recv(
-        msg->data(),
-        msg->size(),
-        MPI_UINT8_T,
-        probe_status.MPI_SOURCE,
-        probe_status.MPI_TAG,
-        comm_,
-        &msg_status
-    ));
-    RAPIDSMP_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
-    RAPIDSMP_EXPECTS(
-        static_cast<std::size_t>(size) == msg->size(),
-        "incorrect size of the MPI_Recv message"
-    );
-    if (msg->size() > 2048) {  // TODO: use the actual eager threshold.
+    // MPI_Status msg_status;
+    // RAPIDSMP_MPI(MPI_Recv(
+    //     msg->data(),
+    //     msg->size(),
+    //     MPI_UINT8_T,
+    //     probe_status.MPI_SOURCE,
+    //     probe_status.MPI_TAG,
+    //     comm_,
+    //     &msg_status
+    // ));
+    // RAPIDSMP_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
+    // RAPIDSMP_EXPECTS(
+    //     static_cast<std::size_t>(size) == msg->size(),
+    //     "incorrect size of the MPI_Recv message"
+    // );
+    auto req =
+        worker_->tagRecv(msg->data(), msg->size(), ::ucxx::Tag(tag), ::ucxx::TagMaskFull);
+    // if (msg->size() > 2048) {  // TODO: use the actual eager threshold.
+    //     log.warn(
+    //         "block-receiving a messager larger than the normal ",
+    //         "eager threshold (",
+    //         msg->size(),
+    //         " bytes)"
+    //     );
+    // }
+    if (!req->isCompleted()) {
         log.warn(
             "block-receiving a messager larger than the normal ",
             "eager threshold (",
             msg->size(),
             " bytes)"
         );
+        // TODO: PROGRESS
     }
     return {std::move(msg), probe_status.MPI_SOURCE};
 }
 
-std::vector<std::size_t> MPI::test_some(
+std::vector<std::size_t> UCXX::test_some(
     std::vector<std::unique_ptr<Communicator::Future>> const& future_vector
 ) {
-    std::vector<MPI_Request> reqs;
+    // TODO: Progress before checking completion
+
+    std::vector<std::shared_ptr<::ucxx::Request>> reqs;
     for (auto const& future : future_vector) {
-        auto mpi_future = dynamic_cast<Future const*>(future.get());
-        RAPIDSMP_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-        reqs.push_back(mpi_future->req_);
+        auto ucxx_future = dynamic_cast<Future const*>(future.get());
+        RAPIDSMP_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+        reqs.push_back(ucxx_future->req_);
     }
 
     // Get completed requests as indices into `future_vector` (and `reqs`).
-    std::vector<int> completed(reqs.size());
-    {
-        int num_completed{0};
-        RAPIDSMP_MPI(MPI_Testsome(
-            reqs.size(),
-            reqs.data(),
-            &num_completed,
-            completed.data(),
-            MPI_STATUSES_IGNORE
-        ));
-        completed.resize(num_completed);
+    std::vector<size_t> completed;
+    for (size_t i = 0; i < reqs.size(); ++i) {
+        if (reqs[i]->isCompleted())
+            completed.push_back(i);
     }
-    return std::vector<std::size_t>(completed.begin(), completed.end());
+    return completed;
 }
 
-std::vector<std::size_t> MPI::test_some(
+std::vector<std::size_t> UCXX::test_some(
     std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
         future_map
 ) {
-    std::vector<MPI_Request> reqs;
+    std::vector<std::shared_ptr<::ucxx::Request>> reqs;
     std::vector<std::size_t> key_reqs;
     reqs.reserve(future_map.size());
     key_reqs.reserve(future_map.size());
     for (auto const& [key, future] : future_map) {
-        auto mpi_future = dynamic_cast<Future const*>(future.get());
-        RAPIDSMP_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-        reqs.push_back(mpi_future->req_);
+        auto ucxx_future = dynamic_cast<Future const*>(future.get());
+        RAPIDSMP_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+        reqs.push_back(ucxx_future->req_);
         key_reqs.push_back(key);
     }
 
     // Get completed requests as indices into `key_reqs` (and `reqs`).
-    std::vector<int> completed(reqs.size());
-    {
-        int num_completed{0};
-        RAPIDSMP_MPI(MPI_Testsome(
-            reqs.size(),
-            reqs.data(),
-            &num_completed,
-            completed.data(),
-            MPI_STATUSES_IGNORE
-        ));
-        completed.resize(num_completed);
+    std::vector<size_t> completed;
+    for (size_t i = 0; i < reqs.size(); ++i) {
+        if (reqs[i]->isCompleted())
+            completed.push_back(i);
     }
 
     std::vector<std::size_t> ret;
     ret.reserve(completed.size());
-    for (int i : completed) {
+    for (size_t i : completed) {
         ret.push_back(key_reqs.at(i));
     }
     return ret;
 }
 
-std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
-    auto mpi_future = dynamic_cast<Future*>(future.get());
-    RAPIDSMP_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-    RAPIDSMP_EXPECTS(mpi_future->data_ != nullptr, "future has no data");
-    return std::move(mpi_future->data_);
+std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
+    auto ucxx_future = dynamic_cast<Future*>(future.get());
+    RAPIDSMP_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    RAPIDSMP_EXPECTS(ucxx_future->data_ != nullptr, "future has no data");
+    return std::move(ucxx_future->data_);
 }
 
-std::string MPI::str() const {
-    int version, subversion;
-    RAPIDSMP_MPI(MPI_Get_version(&version, &subversion));
+std::string UCXX::str() const {
+    unsigned major, minor, release;
+    ucp_get_version(&major, &minor, &release);
 
     std::stringstream ss;
-    ss << "MPI(rank=" << rank_ << ", nranks: " << nranks_ << ", mpi-version=" << version
-       << "." << subversion << ")";
+    ss << "UCXX(rank=" << rank_ << ", nranks: " << nranks_ << ", ucx-version=" << major
+       << "." << minor << "." << release << ")";
     return ss.str();
 }
 
