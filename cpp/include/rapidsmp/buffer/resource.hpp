@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -145,9 +145,6 @@ class BufferResource {
      *
      * Additionally, the amount of "overbooking" is also returned.
      *
-     *
-     *
-     *
      * @param mem_type The target memory type.
      * @param size The number of bytes to reserve.
      * @return An allocation reservation and the amount of "overbooking". Or null
@@ -155,7 +152,6 @@ class BufferResource {
     virtual std::pair<MemoryReservation, std::size_t> reserve(
         MemoryType mem_type, size_t size, bool allow_overbooking
     );
-
 
     /**
      * @brief Consume a portion of the reserved memory.
@@ -311,8 +307,15 @@ class BufferResource {
     virtual void finalizer(Buffer* const buffer) noexcept {}
 
   protected:
-    // Factory method to create a new memory reservation, needed since the
-    // MemoryReservation's ctor is private.
+    /**
+     * @brief Factory method to create a new memory reservation.
+     *
+     * This is needed because the ctor of `MemoryReservation` is private.
+     *
+     * @param mem_type The type of memory associated with this reservation.
+     * @param br Pointer to the buffer resource managing this reservation.
+     * @param size The size of the reserved memory in bytes.
+     */
     static MemoryReservation create_memory_reservation(
         MemoryType mem_type, BufferResource* br, std::size_t size
     ) {
@@ -335,7 +338,6 @@ class BufferResource {
         );
         return reservation.size_ -= size;
     }
-
 
   protected:
     std::mutex reservation_mutex_;  ///< For thread-safe access to memory reservations.

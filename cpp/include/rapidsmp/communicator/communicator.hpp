@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -85,7 +85,7 @@ class Communicator {
          * The verbosity level is determined by the environment variable `RAPIDSMP_LOG`,
          * defaulting to `1` if not set.
          *
-         * @param comm The @ref Communicator to use.
+         * @param comm The `Communicator` to use.
          */
         Logger(Communicator* comm)  // TODO: support writing to a file.
             : comm_{comm}, level_{getenv_or("RAPIDSMP_LOG", 1)} {};

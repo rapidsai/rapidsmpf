@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@
  * @namespace rapidsmp::shuffler
  * @brief Shuffler interfaces.
  *
- * A shuffle service for cuDF tables. Use @ref Shuffler to perform a single shuffle.
+ * A shuffle service for cuDF tables. Use `Shuffler` to perform a single shuffle.
  */
 namespace rapidsmp::shuffler {
 
@@ -53,13 +53,13 @@ namespace rapidsmp::shuffler {
 class Shuffler {
   public:
     /**
-     * @brief Function that given a @ref Communicator and a @ref
-     * PartID, returns the @ref rapidsmp::Rank of the _owning_ node.
+     * @brief Function that given a `Communicator` and a `PartID`, returns the
+     * `rapidsmp::Rank` of the _owning_ node.
      */
     using PartitionOwner = std::function<Rank(std::shared_ptr<Communicator>, PartID)>;
 
     /**
-     * @brief A @ref PartitionOwner that distribute the partition using round robin.
+     * @brief A `PartitionOwner` that distribute the partition using round robin.
      *
      * @param comm The communicator to use.
      * @param pid The partition ID to query.

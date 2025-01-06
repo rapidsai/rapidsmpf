@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@
  * @namespace rapidsmp::shuffler
  * @brief Shuffler interfaces.
  *
- * A shuffle service for cuDF tables. Use @ref Shuffler to perform a single shuffle.
+ * A shuffle service for cuDF tables. Use `Shuffler` to perform a single shuffle.
  */
 namespace rapidsmp::shuffler {
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -108,8 +108,8 @@ class Chunk {
     /**
      * @brief Construct a new chunk from a metadata message.
      *
-     * @param msg A serialized metadata message previously returned by @ref
-     * to_metadata_message.
+     * @param msg A serialized metadata message previously returned by
+     * `to_metadata_message`.
      * @returns The new chunk.
      */
     [[nodiscard]] static Chunk from_metadata_message(
@@ -162,7 +162,7 @@ class ReadyForDataMessage {
      * @brief Deserializes a message from a byte array.
      *
      * @param msg A serialized message byte vector.
-     * @return A @ref ReadyForDataMessage object.
+     * @return A `ReadyForDataMessage` object.
      */
     [[nodiscard]] static ReadyForDataMessage unpack(
         std::unique_ptr<std::vector<uint8_t>> const& msg
