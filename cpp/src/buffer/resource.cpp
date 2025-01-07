@@ -54,7 +54,6 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 std::size_t BufferResource::release(
     MemoryReservation& reservation, MemoryType target, std::size_t size
 ) {
-    std::lock_guard const lock(mutex_);
     return release_memory_reservation(reservation, target, size);
 }
 

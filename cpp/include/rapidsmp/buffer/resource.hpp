@@ -307,7 +307,8 @@ class BufferResource {
     /**
      * @brief Factory method to create a new memory reservation.
      *
-     * This is needed because the ctor of `MemoryReservation` is private.
+     * Since the ctor of `MemoryReservation` is private, a class inheriting from
+     * `BufferResource` need this method to create new reservations.
      *
      * @param mem_type The type of memory associated with this reservation.
      * @param br Pointer to the buffer resource managing this reservation.
@@ -319,7 +320,17 @@ class BufferResource {
         return MemoryReservation{mem_type, br, size};
     }
 
-    static std::size_t release_memory_reservation(
+    /**
+     * @brief Release some of a memory reservation.
+     *
+     * Since the `size_` attribute of `MemoryReservation` is private, a class inheriting
+     * from `BufferResource` need this method to update reservations.
+     *
+     * @param reservation The memory reservation to update in-place.
+     * @param target The memory type to release.
+     * @param size The size of the memory to release in bytes.
+     */
+    std::size_t release_memory_reservation(
         MemoryReservation& reservation, MemoryType target, std::size_t size
     ) {
         RAPIDSMP_EXPECTS(
@@ -327,6 +338,7 @@ class BufferResource {
             "the memory type of MemoryReservation doesn't match",
             std::invalid_argument
         );
+        std::lock_guard const lock(mutex_);
         RAPIDSMP_EXPECTS(
             size <= reservation.size_,
             "MemoryReservation(" + format_nbytes(reservation.size_)
