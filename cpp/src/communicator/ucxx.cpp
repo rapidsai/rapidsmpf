@@ -682,9 +682,10 @@ Rank UCXX::get_next_worker_rank() {
     return ++next_rank_;
 }
 
-UCXX::~UCXX() {
+UCXX::~UCXX() noexcept {
     Logger& log = logger();
     log.warn("~UCXX");
+    worker_->stopProgressThread();
 }
 
 }  // namespace rapidsmp

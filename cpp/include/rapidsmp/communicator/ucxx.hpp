@@ -180,8 +180,7 @@ class UCXX final : public Communicator {
         uint16_t root_port
     );
 
-    // ~UCXX() noexcept override = default;
-    ~UCXX() override;
+    ~UCXX() noexcept override;
 
     /**
      * @copydoc Communicator::rank
