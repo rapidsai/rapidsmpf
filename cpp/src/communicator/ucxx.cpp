@@ -462,6 +462,19 @@ UCXX::UCXX(
     assert(req->isCompleted());
 }
 
+static ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
+    // The rapidsmp::Communicator API uses 32-bit `int` for user tags to match
+    // MPI's standard. We can thus pack the rank in the higher 32-bit of UCX's
+    // 64-bit tags as aid in identifying the sender of a message. Since we're
+    // currently limited to 26-bits for ranks (see
+    // `rapidsmp::shuffler::Shuffler::get_new_cid()`), we are essentially using
+    // 58-bits for the tags and the remaining 6-bits may be used in the future,
+    // such as to identify groups.
+    return ::ucxx::Tag(static_cast<uint64_t>(rank) << 32 | tag);
+}
+
+static constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<int>::max()};
+
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<std::vector<uint8_t>> msg,
     Rank rank,
@@ -469,16 +482,18 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     rmm::cuda_stream_view stream,
     BufferResource* br
 ) {
-    auto req =
-        rank_to_endpoint_->at(rank)->tagSend(msg->data(), msg->size(), ::ucxx::Tag(tag));
+    auto req = rank_to_endpoint_->at(rank)->tagSend(
+        msg->data(), msg->size(), tag_with_rank(*rank_, tag)
+    );
     return std::make_unique<Future>(req, br->move(std::move(msg), stream));
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
 ) {
-    auto req =
-        rank_to_endpoint_->at(rank)->tagSend(msg->data(), msg->size, ::ucxx::Tag(tag));
+    auto req = rank_to_endpoint_->at(rank)->tagSend(
+        msg->data(), msg->size, tag_with_rank(*rank_, tag)
+    );
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -486,7 +501,7 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, int tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
 ) {
     auto req = rank_to_endpoint_->at(rank)->tagRecv(
-        recv_buffer->data(), recv_buffer->size, ::ucxx::Tag(tag), ::ucxx::TagMaskFull
+        recv_buffer->data(), recv_buffer->size, ::ucxx::Tag(tag), UserTagMask
     );
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
@@ -497,9 +512,10 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(int tag) {
     // MPI_Status probe_status;
     // RAPIDSMP_MPI(MPI_Iprobe(MPI_ANY_SOURCE, tag, comm_, &msg_available,
     // &probe_status));
-    auto probe = worker_->tagProbe(::ucxx::Tag(tag));
+    auto probe = worker_->tagProbe(::ucxx::Tag(tag), UserTagMask);
     auto msg_available = probe.first;
     auto info = probe.second;
+    auto sender_rank = static_cast<Rank>(info.senderTag >> 32);
     if (!msg_available) {
         return {nullptr, 0};
     }
@@ -525,8 +541,7 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(int tag) {
     //     static_cast<std::size_t>(size) == msg->size(),
     //     "incorrect size of the MPI_Recv message"
     // );
-    auto req =
-        worker_->tagRecv(msg->data(), msg->size(), ::ucxx::Tag(tag), ::ucxx::TagMaskFull);
+    auto req = worker_->tagRecv(msg->data(), msg->size(), ::ucxx::Tag(tag), UserTagMask);
     // if (msg->size() > 2048) {  // TODO: use the actual eager threshold.
     //     log.warn(
     //         "block-receiving a messager larger than the normal ",
@@ -546,7 +561,7 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(int tag) {
     }
     // return {std::move(msg), probe_status.MPI_SOURCE};
     // TODO: Fix sender rank
-    return {std::move(msg), 0};
+    return {std::move(msg), sender_rank};
 }
 
 std::vector<std::size_t> UCXX::test_some(
@@ -603,8 +618,8 @@ std::vector<std::size_t> UCXX::test_some(
 void UCXX::barrier() {
     Logger& log = logger();
     log.warn("Barrier started on rank ", *rank_);
-    while (*rank_ == 0 && rank_to_endpoint_->size() != static_cast<uint64_t>(nranks() - 1)
-    )
+    while (*rank_ == 0
+           && rank_to_listener_address_->size() != static_cast<uint64_t>(nranks()))
     {
         // TODO: Update progress mode
     }
@@ -617,7 +632,7 @@ void UCXX::barrier() {
         }
         // TODO: Update progress mode
         while (std::all_of(requests.begin(), requests.end(), [](const auto& req) {
-            return req->isCompleted();
+            return !req->isCompleted();
         }))
             ;
         requests.clear();
@@ -627,7 +642,7 @@ void UCXX::barrier() {
         }
         // TODO: Update progress mode
         while (std::all_of(requests.begin(), requests.end(), [](const auto& req) {
-            return req->isCompleted();
+            return !req->isCompleted();
         }))
             ;
     } else {
