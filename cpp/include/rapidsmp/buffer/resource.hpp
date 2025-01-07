@@ -22,8 +22,7 @@
 
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/error.hpp>
-
-#include "rapidsmp/utils.hpp"
+#include <rapidsmp/utils.hpp>
 
 namespace rapidsmp {
 
@@ -196,6 +195,9 @@ class BufferResource {
      * @param size The size of the buffer in bytes.
      * @param stream CUDA stream to use for device allocations.
      * @return A unique pointer to the allocated Buffer.
+     *
+     * @throws std::overflow_error if both the reservation of device and host memory
+     * failed.
      */
     std::unique_ptr<Buffer> allocate(std::size_t size, rmm::cuda_stream_view stream);
 

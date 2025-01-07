@@ -111,10 +111,16 @@ std::unique_ptr<Buffer> BufferResource::allocate(
         }
     }
     // If that didn't work because of overbooking, we allocate host memory instead.
-    // Since we cannot spill host memory, we allow and ignore overbooking.
-    auto [reservation, _] = reserve(MemoryType::HOST, size, true);
+    auto [reservation, overbooking] = reserve(MemoryType::HOST, size, false);
+    RAPIDSMP_EXPECTS(
+        overbooking == 0,
+        "Cannot reserve " + format_nbytes(size) + " of device or host memory",
+        std::overflow_error
+    );
     std::cout << "allocate(HOST) - size: " << size << std::endl;
-    return BufferResource::allocate(MemoryType::HOST, size, stream, reservation);
+    auto ret = BufferResource::allocate(MemoryType::HOST, size, stream, reservation);
+    RAPIDSMP_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
+    return ret;
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
