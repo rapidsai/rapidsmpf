@@ -93,6 +93,11 @@ static std::string control_pack(
     std::string packed(total_size, 0);
 
     auto encode = [&offset, &packed](void const* data, size_t bytes) {
+        std::cout << "Encoding " << bytes << " bytes" << std::endl;
+        for (size_t i = 0; i < bytes; ++i) {
+            printf("\\0x%02x", static_cast<const unsigned char*>(data)[i]);
+        }
+        std::cout << std::endl;
         memcpy(packed.data() + offset, data, bytes);
         offset += bytes;
     };
@@ -121,6 +126,12 @@ static std::string control_pack(
         encode(&listener_address, sizeof(listener_address));
     }
 
+    std::cout << "Packed (" << packed.size() << " bytes): " << packed;
+    for (char i : packed) {
+        printf("\\0x%02x", i);
+    }
+    std::cout << std::endl;
+
     return packed;
 };
 
@@ -129,15 +140,25 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
 
     ucp_conn_request_attr_t attr{};
     attr.field_mask = UCP_CONN_REQUEST_ATTR_FIELD_CLIENT_ADDR;
-    auto status = ucp_conn_request_query(
-        conn_request, &attr
-    );  // TODO: Log if creating endpoint failed?
-    if (status != UCS_OK)
+    auto status = ucp_conn_request_query(conn_request, &attr);
+    if (status != UCS_OK) {
+        // TODO: Switch to logger
+        std::cout << "Failed to create endpoint to client" << std::endl;
         return;
+    }
+
+    std::array<char, INET6_ADDRSTRLEN> ip_str;
+    std::array<char, INET6_ADDRSTRLEN> port_str;
+    ::ucxx::utils::sockaddr_get_ip_port_str(
+        &attr.client_address, ip_str.data(), port_str.data(), INET6_ADDRSTRLEN
+    );
+    std::cout << "Server received a connection request from client at address "
+              << ip_str.data() << ":" << port_str.data() << std::endl;
 
     auto endpoint =
         listener_container->listener_->createEndpointFromConnRequest(conn_request, true);
     (*listener_container->endpoints_)[endpoint->getHandle()] = endpoint;
+
 
     if (listener_container->root_) {
         // TODO: Reuse receive_rank_callback_info
@@ -146,6 +167,13 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
         // TODO: Ensure nextRank remains alive until request completes
         Rank client_rank = listener_container->get_next_worker_rank_();
         auto packed_client_rank = control_pack(ControlMessage::AssignRank, client_rank);
+        std::cout << "Assigning rank " << client_rank << " to client at address "
+                  << ip_str.data() << ":" << port_str.data() << std::endl;
+        std::cout << "Packed (returned, " << packed_client_rank.size() << " bytes): ";
+        for (char i : packed_client_rank) {
+            printf("\\0x%02x", i);
+        }
+        std::cout << std::endl;
         auto req = endpoint->amSend(
             packed_client_rank.data(),
             packed_client_rank.size(),
@@ -156,25 +184,17 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
     }
 }
 
-UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, bool root, std::uint32_t nranks)
+UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks)
     : worker_(std::move(worker)),
       endpoints_(std::make_shared<EndpointsMap>()),
       rank_to_endpoint_(std::make_shared<RankToEndpointMap>()),
       rank_to_listener_address_(std::make_shared<RankToListenerAddressMap>()),
-      rank_(Rank(-1)),
+      rank_(Rank(0)),
       nranks_(nranks),
       next_rank_(Rank(0)),
       logger_(this) {
-    // int rank;
-    // int nranks;
-    // RAPIDSMP_MPI(MPI_Comm_rank(comm_, &rank));
-    // RAPIDSMP_MPI(MPI_Comm_size(comm_, &nranks));
-    // rank_ = rank;
-    // nranks_ = nranks;
-    // check_mpi_thread_support();
-
     if (worker_ == nullptr) {
-        auto context = ::ucxx::createContext({{}}, ::ucxx::Context::defaultFeatureFlags);
+        auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
         worker_ = context->createWorker(false);
         // TODO: Allow other modes
         worker_->startProgressThread(true);
@@ -185,54 +205,25 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, bool root, std::uint32_t nran
     listener_container_.listener_ = listener_;
     listener_container_.endpoints_ = endpoints_;
     listener_container_.rank_to_endpoint_ = rank_to_endpoint_;
-    listener_container_.root_ = root;
+    listener_container_.root_ = true;
     listener_container_.get_next_worker_rank_ = [this]() {
         return get_next_worker_rank();
     };
 
+    Logger& log = logger();
+    log.warn(
+        "Server received a connection request from client at address ",
+        listener_->getIp(),
+        ":",
+        listener_->getPort()
+    );
+
     ::ucxx::AmReceiverCallbackInfo control_callback_info("rapidsmp", 0);
 
-    // ::ucxx::AmReceiverCallbackInfo receive_rank_callback_info("rapidsmp", 0);
-    // auto receive_rank = ::ucxx::AmReceiverCallbackType(
-    //     [this](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
-    //         rank_ = *reinterpret_cast<Rank*>(req->getRecvBuffer()->data());
-    //     }
-    // );
-
-    // ::ucxx::AmReceiverCallbackInfo endpoint_registration_callback_info("rapidsmp", 1);
-    // auto endpoint_registration_callback = ::ucxx::AmReceiverCallbackType(
-    //     [this](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
-    //         auto rank = *reinterpret_cast<Rank*>(req->getRecvBuffer()->data());
-    //         rank_to_endpoint_[rank] = ep;
-    //     }
-    // );
-
-    // ::ucxx::AmReceiverCallbackInfo receive_listener_address_callback_info(
-    //     "rapidsmp", 2
-    // );
-    // auto receive_listener_address =
-    //     ::ucxx::AmReceiverCallbackType(
-    //         [this](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
-    //             auto listener_address =
-    //                 reinterpret_cast<ListenerAddress*>(req->getRecvBuffer()->data());
-    //             rank_to_listener_address_[listener_address->rank] = ListenerAddress {
-    //                 .host = listener_address->host;
-    //                 .port = listener_address->host;
-    //                 .rank = listener_address->rank;
-    //             }
-    //         }
-    //     );
-
-    // worker_->registerAmReceiverCallback(
-    //     endpoint_registration_callback_info, endpoint_registration_callback
-    // );
-    // worker_->registerAmReceiverCallback(receive_rank_callback_info, receive_rank);
-    // worker_->registerAmReceiverCallback(
-    //     receive_listener_address_callback_info, receive_listener_address
-    // );
-
-    auto control_unpack = [this, &control_callback_info](
-                              std::shared_ptr<::ucxx::Buffer> buffer, ucp_ep_h ep
+    auto control_unpack = [this](
+                              std::shared_ptr<::ucxx::Buffer> buffer,
+                              ucp_ep_h ep,
+                              const ::ucxx::AmReceiverCallbackInfo& control_callback_info
                           ) {
         size_t offset{0};
 
@@ -243,52 +234,6 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, bool root, std::uint32_t nran
 
         ControlMessage control;
         decode(&control, sizeof(ControlMessage));
-
-        // std::visit(
-        //     [this, &decode](const ControlMessage& control) {
-        //         Logger& log = logger();
-
-        //         using T = std::decay_t<decltype(control)>;
-        //         if constexpr (std::is_same_v < T, ControlMessage::AssignRank>) {
-        //             decode(&rank_, sizeof(rank_));
-        //             log.warn("Received rank ", rank_);
-        //         } else if constexpr (std::is_same_v < T,
-        //         ControlMessage::RegisterEndpoint>)
-        //         {
-        //             Rank rank;
-        //             decode(&rank, sizeof(rank));
-        //             rank_to_endpoint_[rank] = ep;
-        //         } else if constexpr (std::is_same_v < T,
-        //         ControlMessage::SetListenerAddress>)
-        //         {
-        //             ListenerAddress listener_address;
-        //             decode(&listener_address, sizeof(listener_address));
-        //             rank_to_listener_address_[listener_address->rank] =
-        //                 listener_address;
-        //             log.warn(
-        //                 "Rank ",
-        //                 listener_address->rank,
-        //                 " at address ",
-        //                 listener_address->host,
-        //                 ":",
-        //                 listener_address->port
-        //             );
-        //         } else if constexpr (std::is_save_v < T,
-        //         ControlMessage::GetListenerAddress>)
-        //         {
-        //             Rank rank;
-        //             decode(&rank, sizeof(rank));
-        //             auto listener_address = rank_to_listener_address_[rank];
-        //             endpoint->amSend(
-        //                 static_cast<void*>(&listener_address),
-        //                 sizeof(listener_address),
-        //                 UCS_MEMORY_TYPE_HOST,
-        //                 control_callback_info
-        //             );
-        //         }
-        //     },
-        //     control
-        // );
 
         Logger& log = logger();
         if (control == ControlMessage::AssignRank) {
@@ -329,44 +274,157 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, bool root, std::uint32_t nran
     };
 
     auto control_callback = ::ucxx::AmReceiverCallbackType(
-        [&control_unpack](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
-            control_unpack(req->getRecvBuffer(), ep);
+        [&control_unpack, &control_callback_info](
+            std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep
+        ) { control_unpack(req->getRecvBuffer(), ep, control_callback_info); }
+    );
+
+    worker_->registerAmReceiverCallback(control_callback_info, control_callback);
+}
+
+UCXX::UCXX(
+    std::shared_ptr<::ucxx::Worker> worker,
+    std::uint32_t nranks,
+    std::string root_host,
+    uint16_t root_port
+)
+    : worker_(std::move(worker)),
+      endpoints_(std::make_shared<EndpointsMap>()),
+      rank_to_endpoint_(std::make_shared<RankToEndpointMap>()),
+      rank_to_listener_address_(std::make_shared<RankToListenerAddressMap>()),
+      rank_(Rank(-1)),
+      nranks_(nranks),
+      next_rank_(Rank(-1)),
+      logger_(this) {
+    if (worker_ == nullptr) {
+        auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
+        worker_ = context->createWorker(false);
+        // TODO: Allow other modes
+        worker_->startProgressThread(true);
+    }
+
+    // Create listener
+    listener_ = worker_->createListener(0, listener_callback, &listener_container_);
+    listener_container_.listener_ = listener_;
+    listener_container_.endpoints_ = endpoints_;
+    listener_container_.rank_to_endpoint_ = rank_to_endpoint_;
+    listener_container_.root_ = false;
+    listener_container_.get_next_worker_rank_ = [this]() {
+        return get_next_worker_rank();
+    };
+
+    ::ucxx::AmReceiverCallbackInfo control_callback_info("rapidsmp", 0);
+
+    auto control_unpack = [this](
+                              std::shared_ptr<::ucxx::Buffer> buffer,
+                              ucp_ep_h ep,
+                              const ::ucxx::AmReceiverCallbackInfo& control_callback_info
+                          ) {
+        size_t offset{0};
+
+        auto decode = [&offset, &buffer](void* data, size_t bytes) {
+            memcpy(data, static_cast<const char*>(buffer->data()) + offset, bytes);
+            offset += bytes;
+        };
+
+        Logger& log = logger();
+
+        std::cout << "Received buffer (" << buffer->getSize() << " bytes): ";
+        for (size_t i = 0; i < buffer->getSize(); ++i) {
+            printf("\\0x%02x", static_cast<const unsigned char*>(buffer->data())[i]);
+        }
+        std::cout << std::endl;
+
+        ControlMessage control;
+        log.warn("Message type before receiving: ", static_cast<size_t>(control));
+        decode(&control, sizeof(ControlMessage));
+
+        log.warn("Received control message of type: ", static_cast<size_t>(control));
+
+        if (control == ControlMessage::AssignRank) {
+            decode(&rank_, sizeof(rank_));
+            log.warn("Received rank ", rank_);
+        } else if (control == ControlMessage::RegisterEndpoint) {
+            Rank rank;
+            decode(&rank, sizeof(rank));
+            (*rank_to_endpoint_)[rank] = endpoints_->at(ep);
+        } else if (control == ControlMessage::SetListenerAddress) {
+            ListenerAddress listener_address;
+            decode(&listener_address, sizeof(listener_address));
+            (*rank_to_listener_address_)[listener_address.rank] = listener_address;
+            log.warn(
+                "Rank ",
+                listener_address.rank,
+                " at address ",
+                listener_address.host,
+                ":",
+                listener_address.port
+            );
+        } else if (control == ControlMessage::GetListenerAddress) {
+            Rank rank;
+            decode(&rank, sizeof(rank));
+            auto listener_address = rank_to_listener_address_->at(rank);
+            auto endpoint = endpoints_->at(ep);
+            auto packed_listener_address =
+                control_pack(ControlMessage::SetListenerAddress, listener_address);
+            auto req = endpoint->amSend(
+                packed_listener_address.data(),
+                packed_listener_address.size(),
+                UCS_MEMORY_TYPE_HOST,
+                control_callback_info
+            );
+            // TODO: Wait for completion
+            assert(req->isCompleted());
+        }
+    };
+
+    auto control_callback = ::ucxx::AmReceiverCallbackType(
+        [&control_unpack,
+         &control_callback_info](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
+            auto buffer = req->getRecvBuffer();
+            auto data = static_cast<const unsigned char*>(buffer->data());
+            std::cout << "Received buffer (callback, " << buffer->getSize()
+                      << " bytes): ";
+            for (size_t i = 0; i < buffer->getSize(); ++i) {
+                // printf("\\0x%02x", data[i]);
+                printf("\\0x%02x", data[i]);
+            }
+            std::cout << std::endl;
+            control_unpack(req->getRecvBuffer(), ep, control_callback_info);
         }
     );
 
     worker_->registerAmReceiverCallback(control_callback_info, control_callback);
 
-    if (root) {
-        rank_ = Rank(0);
-    } else {
-        // Connect to root
-        // auto endpoint = worker_->createEndpointFromHostname("localhost", port, true);
-        uint16_t port = 12345;
-        auto endpoint = worker_->createEndpointFromHostname("localhost", port, true);
-        (*rank_to_endpoint_)[Rank(0)] = endpoint;
-        (*endpoints_)[endpoint->getHandle()] = endpoint;
+    // Connect to root
+    Logger& log = logger();
+    log.warn(
+        "Connecting to root node at ", root_host, ":", root_port, "current rank: ", rank_
+    );
+    auto endpoint = worker_->createEndpointFromHostname(root_host, root_port, true);
+    (*rank_to_endpoint_)[Rank(0)] = endpoint;
+    (*endpoints_)[endpoint->getHandle()] = endpoint;
 
-        // Get my rank
-        while (rank_ == Rank(-1)) {
-            // TODO: progress in non-progress thread modes
-        }
-
-        // Inform listener address
-        ListenerAddress listener_address = ListenerAddress{
-            .host = "localhost", .port = listener_->getPort(), .rank = rank_
-        };
-        auto packed_listener_address =
-            control_pack(ControlMessage::SetListenerAddress, listener_address);
-        auto req = endpoint->amSend(
-            packed_listener_address.data(),
-            packed_listener_address.size(),
-            UCS_MEMORY_TYPE_HOST,
-            // receive_listener_address_callback_info
-            control_callback_info
-        );
-        // TODO: Wait for completion
-        assert(req->isCompleted());
+    // Get my rank
+    while (rank_ == Rank(-1)) {
+        // TODO: progress in non-progress thread modes
     }
+    log.warn("My new rank: ", rank_);
+
+    // Inform listener address
+    ListenerAddress listener_address =
+        ListenerAddress{.host = "localhost", .port = listener_->getPort(), .rank = rank_};
+    auto packed_listener_address =
+        control_pack(ControlMessage::SetListenerAddress, listener_address);
+    auto req = endpoint->amSend(
+        packed_listener_address.data(),
+        packed_listener_address.size(),
+        UCS_MEMORY_TYPE_HOST,
+        // receive_listener_address_callback_info
+        control_callback_info
+    );
+    // TODO: Wait for completion
+    assert(req->isCompleted());
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
@@ -451,7 +509,9 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(int tag) {
         );
         // TODO: PROGRESS
     }
-    return {std::move(msg), probe_status.MPI_SOURCE};
+    // return {std::move(msg), probe_status.MPI_SOURCE};
+    // TODO: Fix sender rank
+    return {std::move(msg), 0};
 }
 
 std::vector<std::size_t> UCXX::test_some(
@@ -503,6 +563,45 @@ std::vector<std::size_t> UCXX::test_some(
         ret.push_back(key_reqs.at(i));
     }
     return ret;
+}
+
+void UCXX::barrier() {
+    while (rank_ == 0 && rank_to_endpoint_->size() != static_cast<uint64_t>(nranks())) {
+        // TODO: Update progress mode
+    }
+
+    if (rank_ == 0) {
+        std::vector<std::shared_ptr<::ucxx::Request>> requests;
+        for (auto& rank_to_endpoint : *rank_to_endpoint_) {
+            auto& endpoint = rank_to_endpoint.second;
+            requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
+        }
+        // TODO: Update progress mode
+        while (std::all_of(requests.begin(), requests.end(), [](const auto& req) {
+            return req->isCompleted();
+        }))
+            ;
+        requests.clear();
+        for (auto& rank_to_endpoint : *rank_to_endpoint_) {
+            auto& endpoint = rank_to_endpoint.second;
+            requests.push_back(endpoint->amRecv());
+        }
+        // TODO: Update progress mode
+        while (std::all_of(requests.begin(), requests.end(), [](const auto& req) {
+            return req->isCompleted();
+        }))
+            ;
+    } else {
+        auto& endpoint = rank_to_endpoint_->at(0);
+        auto req = endpoint->amRecv();
+        // TODO: Update progress mode
+        while (!req->isCompleted())
+            ;
+        req = endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST);
+        // TODO: Update progress mode
+        while (!req->isCompleted())
+            ;
+    }
 }
 
 std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {

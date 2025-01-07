@@ -44,7 +44,7 @@ namespace ucxx {
  * @param argc Pointer to the number of arguments passed to the program.
  * @param argv Pointer to the argument vector passed to the program.
  */
-void init(int* argc, char*** argv);
+// void init(int* argc, char*** argv);
 
 /**
  * @brief Helper to check the UCXX errcode of a UCXX call.
@@ -54,8 +54,10 @@ void init(int* argc, char*** argv);
  *
  * @param call The UCXX call to be checked for errors.
  */
+/*
 #define RAPIDSMP_MPI(call) \
     rapidsmp::mpi::detail::check_mpi_error((call), __FILE__, __LINE__)
+*/
 
 namespace detail {
 /**
@@ -135,11 +137,17 @@ class UCXX final : public Communicator {
     };
 
     /**
-     * @brief Construct an MPI communicator.
+     * @brief Construct a UCXX communicator.
      *
-     * @param comm The MPI communicator to be used for communication.
+     * @param comm The UCXX communicator to be used for communication.
      */
-    UCXX(std::shared_ptr<::ucxx::Worker> worker, bool root, std::uint32_t nranks);
+    UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks);
+    UCXX(
+        std::shared_ptr<::ucxx::Worker> worker,
+        std::uint32_t nranks,
+        std::string root_host,
+        uint16_t root_port
+    );
 
     ~UCXX() noexcept override = default;
 
@@ -209,6 +217,8 @@ class UCXX final : public Communicator {
         std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
             future_map
     ) override;
+
+    void barrier() override;
 
     /**
      * @copydoc Communicator::get_gpu_data
