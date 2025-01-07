@@ -82,13 +82,44 @@ struct ListenerAddress {
 using RankToEndpointMap = std::unordered_map<Rank, std::shared_ptr<::ucxx::Endpoint>>;
 using RankToListenerAddressMap = std::unordered_map<Rank, ListenerAddress>;
 
+class HostFuture {
+    friend class UCXX;
+
+  public:
+    /**
+     * @brief Construct a Future.
+     *
+     * @param req The UCXX request handle for the operation.
+     * @param data A unique pointer to the data buffer.
+     */
+    HostFuture(
+        std::shared_ptr<::ucxx::Request> req, std::unique_ptr<std::vector<uint8_t>> data
+    )
+        : req_{std::move(req)}, data_{std::move(data)} {}
+
+    ~HostFuture() noexcept = default;
+
+    HostFuture(HostFuture&&) = default;  ///< Movable.
+    HostFuture(HostFuture&) = delete;  ///< Not copyable.
+
+  private:
+    std::shared_ptr<::ucxx::Request>
+        req_;  ///< The UCXX request associated with the operation.
+    std::unique_ptr<std::vector<uint8_t>> data_;  ///< The data buffer.
+};
+
 struct ListenerContainer {
     std::shared_ptr<::ucxx::Listener> listener_{nullptr};
+    std::shared_ptr<Rank> rank_{nullptr};
     // TODO: We probably need to make endpoints thread-safe.
     std::shared_ptr<EndpointsMap> endpoints_{nullptr};
-    std::shared_ptr<RankToEndpointMap> rank_to_endpoint_{};
+    std::shared_ptr<RankToEndpointMap> rank_to_endpoint_{nullptr};
+    std::shared_ptr<RankToListenerAddressMap> rank_to_listener_address_{nullptr};
     bool root_;
+    std::shared_ptr<std::vector<std::unique_ptr<HostFuture>>> futures_{nullptr};
     std::function<Rank()> get_next_worker_rank_;
+    // std::function<Communicator::Logger&()> logger;
+    // Communicator::Logger& log;
 };
 
 enum class ControlMessage {
@@ -149,13 +180,14 @@ class UCXX final : public Communicator {
         uint16_t root_port
     );
 
-    ~UCXX() noexcept override = default;
+    // ~UCXX() noexcept override = default;
+    ~UCXX() override;
 
     /**
      * @copydoc Communicator::rank
      */
     [[nodiscard]] Rank rank() const override {
-        return rank_;
+        return *rank_;
     }
 
     /**
@@ -242,11 +274,11 @@ class UCXX final : public Communicator {
   private:
     std::shared_ptr<::ucxx::Worker> worker_;
     std::shared_ptr<::ucxx::Listener> listener_;
-    ListenerContainer listener_container_;
+    std::shared_ptr<ListenerContainer> listener_container_;
     std::shared_ptr<EndpointsMap> endpoints_;
     std::shared_ptr<RankToEndpointMap> rank_to_endpoint_;
     std::shared_ptr<RankToListenerAddressMap> rank_to_listener_address_;
-    Rank rank_;
+    std::shared_ptr<Rank> rank_;
     std::uint32_t nranks_;
     Rank next_rank_;
     Logger logger_;
