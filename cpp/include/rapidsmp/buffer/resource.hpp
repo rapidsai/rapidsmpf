@@ -64,7 +64,7 @@ class MemoryReservation {
      *
      * @return The size of the reserved memory in bytes.
      */
-    [[nodiscard]] std::size_t size() const {
+    [[nodiscard]] std::size_t size() const noexcept {
         return size_;
     }
 
@@ -144,13 +144,17 @@ class BufferResource {
      * of memory isn't available. In this case, the caller must promise to free the amount
      * of buffers corresponding to at least the amount of overbooking before using the
      * reservation to allocate new buffers.
-     * If overbooking isn't allowed, a reservation of size zero is returned instead.
+     *
+     * If overbooking isn't allowed, a reservation of size zero is returned on failure.
+     *
      *
      * @param mem_type The target memory type.
      * @param size The number of bytes to reserve.
-     * @param allow_overbooking Whether to allows overbooking or fail if `size` bytes of
+     * @param allow_overbooking Allow overbooking or fail if `size` bytes of
      * `mem_type` isn't available.
-     * @return An allocation reservation and the amount of "overbooking".
+     * @return An allocation reservation and the amount of "overbooking". On success the
+     * size of the reservation always equals `size` and on failure the size always
+     * equals zero.
      */
     std::pair<MemoryReservation, std::size_t> reserve(
         MemoryType mem_type, size_t size, bool allow_overbooking
