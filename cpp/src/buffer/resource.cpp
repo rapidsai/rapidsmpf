@@ -44,17 +44,29 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 
     if (overbooking > 0 && !allow_overbooking) {
         // Cancel the reservation, overbooking isn't allowed.
-        return {create_memory_reservation(mem_type, this, 0), overbooking};
+        return {MemoryReservation(mem_type, this, 0), overbooking};
     }
     // Make the reservation.
     reserved += size;
-    return {create_memory_reservation(mem_type, this, size), overbooking};
+    return {MemoryReservation(mem_type, this, size), overbooking};
 }
 
 std::size_t BufferResource::release(
     MemoryReservation& reservation, MemoryType target, std::size_t size
 ) {
-    return release_memory_reservation(reservation, target, size);
+    RAPIDSMP_EXPECTS(
+        reservation.mem_type_ == target,
+        "the memory type of MemoryReservation doesn't match",
+        std::invalid_argument
+    );
+    std::lock_guard const lock(mutex_);
+    RAPIDSMP_EXPECTS(
+        size <= reservation.size_,
+        "MemoryReservation(" + format_nbytes(reservation.size_) + ") isn't big enough ("
+            + format_nbytes(size) + ")",
+        std::overflow_error
+    );
+    return reservation.size_ -= size;
 }
 
 std::unique_ptr<Buffer> BufferResource::allocate(

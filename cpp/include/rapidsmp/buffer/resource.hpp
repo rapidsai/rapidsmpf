@@ -87,19 +87,14 @@ class MemoryReservation {
 };
 
 /**
- * @brief Base class for managing buffer resources.
+ * @brief Class managing buffer resources.
  *
  * This class handles memory allocation and transfers between different memory types
  * (e.g., host and device). All memory operations in rapidsmp, such as those performed
  * by the Shuffler, rely on a buffer resource for memory management.
  *
- * This base class always use the highest memory type in the provided memory hierarchy.
- *
- * An alternative allocation strategic can be implemented in a derived class by overriding
- * one or more of the virtual methods.
- *
  * @note Similar to RMM's memory resource, the `BufferResource` instance must outlive all
- * allocated buffers and allocation tokens.
+ * allocated buffers and allocation reservations.
  */
 class BufferResource {
   public:
@@ -129,7 +124,7 @@ class BufferResource {
     )
         : device_mr_{device_mr}, memory_available_{std::move(memory_available)} {}
 
-    virtual ~BufferResource() noexcept = default;
+    ~BufferResource() noexcept = default;
 
     /**
      * @brief Get the RMM device memory resource.
@@ -153,7 +148,7 @@ class BufferResource {
      * @param size The number of bytes to reserve.
      * @return An allocation reservation and the amount of "overbooking". Or null
      */
-    virtual std::pair<MemoryReservation, std::size_t> reserve(
+    std::pair<MemoryReservation, std::size_t> reserve(
         MemoryType mem_type, size_t size, bool allow_overbooking
     );
 
@@ -169,7 +164,7 @@ class BufferResource {
      * @throws std::invalid_argument if the memory type does not match the reservation.
      * @throws std::overflow_error if the requested size exceeds the reserved memory size.
      */
-    virtual std::size_t release(
+    std::size_t release(
         MemoryReservation& reservation, MemoryType target, std::size_t size
     );
 
@@ -185,7 +180,7 @@ class BufferResource {
      * @throws std::invalid_argument if the memory type does not match the reservation.
      * @throws std::overflow_error if the reservation isn't big enough.
      */
-    virtual std::unique_ptr<Buffer> allocate(
+    std::unique_ptr<Buffer> allocate(
         MemoryType mem_type,
         std::size_t size,
         rmm::cuda_stream_view stream,
@@ -193,17 +188,16 @@ class BufferResource {
     );
 
     /**
-     * @brief Allocate a new buffer.
+     * @brief Allocate a new buffer of unspecified memory type.
      *
-     * The base implementation first try to reserve device memory then host memory.
+     * This allocator first try to reserve and allocate device memory. If not enough
+     * device memory is available, host memory is reserved and allocated instead.
      *
      * @param size The size of the buffer in bytes.
      * @param stream CUDA stream to use for device allocations.
      * @return A unique pointer to the allocated Buffer.
      */
-    virtual std::unique_ptr<Buffer> allocate(
-        std::size_t size, rmm::cuda_stream_view stream
-    );
+    std::unique_ptr<Buffer> allocate(std::size_t size, rmm::cuda_stream_view stream);
 
     /**
      * @brief Move host vector data into a Buffer.
@@ -212,7 +206,7 @@ class BufferResource {
      * @param stream CUDA stream for any necessary operations.
      * @return A unique pointer to the resulting Buffer.
      */
-    virtual std::unique_ptr<Buffer> move(
+    std::unique_ptr<Buffer> move(
         std::unique_ptr<std::vector<uint8_t>> data, rmm::cuda_stream_view stream
     );
 
@@ -223,7 +217,7 @@ class BufferResource {
      * @param stream CUDA stream for any necessary operations.
      * @return A unique pointer to the resulting Buffer.
      */
-    virtual std::unique_ptr<Buffer> move(
+    std::unique_ptr<Buffer> move(
         std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
     );
 
@@ -237,7 +231,7 @@ class BufferResource {
      * @param stream CUDA stream for the operation.
      * @return A unique pointer to the moved Buffer.
      */
-    virtual std::unique_ptr<Buffer> move(
+    std::unique_ptr<Buffer> move(
         MemoryType target,
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
@@ -253,7 +247,7 @@ class BufferResource {
      * @param stream CUDA stream for the operation.
      * @return A unique pointer to the resulting device buffer.
      */
-    virtual std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
+    std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
         MemoryReservation& reservation
@@ -268,7 +262,7 @@ class BufferResource {
      * @param stream CUDA stream for the operation.
      * @return A unique pointer to the resulting host vector.
      */
-    virtual std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
+    std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
         MemoryReservation& reservation
@@ -284,69 +278,12 @@ class BufferResource {
      * @param stream CUDA stream for the operation.
      * @return A unique pointer to the new Buffer.
      */
-    virtual std::unique_ptr<Buffer> copy(
+    std::unique_ptr<Buffer> copy(
         MemoryType target,
         std::unique_ptr<Buffer> const& buffer,
         rmm::cuda_stream_view stream,
         MemoryReservation& reservation
     );
-
-    /**
-     * @brief This finalizer is called when a buffer is being destructured.
-     *
-     * The base implementation does nothing.
-     *
-     * @note This is only called on initialized buffers i.e. only if
-     * `buffer->is_moved() == false`.
-     *
-     * @param buffer The buffer being destructured.
-     */
-    virtual void finalizer(Buffer* const buffer) noexcept {}
-
-  protected:
-    /**
-     * @brief Factory method to create a new memory reservation.
-     *
-     * Since the ctor of `MemoryReservation` is private, a class inheriting from
-     * `BufferResource` need this method to create new reservations.
-     *
-     * @param mem_type The type of memory associated with this reservation.
-     * @param br Pointer to the buffer resource managing this reservation.
-     * @param size The size of the reserved memory in bytes.
-     */
-    static MemoryReservation create_memory_reservation(
-        MemoryType mem_type, BufferResource* br, std::size_t size
-    ) {
-        return MemoryReservation{mem_type, br, size};
-    }
-
-    /**
-     * @brief Release some of a memory reservation.
-     *
-     * Since the `size_` attribute of `MemoryReservation` is private, a class inheriting
-     * from `BufferResource` need this method to update reservations.
-     *
-     * @param reservation The memory reservation to update in-place.
-     * @param target The memory type to release.
-     * @param size The size of the memory to release in bytes.
-     */
-    std::size_t release_memory_reservation(
-        MemoryReservation& reservation, MemoryType target, std::size_t size
-    ) {
-        RAPIDSMP_EXPECTS(
-            reservation.mem_type_ == target,
-            "the memory type of MemoryReservation doesn't match",
-            std::invalid_argument
-        );
-        std::lock_guard const lock(mutex_);
-        RAPIDSMP_EXPECTS(
-            size <= reservation.size_,
-            "MemoryReservation(" + format_nbytes(reservation.size_)
-                + ") isn't big enough (" + format_nbytes(size) + ")",
-            std::overflow_error
-        );
-        return reservation.size_ -= size;
-    }
 
   protected:
     std::mutex mutex_;  ///< For thread-safe access to memory reservations.

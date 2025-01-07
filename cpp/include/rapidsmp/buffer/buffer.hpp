@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,9 +32,6 @@ enum class MemoryType : int {
     HOST,  ///< Host memory
     DEVICE  ///< Device memory
 };
-
-/// @brief Array that represents a hierarchy of all memory types in `MemoryType`.
-using MemoryHierarchy = std::array<MemoryType, 2>;
 
 /**
  * @brief Buffer representing device or host memory.
@@ -97,12 +94,6 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage any memory.
      */
     [[nodiscard]] void const* data() const;
-
-    /**
-     * @brief The destructor calls the buffer resource's finalizer, if this
-     * buffer hasn't already been moved.
-     */
-    virtual ~Buffer() noexcept;
 
     /// @brief Buffer has a move ctor but no copy or assign operator.
     Buffer(Buffer&&) = default;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,12 +28,6 @@ template <typename T>
     return std::move(ptr);
 }
 }  // namespace
-
-Buffer::~Buffer() noexcept {
-    if (!is_moved()) {
-        br->finalizer(this);
-    }
-}
 
 Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br)
     : host_buffer_{std::move(host_buffer)},
