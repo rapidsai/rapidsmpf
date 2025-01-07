@@ -81,6 +81,8 @@ class MemoryReservation {
     /**
      * @brief Constructs a memory reservation.
      *
+     * This is private thus only the friend `BufferResource` can create reservations.
+     *
      * @param mem_type The type of memory associated with this reservation.
      * @param br Pointer to the buffer resource managing this reservation.
      * @param size The size of the reserved memory in bytes.
@@ -102,7 +104,7 @@ class MemoryReservation {
  * by the Shuffler, rely on a buffer resource for memory management.
  *
  * @note Similar to RMM's memory resource, the `BufferResource` instance must outlive all
- * allocated buffers and allocation reservations.
+ * allocated buffers and memory reservations.
  */
 class BufferResource {
   public:
@@ -175,7 +177,8 @@ class BufferResource {
      * @return The remaining size of the reserved memory after consumption.
      *
      * @throws std::invalid_argument if the memory type does not match the reservation.
-     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
+     * @throws std::overflow_error if the released size exceeds the size of the
+     * reservation.
      */
     std::size_t release(
         MemoryReservation& reservation, MemoryType target, std::size_t size
@@ -191,7 +194,7 @@ class BufferResource {
      * @return A unique pointer to the allocated Buffer.
      *
      * @throws std::invalid_argument if the memory type does not match the reservation.
-     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
+     * @throws std::overflow_error if `size` exceeds the size of the reservation.
      */
     std::unique_ptr<Buffer> allocate(
         MemoryType mem_type,
@@ -233,8 +236,8 @@ class BufferResource {
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the moved Buffer.
      *
-     * @throws std::invalid_argument if the memory type does not match the reservation.
-     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
+     * @throws std::invalid_argument if `target` does not match the reservation.
+     * @throws std::overflow_error if the memory requirement exceeds the reservation.
      */
     std::unique_ptr<Buffer> move(
         MemoryType target,
@@ -253,8 +256,9 @@ class BufferResource {
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the resulting device buffer.
      *
-     * @throws std::invalid_argument if the memory type does not match the reservation.
-     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
+     * @throws std::invalid_argument if the required memory type does not match the
+     * reservation.
+     * @throws std::overflow_error if the memory requirement exceeds the reservation.
      */
     std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer,
@@ -272,8 +276,9 @@ class BufferResource {
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the resulting host vector.
      *
-     * @throws std::invalid_argument if the memory type does not match the reservation.
-     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
+     * @throws std::invalid_argument if the required memory type does not match the
+     * reservation.
+     * @throws std::overflow_error if the memory requirement exceeds the reservation.
      */
     std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer,
@@ -292,8 +297,8 @@ class BufferResource {
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the new Buffer.
      *
-     * @throws std::invalid_argument if the memory type does not match the reservation.
-     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
+     * @throws std::invalid_argument if `target` does not match the reservation.
+     * @throws std::overflow_error if the size exceeds the size of the reservation.
      */
     std::unique_ptr<Buffer> copy(
         MemoryType target,
