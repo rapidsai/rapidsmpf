@@ -96,33 +96,6 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     return ret;
 }
 
-std::unique_ptr<Buffer> BufferResource::allocate(
-    std::size_t size, rmm::cuda_stream_view stream
-) {
-    // First, try to reserve and allocate device memory.
-    {
-        auto [reservation, overbooking] = reserve(MemoryType::DEVICE, size, false);
-        if (reservation.size() > 0) {
-            RAPIDSMP_EXPECTS(overbooking <= 0, "got an overbooking reservation");
-            std::cout << "allocate(DEVICE) - size: " << size << std::endl;
-            return BufferResource::allocate(
-                MemoryType::DEVICE, size, stream, reservation
-            );
-        }
-    }
-    // If that didn't work because of overbooking, we allocate host memory instead.
-    auto [reservation, overbooking] = reserve(MemoryType::HOST, size, false);
-    RAPIDSMP_EXPECTS(
-        overbooking == 0,
-        "Cannot reserve " + format_nbytes(size) + " of device or host memory",
-        std::overflow_error
-    );
-    std::cout << "allocate(HOST) - size: " << size << std::endl;
-    auto ret = BufferResource::allocate(MemoryType::HOST, size, stream, reservation);
-    RAPIDSMP_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
-    return ret;
-}
-
 std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<std::vector<uint8_t>> data, rmm::cuda_stream_view stream
 ) {

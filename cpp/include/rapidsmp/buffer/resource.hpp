@@ -137,15 +137,20 @@ class BufferResource {
     /**
      * @brief Reserve an amount of the specified memory type.
      *
-     * Creates a new reservation to inform about upcoming buffer allocations. E.g.,
-     * the `Shuffler::extract()` use this to reserve device memory for the next
-     * output pertition before moving each individual chunk to device memory.
+     * Creates a new reservation of the specified size and type to inform about upcoming
+     * buffer allocations.
      *
-     * Additionally, the amount of "overbooking" is also returned.
+     * If overbooking is allowed, a reservation of `size` is returned even when the amount
+     * of memory isn't available. In this case, the caller must promise to free the amount
+     * of buffers corresponding to at least the amount of overbooking before using the
+     * reservation to allocate new buffers.
+     * If overbooking isn't allowed, a reservation of size zero is returned instead.
      *
      * @param mem_type The target memory type.
      * @param size The number of bytes to reserve.
-     * @return An allocation reservation and the amount of "overbooking". Or null
+     * @param allow_overbooking Whether to allows overbooking or fail if `size` bytes of
+     * `mem_type` isn't available.
+     * @return An allocation reservation and the amount of "overbooking".
      */
     std::pair<MemoryReservation, std::size_t> reserve(
         MemoryType mem_type, size_t size, bool allow_overbooking
@@ -185,21 +190,6 @@ class BufferResource {
         rmm::cuda_stream_view stream,
         MemoryReservation& reservation
     );
-
-    /**
-     * @brief Allocate a new buffer of unspecified memory type.
-     *
-     * This allocator first try to reserve and allocate device memory. If not enough
-     * device memory is available, host memory is reserved and allocated instead.
-     *
-     * @param size The size of the buffer in bytes.
-     * @param stream CUDA stream to use for device allocations.
-     * @return A unique pointer to the allocated Buffer.
-     *
-     * @throws std::overflow_error if both the reservation of device and host memory
-     * failed.
-     */
-    std::unique_ptr<Buffer> allocate(std::size_t size, rmm::cuda_stream_view stream);
 
     /**
      * @brief Move host vector data into a Buffer.
