@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -28,9 +29,12 @@ class BufferResource;
 
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
-    HOST,  ///< Host memory
-    DEVICE  ///< Device memory
+    DEVICE,  ///< Device memory
+    HOST  ///< Host memory
 };
+
+/// @brief Array of all the different memory types.
+constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
 
 /**
  * @brief Buffer representing device or host memory.

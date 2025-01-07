@@ -27,6 +27,19 @@ MemoryReservation::~MemoryReservation() noexcept {
     }
 }
 
+BufferResource::BufferResource(
+    rmm::device_async_resource_ref device_mr,
+    std::unordered_map<MemoryType, MemoryAvailable> memory_available
+)
+    : device_mr_{device_mr}, memory_available_{std::move(memory_available)} {
+    for (MemoryType mem_type : MEMORY_TYPES) {
+        // Add missing memory availability functions.
+        memory_available_.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);
+        // Zero initialize the memory reserved counters.
+        memory_reserved_[mem_type] = 0;
+    }
+}
+
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, bool allow_overbooking
 ) {
@@ -154,4 +167,5 @@ std::unique_ptr<Buffer> BufferResource::copy(
     }
     return ret;
 }
+
 }  // namespace rapidsmp

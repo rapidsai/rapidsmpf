@@ -43,11 +43,20 @@ class MemoryReservation {
      */
     ~MemoryReservation() noexcept;
 
-    /// @brief A memory reservation is moveable.
+    /**
+     * @brief Move constructor for MemoryReservation.
+     *
+     * @param o The memory reservation to move from.
+     */
     MemoryReservation(MemoryReservation&& o)
         : MemoryReservation{o.mem_type_, o.br_, std::exchange(o.size_, 0)} {}
 
-    /// @brief A memory reservation is moveable.
+    /**
+     * @brief Move assignment operator for MemoryReservation.
+     *
+     * @param o The memory reservation to move from.
+     * @return A reference to the updated MemoryReservation.
+     */
     MemoryReservation& operator=(MemoryReservation&& o) noexcept {
         mem_type_ = o.mem_type_;
         br_ = o.br_;
@@ -98,30 +107,27 @@ class MemoryReservation {
 class BufferResource {
   public:
     /**
-     * @brief
+     * @brief Callback function to determine available memory.
      *
-     * Doesn't have to be thread-safe but cannot lock any resource that might reserve
-     * memory using this spill resource.
+     * The function must return the current available memory of a specific type.
      *
+     * The function does not have to be thread-safe but must avoid locking resources
+     * that might reserve memory using this spill resource.
      */
     using MemoryAvailable = std::function<std::int64_t()>;
 
     /**
-     * @brief Constructs a buffer resource that uses a memory hierarchy to decide the
-     * memory type of each new allocation.
+     * @brief Constructs a buffer resource with a specified memory hierarchy.
      *
-     * @param device_mr Reference to the RMM device memory resource used for all device
-     * allocations, which must outlive `BufferResource` and all the created buffers.
-     * @param memory_hierarchy The memory hierarchy to use (the base class always uses
-     * the highest memory type).
+     * @param device_mr Reference to the RMM device memory resource used for device
+     * allocations.
+     * @param memory_available Optional memory availability functions. Memory types
+     * without availability functions are unlimited.
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
-        std::unordered_map<MemoryType, MemoryAvailable> memory_available =
-            {{MemoryType::DEVICE, std::numeric_limits<std::int64_t>::max},
-             {MemoryType::HOST, std::numeric_limits<std::int64_t>::max}}
-    )
-        : device_mr_{device_mr}, memory_available_{std::move(memory_available)} {}
+        std::unordered_map<MemoryType, MemoryAvailable> memory_available = {}
+    );
 
     ~BufferResource() noexcept = default;
 
@@ -147,13 +153,11 @@ class BufferResource {
      *
      * If overbooking isn't allowed, a reservation of size zero is returned on failure.
      *
-     *
      * @param mem_type The target memory type.
      * @param size The number of bytes to reserve.
-     * @param allow_overbooking Allow overbooking or fail if `size` bytes of
-     * `mem_type` isn't available.
-     * @return An allocation reservation and the amount of "overbooking". On success the
-     * size of the reservation always equals `size` and on failure the size always
+     * @param allow_overbooking Whether overbooking is allowed.
+     * @return A pair containing the reservation and the amount of overbooking. On success
+     * the size of the reservation always equals `size` and on failure the size always
      * equals zero.
      */
     std::pair<MemoryReservation, std::size_t> reserve(
@@ -165,6 +169,7 @@ class BufferResource {
      *
      * Reduces the remaining size of the reserved memory by the specified amount.
      *
+     * @param reservation The reservation to release.
      * @param target The memory type of the reservation.
      * @param size The size to consume in bytes.
      * @return The remaining size of the reserved memory after consumption.
@@ -186,7 +191,7 @@ class BufferResource {
      * @return A unique pointer to the allocated Buffer.
      *
      * @throws std::invalid_argument if the memory type does not match the reservation.
-     * @throws std::overflow_error if the reservation isn't big enough.
+     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
      */
     std::unique_ptr<Buffer> allocate(
         MemoryType mem_type,
@@ -225,7 +230,11 @@ class BufferResource {
      * @param target The target memory type.
      * @param buffer The buffer to move.
      * @param stream CUDA stream for the operation.
+     * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the moved Buffer.
+     *
+     * @throws std::invalid_argument if the memory type does not match the reservation.
+     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
      */
     std::unique_ptr<Buffer> move(
         MemoryType target,
@@ -241,7 +250,11 @@ class BufferResource {
      *
      * @param buffer The buffer to move.
      * @param stream CUDA stream for the operation.
+     * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the resulting device buffer.
+     *
+     * @throws std::invalid_argument if the memory type does not match the reservation.
+     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
      */
     std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer,
@@ -256,7 +269,11 @@ class BufferResource {
      *
      * @param buffer The buffer to move.
      * @param stream CUDA stream for the operation.
+     * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the resulting host vector.
+     *
+     * @throws std::invalid_argument if the memory type does not match the reservation.
+     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
      */
     std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer,
@@ -272,7 +289,11 @@ class BufferResource {
      * @param target The target memory type.
      * @param buffer The buffer to copy.
      * @param stream CUDA stream for the operation.
+     * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the new Buffer.
+     *
+     * @throws std::invalid_argument if the memory type does not match the reservation.
+     * @throws std::overflow_error if the requested size exceeds the reserved memory size.
      */
     std::unique_ptr<Buffer> copy(
         MemoryType target,
@@ -281,13 +302,11 @@ class BufferResource {
         MemoryReservation& reservation
     );
 
-  protected:
-    std::mutex mutex_;  ///< For thread-safe access to memory reservations.
-    rmm::device_async_resource_ref device_mr_;  ///< RMM device memory resource reference.
-    std::unordered_map<MemoryType, MemoryAvailable> const memory_available_;
-    std::unordered_map<MemoryType, std::size_t> memory_reserved_{
-        {MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}
-    };
+  private:
+    std::mutex mutex_;
+    rmm::device_async_resource_ref device_mr_;
+    std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
+    std::unordered_map<MemoryType, std::size_t> memory_reserved_;
 };
 
 }  // namespace rapidsmp
