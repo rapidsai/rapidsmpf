@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2024, NVIDIA CORPORATION.
+# Copyright (c) 2024-2025, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -79,7 +79,11 @@ rapids_find_package(
 
 include(../cmake/thirdparty/get_nvtx.cmake)
 
+# find CCCL before rmm so that we get cudf's patched version of CCCL
+include(../cmake/thirdparty/get_cccl.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
+# find cuCollections, should come after including CCCL
+include(../cmake/thirdparty/get_cucollections.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 if(RAPIDSMP_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
