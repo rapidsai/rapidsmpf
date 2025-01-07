@@ -84,6 +84,65 @@ static size_t get_size(const rapidsmp::ControlData& data) {
     );
 }
 
+static void encode_(void* dest, void const* src, size_t bytes, size_t& offset) {
+    std::cout << "Encoding " << bytes << " bytes" << std::endl;
+    for (size_t i = 0; i < bytes; ++i) {
+        printf("\\0x%02x", static_cast<const unsigned char*>(src)[i]);
+    }
+    std::cout << std::endl;
+    memcpy(static_cast<char*>(dest) + offset, src, bytes);
+    offset += bytes;
+}
+
+static void decode_(void* dest, const void* src, size_t bytes, size_t& offset) {
+    memcpy(dest, static_cast<const char*>(src) + offset, bytes);
+    offset += bytes;
+}
+
+static std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
+    const ListenerAddress& listener_address
+) {
+    size_t offset{0};
+    size_t host_size = listener_address.host.size();
+    const size_t total_size = sizeof(host_size) + host_size
+                              + sizeof(listener_address.port)
+                              + sizeof(listener_address.rank);
+    auto packed = std::make_unique<std::vector<uint8_t>>(total_size);
+
+    auto encode = [&offset, &packed](const void* data, size_t bytes) {
+        encode_(packed->data(), data, bytes, offset);
+    };
+
+    encode(&host_size, sizeof(host_size));
+    encode(listener_address.host.data(), host_size);
+    encode(&listener_address.port, sizeof(listener_address.port));
+    encode(&listener_address.rank, sizeof(listener_address.rank));
+
+    return packed;
+}
+
+static ListenerAddress listener_address_unpack(
+    std::unique_ptr<std::vector<uint8_t>> packed
+) {
+    size_t offset{0};
+
+    auto decode = [&offset, &packed](void* data, size_t bytes) {
+        decode_(data, packed->data(), bytes, offset);
+    };
+
+    size_t host_size;
+    decode(&host_size, sizeof(size_t));
+
+    ListenerAddress listener_address;
+    listener_address.host.resize(host_size);
+    decode(listener_address.host.data(), host_size);
+
+    decode(&listener_address.port, sizeof(listener_address.port));
+    decode(&listener_address.rank, sizeof(listener_address.rank));
+
+    return listener_address;
+}
+
 static std::unique_ptr<std::vector<uint8_t>> control_pack(
     rapidsmp::ControlMessage control, rapidsmp::ControlData data
 ) {
@@ -94,13 +153,7 @@ static std::unique_ptr<std::vector<uint8_t>> control_pack(
     auto packed = std::make_unique<std::vector<uint8_t>>(total_size);
 
     auto encode = [&offset, &packed](void const* data, size_t bytes) {
-        std::cout << "Encoding " << bytes << " bytes" << std::endl;
-        for (size_t i = 0; i < bytes; ++i) {
-            printf("\\0x%02x", static_cast<const unsigned char*>(data)[i]);
-        }
-        std::cout << std::endl;
-        memcpy(packed->data() + offset, data, bytes);
-        offset += bytes;
+        encode_(packed->data(), data, bytes, offset);
     };
 
     encode(&control, sizeof(control));
@@ -124,11 +177,14 @@ static std::unique_ptr<std::vector<uint8_t>> control_pack(
         encode(&rank, sizeof(rank));
     } else if (control == ControlMessage::SetListenerAddress) {
         auto listener_address = std::get<ListenerAddress>(data);
-        encode(&listener_address, sizeof(listener_address));
+        auto packed_listener_address = listener_address_pack(listener_address);
+        size_t packed_listener_address_size = packed_listener_address->size();
+        encode(&packed_listener_address_size, sizeof(packed_listener_address_size));
+        encode(packed_listener_address->data(), packed_listener_address_size);
     }
 
     std::cout << "Packed (" << packed->size() << " bytes): ";
-    for (char i : *packed) {
+    for (unsigned char i : *packed) {
         printf("\\0x%02x", i);
     }
     std::cout << std::endl;
@@ -145,8 +201,7 @@ static void control_unpack(
     size_t offset{0};
 
     auto decode = [&offset, &buffer](void* data, size_t bytes) {
-        memcpy(data, static_cast<const char*>(buffer->data()) + offset, bytes);
-        offset += bytes;
+        decode_(data, buffer->data(), bytes, offset);
     };
 
     ControlMessage control;
@@ -164,8 +219,13 @@ static void control_unpack(
         (*listener_container->rank_to_endpoint_)[rank] =
             listener_container->endpoints_->at(ep);
     } else if (control == ControlMessage::SetListenerAddress) {
-        ListenerAddress listener_address;
-        decode(&listener_address, sizeof(listener_address));
+        size_t packed_listener_address_size;
+        decode(&packed_listener_address_size, sizeof(packed_listener_address_size));
+        auto packed_listener_address =
+            std::make_unique<std::vector<uint8_t>>(packed_listener_address_size);
+        decode(packed_listener_address->data(), packed_listener_address_size);
+        ListenerAddress listener_address =
+            listener_address_unpack(std::move(packed_listener_address));
         std::cout << "Rank " << listener_address.rank << " at address "
                   << listener_address.host << ":" << listener_address.port << std::endl;
         (*listener_container->rank_to_listener_address_)[listener_address.rank] =
@@ -236,7 +296,7 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
         std::cout << "Assigning rank " << client_rank << " to client at address "
                   << ip_str.data() << ":" << port_str.data() << std::endl;
         std::cout << "Packed (returned, " << packed_client_rank->size() << " bytes): ";
-        for (char i : *packed_client_rank) {
+        for (unsigned char i : *packed_client_rank) {
             printf("\\0x%02x", i);
         }
         std::cout << std::endl;
@@ -288,12 +348,14 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks)
     // };
     // listener_container_->log = logger();
 
+    auto listener_address = ListenerAddress{
+        .host = listener_->getIp(), .port = listener_->getPort(), .rank = *rank_
+    };
+    (*rank_to_listener_address_)[*rank_] = listener_address;
+
     Logger& log = logger();
     log.warn(
-        "Server received a connection request from client at address ",
-        listener_->getIp(),
-        ":",
-        listener_->getPort()
+        "Root running at address ", listener_address.host, ":", listener_address.port
     );
 
     ::ucxx::AmReceiverCallbackInfo control_callback_info("rapidsmp", 0);
@@ -347,70 +409,6 @@ UCXX::UCXX(
         std::make_shared<std::vector<std::unique_ptr<HostFuture>>>();
 
     ::ucxx::AmReceiverCallbackInfo control_callback_info("rapidsmp", 0);
-
-    // auto control_unpack = [this](
-    //                           std::shared_ptr<::ucxx::Buffer> buffer,
-    //                           ucp_ep_h ep,
-    //                           const ::ucxx::AmReceiverCallbackInfo&
-    //                           control_callback_info
-    //                       ) {
-    //     size_t offset{0};
-
-    //     auto decode = [&offset, &buffer](void* data, size_t bytes) {
-    //         memcpy(data, static_cast<const char*>(buffer->data()) + offset, bytes);
-    //         offset += bytes;
-    //     };
-
-    //     Logger& log = logger();
-
-    //     std::cout << "Received buffer (" << buffer->getSize() << " bytes): ";
-    //     for (size_t i = 0; i < buffer->getSize(); ++i) {
-    //         printf("\\0x%02x", static_cast<const unsigned char*>(buffer->data())[i]);
-    //     }
-    //     std::cout << std::endl;
-
-    //     ControlMessage control;
-    //     log.warn("Message type before receiving: ", static_cast<size_t>(control));
-    //     decode(&control, sizeof(ControlMessage));
-
-    //     log.warn("Received control message of type: ", static_cast<size_t>(control));
-
-    //     if (control == ControlMessage::AssignRank) {
-    //         decode(&rank_, sizeof(rank_));
-    //         log.warn("Received rank ", rank_);
-    //     } else if (control == ControlMessage::RegisterEndpoint) {
-    //         Rank rank;
-    //         decode(&rank, sizeof(rank));
-    //         (*rank_to_endpoint_)[rank] = endpoints_->at(ep);
-    //     } else if (control == ControlMessage::SetListenerAddress) {
-    //         ListenerAddress listener_address;
-    //         decode(&listener_address, sizeof(listener_address));
-    //         (*rank_to_listener_address_)[listener_address.rank] = listener_address;
-    //         log.warn(
-    //             "Rank ",
-    //             listener_address.rank,
-    //             " at address ",
-    //             listener_address.host,
-    //             ":",
-    //             listener_address.port
-    //         );
-    //     } else if (control == ControlMessage::GetListenerAddress) {
-    //         Rank rank;
-    //         decode(&rank, sizeof(rank));
-    //         auto listener_address = rank_to_listener_address_->at(rank);
-    //         auto endpoint = endpoints_->at(ep);
-    //         auto packed_listener_address =
-    //             control_pack(ControlMessage::SetListenerAddress, listener_address);
-    //         auto req = endpoint->amSend(
-    //             packed_listener_address->data(),
-    //             packed_listener_address->size(),
-    //             UCS_MEMORY_TYPE_HOST,
-    //             control_callback_info
-    //         );
-    //         // TODO: Wait for completion
-    //         assert(req->isCompleted());
-    //     }
-    // };
 
     auto control_callback = ::ucxx::AmReceiverCallbackType(
         [this,
@@ -605,7 +603,9 @@ std::vector<std::size_t> UCXX::test_some(
 void UCXX::barrier() {
     Logger& log = logger();
     log.warn("Barrier started on rank ", *rank_);
-    while (*rank_ == 0 && rank_to_endpoint_->size() != static_cast<uint64_t>(nranks())) {
+    while (*rank_ == 0 && rank_to_endpoint_->size() != static_cast<uint64_t>(nranks() - 1)
+    )
+    {
         // TODO: Update progress mode
     }
 
