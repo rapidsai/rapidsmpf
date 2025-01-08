@@ -111,15 +111,17 @@ class BufferResource {
     /**
      * @brief Callback function to determine available memory.
      *
-     * The function must return the current available memory of a specific type.
+     * The function should return the current available memory of a specific type and
+     * must be thread-safe iff used by multiple `BufferResource` instances concurrently.
      *
-     * The function does not have to be thread-safe but must avoid locking resources
-     * that might reserve memory using this spill resource.
+     * @warning Calling any `BufferResource` instance methods in the function might result
+     * in a deadlock. This is because the buffer resource is locked when the function is
+     * called.
      */
     using MemoryAvailable = std::function<std::int64_t()>;
 
     /**
-     * @brief Constructs a buffer resource with a specified memory hierarchy.
+     * @brief Constructs a buffer resource.
      *
      * @param device_mr Reference to the RMM device memory resource used for device
      * allocations.
@@ -149,9 +151,8 @@ class BufferResource {
      * buffer allocations.
      *
      * If overbooking is allowed, a reservation of `size` is returned even when the amount
-     * of memory isn't available. In this case, the caller must promise to free the amount
-     * of buffers corresponding to at least the amount of overbooking before using the
-     * reservation to allocate new buffers.
+     * of memory isn't available. In this case, the caller must promise to free buffers
+     * corresponding to (at least) the amount of overbooking before using the reservation.
      *
      * If overbooking isn't allowed, a reservation of size zero is returned on failure.
      *
@@ -160,7 +161,7 @@ class BufferResource {
      * @param allow_overbooking Whether overbooking is allowed.
      * @return A pair containing the reservation and the amount of overbooking. On success
      * the size of the reservation always equals `size` and on failure the size always
-     * equals zero.
+     * equals zero (a zero-sized reservation never fails).
      */
     std::pair<MemoryReservation, std::size_t> reserve(
         MemoryType mem_type, size_t size, bool allow_overbooking
@@ -187,7 +188,7 @@ class BufferResource {
     /**
      * @brief Allocate a buffer of the specified memory type.
      *
-     * @param mem_type The target memory type (host or device).
+     * @param mem_type The target memory type.
      * @param size The size of the buffer in bytes.
      * @param stream CUDA stream to use for device allocations.
      * @param reservation The reservation to use for memory allocations.

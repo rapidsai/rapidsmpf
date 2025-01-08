@@ -40,7 +40,7 @@ constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType
  * @brief Buffer representing device or host memory.
  *
  * @note The constructors are private, use `BufferResource` to construct buffers.
- * @note The memory type (host or device) is constant and cannot change during
+ * @note The memory type (e.g., host or device) is constant and cannot change during
  * the buffer's lifetime.
  */
 class Buffer {

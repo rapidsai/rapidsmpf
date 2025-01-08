@@ -38,7 +38,7 @@ namespace {
  * First reserve the memory type and then use the reservation to allocate a new
  * buffer. Returns null if reservation failed.
  *
- * @param mem_type The target memory type (host or device).
+ * @param mem_type The target memory type.
  * @param size The size of the buffer in bytes.
  * @param stream CUDA stream to use for device allocations.
  * @param br Buffer resource used for the reservation and allocation.
