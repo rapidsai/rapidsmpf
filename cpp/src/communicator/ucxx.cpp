@@ -185,11 +185,11 @@ static std::unique_ptr<std::vector<uint8_t>> control_pack(
         encode(packed_listener_address->data(), packed_listener_address_size);
     }
 
-    std::cout << "Packed (" << packed->size() << " bytes): ";
-    for (unsigned char i : *packed) {
-        printf("\\0x%02x", i);
-    }
-    std::cout << std::endl;
+    // std::cout << "Packed (" << packed->size() << " bytes): ";
+    // for (unsigned char i : *packed) {
+    //   printf("\\0x%02x", i);
+    // }
+    // std::cout << std::endl;
 
     return packed;
 };
@@ -214,7 +214,7 @@ static void control_unpack(
     if (control == ControlMessage::AssignRank) {
         decode(listener_container->rank_.get(), sizeof(*listener_container->rank_));
         // log.warn("Received rank ", *listener_container->rank_);
-        std::cout << "Received rank " << *listener_container->rank_ << std::endl;
+        // std::cout << "Received rank " << *listener_container->rank_ << std::endl;
     } else if (control == ControlMessage::RegisterEndpoint) {
         Rank rank;
         decode(&rank, sizeof(rank));
@@ -228,8 +228,9 @@ static void control_unpack(
         decode(packed_listener_address->data(), packed_listener_address_size);
         ListenerAddress listener_address =
             listener_address_unpack(std::move(packed_listener_address));
-        std::cout << "Rank " << listener_address.rank << " at address "
-                  << listener_address.host << ":" << listener_address.port << std::endl;
+        // std::cout << "Rank " << listener_address.rank << " at address "
+        //           << listener_address.host << ":" << listener_address.port <<
+        //           std::endl;
         (*listener_container->rank_to_listener_address_)[listener_address.rank] =
             ListenerAddress{
                 .host = listener_address.host,
@@ -249,9 +250,9 @@ static void control_unpack(
         Rank rank;
         decode(&rank, sizeof(rank));
         auto listener_address = listener_container->rank_to_listener_address_->at(rank);
-        std::cout << "GetListenerAddress for rank " << rank << ", at address "
-                  << listener_address.host << ":" << listener_address.port << " (rank "
-                  << listener_address.rank << ")" << std::endl;
+        // std::cout << "GetListenerAddress for rank " << rank << ", at address "
+        //           << listener_address.host << ":" << listener_address.port << " (rank "
+        //           << listener_address.rank << ")" << std::endl;
         auto endpoint = listener_container->endpoints_->at(ep);
         auto packed_listener_address =
             control_pack(ControlMessage::SetListenerAddress, listener_address);
@@ -283,8 +284,8 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
     ::ucxx::utils::sockaddr_get_ip_port_str(
         &attr.client_address, ip_str.data(), port_str.data(), INET6_ADDRSTRLEN
     );
-    std::cout << "Server received a connection request from client at address "
-              << ip_str.data() << ":" << port_str.data() << std::endl;
+    // std::cout << "Server received a connection request from client at address "
+    //           << ip_str.data() << ":" << port_str.data() << std::endl;
 
     auto endpoint =
         listener_container->listener_->createEndpointFromConnRequest(conn_request, true);
@@ -297,13 +298,13 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
         // TODO: Ensure nextRank remains alive until request completes
         Rank client_rank = listener_container->get_next_worker_rank_();
         auto packed_client_rank = control_pack(ControlMessage::AssignRank, client_rank);
-        std::cout << "Assigning rank " << client_rank << " to client at address "
-                  << ip_str.data() << ":" << port_str.data() << std::endl;
-        std::cout << "Packed (returned, " << packed_client_rank->size() << " bytes): ";
-        for (unsigned char i : *packed_client_rank) {
-            printf("\\0x%02x", i);
-        }
-        std::cout << std::endl;
+        // std::cout << "Assigning rank " << client_rank << " to client at address "
+        //           << ip_str.data() << ":" << port_str.data() << std::endl;
+        // std::cout << "Packed (returned, " << packed_client_rank->size() << " bytes): ";
+        // for (unsigned char i : *packed_client_rank) {
+        //     printf("\\0x%02x", i);
+        // }
+        // std::cout << std::endl;
         auto req = endpoint->amSend(
             packed_client_rank->data(),
             packed_client_rank->size(),
@@ -421,14 +422,14 @@ UCXX::UCXX(
     auto control_callback = ::ucxx::AmReceiverCallbackType(
         [this](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
             auto buffer = req->getRecvBuffer();
-            auto data = static_cast<const unsigned char*>(buffer->data());
-            std::cout << "Received buffer (callback, " << buffer->getSize()
-                      << " bytes): ";
-            for (size_t i = 0; i < buffer->getSize(); ++i) {
-                // printf("\\0x%02x", data[i]);
-                printf("\\0x%02x", data[i]);
-            }
-            std::cout << std::endl;
+            // auto data = static_cast<const unsigned char*>(buffer->data());
+            // std::cout << "Received buffer (callback, " << buffer->getSize()
+            //           << " bytes): ";
+            // for (size_t i = 0; i < buffer->getSize(); ++i) {
+            //     // printf("\\0x%02x", data[i]);
+            //     printf("\\0x%02x", data[i]);
+            // }
+            // std::cout << std::endl;
             control_unpack(
                 req->getRecvBuffer(), ep, *control_callback_info_, listener_container_
             );
@@ -483,22 +484,23 @@ static ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
 static constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<int>::max()};
 
 std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
-    Logger& log = logger();
+    // Logger& log = logger();
     try {
-        log.warn("Endpoint for rank ", rank, " already available, returning to caller");
+        // log.warn("Endpoint for rank ", rank, " already available, returning to
+        // caller");
         return rank_to_endpoint_->at(rank);
     } catch (std::out_of_range const&) {
-        log.warn(
-            "Endpoint for rank ", rank, " not available, requesting listener address"
-        );
+        // log.warn(
+        //     "Endpoint for rank ", rank, " not available, requesting listener address"
+        // );
         auto packed_rank = control_pack(ControlMessage::GetListenerAddress, rank);
 
 
-        std::cout << "Packed (returned, " << packed_rank->size() << " bytes): ";
-        for (unsigned char i : *packed_rank) {
-            printf("\\0x%02x", i);
-        }
-        std::cout << std::endl;
+        // std::cout << "Packed (returned, " << packed_rank->size() << " bytes): ";
+        // for (unsigned char i : *packed_rank) {
+        //     printf("\\0x%02x", i);
+        // }
+        // std::cout << std::endl;
 
         auto root_endpoint = get_endpoint(Rank(0));
 
@@ -523,11 +525,11 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
         (*rank_to_endpoint_)[rank] = endpoint;
         (*endpoints_)[endpoint->getHandle()] = endpoint;
 
-        log.warn(
-            "Endpoint for rank ",
-            rank,
-            " established successfully, requesting listener address"
-        );
+        // log.warn(
+        //     "Endpoint for rank ",
+        //     rank,
+        //     " established successfully, requesting listener address"
+        // );
 
         return endpoint;
     }
@@ -672,8 +674,8 @@ std::vector<std::size_t> UCXX::test_some(
 }
 
 void UCXX::barrier() {
-    Logger& log = logger();
-    log.warn("Barrier started on rank ", *rank_);
+    // Logger& log = logger();
+    // log.warn("Barrier started on rank ", *rank_);
     while (*rank_ == 0
            && rank_to_listener_address_->size() != static_cast<uint64_t>(nranks()))
     {
@@ -712,7 +714,7 @@ void UCXX::barrier() {
         while (!req->isCompleted())
             ;
     }
-    log.warn("Barrier completed on rank ", *rank_);
+    // log.warn("Barrier completed on rank ", *rank_);
 }
 
 std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
@@ -739,8 +741,8 @@ Rank UCXX::get_next_worker_rank() {
 }
 
 UCXX::~UCXX() noexcept {
-    Logger& log = logger();
-    log.warn("~UCXX");
+    // Logger& log = logger();
+    // log.warn("~UCXX");
     worker_->stopProgressThread();
 }
 

@@ -317,8 +317,6 @@ class Communicator {
             future_map
     ) = 0;
 
-    virtual void barrier() = 0;
-
     /**
      * @brief Retrieves GPU data associated with a completed future.
      *

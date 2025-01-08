@@ -222,10 +222,6 @@ std::vector<std::size_t> MPI::test_some(
     return ret;
 }
 
-void MPI::barrier() {
-    RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
-}
-
 std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMP_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");

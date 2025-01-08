@@ -250,7 +250,7 @@ class UCXX final : public Communicator {
             future_map
     ) override;
 
-    void barrier() override;
+    void barrier();
 
     /**
      * @copydoc Communicator::get_gpu_data

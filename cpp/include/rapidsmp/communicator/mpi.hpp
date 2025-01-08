@@ -179,8 +179,6 @@ class MPI final : public Communicator {
             future_map
     ) override;
 
-    void barrier() override;
-
     /**
      * @copydoc Communicator::get_gpu_data
      */
