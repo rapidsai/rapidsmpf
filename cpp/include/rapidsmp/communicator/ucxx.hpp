@@ -69,19 +69,69 @@ class HostFuture {
     std::unique_ptr<std::vector<uint8_t>> data_;  ///< The data buffer.
 };
 
-struct ListenerContainer {
+struct UCXXSharedResources {
     std::shared_ptr<::ucxx::Listener> listener_{nullptr};
-    std::shared_ptr<Rank> rank_{nullptr};
+    Rank rank_{Rank(-1)};
+    Rank next_rank_{1};
     // TODO: We probably need to make endpoints thread-safe.
-    std::shared_ptr<EndpointsMap> endpoints_{nullptr};
-    std::shared_ptr<RankToEndpointMap> rank_to_endpoint_{nullptr};
-    std::shared_ptr<RankToListenerAddressMap> rank_to_listener_address_{nullptr};
-    bool root_;
-    std::shared_ptr<const ::ucxx::AmReceiverCallbackInfo> control_callback_info_;
-    std::shared_ptr<std::vector<std::unique_ptr<HostFuture>>> futures_{nullptr};
-    std::function<Rank()> get_next_worker_rank_;
-    // std::function<Communicator::Logger&()> logger;
-    // Communicator::Logger& log;
+    EndpointsMap endpoints_{};
+    RankToEndpointMap rank_to_endpoint_{};
+    RankToListenerAddressMap rank_to_listener_address_{};
+    const ::ucxx::AmReceiverCallbackInfo control_callback_info_{::ucxx::AmReceiverCallbackInfo("rapidsmp", 0)};
+    std::vector<std::unique_ptr<HostFuture>> futures_{std::vector<std::unique_ptr<HostFuture>>()};
+
+    UCXXSharedResources() = delete;
+    UCXXSharedResources(bool root)
+        : rank_(Rank(root ? 0 : -1))
+    {
+    }
+
+    void set_rank(Rank rank) {
+        rank_ = rank;
+    }
+
+    Rank get_next_worker_rank() {
+        if (rank_ != 0)
+            throw std::runtime_error("This method can only be called by rank 0");
+        return next_rank_++;
+    }
+
+    void register_listener(std::shared_ptr<::ucxx::Listener> listener) {
+        listener_ = listener;
+        auto listener_address = ListenerAddress{
+            .host = listener->getIp(), .port = listener->getPort(), .rank = rank_
+        };
+        rank_to_listener_address_[rank_] = listener_address;
+    }
+
+    void register_endpoint(const Rank rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
+        rank_to_endpoint_[rank] = endpoint;
+        endpoints_[endpoint->getHandle()] = endpoint;
+    }
+
+    std::shared_ptr<::ucxx::Listener> get_listener() {
+        return listener_;
+    }
+
+    std::shared_ptr<::ucxx::Endpoint> get_endpoint(const ucp_ep_h ep_handle) {
+        return endpoints_.at(ep_handle);
+    }
+
+    std::shared_ptr<::ucxx::Endpoint> get_endpoint(const Rank rank) {
+        return rank_to_endpoint_.at(rank);
+    }
+
+    ListenerAddress get_listener_address(const Rank rank) {
+        return rank_to_listener_address_.at(rank);
+    }
+
+    void register_listener_address(const Rank rank, const ListenerAddress listener_address) {
+        rank_to_listener_address_[rank] = listener_address;
+    }
+
+    void add_future(std::unique_ptr<HostFuture> future) {
+        futures_.push_back(std::move(future));
+    }
 };
 
 enum class ControlMessage {
@@ -233,18 +283,11 @@ class UCXX final : public Communicator {
 
   private:
     std::shared_ptr<::ucxx::Worker> worker_;
-    std::shared_ptr<::ucxx::Listener> listener_;
-    std::shared_ptr<ListenerContainer> listener_container_;
-    std::shared_ptr<EndpointsMap> endpoints_;
-    std::shared_ptr<RankToEndpointMap> rank_to_endpoint_;
-    std::shared_ptr<RankToListenerAddressMap> rank_to_listener_address_;
+    std::shared_ptr<UCXXSharedResources> shared_resources_;
     std::shared_ptr<Rank> rank_;
-    std::shared_ptr<const ::ucxx::AmReceiverCallbackInfo> control_callback_info_;
     std::uint32_t nranks_;
-    Rank next_rank_;
     Logger logger_;
 
-    Rank get_next_worker_rank();
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
 };
 
