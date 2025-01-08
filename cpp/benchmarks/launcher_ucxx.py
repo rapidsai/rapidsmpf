@@ -38,6 +38,7 @@ def launch(executable, ranks, runs, warmup_runs):
         match = re.search(pattern, line)
         if match:
             ip, port = match.groups()
+            ip = "localhost"
             print(f"Found IP: {ip}, Port: {port}")
             break
     else:

@@ -129,6 +129,44 @@ class Communicator {
             do_info(std::move(ss));
         }
 
+        /**
+         * @brief Logs a debug message.
+         *
+         * Formats and outputs a debug message if the verbosity level is `40`.
+         *
+         * @tparam Args Types of the message components, must support the << operator.
+         * @param args The components of the message to log.
+         */
+        template <typename... Args>
+        void debug(Args const&... args) {
+            if (level_ < 40) {
+                return;
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            std::ostringstream ss;
+            (ss << ... << args);
+            do_debug(std::move(ss));
+        }
+
+        /**
+         * @brief Logs a trace message.
+         *
+         * Formats and outputs a trace message if the verbosity level is `40`.
+         *
+         * @tparam Args Types of the message components, must support the << operator.
+         * @param args The components of the message to log.
+         */
+        template <typename... Args>
+        void trace(Args const&... args) {
+            if (level_ < 50) {
+                return;
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            std::ostringstream ss;
+            (ss << ... << args);
+            do_trace(std::move(ss));
+        }
+
       protected:
         /**
          * @brief Returns a unique thread ID for the current thread.
@@ -170,6 +208,32 @@ class Communicator {
          */
         virtual void do_info(std::ostringstream&& ss) {
             std::cout << "[INFO:" << comm_->rank() << ":" << get_thread_id() << "] "
+                      << ss.str() << std::endl;
+        }
+
+        /**
+         * @brief Handles the logging of debug messages.
+         *
+         * Outputs a formatted informational message to `std::cout`. This method can be
+         * overridden in derived classes to customize logging behavior.
+         *
+         * @param ss The formatted informational message as a string stream.
+         */
+        virtual void do_debug(std::ostringstream&& ss) {
+            std::cout << "[DEBUG:" << comm_->rank() << ":" << get_thread_id() << "] "
+                      << ss.str() << std::endl;
+        }
+
+        /**
+         * @brief Handles the logging of trace messages.
+         *
+         * Outputs a formatted informational message to `std::cout`. This method can be
+         * overridden in derived classes to customize logging behavior.
+         *
+         * @param ss The formatted informational message as a string stream.
+         */
+        virtual void do_trace(std::ostringstream&& ss) {
+            std::cout << "[TRACE:" << comm_->rank() << ":" << get_thread_id() << "] "
                       << ss.str() << std::endl;
         }
 

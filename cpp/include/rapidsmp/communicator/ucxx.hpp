@@ -32,45 +32,6 @@
 
 namespace rapidsmp {
 
-/**
- * @namespace rapidsmp::ucxx
- * @brief Collection of helpful [UCXX](https://github.com/rapidsai/ucxx/) functions.
- */
-namespace ucxx {
-
-/**
- * @brief Helper to initialize UCXX with threading support.
- *
- * @param argc Pointer to the number of arguments passed to the program.
- * @param argv Pointer to the argument vector passed to the program.
- */
-// void init(int* argc, char*** argv);
-
-/**
- * @brief Helper to check the UCXX errcode of a UCXX call.
- *
- * A macro to check the result of a UCXX call and handle any error codes that are
- * returned.
- *
- * @param call The UCXX call to be checked for errors.
- */
-/*
-#define RAPIDSMP_MPI(call) \
-    rapidsmp::mpi::detail::check_mpi_error((call), __FILE__, __LINE__)
-*/
-
-namespace detail {
-/**
- * @brief Checks and reports UCXX error codes.
- *
- * @param error_code The UCXX error code to check.
- * @param file The file where the UCXX call occurred.
- * @param line The line number where the UCXX call occurred.
- */
-void check_ucxx_error(int error_code, const char* file, int line);
-}  // namespace detail
-}  // namespace ucxx
-
 using EndpointsMap = std::unordered_map<ucp_ep_h, std::shared_ptr<::ucxx::Endpoint>>;
 
 struct ListenerAddress {
