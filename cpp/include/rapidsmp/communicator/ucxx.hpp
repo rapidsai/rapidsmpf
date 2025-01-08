@@ -86,9 +86,8 @@ struct ListenerContainer {
 
 enum class ControlMessage {
     AssignRank = 0,
-    RegisterEndpoint,
-    SetListenerAddress,
-    GetListenerAddress
+    QueryListenerAddress,
+    ReplyListenerAddress
 };
 using ControlData = std::variant<Rank, ListenerAddress>;
 

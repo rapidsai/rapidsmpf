@@ -100,11 +100,11 @@ static std::unique_ptr<std::vector<uint8_t>> control_pack(
 
     encode_(&control, sizeof(control));
     if (control == ControlMessage::AssignRank
-        || control == ControlMessage::GetListenerAddress)
+        || control == ControlMessage::QueryListenerAddress)
     {
         auto rank = std::get<Rank>(data);
         encode_(&rank, sizeof(rank));
-    } else if (control == ControlMessage::SetListenerAddress) {
+    } else if (control == ControlMessage::ReplyListenerAddress) {
         auto listener_address = std::get<ListenerAddress>(data);
         auto packed_listener_address = listener_address_pack(listener_address);
         size_t packed_listener_address_size = packed_listener_address->size();
@@ -132,12 +132,7 @@ static void control_unpack(
 
     if (control == ControlMessage::AssignRank) {
         decode_(listener_container->rank_.get(), sizeof(*listener_container->rank_));
-    } else if (control == ControlMessage::RegisterEndpoint) {
-        Rank rank;
-        decode_(&rank, sizeof(rank));
-        (*listener_container->rank_to_endpoint_)[rank] =
-            listener_container->endpoints_->at(ep);
-    } else if (control == ControlMessage::SetListenerAddress) {
+    } else if (control == ControlMessage::ReplyListenerAddress) {
         size_t packed_listener_address_size;
         decode_(&packed_listener_address_size, sizeof(packed_listener_address_size));
         auto packed_listener_address =
@@ -151,13 +146,13 @@ static void control_unpack(
                 .port = listener_address.port,
                 .rank = listener_address.rank,
             };
-    } else if (control == ControlMessage::GetListenerAddress) {
+    } else if (control == ControlMessage::QueryListenerAddress) {
         Rank rank;
         decode_(&rank, sizeof(rank));
         auto listener_address = listener_container->rank_to_listener_address_->at(rank);
         auto endpoint = listener_container->endpoints_->at(ep);
         auto packed_listener_address =
-            control_pack(ControlMessage::SetListenerAddress, listener_address);
+            control_pack(ControlMessage::ReplyListenerAddress, listener_address);
         auto req = endpoint->amSend(
             packed_listener_address->data(),
             packed_listener_address->size(),
@@ -345,7 +340,7 @@ UCXX::UCXX(
         .host = "localhost", .port = listener_->getPort(), .rank = *rank_
     };
     auto packed_listener_address =
-        control_pack(ControlMessage::SetListenerAddress, listener_address);
+        control_pack(ControlMessage::ReplyListenerAddress, listener_address);
     auto req = endpoint->amSend(
         packed_listener_address->data(),
         packed_listener_address->size(),
@@ -378,7 +373,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
         log.trace(
             "Endpoint for rank ", rank, " not available, requesting listener address"
         );
-        auto packed_rank = control_pack(ControlMessage::GetListenerAddress, rank);
+        auto packed_rank = control_pack(ControlMessage::QueryListenerAddress, rank);
 
         auto root_endpoint = get_endpoint(Rank(0));
 
