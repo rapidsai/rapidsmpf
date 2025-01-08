@@ -116,6 +116,7 @@ struct ListenerContainer {
     std::shared_ptr<RankToEndpointMap> rank_to_endpoint_{nullptr};
     std::shared_ptr<RankToListenerAddressMap> rank_to_listener_address_{nullptr};
     bool root_;
+    std::shared_ptr<const ::ucxx::AmReceiverCallbackInfo> control_callback_info_;
     std::shared_ptr<std::vector<std::unique_ptr<HostFuture>>> futures_{nullptr};
     std::function<Rank()> get_next_worker_rank_;
     // std::function<Communicator::Logger&()> logger;
@@ -278,11 +279,13 @@ class UCXX final : public Communicator {
     std::shared_ptr<RankToEndpointMap> rank_to_endpoint_;
     std::shared_ptr<RankToListenerAddressMap> rank_to_listener_address_;
     std::shared_ptr<Rank> rank_;
+    std::shared_ptr<const ::ucxx::AmReceiverCallbackInfo> control_callback_info_;
     std::uint32_t nranks_;
     Rank next_rank_;
     Logger logger_;
 
     Rank get_next_worker_rank();
+    std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
 };
 
 
