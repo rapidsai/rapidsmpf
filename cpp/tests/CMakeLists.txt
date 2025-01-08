@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2024, NVIDIA CORPORATION.
+# Copyright (c) 2024-2025, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -38,7 +38,7 @@ target_compile_options(
 )
 target_link_libraries(
   mpi_tests PRIVATE rapidsmp::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
-                    GTest::gtest MPI::MPI_C $<TARGET_NAME_IF_EXISTS:conda_env>
+                    GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 rapids_test_add(
   NAME mpi_tests

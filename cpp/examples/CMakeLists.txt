@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2024, NVIDIA CORPORATION.
+# Copyright (c) 2024-2025, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -28,7 +28,8 @@ target_compile_options(
                           "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMP_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  example_shuffle PRIVATE rapidsmp::rapidsmp MPI::MPI_C $<TARGET_NAME_IF_EXISTS:conda_env>
+  example_shuffle PRIVATE rapidsmp::rapidsmp MPI::MPI_C ucxx::ucxx ucx::ucp
+                          $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 install(
   TARGETS example_shuffle

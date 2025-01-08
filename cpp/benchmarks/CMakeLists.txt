@@ -29,7 +29,8 @@ target_compile_options(
                         "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMP_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  bench_shuffle PRIVATE rapidsmp::rapidsmp MPI::MPI_C $<TARGET_NAME_IF_EXISTS:conda_env>
+  bench_shuffle PRIVATE rapidsmp::rapidsmp MPI::MPI_C ucxx::ucxx ucx::ucp
+                        $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 install(
   TARGETS bench_shuffle
@@ -54,7 +55,7 @@ target_compile_options(
                              "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMP_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  bench_shuffle_ucxx PRIVATE rapidsmp::rapidsmp ucxx::ucxx ucx::ucp
+  bench_shuffle_ucxx PRIVATE rapidsmp::rapidsmp MPI::MPI_C ucxx::ucxx ucx::ucp
                              $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 install(
