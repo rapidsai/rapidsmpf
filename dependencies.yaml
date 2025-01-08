@@ -13,11 +13,10 @@ files:
       - cuda
       - cuda_version
       - py_version
+      - rapids_build_skbuild
       - test_cpp
       - test_python
-      - depends_on_mpi4py
       - docs
-      - test_cpp
   test_cpp:
     output: none
     includes:
@@ -41,32 +40,6 @@ files:
       - cuda_version
       - docs
       - py_version
-  py_build_rapidsmp:
-    output: pyproject
-    pyproject_dir: python/rapidsmp
-    extras:
-      table: build-system
-    includes:
-      - rapids_build_skbuild
-  py_run_rapidsmp:
-    output: pyproject
-    pyproject_dir: python/rapidsmp
-    extras:
-      table: project
-    includes:
-      - depends_on_mpi4py
-      - depends_on_pylibcudf
-  py_rapids_build_rapidsmp:
-    output: pyproject
-    pyproject_dir: python/rapidsmp
-    extras:
-      table: tool.rapids-build-backend
-      key: requires
-    includes:
-      - build-universal
-      - build-cpp
-      - build-py-wrapper
-
 channels:
   - rapidsai
   - rapidsai-nightly
@@ -118,22 +91,15 @@ dependencies:
               - cuda-nvcc
   rapids_build_skbuild:
     common:
-      - output_types: [conda, requirements, pyproject]
+      - output_types: [conda, pyproject]
         packages:
           - &rapids_build_backend rapids-build-backend>=0.3.0,<0.4.0.dev0
       - output_types: conda
         packages:
           - scikit-build-core>=0.10.0
-      - output_types: [requirements, pyproject]
+      - output_types: [pyproject]
         packages:
           - scikit-build-core[pyproject]>=0.10.0
-  rapids_build_setuptools:
-    common:
-      - output_types: [requirements, pyproject]
-        packages:
-          - *rapids_build_backend
-          - setuptools
-          - wheel
   build-py-wrapper:
     common:
       - output_types: [conda, pyproject]
@@ -229,33 +195,3 @@ dependencies:
       - output_types: [conda]
         packages:
           - *doxygen
-  depends_on_mpi4py:
-    common:
-      - output_types: conda
-        packages:
-          - mpi4py
-  depends_on_pylibcudf:
-    common:
-      - output_types: conda
-        packages:
-          - &pylibcudf_unsuffixed pylibcudf==25.2.*,>=0.0.0a0
-      - output_types: requirements
-        packages:
-          # pip recognizes the index as a global option for the requirements.txt file
-          # This index is needed for rmm, cubinlinker, ptxcompiler.
-          - --extra-index-url=https://pypi.nvidia.com
-          - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
-    specific:
-      - output_types: [requirements, pyproject]
-        matrices:
-          - matrix:
-              cuda: "12.*"
-              cuda_suffixed: "true"
-            packages:
-              - pylibcudf-cu12==25.2.*,>=0.0.0a0
-          - matrix:
-              cuda: "11.*"
-              cuda_suffixed: "true"
-            packages:
-              - pylibcudf-cu11==25.2.*,>=0.0.0a0
-          - {matrix: null, packages: [*pylibcudf_unsuffixed]}

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright (c) 2024, NVIDIA CORPORATION.
+# Copyright (c) 2024-2025, NVIDIA CORPORATION.
 
 # rapidsmp build script
 
@@ -148,7 +148,6 @@ if (( NUMARGS == 0 )) || hasArg librapidsmp; then
         cmake --build "${LIBRAPIDSMP_BUILD_DIR}" --target install ${VERBOSE_FLAG}
     fi
 fi
-
 
 # Build and install the rapidsmp Python package
 if (( NUMARGS == 0 )) || hasArg rapidsmp; then

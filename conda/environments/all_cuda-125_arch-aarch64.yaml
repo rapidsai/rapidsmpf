@@ -18,13 +18,14 @@ dependencies:
 - doxygen=1.9.1
 - gcc_linux-aarch64=11.*
 - libcudf==25.02.*,>=0.0.0a0
-- mpi4py
 - ninja
 - openmpi
 - pre-commit
 - pytest
 - pytest-cov
 - python>=3.10,<3.13
+- rapids-build-backend>=0.3.0,<0.4.0.dev0
+- scikit-build-core>=0.10.0
 - spdlog
 - sysroot_linux-aarch64=2.17
 - valgrind
