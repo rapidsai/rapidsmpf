@@ -28,6 +28,129 @@ namespace rapidsmp::shuffler {
 
 using namespace detail;
 
+std::vector<PartID> Shuffler::local_partitions(
+    std::shared_ptr<Communicator> const& comm,
+    PartID total_num_partitions,
+    PartitionOwner partition_owner
+) {
+    std::vector<PartID> ret;
+    for (PartID i = 0; i < total_num_partitions; ++i) {
+        if (partition_owner(comm, i) == comm->rank()) {
+            ret.push_back(i);
+        }
+    }
+    return ret;
+}
+
+Shuffler::Shuffler(
+    std::shared_ptr<Communicator> comm,
+    PartID total_num_partitions,
+    rmm::cuda_stream_view stream,
+    BufferResource* br,
+    PartitionOwner partition_owner
+)
+    : total_num_partitions{total_num_partitions},
+      partition_owner{partition_owner},
+      stream_{stream},
+      br_{br},
+      comm_{std::move(comm)},
+      finish_counter_{
+          comm_->nranks(), local_partitions(comm_, total_num_partitions, partition_owner)
+      } {
+    event_loop_thread_ = std::thread(Shuffler::event_loop, this);
+    RAPIDSMP_EXPECTS(br_ != nullptr, "the BufferResource cannot be NULL");
+}
+
+Shuffler::~Shuffler() {
+    if (active_) {
+        shutdown();
+    }
+}
+
+void Shuffler::shutdown() {
+    RAPIDSMP_EXPECTS(active_, "shuffler is inactive");
+    auto& log = comm_->logger();
+    log.info("Shuffler.shutdown() - initiate");
+    event_loop_thread_run_.store(false);
+    event_loop_thread_.join();
+    log.info("Shuffler.shutdown() - done");
+    active_ = false;
+}
+
+void Shuffler::insert_into_outbox(detail::Chunk&& chunk) {
+    auto& log = comm_->logger();
+    log.info("insert_into_outbox: ", chunk);
+    auto pid = chunk.pid;
+    if (chunk.expected_num_chunks) {
+        finish_counter_.move_goalpost(
+            comm_->rank(), chunk.pid, chunk.expected_num_chunks
+        );
+    } else {
+        outbox_.insert(std::move(chunk));
+    }
+    finish_counter_.add_finished_chunk(pid);
+}
+
+void Shuffler::insert(detail::Chunk&& chunk) {
+    {
+        std::lock_guard const lock(outbound_chunk_counter_mutex_);
+        ++outbound_chunk_counter_[chunk.pid];
+    }
+    if (partition_owner(comm_, chunk.pid) == comm_->rank()) {
+        insert_into_outbox(std::move(chunk));
+    } else {
+        inbox_.insert(std::move(chunk));
+    }
+}
+
+void Shuffler::insert(PartID pid, cudf::packed_columns&& chunk) {
+    insert(detail::Chunk{
+        pid,
+        get_new_cid(),
+        0,
+        chunk.gpu_data ? chunk.gpu_data->size() : 0,
+        std::move(chunk.metadata),
+        br_->move(std::move(chunk.gpu_data), stream_)
+    });
+}
+
+void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks) {
+    for (auto& [pid, packed_columns] : chunks) {
+        insert(pid, std::move(packed_columns));
+    }
+}
+
+void Shuffler::insert_finished(PartID pid) {
+    detail::ChunkID expected_num_chunks;
+    {
+        std::lock_guard const lock(outbound_chunk_counter_mutex_);
+        expected_num_chunks = outbound_chunk_counter_[pid];
+    }
+    insert(detail::Chunk{pid, get_new_cid(), expected_num_chunks + 1});
+}
+
+std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
+    auto chunks = outbox_.extract(pid);
+    std::vector<cudf::packed_columns> ret;
+    ret.reserve(chunks.size());
+    for (auto& [_, chunk] : chunks) {
+        // Make sure that the gpu_data is on device memory (copy if necessary).
+        ret.emplace_back(
+            std::move(chunk.metadata),
+            br_->move_to_device_buffer(std::move(chunk.gpu_data), stream_)
+        );
+    }
+    return ret;
+}
+
+detail::ChunkID Shuffler::get_new_cid() {
+    // Place the counter in the first 38 bits (supports 256G chunks).
+    std::uint64_t upper = ++chunk_id_counter_ << 26;
+    // and place the rank in last 26 bits (supports 64M ranks).
+    std::uint64_t lower = comm_->rank();
+    return upper | lower;
+}
+
 /**
  * @brief Executes a single iteration of the shuffler's event loop.
  *
@@ -70,9 +193,9 @@ void Shuffler::run_event_loop_iteration(
         log.info("send metadata to ", dst, ": ", chunk);
         RAPIDSMP_EXPECTS(dst != self.comm_->rank(), "sending chunk to ourselves");
 
-        fire_and_forget.push_back(
-            self.comm_->send(chunk.to_metadata_message(), dst, TAG::metadata)
-        );
+        fire_and_forget.push_back(self.comm_->send(
+            chunk.to_metadata_message(), dst, TAG::metadata, self.stream_, self.br_
+        ));
         if (chunk.gpu_data_size > 0) {
             RAPIDSMP_EXPECTS(
                 outgoing_chunks.insert({chunk.cid, std::move(chunk)}).second,
@@ -113,11 +236,17 @@ void Shuffler::run_event_loop_iteration(
         if (chunk.gpu_data_size > 0) {
             // Tell the source of the chunk that we are ready to receive it.
             fire_and_forget.push_back(self.comm_->send(
-                ReadyForDataMessage{chunk.pid, chunk.cid}.pack(), src, TAG::ready_for_data
+                ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
+                src,
+                TAG::ready_for_data,
+                self.stream_,
+                self.br_
             ));
+            // Let the BufferResource decide the memory type (host or device).
+            auto recv_buffer = self.br_->allocate(chunk.gpu_data_size, self.stream_);
             // Setup to receive the chunk into `in_transit_*`.
             auto future = self.comm_->recv(
-                src, TAG::gpu_data, chunk.gpu_data_size, self.stream_, self.mr_
+                src, TAG::gpu_data, std::move(recv_buffer), self.stream_
             );
             RAPIDSMP_EXPECTS(
                 in_transit_futures.insert({chunk.cid, std::move(future)}).second,
@@ -129,8 +258,7 @@ void Shuffler::run_event_loop_iteration(
             );
         } else {
             if (chunk.gpu_data == nullptr) {
-                chunk.gpu_data =
-                    std::make_unique<rmm::device_buffer>(0, self.stream_, self.mr_);
+                chunk.gpu_data = self.br_->allocate(0, self.stream_);
             }
             self.insert_into_outbox(std::move(chunk));
         }
@@ -146,9 +274,13 @@ void Shuffler::run_event_loop_iteration(
             log.info(
                 "recv_any from ", src, ": ", ready_for_data_msg, ", sending: ", chunk
             );
-            fire_and_forget.push_back(self.comm_->send(
-                std::move(chunk.gpu_data), src, TAG::gpu_data, self.stream_
-            ));
+            if (chunk.gpu_data->mem_type == MemoryType::DEVICE) {
+                fire_and_forget.push_back(self.comm_->send(
+                    std::move(chunk.gpu_data), src, TAG::gpu_data, self.stream_
+                ));
+            } else {
+                RAPIDSMP_FAIL("Not implemented");
+            }
         } else {
             break;
         }
@@ -160,8 +292,7 @@ void Shuffler::run_event_loop_iteration(
         for (auto cid : finished) {
             auto chunk = extract_value(in_transit_chunks, cid);
             auto future = extract_value(in_transit_futures, cid);
-            chunk.gpu_data =
-                self.comm_->get_gpu_data(std::move(future), self.stream_, self.mr_);
+            chunk.gpu_data = self.comm_->get_gpu_data(std::move(future));
             self.insert_into_outbox(std::move(chunk));
         }
     }
@@ -255,4 +386,5 @@ std::string detail::FinishCounter::str() const {
     ss << ")";
     return ss.str();
 }
+
 }  // namespace rapidsmp::shuffler

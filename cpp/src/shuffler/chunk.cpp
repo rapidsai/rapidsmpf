@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <rapidsmp/buffer/buffer.hpp>
+#include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/shuffler/chunk.hpp>
 #include <rapidsmp/utils.hpp>
@@ -27,7 +29,7 @@ Chunk::Chunk(
     std::size_t expected_num_chunks,
     std::size_t gpu_data_size,
     std::unique_ptr<std::vector<uint8_t>> metadata,
-    std::unique_ptr<rmm::device_buffer> gpu_data
+    std::unique_ptr<Buffer> gpu_data
 )
     : pid{pid},
       cid{cid},
@@ -37,20 +39,7 @@ Chunk::Chunk(
       gpu_data{std::move(gpu_data)} {}
 
 Chunk::Chunk(PartID pid, ChunkID cid, std::size_t expected_num_chunks)
-    : pid{pid},
-      cid{cid},
-      expected_num_chunks{expected_num_chunks},
-      gpu_data_size{0},
-      metadata{nullptr},
-      gpu_data{nullptr} {}
-
-Chunk::Chunk(PartID pid, ChunkID cid, cudf::packed_columns&& chunk)
-    : pid{pid},
-      cid{cid},
-      expected_num_chunks{0},
-      gpu_data_size{chunk.gpu_data ? chunk.gpu_data->size() : 0},
-      metadata{std::move(chunk.metadata)},
-      gpu_data{std::move(chunk.gpu_data)} {}
+    : Chunk{pid, cid, expected_num_chunks, 0, nullptr, nullptr} {}
 
 std::unique_ptr<std::vector<uint8_t>> Chunk::to_metadata_message() const {
     auto metadata_size = metadata ? metadata->size() : 0;
@@ -90,29 +79,28 @@ Chunk Chunk::from_metadata_message(std::unique_ptr<std::vector<uint8_t>> const& 
     };
 }
 
-std::unique_ptr<cudf::table> Chunk::unpack() const {
+std::unique_ptr<cudf::table> Chunk::unpack(rmm::cuda_stream_view stream) const {
     RAPIDSMP_EXPECTS(metadata && gpu_data, "both meta and gpu data must be non-null");
-    // Copy the data.
+    auto br = gpu_data->br;
+
+    // Copy data.
     auto meta = std::make_unique<std::vector<uint8_t>>(*metadata);
-    auto gpu = std::make_unique<rmm::device_buffer>(
-        *gpu_data, gpu_data->stream(), gpu_data->memory_resource()
-    );
+    auto gpu =
+        br->move_to_device_buffer(br->copy(MemoryType::DEVICE, gpu_data, stream), stream);
 
     std::vector<cudf::packed_columns> packed_vec;
     packed_vec.emplace_back(std::move(meta), std::move(gpu));
-    return unpack_and_concat(
-        std::move(packed_vec), gpu_data->stream(), gpu_data->memory_resource()
-    );
+    return unpack_and_concat(std::move(packed_vec), stream, br->device_mr());
 }
 
-std::string Chunk::str(std::size_t max_nbytes) const {
+std::string Chunk::str(std::size_t max_nbytes, rmm::cuda_stream_view stream) const {
     std::stringstream ss;
     ss << "Chunk(pid=" << pid;
     ss << ", cid=" << cid;
     ss << ", expected_num_chunks=" << expected_num_chunks;
     ss << ", gpu_data_size=" << gpu_data_size;
-    if (metadata && gpu_data && gpu_data->size() < max_nbytes) {
-        ss << ", " << rapidsmp::str(unpack()->view());
+    if (metadata && gpu_data && gpu_data->size < max_nbytes) {
+        ss << ", " << rapidsmp::str(unpack(stream)->view());
     } else {
         ss << ", metadata=";
         if (metadata) {
@@ -122,7 +110,7 @@ std::string Chunk::str(std::size_t max_nbytes) const {
         }
         ss << ", gpu_data=";
         if (gpu_data) {
-            ss << "<" << gpu_data->size() << "B>";
+            ss << "<" << gpu_data->size << "B>";
         } else {
             ss << "NULL";
         }

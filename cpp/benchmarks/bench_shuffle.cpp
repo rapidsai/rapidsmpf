@@ -162,7 +162,7 @@ Duration run(
     std::shared_ptr<rapidsmp::Communicator> comm,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    rapidsmp::BufferResource* br
 ) {
     std::int32_t const min_val = 0;
     std::int32_t const max_val = args.num_local_rows;
@@ -171,7 +171,12 @@ Duration run(
     std::vector<cudf::table> input_partitions;
     for (rapidsmp::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
         input_partitions.push_back(random_table(
-            args.num_columns, args.num_local_rows, min_val, max_val, stream, mr
+            args.num_columns,
+            args.num_local_rows,
+            min_val,
+            max_val,
+            stream,
+            br->device_mr()
         ));
     }
     stream.synchronize();
@@ -184,9 +189,9 @@ Duration run(
         rapidsmp::shuffler::Shuffler shuffler(
             comm,
             total_num_partitions,
-            rapidsmp::shuffler::Shuffler::round_robin,
             stream,
-            mr
+            br,
+            rapidsmp::shuffler::Shuffler::round_robin
         );
 
         for (auto&& partition : input_partitions) {
@@ -198,7 +203,7 @@ Duration run(
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
                 stream,
-                mr
+                br->device_mr()
             ));
         }
         // Tell the shuffler that we have no more data.
@@ -210,7 +215,7 @@ Duration run(
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
             output_partitions.push_back(*rapidsmp::shuffler::unpack_and_concat(
-                std::move(packed_chunks), stream, mr
+                std::move(packed_chunks), stream, br->device_mr()
             ));
         }
         stream.synchronize();
@@ -226,7 +231,7 @@ Duration run(
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
             stream,
-            mr
+            br->device_mr()
         );
         RAPIDSMP_EXPECTS(
             std::count_if(
@@ -257,6 +262,7 @@ int main(int argc, char** argv) {
 
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
+    rapidsmp::BufferResource br{mr};
 
     // Print benchmark/hardware info.
     {
@@ -279,7 +285,7 @@ int main(int argc, char** argv) {
 
     std::vector<double> elapsed_vec;
     for (auto i = 0; i < args.num_warmups + args.num_runs; ++i) {
-        auto const elapsed = run(comm, args, stream, mr).count();
+        auto const elapsed = run(comm, args, stream, &br).count();
         std::stringstream ss;
         ss << "elapsed: " << rapidsmp::to_precision(elapsed)
            << " sec | local throughput: "

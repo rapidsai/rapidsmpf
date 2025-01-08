@@ -17,6 +17,7 @@ files:
       - test_python
       - depends_on_mpi4py
       - docs
+      - test_cpp
   test_cpp:
     output: none
     includes:
@@ -85,6 +86,7 @@ dependencies:
           - cxx-compiler
           - &cudf_unsuffixed libcudf==25.02.*,>=0.0.0a0
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
+          - spdlog
     specific:
       - output_types: conda
         matrices:

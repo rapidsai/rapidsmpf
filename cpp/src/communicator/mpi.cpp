@@ -87,36 +87,35 @@ MPI::MPI(MPI_Comm comm) : comm_{comm}, logger_{this} {
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, int tag
+    std::unique_ptr<std::vector<uint8_t>> msg,
+    Rank rank,
+    int tag,
+    rmm::cuda_stream_view stream,
+    BufferResource* br
 ) {
+    RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
     );
-    return std::make_unique<Future>(req, std::move(msg));
+    return std::make_unique<Future>(req, br->move(std::move(msg), stream));
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<rmm::device_buffer> msg, Rank rank, int tag, rmm::cuda_stream_view
+    std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
 ) {
     MPI_Request req;
-    RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
-    );
+    RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
     return std::make_unique<Future>(req, std::move(msg));
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
-    Rank rank,
-    int tag,
-    std::size_t nbytes,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    Rank rank, int tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
 ) {
-    // TODO: support host memory messages.
-    auto msg = std::make_unique<rmm::device_buffer>(nbytes, stream, mr);
     MPI_Request req;
-    RAPIDSMP_MPI(MPI_Irecv(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
-    );
-    return std::make_unique<Future>(req, std::move(msg));
+    RAPIDSMP_MPI(MPI_Irecv(
+        recv_buffer->data(), recv_buffer->size, MPI_UINT8_T, rank, tag, comm_, &req
+    ));
+    return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(int tag) {
@@ -223,14 +222,11 @@ std::vector<std::size_t> MPI::test_some(
     return ret;
 }
 
-std::unique_ptr<rmm::device_buffer> MPI::get_gpu_data(
-    std::unique_ptr<Communicator::Future> future,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
-) {
+std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMP_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-    return std::move(mpi_future->gpu_data_);
+    RAPIDSMP_EXPECTS(mpi_future->data_ != nullptr, "future has no data");
+    return std::move(mpi_future->data_);
 }
 
 std::string MPI::str() const {
