@@ -77,14 +77,16 @@ struct UCXXSharedResources {
     EndpointsMap endpoints_{};
     RankToEndpointMap rank_to_endpoint_{};
     RankToListenerAddressMap rank_to_listener_address_{};
-    const ::ucxx::AmReceiverCallbackInfo control_callback_info_{::ucxx::AmReceiverCallbackInfo("rapidsmp", 0)};
-    std::vector<std::unique_ptr<HostFuture>> futures_{std::vector<std::unique_ptr<HostFuture>>()};
+    const ::ucxx::AmReceiverCallbackInfo control_callback_info_{
+        ::ucxx::AmReceiverCallbackInfo("rapidsmp", 0)
+    };
+    std::vector<std::unique_ptr<HostFuture>> futures_{
+        std::vector<std::unique_ptr<HostFuture>>()
+    };
 
     UCXXSharedResources() = delete;
-    UCXXSharedResources(bool root)
-        : rank_(Rank(root ? 0 : -1))
-    {
-    }
+
+    UCXXSharedResources(bool root) : rank_(Rank(root ? 0 : -1)) {}
 
     void set_rank(Rank rank) {
         rank_ = rank;
@@ -102,6 +104,15 @@ struct UCXXSharedResources {
             .host = listener->getIp(), .port = listener->getPort(), .rank = rank_
         };
         rank_to_listener_address_[rank_] = listener_address;
+    }
+
+    void register_endpoint(std::shared_ptr<::ucxx::Endpoint> endpoint) {
+        endpoints_[endpoint->getHandle()] = endpoint;
+    }
+
+    void register_endpoint(const Rank rank, const ucp_ep_h endpoint_handle) {
+        auto endpoint = endpoints_[endpoint_handle];
+        rank_to_endpoint_[rank] = endpoint;
     }
 
     void register_endpoint(const Rank rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
@@ -125,7 +136,9 @@ struct UCXXSharedResources {
         return rank_to_listener_address_.at(rank);
     }
 
-    void register_listener_address(const Rank rank, const ListenerAddress listener_address) {
+    void register_listener_address(
+        const Rank rank, const ListenerAddress listener_address
+    ) {
         rank_to_listener_address_[rank] = listener_address;
     }
 
@@ -135,9 +148,11 @@ struct UCXXSharedResources {
 };
 
 enum class ControlMessage {
-    AssignRank = 0,
-    QueryListenerAddress,
-    ReplyListenerAddress
+    AssignRank = 0,  //< Root assigns a rank to incoming client connection
+    RegisterRank,  ///< Inform rank to remote process (non-root) after endpoint is
+                   ///< established
+    QueryListenerAddress,  ///< Ask for the remote endpoint's listener address
+    ReplyListenerAddress  ///< Reply to `QueryListenerAddress` with the listener address
 };
 using ControlData = std::variant<Rank, ListenerAddress>;
 
@@ -197,7 +212,7 @@ class UCXX final : public Communicator {
      * @copydoc Communicator::rank
      */
     [[nodiscard]] Rank rank() const override {
-        return *rank_;
+        return shared_resources_->rank_;
     }
 
     /**
@@ -284,7 +299,6 @@ class UCXX final : public Communicator {
   private:
     std::shared_ptr<::ucxx::Worker> worker_;
     std::shared_ptr<UCXXSharedResources> shared_resources_;
-    std::shared_ptr<Rank> rank_;
     std::uint32_t nranks_;
     Logger logger_;
 

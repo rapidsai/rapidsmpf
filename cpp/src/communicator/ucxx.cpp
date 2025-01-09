@@ -99,7 +99,7 @@ static std::unique_ptr<std::vector<uint8_t>> control_pack(
     };
 
     encode_(&control, sizeof(control));
-    if (control == ControlMessage::AssignRank
+    if (control == ControlMessage::AssignRank || control == ControlMessage::RegisterRank
         || control == ControlMessage::QueryListenerAddress)
     {
         auto rank = std::get<Rank>(data);
@@ -133,6 +133,10 @@ static void control_unpack(
         Rank rank;
         decode_(&rank, sizeof(rank));
         shared_resources->set_rank(rank);
+    } else if (control == ControlMessage::RegisterRank) {
+        Rank rank;
+        decode_(&rank, sizeof(rank));
+        shared_resources->register_endpoint(rank, ep);
     } else if (control == ControlMessage::ReplyListenerAddress) {
         size_t packed_listener_address_size;
         decode_(&packed_listener_address_size, sizeof(packed_listener_address_size));
@@ -141,7 +145,9 @@ static void control_unpack(
         decode_(packed_listener_address->data(), packed_listener_address_size);
         ListenerAddress listener_address =
             listener_address_unpack(std::move(packed_listener_address));
-        shared_resources->register_listener_address(listener_address.rank, ListenerAddress{
+        shared_resources->register_listener_address(
+            listener_address.rank,
+            ListenerAddress{
                 .host = listener_address.host,
                 .port = listener_address.port,
                 .rank = listener_address.rank,
@@ -151,7 +157,8 @@ static void control_unpack(
         Rank rank;
         decode_(&rank, sizeof(rank));
         auto listener_address = shared_resources->get_listener_address(rank);
-        // TODO: Check if we can just get the endpoint with the rank instead of using the handle
+        // TODO: Check if we can just get the endpoint with the rank instead of using the
+        // handle
         auto endpoint = shared_resources->get_endpoint(ep);
         auto packed_listener_address =
             control_pack(ControlMessage::ReplyListenerAddress, listener_address);
@@ -188,10 +195,10 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
 
     auto endpoint =
         shared_resources->listener_->createEndpointFromConnRequest(conn_request, true);
-    Rank client_rank = shared_resources->get_next_worker_rank();
-    shared_resources->register_endpoint(client_rank, endpoint);
 
     if (shared_resources->rank_ == 0) {
+        Rank client_rank = shared_resources->get_next_worker_rank();
+        shared_resources->register_endpoint(client_rank, endpoint);
         auto packed_client_rank = control_pack(ControlMessage::AssignRank, client_rank);
         auto req = endpoint->amSend(
             packed_client_rank->data(),
@@ -200,7 +207,14 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
             shared_resources->control_callback_info_
         );
         // TODO: Clear futures_ after completion
-        shared_resources->add_future(std::make_unique<HostFuture>(req, std::move(packed_client_rank)));
+        shared_resources->add_future(
+            std::make_unique<HostFuture>(req, std::move(packed_client_rank))
+        );
+    } else {
+        // We don't know the rank of the client that connected, we'll register
+        // by its handle and the client will send a control message informing
+        // its rank
+        shared_resources->register_endpoint(endpoint);
     }
 }
 
@@ -209,7 +223,6 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
 UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks)
     : worker_(std::move(worker)),
       shared_resources_(std::make_shared<UCXXSharedResources>(true)),
-      rank_(std::make_shared<Rank>(0)),
       nranks_(nranks),
       logger_(this) {
     if (worker_ == nullptr) {
@@ -220,23 +233,23 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks)
     }
 
     // Create listener
-    shared_resources_->register_listener(worker_->createListener(0, listener_callback, shared_resources_.get()));
+    shared_resources_->register_listener(
+        worker_->createListener(0, listener_callback, shared_resources_.get())
+    );
     auto listener = shared_resources_->get_listener();
 
     Logger& log = logger();
-    log.warn(
-        "Root running at address ", listener->getIp(), ":", listener->getPort()
-    );
+    log.warn("Root running at address ", listener->getIp(), ":", listener->getPort());
 
     auto control_callback = ::ucxx::AmReceiverCallbackType(
         [this](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
-            control_unpack(
-                req->getRecvBuffer(), ep, shared_resources_
-            );
+            control_unpack(req->getRecvBuffer(), ep, shared_resources_);
         }
     );
 
-    worker_->registerAmReceiverCallback(shared_resources_->control_callback_info_, control_callback);
+    worker_->registerAmReceiverCallback(
+        shared_resources_->control_callback_info_, control_callback
+    );
 }
 
 UCXX::UCXX(
@@ -247,7 +260,6 @@ UCXX::UCXX(
 )
     : worker_(std::move(worker)),
       shared_resources_(std::make_shared<UCXXSharedResources>(false)),
-      rank_(std::make_shared<Rank>(-1)),
       nranks_(nranks),
       logger_(this) {
     if (worker_ == nullptr) {
@@ -258,19 +270,21 @@ UCXX::UCXX(
     }
 
     // Create listener
-    shared_resources_->register_listener(worker_->createListener(0, listener_callback, shared_resources_.get()));
+    shared_resources_->register_listener(
+        worker_->createListener(0, listener_callback, shared_resources_.get())
+    );
     auto listener = shared_resources_->get_listener();
 
     auto control_callback = ::ucxx::AmReceiverCallbackType(
         [this](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
             auto buffer = req->getRecvBuffer();
-            control_unpack(
-                req->getRecvBuffer(), ep, shared_resources_
-            );
+            control_unpack(req->getRecvBuffer(), ep, shared_resources_);
         }
     );
 
-    worker_->registerAmReceiverCallback(shared_resources_->control_callback_info_, control_callback);
+    worker_->registerAmReceiverCallback(
+        shared_resources_->control_callback_info_, control_callback
+    );
 
     // Connect to root
     Logger& log = logger();
@@ -280,20 +294,20 @@ UCXX::UCXX(
         ":",
         root_port,
         ". Current rank: ",
-        *rank_
+        shared_resources_->rank_
     );
     auto endpoint = worker_->createEndpointFromHostname(root_host, root_port, true);
     shared_resources_->register_endpoint(Rank(0), endpoint);
 
     // Get my rank
-    while (*rank_ == Rank(-1)) {
+    while (shared_resources_->rank_ == Rank(-1)) {
         // TODO: progress in non-progress thread modes
     }
-    log.debug("Assigned rank: ", *rank_);
+    log.debug("Assigned rank: ", shared_resources_->rank_);
 
     // Inform listener address
     ListenerAddress listener_address = ListenerAddress{
-        .host = "localhost", .port = listener->getPort(), .rank = *rank_
+        .host = "localhost", .port = listener->getPort(), .rank = shared_resources_->rank_
     };
     auto packed_listener_address =
         control_pack(ControlMessage::ReplyListenerAddress, listener_address);
@@ -329,26 +343,26 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
         log.trace(
             "Endpoint for rank ", rank, " not available, requesting listener address"
         );
-        auto packed_rank = control_pack(ControlMessage::QueryListenerAddress, rank);
+        auto packed_listener_address_rank =
+            control_pack(ControlMessage::QueryListenerAddress, rank);
 
         auto root_endpoint = get_endpoint(Rank(0));
 
-        auto req = root_endpoint->amSend(
-            packed_rank->data(),
-            packed_rank->size(),
+        auto listener_address_req = root_endpoint->amSend(
+            packed_listener_address_rank->data(),
+            packed_listener_address_rank->size(),
             UCS_MEMORY_TYPE_HOST,
             shared_resources_->control_callback_info_
         );
 
-        while (!req->isCompleted())
+        while (!listener_address_req->isCompleted()) {
             // TODO: progress in non-progress thread modes
-            ;
+        }
         while (true) {
             try {
                 shared_resources_->get_listener_address(rank);
                 break;
             } catch (std::out_of_range const&) {
-
             }
 
             // TODO: progress in non-progress thread modes
@@ -359,6 +373,16 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
             listener_address.host, listener_address.port, true
         );
         shared_resources_->register_endpoint(rank, endpoint);
+        auto packed_register_rank = control_pack(ControlMessage::RegisterRank, rank);
+        auto register_rank_req = endpoint->amSend(
+            packed_register_rank->data(),
+            packed_register_rank->size(),
+            UCS_MEMORY_TYPE_HOST,
+            shared_resources_->control_callback_info_
+        );
+        while (!register_rank_req->isCompleted()) {
+            // TODO: progress in non-progress thread modes
+        }
 
         log.trace(
             "Endpoint for rank ",
@@ -377,16 +401,18 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     rmm::cuda_stream_view stream,
     BufferResource* br
 ) {
-    auto req =
-        get_endpoint(rank)->tagSend(msg->data(), msg->size(), tag_with_rank(*rank_, tag));
+    auto req = get_endpoint(rank)->tagSend(
+        msg->data(), msg->size(), tag_with_rank(shared_resources_->rank_, tag)
+    );
     return std::make_unique<Future>(req, br->move(std::move(msg), stream));
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
 ) {
-    auto req =
-        get_endpoint(rank)->tagSend(msg->data(), msg->size, tag_with_rank(*rank_, tag));
+    auto req = get_endpoint(rank)->tagSend(
+        msg->data(), msg->size, tag_with_rank(shared_resources_->rank_, tag)
+    );
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -479,14 +505,15 @@ std::vector<std::size_t> UCXX::test_some(
 
 void UCXX::barrier() {
     Logger& log = logger();
-    log.trace("Barrier started on rank ", *rank_);
-    while (*rank_ == 0
-           && shared_resources_->rank_to_listener_address_.size() != static_cast<uint64_t>(nranks()))
+    log.trace("Barrier started on rank ", shared_resources_->rank_);
+    while (shared_resources_->rank_ == 0
+           && shared_resources_->rank_to_listener_address_.size()
+                  != static_cast<uint64_t>(nranks()))
     {
         // TODO: progress in non-progress thread modes
     }
 
-    if (*rank_ == 0) {
+    if (shared_resources_->rank_ == 0) {
         std::vector<std::shared_ptr<::ucxx::Request>> requests;
         for (auto& rank_to_endpoint : shared_resources_->rank_to_endpoint_) {
             auto& endpoint = rank_to_endpoint.second;
@@ -522,7 +549,7 @@ void UCXX::barrier() {
             // TODO: progress in non-progress thread modes
         }
     }
-    log.trace("Barrier completed on rank ", *rank_);
+    log.trace("Barrier completed on rank ", shared_resources_->rank_);
 }
 
 std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
@@ -537,8 +564,8 @@ std::string UCXX::str() const {
     ucp_get_version(&major, &minor, &release);
 
     std::stringstream ss;
-    ss << "UCXX(rank=" << *rank_ << ", nranks: " << nranks_ << ", ucx-version=" << major
-       << "." << minor << "." << release << ")";
+    ss << "UCXX(rank=" << shared_resources_->rank_ << ", nranks: " << nranks_
+       << ", ucx-version=" << major << "." << minor << "." << release << ")";
     return ss.str();
 }
 
