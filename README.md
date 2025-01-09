@@ -18,6 +18,8 @@ mamba env create --name rapidsmp-dev --file conda/environments/all_cuda-125_arch
 ./build.sh
 ```
 
+### MPI
+
 Run the test suite using MPI:
 ```
 # When using OpenMP, we need to enable CUDA support.
@@ -33,6 +35,14 @@ We can also run the shuffle benchmark. To assign each MPI rank its own GPU, we u
 wget https://raw.githubusercontent.com/LStuber/binding/refs/heads/master/binder.sh
 chmod a+x binder.sh
 mpirun -np 2 ./binder.sh cpp/build/benchmarks/bench_shuffle
+```
+
+### UCX
+
+Unlike MPI, UCX does not provide a standard bootstrapping mechanism, therefore the UCX bootstrapping in RAPIDS-MP is part of its implementation. The benchmark included is a single-process executable that needs to be launched for each rank, to ease that process we provide a convenience script (at the moment supporting only single-node) allowing to run the benchmark with the specified number of ranks (8 in the example below, as specified to the `-k` argument):
+
+```
+python cpp/benchmarks/launcher_ucxx.py -e ./cpp/build/benchmarks/bench_shuffle_ucxx -k 8
 ```
 
 ## Algorithms
