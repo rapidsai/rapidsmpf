@@ -17,6 +17,7 @@ dependencies:
 - doxygen=1.9.1
 - gcc_linux-64=11.*
 - libcudf==25.02.*,>=0.0.0a0
+- libucxx==0.42.*,>=0.0.0a0
 - ninja
 - openmpi
 - pre-commit

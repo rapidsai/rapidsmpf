@@ -50,6 +50,7 @@ dependencies:
           - c-compiler
           - cxx-compiler
           - &cudf_unsuffixed libcudf==25.02.*,>=0.0.0a0
+          - libucxx==0.42.*,>=0.0.0a0
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
     specific:
       - output_types: conda
