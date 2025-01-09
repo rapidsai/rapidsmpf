@@ -229,7 +229,7 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks)
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
         worker_ = context->createWorker(false);
         // TODO: Allow other modes
-        worker_->startProgressThread(true);
+        worker_->startProgressThread(false);
     }
 
     // Create listener
@@ -301,7 +301,7 @@ UCXX::UCXX(
 
     // Get my rank
     while (shared_resources_->rank_ == Rank(-1)) {
-        // TODO: progress in non-progress thread modes
+        progress_worker();
     }
     log.debug("Assigned rank: ", shared_resources_->rank_);
 
@@ -317,8 +317,8 @@ UCXX::UCXX(
         UCS_MEMORY_TYPE_HOST,
         shared_resources_->control_callback_info_
     );
-    // TODO: progress in non-progress thread modes
-    assert(req->isCompleted());
+    while (!req->isCompleted())
+        progress_worker();
 }
 
 static ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
@@ -356,7 +356,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
         );
 
         while (!listener_address_req->isCompleted()) {
-            // TODO: progress in non-progress thread modes
+            progress_worker();
         }
         while (true) {
             try {
@@ -365,7 +365,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
             } catch (std::out_of_range const&) {
             }
 
-            // TODO: progress in non-progress thread modes
+            progress_worker();
         }
 
         auto listener_address = shared_resources_->get_listener_address(rank);
@@ -381,7 +381,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
             shared_resources_->control_callback_info_
         );
         while (!register_rank_req->isCompleted()) {
-            // TODO: progress in non-progress thread modes
+            progress_worker();
         }
 
         log.trace(
@@ -438,14 +438,14 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(int tag) {
 
     auto req = worker_->tagRecv(msg->data(), msg->size(), ::ucxx::Tag(tag), UserTagMask);
 
-    // TODO: progress in non-progress thread modes
-    if (!req->isCompleted()) {
+    while (!req->isCompleted()) {
         log.warn(
             "block-receiving a messager larger than the normal ",
             "eager threshold (",
             msg->size(),
             " bytes)"
         );
+        progress_worker();
     }
 
     return {std::move(msg), sender_rank};
@@ -461,7 +461,8 @@ std::vector<std::size_t> UCXX::test_some(
         reqs.push_back(ucxx_future->req_);
     }
 
-    // TODO: progress in non-progress thread modes before checking completion
+    progress_worker();
+
     // Get completed requests as indices into `future_vector` (and `reqs`).
     std::vector<size_t> completed;
     for (size_t i = 0; i < reqs.size(); ++i) {
@@ -475,7 +476,6 @@ std::vector<std::size_t> UCXX::test_some(
     std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
         future_map
 ) {
-    // TODO: progress in non-progress thread modes before checking completion
     std::vector<std::shared_ptr<::ucxx::Request>> reqs;
     std::vector<std::size_t> key_reqs;
     reqs.reserve(future_map.size());
@@ -487,7 +487,8 @@ std::vector<std::size_t> UCXX::test_some(
         key_reqs.push_back(key);
     }
 
-    // TODO: progress in non-progress thread modes before checking completion
+    progress_worker();
+
     // Get completed requests as indices into `key_reqs` (and `reqs`).
     std::vector<size_t> completed;
     for (size_t i = 0; i < reqs.size(); ++i) {
@@ -509,9 +510,7 @@ void UCXX::barrier() {
     while (shared_resources_->rank_ == 0
            && shared_resources_->rank_to_listener_address_.size()
                   != static_cast<uint64_t>(nranks()))
-    {
-        // TODO: progress in non-progress thread modes
-    }
+        progress_worker();
 
     if (shared_resources_->rank_ == 0) {
         std::vector<std::shared_ptr<::ucxx::Request>> requests;
@@ -522,10 +521,10 @@ void UCXX::barrier() {
         while (std::all_of(requests.begin(), requests.end(), [](const auto& req) {
             return !req->isCompleted();
         }))
-        {
-            // TODO: progress in non-progress thread modes
-        }
+            progress_worker();
+
         requests.clear();
+
         for (auto& rank_to_endpoint : shared_resources_->rank_to_endpoint_) {
             auto& endpoint = rank_to_endpoint.second;
             requests.push_back(endpoint->amRecv());
@@ -533,21 +532,17 @@ void UCXX::barrier() {
         while (std::all_of(requests.begin(), requests.end(), [](const auto& req) {
             return !req->isCompleted();
         }))
-        {
-            // TODO: progress in non-progress thread modes
-        }
+            progress_worker();
     } else {
         auto endpoint = get_endpoint(0);
+
         auto req = endpoint->amRecv();
-        // TODO: Update progress mode
-        while (!req->isCompleted()) {
-            // TODO: progress in non-progress thread modes
-        }
+        while (!req->isCompleted())
+            progress_worker();
+
         req = endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST);
-        // TODO: Update progress mode
-        while (!req->isCompleted()) {
-            // TODO: progress in non-progress thread modes
-        }
+        while (!req->isCompleted())
+            progress_worker();
     }
     log.trace("Barrier completed on rank ", shared_resources_->rank_);
 }
@@ -573,6 +568,13 @@ UCXX::~UCXX() noexcept {
     // Logger& log = logger();
     // log.warn("~UCXX");
     worker_->stopProgressThread();
+}
+
+void UCXX::progress_worker() {
+    if (!worker_->isProgressThreadRunning()) {
+        worker_->progressOnce();
+        // TODO: Support blocking progress mode
+    }
 }
 
 }  // namespace rapidsmp

@@ -303,6 +303,7 @@ class UCXX final : public Communicator {
     Logger logger_;
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
+    void progress_worker();
 };
 
 
