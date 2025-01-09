@@ -16,11 +16,10 @@ rapids-print-env
 rapids-logger "Begin py build"
 
 CPP_CHANNEL=$(rapids-download-conda-from-s3 cpp)
-conda config --set path_conflict prevent
 
 sccache --zero-stats
 
-rapids-conda-retry mambabuild \
+RAPIDS_PACKAGE_VERSION=$(rapids-generate-version) rapids-conda-retry mambabuild \
   --channel "${CPP_CHANNEL}" \
   conda/recipes/rapidsmp
 
