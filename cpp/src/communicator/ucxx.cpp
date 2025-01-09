@@ -33,7 +33,8 @@ enum class ControlMessage {
     ReplyListenerAddress  ///< Reply to `QueryListenerAddress` with the listener address
 };
 
-struct ListenerAddress {
+class ListenerAddress {
+  public:
     std::string host{};
     uint16_t port{};
     Rank rank{};
@@ -64,6 +65,10 @@ class HostFuture {
     HostFuture(HostFuture&&) = default;  ///< Movable.
     HostFuture(HostFuture&) = delete;  ///< Not copyable.
 
+    [[nodiscard]] bool completed() const {
+        return req_->isCompleted();
+    }
+
   private:
     std::shared_ptr<::ucxx::Request>
         req_;  ///< The UCXX request associated with the operation.
@@ -72,34 +77,70 @@ class HostFuture {
 
 class UCXXSharedResources {
   public:
-    std::shared_ptr<::ucxx::Listener> listener_{nullptr};
-    Rank rank_{Rank(-1)};
-    Rank next_rank_{1};
+    std::shared_ptr<::ucxx::Listener> listener_{nullptr};  ///< UCXX Listener
+    Rank rank_{Rank(-1)};  ///< Communicator rank
+    Rank next_rank_{1};  ///< Rank to assign for the next communicator (root only)
     // TODO: We probably need to make endpoints thread-safe.
-    EndpointsMap endpoints_{};
-    RankToEndpointMap rank_to_endpoint_{};
-    RankToListenerAddressMap rank_to_listener_address_{};
+    EndpointsMap endpoints_{};  ///< Map of UCP handle to UCXX endpoints of known ranks
+    RankToEndpointMap rank_to_endpoint_{};  ///< Map of ranks to UCXX endpoints
+    RankToListenerAddressMap rank_to_listener_address_{
+    };  ///< Map of rank to listener addresses
     const ::ucxx::AmReceiverCallbackInfo control_callback_info_{
         ::ucxx::AmReceiverCallbackInfo("rapidsmp", 0)
-    };
+    };  ///< UCXX callback info for control messages
     std::vector<std::unique_ptr<HostFuture>> futures_{
         std::vector<std::unique_ptr<HostFuture>>()
-    };
+    };  ///< Futures to incomplete requests.
 
-    UCXXSharedResources() = delete;
-
+    /**
+     * @brief Construct UCXX shared resources.
+     *
+     * Constructor UCXX shared resources, assigning the proper rank 0 for root,
+     * other communicators must call `set_rank()` at the appropriate time.
+     *
+     * @param root Whether the communicator is the root rank.
+     * @param nranks The number of ranks requested for the cluster.
+     */
     UCXXSharedResources(bool root) : rank_(Rank(root ? 0 : -1)) {}
 
+    UCXXSharedResources() = delete;  ///< No default constructor.
+
+    UCXXSharedResources(UCXXSharedResources&&) = delete;  ///< Not movable.
+    UCXXSharedResources(UCXXSharedResources&) = delete;  ///< Not copyable.
+
+    /**
+     * @brief Sets the rank of a non-root communicator.
+     *
+     * Sets the rank of a non-root communicator to the specified value.
+     *
+     * @param rank The rank to set.
+     */
     void set_rank(Rank rank) {
         rank_ = rank;
     }
 
+    /**
+     * @brief Gets the next worker rank.
+     *
+     * Returns the next available worker rank. This method can only be called
+     * by root communicator (rank 0).
+     *
+     * @return The next available worker rank.
+     * @throws std::runtime_error If called by communicator with rank other than 0.
+     */
     Rank get_next_worker_rank() {
         if (rank_ != 0)
             throw std::runtime_error("This method can only be called by rank 0");
         return next_rank_++;
     }
 
+    /**
+     * @brief Registers a listener.
+     *
+     * Registers a listener with the UCXX shared resources.
+     *
+     * @param listener The listener to register.
+     */
     void register_listener(std::shared_ptr<::ucxx::Listener> listener) {
         listener_ = listener;
         auto listener_address = ListenerAddress{
@@ -108,42 +149,112 @@ class UCXXSharedResources {
         rank_to_listener_address_[rank_] = listener_address;
     }
 
-    void register_endpoint(std::shared_ptr<::ucxx::Endpoint> endpoint) {
-        endpoints_[endpoint->getHandle()] = endpoint;
-    }
-
-    void register_endpoint(const Rank rank, const ucp_ep_h endpoint_handle) {
-        auto endpoint = endpoints_[endpoint_handle];
-        rank_to_endpoint_[rank] = endpoint;
-    }
-
+    /**
+     * @brief Registers an endpoint for a specific rank.
+     *
+     * Registers an endpoint and associate it with a specific rank.
+     *
+     * @param rank The rank to register the endpoint for.
+     * @param endpoint The endpoint to register.
+     */
     void register_endpoint(const Rank rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
         rank_to_endpoint_[rank] = endpoint;
         endpoints_[endpoint->getHandle()] = endpoint;
     }
 
+    /**
+     * @brief Registers an endpoint without a rank.
+     *
+     * Registers an endpoint to a remote process with a still unknown rank.
+     * The rank must be later associated by calling the `associate_endpoint_rank()`.
+     *
+     * @param endpoint The endpoint to register.
+     */
+    void register_endpoint(std::shared_ptr<::ucxx::Endpoint> endpoint) {
+        endpoints_[endpoint->getHandle()] = endpoint;
+    }
+
+    /**
+     * @brief Associate endpoint with a specific rank.
+     *
+     * Associate a previously registered endpoint to a specific rank.
+     *
+     * @param rank The rank to register the endpoint for.
+     * @param endpoint_handle The handle of the endpoint to register.
+     */
+    void associate_endpoint_rank(const Rank rank, const ucp_ep_h endpoint_handle) {
+        auto endpoint = endpoints_[endpoint_handle];
+        rank_to_endpoint_[rank] = endpoint;
+    }
+
+    /**
+     * @brief Gets the listener.
+     *
+     * Returns the registered listener.
+     *
+     * @return The registered listener.
+     */
     std::shared_ptr<::ucxx::Listener> get_listener() {
         return listener_;
     }
 
+    /**
+     * @brief Gets an endpoint by handle.
+     *
+     * Returns the endpoint associated with the specified handle.
+     *
+     * @param ep_handle The handle of the endpoint to retrieve.
+     * @return The endpoint associated with the specified handle.
+     */
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(const ucp_ep_h ep_handle) {
         return endpoints_.at(ep_handle);
     }
 
+    /**
+     * @brief Gets an endpoint for a specific rank.
+     *
+     * Returns the endpoint associated with the specified rank.
+     *
+     * @param rank The rank to retrieve the endpoint for.
+     * @return The endpoint associated with the specified rank.
+     */
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(const Rank rank) {
         return rank_to_endpoint_.at(rank);
     }
 
+    /**
+     * @brief Gets the listener address for a specific rank.
+     *
+     * Returns the listener address associated with the specified rank.
+     *
+     * @param rank The rank to retrieve the listener address for.
+     * @return The listener address associated with the specified rank.
+     */
     ListenerAddress get_listener_address(const Rank rank) {
         return rank_to_listener_address_.at(rank);
     }
 
+    /**
+     * @brief Registers a listener address for a specific rank.
+     *
+     * Registers a listener address and associated it with a specific rank.
+     *
+     * @param rank The rank to register the listener address for.
+     * @param listener_address The listener address to register.
+     */
     void register_listener_address(
         const Rank rank, const ListenerAddress listener_address
     ) {
         rank_to_listener_address_[rank] = listener_address;
     }
 
+    /**
+     * @brief Adds a future to the list of incomplete requests.
+     *
+     * Adds a future to the list of incomplete requests.
+     *
+     * @param future The future to add.
+     */
     void add_future(std::unique_ptr<HostFuture> future) {
         futures_.push_back(std::move(future));
     }
@@ -215,7 +326,6 @@ static std::unique_ptr<std::vector<uint8_t>> control_pack(
     size_t offset{0};
     const size_t total_size = sizeof(control) + get_size(data);
 
-    // std::string packed(total_size, 0);
     auto packed = std::make_unique<std::vector<uint8_t>>(total_size);
 
     auto encode_ = [&offset, &packed](void const* data, size_t bytes) {
@@ -260,7 +370,7 @@ static void control_unpack(
     } else if (control == ControlMessage::RegisterRank) {
         Rank rank;
         decode_(&rank, sizeof(rank));
-        shared_resources->register_endpoint(rank, ep);
+        shared_resources->associate_endpoint_rank(rank, ep);
     } else if (control == ControlMessage::ReplyListenerAddress) {
         size_t packed_listener_address_size;
         decode_(&packed_listener_address_size, sizeof(packed_listener_address_size));
@@ -281,8 +391,6 @@ static void control_unpack(
         Rank rank;
         decode_(&rank, sizeof(rank));
         auto listener_address = shared_resources->get_listener_address(rank);
-        // TODO: Check if we can just get the endpoint with the rank instead of using the
-        // handle
         auto endpoint = shared_resources->get_endpoint(ep);
         auto packed_listener_address =
             control_pack(ControlMessage::ReplyListenerAddress, listener_address);
@@ -292,8 +400,10 @@ static void control_unpack(
             UCS_MEMORY_TYPE_HOST,
             shared_resources->control_callback_info_
         );
-        // TODO: Wait for completion
-        assert(req->isCompleted());
+        // TODO: Clear futures_ after completion
+        shared_resources->add_future(
+            std::make_unique<HostFuture>(req, std::move(packed_listener_address))
+        );
     }
 };
 
@@ -693,14 +803,14 @@ std::string UCXX::str() const {
 }
 
 UCXX::~UCXX() noexcept {
-    // Logger& log = logger();
-    // log.warn("~UCXX");
+    Logger& log = logger();
+    log.trace("UCXX destructor");
     worker_->stopProgressThread();
 }
 
 void UCXX::progress_worker() {
     if (!worker_->isProgressThreadRunning()) {
-        worker_->progressOnce();
+        worker_->progress();
         // TODO: Support blocking progress mode
     }
 }
