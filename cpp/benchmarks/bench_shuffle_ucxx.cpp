@@ -33,67 +33,6 @@
 #include "utils/random_data.hpp"
 #include "utils/rmm_stack.hpp"
 
-// class ArgumentParser {
-//   public:
-//     ArgumentParser(int argc, char* const* argv) {
-//         int option;
-//         unsigned long port;
-//         while ((option = getopt(argc, argv, "hk:zr:p:")) != -1) {
-//             switch (option) {
-//             case 'z':
-//                 is_root = true;
-//                 break;
-//             case 'r':
-//                 root_host = std::string(optarg);
-//                 break;
-//             case 'p':
-//                 port = std::stoul(optarg);
-//                 if (port > 65535) {
-//                     std::cerr << "-p (Root port) must be an integer in the [0, 65535]
-//                     range"
-//                               << std::endl;
-//                     ::ucxx::utils::ucsErrorThrow(UCS_ERR_INVALID_PARAM);
-//                 }
-//                 root_port = static_cast<uint16_t>(port);
-//                 break;
-//             case 'k':
-//                 num_ranks = std::stoi(optarg);
-//                 break;
-//             }
-//             case 'h':
-//                 {
-//                     std::stringstream ss;
-//                     ss << "Usage: " << argv[0] << " [options]\n"
-//                        << "Options:\n"
-//                        << "  -z         Whether this process is root (rank 0)\n"
-//                        << "  -r         Root host\n"
-//                        << "  -p         Root port\n"
-//                        << "  -k <num>   Number of ranks (default: 2)\n"
-//                        << "  -h         Display this help message\n";
-//                     if (is_root) {
-//                         std::cerr << ss.str();
-//                     }
-//                     ::ucxx::utils::ucsErrorThrow(UCS_ERR_INVALID_PARAM);
-//                 }
-//         }
-//     }
-//
-//     void pprint(rapidsmp::Communicator& comm) const {
-//         if (comm.rank() > 0) {
-//             return;
-//         }
-//         std::stringstream ss;
-//         ss << "Arguments:\n";
-//         ss << "  -k " << num_ranks << " (number of ranks)\n";
-//         std::cout << ss.str() << std::endl;
-//     }
-//
-//     int num_ranks{2};
-//     bool is_root{false};
-//     std::string root_host{};
-//     uint16_t root_port{};
-// };
-
 class ArgumentParser {
   public:
     ArgumentParser(int argc, char* const* argv) {
