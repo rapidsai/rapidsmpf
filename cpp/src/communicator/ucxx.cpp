@@ -23,7 +23,131 @@
 
 namespace rapidsmp {
 
-namespace {
+// namespace {
+
+enum class ControlMessage {
+    AssignRank = 0,  //< Root assigns a rank to incoming client connection
+    RegisterRank,  ///< Inform rank to remote process (non-root) after endpoint is
+                   ///< established
+    QueryListenerAddress,  ///< Ask for the remote endpoint's listener address
+    ReplyListenerAddress  ///< Reply to `QueryListenerAddress` with the listener address
+};
+
+struct ListenerAddress {
+    std::string host{};
+    uint16_t port{};
+    Rank rank{};
+};
+
+using ControlData = std::variant<Rank, ListenerAddress>;
+using EndpointsMap = std::unordered_map<ucp_ep_h, std::shared_ptr<::ucxx::Endpoint>>;
+using RankToEndpointMap = std::unordered_map<Rank, std::shared_ptr<::ucxx::Endpoint>>;
+using RankToListenerAddressMap = std::unordered_map<Rank, ListenerAddress>;
+
+class HostFuture {
+    friend class UCXX;
+
+  public:
+    /**
+     * @brief Construct a HostFuture.
+     *
+     * @param req The UCXX request handle for the operation.
+     * @param data A unique pointer to the data buffer.
+     */
+    HostFuture(
+        std::shared_ptr<::ucxx::Request> req, std::unique_ptr<std::vector<uint8_t>> data
+    )
+        : req_{std::move(req)}, data_{std::move(data)} {}
+
+    ~HostFuture() noexcept = default;
+
+    HostFuture(HostFuture&&) = default;  ///< Movable.
+    HostFuture(HostFuture&) = delete;  ///< Not copyable.
+
+  private:
+    std::shared_ptr<::ucxx::Request>
+        req_;  ///< The UCXX request associated with the operation.
+    std::unique_ptr<std::vector<uint8_t>> data_;  ///< The data buffer.
+};
+
+class UCXXSharedResources {
+  public:
+    std::shared_ptr<::ucxx::Listener> listener_{nullptr};
+    Rank rank_{Rank(-1)};
+    Rank next_rank_{1};
+    // TODO: We probably need to make endpoints thread-safe.
+    EndpointsMap endpoints_{};
+    RankToEndpointMap rank_to_endpoint_{};
+    RankToListenerAddressMap rank_to_listener_address_{};
+    const ::ucxx::AmReceiverCallbackInfo control_callback_info_{
+        ::ucxx::AmReceiverCallbackInfo("rapidsmp", 0)
+    };
+    std::vector<std::unique_ptr<HostFuture>> futures_{
+        std::vector<std::unique_ptr<HostFuture>>()
+    };
+
+    UCXXSharedResources() = delete;
+
+    UCXXSharedResources(bool root) : rank_(Rank(root ? 0 : -1)) {}
+
+    void set_rank(Rank rank) {
+        rank_ = rank;
+    }
+
+    Rank get_next_worker_rank() {
+        if (rank_ != 0)
+            throw std::runtime_error("This method can only be called by rank 0");
+        return next_rank_++;
+    }
+
+    void register_listener(std::shared_ptr<::ucxx::Listener> listener) {
+        listener_ = listener;
+        auto listener_address = ListenerAddress{
+            .host = listener->getIp(), .port = listener->getPort(), .rank = rank_
+        };
+        rank_to_listener_address_[rank_] = listener_address;
+    }
+
+    void register_endpoint(std::shared_ptr<::ucxx::Endpoint> endpoint) {
+        endpoints_[endpoint->getHandle()] = endpoint;
+    }
+
+    void register_endpoint(const Rank rank, const ucp_ep_h endpoint_handle) {
+        auto endpoint = endpoints_[endpoint_handle];
+        rank_to_endpoint_[rank] = endpoint;
+    }
+
+    void register_endpoint(const Rank rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
+        rank_to_endpoint_[rank] = endpoint;
+        endpoints_[endpoint->getHandle()] = endpoint;
+    }
+
+    std::shared_ptr<::ucxx::Listener> get_listener() {
+        return listener_;
+    }
+
+    std::shared_ptr<::ucxx::Endpoint> get_endpoint(const ucp_ep_h ep_handle) {
+        return endpoints_.at(ep_handle);
+    }
+
+    std::shared_ptr<::ucxx::Endpoint> get_endpoint(const Rank rank) {
+        return rank_to_endpoint_.at(rank);
+    }
+
+    ListenerAddress get_listener_address(const Rank rank) {
+        return rank_to_listener_address_.at(rank);
+    }
+
+    void register_listener_address(
+        const Rank rank, const ListenerAddress listener_address
+    ) {
+        rank_to_listener_address_[rank] = listener_address;
+    }
+
+    void add_future(std::unique_ptr<HostFuture> future) {
+        futures_.push_back(std::move(future));
+    }
+};
 
 static size_t get_size(const rapidsmp::ControlData& data) {
     return std::visit(
@@ -218,7 +342,7 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
     }
 }
 
-}  // namespace
+// }  // namespace
 
 UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks)
     : worker_(std::move(worker)),
@@ -319,6 +443,10 @@ UCXX::UCXX(
     );
     while (!req->isCompleted())
         progress_worker();
+}
+
+[[nodiscard]] Rank UCXX::rank() const {
+    return shared_resources_->rank_;
 }
 
 static ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
