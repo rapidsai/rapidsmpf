@@ -258,6 +258,23 @@ class UCXXSharedResources {
     void add_future(std::unique_ptr<HostFuture> future) {
         futures_.push_back(std::move(future));
     }
+
+    void clear_completed_futures() {
+        auto before = futures_.size();
+        futures_.erase(
+            std::remove_if(
+                futures_.begin(),
+                futures_.end(),
+                [](const std::unique_ptr<HostFuture>& element) {
+                    return element->completed();
+                }
+            ),
+            futures_.end()
+        );
+        if (futures_.size() != before)
+            std::cout << "Before: " << before << ", after: " << futures_.size()
+                      << std::endl;
+    }
 };
 
 static size_t get_size(const rapidsmp::ControlData& data) {
@@ -813,6 +830,8 @@ void UCXX::progress_worker() {
         worker_->progress();
         // TODO: Support blocking progress mode
     }
+
+    shared_resources_->clear_completed_futures();
 }
 
 }  // namespace rapidsmp
