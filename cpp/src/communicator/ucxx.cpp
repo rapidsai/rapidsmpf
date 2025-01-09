@@ -17,6 +17,7 @@
 #include "rapidsmp/communicator/ucxx.hpp"
 
 #include <array>
+#include <mutex>
 #include <utility>
 
 #include <rapidsmp/error.hpp>
@@ -79,8 +80,8 @@ class UCXXSharedResources {
   public:
     std::shared_ptr<::ucxx::Listener> listener_{nullptr};  ///< UCXX Listener
     Rank rank_{Rank(-1)};  ///< Communicator rank
-    Rank next_rank_{1};  ///< Rank to assign for the next communicator (root only)
-    // TODO: We probably need to make endpoints thread-safe.
+    std::atomic<Rank> next_rank_{1
+    };  ///< Rank to assign for the next communicator (root only)
     EndpointsMap endpoints_{};  ///< Map of UCP handle to UCXX endpoints of known ranks
     RankToEndpointMap rank_to_endpoint_{};  ///< Map of ranks to UCXX endpoints
     RankToListenerAddressMap rank_to_listener_address_{
@@ -91,6 +92,9 @@ class UCXXSharedResources {
     std::vector<std::unique_ptr<HostFuture>> futures_{
         std::vector<std::unique_ptr<HostFuture>>()
     };  ///< Futures to incomplete requests.
+    std::mutex endpoints_mutex_{};
+    std::mutex futures_mutex_{};
+    std::mutex listener_mutex_{};
 
     /**
      * @brief Construct UCXX shared resources.
@@ -142,6 +146,7 @@ class UCXXSharedResources {
      * @param listener The listener to register.
      */
     void register_listener(std::shared_ptr<::ucxx::Listener> listener) {
+        std::lock_guard<std::mutex> lock(listener_mutex_);
         listener_ = listener;
         auto listener_address = ListenerAddress{
             .host = listener->getIp(), .port = listener->getPort(), .rank = rank_
@@ -158,6 +163,7 @@ class UCXXSharedResources {
      * @param endpoint The endpoint to register.
      */
     void register_endpoint(const Rank rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
+        std::lock_guard<std::mutex> lock(endpoints_mutex_);
         rank_to_endpoint_[rank] = endpoint;
         endpoints_[endpoint->getHandle()] = endpoint;
     }
@@ -171,6 +177,7 @@ class UCXXSharedResources {
      * @param endpoint The endpoint to register.
      */
     void register_endpoint(std::shared_ptr<::ucxx::Endpoint> endpoint) {
+        std::lock_guard<std::mutex> lock(endpoints_mutex_);
         endpoints_[endpoint->getHandle()] = endpoint;
     }
 
@@ -183,6 +190,7 @@ class UCXXSharedResources {
      * @param endpoint_handle The handle of the endpoint to register.
      */
     void associate_endpoint_rank(const Rank rank, const ucp_ep_h endpoint_handle) {
+        std::lock_guard<std::mutex> lock(endpoints_mutex_);
         auto endpoint = endpoints_[endpoint_handle];
         rank_to_endpoint_[rank] = endpoint;
     }
@@ -195,6 +203,7 @@ class UCXXSharedResources {
      * @return The registered listener.
      */
     std::shared_ptr<::ucxx::Listener> get_listener() {
+        std::lock_guard<std::mutex> lock(listener_mutex_);
         return listener_;
     }
 
@@ -207,6 +216,7 @@ class UCXXSharedResources {
      * @return The endpoint associated with the specified handle.
      */
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(const ucp_ep_h ep_handle) {
+        std::lock_guard<std::mutex> lock(endpoints_mutex_);
         return endpoints_.at(ep_handle);
     }
 
@@ -219,6 +229,7 @@ class UCXXSharedResources {
      * @return The endpoint associated with the specified rank.
      */
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(const Rank rank) {
+        std::lock_guard<std::mutex> lock(endpoints_mutex_);
         return rank_to_endpoint_.at(rank);
     }
 
@@ -231,6 +242,7 @@ class UCXXSharedResources {
      * @return The listener address associated with the specified rank.
      */
     ListenerAddress get_listener_address(const Rank rank) {
+        std::lock_guard<std::mutex> lock(listener_mutex_);
         return rank_to_listener_address_.at(rank);
     }
 
@@ -245,6 +257,7 @@ class UCXXSharedResources {
     void register_listener_address(
         const Rank rank, const ListenerAddress listener_address
     ) {
+        std::lock_guard<std::mutex> lock(listener_mutex_);
         rank_to_listener_address_[rank] = listener_address;
     }
 
@@ -256,10 +269,12 @@ class UCXXSharedResources {
      * @param future The future to add.
      */
     void add_future(std::unique_ptr<HostFuture> future) {
+        std::lock_guard<std::mutex> lock(futures_mutex_);
         futures_.push_back(std::move(future));
     }
 
     void clear_completed_futures() {
+        std::lock_guard<std::mutex> lock(futures_mutex_);
         auto before = futures_.size();
         futures_.erase(
             std::remove_if(
@@ -417,7 +432,6 @@ static void control_unpack(
             UCS_MEMORY_TYPE_HOST,
             shared_resources->control_callback_info_
         );
-        // TODO: Clear futures_ after completion
         shared_resources->add_future(
             std::make_unique<HostFuture>(req, std::move(packed_listener_address))
         );
@@ -457,7 +471,6 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
             UCS_MEMORY_TYPE_HOST,
             shared_resources->control_callback_info_
         );
-        // TODO: Clear futures_ after completion
         shared_resources->add_future(
             std::make_unique<HostFuture>(req, std::move(packed_client_rank))
         );
@@ -689,7 +702,8 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(int tag) {
     if (!msg_available) {
         return {nullptr, 0};
     }
-    auto msg = std::make_unique<std::vector<uint8_t>>(info.length);  // TODO: uninitialize
+    auto msg = std::make_unique<std::vector<uint8_t>>(info.length
+    );  // TODO: choose between host and device
 
     auto req = worker_->tagRecv(msg->data(), msg->size(), ::ucxx::Tag(tag), UserTagMask);
 
