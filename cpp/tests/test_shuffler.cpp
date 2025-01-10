@@ -86,7 +86,7 @@ using MemoryAvailableMap =
     std::unordered_map<rapidsmp::MemoryType, rapidsmp::BufferResource::MemoryAvailable>;
 
 // Help function to get the `memory_available` argument for a `BufferResource`
-// that priorities the specified memory type.
+// that prioritizes the specified memory type.
 MemoryAvailableMap get_memory_available_map(rapidsmp::MemoryType priorities) {
     using namespace rapidsmp;
 
@@ -95,7 +95,7 @@ MemoryAvailableMap get_memory_available_map(rapidsmp::MemoryType priorities) {
     MemoryAvailableMap ret = {
         {MemoryType::DEVICE, always_zero}, {MemoryType::HOST, always_zero}
     };
-    // And then set the prioritied memory type to use the max function.
+    // And then set the prioritized memory type to use the max function.
     ret.at(priorities) = std::numeric_limits<std::int64_t>::max;
     return ret;
 }
