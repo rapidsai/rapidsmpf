@@ -49,7 +49,9 @@ class MemoryReservation {
      * @param o The memory reservation to move from.
      */
     MemoryReservation(MemoryReservation&& o)
-        : MemoryReservation{o.mem_type_, o.br_, std::exchange(o.size_, 0)} {}
+        : MemoryReservation{
+            o.mem_type_, std::exchange(o.br_, nullptr), std::exchange(o.size_, 0)
+        } {}
 
     /**
      * @brief Move assignment operator for MemoryReservation.
@@ -59,7 +61,7 @@ class MemoryReservation {
      */
     MemoryReservation& operator=(MemoryReservation&& o) noexcept {
         mem_type_ = o.mem_type_;
-        br_ = o.br_;
+        br_ = std::exchange(o.br_, nullptr);
         size_ = std::exchange(o.size_, 0);
         return *this;
     }
