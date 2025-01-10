@@ -1,4 +1,4 @@
-# Copyright (c) 2025-2025, NVIDIA CORPORATION.
+# Copyright (c) 2025, NVIDIA CORPORATION.
 
 cdef extern from "<rapidsmp/communicator/communicator.hpp>" nogil:
 

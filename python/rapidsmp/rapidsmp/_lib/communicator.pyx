@@ -1,1 +1,1 @@
-# Copyright (c) 2025-2025, NVIDIA CORPORATION.
+# Copyright (c) 2025, NVIDIA CORPORATION.
