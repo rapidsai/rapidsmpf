@@ -32,8 +32,8 @@ HELP="$0 [clean] [librapidsmp] [rapidsmp] [-v] [-g] [-n] [--cmake-args=\"<args>\
    default action (no args) is to build and install the 'librapidsmp' then 'rapidsmp' targets
 "
 LIBRAPIDSMP_BUILD_DIR=${LIBRAPIDSMP_BUILD_DIR:=${REPODIR}/cpp/build}
-PYRMP_BUILD_DIR=${REPODIR}/python/rapidsmp/build
-BUILD_DIRS="${LIBRAPIDSMP_BUILD_DIR} ${PYRMP_BUILD_DIR}"
+PYRAPIDSMP_=${REPODIR}/python/rapidsmp/build
+BUILD_DIRS="${LIBRAPIDSMP_BUILD_DIR} ${PYRAPIDSMP_}"
 
 # Set defaults for vars modified by flags to this script
 VERBOSE_FLAG=""
