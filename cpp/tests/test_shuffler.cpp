@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -82,27 +82,48 @@ TEST(MetadataMessage, round_trip) {
     EXPECT_EQ(metadata, *result.metadata);
 }
 
-class MemoryTypeAndNumPartition
-    : public cudf::test::BaseFixtureWithParam<std::tuple<rapidsmp::MemoryType, int>> {};
+using MemoryAvailableMap =
+    std::unordered_map<rapidsmp::MemoryType, rapidsmp::BufferResource::MemoryAvailable>;
 
-// test different `rapidsmp::MemoryType` and `total_num_partitions`.
+// Help function to get the `memory_available` argument for a `BufferResource`
+// that prioritizes the specified memory type.
+MemoryAvailableMap get_memory_available_map(rapidsmp::MemoryType priorities) {
+    using namespace rapidsmp;
+
+    // We set all memory types to use an available function that always return zero.
+    BufferResource::MemoryAvailable always_zero = []() -> std::int64_t { return 0; };
+    MemoryAvailableMap ret = {
+        {MemoryType::DEVICE, always_zero}, {MemoryType::HOST, always_zero}
+    };
+    // And then set the prioritized memory type to use the max function.
+    ret.at(priorities) = std::numeric_limits<std::int64_t>::max;
+    return ret;
+}
+
+class MemoryAvailable_NumPartition
+    : public cudf::test::BaseFixtureWithParam<std::tuple<MemoryAvailableMap, int>> {};
+
+// test different `memory_available` and `total_num_partitions`.
 INSTANTIATE_TEST_SUITE_P(
     Shuffler,
-    MemoryTypeAndNumPartition,
+    MemoryAvailable_NumPartition,
     testing::Combine(
-        testing::ValuesIn({rapidsmp::MemoryType::DEVICE, rapidsmp::MemoryType::HOST}),
+        testing::ValuesIn(
+            {get_memory_available_map(rapidsmp::MemoryType::HOST),
+             get_memory_available_map(rapidsmp::MemoryType::DEVICE)}
+        ),
         testing::Range(1, 10)
     )
 );
 
-TEST_P(MemoryTypeAndNumPartition, round_trip) {
-    rapidsmp::MemoryType const mem_type = std::get<0>(GetParam());
+TEST_P(MemoryAvailable_NumPartition, round_trip) {
+    MemoryAvailableMap const memory_available = std::get<0>(GetParam());
     rapidsmp::shuffler::PartID const total_num_partitions = std::get<1>(GetParam());
     std::int64_t const seed = 42;
     cudf::hash_id const hash_function = cudf::hash_id::HASH_MURMUR3;
     auto stream = cudf::get_default_stream();
     auto mr = cudf::get_current_device_resource_ref();
-    rapidsmp::BufferResource br{mr, rapidsmp::memory_type_resolver::constant(mem_type)};
+    rapidsmp::BufferResource br{mr, memory_available};
 
     MPI_Comm mpi_comm;
     RAPIDSMP_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm));

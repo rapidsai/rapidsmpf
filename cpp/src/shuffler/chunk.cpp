@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -83,10 +83,14 @@ std::unique_ptr<cudf::table> Chunk::unpack(rmm::cuda_stream_view stream) const {
     RAPIDSMP_EXPECTS(metadata && gpu_data, "both meta and gpu data must be non-null");
     auto br = gpu_data->br;
 
+    // Since we cannot spill, we allow and ignore overbooking.
+    auto [reservation, _] = br->reserve(MemoryType::DEVICE, gpu_data->size * 2, true);
+
     // Copy data.
     auto meta = std::make_unique<std::vector<uint8_t>>(*metadata);
-    auto gpu =
-        br->move_to_device_buffer(br->copy(MemoryType::DEVICE, gpu_data, stream), stream);
+    auto gpu = br->move_to_device_buffer(
+        br->copy(MemoryType::DEVICE, gpu_data, stream, reservation), stream, reservation
+    );
 
     std::vector<cudf::packed_columns> packed_vec;
     packed_vec.emplace_back(std::move(meta), std::move(gpu));
