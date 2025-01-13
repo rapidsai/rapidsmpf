@@ -8,17 +8,26 @@ files:
     includes:
       - build-universal
       - build-cpp
+      - build-py-wrapper
       - checks
       - cuda
       - cuda_version
-      - docs
       - py_version
+      - rapids_build_skbuild
       - test_cpp
+      - test_python
+      - docs
   test_cpp:
     output: none
     includes:
       - cuda_version
       - test_cpp
+  test_python:
+    output: none
+    includes:
+      - cuda_version
+      - py_version
+      - test_python
   checks:
     output: none
     includes:
@@ -31,7 +40,6 @@ files:
       - cuda_version
       - docs
       - py_version
-
 channels:
   - rapidsai
   - rapidsai-nightly
@@ -39,7 +47,7 @@ channels:
 dependencies:
   build-universal:
     common:
-      - output_types: conda
+      - output_types: [conda, pyproject]
         packages:
           - &cmake_ver cmake>=3.26.4,!=3.30.0
           - ninja
@@ -81,6 +89,22 @@ dependencies:
               cuda: "12.*"
             packages:
               - cuda-nvcc
+  rapids_build_skbuild:
+    common:
+      - output_types: [conda, pyproject]
+        packages:
+          - &rapids_build_backend rapids-build-backend>=0.3.0,<0.4.0.dev0
+      - output_types: conda
+        packages:
+          - scikit-build-core>=0.10.0
+      - output_types: [pyproject]
+        packages:
+          - scikit-build-core[pyproject]>=0.10.0
+  build-py-wrapper:
+    common:
+      - output_types: [conda, pyproject]
+        packages:
+          - cython>=3.0.3
   checks:
     common:
       - output_types: conda
@@ -160,6 +184,12 @@ dependencies:
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
           - valgrind
           - cuda-sanitizer-api
+  test_python:
+    common:
+      - output_types: [conda, pyproject]
+        packages:
+          - pytest
+          - pytest-cov
   docs:
     common:
       - output_types: [conda]
