@@ -688,7 +688,10 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, int tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
 ) {
     auto req = get_endpoint(rank)->tagRecv(
-        recv_buffer->data(), recv_buffer->size, ::ucxx::Tag(tag), UserTagMask
+        recv_buffer->data(),
+        recv_buffer->size,
+        tag_with_rank(rank, tag),
+        ::ucxx::TagMaskFull
     );
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
