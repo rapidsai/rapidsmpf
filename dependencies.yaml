@@ -28,6 +28,7 @@ files:
       - cuda_version
       - py_version
       - test_python
+      - test_rapidsmp
   checks:
     output: none
     includes:
@@ -40,6 +41,7 @@ files:
       - cuda_version
       - docs
       - py_version
+      - test_rapidsmp
 channels:
   - rapidsai
   - rapidsai-nightly
@@ -57,8 +59,8 @@ dependencies:
         packages:
           - c-compiler
           - cxx-compiler
-          - &rmm_unsuffixed rmm==25.02.*,>=0.0.0a0
-          - libcudf==25.02.*,>=0.0.0a0
+          - &rmm_unsuffixed rmm==25.2.*,>=0.0.0a0
+          - libcudf==25.2.*,>=0.0.0a0
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
           - spdlog
     specific:
@@ -107,7 +109,7 @@ dependencies:
         packages:
           - cython>=3.0.3
           - *rmm_unsuffixed
-          - pylibcudf==25.02.*,>=0.0.0a0
+          - pylibcudf==25.2.*,>=0.0.0a0
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
           - mpi4py
   checks:
@@ -189,12 +191,17 @@ dependencies:
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
           - valgrind
           - cuda-sanitizer-api
+  test_rapidsmp:
+    common:
+      - output_types: conda
+        packages:
+          - rapidsmp==25.2.*,>=0.0.0a0
   test_python:
     common:
       - output_types: [conda, pyproject]
         packages:
           - pytest
-          - cudf==25.02.*,>=0.0.0a0
+          - cudf==25.2.*,>=0.0.0a0
   docs:
     common:
       - output_types: [conda]
