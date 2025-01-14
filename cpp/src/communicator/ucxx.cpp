@@ -787,7 +787,7 @@ void UCXX::barrier() {
             auto& endpoint = rank_to_endpoint.second;
             requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
         }
-        while (std::all_of(requests.begin(), requests.end(), [](const auto& req) {
+        while (std::any_of(requests.cbegin(), requests.cend(), [](const auto& req) {
             return !req->isCompleted();
         }))
             progress_worker();
@@ -798,7 +798,7 @@ void UCXX::barrier() {
             auto& endpoint = rank_to_endpoint.second;
             requests.push_back(endpoint->amRecv());
         }
-        while (std::all_of(requests.begin(), requests.end(), [](const auto& req) {
+        while (std::any_of(requests.cbegin(), requests.cend(), [](const auto& req) {
             return !req->isCompleted();
         }))
             progress_worker();
