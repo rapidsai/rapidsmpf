@@ -48,10 +48,9 @@ cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
 cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions):
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, packed_columns] _ret
+    cdef table_view tbl = table.view()
     with nogil:
-        _ret = cpp_partition_and_pack(
-            table.view(), _columns_to_hash, num_partitions
-        )
+        _ret = cpp_partition_and_pack(tbl, _columns_to_hash, num_partitions)
     ret = {}
     cdef unordered_map[uint32_t, packed_columns].iterator it = _ret.begin()
     while(it != _ret.end()):
