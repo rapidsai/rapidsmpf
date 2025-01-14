@@ -14,7 +14,7 @@ cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
             shared_ptr[cpp_Communicator] comm,
             uint32_t total_num_partitions,
             cudaStream_t stream,
-            # cpp_BufferResource *br,
+            cpp_BufferResource *br,
         ) except +
 
 cdef class Shuffler:
