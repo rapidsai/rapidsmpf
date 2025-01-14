@@ -12,13 +12,10 @@
 # the License.
 # =============================================================================
 
-set(cython_modules shuffler.pyx)
+set(cython_modules resource.pyx)
 
 rapids_cython_create_modules(
   CXX
   SOURCE_FILES "${cython_modules}"
   LINKED_LIBRARIES rapidsmp::rapidsmp
 )
-
-add_subdirectory(communicator)
-add_subdirectory(buffer)
