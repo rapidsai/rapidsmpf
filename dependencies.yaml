@@ -58,7 +58,7 @@ dependencies:
           - c-compiler
           - cxx-compiler
           - &rmm_unsuffixed rmm==25.02.*,>=0.0.0a0
-          - &cudf_unsuffixed libcudf==25.02.*,>=0.0.0a0
+          - &libcudf_unsuffixed libcudf==25.02.*,>=0.0.0a0
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
           - spdlog
     specific:
@@ -194,7 +194,7 @@ dependencies:
       - output_types: [conda, pyproject]
         packages:
           - pytest
-          - pytest-cov
+          - &cudf_unsuffixed cudf==25.02.*,>=0.0.0a0
   docs:
     common:
       - output_types: [conda]
