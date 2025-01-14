@@ -80,14 +80,14 @@ std::unordered_map<PartID, cudf::packed_columns> partition_and_pack(
 }
 
 std::unique_ptr<cudf::table> unpack_and_concat(
-    std::vector<cudf::packed_columns>&& partition,
+    std::vector<cudf::packed_columns>&& partitions,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
     RAPIDSMP_NVTX_FUNC_RANGE();
     std::vector<cudf::table_view> unpacked;
-    unpacked.reserve(partition.size());
-    for (auto const& packed_columns : partition) {
+    unpacked.reserve(partitions.size());
+    for (auto const& packed_columns : partitions) {
         unpacked.push_back(cudf::unpack(packed_columns));
     }
     return cudf::concatenate(unpacked, stream, mr);

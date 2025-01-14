@@ -100,14 +100,14 @@ partition_and_split(
  * @see cudf::unpack
  * @see cudf::concatenate
  *
- * @param partition The input tables.
+ * @param partitions The packed input tables.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param mr Device memory resource used to allocate the returned table's device memory.
  *
  * @return The unpacked and concatenated result.
  */
 [[nodiscard]] std::unique_ptr<cudf::table> unpack_and_concat(
-    std::vector<cudf::packed_columns>&& partition,
+    std::vector<cudf::packed_columns>&& partitions,
     rmm::cuda_stream_view stream = cudf::get_default_stream(),
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()
 );
