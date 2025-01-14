@@ -74,7 +74,7 @@ exclude = ["_deps/*"]
 ignore_missing_imports = true
 
 [tool.ruff]
-line-length = 90
+line-length = 80
 
 [tool.ruff.lint]
 select = [
