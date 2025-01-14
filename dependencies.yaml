@@ -8,7 +8,7 @@ files:
     includes:
       - build-universal
       - build-cpp
-      - build-py-wrapper
+      - build-python
       - checks
       - cuda
       - cuda_version
@@ -57,6 +57,7 @@ dependencies:
         packages:
           - c-compiler
           - cxx-compiler
+          - &rmm_unsuffixed rmm==25.02.*,>=0.0.0a0
           - &cudf_unsuffixed libcudf==25.02.*,>=0.0.0a0
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
           - spdlog
@@ -100,11 +101,15 @@ dependencies:
       - output_types: [pyproject]
         packages:
           - scikit-build-core[pyproject]>=0.10.0
-  build-py-wrapper:
+  build-python:
     common:
       - output_types: [conda, pyproject]
         packages:
           - cython>=3.0.3
+          - *rmm_unsuffixed
+          - &pylibcudf_unsuffixed pylibcudf==25.02.*,>=0.0.0a0
+          - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
+          - mpi4py
   checks:
     common:
       - output_types: conda
