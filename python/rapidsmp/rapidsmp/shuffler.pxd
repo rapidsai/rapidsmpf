@@ -6,6 +6,7 @@ from libcpp.memory cimport shared_ptr, unique_ptr
 from rapidsmp.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmp.communicator.communicator cimport Communicator, cpp_Communicator
 from rmm._cuda.stream cimport Stream
+from pylibcudf.table cimport Table
 
 
 cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
@@ -22,3 +23,7 @@ cdef class Shuffler:
     cdef Communicator _comm
     cdef Stream _stream
     cdef BufferResource _br
+
+cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions)
+
+cpdef Table unpack_and_concat(partitions)
