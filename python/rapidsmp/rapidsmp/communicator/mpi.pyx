@@ -1,12 +1,10 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
-from mpi4py cimport MPI
+from libcpp.memory cimport make_shared
 from mpi4py cimport libmpi
 from mpi4py.MPI cimport Intracomm
-
-from libcpp.memory cimport make_shared, shared_ptr
-
 from rapidsmp.communicator.communicator cimport Communicator
+
 
 cdef extern from "<rapidsmp/communicator/mpi.hpp>" nogil:
     cdef cppclass cpp_MPI_Communicator "rapidsmp::MPI":
