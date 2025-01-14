@@ -71,6 +71,7 @@ regex = "(?P<value>.*)"
 
 [tool.mypy]
 exclude = ["_deps/*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 90

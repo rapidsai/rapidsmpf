@@ -3,10 +3,10 @@
 from cuda.bindings.cyruntime cimport cudaStream_t
 from libc.stdint cimport uint32_t
 from libcpp.memory cimport shared_ptr, unique_ptr
+from pylibcudf.table cimport Table
 from rapidsmp.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmp.communicator.communicator cimport Communicator, cpp_Communicator
 from rmm._cuda.stream cimport Stream
-from pylibcudf.table cimport Table
 
 
 cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
