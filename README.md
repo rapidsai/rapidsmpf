@@ -39,8 +39,19 @@ mpirun -np 2 ./binder.sh cpp/build/benchmarks/bench_shuffle
 
 ### UCX
 
-Unlike MPI, UCX does not provide a standard bootstrapping mechanism, therefore the UCX bootstrapping in RAPIDS-MP is part of its implementation. The benchmark included is a single-process executable that needs to be launched for each rank, to ease that process we provide a convenience script (at the moment supporting only single-node) allowing to run the benchmark with the specified number of ranks (8 in the example below, as specified to the `-k` argument):
+The UCX test suite uses, for convenience, MPI to bootstrap, therefore we need to launch UCX tests with `mpirun`. Run the test suite using UCX:
+```
+# Run the suite using two processes.
+mpirun -np 2 cpp/build/gtests/ucxx_tests
+```
 
+A probable UCX bug may cause tests to segfault on larger number of processes (observed for 8 or above). A workaround for this is to revert to UCX protov1 by setting `UCX_PROTO_ENABLE=n`, but please be aware this may cause issues such a slow performance on more modern hardware, such as NVIDIA H100. Running with protov1:
+```
+# Run the suite using 8 processes.
+mpirun -x UCX_PROTO_ENABLE=n -np 8 cpp/build/gtests/ucxx_tests
+```
+
+Unlike MPI, UCX does not provide a standard bootstrapping mechanism, therefore the UCX bootstrapping in RAPIDS-MP is part of its implementation. The benchmark included is a single-process executable that needs to be launched for each rank, to ease that process we provide a convenience script (at the moment supporting only single-node) allowing to run the benchmark with the specified number of ranks (8 in the example below, as specified to the `-k` argument):
 ```
 python cpp/benchmarks/launcher_ucxx.py -e ./cpp/build/benchmarks/bench_shuffle_ucxx -k 8
 ```
