@@ -33,6 +33,13 @@ build:
     - SCCACHE_S3_KEY_PREFIX=rapidsmp-linux64 # [linux64]
     - SCCACHE_S3_USE_SSL
     - SCCACHE_S3_NO_CREDENTIALS
+  ignore_run_exports_from:
+    {% if cuda_major == "11" %}
+    - {{ compiler('cuda11') }}
+    {% else %}
+    - {{ compiler('cuda') }}
+    - cuda-cudart-dev
+    {% endif %}
 
 requirements:
   build:
