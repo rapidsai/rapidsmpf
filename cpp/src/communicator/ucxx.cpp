@@ -477,6 +477,11 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
 
 // }  // namespace
 
+void createCudaContextCallback(void* callbackArg) {
+    std::cout << "Create context" << std::endl;
+    cudaFree(0);
+}
+
 UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks)
     : worker_(std::move(worker)),
       shared_resources_(std::make_shared<UCXXSharedResources>(true)),
@@ -486,6 +491,9 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks)
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
         worker_ = context->createWorker(false);
         // TODO: Allow other modes
+        worker_->setProgressThreadStartCallback(
+            rapidsmp::createCudaContextCallback, nullptr
+        );
         worker_->startProgressThread(false);
     }
 
@@ -523,6 +531,9 @@ UCXX::UCXX(
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
         worker_ = context->createWorker(false);
         // TODO: Allow other modes
+        worker_->setProgressThreadStartCallback(
+            rapidsmp::createCudaContextCallback, nullptr
+        );
         worker_->startProgressThread(true);
     }
 
