@@ -16,26 +16,6 @@ from pylibcudf.table cimport Table
 from rmm._cuda.stream cimport Stream
 
 
-cdef class Shuffler:
-    def __init__(
-        self,
-        Communicator comm,
-        uint32_t total_num_partitions,
-        stream,
-        BufferResource br,
-    ):
-        self._stream = Stream(stream)
-        self._comm = comm
-        self._br = br
-        self._handle = make_unique[cpp_Shuffler](
-            comm._handle, total_num_partitions, self._stream.view(), br.ptr()
-        )
-
-    @property
-    def comm(self):
-        return self._comm
-
-
 cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
     cdef unordered_map[uint32_t, packed_columns] cpp_partition_and_pack \
         "rapidsmp::shuffler::partition_and_pack"(
@@ -71,8 +51,44 @@ cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
 cpdef Table unpack_and_concat(partitions):
     cdef vector[packed_columns] _partitions
     for part in partitions:
+        if not (<PackedColumns?>part).c_obj:
+            raise ValueError("PackedColumns was empty")
         _partitions.push_back(move(deref((<PackedColumns?>part).c_obj)))
     cdef unique_ptr[cpp_table] _ret
     with nogil:
         _ret = cpp_unpack_and_concat(move(_partitions))
     return Table.from_libcudf(move(_ret))
+
+
+cdef class Shuffler:
+    def __init__(
+        self,
+        Communicator comm,
+        uint32_t total_num_partitions,
+        stream,
+        BufferResource br,
+    ):
+        self._stream = Stream(stream)
+        self._comm = comm
+        self._br = br
+        self._handle = make_unique[cpp_Shuffler](
+            comm._handle, total_num_partitions, self._stream.view(), br.ptr()
+        )
+
+    def __str__(self):
+        return deref(self._handle).str().decode('UTF-8')
+
+    @property
+    def comm(self):
+        return self._comm
+
+    def insert_chunks(self, chunks):
+        # Convert python mapping to an unordered_map
+        cdef unordered_map[uint32_t, packed_columns] _chunks
+        for part_id, chunk in chunks.items():
+            if not (<PackedColumns?>chunk).c_obj:
+                raise ValueError("PackedColumns was empty")
+            _chunks[<uint32_t?>part_id] = move(deref((<PackedColumns?>chunk).c_obj))
+
+        with nogil:
+            deref(self._handle).insert(move(_chunks))
