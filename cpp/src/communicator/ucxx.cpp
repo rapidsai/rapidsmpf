@@ -268,7 +268,6 @@ class UCXXSharedResources {
 
     void clear_completed_futures() {
         std::lock_guard<std::mutex> lock(futures_mutex_);
-        auto before = futures_.size();
         futures_.erase(
             std::remove_if(
                 futures_.begin(),
@@ -279,9 +278,6 @@ class UCXXSharedResources {
             ),
             futures_.end()
         );
-        if (futures_.size() != before)
-            std::cout << "Before: " << before << ", after: " << futures_.size()
-                      << std::endl;
     }
 };
 
