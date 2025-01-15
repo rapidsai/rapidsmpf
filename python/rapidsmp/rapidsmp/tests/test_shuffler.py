@@ -31,7 +31,6 @@ def test_shuffler():
     shuffler = Shuffler(
         comm, total_num_partitions=total_num_partitions, stream=DEFAULT_STREAM, br=br
     )
-    print(shuffler)
 
     df = cudf.DataFrame({"0": [1, 2, 3], "1": [1, 2, 2]})
     packed_inputs = partition_and_pack(
@@ -43,3 +42,11 @@ def test_shuffler():
 
     for pid in range(total_num_partitions):
         shuffler.insert_finished(pid)
+
+    output_partitions = []
+    while not shuffler.finished():
+        partition_id = shuffler.wait_any()
+        packed_chunks = shuffler.extract(partition_id)
+        partition = unpack_and_concat(packed_chunks)
+        output_partitions.append(partition)
+    shuffler.shutdown()

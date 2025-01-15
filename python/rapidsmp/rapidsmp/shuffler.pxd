@@ -2,9 +2,11 @@
 
 from cuda.bindings.cyruntime cimport cudaStream_t
 from libc.stdint cimport uint32_t
+from libcpp cimport bool
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
+from libcpp.vector cimport vector
 from pylibcudf.libcudf.contiguous_split cimport packed_columns
 from pylibcudf.table cimport Table
 from rapidsmp.buffer.resource cimport BufferResource, cpp_BufferResource
@@ -24,8 +26,12 @@ cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
             cudaStream_t stream,
             cpp_BufferResource *br,
         ) except +
+        void shutdown() except +
         void insert(unordered_map[uint32_t, packed_columns] chunks) except +
         void insert_finished(uint32_t pid) except +
+        vector[packed_columns] extract(uint32_t pid)  except +
+        bool finished() except +
+        uint32_t wait_any() except +
         string str() except +
 
 cdef class Shuffler:

@@ -75,6 +75,10 @@ cdef class Shuffler:
             comm._handle, total_num_partitions, self._stream.view(), br.ptr()
         )
 
+    def shutdown(self):
+        with nogil:
+            deref(self._handle).shutdown()
+
     def __str__(self):
         return deref(self._handle).str().decode('UTF-8')
 
@@ -83,7 +87,7 @@ cdef class Shuffler:
         return self._comm
 
     def insert_chunks(self, chunks):
-        # Convert python mapping to an unordered_map
+        # Convert python mapping to an `unordered_map`.
         cdef unordered_map[uint32_t, packed_columns] _chunks
         for pid, chunk in chunks.items():
             if not (<PackedColumns?>chunk).c_obj:
@@ -96,3 +100,32 @@ cdef class Shuffler:
     def insert_finished(self, uint32_t pid):
         with nogil:
             deref(self._handle).insert_finished(pid)
+
+    def extract(self, uint32_t pid):
+        cdef vector[packed_columns] _ret
+        with nogil:
+            _ret = deref(self._handle).extract(pid)
+
+        # Move the result into a python list of `PackedColumns`.
+        cdef list ret = []
+        for i in range(_ret.size()):
+            ret.append(
+                PackedColumns.from_libcudf(
+                    make_unique[packed_columns](
+                        move(_ret.at(0).metadata), move(_ret.at(0).gpu_data)
+                    )
+                )
+            )
+        return ret
+
+    def finished(self):
+        cdef bool ret
+        with nogil:
+            ret = deref(self._handle).finished()
+        return ret
+
+    def wait_any(self):
+        cdef uint32_t ret
+        with nogil:
+            ret = deref(self._handle).wait_any()
+        return ret
