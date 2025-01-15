@@ -32,11 +32,14 @@
 #include "utils/random_data.hpp"
 #include "utils/rmm_stack.hpp"
 
+using MemoryAvailableMap =
+    std::unordered_map<rapidsmp::MemoryType, rapidsmp::BufferResource::MemoryAvailable>;
+
 class ArgumentParser {
   public:
     ArgumentParser(rapidsmp::Communicator& comm, int argc, char* const* argv) {
         int option;
-        while ((option = getopt(argc, argv, "hr:w:c:n:p:m:x")) != -1) {
+        while ((option = getopt(argc, argv, "hr:w:c:n:p:m:l:x")) != -1) {
             switch (option) {
             case 'h':
                 {
@@ -52,6 +55,8 @@ class ArgumentParser {
                           "rank (default: 1)\n"
                        << "  -m <mr>    RMM memory resource {cuda, pool, async} "
                           "(default: cuda)\n"
+                       << "  -l <num>   Device memory limit in MBi (default: "
+                          "INT64_MAX>>20) \n"
                        << "  -x         Enable memory profiler (default: disabled)\n"
                        << "  -h         Display this help message\n";
                     if (comm.rank() == 0) {
@@ -84,6 +89,9 @@ class ArgumentParser {
                     }
                     RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                 }
+                break;
+            case 'l':
+                device_mem_limit_mb = std::stoll(optarg);
                 break;
             case 'x':
                 enable_memory_profiler = true;
@@ -139,6 +147,7 @@ class ArgumentParser {
         ss << "  -n " << num_local_rows << " (number of rows per rank)\n";
         ss << "  -p " << num_local_partitions << " (number of partitions per rank)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
+        ss << "  -l " << device_mem_limit_mb << " (device memory limit in MBi)\n";
         if (enable_memory_profiler) {
             ss << "  -x (enable memory profiling, which comes with an overhead)\n";
         }
@@ -156,6 +165,7 @@ class ArgumentParser {
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
     bool enable_memory_profiler{false};
+    std::int64_t device_mem_limit_mb{std::numeric_limits<int64_t>::max() >> 20};
 };
 
 Duration run(
@@ -262,7 +272,11 @@ int main(int argc, char** argv) {
 
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    rapidsmp::BufferResource br{mr};
+
+    rapidsmp::BufferResource
+        br{mr, /*memory_available=*/{{rapidsmp::MemoryType::DEVICE, [&]() {
+                                          return args.device_mem_limit_mb << 20;
+                                      }}}};
 
     // Print benchmark/hardware info.
     {
