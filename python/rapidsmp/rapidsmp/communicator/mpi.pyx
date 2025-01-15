@@ -13,6 +13,18 @@ cdef extern from "<rapidsmp/communicator/mpi.hpp>" nogil:
 
 
 cpdef Communicator new_communicator(Intracomm comm):
+    """
+    Create a new rapidsmp-mpi communicator based on an existing mpi4py communicator.
+
+    Parameters
+    ----------
+    comm
+        The existing mpi communicator from mpi4py.
+
+    Returns
+    -------
+        A new rapidsmp-mpi communicator.
+    """
     cdef Communicator ret = Communicator()
     ret._handle = make_shared[cpp_MPI_Communicator](comm.ob_mpi)
     return ret
