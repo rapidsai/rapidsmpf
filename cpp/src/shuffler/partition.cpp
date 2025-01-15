@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -73,7 +73,7 @@ std::unordered_map<PartID, cudf::packed_columns> partition_and_pack(
         table, columns_to_hash, num_partitions, hash_function, seed, stream, mr
     );
     std::unordered_map<PartID, cudf::packed_columns> ret;
-    for (PartID i = 0; static_cast<size_t>(i) < tables.size(); ++i) {
+    for (PartID i = 0; static_cast<std::size_t>(i) < tables.size(); ++i) {
         ret[i] = cudf::detail::pack(tables[i], stream, mr);
     }
     return ret;

@@ -85,7 +85,7 @@ class Communicator {
          * The verbosity level is determined by the environment variable `RAPIDSMP_LOG`,
          * defaulting to `1` if not set.
          *
-         * @param comm The @ref Communicator to use.
+         * @param comm The `Communicator` to use.
          */
         Logger(Communicator* comm)  // TODO: support writing to a file.
             : comm_{comm}, level_{getenv_or("RAPIDSMP_LOG", 1)} {};

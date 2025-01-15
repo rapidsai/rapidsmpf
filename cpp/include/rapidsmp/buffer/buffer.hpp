@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -28,15 +29,18 @@ class BufferResource;
 
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
-    HOST,  ///< Host memory
-    DEVICE  ///< Device memory
+    DEVICE,  ///< Device memory
+    HOST  ///< Host memory
 };
+
+/// @brief Array of all the different memory types.
+constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
 
 /**
  * @brief Buffer representing device or host memory.
  *
  * @note The constructors are private, use `BufferResource` to construct buffers.
- * @note The memory type (host or device) is constant and cannot change during
+ * @note The memory type (e.g., host or device) is constant and cannot change during
  * the buffer's lifetime.
  */
 class Buffer {
@@ -93,12 +97,6 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage any memory.
      */
     [[nodiscard]] void const* data() const;
-
-    /**
-     * @brief The destructor calls the buffer resource's finalizer, if this
-     * buffer hasn't already been moved.
-     */
-    virtual ~Buffer() noexcept;
 
     /// @brief Buffer has a move ctor but no copy or assign operator.
     Buffer(Buffer&&) = default;
@@ -183,8 +181,7 @@ class Buffer {
   public:
     MemoryType const mem_type;  ///< Memory type.
     BufferResource* const br;  ///< The buffer resource used.
-    size_t const size;  ///< The size of the buffer in bytes.
+    std::size_t const size;  ///< The size of the buffer in bytes.
 };
-
 
 }  // namespace rapidsmp

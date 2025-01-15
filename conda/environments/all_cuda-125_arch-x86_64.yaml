@@ -14,6 +14,7 @@ dependencies:
 - cuda-sanitizer-api
 - cuda-version=12.5
 - cxx-compiler
+- cython>=3.0.3
 - doxygen=1.9.1
 - gcc_linux-64=11.*
 - libcudf==25.02.*,>=0.0.0a0
@@ -21,7 +22,12 @@ dependencies:
 - ninja
 - openmpi
 - pre-commit
+- pytest
+- pytest-cov
 - python>=3.10,<3.13
+- rapids-build-backend>=0.3.0,<0.4.0.dev0
+- scikit-build-core>=0.10.0
+- spdlog
 - sysroot_linux-64=2.17
 - valgrind
 name: all_cuda-125_arch-x86_64
