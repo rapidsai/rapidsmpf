@@ -26,6 +26,33 @@ cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
 
 
 cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions):
+    """
+    Partition rows from the input table into multiple packed (serialized) tables.
+
+    Parameters
+    ----------
+    table
+        The input table to partition.
+    columns_to_hash
+        Indices of the input columns to use for hashing.
+    num_partitions : int
+        The number of partitions to create.
+
+    Returns
+    -------
+    A dictionary where the keys are partition IDs and the values are packed tables.
+
+    Raises
+    ------
+    IndexError
+        If an index in `columns_to_hash` is invalid.
+
+    References
+    ----------
+    - `rapidsmp.shuffler.unpack_and_concat`
+    - `cudf.hash_partition`
+    - `cudf.pack`
+    """
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, packed_columns] _ret
     cdef table_view tbl = table.view()
@@ -49,6 +76,24 @@ cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
 
 
 cpdef Table unpack_and_concat(partitions):
+    """
+    Unpack (deserialize) input tables and concatenate them.
+
+    Parameters
+    ----------
+    partitions
+        The packed input tables to unpack and concatenate.
+
+    Returns
+    -------
+    The unpacked and concatenated result as a single table.
+
+    References
+    ----------
+    - `rapidsmp.shuffler.partition_and_pack`
+    - `cudf.unpack`
+    - `cudf.concatenate`
+    """
     cdef vector[packed_columns] _partitions
     for part in partitions:
         if not (<PackedColumns?>part).c_obj:
@@ -61,6 +106,30 @@ cpdef Table unpack_and_concat(partitions):
 
 
 cdef class Shuffler:
+    """
+    Shuffle service for partitioned data.
+
+    The `Shuffler` class provides an interface for performing a shuffle operation
+    on partitioned data. It uses a distribution scheme to distribute and collect
+    data chunks across different ranks.
+
+    Parameters
+    ----------
+    comm
+        The communicator to use for data exchange between ranks.
+    total_num_partitions
+        Total number of partitions in the shuffle.
+    stream
+        The CUDA stream used for memory operations.
+    br
+        The buffer resource used to allocate temporary storage and shuffle results.
+
+    Notes
+    -----
+    This class is designed to handle distributed operations by partitioning data
+    and redistributing it across ranks in a cluster. It is typically used in
+    distributed data processing workflows involving cuDF tables.
+    """
     def __init__(
         self,
         Communicator comm,
@@ -76,6 +145,20 @@ cdef class Shuffler:
         )
 
     def shutdown(self):
+        """
+        Shutdown the shuffle, blocking until all inflight communication is completed.
+
+        Raises
+        ------
+        RuntimeError
+            If the shuffler is already inactive.
+
+        Notes
+        -----
+        This method ensures that all pending shuffle operations and communications
+        are completed before shutting down. It blocks until no inflight operations
+        remain.
+        """
         with nogil:
             deref(self._handle).shutdown()
 
@@ -87,6 +170,20 @@ cdef class Shuffler:
         return self._comm
 
     def insert_chunks(self, chunks):
+        """
+        Insert a batch of packed (serialized) chunks into the shuffle.
+
+        Parameters
+        ----------
+        chunks
+            A map where keys are partition IDs (`int`) and values are packed
+            chunks (`cudf.packed_columns`).
+
+        Notes
+        -----
+        This method adds the given chunks to the shuffle, associating them with their
+        respective partition IDs.
+        """
         # Convert python mapping to an `unordered_map`.
         cdef unordered_map[uint32_t, packed_columns] _chunks
         for pid, chunk in chunks.items():
@@ -98,10 +195,38 @@ cdef class Shuffler:
             deref(self._handle).insert(move(_chunks))
 
     def insert_finished(self, uint32_t pid):
+        """
+        Mark a partition as finished.
+
+        This informs the shuffler that no more chunks for the specified partition
+        will be inserted.
+
+        Parameters
+        ----------
+        pid
+            The partition ID to mark as finished.
+
+        Notes
+        -----
+        Once a partition is marked as finished, it is considered complete and no
+        further chunks will be accepted for that partition.
+        """
         with nogil:
             deref(self._handle).insert_finished(pid)
 
     def extract(self, uint32_t pid):
+        """
+        Extract all chunks of the specified partition.
+
+        Parameters
+        ----------
+        pid
+            The partition ID to extract chunks for.
+
+        Returns
+        -------
+        A list of packed columns belonging to the specified partition.
+        """
         cdef vector[packed_columns] _ret
         with nogil:
             _ret = deref(self._handle).extract(pid)
@@ -119,12 +244,33 @@ cdef class Shuffler:
         return ret
 
     def finished(self):
+        """
+        Check if all partitions are finished.
+
+        This method verifies if all partitions have been completed, meaning all
+        chunks have been inserted and no further data is expected from neither
+        the local nor any remote nodes.
+
+        Returns
+        -------
+        True if all partitions are finished, otherwise False.
+        """
         cdef bool ret
         with nogil:
             ret = deref(self._handle).finished()
         return ret
 
     def wait_any(self):
+        """
+        Wait for any partition to finish.
+
+        This method blocks until at least one partition is marked as finished.
+        It is useful for processing partitions as they are completed.
+
+        Returns
+        -------
+        The partition ID of the next finished partition.
+        """
         cdef uint32_t ret
         with nogil:
             ret = deref(self._handle).wait_any()
