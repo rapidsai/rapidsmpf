@@ -32,9 +32,6 @@
 #include "utils/random_data.hpp"
 #include "utils/rmm_stack.hpp"
 
-using MemoryAvailableMap =
-    std::unordered_map<rapidsmp::MemoryType, rapidsmp::BufferResource::MemoryAvailable>;
-
 class ArgumentParser {
   public:
     ArgumentParser(rapidsmp::Communicator& comm, int argc, char* const* argv) {
