@@ -25,6 +25,7 @@ cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
             cpp_BufferResource *br,
         ) except +
         void insert(unordered_map[uint32_t, packed_columns] chunks) except +
+        void insert_finished(uint32_t pid) except +
         string str() except +
 
 cdef class Shuffler:

@@ -40,3 +40,6 @@ def test_shuffler():
         num_partitions=total_num_partitions,
     )
     shuffler.insert_chunks(packed_inputs)
+
+    for pid in range(total_num_partitions):
+        shuffler.insert_finished(pid)

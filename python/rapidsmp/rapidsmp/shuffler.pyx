@@ -85,10 +85,14 @@ cdef class Shuffler:
     def insert_chunks(self, chunks):
         # Convert python mapping to an unordered_map
         cdef unordered_map[uint32_t, packed_columns] _chunks
-        for part_id, chunk in chunks.items():
+        for pid, chunk in chunks.items():
             if not (<PackedColumns?>chunk).c_obj:
                 raise ValueError("PackedColumns was empty")
-            _chunks[<uint32_t?>part_id] = move(deref((<PackedColumns?>chunk).c_obj))
+            _chunks[<uint32_t?>pid] = move(deref((<PackedColumns?>chunk).c_obj))
 
         with nogil:
             deref(self._handle).insert(move(_chunks))
+
+    def insert_finished(self, uint32_t pid):
+        with nogil:
+            deref(self._handle).insert_finished(pid)
