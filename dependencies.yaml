@@ -185,6 +185,7 @@ dependencies:
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
           - valgrind
           - cuda-sanitizer-api
+          - click >=8.1
   test_python:
     common:
       - output_types: [conda, pyproject]
