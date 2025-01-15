@@ -34,6 +34,19 @@ namespace rapidsmp {
 class UCXXSharedResources;
 
 /**
+ * @brief Storage for a listener address.
+ *
+ * Stores a listener address, composed of the hostname or IP address, port and rank the
+ * listener corresponds to.
+ */
+class ListenerAddress {
+  public:
+    std::string host{};  ///< The hostname or IP address the listener is bound to.
+    uint16_t port{};  ///< The port the listener is bound to.
+    Rank rank{};  ///< The rank of the listener.
+};
+
+/**
  * @brief UCXX communicator class that implements the `Communicator` interface.
  *
  * This class implements communication functions using UCXX, allowing for data exchange
@@ -187,6 +200,13 @@ class UCXX final : public Communicator {
      * wait for the cluster to bootstrap and to wait for completion of all tasks.
      */
     void barrier();
+
+    /**
+     * @brief Get address to which listener is bound.
+     *
+     * @return The address to which listener is bound.
+     */
+    ListenerAddress listener_address();
 
   private:
     std::shared_ptr<::ucxx::Worker> worker_;

@@ -34,13 +34,6 @@ enum class ControlMessage {
     ReplyListenerAddress  ///< Reply to `QueryListenerAddress` with the listener address
 };
 
-class ListenerAddress {
-  public:
-    std::string host{};
-    uint16_t port{};
-    Rank rank{};
-};
-
 using ControlData = std::variant<Rank, ListenerAddress>;
 using EndpointsMap = std::unordered_map<ucp_ep_h, std::shared_ptr<::ucxx::Endpoint>>;
 using RankToEndpointMap = std::unordered_map<Rank, std::shared_ptr<::ucxx::Endpoint>>;
@@ -849,6 +842,10 @@ void UCXX::progress_worker() {
     }
 
     shared_resources_->clear_completed_futures();
+}
+
+ListenerAddress UCXX::listener_address() {
+    return shared_resources_->get_listener_address(shared_resources_->rank_);
 }
 
 }  // namespace rapidsmp
