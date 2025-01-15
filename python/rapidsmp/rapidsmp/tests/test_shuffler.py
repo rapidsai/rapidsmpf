@@ -1,4 +1,5 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
+from __future__ import annotations
 
 import cudf
 
