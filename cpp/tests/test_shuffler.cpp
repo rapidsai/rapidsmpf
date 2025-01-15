@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,10 +25,14 @@
 
 #include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/communicator/mpi.hpp>
+#include <rapidsmp/communicator/ucxx.hpp>
 #include <rapidsmp/shuffler/shuffler.hpp>
 #include <rapidsmp/utils.hpp>
 
+#include "environment.hpp"
 #include "utils.hpp"
+
+extern Environment* GlobalEnvironment;
 
 class NumOfPartitions : public cudf::test::BaseFixtureWithParam<int> {};
 
@@ -104,11 +108,11 @@ TEST_P(MemoryTypeAndNumPartition, round_trip) {
     auto mr = cudf::get_current_device_resource_ref();
     rapidsmp::BufferResource br{mr, rapidsmp::memory_type_resolver::constant(mem_type)};
 
-    MPI_Comm mpi_comm;
-    RAPIDSMP_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm));
-    std::shared_ptr<rapidsmp::Communicator> comm =
-        std::make_shared<rapidsmp::MPI>(mpi_comm);
-    rapidsmp::shuffler::Shuffler shuffler(comm, total_num_partitions, stream, &br);
+    GlobalEnvironment->barrier();
+
+    rapidsmp::shuffler::Shuffler shuffler(
+        GlobalEnvironment->comm_, total_num_partitions, stream, &br
+    );
 
     // Every rank creates the full input table and all the expected partitions (also
     // partitions this rank might not get after the shuffle).
@@ -125,7 +129,9 @@ TEST_P(MemoryTypeAndNumPartition, round_trip) {
         // the partitions this rank should use as input. We pick using round robin but
         // any distribution would work (as long as no rows are picked by multiple ranks).
         // TODO: we should test different distributions of the input partitions.
-        if (rapidsmp::shuffler::Shuffler::round_robin(comm, i) == comm->rank()) {
+        if (rapidsmp::shuffler::Shuffler::round_robin(GlobalEnvironment->comm_, i)
+            == GlobalEnvironment->comm_->rank())
+        {
             cudf::size_type row_end = row_offset + partiton_size;
             if (i == total_num_partitions - 1) {
                 // Include the reminder of rows in the very last partition.
@@ -153,13 +159,17 @@ TEST_P(MemoryTypeAndNumPartition, round_trip) {
         auto result = rapidsmp::shuffler::unpack_and_concat(std::move(packed_chunks));
 
         // We should only receive the partitions assigned to this rank.
-        EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
+        EXPECT_EQ(
+            shuffler.partition_owner(GlobalEnvironment->comm_, finished_partition),
+            GlobalEnvironment->comm_->rank()
+        );
 
         // Check the result while ignoring the row order.
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
             sort_table(result), sort_table(expect_partitions[finished_partition])
         );
     }
+
+    GlobalEnvironment->barrier();
     shuffler.shutdown();
-    RAPIDSMP_MPI(MPI_Comm_free(&mpi_comm));
 }
