@@ -22,9 +22,7 @@
 
 #include <rapidsmp/error.hpp>
 
-namespace rapidsmp {
-
-// namespace {
+namespace {
 
 enum class ControlMessage {
     AssignRank = 0,  //< Root assigns a rank to incoming client connection
@@ -34,6 +32,8 @@ enum class ControlMessage {
     ReplyListenerAddress  ///< Reply to `QueryListenerAddress` with the listener address
 };
 
+using Rank = rapidsmp::Rank;
+using ListenerAddress = rapidsmp::ListenerAddress;
 using ControlData = std::variant<Rank, ListenerAddress>;
 using EndpointsMap = std::unordered_map<ucp_ep_h, std::shared_ptr<::ucxx::Endpoint>>;
 using RankToEndpointMap = std::unordered_map<Rank, std::shared_ptr<::ucxx::Endpoint>>;
@@ -68,6 +68,10 @@ class HostFuture {
         req_;  ///< The UCXX request associated with the operation.
     std::unique_ptr<std::vector<uint8_t>> data_;  ///< The data buffer.
 };
+
+}  // namespace
+
+namespace rapidsmp {
 
 class UCXXSharedResources {
   public:
@@ -281,23 +285,27 @@ class UCXXSharedResources {
     }
 };
 
-static size_t get_size(const rapidsmp::ControlData& data) {
+}  // namespace rapidsmp
+
+namespace {
+
+size_t get_size(const ControlData& data) {
     return std::visit(
         [](const auto& data) { return sizeof(std::decay_t<decltype(data)>); }, data
     );
 }
 
-static void encode(void* dest, void const* src, size_t bytes, size_t& offset) {
+void encode(void* dest, void const* src, size_t bytes, size_t& offset) {
     memcpy(static_cast<char*>(dest) + offset, src, bytes);
     offset += bytes;
 }
 
-static void decode(void* dest, const void* src, size_t bytes, size_t& offset) {
+void decode(void* dest, const void* src, size_t bytes, size_t& offset) {
     memcpy(dest, static_cast<const char*>(src) + offset, bytes);
     offset += bytes;
 }
 
-static std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
+std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
     const ListenerAddress& listener_address
 ) {
     size_t offset{0};
@@ -319,9 +327,7 @@ static std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
     return packed;
 }
 
-static ListenerAddress listener_address_unpack(
-    std::unique_ptr<std::vector<uint8_t>> packed
-) {
+ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> packed) {
     size_t offset{0};
 
     auto decode_ = [&offset, &packed](void* data, size_t bytes) {
@@ -341,8 +347,8 @@ static ListenerAddress listener_address_unpack(
     return listener_address;
 }
 
-static std::unique_ptr<std::vector<uint8_t>> control_pack(
-    rapidsmp::ControlMessage control, rapidsmp::ControlData data
+std::unique_ptr<std::vector<uint8_t>> control_pack(
+    ControlMessage control, ControlData data
 ) {
     size_t offset{0};
     const size_t total_size = sizeof(control) + get_size(data);
@@ -370,10 +376,10 @@ static std::unique_ptr<std::vector<uint8_t>> control_pack(
     return packed;
 };
 
-static void control_unpack(
+void control_unpack(
     std::shared_ptr<::ucxx::Buffer> buffer,
     ucp_ep_h ep,
-    std::shared_ptr<UCXXSharedResources> shared_resources
+    std::shared_ptr<rapidsmp::UCXXSharedResources> shared_resources
 ) {
     size_t offset{0};
 
@@ -427,8 +433,8 @@ static void control_unpack(
     }
 };
 
-static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
-    auto shared_resources = reinterpret_cast<UCXXSharedResources*>(arg);
+void listener_callback(ucp_conn_request_h conn_request, void* arg) {
+    auto shared_resources = reinterpret_cast<rapidsmp::UCXXSharedResources*>(arg);
 
     ucp_conn_request_attr_t attr{};
     attr.field_mask = UCP_CONN_REQUEST_ATTR_FIELD_CLIENT_ADDR;
@@ -471,25 +477,24 @@ static void listener_callback(ucp_conn_request_h conn_request, void* arg) {
     }
 }
 
-// }  // namespace
-
 void createCudaContextCallback(void* callbackArg) {
-    std::cout << "Create context" << std::endl;
     cudaFree(0);
 }
 
+}  // namespace
+
+namespace rapidsmp {
+
 UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks)
     : worker_(std::move(worker)),
-      shared_resources_(std::make_shared<UCXXSharedResources>(true)),
+      shared_resources_(std::make_shared<rapidsmp::UCXXSharedResources>(true)),
       nranks_(nranks),
       logger_(this) {
     if (worker_ == nullptr) {
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
         worker_ = context->createWorker(false);
         // TODO: Allow other modes
-        worker_->setProgressThreadStartCallback(
-            rapidsmp::createCudaContextCallback, nullptr
-        );
+        worker_->setProgressThreadStartCallback(createCudaContextCallback, nullptr);
         worker_->startProgressThread(false);
     }
 
@@ -500,7 +505,7 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks)
     auto listener = shared_resources_->get_listener();
 
     Logger& log = logger();
-    log.warn("Root running at address ", listener->getIp(), ":", listener->getPort());
+    log.info("Root running at address ", listener->getIp(), ":", listener->getPort());
 
     auto control_callback = ::ucxx::AmReceiverCallbackType(
         [this](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
@@ -520,16 +525,14 @@ UCXX::UCXX(
     uint16_t root_port
 )
     : worker_(std::move(worker)),
-      shared_resources_(std::make_shared<UCXXSharedResources>(false)),
+      shared_resources_(std::make_shared<rapidsmp::UCXXSharedResources>(false)),
       nranks_(nranks),
       logger_(this) {
     if (worker_ == nullptr) {
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
         worker_ = context->createWorker(false);
         // TODO: Allow other modes
-        worker_->setProgressThreadStartCallback(
-            rapidsmp::createCudaContextCallback, nullptr
-        );
+        worker_->setProgressThreadStartCallback(createCudaContextCallback, nullptr);
         worker_->startProgressThread(true);
     }
 
@@ -589,7 +592,7 @@ UCXX::UCXX(
     return shared_resources_->rank_;
 }
 
-static ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
+::ucxx::Tag tag_with_rank(Rank rank, int tag) {
     // The rapidsmp::Communicator API uses 32-bit `int` for user tags to match
     // MPI's standard. We can thus pack the rank in the higher 32-bit of UCX's
     // 64-bit tags as aid in identifying the sender of a message. Since we're
@@ -600,7 +603,7 @@ static ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
     return ::ucxx::Tag(static_cast<uint64_t>(rank) << 32 | tag);
 }
 
-static constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<int>::max()};
+constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<int>::max()};
 
 std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
     Logger& log = logger();
