@@ -18,6 +18,7 @@
 #include <cudf/copying.hpp>
 #include <cudf/detail/contiguous_split.hpp>  // `cudf::detail::pack` (stream ordered version)
 
+#include <rapidsmp/error.hpp>
 #include <rapidsmp/nvtx.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
 #include <rapidsmp/utils.hpp>
@@ -88,7 +89,14 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<cudf::table_view> unpacked;
     unpacked.reserve(partitions.size());
     for (auto const& packed_columns : partitions) {
-        unpacked.push_back(cudf::unpack(packed_columns));
+        RAPIDSMP_EXPECTS(
+            (!packed_columns.metadata) == (!packed_columns.gpu_data),
+            "the metadata and gpu_data pointers cannot be null and non-null",
+            std::invalid_argument
+        );
+        if (packed_columns.metadata) {
+            unpacked.push_back(cudf::unpack(packed_columns));
+        }
     }
     return cudf::concatenate(unpacked, stream, mr);
 }

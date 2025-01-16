@@ -67,10 +67,6 @@ partition_and_split(
 /**
  * @brief Partitions rows from the input table into multiple packed (serialized) tables.
  *
- * @see unpack_and_concat
- * @see cudf::hash_partition
- * @see cudf::pack
- *
  * @throw std::out_of_range if index is `columns_to_hash` is invalid
  *
  * @param table The table to partition.
@@ -82,6 +78,10 @@ partition_and_split(
  * @param mr Device memory resource used to allocate the returned table's device memory.
  *
  * @return A map of partition IDs and their packed tables.
+ *
+ * @see unpack_and_concat
+ * @see cudf::hash_partition
+ * @see cudf::pack
  */
 [[nodiscard]] std::unordered_map<PartID, cudf::packed_columns> partition_and_pack(
     cudf::table_view const& table,
@@ -96,15 +96,17 @@ partition_and_split(
 /**
  * @brief Unpack (deserialize) input tables and concatenate them.
  *
- * @see partition_and_pack
- * @see cudf::unpack
- * @see cudf::concatenate
+ * Ignores partitions with metadata and gpu_data null pointers.
  *
  * @param partitions The packed input tables.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param mr Device memory resource used to allocate the returned table's device memory.
  *
  * @return The unpacked and concatenated result.
+ *
+ * @see partition_and_pack
+ * @see cudf::unpack
+ * @see cudf::concatenate
  */
 [[nodiscard]] std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<cudf::packed_columns>&& partitions,
