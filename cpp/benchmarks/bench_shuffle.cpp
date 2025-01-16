@@ -52,7 +52,7 @@ class ArgumentParser {
                           "rank (default: 1)\n"
                        << "  -m <mr>    RMM memory resource {cuda, pool, async} "
                           "(default: cuda)\n"
-                       << "  -l <num>   Device memory limit in MBi (default: "
+                       << "  -l <num>   Device memory limit in MiB (default: "
                           "INT64_MAX>>20) \n"
                        << "  -x         Enable memory profiler (default: disabled)\n"
                        << "  -h         Display this help message\n";
@@ -144,7 +144,7 @@ class ArgumentParser {
         ss << "  -n " << num_local_rows << " (number of rows per rank)\n";
         ss << "  -p " << num_local_partitions << " (number of partitions per rank)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
-        ss << "  -l " << device_mem_limit_mb << " (device memory limit in MBi)\n";
+        ss << "  -l " << device_mem_limit_mb << " (device memory limit in MiB)\n";
         if (enable_memory_profiler) {
             ss << "  -x (enable memory profiling, which comes with an overhead)\n";
         }
