@@ -167,6 +167,13 @@ cdef class Shuffler:
 
     @property
     def comm(self):
+        """
+        Get the communicator used by the shuffler.
+
+        Returns
+        -------
+        The communicator.
+        """
         return self._comm
 
     def insert_chunks(self, chunks):
