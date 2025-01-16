@@ -26,8 +26,8 @@ def test_partition_and_pack_unpack(df, num_partitions):
     assert_eq(expect, got, sort_rows="0")
 
 
-def test_shuffler():
-    total_num_partitions = 2
+@pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
+def test_shuffler_single_nonempty_partition(total_num_partitions):
     comm = new_communicator(MPI.COMM_WORLD)
     br = BufferResource(rmm.mr.get_current_device_resource())
 
@@ -35,7 +35,7 @@ def test_shuffler():
         comm, total_num_partitions=total_num_partitions, stream=DEFAULT_STREAM, br=br
     )
 
-    df = cudf.DataFrame({"0": [1, 2, 3], "1": [1, 2, 2]})
+    df = cudf.DataFrame({"0": [1, 2, 3], "1": [42, 42, 42]})
     packed_inputs = partition_and_pack(
         to_pylibcudf_table(df),
         columns_to_hash=(1,),
@@ -46,10 +46,16 @@ def test_shuffler():
     for pid in range(total_num_partitions):
         shuffler.insert_finished(pid)
 
-    output_partitions = []
+    local_outputs = []
     while not shuffler.finished():
         partition_id = shuffler.wait_any()
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(packed_chunks)
-        output_partitions.append(partition)
+        local_outputs.append(partition)
     shuffler.shutdown()
+    # Everyting should go the a single rank thus we should get the whole dataframe or nothing.
+    if len(local_outputs) == 0:
+        return
+    res = cudf.concat([to_cudf_dataframe(o) for o in local_outputs], ignore_index=True)
+    if not res.empty:
+        assert_eq(res, df, sort_rows="0")
