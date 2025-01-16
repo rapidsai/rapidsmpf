@@ -22,8 +22,8 @@ def test_partition_and_pack_unpack(df, num_partitions):
         to_pylibcudf_table(expect), columns_to_hash=(1,), num_partitions=num_partitions
     )
     got = to_cudf_dataframe(unpack_and_concat(tuple(partitions.values())))
-    # Since the row order isn't preserved, we sort before comparing.
-    assert_eq(expect.sort_values(by="0"), got.sort_values(by="0"))
+    # Since the row order isn't preserved, we sort the rows by the "0" column.
+    assert_eq(expect, got, sort_rows="0")
 
 
 def test_shuffler():

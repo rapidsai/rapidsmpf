@@ -49,7 +49,14 @@ def to_cudf_dataframe(table: pylibcudf.Table) -> cudf.DataFrame:
     return cudf.DataFrame._from_data(data)
 
 
-def assert_eq(left: Any, right: Any, *, ignore_index: bool = True, **kwargs):
+def assert_eq(
+    left: Any,
+    right: Any,
+    *,
+    ignore_index: bool = True,
+    sort_rows: str | None = None,
+    **kwargs,
+):
     """
     Assert that two cudf/pylibcudf-like things are equivalent.
 
@@ -61,6 +68,8 @@ def assert_eq(left: Any, right: Any, *, ignore_index: bool = True, **kwargs):
         Object to compare.
     ignore_index
         Ignore the index when comparing.
+    sort_rows
+        If not None, sort the rows by the specified column before comparing.
     kwargs
         Keyword arguments to control behavior of comparisons. See
         :func:`assert_frame_equal`, :func:`assert_series_equal`, and
@@ -85,4 +94,7 @@ def assert_eq(left: Any, right: Any, *, ignore_index: bool = True, **kwargs):
     if ignore_index:
         left = left.reset_index(drop=True)
         right = right.reset_index(drop=True)
+    if sort_rows is not None:
+        left = left.sort_values(by=sort_rows, ignore_index=ignore_index)
+        right = right.sort_values(by=sort_rows, ignore_index=ignore_index)
     return cudf.testing.assert_eq(left, right, **kwargs)
