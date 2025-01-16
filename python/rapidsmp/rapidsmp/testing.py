@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import cudf
 import cudf._lib.column
 import cudf.testing
@@ -47,18 +49,20 @@ def to_cudf_dataframe(table: pylibcudf.Table) -> cudf.DataFrame:
     return cudf.DataFrame._from_data(data)
 
 
-def assert_eq(left, right, **kwargs):
+def assert_eq(left: Any, right: Any, *, ignore_index: bool = True, **kwargs):
     """
     Assert that two cudf/pylibcudf-like things are equivalent.
 
     Parameters
     ----------
-    left
-        Object to compare
-    right
-        Object to compare
+    left : dataframe-like
+        Object to compare.
+    right : dataframe-like
+        Object to compare.
+    ignore_index
+        Ignore the index when comparing.
     kwargs
-        Keyword arguments to control behaviour of comparisons. See
+        Keyword arguments to control behavior of comparisons. See
         :func:`assert_frame_equal`, :func:`assert_series_equal`, and
         :func:`assert_index_equal`.
 
@@ -78,4 +82,7 @@ def assert_eq(left, right, **kwargs):
         left = to_cudf_dataframe(left)
     if isinstance(right, pylibcudf.Table):
         right = to_cudf_dataframe(right)
+    if ignore_index:
+        left = left.reset_index(drop=True)
+        right = right.reset_index(drop=True)
     return cudf.testing.assert_eq(left, right, **kwargs)
