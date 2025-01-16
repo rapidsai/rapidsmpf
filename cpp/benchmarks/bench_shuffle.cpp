@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,12 +17,11 @@
 #include <string>
 #include <vector>
 
-#include <ucs/type/status.h>
-#include <ucxx/utils/ucx.h>
+#include <mpi.h>
 #include <unistd.h>
 
 #include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/communicator/ucxx.hpp>
+#include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/nvtx.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
@@ -35,10 +34,9 @@
 
 class ArgumentParser {
   public:
-    ArgumentParser(int argc, char* const* argv) {
+    ArgumentParser(rapidsmp::Communicator& comm, int argc, char* const* argv) {
         int option;
-        unsigned long port;
-        while ((option = getopt(argc, argv, "hr:w:c:n:p:m:xzH:P:k:")) != -1) {
+        while ((option = getopt(argc, argv, "hr:w:c:n:p:m:x")) != -1) {
             switch (option) {
             case 'h':
                 {
@@ -55,35 +53,12 @@ class ArgumentParser {
                        << "  -m <mr>    RMM memory resource {cuda, pool, async} "
                           "(default: cuda)\n"
                        << "  -x         Enable memory profiler (default: disabled)\n"
-                       << "  -z         Whether this process is root (rank 0)\n"
-                       << "  -H         Root host\n"
-                       << "  -P         Root port\n"
-                       << "  -k <num>   Number of ranks (default: 2)\n"
                        << "  -h         Display this help message\n";
-                    if (is_root) {
+                    if (comm.rank() == 0) {
                         std::cerr << ss.str();
                     }
-                    ::ucxx::utils::ucsErrorThrow(UCS_ERR_CANCELED);
+                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
                 }
-            case 'z':
-                is_root = true;
-                break;
-            case 'H':
-                root_host = std::string(optarg);
-                break;
-            case 'P':
-                port = std::stoul(optarg);
-                if (port > 65535) {
-                    std::cerr
-                        << "-p (Root port) must be an integer in the [0, 65535] range"
-                        << std::endl;
-                    ::ucxx::utils::ucsErrorThrow(UCS_ERR_INVALID_PARAM);
-                }
-                root_port = static_cast<uint16_t>(port);
-                break;
-            case 'k':
-                num_ranks = std::stoi(optarg);
-                break;
             case 'r':
                 num_runs = std::stoi(optarg);
                 break;
@@ -102,47 +77,47 @@ class ArgumentParser {
             case 'm':
                 rmm_mr = std::string{optarg};
                 if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async")) {
-                    if (is_root) {
+                    if (comm.rank() == 0) {
                         std::cerr << "-m (RMM memory resource) must be one of "
                                      "{cuda, pool, async}"
                                   << std::endl;
                     }
-                    ::ucxx::utils::ucsErrorThrow(UCS_ERR_INVALID_PARAM);
+                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                 }
                 break;
             case 'x':
                 enable_memory_profiler = true;
                 break;
             case '?':
-                ::ucxx::utils::ucsErrorThrow(UCS_ERR_INVALID_PARAM);
+                RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
             default:
                 throw std::runtime_error("Error parsing arguments.");
             }
         }
         if (optind < argc) {
-            if (is_root) {
+            if (comm.rank() == 0) {
                 std::cerr << "Unknown option: " << argv[optind] << std::endl;
             }
-            ::ucxx::utils::ucsErrorThrow(UCS_ERR_INVALID_PARAM);
+            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
         if (num_runs < 1) {
-            if (is_root) {
+            if (comm.rank() == 0) {
                 std::cerr << "-r (number of runs) must be greater than 0\n";
             }
-            ::ucxx::utils::ucsErrorThrow(UCS_ERR_INVALID_PARAM);
+            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
         if (num_local_rows < 1000) {
-            if (is_root) {
+            if (comm.rank() == 0) {
                 std::cerr << "-n (number of rows per rank) must be greater than 1000\n";
             }
-            ::ucxx::utils::ucsErrorThrow(UCS_ERR_INVALID_PARAM);
+            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
         local_nbytes =
             num_columns * num_local_rows * num_local_partitions * sizeof(std::int32_t);
-        total_nbytes = local_nbytes * num_ranks;
+        total_nbytes = local_nbytes * comm.nranks();
 
         if (rmm_mr == "cuda") {
-            if (is_root) {
+            if (comm.rank() == 0) {
                 std::cout << "WARNING: using the default cuda memory resource "
                              "(-m cuda) might leak memory! A bug in UCX means "
                              "that device memory received through IPC is never "
@@ -152,8 +127,8 @@ class ArgumentParser {
         }
     }
 
-    void pprint() const {
-        if (is_root) {
+    void pprint(rapidsmp::Communicator& comm) const {
+        if (comm.rank() > 0) {
             return;
         }
         std::stringstream ss;
@@ -181,14 +156,10 @@ class ArgumentParser {
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
     bool enable_memory_profiler{false};
-    int num_ranks{2};
-    bool is_root{false};
-    std::string root_host{};
-    uint16_t root_port{};
 };
 
 Duration run(
-    std::shared_ptr<rapidsmp::UCXX> comm,
+    std::shared_ptr<rapidsmp::Communicator> comm,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     rapidsmp::BufferResource* br
@@ -209,7 +180,7 @@ Duration run(
         ));
     }
     stream.synchronize();
-    comm->barrier();
+    RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
     std::vector<cudf::table> output_partitions;
     auto const t0_elapsed = Clock::now();
@@ -275,16 +246,13 @@ Duration run(
 }
 
 int main(int argc, char** argv) {
-    // rapidsmp::mpi::init(&argc, &argv);
+    rapidsmp::mpi::init(&argc, &argv);
 
-    ArgumentParser args{argc, argv};
-    auto comm = (args.is_root) ? std::make_shared<rapidsmp::UCXX>(nullptr, args.num_ranks)
-                               : std::make_shared<rapidsmp::UCXX>(
-                                   nullptr, args.num_ranks, args.root_host, args.root_port
-                               );
-    // ArgumentParser args{*comm, argc, argv};
-    args.pprint();
+    std::shared_ptr<rapidsmp::Communicator> comm =
+        std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
     auto& log = comm->logger();
+    ArgumentParser args{*comm, argc, argv};
+    args.pprint(*comm);
 
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
     std::shared_ptr<memory_profiler_adaptor> memory_profiler;
@@ -315,8 +283,6 @@ int main(int argc, char** argv) {
         log.warn(ss.str());
     }
 
-    comm->barrier();
-
     std::vector<double> elapsed_vec;
     for (auto i = 0; i < args.num_warmups + args.num_runs; ++i) {
         auto const elapsed = run(comm, args, stream, &br).count();
@@ -335,7 +301,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    comm->barrier();
+    RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
     {
         auto const elapsed_mean = harmonic_mean(elapsed_vec);
         std::stringstream ss;
@@ -351,4 +317,5 @@ int main(int argc, char** argv) {
         }
         log.warn(ss.str());
     }
+    RAPIDSMP_MPI(MPI_Finalize());
 }
