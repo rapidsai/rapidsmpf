@@ -139,7 +139,7 @@ class Communicator {
          */
         template <typename... Args>
         void debug(Args const&... args) {
-            if (level_ < 40) {
+            if (level_ < 3) {
                 return;
             }
             std::lock_guard<std::mutex> lock(mutex_);
@@ -158,7 +158,7 @@ class Communicator {
          */
         template <typename... Args>
         void trace(Args const&... args) {
-            if (level_ < 50) {
+            if (level_ < 4) {
                 return;
             }
             std::lock_guard<std::mutex> lock(mutex_);
