@@ -46,7 +46,6 @@ rapids_test_add(
   GPUS 1
   INSTALL_COMPONENT_SET testing
 )
-rapids_test_install_relocatable(INSTALL_COMPONENT_SET testing DESTINATION bin/tests/librapidsmp)
 
 file(GLOB SOURCES "main/ucxx.cpp" "*.cpp")
 add_executable(ucxx_tests ${SOURCES})
@@ -74,4 +73,6 @@ rapids_test_add(
   GPUS 1
   INSTALL_COMPONENT_SET testing
 )
+
+# Install tests
 rapids_test_install_relocatable(INSTALL_COMPONENT_SET testing DESTINATION bin/tests/librapidsmp)
