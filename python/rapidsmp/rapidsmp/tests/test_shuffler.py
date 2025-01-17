@@ -11,11 +11,8 @@ from rmm._cuda.stream import DEFAULT_STREAM
 from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.communicator.mpi import new_communicator
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
-from rapidsmp.testing import (
-    assert_eq,
-    cudf_to_pylibcudf_table,
-    pylibcudf_to_cudf_dataframe,
-)
+from rapidsmp.testing import assert_eq
+from rapidsmp.utils.cudf import cudf_to_pylibcudf_table, pylibcudf_to_cudf_dataframe
 
 
 @pytest.mark.parametrize("df", [{"0": [1, 2, 3], "1": [2, 2, 1]}, {"0": [], "1": []}])
