@@ -90,7 +90,7 @@ def test_shuffler_uniform(batch_size, total_num_partitions):
     columns_to_hash = (df.columns.get_loc("b"),)
     column_names = list(df.columns)
 
-    # Calculate exected output partitions on all ranks
+    # Calculate the expected output partitions on all ranks
     expected = {
         partition_id: pylibcudf_to_cudf_dataframe(
             unpack_and_concat([packed]),
