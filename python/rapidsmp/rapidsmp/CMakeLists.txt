@@ -12,28 +12,13 @@
 # the License.
 # =============================================================================
 
-cmake_minimum_required(VERSION 3.26.4 FATAL_ERROR)
+set(cython_modules shuffler.pyx)
 
-include(../../cmake/rapids_config.cmake)
-include(rapids-cpm)
-rapids_cpm_init()
-include(rapids-cuda)
-include(rapids-find)
-rapids_cuda_init_architectures(rapidsmp-python)
-
-project(
-  rapidsmp-python
-  VERSION "${RAPIDS_VERSION}"
-  LANGUAGES CXX CUDA
+rapids_cython_create_modules(
+  CXX
+  SOURCE_FILES "${cython_modules}"
+  LINKED_LIBRARIES rapidsmp::rapidsmp MPI::MPI_CXX
 )
 
-find_package(rapidsmp REQUIRED "${RAPIDS_VERSION}")
-
-find_package(CUDAToolkit REQUIRED)
-
-include(rapids-cython-core)
-rapids_cython_init()
-
-set(cython_lib_dir rapidsmp)
-
-add_subdirectory(rapidsmp)
+add_subdirectory(communicator)
+add_subdirectory(buffer)

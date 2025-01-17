@@ -1,5 +1,5 @@
 # =============================================================================
-# Copyright (c) 2024, NVIDIA CORPORATION.
+# Copyright (c) 2024-2025, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
 # in compliance with the License. You may obtain a copy of the License at
@@ -78,12 +78,15 @@ rapids_find_package(
 )
 
 include(../cmake/thirdparty/get_nvtx.cmake)
-
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 if(RAPIDSMP_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
-  rapids_cpm_find(MPI REQUIRED)
+  rapids_find_package(
+    MPI REQUIRED
+    BUILD_EXPORT_SET rapidsmp-exports
+    INSTALL_EXPORT_SET rapidsmp-exports
+  )
 endif()
 
 # ##################################################################################################

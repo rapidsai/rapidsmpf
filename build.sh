@@ -154,5 +154,5 @@ if (( NUMARGS == 0 )) || hasArg rapidsmp; then
     echo "building rapidsmp..."
     cd ${REPODIR}/python/rapidsmp
     SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBRAPIDSMP_BUILD_DIR};${EXTRA_CMAKE_ARGS}" \
-        python ${PYTHON_ARGS_FOR_INSTALL} .
+        python ${PYTHON_ARGS_FOR_INSTALL} ${VERBOSE_FLAG} .
 fi
