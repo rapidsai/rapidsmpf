@@ -16,9 +16,10 @@
 
 #pragma once
 
-#include <limits>
 #include <mutex>
 #include <unordered_map>
+
+#include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/error.hpp>
@@ -316,5 +317,56 @@ class BufferResource {
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     std::unordered_map<MemoryType, std::size_t> memory_reserved_;
 };
+
+/**
+ * @brief A functor for querying the remaining available memory within a defined limit
+ * from an RMM statistics resource.
+ *
+ * This class is designed to be used as a callback to provide available memory
+ * information in the context of memory management, such as when working with
+ * `BufferResource`. The available memory is determined as the difference
+ * between a user-defined limit and the memory currently used, as reported
+ * by an RMM statistics resource adaptor.
+ *
+ * By enforcing a limit, this functor can be used to simulate constrained memory
+ * environments or to prevent memory allocation beyond a specific threshold.
+ *
+ * @see rapidsmp::BufferResource::MemoryAvailable
+ */
+class LimitAvailableMemory {
+  public:
+    /// @brief Alias for the RMM statistics resource adaptor type.
+    using rmm_statistics_resource =
+        rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource>;
+
+    /**
+     * @brief Constructs a `LimitAvailableMemory` instance.
+     *
+     * @param mr A pointer to an RMM statistics resource adaptor. Must outlive the
+     * lifetime of this instance.
+     * @param limit The maximum memory available (in bytes). Used to calculate the
+     * remaining memory.
+     */
+    LimitAvailableMemory(rmm_statistics_resource const* mr, std::int64_t limit)
+        : mr_{mr}, limit_{limit} {}
+
+    /**
+     * @brief Returns the remaining available memory within the defined limit.
+     *
+     * This operator queries the `rmm_statistics_resource` to determine the
+     * memory currently used and calculates the remaining memory as:
+     * `limit - used_memory`.
+     *
+     * @return The remaining memory in bytes.
+     */
+    std::int64_t operator()() const {
+        return limit_ - mr_->get_bytes_counter().value;
+    }
+
+  private:
+    rmm_statistics_resource const* mr_;
+    std::int64_t const limit_;
+};
+
 
 }  // namespace rapidsmp
