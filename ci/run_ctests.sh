@@ -16,8 +16,16 @@ run_mpirun_test() {
     local nrank="$1"  # Number of ranks
     local test="$2"   # Test name
     echo "Running test: $test with $nrank ranks"
-    timeout 1m mpirun -np "$nrank" ctest --no-tests=error --output-on-failure \
-        -R "$test" $EXTRA_ARGS
+
+    # Run the test with timeout and check for errors
+    if ! timeout 1m mpirun -np "$nrank" ctest --no-tests=error --output-on-failure \
+        -R "$test" $EXTRA_ARGS; then
+        local exit_code=$?
+        if [ "$exit_code" -eq 124 ]; then
+            echo "Error: Test $test with $nrank ranks timed out." >&2
+        fi
+        exit $exit_code  # Exit the script with the same error code
+    fi
 }
 
 for nrank in 2 3 4 5 8; do
