@@ -12,7 +12,10 @@ from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.communicator.mpi import new_communicator
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
 from rapidsmp.testing import assert_eq
-from rapidsmp.utils.cudf import cudf_to_pylibcudf_table, pylibcudf_to_cudf_dataframe
+from rapidsmp.utils.cudf import (
+    cudf_to_pylibcudf_table,
+    pylibcudf_to_cudf_dataframe,
+)
 
 
 @pytest.mark.parametrize("df", [{"0": [1, 2, 3], "1": [2, 2, 1]}, {"0": [], "1": []}])
@@ -41,7 +44,7 @@ def test_shuffler_single_nonempty_partition(total_num_partitions):
     df = cudf.DataFrame({"0": [1, 2, 3], "1": [42, 42, 42]})
     packed_inputs = partition_and_pack(
         cudf_to_pylibcudf_table(df),
-        columns_to_hash=(1,),
+        columns_to_hash=(df.columns.get_loc("1"),),
         num_partitions=total_num_partitions,
     )
     shuffler.insert_chunks(packed_inputs)
