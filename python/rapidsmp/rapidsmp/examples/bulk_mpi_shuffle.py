@@ -17,7 +17,7 @@ from rmm._cuda.stream import DEFAULT_STREAM
 from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.communicator.mpi import new_communicator
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
-from rapidsmp.testing import to_cudf_dataframe
+from rapidsmp.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -64,7 +64,7 @@ def read_batch(paths: list[str]) -> tuple[plc.Table, list[str]]:
 def write_table(table: plc.Table, output_path: str, id: int):
     """Write a pylibcudf Table to a Parquet file."""
     path = f"{output_path}/part.{id}.parquet"
-    to_cudf_dataframe(table).to_parquet(path)
+    pylibcudf_to_cudf_dataframe(table).to_parquet(path)
 
 
 def bulk_mpi_shuffle(
