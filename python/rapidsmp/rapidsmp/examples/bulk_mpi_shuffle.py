@@ -123,7 +123,9 @@ def bulk_mpi_shuffle(
     rank = comm.rank
 
     # Create output directory if necessary
-    Path(output_path).mkdir(exist_ok=True)
+    if rank == 0:
+        Path(output_path).mkdir(exist_ok=True)
+        start_time = MPI.Wtime()
 
     # Create buffer resource and shuffler
     br = BufferResource(rmm.mr.get_current_device_resource())
@@ -174,6 +176,10 @@ def bulk_mpi_shuffle(
             partition_id,
         )
     shuffler.shutdown()
+
+    if rank == 0:
+        end_time = MPI.Wtime()
+        print(f"Shuffle took {end_time - start_time} seconds")
 
 
 if __name__ == "__main__":
