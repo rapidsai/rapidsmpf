@@ -20,10 +20,10 @@ run_mpirun_test() {
         -R "$test" $EXTRA_ARGS
 }
 
-for nrank in 2 3 4 5 8; do
+for nrank in 1 2 3 4 5 8; do
     run_mpirun_test $nrank mpi_tests
 done
 
-for nrank in 2 3 4 5 8; do
+for nrank in 1 2 3 4 5 8; do
     run_mpirun_test $nrank ucxx_tests
 done
