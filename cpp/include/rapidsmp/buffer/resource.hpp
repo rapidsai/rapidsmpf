@@ -348,7 +348,7 @@ class LimitAvailableMemory {
      * remaining memory.
      */
     LimitAvailableMemory(rmm_statistics_resource const* mr, std::int64_t limit)
-        : mr_{mr}, limit_{limit} {}
+        : limit{limit}, mr_{mr} {}
 
     /**
      * @brief Returns the remaining available memory within the defined limit.
@@ -360,12 +360,14 @@ class LimitAvailableMemory {
      * @return The remaining memory in bytes.
      */
     std::int64_t operator()() const {
-        return limit_ - mr_->get_bytes_counter().value;
+        return limit - mr_->get_bytes_counter().value;
     }
+
+  public:
+    std::int64_t const limit;  ///< The memory limit.
 
   private:
     rmm_statistics_resource const* mr_;
-    std::int64_t const limit_;
 };
 
 
