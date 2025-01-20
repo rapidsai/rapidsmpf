@@ -26,11 +26,27 @@ namespace rapidsmp {
 
 namespace {
 
+/**
+ * @brief Control message types.
+ *
+ * There are 4 types of control messages:
+ * 1. AssignRank: Sent by the root during `listener_callback` to each new
+ * client (remote process) that connects to it. This message contains the rank
+ * this client should respond to from now on.
+ * 2. QueryListenerAddress: Asks the root rank for the listener address of
+ * another rank, with the purpose of establishing an endpoint to that rank for
+ * direct message transfers.
+ * 3. RegisterRank: After connecting to another (non-root) rank with that rank's
+ * listener address, inform own rank so that the remote rank can register the
+ * recently-established endpoint as corresponding to this rank.
+ * 4. ReplyListenerAddress: Root rank reply to `QueryListenerAddress` request
+ * containing the listener address of the rank being requested.
+ */
 enum class ControlMessage {
     AssignRank = 0,  //< Root assigns a rank to incoming client connection
+    QueryListenerAddress,  ///< Ask for the remote endpoint's listener address
     RegisterRank,  ///< Inform rank to remote process (non-root) after endpoint is
                    ///< established
-    QueryListenerAddress,  ///< Ask for the remote endpoint's listener address
     ReplyListenerAddress  ///< Reply to `QueryListenerAddress` with the listener address
 };
 
@@ -303,6 +319,15 @@ void decode(void* dest, const void* src, size_t bytes, size_t& offset) {
     offset += bytes;
 }
 
+/**
+ * @brief Pack listener address.
+ *
+ * Pack (i.e., serialize) `ListenerAddress` so that it may be sent over the wire.
+ *
+ * @param listener_address the listener address to pack.
+ *
+ * @return vector of bytes to be sent over the wire.
+ */
 std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
     const ListenerAddress& listener_address
 ) {
@@ -325,6 +350,15 @@ std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
     return packed;
 }
 
+/**
+ * @brief Unpack control message.
+ *
+ * Unpack (i.e., deserialize) `ListenerAddress` received over the wire.
+ *
+ * @param packed vector of bytes that was received over the wire.
+ *
+ * @return listener address contained in the packed message.
+ */
 ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> packed) {
     size_t offset{0};
 
@@ -345,6 +379,15 @@ ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> pa
     return listener_address;
 }
 
+/**
+ * @brief Pack control message.
+ *
+ * Pack (i.e., serialize) `ControlMessage` and `ControlData` so that it may be
+ * sent over the wire.
+ *
+ * @param control type of control message.
+ * @param data data associated with the control message.
+ */
 std::unique_ptr<std::vector<uint8_t>> control_pack(
     ControlMessage control, ControlData data
 ) {
@@ -374,6 +417,27 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
     return packed;
 };
 
+/**
+ * @brief Unpack control message.
+ *
+ * Unpack (i.e., deserialize) `ControlMessage` and `ControlData` received over
+ * the wire, and appropriately handle contained data.
+ *
+ * 1. AssignRank: Calls `UCXXSharedResources->set_rank()` to set own rank.
+ * 2. QueryListenerAddress: Get the previously-registered listener address for
+ * the rank being requested and reply the requester with the listener address.
+ * A future with the reply is stored via `UCXXSharedResources->add_future()`.
+ * This is only executed by the root.
+ * 3. RegisterRank: Associate the endpoint created during `listener_callback()`
+ * with the rank informed by the client.
+ * 4. ReplyListenerAddress: Handle reply from root rank, associating the
+ * received listener address with the requested rank.
+ *
+ * @param buffer bytes received via UCXX containing the packed message.
+ * @param ep the UCX handle from which the message was received.
+ * @param shared_resources UCXX shared resources of the current communicator
+ * to properly register received data.
+ */
 void control_unpack(
     std::shared_ptr<::ucxx::Buffer> buffer,
     ucp_ep_h ep,
@@ -431,6 +495,21 @@ void control_unpack(
     }
 };
 
+/**
+ * @brief Listener callback executed each time a new client connects.
+ *
+ * Listener callback used by all UCXX listeners that executes each time a new
+ * client connects.
+ *
+ * For all ranks when a new client connects, an endpoint to it is established
+ * and retained for future communication. The root rank will always send an
+ * `ControlMessage::AssignRank` to each incoming client to let the client know
+ * which rank it should now respond to in the communicator world. Other ranks
+ * will wait for a message `ControlMessage::RegisterRank` from the client
+ * immediately after the connection is established with the client's rank in
+ * the world communicator, so that the current rank knows which rank is
+ * associated with the new endpoint.
+ */
 void listener_callback(ucp_conn_request_h conn_request, void* arg) {
     auto shared_resources = reinterpret_cast<rapidsmp::UCXXSharedResources*>(arg);
 
@@ -475,8 +554,11 @@ void listener_callback(ucp_conn_request_h conn_request, void* arg) {
     }
 }
 
-void createCudaContextCallback(void* callbackArg) {
-    cudaFree(0);
+/**
+ * @brief Callback executed by UCXX progress thread to create/acquire CUDA context.
+ */
+void create_cuda_context_callback(void* callbackArg) {
+    cudaFree(nullptr);
 }
 
 }  // namespace
@@ -490,7 +572,7 @@ UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks)
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
         worker_ = context->createWorker(false);
         // TODO: Allow other modes
-        worker_->setProgressThreadStartCallback(createCudaContextCallback, nullptr);
+        worker_->setProgressThreadStartCallback(create_cuda_context_callback, nullptr);
         worker_->startProgressThread(false);
     }
 
@@ -528,7 +610,7 @@ UCXX::UCXX(
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
         worker_ = context->createWorker(false);
         // TODO: Allow other modes
-        worker_->setProgressThreadStartCallback(createCudaContextCallback, nullptr);
+        worker_->setProgressThreadStartCallback(create_cuda_context_callback, nullptr);
         worker_->startProgressThread(true);
     }
 
