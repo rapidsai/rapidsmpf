@@ -162,9 +162,7 @@ std::unique_ptr<Buffer> BufferResource::copy(
     MemoryReservation& reservation
 ) {
     auto ret = buffer->copy(target, stream);
-    if (target != buffer->mem_type) {
-        release(reservation, target, ret->size);
-    }
+    release(reservation, target, ret->size);
     return ret;
 }
 
