@@ -64,10 +64,9 @@ void broadcast_listener_address(rapidsmp::ListenerAddress& listener_address) {
 void Environment::SetUp() {
     rapidsmp::mpi::init(&argc_, &argv_);
 
-    RAPIDSMP_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm_));
     int rank, nranks;
-    RAPIDSMP_MPI(MPI_Comm_rank(mpi_comm_, &rank));
-    RAPIDSMP_MPI(MPI_Comm_size(mpi_comm_, &nranks));
+    RAPIDSMP_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+    RAPIDSMP_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
 
     // Ensure CUDA context is created before UCX is initialized.
     cudaFree(0);
@@ -98,7 +97,6 @@ void Environment::TearDown() {
     // accessing the CUDA context may be thrown during shutdown.
     comm_ = nullptr;
 
-    RAPIDSMP_MPI(MPI_Comm_free(&mpi_comm_));
     RAPIDSMP_MPI(MPI_Finalize());
 }
 
