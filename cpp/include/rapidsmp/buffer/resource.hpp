@@ -368,8 +368,8 @@ class LimitAvailableMemory {
     /**
      * @brief Constructs a `LimitAvailableMemory` instance.
      *
-     * @param mr A pointer to an RMM statistics resource adaptor. Must outlive the
-     * lifetime of this instance.
+     * @param mr A pointer to an RMM statistics resource adaptor. The underlying
+     * resource adaptor must outlive this instance.
      * @param limit The maximum memory available (in bytes). Used to calculate the
      * remaining memory.
      */
