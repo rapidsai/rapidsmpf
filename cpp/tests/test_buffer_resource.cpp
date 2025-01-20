@@ -42,12 +42,12 @@ constexpr std::size_t operator"" _KiB(unsigned long long n) {
 TEST(BufferResource, LimitAvailableMemory) {
     rmm::mr::cuda_memory_resource mr_cuda;
     rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource> mr{mr_cuda};
+    auto stream = cudf::get_default_stream();
 
+    LimitAvailableMemory dev_mem_available{&mr, 10_KiB};
+    BufferResource br{mr, {{MemoryType::DEVICE, dev_mem_available}}};
 
-    LimitAvailableMemory mem_limit{&mr, 10_KiB};
-    BufferResource br{mr, {{MemoryType::DEVICE, mem_limit}}};
-
-    EXPECT_EQ(mem_limit(), 10_KiB);
+    EXPECT_EQ(dev_mem_available(), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
 
@@ -102,4 +102,77 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(overbooking5, 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+
+    // Allocating a Buffer also requires a reservation, which are then released.
+    auto dev_buf1 = br.allocate(MemoryType::DEVICE, 10_KiB, stream, reserve3);
+    EXPECT_EQ(dev_buf1->size, 10_KiB);
+    EXPECT_EQ(reserve3.size(), 0);
+    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(dev_mem_available(), 0);
+
+    // Insufficent reservation for the allocation.
+    EXPECT_THROW(
+        br.allocate(MemoryType::DEVICE, 10_KiB, stream, reserve3), std::overflow_error
+    );
+
+    // Freeing a buffer increases the available but the reserved memory is unchanged.
+    dev_buf1.reset();
+    EXPECT_EQ(dev_mem_available(), 10_KiB);
+    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+
+    // A reservation is released when it goes out of scope.
+    {
+        auto [reserve, overbooking] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
+        EXPECT_EQ(reserve.size(), 10_KiB);
+        EXPECT_EQ(overbooking, 10_KiB);
+        EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
+        EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    }
+    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+
+
+    // Moving buffers between memory types requires a reservation.
+    auto [reserve6, overbooking6] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
+    auto dev_buf2 = br.allocate(MemoryType::DEVICE, 10_KiB, stream, reserve6);
+    auto [reserve7, overbooking7] = br.reserve(MemoryType::HOST, 10_KiB, true);
+    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 20_KiB);
+    EXPECT_EQ(dev_mem_available(), 0);
+
+    auto host_buf2 = br.move(MemoryType::HOST, std::move(dev_buf2), stream, reserve7);
+    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(dev_mem_available(), 10_KiB);
+
+    // Moving buffers to the same memory type accepts an empty reservation.
+    auto host_buf3 = br.move(MemoryType::HOST, std::move(host_buf2), stream, reserve7);
+    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+    EXPECT_EQ(dev_mem_available(), 10_KiB);
+
+    // But copying buffers always requires a reservation.
+    EXPECT_THROW(
+        br.copy(MemoryType::HOST, host_buf3, stream, reserve7), std::overflow_error
+    );
+
+    // And the reservation must be of the correct memory type.
+    auto [reserve8, overbooking8] = br.reserve(MemoryType::HOST, 10_KiB, true);
+    EXPECT_THROW(
+        br.copy(MemoryType::DEVICE, host_buf3, stream, reserve8), std::invalid_argument
+    );
+    EXPECT_EQ(reserve8.size(), 10_KiB);
+    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 20_KiB);
+
+    // With the correct memory type, we can copy the buffer.
+    auto [reserve9, overbooking9] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
+    auto dev_buf3 = br.copy(MemoryType::DEVICE, host_buf3, stream, reserve9);
+    EXPECT_EQ(dev_buf3->size, 10_KiB);
+    EXPECT_EQ(reserve9.size(), 0);
+    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
+    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 20_KiB);
+    EXPECT_EQ(dev_mem_available(), 0);
 }
