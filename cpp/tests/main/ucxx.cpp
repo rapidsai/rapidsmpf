@@ -27,7 +27,18 @@ Environment* GlobalEnvironment = nullptr;
 
 Environment::Environment(int argc, char** argv) : argc_(argc), argv_(argv) {}
 
-static void broadcast_listener_address(rapidsmp::ListenerAddress& listener_address) {
+namespace {
+
+/**
+ * @brief Broadcast listener address of root to all ranks.
+ *
+ * Broadcast the listener address of root rank to all ranks, so that they are
+ * each able to reach and establish an endpoint to the root.
+ *
+ * @param listener_address object containing the listener address of the root,
+ * which will be read from in rank 0 and stored to in all other ranks.
+ */
+void broadcast_listener_address(rapidsmp::ListenerAddress& listener_address) {
     size_t host_size{listener_address.host.size()};
 
     RAPIDSMP_MPI(MPI_Bcast(&host_size, sizeof(host_size), MPI_UINT8_T, 0, MPI_COMM_WORLD)
@@ -47,6 +58,8 @@ static void broadcast_listener_address(rapidsmp::ListenerAddress& listener_addre
         MPI_COMM_WORLD
     ));
 }
+
+}  // namespace
 
 void Environment::SetUp() {
     rapidsmp::mpi::init(&argc_, &argv_);
