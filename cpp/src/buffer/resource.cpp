@@ -76,6 +76,9 @@ std::size_t BufferResource::release(
             + format_nbytes(size) + ")",
         std::overflow_error
     );
+    std::size_t& reserved = memory_reserved_.at(target);
+    RAPIDSMP_EXPECTS(reserved >= size, "corrupted reservation stat");
+    reserved -= size;
     return reservation.size_ -= size;
 }
 
