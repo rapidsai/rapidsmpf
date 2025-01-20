@@ -84,7 +84,7 @@ class UCXX final : public Communicator {
     };
 
     /**
-     * @brief Construct the root UCXX communicator.
+     * @brief Construct the root UCXX rank.
      *
      * @param worker The UCXX worker, or nullptr to create one internally.
      * @param nranks The number of ranks requested for the cluster.
@@ -92,7 +92,7 @@ class UCXX final : public Communicator {
     UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks);
 
     /**
-     * @brief Construct additional (non-root) UCXX communicator.
+     * @brief Construct additional (non-root) UCXX rank.
      *
      * @param worker The UCXX worker, or nullptr to create one internally.
      * @param nranks The number of ranks requested for the cluster.

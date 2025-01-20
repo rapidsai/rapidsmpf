@@ -91,9 +91,9 @@ class HostFuture {
 class UCXXSharedResources {
   public:
     std::shared_ptr<::ucxx::Listener> listener_{nullptr};  ///< UCXX Listener
-    Rank rank_{Rank(-1)};  ///< Communicator rank
+    Rank rank_{Rank(-1)};  ///< Rank of the current process
     std::atomic<Rank> next_rank_{1
-    };  ///< Rank to assign for the next communicator (root only)
+    };  ///< Rank to assign for the next client that connects (root only)
     EndpointsMap endpoints_{};  ///< Map of UCP handle to UCXX endpoints of known ranks
     RankToEndpointMap rank_to_endpoint_{};  ///< Map of ranks to UCXX endpoints
     RankToListenerAddressMap rank_to_listener_address_{
@@ -112,9 +112,9 @@ class UCXXSharedResources {
      * @brief Construct UCXX shared resources.
      *
      * Constructor UCXX shared resources, assigning the proper rank 0 for root,
-     * other communicators must call `set_rank()` at the appropriate time.
+     * other ranks must call `set_rank()` at the appropriate time.
      *
-     * @param root Whether the communicator is the root rank.
+     * @param root Whether the rank is the root rank.
      * @param nranks The number of ranks requested for the cluster.
      */
     UCXXSharedResources(bool root) : rank_(Rank(root ? 0 : -1)) {}
@@ -123,9 +123,9 @@ class UCXXSharedResources {
     UCXXSharedResources(UCXXSharedResources&) = delete;  ///< Not copyable.
 
     /**
-     * @brief Sets the rank of a non-root communicator.
+     * @brief Sets the rank of a non-root rank.
      *
-     * Sets the rank of a non-root communicator to the specified value.
+     * Sets the rank of a non-root rank to the specified value.
      *
      * @param rank The rank to set.
      */
@@ -137,10 +137,10 @@ class UCXXSharedResources {
      * @brief Gets the next worker rank.
      *
      * Returns the next available worker rank. This method can only be called
-     * by root communicator (rank 0).
+     * by root rank (rank 0).
      *
      * @return The next available worker rank.
-     * @throws std::runtime_error If called by communicator with rank other than 0.
+     * @throws std::runtime_error If called by rank other than 0.
      */
     Rank get_next_worker_rank() {
         if (rank_ != 0)
@@ -432,8 +432,8 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
  *
  * @param buffer bytes received via UCXX containing the packed message.
  * @param ep the UCX handle from which the message was received.
- * @param shared_resources UCXX shared resources of the current communicator
- * to properly register received data.
+ * @param shared_resources UCXX shared resources of the current rank to
+ * properly register received data.
  */
 void control_unpack(
     std::shared_ptr<::ucxx::Buffer> buffer,
