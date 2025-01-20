@@ -132,7 +132,7 @@ class Communicator {
         /**
          * @brief Logs a debug message.
          *
-         * Formats and outputs a debug message if the verbosity level is `40`.
+         * Formats and outputs a debug message if the verbosity level is `3`.
          *
          * @tparam Args Types of the message components, must support the << operator.
          * @param args The components of the message to log.
@@ -151,7 +151,7 @@ class Communicator {
         /**
          * @brief Logs a trace message.
          *
-         * Formats and outputs a trace message if the verbosity level is `40`.
+         * Formats and outputs a trace message if the verbosity level is `4`.
          *
          * @tparam Args Types of the message components, must support the << operator.
          * @param args The components of the message to log.
