@@ -22,6 +22,8 @@
 
 #include <rapidsmp/error.hpp>
 
+namespace rapidsmp {
+
 namespace {
 
 enum class ControlMessage {
@@ -70,8 +72,6 @@ class HostFuture {
 };
 
 }  // namespace
-
-namespace rapidsmp {
 
 class UCXXSharedResources {
   public:
@@ -285,8 +285,6 @@ class UCXXSharedResources {
     }
 };
 
-}  // namespace rapidsmp
-
 namespace {
 
 size_t get_size(const ControlData& data) {
@@ -482,8 +480,6 @@ void createCudaContextCallback(void* callbackArg) {
 }
 
 }  // namespace
-
-namespace rapidsmp {
 
 UCXX::UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks)
     : worker_(std::move(worker)),
