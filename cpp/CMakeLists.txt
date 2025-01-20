@@ -78,14 +78,25 @@ rapids_find_package(
 )
 
 include(../cmake/thirdparty/get_nvtx.cmake)
-
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 if(RAPIDSMP_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
-  rapids_cpm_find(MPI REQUIRED)
-  rapids_cpm_find(UCX REQUIRED)
-  rapids_cpm_find(UCXX REQUIRED)
+  rapids_find_package(
+    MPI REQUIRED
+    BUILD_EXPORT_SET rapidsmp-exports
+    INSTALL_EXPORT_SET rapidsmp-exports
+  )
+  rapids_find_package(
+    UCX REQUIRED
+    BUILD_EXPORT_SET rapidsmp-exports
+    INSTALL_EXPORT_SET rapidsmp-exports
+  )
+  rapids_find_package(
+    UCXX REQUIRED
+    BUILD_EXPORT_SET rapidsmp-exports
+    INSTALL_EXPORT_SET rapidsmp-exports
+  )
 endif()
 
 # ##################################################################################################

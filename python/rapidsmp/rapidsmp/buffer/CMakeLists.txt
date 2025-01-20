@@ -12,10 +12,10 @@
 # the License.
 # =============================================================================
 
-set(cython_modules communicator.pyx mpi.pyx shuffler.pyx)
+set(cython_modules resource.pyx)
 
 rapids_cython_create_modules(
   CXX
   SOURCE_FILES "${cython_modules}"
-  LINKED_LIBRARIES rapidsmp::rapidsmp
+  LINKED_LIBRARIES rapidsmp::rapidsmp MPI::MPI_CXX
 )
