@@ -14,12 +14,11 @@
  * limitations under the License.
  */
 
-#include <rapidsmp/communicator/ucxx.hpp>
-
 #include <array>
 #include <mutex>
 #include <utility>
 
+#include <rapidsmp/communicator/ucxx.hpp>
 #include <rapidsmp/error.hpp>
 
 namespace rapidsmp {
