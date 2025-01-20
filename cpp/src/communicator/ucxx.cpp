@@ -804,20 +804,14 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(int tag) {
 std::vector<std::size_t> UCXX::test_some(
     std::vector<std::unique_ptr<Communicator::Future>> const& future_vector
 ) {
-    std::vector<std::shared_ptr<::ucxx::Request>> reqs;
-    for (auto const& future : future_vector) {
-        auto ucxx_future = dynamic_cast<Future const*>(future.get());
-        RAPIDSMP_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-        reqs.push_back(ucxx_future->req_);
-    }
-
     progress_worker();
-
-    // Get completed requests as indices into `future_vector` (and `reqs`).
     std::vector<size_t> completed;
-    for (size_t i = 0; i < reqs.size(); ++i) {
-        if (reqs[i]->isCompleted())
+    for (size_t i = 0; i < future_vector.size(); i++) {
+        auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
+        RAPIDSMP_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+        if (ucxx_future->req_->isCompleted()) {
             completed.push_back(i);
+        }
     }
     return completed;
 }
@@ -826,32 +820,16 @@ std::vector<std::size_t> UCXX::test_some(
     std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
         future_map
 ) {
-    std::vector<std::shared_ptr<::ucxx::Request>> reqs;
-    std::vector<std::size_t> key_reqs;
-    reqs.reserve(future_map.size());
-    key_reqs.reserve(future_map.size());
+    progress_worker();
+    std::vector<size_t> completed;
     for (auto const& [key, future] : future_map) {
         auto ucxx_future = dynamic_cast<Future const*>(future.get());
         RAPIDSMP_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-        reqs.push_back(ucxx_future->req_);
-        key_reqs.push_back(key);
+        if (ucxx_future->req_->isCompleted()) {
+            completed.push_back(key);
+        }
     }
-
-    progress_worker();
-
-    // Get completed requests as indices into `key_reqs` (and `reqs`).
-    std::vector<size_t> completed;
-    for (size_t i = 0; i < reqs.size(); ++i) {
-        if (reqs[i]->isCompleted())
-            completed.push_back(i);
-    }
-
-    std::vector<std::size_t> ret;
-    ret.reserve(completed.size());
-    for (size_t i : completed) {
-        ret.push_back(key_reqs.at(i));
-    }
-    return ret;
+    return completed;
 }
 
 void UCXX::barrier() {
