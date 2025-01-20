@@ -36,8 +36,6 @@ BufferResource::BufferResource(
     for (MemoryType mem_type : MEMORY_TYPES) {
         // Add missing memory availability functions.
         memory_available_.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);
-        // Zero initialize the memory reserved counters.
-        memory_reserved_[mem_type] = 0;
     }
 }
 
@@ -46,7 +44,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 ) {
     auto const& available = memory_available_.at(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
-    std::size_t& reserved = memory_reserved_.at(mem_type);
+    std::size_t& reserved = memory_reserved(mem_type);
 
     // Calculate the available memory _after_ the memory has been reserved.
     std::int64_t headroom = available() - (reserved + size);
@@ -76,7 +74,7 @@ std::size_t BufferResource::release(
             + format_nbytes(size) + ")",
         std::overflow_error
     );
-    std::size_t& reserved = memory_reserved_.at(target);
+    std::size_t& reserved = memory_reserved(target);
     RAPIDSMP_EXPECTS(reserved >= size, "corrupted reservation stat");
     reserved -= size;
     return reservation.size_ -= size;

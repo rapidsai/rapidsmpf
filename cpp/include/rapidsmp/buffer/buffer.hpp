@@ -29,7 +29,7 @@ class BufferResource;
 
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
-    DEVICE,  ///< Device memory
+    DEVICE = 0,  ///< Device memory
     HOST  ///< Host memory
 };
 

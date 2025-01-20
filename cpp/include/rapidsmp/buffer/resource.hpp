@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <array>
 #include <mutex>
 #include <unordered_map>
 
@@ -151,10 +152,24 @@ class BufferResource {
      * @brief Get the current reserved memory of the specified memory type.
      *
      * @param mem_type The target memory type.
-     * @return The memory reserved of the specified memory ty[e.
+     * @return The memory reserved.
      */
     [[nodiscard]] std::size_t memory_reserved(MemoryType mem_type) const {
-        return memory_reserved_.at(mem_type);
+        return memory_reserved_.at(
+            static_cast<std::underlying_type_t<MemoryType>>(mem_type)
+        );
+    }
+
+    /**
+     * @brief Get a reference to the current reserved memory of the specified memory type.
+     *
+     * @param mem_type The target memory type.
+     * @return A reference to the memory reserved.
+     */
+    [[nodiscard]] std::size_t& memory_reserved(MemoryType mem_type) {
+        return memory_reserved_.at(
+            static_cast<std::underlying_type_t<MemoryType>>(mem_type)
+        );
     }
 
     /**
@@ -325,7 +340,8 @@ class BufferResource {
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
-    std::unordered_map<MemoryType, std::size_t> memory_reserved_;
+    // Zero initialized reserved counters.
+    std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
 };
 
 /**
