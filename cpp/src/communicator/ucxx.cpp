@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "rapidsmp/communicator/ucxx.hpp"
+#include <rapidsmp/communicator/ucxx.hpp>
 
 #include <array>
 #include <mutex>
@@ -119,8 +119,6 @@ class UCXXSharedResources {
      * @param nranks The number of ranks requested for the cluster.
      */
     UCXXSharedResources(bool root) : rank_(Rank(root ? 0 : -1)) {}
-
-    UCXXSharedResources() = delete;  ///< No default constructor.
 
     UCXXSharedResources(UCXXSharedResources&&) = delete;  ///< Not movable.
     UCXXSharedResources(UCXXSharedResources&) = delete;  ///< Not copyable.
@@ -871,7 +869,7 @@ void UCXX::barrier() {
             auto& endpoint = rank_to_endpoint.second;
             requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
         }
-        while (std::any_of(requests.cbegin(), requests.cend(), [](const auto& req) {
+        while (std::any_of(requests.cbegin(), requests.cend(), [](auto const& req) {
             return !req->isCompleted();
         }))
             progress_worker();
@@ -882,7 +880,7 @@ void UCXX::barrier() {
             auto& endpoint = rank_to_endpoint.second;
             requests.push_back(endpoint->amRecv());
         }
-        while (std::any_of(requests.cbegin(), requests.cend(), [](const auto& req) {
+        while (std::any_of(requests.cbegin(), requests.cend(), [](auto const& req) {
             return !req->isCompleted();
         }))
             progress_worker();
