@@ -244,7 +244,7 @@ cdef class Shuffler:
             ret.append(
                 PackedColumns.from_libcudf(
                     make_unique[packed_columns](
-                        move(_ret.at(0).metadata), move(_ret.at(0).gpu_data)
+                        move(_ret.at(i).metadata), move(_ret.at(i).gpu_data)
                     )
                 )
             )
