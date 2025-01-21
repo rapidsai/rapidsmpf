@@ -33,6 +33,13 @@ build:
     - SCCACHE_S3_KEY_PREFIX=rapidsmp-linux64 # [linux64]
     - SCCACHE_S3_USE_SSL
     - SCCACHE_S3_NO_CREDENTIALS
+  ignore_run_exports_from:
+    {% if cuda_major == "11" %}
+    - {{ compiler('cuda11') }}
+    {% else %}
+    - {{ compiler('cuda') }}
+    - cuda-cudart-dev
+    {% endif %}
 
 requirements:
   build:
@@ -60,11 +67,20 @@ requirements:
     - rapids-build-backend >=0.3.0,<0.4.0.dev0
     - scikit-build-core >=0.10.0
     - librapidsmp ={{ version }}
+    - rmm ={{ minor_version }}
+    - pylibcudf ={{ minor_version }}
+    - openmpi
+    - mpi4py
   run:
     - python
     - numpy >=1.23,<3.0a0
     - cupy >=12.0.0
     - librapidsmp ={{ version }}
+    - rmm ={{ minor_version }}
+    - cudf ={{ minor_version }}
+    - pylibcudf ={{ minor_version }}
+    - openmpi
+    - mpi4py
     - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
     {% if cuda_major == "11" %}
     - cudatoolkit

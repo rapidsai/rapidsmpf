@@ -21,10 +21,9 @@
 #include <cudf/concatenate.hpp>
 #include <cudf/detail/contiguous_split.hpp>  // `cudf::detail::pack` (stream ordered version)
 
+#include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/shuffler/shuffler.hpp>
 #include <rapidsmp/utils.hpp>
-
-#include "rapidsmp/buffer/resource.hpp"
 
 namespace rapidsmp::shuffler {
 
