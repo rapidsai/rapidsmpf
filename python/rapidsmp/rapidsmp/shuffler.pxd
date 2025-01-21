@@ -11,7 +11,7 @@ from pylibcudf.libcudf.contiguous_split cimport packed_columns
 from pylibcudf.table cimport Table
 from rapidsmp.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmp.communicator.communicator cimport Communicator, cpp_Communicator
-from rmm._cuda.stream cimport Stream
+from rmm.pylibrmm.stream cimport Stream
 
 
 cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions)

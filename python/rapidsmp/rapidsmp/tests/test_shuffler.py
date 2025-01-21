@@ -9,7 +9,7 @@ from mpi4py import MPI
 
 import cudf
 import rmm.mr
-from rmm._cuda.stream import DEFAULT_STREAM
+from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.communicator.mpi import new_communicator
