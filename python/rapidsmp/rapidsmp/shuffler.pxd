@@ -1,6 +1,5 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
-from cuda.bindings.cyruntime cimport cudaStream_t
 from libc.stdint cimport uint32_t
 from libcpp cimport bool
 from libcpp.memory cimport shared_ptr, unique_ptr
@@ -11,7 +10,8 @@ from pylibcudf.libcudf.contiguous_split cimport packed_columns
 from pylibcudf.table cimport Table
 from rapidsmp.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmp.communicator.communicator cimport Communicator, cpp_Communicator
-from rmm._cuda.stream cimport Stream
+from rmm.librmm.cuda_stream_view cimport cuda_stream_view
+from rmm.pylibrmm.stream cimport Stream
 
 
 cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions)
@@ -23,7 +23,7 @@ cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
         cpp_Shuffler(
             shared_ptr[cpp_Communicator] comm,
             uint32_t total_num_partitions,
-            cudaStream_t stream,
+            cuda_stream_view stream,
             cpp_BufferResource *br,
         ) except +
         void shutdown() except +
