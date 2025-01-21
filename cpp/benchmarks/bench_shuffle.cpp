@@ -268,12 +268,13 @@ int main(int argc, char** argv) {
     }
 
     rmm::cuda_stream_view stream = cudf::get_default_stream();
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
 
-    rapidsmp::BufferResource
-        br{mr, /*memory_available=*/{{rapidsmp::MemoryType::DEVICE, [&]() {
-                                          return args.device_mem_limit_mb << 20;
-                                      }}}};
+    rmm::mr::cuda_memory_resource mr_cuda;
+    rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource> mr{mr_cuda};
+
+    rapidsmp::LimitAvailableMemory dev_mem_available{&mr, args.device_mem_limit_mb << 20};
+
+    rapidsmp::BufferResource br{mr, {{rapidsmp::MemoryType::DEVICE, dev_mem_available}}};
 
     // Print benchmark/hardware info.
     {
