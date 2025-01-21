@@ -32,6 +32,21 @@ void init(int* argc, char*** argv) {
         provided == MPI_THREAD_MULTIPLE,
         "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
     );
+
+    // Check if max MPI TAG can accomodate the OpID + TagPrefixT 
+    int flag;
+    int32_t* max_tag;
+    MPI_Comm_get_attr(MPI_COMM_WORLD, MPI_TAG_UB, &max_tag, &flag);
+    RAPIDSMP_EXPECTS(flag, "Unable to get the MPI_TAG_UB attr");
+
+    constexpr int64_t max_tag_req =
+        (int64_t(1) << ((sizeof(OpID) + sizeof(rapidsmp::detail::TagPrefixT)) * 8)) - 1;
+    RAPIDSMP_EXPECTS(
+        static_cast<int64_t>(*max_tag) >= max_tag_req,
+        "MPI_TAG_UB(" + std::to_string(*max_tag)
+            + ") is unable to accomodate the required max tag("
+            + std::to_string(max_tag_req) + ")"
+    );
 }
 
 void detail::check_mpi_error(int error_code, const char* file, int line) {

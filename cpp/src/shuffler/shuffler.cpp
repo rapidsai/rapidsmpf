@@ -23,6 +23,7 @@
 
 #include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/shuffler/shuffler.hpp>
+#include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/utils.hpp>
 
 namespace rapidsmp::shuffler {
@@ -108,6 +109,7 @@ std::vector<PartID> Shuffler::local_partitions(
 
 Shuffler::Shuffler(
     std::shared_ptr<Communicator> comm,
+    OpID op_id,
     PartID total_num_partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
@@ -118,6 +120,7 @@ Shuffler::Shuffler(
       stream_{stream},
       br_{br},
       comm_{std::move(comm)},
+      op_id_{op_id},
       finish_counter_{
           comm_->nranks(), local_partitions(comm_, total_num_partitions, partition_owner)
       } {
@@ -260,7 +263,7 @@ void Shuffler::run_event_loop_iteration(
     std::unordered_map<ChunkID, Chunk>& in_transit_chunks,
     std::unordered_map<ChunkID, std::unique_ptr<Communicator::Future>>& in_transit_futures
 ) {
-    enum TAG : int {
+    enum TAG : rapidsmp::detail::TagPrefixT {
         metadata = 1,
         gpu_data = 2,
         ready_for_data = 3

@@ -46,6 +46,23 @@ namespace rapidsmp {
 using Rank = int;
 
 /**
+ * @typedef OpID
+ * @brief Operation ID defined by the user. This allows users to concurrently execute
+ * multiple operations, and each operation will be identified by its OpID.
+ *
+ * @note This limits the total number of concurrent operations to 2^16
+ */
+using OpID = std::uint16_t;
+
+namespace detail {
+/**
+ * @typedef TagPrefixT
+ * @brief A prefix in the tag that is used to encode the type of data being sent/ received
+ */
+using TagPrefixT = std::uint8_t;
+}  // namespace detail
+
+/**
  * @brief Abstract base class for a communication mechanism between nodes.
  *
  * Provides an interface for sending and receiving messages between nodes, supporting

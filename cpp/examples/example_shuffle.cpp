@@ -60,7 +60,12 @@ int main(int argc, char** argv) {
     // map partitions to their destination ranks. All ranks must use the same owner
     // function, in this example we use the included round-robin owner function.
     rapidsmp::shuffler::Shuffler shuffler(
-        comm, total_num_partitions, stream, &br, rapidsmp::shuffler::Shuffler::round_robin
+        comm,
+        /*op_id=*/0,
+        total_num_partitions,
+        stream,
+        &br,
+        rapidsmp::shuffler::Shuffler::round_robin
     );
 
     // It is our own responsibility to partition and pack (serialize) the input for
@@ -71,7 +76,7 @@ int main(int argc, char** argv) {
     std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> packed_inputs =
         rapidsmp::shuffler::partition_and_pack(
             local_input,
-            {0},
+            /*columns_to_hash=*/{0},
             total_num_partitions,
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,

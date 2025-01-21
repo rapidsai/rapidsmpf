@@ -94,6 +94,7 @@ class Shuffler {
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
+        OpID op_id,
         PartID total_num_partitions,
         rmm::cuda_stream_view stream,
         BufferResource* br,
@@ -219,6 +220,7 @@ class Shuffler {
     detail::PostBox outbox_;
 
     std::shared_ptr<Communicator> comm_;
+    OpID op_id_;
     std::thread event_loop_thread_;
     std::atomic<bool> event_loop_thread_run_{true};
 
