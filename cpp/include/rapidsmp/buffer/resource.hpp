@@ -155,9 +155,8 @@ class BufferResource {
      * @return The memory reserved.
      */
     [[nodiscard]] std::size_t memory_reserved(MemoryType mem_type) const {
-        return memory_reserved_.at(
-            static_cast<std::underlying_type_t<MemoryType>>(mem_type)
-        );
+        return memory_reserved_[static_cast<std::underlying_type_t<MemoryType>>(mem_type
+        )];
     }
 
     /**
@@ -167,9 +166,8 @@ class BufferResource {
      * @return A reference to the memory reserved.
      */
     [[nodiscard]] std::size_t& memory_reserved(MemoryType mem_type) {
-        return memory_reserved_.at(
-            static_cast<std::underlying_type_t<MemoryType>>(mem_type)
-        );
+        return memory_reserved_[static_cast<std::underlying_type_t<MemoryType>>(mem_type
+        )];
     }
 
     /**
