@@ -132,7 +132,7 @@ class MPI final : public Communicator {
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
         std::unique_ptr<std::vector<uint8_t>> msg,
         Rank rank,
-        int tag,
+        Tag tag,
         rmm::cuda_stream_view stream,
         BufferResource* br
     ) override;
@@ -143,7 +143,7 @@ class MPI final : public Communicator {
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
+        std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
     ) override;
 
     /**
@@ -151,7 +151,7 @@ class MPI final : public Communicator {
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> recv(
         Rank rank,
-        int tag,
+        Tag tag,
         std::unique_ptr<Buffer> recv_buffer,
         rmm::cuda_stream_view stream
     ) override;
@@ -159,7 +159,7 @@ class MPI final : public Communicator {
     /**
      * @copydoc Communicator::recv_any
      */
-    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(int tag
+    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(Tag tag
     ) override;
 
     /**

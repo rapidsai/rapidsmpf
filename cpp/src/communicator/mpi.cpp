@@ -33,19 +33,17 @@ void init(int* argc, char*** argv) {
         "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
     );
 
-    // Check if max MPI TAG can accomodate the OpID + TagPrefixT 
+    // Check if max MPI TAG can accomodate the OpID + TagPrefixT
     int flag;
     int32_t* max_tag;
     MPI_Comm_get_attr(MPI_COMM_WORLD, MPI_TAG_UB, &max_tag, &flag);
     RAPIDSMP_EXPECTS(flag, "Unable to get the MPI_TAG_UB attr");
 
-    constexpr int64_t max_tag_req =
-        (int64_t(1) << ((sizeof(OpID) + sizeof(rapidsmp::detail::TagPrefixT)) * 8)) - 1;
     RAPIDSMP_EXPECTS(
-        static_cast<int64_t>(*max_tag) >= max_tag_req,
+        (*max_tag) >= Tag::max_value(),
         "MPI_TAG_UB(" + std::to_string(*max_tag)
             + ") is unable to accomodate the required max tag("
-            + std::to_string(max_tag_req) + ")"
+            + std::to_string(Tag::max_value()) + ")"
     );
 }
 
@@ -104,45 +102,57 @@ MPI::MPI(MPI_Comm comm) : comm_{comm}, logger_{this} {
 std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<std::vector<uint8_t>> msg,
     Rank rank,
-    int tag,
+    Tag tag,
     rmm::cuda_stream_view stream,
     BufferResource* br
 ) {
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
     MPI_Request req;
-    RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
-    );
+    RAPIDSMP_MPI(MPI_Isend(
+        msg->data(), msg->size(), MPI_UINT8_T, rank, tag.int_view(), comm_, &req
+    ));
     return std::make_unique<Future>(req, br->move(std::move(msg), stream));
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
+    std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
 ) {
     MPI_Request req;
-    RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
+    RAPIDSMP_MPI(
+        MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag.int_view(), comm_, &req)
+    );
     return std::make_unique<Future>(req, std::move(msg));
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
-    Rank rank, int tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
+    Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
 ) {
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Irecv(
-        recv_buffer->data(), recv_buffer->size, MPI_UINT8_T, rank, tag, comm_, &req
+        recv_buffer->data(),
+        recv_buffer->size,
+        MPI_UINT8_T,
+        rank,
+        tag.int_view(),
+        comm_,
+        &req
     ));
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
-std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(int tag) {
+std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     Logger& log = logger();
     int msg_available;
     MPI_Status probe_status;
-    RAPIDSMP_MPI(MPI_Iprobe(MPI_ANY_SOURCE, tag, comm_, &msg_available, &probe_status));
+    RAPIDSMP_MPI(
+        MPI_Iprobe(MPI_ANY_SOURCE, tag.int_view(), comm_, &msg_available, &probe_status)
+    );
     if (!msg_available) {
         return {nullptr, 0};
     }
     RAPIDSMP_EXPECTS(
-        tag == probe_status.MPI_TAG || tag == MPI_ANY_TAG, "corrupt mpi tag"
+        tag.int_view() == probe_status.MPI_TAG || tag.int_view() == MPI_ANY_TAG,
+        "corrupt mpi tag"
     );
     MPI_Count size;
     RAPIDSMP_MPI(MPI_Get_elements_x(&probe_status, MPI_UINT8_T, &size));

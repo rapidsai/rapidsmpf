@@ -130,7 +130,11 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
     std::shared_ptr<rapidsmp::Communicator> comm =
         std::make_shared<rapidsmp::MPI>(mpi_comm);
     rapidsmp::shuffler::Shuffler shuffler(
-        comm, /*op_id=*/0, total_num_partitions, stream, &br
+        comm,
+        0,  // op_id
+        total_num_partitions,
+        stream,
+        &br
     );
 
     // Every rank creates the full input table and all the expected partitions (also

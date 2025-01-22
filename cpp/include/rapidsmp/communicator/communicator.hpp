@@ -54,13 +54,52 @@ using Rank = int;
  */
 using OpID = std::uint16_t;
 
-namespace detail {
 /**
- * @typedef TagPrefixT
- * @brief A prefix in the tag that is used to encode the type of data being sent/ received
+ * @typedef StageID
+ * @brief Identifier for a stage of a communication operation.
  */
-using TagPrefixT = std::uint8_t;
-}  // namespace detail
+using StageID = std::uint8_t;
+
+/**
+ * @brief A tag used for identifying messages in a communication operation.
+ *
+ * @note The tag is a 32-bit integer, with the following layout:
+ * bits     |31:24| 23:16|15:8 | 7:0 |
+ * value    |empty|     op     |stage|
+ */
+class Tag {
+  public:
+    using StorageT = std::int32_t;
+
+    Tag(OpID op, StageID stage)
+        : tag_{
+              (static_cast<StorageT>(op) << (sizeof(StageID) * 8))
+              | static_cast<StorageT>(stage)
+          } {}
+
+    static constexpr size_t bit_length() {
+        return (sizeof(OpID) + sizeof(StageID)) * 8;
+    }
+
+    static constexpr StorageT max_value() {
+        return (1 << bit_length()) - 1;
+    }
+
+    constexpr std::int32_t int_view() const {
+        return tag_;
+    }
+
+    constexpr OpID op() const {
+        return (tag_ >> (sizeof(StageID) * 8));
+    }
+
+    constexpr StageID stage() const {
+        return tag_ & ((1 << (sizeof(StageID) * 8)) - 1);
+    }
+
+  private:
+    StorageT tag_{0};
+};
 
 /**
  * @brief Abstract base class for a communication mechanism between nodes.
@@ -267,7 +306,7 @@ class Communicator {
     [[nodiscard]] virtual std::unique_ptr<Future> send(
         std::unique_ptr<std::vector<uint8_t>> msg,
         Rank rank,
-        int tag,
+        Tag tag,
         rmm::cuda_stream_view stream,
         BufferResource* br
     ) = 0;
@@ -283,7 +322,7 @@ class Communicator {
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
-        std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
+        std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
     ) = 0;
 
     /**
@@ -297,7 +336,7 @@ class Communicator {
      */
     [[nodiscard]] virtual std::unique_ptr<Future> recv(
         Rank rank,
-        int tag,
+        Tag tag,
         std::unique_ptr<Buffer> recv_buffer,
         rmm::cuda_stream_view stream
     ) = 0;
@@ -310,7 +349,7 @@ class Communicator {
      * sender.
      */
     [[nodiscard]] virtual std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
-        int tag
+        Tag tag
     ) = 0;
 
     /**

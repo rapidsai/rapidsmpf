@@ -188,7 +188,7 @@ Duration run(
         RAPIDSMP_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
         rapidsmp::shuffler::Shuffler shuffler(
             comm,
-            /*op_id=*/0,
+            0,  // op_id
             total_num_partitions,
             stream,
             br,

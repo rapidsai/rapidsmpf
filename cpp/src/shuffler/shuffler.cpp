@@ -22,8 +22,8 @@
 #include <cudf/detail/contiguous_split.hpp>  // `cudf::detail::pack` (stream ordered version)
 
 #include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/shuffler/shuffler.hpp>
 #include <rapidsmp/communicator/communicator.hpp>
+#include <rapidsmp/shuffler/shuffler.hpp>
 #include <rapidsmp/utils.hpp>
 
 namespace rapidsmp::shuffler {
@@ -174,8 +174,8 @@ void Shuffler::insert(PartID pid, cudf::packed_columns&& chunk) {
     insert(detail::Chunk{
         pid,
         get_new_cid(),
-        0,
-        chunk.gpu_data ? chunk.gpu_data->size() : 0,
+        0,  // expected_num_chunks
+        chunk.gpu_data ? chunk.gpu_data->size() : 0,  // gpu_data_size
         std::move(chunk.metadata),
         br_->move(std::move(chunk.gpu_data), stream_)
     });
@@ -263,7 +263,7 @@ void Shuffler::run_event_loop_iteration(
     std::unordered_map<ChunkID, Chunk>& in_transit_chunks,
     std::unordered_map<ChunkID, std::unique_ptr<Communicator::Future>>& in_transit_futures
 ) {
-    enum TAG : rapidsmp::detail::TagPrefixT {
+    enum STAGE : StageID {
         metadata = 1,
         gpu_data = 2,
         ready_for_data = 3
@@ -278,7 +278,11 @@ void Shuffler::run_event_loop_iteration(
         RAPIDSMP_EXPECTS(dst != self.comm_->rank(), "sending chunk to ourselves");
 
         fire_and_forget.push_back(self.comm_->send(
-            chunk.to_metadata_message(), dst, TAG::metadata, self.stream_, self.br_
+            chunk.to_metadata_message(),
+            dst,
+            {self.op_id_, STAGE::metadata},  // tag
+            self.stream_,
+            self.br_
         ));
         if (chunk.gpu_data_size > 0) {
             RAPIDSMP_EXPECTS(
@@ -291,7 +295,7 @@ void Shuffler::run_event_loop_iteration(
     // Receive any incoming metadata of remote chunks and place them in
     // `incoming_chunks`.
     while (true) {
-        auto const [msg, src] = self.comm_->recv_any(TAG::metadata);
+        auto const [msg, src] = self.comm_->recv_any({self.op_id_, STAGE::metadata});
         if (msg) {
             auto chunk = Chunk::from_metadata_message(msg);
             log.info("recv_any from ", src, ": ", chunk);
@@ -322,7 +326,7 @@ void Shuffler::run_event_loop_iteration(
             fire_and_forget.push_back(self.comm_->send(
                 ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
                 src,
-                TAG::ready_for_data,
+                {self.op_id_, STAGE::ready_for_data},  // tag
                 self.stream_,
                 self.br_
             ));
@@ -332,7 +336,7 @@ void Shuffler::run_event_loop_iteration(
                 allocate_buffer(chunk.gpu_data_size, self.stream_, self.br_);
             // Setup to receive the chunk into `in_transit_*`.
             auto future = self.comm_->recv(
-                src, TAG::gpu_data, std::move(recv_buffer), self.stream_
+                src, {self.op_id_, STAGE::gpu_data}, std::move(recv_buffer), self.stream_
             );
             RAPIDSMP_EXPECTS(
                 in_transit_futures.insert({chunk.cid, std::move(future)}).second,
@@ -353,7 +357,8 @@ void Shuffler::run_event_loop_iteration(
     // Receive any incoming ready-for-data messages and start sending the
     // requested data.
     while (true) {
-        auto const [msg, src] = self.comm_->recv_any(TAG::ready_for_data);
+        auto const [msg, src] =
+            self.comm_->recv_any({self.op_id_, STAGE::ready_for_data});
         if (msg) {
             auto ready_for_data_msg = ReadyForDataMessage::unpack(msg);
             auto chunk = extract_value(outgoing_chunks, ready_for_data_msg.cid);
@@ -362,7 +367,10 @@ void Shuffler::run_event_loop_iteration(
             );
             if (chunk.gpu_data->mem_type == MemoryType::DEVICE) {
                 fire_and_forget.push_back(self.comm_->send(
-                    std::move(chunk.gpu_data), src, TAG::gpu_data, self.stream_
+                    std::move(chunk.gpu_data),
+                    src,
+                    {self.op_id_, STAGE::gpu_data},  // tag
+                    self.stream_
                 ));
             } else {
                 RAPIDSMP_FAIL("Not implemented");
