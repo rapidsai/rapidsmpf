@@ -35,3 +35,14 @@ cdef class Communicator:
             The rank.
         """
         return deref(self._handle).rank()
+
+    @property
+    def nranks(self):
+        """
+        Get the total number of ranks.
+
+        Returns
+        -------
+            Total number of ranks.
+        """
+        return deref(self._handle).nranks()

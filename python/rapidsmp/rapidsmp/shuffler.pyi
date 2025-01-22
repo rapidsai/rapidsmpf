@@ -5,8 +5,8 @@ from collections.abc import Iterable, Mapping
 
 from pylibcudf.contiguous_split import PackedColumns
 from pylibcudf.table import Table
-from rmm._cuda.stream import Stream
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
+from rmm.pylibrmm.stream import Stream
 
 from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.communicator.communicator import Communicator
