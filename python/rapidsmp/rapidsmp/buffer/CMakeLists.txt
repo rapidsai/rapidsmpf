@@ -12,7 +12,7 @@
 # the License.
 # =============================================================================
 
-set(cython_modules resource.pyx)
+set(cython_modules buffer.pyx resource.pyx)
 
 rapids_cython_create_modules(
   CXX
