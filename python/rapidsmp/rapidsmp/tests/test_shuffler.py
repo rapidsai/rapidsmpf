@@ -32,7 +32,13 @@ def test_partition_and_pack_unpack(df, num_partitions):
         stream=DEFAULT_STREAM,
         device_mr=rmm.mr.get_current_device_resource(),
     )
-    got = pylibcudf_to_cudf_dataframe(unpack_and_concat(tuple(partitions.values())))
+    got = pylibcudf_to_cudf_dataframe(
+        unpack_and_concat(
+            tuple(partitions.values()),
+            stream=DEFAULT_STREAM,
+            device_mr=rmm.mr.get_current_device_resource(),
+        )
+    )
     # Since the row order isn't preserved, we sort the rows by the "0" column.
     assert_eq(expect, got, sort_rows="0")
 
@@ -63,7 +69,11 @@ def test_shuffler_single_nonempty_partition(total_num_partitions):
     while not shuffler.finished():
         partition_id = shuffler.wait_any()
         packed_chunks = shuffler.extract(partition_id)
-        partition = unpack_and_concat(packed_chunks)
+        partition = unpack_and_concat(
+            packed_chunks,
+            stream=DEFAULT_STREAM,
+            device_mr=rmm.mr.get_current_device_resource(),
+        )
         local_outputs.append(partition)
     shuffler.shutdown()
     # Everyting should go the a single rank thus we should get the whole dataframe or nothing.
@@ -97,7 +107,11 @@ def test_shuffler_uniform(batch_size, total_num_partitions):
     # Calculate the expected output partitions on all ranks
     expected = {
         partition_id: pylibcudf_to_cudf_dataframe(
-            unpack_and_concat([packed]),
+            unpack_and_concat(
+                [packed],
+                stream=DEFAULT_STREAM,
+                device_mr=rmm.mr.get_current_device_resource(),
+            ),
             column_names=column_names,
         )
         for partition_id, packed in partition_and_pack(
@@ -140,7 +154,11 @@ def test_shuffler_uniform(batch_size, total_num_partitions):
     while not shuffler.finished():
         partition_id = shuffler.wait_any()
         packed_chunks = shuffler.extract(partition_id)
-        partition = unpack_and_concat(packed_chunks)
+        partition = unpack_and_concat(
+            packed_chunks,
+            stream=DEFAULT_STREAM,
+            device_mr=rmm.mr.get_current_device_resource(),
+        )
         assert_eq(
             pylibcudf_to_cudf_dataframe(partition, column_names=column_names),
             expected[partition_id],

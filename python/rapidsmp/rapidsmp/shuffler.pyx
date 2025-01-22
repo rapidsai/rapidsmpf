@@ -100,11 +100,17 @@ cpdef dict partition_and_pack(
 cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
     cdef unique_ptr[cpp_table] cpp_unpack_and_concat \
         "rapidsmp::shuffler::unpack_and_concat"(
-            vector[packed_columns] partition
+            vector[packed_columns] partition,
+            cuda_stream_view stream,
+            device_memory_resource *mr,
         ) except +
 
 
-cpdef Table unpack_and_concat(partitions):
+cpdef Table unpack_and_concat(
+    partitions,
+    stream,
+    DeviceMemoryResource device_mr,
+):
     """
     Unpack (deserialize) input tables and concatenate them.
 
@@ -112,6 +118,10 @@ cpdef Table unpack_and_concat(partitions):
     ----------
     partitions
         The packed input tables to unpack and concatenate.
+    stream
+        The CUDA stream used for memory operations.
+    device_mr
+        Reference to the RMM device memory resource used for device allocations.
 
     Returns
     -------
@@ -128,9 +138,14 @@ cpdef Table unpack_and_concat(partitions):
         if not (<PackedColumns?>part).c_obj:
             raise ValueError("PackedColumns was empty")
         _partitions.push_back(move(deref((<PackedColumns?>part).c_obj)))
+    cdef Stream _stream = Stream(stream)
     cdef unique_ptr[cpp_table] _ret
     with nogil:
-        _ret = cpp_unpack_and_concat(move(_partitions))
+        _ret = cpp_unpack_and_concat(
+            move(_partitions),
+            _stream.view(),
+            device_mr.get_mr()
+        )
     return Table.from_libcudf(move(_ret))
 
 

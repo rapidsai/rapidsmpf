@@ -18,7 +18,11 @@ def partition_and_pack(
     stream: Stream,
     device_mr: DeviceMemoryResource,
 ) -> dict[int, PackedColumns]: ...
-def unpack_and_concat(partitions: Iterable[PackedColumns]) -> Table: ...
+def unpack_and_concat(
+    partitions: Iterable[PackedColumns],
+    stream: Stream,
+    device_mr: DeviceMemoryResource,
+) -> Table: ...
 
 class Shuffler:
     def __init__(

@@ -23,7 +23,11 @@ cpdef dict partition_and_pack(
     DeviceMemoryResource device_mr,
 )
 
-cpdef Table unpack_and_concat(partitions)
+cpdef Table unpack_and_concat(
+    partitions,
+    stream,
+    DeviceMemoryResource device_mr,
+)
 
 cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
     cdef cppclass cpp_Shuffler "rapidsmp::shuffler::Shuffler":
