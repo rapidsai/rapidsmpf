@@ -14,7 +14,12 @@ from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
 
-cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions)
+cpdef dict partition_and_pack(
+    Table table,
+    columns_to_hash,
+    int num_partitions,
+    stream
+)
 
 cpdef Table unpack_and_concat(partitions)
 

@@ -13,19 +13,31 @@ from pylibcudf.libcudf.table.table cimport table as cpp_table
 from pylibcudf.libcudf.table.table_view cimport table_view
 from pylibcudf.libcudf.types cimport size_type
 from pylibcudf.table cimport Table
-from rmm._cuda.stream cimport Stream
+from rmm.librmm.cuda_stream_view cimport cuda_stream_view
+from rmm.pylibrmm.stream cimport Stream
 
 
 cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
+    int cpp_HASH_MURMUR3"cudf::hash_id::HASH_MURMUR3"
+    uint32_t cpp_DEFAULT_HASH_SEED"cudf::DEFAULT_HASH_SEED",
+
     cdef unordered_map[uint32_t, packed_columns] cpp_partition_and_pack \
         "rapidsmp::shuffler::partition_and_pack"(
             const table_view& table,
             const vector[size_type] &columns_to_hash,
             int num_partitions,
+            int hash_function,
+            uint32_t seed,
+            cuda_stream_view stream
         ) except +
 
 
-cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions):
+cpdef dict partition_and_pack(
+    Table table,
+    columns_to_hash,
+    int num_partitions,
+    stream,
+):
     """
     Partition rows from the input table into multiple packed (serialized) tables.
 
@@ -37,6 +49,10 @@ cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions):
         Indices of the input columns to use for hashing.
     num_partitions : int
         The number of partitions to create.
+    stream
+        The CUDA stream used for memory operations.
+    device_mr
+        Reference to the RMM device memory resource used for device allocations.
 
     Returns
     -------
@@ -56,8 +72,16 @@ cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions):
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, packed_columns] _ret
     cdef table_view tbl = table.view()
+    cdef Stream _stream = Stream(stream)
     with nogil:
-        _ret = cpp_partition_and_pack(tbl, _columns_to_hash, num_partitions)
+        _ret = cpp_partition_and_pack(
+            tbl,
+            _columns_to_hash,
+            num_partitions,
+            cpp_HASH_MURMUR3,
+            cpp_DEFAULT_HASH_SEED,
+            _stream.view()
+        )
     ret = {}
     cdef unordered_map[uint32_t, packed_columns].iterator it = _ret.begin()
     while(it != _ret.end()):

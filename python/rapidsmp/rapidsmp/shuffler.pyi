@@ -11,7 +11,10 @@ from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.communicator.communicator import Communicator
 
 def partition_and_pack(
-    table: Table, columns_to_hash: Iterable[int], num_partitions: int
+    table: Table,
+    columns_to_hash: Iterable[int],
+    num_partitions: int,
+    stream: Stream,
 ) -> dict[int, PackedColumns]: ...
 def unpack_and_concat(partitions: Iterable[PackedColumns]) -> Table: ...
 
