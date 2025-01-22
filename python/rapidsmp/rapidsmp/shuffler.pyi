@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping
 from pylibcudf.contiguous_split import PackedColumns
 from pylibcudf.table import Table
 from rmm._cuda.stream import Stream
+from rmm.pylibrmm.memory_resource import DeviceMemoryResource
 
 from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.communicator.communicator import Communicator
@@ -15,6 +16,7 @@ def partition_and_pack(
     columns_to_hash: Iterable[int],
     num_partitions: int,
     stream: Stream,
+    device_mr: DeviceMemoryResource,
 ) -> dict[int, PackedColumns]: ...
 def unpack_and_concat(partitions: Iterable[PackedColumns]) -> Table: ...
 

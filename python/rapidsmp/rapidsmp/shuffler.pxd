@@ -11,6 +11,7 @@ from pylibcudf.table cimport Table
 from rapidsmp.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmp.communicator.communicator cimport Communicator, cpp_Communicator
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
+from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 from rmm.pylibrmm.stream cimport Stream
 
 
@@ -18,7 +19,8 @@ cpdef dict partition_and_pack(
     Table table,
     columns_to_hash,
     int num_partitions,
-    stream
+    stream,
+    DeviceMemoryResource device_mr,
 )
 
 cpdef Table unpack_and_concat(partitions)

@@ -30,6 +30,7 @@ def test_partition_and_pack_unpack(df, num_partitions):
         columns_to_hash=(1,),
         num_partitions=num_partitions,
         stream=DEFAULT_STREAM,
+        device_mr=rmm.mr.get_current_device_resource(),
     )
     got = pylibcudf_to_cudf_dataframe(unpack_and_concat(tuple(partitions.values())))
     # Since the row order isn't preserved, we sort the rows by the "0" column.
@@ -51,6 +52,7 @@ def test_shuffler_single_nonempty_partition(total_num_partitions):
         columns_to_hash=(df.columns.get_loc("1"),),
         num_partitions=total_num_partitions,
         stream=DEFAULT_STREAM,
+        device_mr=rmm.mr.get_current_device_resource(),
     )
     shuffler.insert_chunks(packed_inputs)
 
@@ -103,6 +105,7 @@ def test_shuffler_uniform(batch_size, total_num_partitions):
             columns_to_hash=columns_to_hash,
             num_partitions=total_num_partitions,
             stream=DEFAULT_STREAM,
+            device_mr=rmm.mr.get_current_device_resource(),
         ).items()
     }
 
@@ -125,6 +128,7 @@ def test_shuffler_uniform(batch_size, total_num_partitions):
             columns_to_hash=columns_to_hash,
             num_partitions=total_num_partitions,
             stream=DEFAULT_STREAM,
+            device_mr=rmm.mr.get_current_device_resource(),
         )
         shuffler.insert_chunks(packed_inputs)
 

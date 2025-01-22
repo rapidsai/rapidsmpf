@@ -14,6 +14,8 @@ from pylibcudf.libcudf.table.table_view cimport table_view
 from pylibcudf.libcudf.types cimport size_type
 from pylibcudf.table cimport Table
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
+from rmm.librmm.memory_resource cimport device_memory_resource
+from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 from rmm.pylibrmm.stream cimport Stream
 
 
@@ -28,7 +30,8 @@ cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
             int num_partitions,
             int hash_function,
             uint32_t seed,
-            cuda_stream_view stream
+            cuda_stream_view stream,
+            device_memory_resource *mr,
         ) except +
 
 
@@ -37,6 +40,7 @@ cpdef dict partition_and_pack(
     columns_to_hash,
     int num_partitions,
     stream,
+    DeviceMemoryResource device_mr,
 ):
     """
     Partition rows from the input table into multiple packed (serialized) tables.
@@ -80,7 +84,8 @@ cpdef dict partition_and_pack(
             num_partitions,
             cpp_HASH_MURMUR3,
             cpp_DEFAULT_HASH_SEED,
-            _stream.view()
+            _stream.view(),
+            device_mr.get_mr()
         )
     ret = {}
     cdef unordered_map[uint32_t, packed_columns].iterator it = _ret.begin()
