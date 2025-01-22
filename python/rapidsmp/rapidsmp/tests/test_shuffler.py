@@ -65,7 +65,7 @@ def test_shuffler_single_nonempty_partition(comm, total_num_partitions):
     res = cudf.concat(
         [pylibcudf_to_cudf_dataframe(o) for o in local_outputs], ignore_index=True
     )
-    # Each rank has `df` thus each rank contribute with the rows of `df` to the expected result.
+    # Each rank has `df` thus each rank contribute to the rows of `df` to the expected result.
     expect = cudf.concat([df] * comm.nranks, ignore_index=True)
     if not res.empty:
         assert_eq(res, expect, sort_rows="0")
