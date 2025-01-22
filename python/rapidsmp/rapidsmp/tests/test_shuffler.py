@@ -68,8 +68,10 @@ def test_shuffler_single_nonempty_partition(total_num_partitions):
     res = cudf.concat(
         [pylibcudf_to_cudf_dataframe(o) for o in local_outputs], ignore_index=True
     )
+    # Each rank has `df` thus each rank contribute with the rows of `df` to the expected result.
+    expect = cudf.concat([df] * MPI.COMM_WORLD.size, ignore_index=True)
     if not res.empty:
-        assert_eq(res, df, sort_rows="0")
+        assert_eq(res, expect, sort_rows="0")
 
 
 @pytest.mark.parametrize("batch_size", [None, 10])
