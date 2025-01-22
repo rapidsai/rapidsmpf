@@ -76,7 +76,10 @@ def test_shuffler_single_nonempty_partition(comm, total_num_partitions):
 def test_shuffler_uniform(comm, batch_size, total_num_partitions):
     br = BufferResource(rmm.mr.get_current_device_resource())
 
+    # Every rank creates the full input dataframe and all the expected partitions
+    # (also partitions this rank might not get after the shuffle).
     num_rows = 100
+    np.random.seed(42)  # Make sure all ranks create the same input dataframe.
     df = cudf.DataFrame(
         {
             "a": range(num_rows),
