@@ -1,11 +1,17 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
+from libc.stdint cimport int64_t
 from libcpp.memory cimport shared_ptr
+from libcpp.unordered_map cimport unordered_map
+from rmm.librmm.memory_resource cimport device_memory_resource
 
 
 cdef extern from "<rapidsmp/buffer/resource.hpp>" nogil:
+    ctypedef int64_t (*cpp_MemoryAvailable)()
     cdef cppclass cpp_BufferResource "rapidsmp::BufferResource":
-        pass
+        cpp_BufferResource(
+            device_memory_resource *device_mr,
+        ) except +
 
 
 cdef class BufferResource:
