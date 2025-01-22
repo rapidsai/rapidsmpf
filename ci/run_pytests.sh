@@ -1,7 +1,7 @@
 #!/bin/bash
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
-set -euo pipefail
+set -xeuo pipefail
 
 # Support invoking run_pytests.sh outside the script directory
 cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/../python/rapidsmp/rapidsmp
@@ -11,13 +11,17 @@ export OMPI_ALLOW_RUN_AS_ROOT=1  # CI runs as root
 export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
 
-# Run tests (single rank)
-pytest --cache-clear --verbose "$@" tests
+EXTRA_ARGS="$@"
+run_mpirun_test() {
+    local timeout="$1" # Timeout
+    local nrank="$2"   # Number of ranks
+    echo "Running pytest with $nrank ranks"
+    timeout "$timeout" mpirun -np "$nrank" python -m pytest --cache-clear \
+        --verbose $EXTRA_ARGS tests
+}
 
-# Run tests with mpirun. Note, we run with many different number of ranks,
-# which we can do as long as the test suite only takes seconds to run.
-mpirun -np 2 python -m pytest --cache-clear --verbose "$@" tests
-mpirun -np 3 python -m pytest --cache-clear --verbose "$@" tests
-mpirun -np 4 python -m pytest --cache-clear --verbose "$@" tests
-mpirun -np 5 python -m pytest --cache-clear --verbose "$@" tests
-mpirun -np 8 python -m pytest --cache-clear --verbose "$@" tests
+# Note, we run with many different number of ranks, which we can do as long as
+# the test suite only takes seconds to run (timeouts after one minute).
+for nrank in 1 2 3 4 5 8; do
+    run_mpirun_test 1m $nrank
+done
