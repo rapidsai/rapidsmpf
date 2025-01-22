@@ -16,9 +16,11 @@
 
 #pragma once
 
-#include <limits>
+#include <array>
 #include <mutex>
 #include <unordered_map>
+
+#include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/error.hpp>
@@ -144,6 +146,28 @@ class BufferResource {
      */
     [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
         return device_mr_;
+    }
+
+    /**
+     * @brief Get the current reserved memory of the specified memory type.
+     *
+     * @param mem_type The target memory type.
+     * @return The memory reserved.
+     */
+    [[nodiscard]] std::size_t memory_reserved(MemoryType mem_type) const {
+        return memory_reserved_[static_cast<std::underlying_type_t<MemoryType>>(mem_type
+        )];
+    }
+
+    /**
+     * @brief Get a reference to the current reserved memory of the specified memory type.
+     *
+     * @param mem_type The target memory type.
+     * @return A reference to the memory reserved.
+     */
+    [[nodiscard]] std::size_t& memory_reserved(MemoryType mem_type) {
+        return memory_reserved_[static_cast<std::underlying_type_t<MemoryType>>(mem_type
+        )];
     }
 
     /**
@@ -314,7 +338,61 @@ class BufferResource {
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
-    std::unordered_map<MemoryType, std::size_t> memory_reserved_;
+    // Zero initialized reserved counters.
+    std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
 };
+
+/**
+ * @brief A functor for querying the remaining available memory within a defined limit
+ * from an RMM statistics resource.
+ *
+ * This class is designed to be used as a callback to provide available memory
+ * information in the context of memory management, such as when working with
+ * `BufferResource`. The available memory is determined as the difference
+ * between a user-defined limit and the memory currently used, as reported
+ * by an RMM statistics resource adaptor.
+ *
+ * By enforcing a limit, this functor can be used to simulate constrained memory
+ * environments or to prevent memory allocation beyond a specific threshold.
+ *
+ * @see rapidsmp::BufferResource::MemoryAvailable
+ */
+class LimitAvailableMemory {
+  public:
+    /// @brief Alias for the RMM statistics resource adaptor type.
+    using rmm_statistics_resource =
+        rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource>;
+
+    /**
+     * @brief Constructs a `LimitAvailableMemory` instance.
+     *
+     * @param mr A pointer to an RMM statistics resource adaptor. The underlying
+     * resource adaptor must outlive this instance.
+     * @param limit The maximum memory available (in bytes). Used to calculate the
+     * remaining memory.
+     */
+    LimitAvailableMemory(rmm_statistics_resource const* mr, std::int64_t limit)
+        : limit{limit}, mr_{mr} {}
+
+    /**
+     * @brief Returns the remaining available memory within the defined limit.
+     *
+     * This operator queries the `rmm_statistics_resource` to determine the
+     * memory currently used and calculates the remaining memory as:
+     * `limit - used_memory`.
+     *
+     * @return The remaining memory in bytes.
+     */
+    std::int64_t operator()() const {
+        return limit - mr_->get_bytes_counter().value;
+    }
+
+  public:
+    std::int64_t const limit;  ///< The memory limit.
+
+  private:
+    rmm_statistics_resource const* mr_;
+};
+
 
 }  // namespace rapidsmp

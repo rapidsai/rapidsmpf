@@ -1,15 +1,16 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 from __future__ import annotations
 
+import math
+
+import numpy as np
 import pytest
-from mpi4py import MPI
 
 import cudf
 import rmm.mr
-from rmm._cuda.stream import DEFAULT_STREAM
+from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmp.buffer.resource import BufferResource
-from rapidsmp.communicator.mpi import new_communicator
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
 from rapidsmp.testing import assert_eq
 from rapidsmp.utils.cudf import (
@@ -33,8 +34,7 @@ def test_partition_and_pack_unpack(df, num_partitions):
 
 
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-def test_shuffler_single_nonempty_partition(total_num_partitions):
-    comm = new_communicator(MPI.COMM_WORLD)
+def test_shuffler_single_nonempty_partition(comm, total_num_partitions):
     br = BufferResource(rmm.mr.get_current_device_resource())
 
     shuffler = Shuffler(
@@ -65,5 +65,78 @@ def test_shuffler_single_nonempty_partition(total_num_partitions):
     res = cudf.concat(
         [pylibcudf_to_cudf_dataframe(o) for o in local_outputs], ignore_index=True
     )
+    # Each rank has `df` thus each rank contribute to the rows of `df` to the expected result.
+    expect = cudf.concat([df] * comm.nranks, ignore_index=True)
     if not res.empty:
-        assert_eq(res, df, sort_rows="0")
+        assert_eq(res, expect, sort_rows="0")
+
+
+@pytest.mark.parametrize("batch_size", [None, 10])
+@pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
+def test_shuffler_uniform(comm, batch_size, total_num_partitions):
+    br = BufferResource(rmm.mr.get_current_device_resource())
+
+    # Every rank creates the full input dataframe and all the expected partitions
+    # (also partitions this rank might not get after the shuffle).
+    num_rows = 100
+    np.random.seed(42)  # Make sure all ranks create the same input dataframe.
+    df = cudf.DataFrame(
+        {
+            "a": range(num_rows),
+            "b": np.random.randint(0, 1000, num_rows),
+            "c": ["cat", "dog"] * (num_rows // 2),
+        }
+    )
+    columns_to_hash = (df.columns.get_loc("b"),)
+    column_names = list(df.columns)
+
+    # Calculate the expected output partitions on all ranks
+    expected = {
+        partition_id: pylibcudf_to_cudf_dataframe(
+            unpack_and_concat([packed]),
+            column_names=column_names,
+        )
+        for partition_id, packed in partition_and_pack(
+            cudf_to_pylibcudf_table(df),
+            columns_to_hash=columns_to_hash,
+            num_partitions=total_num_partitions,
+        ).items()
+    }
+
+    # Create shuffler
+    shuffler = Shuffler(
+        comm,
+        total_num_partitions=total_num_partitions,
+        stream=DEFAULT_STREAM,
+        br=br,
+    )
+
+    # Slice df and submit local slices to shuffler
+    stride = math.ceil(num_rows / comm.nranks)
+    local_df = df.iloc[comm.rank * stride : (comm.rank + 1) * stride]
+    num_rows_local = len(local_df)
+    batch_size = batch_size or num_rows_local
+    for i in range(0, num_rows_local, batch_size):
+        packed_inputs = partition_and_pack(
+            cudf_to_pylibcudf_table(local_df.iloc[i : i + batch_size]),
+            columns_to_hash=columns_to_hash,
+            num_partitions=total_num_partitions,
+        )
+        shuffler.insert_chunks(packed_inputs)
+
+    # Tell shuffler we are done adding data
+    for pid in range(total_num_partitions):
+        shuffler.insert_finished(pid)
+
+    # Extract and check shuffled partitions
+    while not shuffler.finished():
+        partition_id = shuffler.wait_any()
+        packed_chunks = shuffler.extract(partition_id)
+        partition = unpack_and_concat(packed_chunks)
+        assert_eq(
+            pylibcudf_to_cudf_dataframe(partition, column_names=column_names),
+            expected[partition_id],
+            sort_rows="a",
+        )
+
+    shuffler.shutdown()

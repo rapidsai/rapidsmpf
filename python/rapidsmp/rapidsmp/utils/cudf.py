@@ -26,7 +26,10 @@ def cudf_to_pylibcudf_table(df: cudf.DataFrame) -> pylibcudf.Table:
     return pylibcudf.Table([col.to_pylibcudf(mode="read") for col in df._columns])
 
 
-def pylibcudf_to_cudf_dataframe(table: pylibcudf.Table) -> cudf.DataFrame:
+def pylibcudf_to_cudf_dataframe(
+    table: pylibcudf.Table,
+    column_names: list[str] | None = None,
+) -> cudf.DataFrame:
     """
     Convert a pylibcudf Table to a cuDF DataFrame.
 
@@ -34,6 +37,8 @@ def pylibcudf_to_cudf_dataframe(table: pylibcudf.Table) -> cudf.DataFrame:
     ----------
     table
         The pylibcudf Table to convert.
+    column_names
+        List of column names.
 
     Returns
     -------
@@ -44,4 +49,4 @@ def pylibcudf_to_cudf_dataframe(table: pylibcudf.Table) -> cudf.DataFrame:
         str(i): cudf._lib.column.Column.from_pylibcudf(col)
         for i, col in enumerate(table.columns())
     }
-    return cudf.DataFrame._from_data(data)
+    return cudf.DataFrame._from_data(data, columns=column_names)
