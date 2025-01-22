@@ -52,8 +52,8 @@ class ArgumentParser {
                           "rank (default: 1)\n"
                        << "  -m <mr>    RMM memory resource {cuda, pool, async} "
                           "(default: cuda)\n"
-                       << "  -l <num>   Device memory limit in MiB (default: "
-                          "INT64_MAX>>20) \n"
+                       << "  -l <num>   Device memory limit in MiB (default:-1, "
+                          "disabled) \n"
                        << "  -x         Enable memory profiler (default: disabled)\n"
                        << "  -h         Display this help message\n";
                     if (comm.rank() == 0) {
@@ -162,7 +162,7 @@ class ArgumentParser {
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
     bool enable_memory_profiler{false};
-    std::int64_t device_mem_limit_mb{std::numeric_limits<int64_t>::max() >> 20};
+    std::int64_t device_mem_limit_mb{-1};
 };
 
 Duration run(
@@ -252,29 +252,14 @@ Duration run(
     return t1_elapsed - t0_elapsed;
 }
 
-int main(int argc, char** argv) {
-    rapidsmp::mpi::init(&argc, &argv);
-
-    std::shared_ptr<rapidsmp::Communicator> comm =
-        std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
+int do_main(
+    ArgumentParser const& args,
+    std::shared_ptr<rapidsmp::Communicator>& comm,
+    std::shared_ptr<memory_profiler_adaptor>& memory_profiler,
+    rapidsmp::BufferResource& br
+) {
     auto& log = comm->logger();
-    ArgumentParser args{*comm, argc, argv};
-    args.pprint(*comm);
-
-    auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
-    std::shared_ptr<memory_profiler_adaptor> memory_profiler;
-    if (args.enable_memory_profiler) {
-        memory_profiler = set_memory_profiler();
-    }
-
     rmm::cuda_stream_view stream = cudf::get_default_stream();
-
-    rmm::mr::cuda_memory_resource mr_cuda;
-    rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource> mr{mr_cuda};
-
-    rapidsmp::LimitAvailableMemory dev_mem_available{&mr, args.device_mem_limit_mb << 20};
-
-    rapidsmp::BufferResource br{mr, {{rapidsmp::MemoryType::DEVICE, dev_mem_available}}};
 
     // Print benchmark/hardware info.
     {
@@ -330,4 +315,41 @@ int main(int argc, char** argv) {
         log.warn(ss.str());
     }
     RAPIDSMP_MPI(MPI_Finalize());
+
+    return 0;
+}
+
+int main(int argc, char** argv) {
+    rapidsmp::mpi::init(&argc, &argv);
+
+    std::shared_ptr<rapidsmp::Communicator> comm =
+        std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
+    ArgumentParser args{*comm, argc, argv};
+    args.pprint(*comm);
+
+    auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
+    std::shared_ptr<memory_profiler_adaptor> memory_profiler;
+    if (args.enable_memory_profiler) {
+        memory_profiler = set_memory_profiler();
+    }
+
+    if (args.device_mem_limit_mb) {
+        rmm::mr::cuda_memory_resource mr_cuda;
+        rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource> mr{mr_cuda};
+
+        rapidsmp::LimitAvailableMemory dev_mem_available{
+            &mr, args.device_mem_limit_mb << 20
+        };
+
+        rapidsmp::BufferResource br{
+            mr, {{rapidsmp::MemoryType::DEVICE, std::move(dev_mem_available)}}
+        };
+
+        return do_main(args, comm, memory_profiler, br);
+    } else {
+        rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
+        rapidsmp::BufferResource br{mr};
+
+        return do_main(args, comm, memory_profiler, br);
+    }
 }
