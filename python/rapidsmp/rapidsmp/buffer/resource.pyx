@@ -3,25 +3,58 @@
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp.cast cimport dynamic_cast
-from libcpp.memory cimport make_shared
+from libcpp.memory cimport make_shared, shared_ptr
+from libcpp.utility cimport move
 from rmm.librmm.memory_resource cimport (device_memory_resource,
                                          statistics_resource_adaptor)
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
                                            StatisticsResourceAdaptor)
 
 
+# Converter from `shared_ptr[cpp_LimitAvailableMemory]` to `cpp_MemoryAvailable`
+cdef extern from *:
+    """
+    std::function<std::int64_t()> to_MemoryAvailable(
+        std::shared_ptr<rapidsmp::LimitAvailableMemory> functor
+    ) {
+        return *functor;
+    }
+    """
+    cpp_MemoryAvailable to_MemoryAvailable(
+        shared_ptr[cpp_LimitAvailableMemory]
+    ) except +
+
+
 cdef class BufferResource:
     """
-    A buffer resource.
+    Class managing buffer resources.
+
+    This class handles memory allocation and transfers between different memory types
+    (e.g., host and device). All memory operations in rapidsmp, such as those performed
+    by the Shuffler, rely on a buffer resource for memory management.
 
     Parameters
     ----------
     device_mr
         Reference to the RMM device memory resource used for device allocations.
+    memory_available
+        Optional memory availability functions. Memory types without availability
+        functions are unlimited. A function must should return the current available
+        memory of a specific type. It must be thread-safe if used by multiple
+        `BufferResource` instances concurrently.
+        Warning: calling any `BufferResource` instance methods within the function
+        might result in a deadlock. This is because the buffer resource is locked
+        when the function is called.
     """
     def __cinit__(self, DeviceMemoryResource device_mr, memory_available):
-        self._handle = make_shared[cpp_BufferResource](device_mr.get_mr())
         cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
+        for mem_type, func in memory_available.items():
+            _mem_available[<MemoryType?>mem_type] = to_MemoryAvailable(
+                (<LimitAvailableMemory?>func)._handle
+            )
+        self._handle = make_shared[cpp_BufferResource](
+            device_mr.get_mr(), move(_mem_available)
+        )
 
     cdef cpp_BufferResource* ptr(self):
         """

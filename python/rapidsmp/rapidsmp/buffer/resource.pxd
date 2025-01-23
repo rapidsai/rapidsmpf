@@ -14,7 +14,7 @@ from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
 
 cdef extern from "<functional>" nogil:
     cdef cppclass cpp_MemoryAvailable "std::function<std::int64_t()>":
-        function() except +
+        pass
 
 
 cdef extern from "<rapidsmp/buffer/resource.hpp>" nogil:
