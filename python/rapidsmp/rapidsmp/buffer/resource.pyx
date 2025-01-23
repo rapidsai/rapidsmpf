@@ -46,17 +46,18 @@ cdef class BufferResource:
         might result in a deadlock. This is because the buffer resource is locked
         when the function is called.
     """
-    def __cinit__(self, DeviceMemoryResource device_mr, memory_available):
+    def __cinit__(self, DeviceMemoryResource device_mr, memory_available = None):
         cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
-        for mem_type, func in memory_available.items():
-            if not isinstance(func, LimitAvailableMemory):
-                raise NotImplementedError(
-                    "Currently, BufferResource only accept `LimitAvailableMemory` "
-                    "as memory available functions."
+        if memory_available is not None:
+            for mem_type, func in memory_available.items():
+                if not isinstance(func, LimitAvailableMemory):
+                    raise NotImplementedError(
+                        "Currently, BufferResource only accept `LimitAvailableMemory` "
+                        "as memory available functions."
+                    )
+                _mem_available[<MemoryType?>mem_type] = to_MemoryAvailable(
+                    (<LimitAvailableMemory?>func)._handle
                 )
-            _mem_available[<MemoryType?>mem_type] = to_MemoryAvailable(
-                (<LimitAvailableMemory?>func)._handle
-            )
         self._handle = make_shared[cpp_BufferResource](
             device_mr.get_mr(), move(_mem_available)
         )
