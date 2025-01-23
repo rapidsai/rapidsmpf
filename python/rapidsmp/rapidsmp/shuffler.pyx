@@ -76,6 +76,8 @@ cpdef dict partition_and_pack(
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, packed_columns] _ret
     cdef table_view tbl = table.view()
+    if stream is None:
+        raise ValueError("stream cannot be None")
     cdef cuda_stream_view _stream = Stream(stream).view()
     with nogil:
         _ret = cpp_partition_and_pack(
@@ -138,6 +140,8 @@ cpdef Table unpack_and_concat(
         if not (<PackedColumns?>part).c_obj:
             raise ValueError("PackedColumns was empty")
         _partitions.push_back(move(deref((<PackedColumns?>part).c_obj)))
+    if stream is None:
+        raise ValueError("stream cannot be None")
     cdef cuda_stream_view _stream = Stream(stream).view()
     cdef unique_ptr[cpp_table] _ret
     with nogil:
@@ -181,6 +185,8 @@ cdef class Shuffler:
         stream,
         BufferResource br,
     ):
+        if stream is None:
+            raise ValueError("stream cannot be None")
         self._stream = Stream(stream)
         self._comm = comm
         self._br = br
