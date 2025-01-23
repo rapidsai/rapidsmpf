@@ -49,6 +49,11 @@ cdef class BufferResource:
     def __cinit__(self, DeviceMemoryResource device_mr, memory_available):
         cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
         for mem_type, func in memory_available.items():
+            if not isinstance(func, LimitAvailableMemory):
+                raise NotImplementedError(
+                    "Currently, BufferResource only accept `LimitAvailableMemory` "
+                    "as memory available functions."
+                )
             _mem_available[<MemoryType?>mem_type] = to_MemoryAvailable(
                 (<LimitAvailableMemory?>func)._handle
             )

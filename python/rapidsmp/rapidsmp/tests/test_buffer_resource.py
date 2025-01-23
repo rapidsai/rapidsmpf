@@ -5,7 +5,8 @@ import pytest
 
 import rmm.mr
 
-from rapidsmp.buffer.resource import LimitAvailableMemory
+from rapidsmp.buffer.buffer import MemoryType
+from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
 
 
 def KiB(x: int) -> int:
@@ -42,3 +43,13 @@ def test_limit_available_memory():
     assert mem_available() == 0
     del buf3
     assert mem_available() == KiB(100)
+
+
+def test_buffer_resource():
+    mr = rmm.mr.StatisticsResourceAdaptor(rmm.mr.CudaMemoryResource())
+
+    with pytest.raises(
+        NotImplementedError,
+        match="only accept `LimitAvailableMemory` as memory available functions",
+    ):
+        BufferResource(mr, {MemoryType.DEVICE: lambda: 42})
