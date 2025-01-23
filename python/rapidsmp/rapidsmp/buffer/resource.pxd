@@ -32,6 +32,7 @@ cdef extern from "<rapidsmp/buffer/resource.hpp>" nogil:
         cpp_LimitAvailableMemory(
             statistics_resource_adaptor[device_memory_resource] *mr, int64_t limit
         ) except +
+        int64_t operator()() except +
 
 
 cdef class LimitAvailableMemory:

@@ -1,5 +1,6 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
+from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp.cast cimport dynamic_cast
 from libcpp.memory cimport make_shared, make_unique
@@ -73,3 +74,20 @@ cdef class LimitAvailableMemory:
         cdef stats_mr_ptr mr = dynamic_cast[stats_mr_ptr](statistics_mr.get_mr())
         assert mr  # The dynamic cast should always succeed.
         self._handle = make_unique[cpp_LimitAvailableMemory](mr, limit)
+
+    def __call__(self):
+        """
+        Returns the remaining available memory within the defined limit.
+
+        This method queries the `rmm_statistics_resource` to determine the memory
+        currently in use and calculates the remaining memory as:
+        `limit - used_memory`.
+
+        Returns
+        -------
+        The remaining memory in bytes.
+        """
+        cdef int64_t ret
+        with nogil:
+            ret = deref(self._handle)()
+        return ret
