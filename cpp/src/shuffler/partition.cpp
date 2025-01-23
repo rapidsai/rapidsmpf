@@ -15,6 +15,7 @@
  */
 
 #include <cudf/concatenate.hpp>
+#include <cudf/contiguous_split.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/detail/contiguous_split.hpp>  // `cudf::detail::pack` (stream ordered version)
 
