@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
         total_num_partitions,
         stream,
         &br,
-        rapidsmp::shuffler::Shuffler::round_robin
+        rapidsmp::shuffler::Shuffler::round_robin  // partition owner
     );
 
     // It is our own responsibility to partition and pack (serialize) the input for
@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
     std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> packed_inputs =
         rapidsmp::shuffler::partition_and_pack(
             local_input,
-            /*columns_to_hash=*/{0},
+            {0},  // columns_to_hash
             total_num_partitions,
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
