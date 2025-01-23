@@ -1,6 +1,7 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
 from cython.operator cimport dereference as deref
+from libc.stddef cimport size_t
 from libc.stdint cimport int64_t
 from libcpp cimport bool
 from libcpp.memory cimport shared_ptr
@@ -25,6 +26,9 @@ cdef extern from "<rapidsmp/buffer/resource.hpp>" nogil:
         cpp_BufferResource(
             device_memory_resource *device_mr,
             unordered_map[MemoryType, cpp_MemoryAvailable] memory_available,
+        ) except +
+        size_t cpp_memory_reserved "memory_reserved"(
+            MemoryType mem_type
         ) except +
 
 

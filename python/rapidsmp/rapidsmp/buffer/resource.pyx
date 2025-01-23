@@ -71,6 +71,21 @@ cdef class BufferResource:
         """
         return self._handle.get()
 
+    def memory_reserved(self, MemoryType mem_type):
+        """
+        Get the current reserved memory of the specified memory type.
+
+        Parameters
+        ----------
+        mem_type
+            The target memory type.
+
+        Returns
+        -------
+        The memory reserved, in bytes.
+        """
+        return deref(self._handle).cpp_memory_reserved(mem_type)
+
 # Alias of a `rmm::mr::statistics_resource_adaptor` pointer.
 ctypedef statistics_resource_adaptor[device_memory_resource]* stats_mr_ptr
 

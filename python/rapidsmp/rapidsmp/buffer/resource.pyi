@@ -12,6 +12,7 @@ class BufferResource:
         device_mr: DeviceMemoryResource,
         memory_available: Mapping[MemoryType, Callable[[], int]],
     ) -> None: ...
+    def memory_reserved(self, mem_type: MemoryType) -> int: ...
 
 class LimitAvailableMemory:
     def __init__(

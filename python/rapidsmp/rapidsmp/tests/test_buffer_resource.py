@@ -53,3 +53,10 @@ def test_buffer_resource():
         match="only accept `LimitAvailableMemory` as memory available functions",
     ):
         BufferResource(mr, {MemoryType.DEVICE: lambda: 42})
+
+    mem_available = LimitAvailableMemory(mr, limit=KiB(100))
+    br = BufferResource(mr, {MemoryType.DEVICE: mem_available})
+    assert br.memory_reserved(MemoryType.DEVICE) == 0
+    assert br.memory_reserved(MemoryType.HOST) == 0
+
+    # TODO: add more `BufferResource` checks here as we add python bindings.
