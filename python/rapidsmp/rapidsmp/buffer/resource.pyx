@@ -3,7 +3,7 @@
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp.cast cimport dynamic_cast
-from libcpp.memory cimport make_shared, make_unique
+from libcpp.memory cimport make_shared
 from rmm.librmm.memory_resource cimport (device_memory_resource,
                                          statistics_resource_adaptor)
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
@@ -74,7 +74,7 @@ cdef class LimitAvailableMemory:
         self._statistics_mr = statistics_mr  # Keep the mr alive.
         cdef stats_mr_ptr mr = dynamic_cast[stats_mr_ptr](statistics_mr.get_mr())
         assert mr  # The dynamic cast should always succeed.
-        self._handle = make_unique[cpp_LimitAvailableMemory](mr, limit)
+        self._handle = make_shared[cpp_LimitAvailableMemory](mr, limit)
 
     def __call__(self):
         """

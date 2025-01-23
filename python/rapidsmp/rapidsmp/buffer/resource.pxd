@@ -3,7 +3,7 @@
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp cimport bool
-from libcpp.memory cimport shared_ptr, unique_ptr
+from libcpp.memory cimport shared_ptr
 from libcpp.unordered_map cimport unordered_map
 from rapidsmp.buffer.buffer cimport MemoryType
 from rmm.librmm.memory_resource cimport (device_memory_resource,
@@ -42,5 +42,5 @@ cdef extern from "<rapidsmp/buffer/resource.hpp>" nogil:
 
 
 cdef class LimitAvailableMemory:
-    cdef unique_ptr[cpp_LimitAvailableMemory] _handle
+    cdef shared_ptr[cpp_LimitAvailableMemory] _handle
     cdef StatisticsResourceAdaptor _statistics_mr
