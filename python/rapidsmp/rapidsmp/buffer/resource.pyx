@@ -19,8 +19,9 @@ cdef class BufferResource:
     device_mr
         Reference to the RMM device memory resource used for device allocations.
     """
-    def __cinit__(self, DeviceMemoryResource device_mr):
+    def __cinit__(self, DeviceMemoryResource device_mr, memory_available):
         self._handle = make_shared[cpp_BufferResource](device_mr.get_mr())
+        cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
 
     cdef cpp_BufferResource* ptr(self):
         """

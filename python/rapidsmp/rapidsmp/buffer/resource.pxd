@@ -3,7 +3,7 @@
 from libc.stdint cimport int64_t
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.unordered_map cimport unordered_map
-from rapidsmp.buffer.buffer cimport cpp_MemoryType
+from rapidsmp.buffer.buffer cimport MemoryType
 from rmm.librmm.memory_resource cimport (device_memory_resource,
                                          statistics_resource_adaptor)
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
@@ -18,7 +18,7 @@ cdef extern from "<rapidsmp/buffer/resource.hpp>" nogil:
         ) except +
         cpp_BufferResource(
             device_memory_resource *device_mr,
-            unordered_map[cpp_MemoryType, cpp_MemoryAvailable] memory_available,
+            unordered_map[MemoryType, cpp_MemoryAvailable] memory_available,
         ) except +
 
 

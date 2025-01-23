@@ -1,11 +1,16 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
+from collections.abc import Callable, Mapping
+
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource, StatisticsResourceAdaptor
+
+from rapidsmp.buffer.buffer import MemoryType
 
 class BufferResource:
     def __init__(
         self,
         device_mr: DeviceMemoryResource,
+        memory_available: Mapping[MemoryType, Callable[[], int]],
     ) -> None: ...
 
 class LimitAvailableMemory:
