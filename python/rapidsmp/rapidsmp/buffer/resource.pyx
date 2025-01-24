@@ -39,7 +39,7 @@ cdef class BufferResource:
         Reference to the RMM device memory resource used for device allocations.
     memory_available
         Optional memory availability functions. Memory types without availability
-        functions are unlimited. A function must should return the current available
+        functions are unlimited. A function must return the current available
         memory of a specific type. It must be thread-safe if used by multiple
         `BufferResource` instances concurrently.
         Warning: calling any `BufferResource` instance methods within the function
