@@ -77,10 +77,16 @@ class Tag {
               | static_cast<StorageT>(stage)
           } {}
 
+    /**
+     * @brief Maximum number of bits used for the tag
+     */
     static constexpr size_t bit_length() {
         return (sizeof(OpID) + sizeof(StageID)) * 8;
     }
 
+    /**
+     * @brief Maximum value of the tag
+     */
     static constexpr StorageT max_value() {
         return (1 << bit_length()) - 1;
     }
@@ -113,8 +119,8 @@ class Communicator {
     /**
      * @brief Abstract base class for asynchronous operation within the communicator.
      *
-     * Encapsulates the concept of an asynchronous operation, allowing users to query or
-     * wait for completion.
+     * Encapsulates the concept of an asynchronous operation, allowing users to query
+     * or wait for completion.
      */
     class Future {
       public:
@@ -138,8 +144,8 @@ class Communicator {
          * @brief Construct a new logger.
          *
          * Initializes the logger with a given communicator and verbosity level.
-         * The verbosity level is determined by the environment variable `RAPIDSMP_LOG`,
-         * defaulting to `1` if not set.
+         * The verbosity level is determined by the environment variable
+         * `RAPIDSMP_LOG`, defaulting to `1` if not set.
          *
          * @param comm The `Communicator` to use.
          */
@@ -150,7 +156,8 @@ class Communicator {
         /**
          * @brief Logs a warning message.
          *
-         * Formats and outputs a warning message if the verbosity level is `1` or higher.
+         * Formats and outputs a warning message if the verbosity level is `1` or
+         * higher.
          *
          * @tparam Args Types of the message components, must support the << operator.
          * @param args The components of the message to log.
@@ -219,8 +226,8 @@ class Communicator {
         /**
          * @brief Handles the logging of informational messages.
          *
-         * Outputs a formatted informational message to `std::cout`. This method can be
-         * overridden in derived classes to customize logging behavior.
+         * Outputs a formatted informational message to `std::cout`. This method can
+         * be overridden in derived classes to customize logging behavior.
          *
          * @param ss The formatted informational message as a string stream.
          */
@@ -267,8 +274,8 @@ class Communicator {
         Communicator* comm_;
         int const level_;
 
-        /// Counter used by `std::this_thread::get_id()` to abbreviate the large number
-        /// returned by `std::this_thread::get_id()`.
+        /// Counter used by `std::this_thread::get_id()` to abbreviate the large
+        /// number returned by `std::this_thread::get_id()`.
         std::uint32_t thread_id_names_counter{0};
 
         /// Thread name record mapping thread IDs to their shorten names.
@@ -399,7 +406,8 @@ class Communicator {
 /**
  * @brief Overloads the stream insertion operator for the Communicator class.
  *
- * This function allows a description of a Communicator to be written to an output stream.
+ * This function allows a description of a Communicator to be written to an output
+ * stream.
  *
  * @param os The output stream to write to.
  * @param obj The object to write.
