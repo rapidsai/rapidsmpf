@@ -56,7 +56,7 @@ set_current_rmm_stack(std::string const& name) {
     return ret;
 }
 
-using memory_profiler_adaptor =
+using stats_dev_mem_resource =
     rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource>;
 
 /**
@@ -64,10 +64,10 @@ using memory_profiler_adaptor =
  *
  * @return A owning memory resource, which must be kept alive.
  */
-[[nodiscard]] inline std::shared_ptr<memory_profiler_adaptor> set_memory_profiler() {
+[[nodiscard]] inline std::shared_ptr<stats_dev_mem_resource>
+set_device_mem_resource_with_stats() {
     auto ret =
-        std::make_shared<memory_profiler_adaptor>(cudf::get_current_device_resource_ref()
-        );
+        std::make_shared<stats_dev_mem_resource>(cudf::get_current_device_resource_ref());
     rmm::mr::set_current_device_resource(ret.get());
     rmm::mr::set_current_device_resource_ref(*ret);
     return ret;
