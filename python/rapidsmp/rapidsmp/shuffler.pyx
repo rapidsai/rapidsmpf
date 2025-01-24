@@ -177,6 +177,7 @@ cdef class Shuffler:
     def __init__(
         self,
         Communicator comm,
+        uint16_t op_id,
         uint32_t total_num_partitions,
         stream,
         BufferResource br,
@@ -185,7 +186,7 @@ cdef class Shuffler:
         self._comm = comm
         self._br = br
         self._handle = make_unique[cpp_Shuffler](
-            comm._handle, total_num_partitions, self._stream.view(), br.ptr()
+            comm._handle, op_id, total_num_partitions, self._stream.view(), br.ptr()
         )
 
     def shutdown(self):

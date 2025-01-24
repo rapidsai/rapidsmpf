@@ -46,7 +46,7 @@ def test_shuffler_single_nonempty_partition(comm, total_num_partitions):
     br = BufferResource(rmm.mr.get_current_device_resource())
 
     shuffler = Shuffler(
-        comm, total_num_partitions=total_num_partitions, stream=DEFAULT_STREAM, br=br
+        comm, op_id=0, total_num_partitions=total_num_partitions, stream=DEFAULT_STREAM, br=br
     )
 
     df = cudf.DataFrame({"0": [1, 2, 3], "1": [42, 42, 42]})
@@ -126,6 +126,7 @@ def test_shuffler_uniform(comm, batch_size, total_num_partitions):
     # Create shuffler
     shuffler = Shuffler(
         comm,
+        op_id=0,
         total_num_partitions=total_num_partitions,
         stream=DEFAULT_STREAM,
         br=br,
