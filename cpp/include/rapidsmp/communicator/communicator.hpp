@@ -69,36 +69,60 @@ using StageID = std::uint8_t;
  */
 class Tag {
   public:
+    /**
+     * @typedef StorageT
+     * @brief The physical data type to store the tag
+     */
     using StorageT = std::int32_t;
 
+    /**
+     * @brief Constructs a tag
+     *
+     * @param op The operation ID
+     * @param stage The stage ID
+     */
     Tag(OpID op, StageID stage)
         : tag_{
-              (static_cast<StorageT>(op) << (sizeof(StageID) * 8))
-              | static_cast<StorageT>(stage)
-          } {}
+            (static_cast<StorageT>(op) << (sizeof(StageID) * 8))
+            | static_cast<StorageT>(stage)
+        } {}
 
     /**
-     * @brief Maximum number of bits used for the tag
+     * @brief Returns the max number of bits used for the tag
+     * @return bit length
      */
     static constexpr size_t bit_length() {
         return (sizeof(OpID) + sizeof(StageID)) * 8;
     }
 
     /**
-     * @brief Maximum value of the tag
+     * @brief Returns the max value of the tag
+     * @return max value
      */
     static constexpr StorageT max_value() {
         return (1 << bit_length()) - 1;
     }
 
+    /**
+     * @brief Returns the int32 view of the tag
+     * @return int32 view of the tag
+     */
     constexpr std::int32_t int_view() const {
         return tag_;
     }
 
+    /**
+     * @brief Extracts the operation ID from the tag
+     * @return The operation ID
+     */
     constexpr OpID op() const {
         return (tag_ >> (sizeof(StageID) * 8));
     }
 
+    /**
+     * @brief Extracts the stage ID from the tag
+     * @return The stage ID
+     */
     constexpr StageID stage() const {
         return tag_ & ((1 << (sizeof(StageID) * 8)) - 1);
     }

@@ -87,6 +87,7 @@ class Shuffler {
      * @brief Construct a new shuffler for a single shuffle.
      *
      * @param comm The communicator to use.
+     * @param op_id The operation ID of the shuffle.
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param stream The CUDA stream for memory operations.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
