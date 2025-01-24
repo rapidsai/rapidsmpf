@@ -148,7 +148,7 @@ class ArgumentParser {
             ss << "  -l " << device_mem_limit_mb << " (device memory limit in MiB)\n";
         }
         if (enable_memory_profiler) {
-            ss << "  -x (enable memory profiling, which comes with an overhead)\n";
+            ss << "  -x (enable memory profiling)\n";
         }
         ss << "Local size: " << rapidsmp::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmp::format_nbytes(total_nbytes) << "\n";

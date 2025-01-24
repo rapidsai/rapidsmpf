@@ -60,7 +60,8 @@ using stats_dev_mem_resource =
     rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource>;
 
 /**
- * @brief Create and set a memory profiler on the current RMM stack.
+ * @brief Create a statistics-enabled device memory resource with on the current RMM
+ * stack.
  *
  * @return A owning memory resource, which must be kept alive.
  */
