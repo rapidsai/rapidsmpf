@@ -76,7 +76,9 @@ cpdef dict partition_and_pack(
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, packed_columns] _ret
     cdef table_view tbl = table.view()
-    cdef Stream _stream = Stream(stream)
+    if stream is None:
+        raise ValueError("stream cannot be None")
+    cdef cuda_stream_view _stream = Stream(stream).view()
     with nogil:
         _ret = cpp_partition_and_pack(
             tbl,
@@ -84,7 +86,7 @@ cpdef dict partition_and_pack(
             num_partitions,
             cpp_HASH_MURMUR3,
             cpp_DEFAULT_HASH_SEED,
-            _stream.view(),
+            _stream,
             device_mr.get_mr()
         )
     ret = {}
@@ -138,12 +140,14 @@ cpdef Table unpack_and_concat(
         if not (<PackedColumns?>part).c_obj:
             raise ValueError("PackedColumns was empty")
         _partitions.push_back(move(deref((<PackedColumns?>part).c_obj)))
-    cdef Stream _stream = Stream(stream)
+    if stream is None:
+        raise ValueError("stream cannot be None")
+    cdef cuda_stream_view _stream = Stream(stream).view()
     cdef unique_ptr[cpp_table] _ret
     with nogil:
         _ret = cpp_unpack_and_concat(
             move(_partitions),
-            _stream.view(),
+            _stream,
             device_mr.get_mr()
         )
     return Table.from_libcudf(move(_ret))
@@ -181,6 +185,8 @@ cdef class Shuffler:
         stream,
         BufferResource br,
     ):
+        if stream is None:
+            raise ValueError("stream cannot be None")
         self._stream = Stream(stream)
         self._comm = comm
         self._br = br
