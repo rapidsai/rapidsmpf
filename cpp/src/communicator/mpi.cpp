@@ -108,9 +108,8 @@ std::unique_ptr<Communicator::Future> MPI::send(
 ) {
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
     MPI_Request req;
-    RAPIDSMP_MPI(MPI_Isend(
-        msg->data(), msg->size(), MPI_UINT8_T, rank, tag.int_view(), comm_, &req
-    ));
+    RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
+    );
     return std::make_unique<Future>(req, br->move(std::move(msg), stream));
 }
 
@@ -118,9 +117,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
 ) {
     MPI_Request req;
-    RAPIDSMP_MPI(
-        MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag.int_view(), comm_, &req)
-    );
+    RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -129,13 +126,7 @@ std::unique_ptr<Communicator::Future> MPI::recv(
 ) {
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Irecv(
-        recv_buffer->data(),
-        recv_buffer->size,
-        MPI_UINT8_T,
-        rank,
-        tag.int_view(),
-        comm_,
-        &req
+        recv_buffer->data(), recv_buffer->size, MPI_UINT8_T, rank, tag, comm_, &req
     ));
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
@@ -144,15 +135,12 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     Logger& log = logger();
     int msg_available;
     MPI_Status probe_status;
-    RAPIDSMP_MPI(
-        MPI_Iprobe(MPI_ANY_SOURCE, tag.int_view(), comm_, &msg_available, &probe_status)
-    );
+    RAPIDSMP_MPI(MPI_Iprobe(MPI_ANY_SOURCE, tag, comm_, &msg_available, &probe_status));
     if (!msg_available) {
         return {nullptr, 0};
     }
     RAPIDSMP_EXPECTS(
-        tag.int_view() == probe_status.MPI_TAG || tag.int_view() == MPI_ANY_TAG,
-        "corrupt mpi tag"
+        tag == probe_status.MPI_TAG || tag == MPI_ANY_TAG, "corrupt mpi tag"
     );
     MPI_Count size;
     RAPIDSMP_MPI(MPI_Get_elements_x(&probe_status, MPI_UINT8_T, &size));

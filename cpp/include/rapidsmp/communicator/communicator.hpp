@@ -75,31 +75,44 @@ class Tag {
      */
     using StorageT = std::int32_t;
 
+    /// @brief Number of bits for the stage ID
+    static constexpr int kStageIDBits{sizeof(StageID) * 8};
+
+    ///@brief Mask for the stage ID
+    static constexpr StorageT kStageIDMask{(1 << kStageIDBits) - 1};
+
+    /// @brief Number of bits for the operation ID
+    static constexpr int kOpIDBits{sizeof(OpID) * 8};
+
+    /// @brief Mask for the operation ID
+    static constexpr StorageT kOpIDMask{
+        ((1 << (kOpIDBits + kStageIDBits)) - 1) ^ kStageIDMask
+    };
+
     /**
      * @brief Constructs a tag
      *
      * @param op The operation ID
      * @param stage The stage ID
      */
-    Tag(OpID op, StageID stage)
+    constexpr Tag(OpID const op, StageID const stage)
         : tag_{
-            (static_cast<StorageT>(op) << (sizeof(StageID) * 8))
-            | static_cast<StorageT>(stage)
-        } {}
+              (static_cast<StorageT>(op) << kStageIDBits) | static_cast<StorageT>(stage)
+          } {}
 
     /**
      * @brief Returns the max number of bits used for the tag
      * @return bit length
      */
-    static constexpr size_t bit_length() {
-        return (sizeof(OpID) + sizeof(StageID)) * 8;
+    [[nodiscard]] static constexpr size_t bit_length() noexcept {
+        return kOpIDBits + kStageIDBits;
     }
 
     /**
      * @brief Returns the max value of the tag
      * @return max value
      */
-    static constexpr StorageT max_value() {
+    [[nodiscard]] static constexpr StorageT max_value() noexcept {
         return (1 << bit_length()) - 1;
     }
 
@@ -107,7 +120,7 @@ class Tag {
      * @brief Returns the int32 view of the tag
      * @return int32 view of the tag
      */
-    constexpr std::int32_t int_view() const {
+    constexpr operator int() const noexcept {
         return tag_;
     }
 
@@ -115,20 +128,20 @@ class Tag {
      * @brief Extracts the operation ID from the tag
      * @return The operation ID
      */
-    constexpr OpID op() const {
-        return (tag_ >> (sizeof(StageID) * 8));
+    [[nodiscard]] constexpr OpID op() const noexcept {
+        return (tag_ & kOpIDMask) >> kStageIDBits;
     }
 
     /**
      * @brief Extracts the stage ID from the tag
      * @return The stage ID
      */
-    constexpr StageID stage() const {
-        return tag_ & ((1 << (sizeof(StageID) * 8)) - 1);
+    [[nodiscard]] constexpr StageID stage() const noexcept {
+        return tag_ & kStageIDMask;
     }
 
   private:
-    StorageT tag_{0};
+    StorageT const tag_;
 };
 
 /**
