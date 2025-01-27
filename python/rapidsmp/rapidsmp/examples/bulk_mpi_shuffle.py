@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -61,6 +62,12 @@ parser.add_argument(
     default=None,
     help="Maximum device memory to use.",
 )
+parser.add_argument(
+    "--baseline",
+    default=False,
+    action="store_true",
+    help="Maximum device memory to use.",
+)
 args = parser.parse_args()
 
 
@@ -73,7 +80,7 @@ def read_batch(paths: list[str]) -> tuple[plc.Table, list[str]]:
     return (tbl_w_meta.tbl, tbl_w_meta.column_names(include_children=False))
 
 
-def write_table(table: plc.Table, output_path: str, id: int):
+def write_table(table: plc.Table, output_path: str, id: int | str):
     """Write a pylibcudf Table to a Parquet file."""
     path = f"{output_path}/part.{id}.parquet"
     pylibcudf_to_cudf_dataframe(table).to_parquet(path)
@@ -83,12 +90,14 @@ def bulk_mpi_shuffle(
     paths: list[str],
     shuffle_on: list[str],
     output_path: str,
+    *,
     comm: MPI.Intercomm | None = None,
     num_output_files: int | None = None,
     batchsize: int | None = None,
     read_func: Callable | None = None,
     write_func: Callable | None = None,
     limit_device_memory: int | None = None,
+    baseline: bool = False,
 ) -> None:
     """
     Perform a bulk-synchronous dataset shuffle.
@@ -126,6 +135,8 @@ def bulk_mpi_shuffle(
         Maximum amount of device-memory to use. Default behavior will
         allow unlimited memory usage. NOTE: This does not actually
         work yet.
+    baseline
+        Whether to skip the shuffle and run a simple IO baseline.
 
     Notes
     -----
@@ -144,21 +155,10 @@ def bulk_mpi_shuffle(
         Path(output_path).mkdir(exist_ok=True)
         start_time = MPI.Wtime()
 
-    # Create buffer resource and shuffler
-    mr = rmm.mr.StatisticsResourceAdaptor(rmm.mr.CudaMemoryResource())
-    br = BufferResource(mr)  # TODO: Set memory limit(s)
-    rmm.mr.set_current_device_resource(mr)
+    # Determine which files to process on this rank
     num_input_files = len(paths)
     num_output_files = num_output_files or num_input_files
     total_num_partitions = num_output_files
-    shuffler = Shuffler(
-        comm,
-        total_num_partitions=total_num_partitions,
-        stream=DEFAULT_STREAM,
-        br=br,
-    )
-
-    # Determine which files to process on this rank
     files_per_rank = math.ceil(num_input_files / size)
     start = files_per_rank * rank
     finish = start + files_per_rank
@@ -167,40 +167,64 @@ def bulk_mpi_shuffle(
     batchsize = batchsize or 1
     num_batches = math.ceil(num_local_files / batchsize)
 
-    # Read batches and submit them to the shuffler
-    read_func = read_func or read_batch
-    for batch_id in range(num_batches):
-        batch = local_files[batch_id * batchsize : (batch_id + 1) * batchsize]
-        table, columns = read_batch(batch)
-        columns_to_hash = tuple(columns.index(val) for val in shuffle_on)
-        packed_inputs = partition_and_pack(
-            table,
-            columns_to_hash=columns_to_hash,
-            num_partitions=total_num_partitions,
+    if baseline:
+        # Skip the shuffle - Run IO baseline
+        read_func = read_func or read_batch
+        write_func = write_func or write_table
+        for batch_id in range(num_batches):
+            batch = local_files[batch_id * batchsize : (batch_id + 1) * batchsize]
+            table, columns = read_batch(batch)
+            write_func(
+                table,
+                output_path,
+                str(uuid.uuid4()),
+            )
+    else:
+        # Create buffer resource and shuffler
+        mr = rmm.mr.StatisticsResourceAdaptor(rmm.mr.CudaMemoryResource())
+        br = BufferResource(mr)  # TODO: Set memory limit(s)
+        rmm.mr.set_current_device_resource(mr)
+        shuffler = Shuffler(
+            comm,
+            total_num_partitions=total_num_partitions,
             stream=DEFAULT_STREAM,
-            device_mr=rmm.mr.get_current_device_resource(),
+            br=br,
         )
-        shuffler.insert_chunks(packed_inputs)
 
-    # Tell the shuffler we are done adding local data
-    for pid in range(total_num_partitions):
-        shuffler.insert_finished(pid)
+        # Read batches and submit them to the shuffler
+        read_func = read_func or read_batch
+        for batch_id in range(num_batches):
+            batch = local_files[batch_id * batchsize : (batch_id + 1) * batchsize]
+            table, columns = read_batch(batch)
+            columns_to_hash = tuple(columns.index(val) for val in shuffle_on)
+            packed_inputs = partition_and_pack(
+                table,
+                columns_to_hash=columns_to_hash,
+                num_partitions=total_num_partitions,
+                stream=DEFAULT_STREAM,
+                device_mr=rmm.mr.get_current_device_resource(),
+            )
+            shuffler.insert_chunks(packed_inputs)
 
-    # Write shuffled partitions to disk as they finish
-    write_func = write_func or write_table
-    while not shuffler.finished():
-        partition_id = shuffler.wait_any()
-        table = unpack_and_concat(
-            shuffler.extract(partition_id),
-            stream=DEFAULT_STREAM,
-            device_mr=rmm.mr.get_current_device_resource(),
-        )
-        write_func(
-            table,
-            output_path,
-            partition_id,
-        )
-    shuffler.shutdown()
+        # Tell the shuffler we are done adding local data
+        for pid in range(total_num_partitions):
+            shuffler.insert_finished(pid)
+
+        # Write shuffled partitions to disk as they finish
+        write_func = write_func or write_table
+        while not shuffler.finished():
+            partition_id = shuffler.wait_any()
+            table = unpack_and_concat(
+                shuffler.extract(partition_id),
+                stream=DEFAULT_STREAM,
+                device_mr=rmm.mr.get_current_device_resource(),
+            )
+            write_func(
+                table,
+                output_path,
+                partition_id,
+            )
+        shuffler.shutdown()
 
     if rank == 0:
         end_time = MPI.Wtime()
@@ -215,4 +239,5 @@ if __name__ == "__main__":
         num_output_files=args.n_output_files,
         batchsize=args.batchsize,
         limit_device_memory=args.device_limit,
+        baseline=args.baseline,
     )
