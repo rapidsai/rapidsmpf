@@ -371,7 +371,7 @@ class LimitAvailableMemory {
      * @param limit The maximum memory available (in bytes). Used to calculate the
      * remaining memory.
      */
-    LimitAvailableMemory(rmm_statistics_resource const* mr, std::int64_t limit)
+    constexpr LimitAvailableMemory(rmm_statistics_resource const* mr, std::int64_t limit)
         : limit{limit}, mr_{mr} {}
 
     /**

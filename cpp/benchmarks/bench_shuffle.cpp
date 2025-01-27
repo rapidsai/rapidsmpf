@@ -36,7 +36,7 @@ class ArgumentParser {
   public:
     ArgumentParser(rapidsmp::Communicator& comm, int argc, char* const* argv) {
         int option;
-        while ((option = getopt(argc, argv, "hr:w:c:n:p:m:x")) != -1) {
+        while ((option = getopt(argc, argv, "hr:w:c:n:p:m:l:x")) != -1) {
             switch (option) {
             case 'h':
                 {
@@ -52,6 +52,8 @@ class ArgumentParser {
                           "rank (default: 1)\n"
                        << "  -m <mr>    RMM memory resource {cuda, pool, async} "
                           "(default: cuda)\n"
+                       << "  -l <num>   Device memory limit in MiB (default:-1, "
+                          "disabled) \n"
                        << "  -x         Enable memory profiler (default: disabled)\n"
                        << "  -h         Display this help message\n";
                     if (comm.rank() == 0) {
@@ -84,6 +86,9 @@ class ArgumentParser {
                     }
                     RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                 }
+                break;
+            case 'l':
+                device_mem_limit_mb = std::stoll(optarg);
                 break;
             case 'x':
                 enable_memory_profiler = true;
@@ -139,8 +144,11 @@ class ArgumentParser {
         ss << "  -n " << num_local_rows << " (number of rows per rank)\n";
         ss << "  -p " << num_local_partitions << " (number of partitions per rank)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
+        if (device_mem_limit_mb >= 0) {
+            ss << "  -l " << device_mem_limit_mb << " (device memory limit in MiB)\n";
+        }
         if (enable_memory_profiler) {
-            ss << "  -x (enable memory profiling, which comes with an overhead)\n";
+            ss << "  -x (enable memory profiling)\n";
         }
         ss << "Local size: " << rapidsmp::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmp::format_nbytes(total_nbytes) << "\n";
@@ -156,6 +164,7 @@ class ArgumentParser {
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
     bool enable_memory_profiler{false};
+    std::int64_t device_mem_limit_mb{-1};
 };
 
 Duration run(
@@ -251,19 +260,28 @@ int main(int argc, char** argv) {
 
     std::shared_ptr<rapidsmp::Communicator> comm =
         std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
-    auto& log = comm->logger();
     ArgumentParser args{*comm, argc, argv};
     args.pprint(*comm);
 
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
-    std::shared_ptr<memory_profiler_adaptor> memory_profiler;
-    if (args.enable_memory_profiler) {
-        memory_profiler = set_memory_profiler();
+    std::shared_ptr<stats_dev_mem_resource> stat_enabled_mr;
+    if (args.enable_memory_profiler || args.device_mem_limit_mb >= 0) {
+        stat_enabled_mr = set_device_mem_resource_with_stats();
     }
 
-    rmm::cuda_stream_view stream = cudf::get_default_stream();
+    std::unordered_map<rapidsmp::MemoryType, rapidsmp::BufferResource::MemoryAvailable>
+        memory_available{};
+    if (args.device_mem_limit_mb >= 0) {
+        memory_available[rapidsmp::MemoryType::DEVICE] = rapidsmp::LimitAvailableMemory{
+            stat_enabled_mr.get(), args.device_mem_limit_mb << 20
+        };
+    }
+
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    rapidsmp::BufferResource br{mr};
+    rapidsmp::BufferResource br{mr, std::move(memory_available)};
+
+    auto& log = comm->logger();
+    rmm::cuda_stream_view stream = cudf::get_default_stream();
 
     // Print benchmark/hardware info.
     {
@@ -311,12 +329,14 @@ int main(int argc, char** argv) {
            << rapidsmp::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | total throughput: "
            << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
-        if (memory_profiler) {
-            auto const counter = memory_profiler->get_bytes_counter();
+        if (args.enable_memory_profiler) {
+            auto const counter = stat_enabled_mr->get_bytes_counter();
             ss << " | rmm device memory peak: " << rapidsmp::format_nbytes(counter.peak)
                << " | total: " << rapidsmp::format_nbytes(counter.total);
         }
         log.warn(ss.str());
     }
     RAPIDSMP_MPI(MPI_Finalize());
+
+    return 0;
 }

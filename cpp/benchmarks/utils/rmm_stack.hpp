@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -56,18 +56,19 @@ set_current_rmm_stack(std::string const& name) {
     return ret;
 }
 
-using memory_profiler_adaptor =
+using stats_dev_mem_resource =
     rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource>;
 
 /**
- * @brief Create and set a memory profiler on the current RMM stack.
+ * @brief Create a statistics-enabled device memory resource with on the current RMM
+ * stack.
  *
  * @return A owning memory resource, which must be kept alive.
  */
-[[nodiscard]] inline std::shared_ptr<memory_profiler_adaptor> set_memory_profiler() {
+[[nodiscard]] inline std::shared_ptr<stats_dev_mem_resource>
+set_device_mem_resource_with_stats() {
     auto ret =
-        std::make_shared<memory_profiler_adaptor>(cudf::get_current_device_resource_ref()
-        );
+        std::make_shared<stats_dev_mem_resource>(cudf::get_current_device_resource_ref());
     rmm::mr::set_current_device_resource(ret.get());
     rmm::mr::set_current_device_resource_ref(*ret);
     return ret;
