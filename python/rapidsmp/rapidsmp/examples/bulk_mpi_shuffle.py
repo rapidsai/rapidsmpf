@@ -12,7 +12,7 @@ from mpi4py import MPI
 
 import pylibcudf as plc
 import rmm.mr
-from rmm._cuda.stream import DEFAULT_STREAM
+from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.communicator.mpi import new_communicator
@@ -49,6 +49,18 @@ parser.add_argument(
     default=None,
     help="Number of output files. Default preserves input file count.",
 )
+parser.add_argument(
+    "--batchsize",
+    type=int,
+    default=1,
+    help="Number of files to read on each MPI rank at once.",
+)
+parser.add_argument(
+    "--device-limit",
+    type=int,
+    default=None,
+    help="Maximum device memory to use.",
+)
 args = parser.parse_args()
 
 
@@ -76,6 +88,7 @@ def bulk_mpi_shuffle(
     batchsize: int | None = None,
     read_func: Callable | None = None,
     write_func: Callable | None = None,
+    limit_device_memory: int | None = None,
 ) -> None:
     """
     Perform a bulk-synchronous dataset shuffle.
@@ -109,6 +122,10 @@ def bulk_mpi_shuffle(
         must accept `table`, `output_path`, and `id` arguments. Default
         logic will write the pylibcudf table to a parquet file
         (e.g. `f"{output_path}/part.{id}.parquet"`).
+    limit_device_memory
+        Maximum amount of device-memory to use. Default behavior will
+        allow unlimited memory usage. NOTE: This does not actually
+        work yet.
 
     Notes
     -----
@@ -128,7 +145,9 @@ def bulk_mpi_shuffle(
         start_time = MPI.Wtime()
 
     # Create buffer resource and shuffler
-    br = BufferResource(rmm.mr.get_current_device_resource())
+    mr = rmm.mr.StatisticsResourceAdaptor(rmm.mr.CudaMemoryResource())
+    br = BufferResource(mr)  # TODO: Set memory limit(s)
+    rmm.mr.set_current_device_resource(mr)
     num_input_files = len(paths)
     num_output_files = num_output_files or num_input_files
     total_num_partitions = num_output_files
@@ -158,6 +177,8 @@ def bulk_mpi_shuffle(
             table,
             columns_to_hash=columns_to_hash,
             num_partitions=total_num_partitions,
+            stream=DEFAULT_STREAM,
+            device_mr=rmm.mr.get_current_device_resource(),
         )
         shuffler.insert_chunks(packed_inputs)
 
@@ -169,7 +190,11 @@ def bulk_mpi_shuffle(
     write_func = write_func or write_table
     while not shuffler.finished():
         partition_id = shuffler.wait_any()
-        table = unpack_and_concat(shuffler.extract(partition_id))
+        table = unpack_and_concat(
+            shuffler.extract(partition_id),
+            stream=DEFAULT_STREAM,
+            device_mr=rmm.mr.get_current_device_resource(),
+        )
         write_func(
             table,
             output_path,
@@ -188,4 +213,6 @@ if __name__ == "__main__":
         shuffle_on=args.on.split(","),
         output_path=args.output,
         num_output_files=args.n_output_files,
+        batchsize=args.batchsize,
+        limit_device_memory=args.device_limit,
     )
