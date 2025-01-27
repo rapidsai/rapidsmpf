@@ -144,7 +144,7 @@ class ArgumentParser {
         ss << "  -n " << num_local_rows << " (number of rows per rank)\n";
         ss << "  -p " << num_local_partitions << " (number of partitions per rank)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
-        if (device_mem_limit_mb > 0) {
+        if (device_mem_limit_mb >= 0) {
             ss << "  -l " << device_mem_limit_mb << " (device memory limit in MiB)\n";
         }
         if (enable_memory_profiler) {
@@ -264,13 +264,13 @@ int main(int argc, char** argv) {
 
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
     std::shared_ptr<stats_dev_mem_resource> stat_enabled_mr;
-    if (args.enable_memory_profiler || args.device_mem_limit_mb > 0) {
+    if (args.enable_memory_profiler || args.device_mem_limit_mb >= 0) {
         stat_enabled_mr = set_device_mem_resource_with_stats();
     }
 
     std::unordered_map<rapidsmp::MemoryType, rapidsmp::BufferResource::MemoryAvailable>
         memory_available{};
-    if (args.device_mem_limit_mb > 0) {
+    if (args.device_mem_limit_mb >= 0) {
         memory_available[rapidsmp::MemoryType::DEVICE] = rapidsmp::LimitAvailableMemory{
             stat_enabled_mr.get(), args.device_mem_limit_mb << 20
         };
