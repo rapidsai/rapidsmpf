@@ -264,9 +264,9 @@ void Shuffler::run_event_loop_iteration(
     std::unordered_map<ChunkID, std::unique_ptr<Communicator::Future>>& in_transit_futures
 ) {
     // Tags for each stage of the shuffle
-    const Tag Tag_ReadyForData{self.op_id_, 1};
-    const Tag Tag_MetaData{self.op_id_, 2};
-    const Tag Tag_GpuData{self.op_id_, 3};
+    Tag const Tag_ReadyForData{self.op_id_, 1};
+    Tag const Tag_MetaData{self.op_id_, 2};
+    Tag const Tag_GpuData{self.op_id_, 3};
 
     auto& log = self.comm_->logger();
 
