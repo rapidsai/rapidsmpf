@@ -120,7 +120,7 @@ class Tag {
      * @brief Returns the int32 view of the tag
      * @return int32 view of the tag
      */
-    constexpr operator int() const noexcept {
+    constexpr operator StorageT() const noexcept {
         return tag_;
     }
 
