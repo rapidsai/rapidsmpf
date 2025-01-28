@@ -9,7 +9,7 @@ from mpi4py import MPI
 
 import cudf
 
-from rapidsmp.examples.bulk_shuffle import bulk_mpi_shuffle
+from rapidsmp.examples.bulk_mpi_shuffle import bulk_mpi_shuffle
 from rapidsmp.testing import assert_eq
 
 
