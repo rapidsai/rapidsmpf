@@ -264,9 +264,9 @@ void Shuffler::run_event_loop_iteration(
     std::unordered_map<ChunkID, std::unique_ptr<Communicator::Future>>& in_transit_futures
 ) {
     // Tags for each stage of the shuffle
-    Tag const Tag_ReadyForData{self.op_id_, 1};
-    Tag const Tag_MetaData{self.op_id_, 2};
-    Tag const Tag_GpuData{self.op_id_, 3};
+    Tag const ready_for_data_tag{self.op_id_, 1};
+    Tag const metadata_tag{self.op_id_, 2};
+    Tag const gpu_data_tag{self.op_id_, 3};
 
     auto& log = self.comm_->logger();
 
@@ -277,7 +277,7 @@ void Shuffler::run_event_loop_iteration(
         RAPIDSMP_EXPECTS(dst != self.comm_->rank(), "sending chunk to ourselves");
 
         fire_and_forget.push_back(self.comm_->send(
-            chunk.to_metadata_message(), dst, Tag_MetaData, self.stream_, self.br_
+            chunk.to_metadata_message(), dst, metadata_tag, self.stream_, self.br_
         ));
         if (chunk.gpu_data_size > 0) {
             RAPIDSMP_EXPECTS(
@@ -290,7 +290,7 @@ void Shuffler::run_event_loop_iteration(
     // Receive any incoming metadata of remote chunks and place them in
     // `incoming_chunks`.
     while (true) {
-        auto const [msg, src] = self.comm_->recv_any(Tag_MetaData);
+        auto const [msg, src] = self.comm_->recv_any(metadata_tag);
         if (msg) {
             auto chunk = Chunk::from_metadata_message(msg);
             log.info("recv_any from ", src, ": ", chunk);
@@ -321,7 +321,7 @@ void Shuffler::run_event_loop_iteration(
             fire_and_forget.push_back(self.comm_->send(
                 ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
                 src,
-                Tag_ReadyForData,
+                ready_for_data_tag,
                 self.stream_,
                 self.br_
             ));
@@ -331,7 +331,7 @@ void Shuffler::run_event_loop_iteration(
                 allocate_buffer(chunk.gpu_data_size, self.stream_, self.br_);
             // Setup to receive the chunk into `in_transit_*`.
             auto future =
-                self.comm_->recv(src, Tag_GpuData, std::move(recv_buffer), self.stream_);
+                self.comm_->recv(src, gpu_data_tag, std::move(recv_buffer), self.stream_);
             RAPIDSMP_EXPECTS(
                 in_transit_futures.insert({chunk.cid, std::move(future)}).second,
                 "in transit future already exist"
@@ -351,7 +351,7 @@ void Shuffler::run_event_loop_iteration(
     // Receive any incoming ready-for-data messages and start sending the
     // requested data.
     while (true) {
-        auto const [msg, src] = self.comm_->recv_any(Tag_ReadyForData);
+        auto const [msg, src] = self.comm_->recv_any(ready_for_data_tag);
         if (msg) {
             auto ready_for_data_msg = ReadyForDataMessage::unpack(msg);
             auto chunk = extract_value(outgoing_chunks, ready_for_data_msg.cid);
@@ -360,7 +360,7 @@ void Shuffler::run_event_loop_iteration(
             );
             if (chunk.gpu_data->mem_type == MemoryType::DEVICE) {
                 fire_and_forget.push_back(self.comm_->send(
-                    std::move(chunk.gpu_data), src, Tag_GpuData, self.stream_
+                    std::move(chunk.gpu_data), src, gpu_data_tag, self.stream_
                 ));
             } else {
                 RAPIDSMP_FAIL("Not implemented");

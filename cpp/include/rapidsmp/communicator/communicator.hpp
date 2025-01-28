@@ -76,17 +76,17 @@ class Tag {
     using StorageT = std::int32_t;
 
     /// @brief Number of bits for the stage ID
-    static constexpr int kStageIDBits{sizeof(StageID) * 8};
+    static constexpr int stage_id_bits{sizeof(StageID) * 8};
 
-    ///@brief Mask for the stage ID
-    static constexpr StorageT kStageIDMask{(1 << kStageIDBits) - 1};
+    /// @brief Mask for the stage ID
+    static constexpr StorageT stage_id_mask{(1 << stage_id_bits) - 1};
 
     /// @brief Number of bits for the operation ID
-    static constexpr int kOpIDBits{sizeof(OpID) * 8};
+    static constexpr int op_id_bits{sizeof(OpID) * 8};
 
     /// @brief Mask for the operation ID
-    static constexpr StorageT kOpIDMask{
-        ((1 << (kOpIDBits + kStageIDBits)) - 1) ^ kStageIDMask
+    static constexpr StorageT op_id_mask{
+        ((1 << (op_id_bits + stage_id_bits)) - 1) ^ stage_id_mask
     };
 
     /**
@@ -97,7 +97,7 @@ class Tag {
      */
     constexpr Tag(OpID const op, StageID const stage)
         : tag_{
-            (static_cast<StorageT>(op) << kStageIDBits) | static_cast<StorageT>(stage)
+            (static_cast<StorageT>(op) << stage_id_bits) | static_cast<StorageT>(stage)
         } {}
 
     /**
@@ -105,7 +105,7 @@ class Tag {
      * @return bit length
      */
     [[nodiscard]] static constexpr size_t bit_length() noexcept {
-        return kOpIDBits + kStageIDBits;
+        return op_id_bits + stage_id_bits;
     }
 
     /**
@@ -129,7 +129,7 @@ class Tag {
      * @return The operation ID
      */
     [[nodiscard]] constexpr OpID op() const noexcept {
-        return (tag_ & kOpIDMask) >> kStageIDBits;
+        return (tag_ & op_id_mask) >> stage_id_bits;
     }
 
     /**
@@ -137,7 +137,7 @@ class Tag {
      * @return The stage ID
      */
     [[nodiscard]] constexpr StageID stage() const noexcept {
-        return tag_ & kStageIDMask;
+        return tag_ & stage_id_mask;
     }
 
   private:
