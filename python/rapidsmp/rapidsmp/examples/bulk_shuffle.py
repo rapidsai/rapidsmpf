@@ -103,8 +103,9 @@ def bulk_mpi_shuffle(
     rank = comm.rank
 
     # Create output directory if necessary
+    Path(output_path).mkdir(exist_ok=True)
+
     if rank == 0:
-        Path(output_path).mkdir(exist_ok=True)
         start_time = MPI.Wtime()
 
     # Determine which files to process on this rank

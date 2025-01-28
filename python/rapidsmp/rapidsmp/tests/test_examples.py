@@ -5,25 +5,32 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from mpi4py import MPI
 
 import cudf
 
+from rapidsmp.examples.bulk_shuffle import bulk_mpi_shuffle
 from rapidsmp.testing import assert_eq
 
 
 @pytest.mark.parametrize("batchsize", [1, 2, 3])
 @pytest.mark.parametrize("num_output_files", [10, 5])
 def test_bulk_mpi_shuffle(comm, tmpdir, batchsize, num_output_files):
-    from rapidsmp.examples.bulk_shuffle import bulk_mpi_shuffle
+    # Get mpi-compatible tmpdir
+    mpi_comm = MPI.COMM_WORLD
+    rank = mpi_comm.Get_rank()
+    name = str(tmpdir) if rank == 0 else None
+    name = mpi_comm.bcast(name, root=0)
+    mpi_tmpdir = type(tmpdir)(name)
 
     # Generate input dataset
     num_files = 10
     num_rows = 100
     rank = comm.rank
     np.random.seed(42)
-    dataset_dir = tmpdir.join("dataset")
+    dataset_dir = mpi_tmpdir.join("dataset")
     if rank == 0:
-        tmpdir.mkdir("dataset")
+        mpi_tmpdir.mkdir("dataset")
         for i in range(num_files):
             cudf.DataFrame(
                 {
@@ -32,8 +39,12 @@ def test_bulk_mpi_shuffle(comm, tmpdir, batchsize, num_output_files):
                     "c": [i] * num_rows,
                 }
             ).to_parquet(dataset_dir.join(f"part.{i}.parquet"))
-    input_paths = sorted(map(str, Path(dataset_dir).glob("**/*")))
-    output_dir = str(tmpdir.join("output"))
+        mpi_tmpdir.mkdir("output")
+        input_paths = sorted(map(str, Path(dataset_dir).glob("**/*")))
+    else:
+        input_paths = None
+    input_paths = mpi_comm.bcast(input_paths, root=0)
+    output_dir = str(mpi_tmpdir.join("output"))
 
     # Perform a the shuffle
     bulk_mpi_shuffle(
@@ -43,9 +54,11 @@ def test_bulk_mpi_shuffle(comm, tmpdir, batchsize, num_output_files):
         batchsize=batchsize,
         num_output_files=num_output_files,
     )
-    shuffled_paths = sorted(map(str, Path(output_dir).glob("**/*")))
+    mpi_comm.barrier()
 
     # Check that original and shuffled data match
-    df_original = cudf.read_parquet(input_paths)
-    df_shuffled = cudf.read_parquet(shuffled_paths)
-    assert_eq(df_original, df_shuffled, sort_rows="a")
+    if rank == 0:
+        shuffled_paths = sorted(map(str, Path(output_dir).glob("**/*")))
+        df_original = cudf.read_parquet(input_paths)
+        df_shuffled = cudf.read_parquet(shuffled_paths)
+        assert_eq(df_original, df_shuffled, sort_rows="a")
