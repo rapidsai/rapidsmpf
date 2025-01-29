@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <future>
 #include <memory>
 
 #include <gtest/gtest.h>
@@ -100,6 +101,66 @@ MemoryAvailableMap get_memory_available_map(rapidsmp::MemoryType priorities) {
     return ret;
 }
 
+void test_shuffler(
+    std::shared_ptr<rapidsmp::Communicator> const& comm,
+    rapidsmp::shuffler::Shuffler& shuffler,
+    rapidsmp::shuffler::PartID total_num_partitions,
+    std::int64_t seed,
+    cudf::hash_id hash_fn
+) {
+    // Every rank creates the full input table and all the expected partitions (also
+    // partitions this rank might not get after the shuffle).
+    cudf::table full_input_table = random_table_with_index(seed, 100, 0, 10);
+    auto [expect_partitions, owner] = rapidsmp::shuffler::partition_and_split(
+        full_input_table, {1}, total_num_partitions, hash_fn, seed
+    );
+
+    cudf::size_type row_offset = 0;
+    cudf::size_type partiton_size = full_input_table.num_rows() / total_num_partitions;
+    for (rapidsmp::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+        // To simulate that `full_input_table` is distributed between multiple ranks,
+        // we divided them into `total_num_partitions` number of partitions and pick
+        // the partitions this rank should use as input. We pick using round robin but
+        // any distribution would work (as long as no rows are picked by multiple ranks).
+        // TODO: we should test different distributions of the input partitions.
+        if (rapidsmp::shuffler::Shuffler::round_robin(comm, i) == comm->rank()) {
+            cudf::size_type row_end = row_offset + partiton_size;
+            if (i == total_num_partitions - 1) {
+                // Include the reminder of rows in the very last partition.
+                row_end = full_input_table.num_rows();
+            }
+            // Select the partition from the full input table.
+            auto slice = cudf::slice(full_input_table, {row_offset, row_end}).at(0);
+            // Hash the `slice` into chunks and pack (serialize) them.
+            auto packed_chunks = rapidsmp::shuffler::partition_and_pack(
+                slice, {1}, total_num_partitions, hash_fn, seed
+            );
+            // Add the chunks to the shuffle
+            shuffler.insert(std::move(packed_chunks));
+        }
+        row_offset += partiton_size;
+    }
+    // Tell the shuffler that we have no more input partitions.
+    for (rapidsmp::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+        shuffler.insert_finished(i);
+    }
+
+    while (!shuffler.finished()) {
+        auto finished_partition = shuffler.wait_any();
+        auto packed_chunks = shuffler.extract(finished_partition);
+        auto result = rapidsmp::shuffler::unpack_and_concat(std::move(packed_chunks));
+
+        // We should only receive the partitions assigned to this rank.
+        EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
+
+        // Check the result while ignoring the row order.
+        CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
+            sort_table(result), sort_table(expect_partitions[finished_partition])
+        );
+    }
+    shuffler.shutdown();
+}
+
 class MemoryAvailable_NumPartition
     : public cudf::test::BaseFixtureWithParam<std::tuple<MemoryAvailableMap, int>> {};
 
@@ -129,58 +190,94 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
     RAPIDSMP_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm));
     std::shared_ptr<rapidsmp::Communicator> comm =
         std::make_shared<rapidsmp::MPI>(mpi_comm);
-    rapidsmp::shuffler::Shuffler shuffler(comm, total_num_partitions, stream, &br);
-
-    // Every rank creates the full input table and all the expected partitions (also
-    // partitions this rank might not get after the shuffle).
-    cudf::table full_input_table = random_table_with_index(seed, 100, 0, 10);
-    auto [expect_partitions, owner] = rapidsmp::shuffler::partition_and_split(
-        full_input_table, {1}, total_num_partitions, hash_function, seed
+    rapidsmp::shuffler::Shuffler shuffler(
+        comm,
+        0,  // op_id
+        total_num_partitions,
+        stream,
+        &br
     );
 
-    cudf::size_type row_offset = 0;
-    cudf::size_type partiton_size = full_input_table.num_rows() / total_num_partitions;
-    for (rapidsmp::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-        // To simulate that `full_input_table` is distributed between multiple ranks,
-        // we divided them into `total_num_partitions` number of partitions and pick
-        // the partitions this rank should use as input. We pick using round robin but
-        // any distribution would work (as long as no rows are picked by multiple ranks).
-        // TODO: we should test different distributions of the input partitions.
-        if (rapidsmp::shuffler::Shuffler::round_robin(comm, i) == comm->rank()) {
-            cudf::size_type row_end = row_offset + partiton_size;
-            if (i == total_num_partitions - 1) {
-                // Include the reminder of rows in the very last partition.
-                row_end = full_input_table.num_rows();
-            }
-            // Select the partition from the full input table.
-            auto slice = cudf::slice(full_input_table, {row_offset, row_end}).at(0);
-            // Hash the `slice` into chunks and pack (serialize) them.
-            auto packed_chunks = rapidsmp::shuffler::partition_and_pack(
-                slice, {1}, total_num_partitions, hash_function, seed
-            );
-            // Add the chunks to the shuffle
-            shuffler.insert(std::move(packed_chunks));
-        }
-        row_offset += partiton_size;
-    }
-    // Tell the shuffler that we have no more input partitions.
-    for (rapidsmp::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-        shuffler.insert_finished(i);
-    }
+    EXPECT_NO_FATAL_FAILURE(
+        test_shuffler(comm, shuffler, total_num_partitions, seed, hash_function)
+    );
 
-    while (!shuffler.finished()) {
-        auto finished_partition = shuffler.wait_any();
-        auto packed_chunks = shuffler.extract(finished_partition);
-        auto result = rapidsmp::shuffler::unpack_and_concat(std::move(packed_chunks));
-
-        // We should only receive the partitions assigned to this rank.
-        EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
-
-        // Check the result while ignoring the row order.
-        CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
-            sort_table(result), sort_table(expect_partitions[finished_partition])
-        );
-    }
-    shuffler.shutdown();
     RAPIDSMP_MPI(MPI_Comm_free(&mpi_comm));
+}
+
+// Test that the same communicator can be used concurrently by multiple shufflers in
+// separate threads
+class ConcurrentShuffleTest
+    : public cudf::test::BaseFixtureWithParam<std::tuple<int, int>> {
+  public:
+    void SetUp() override {
+        num_shufflers = std::get<0>(GetParam());
+        total_num_partitions = std::get<1>(GetParam());
+
+        // these resources will be used by multiple threads to instantiate shufflers
+        br = std::make_shared<rapidsmp::BufferResource>(mr());
+        comm = std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
+        stream = cudf::get_default_stream();
+    }
+
+    void TearDown() override {
+        // make sure every process arrive at the end of the test case
+        RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
+    }
+
+    // test run for each thread. The test follows the same logic as
+    // `MemoryAvailable_NumPartition` test, but without any memory limitations
+    void RunTest(int t_id) {
+        rapidsmp::shuffler::Shuffler shuffler(
+            comm,
+            t_id,  // op_id, use t_id as a proxy
+            total_num_partitions,
+            stream,
+            br.get()
+        );
+
+        EXPECT_NO_FATAL_FAILURE(test_shuffler(
+            comm,
+            shuffler,
+            total_num_partitions,
+            t_id,  // seed
+            cudf::hash_id::HASH_MURMUR3
+        ));
+    }
+
+    int num_shufflers;
+    rapidsmp::shuffler::PartID total_num_partitions;
+
+    std::shared_ptr<rapidsmp::BufferResource> br;
+    std::shared_ptr<rapidsmp::Communicator> comm;
+    rmm::cuda_stream_view stream;
+};
+
+// test different `num_shufflers` and `total_num_partitions`.
+INSTANTIATE_TEST_SUITE_P(
+    ConcurrentShuffle,
+    ConcurrentShuffleTest,
+    testing::Combine(
+        testing::ValuesIn({1, 2, 4}),  // num_shufflers
+        testing::ValuesIn({1, 10, 100})  // total_num_partitions
+    ),
+    [](const testing::TestParamInfo<ConcurrentShuffleTest::ParamType>& info) {
+        return "num_shufflers_" + std::to_string(std::get<0>(info.param))
+               + "__total_num_partitions_" + std::to_string(std::get<1>(info.param));
+    }
+);
+
+TEST_P(ConcurrentShuffleTest, round_trip) {
+    std::vector<std::future<void>> futures;
+    futures.reserve(num_shufflers);
+
+    for (int t_id = 0; t_id < num_shufflers; t_id++) {
+        futures.push_back(std::async(std::launch::async, [this, t_id] {
+            ASSERT_NO_FATAL_FAILURE(this->RunTest(t_id));
+        }));
+    }
+
+    for (auto& f : futures) {
+        ASSERT_NO_THROW(f.wait());
+    }
 }

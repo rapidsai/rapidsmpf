@@ -1,6 +1,6 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
-from libc.stdint cimport uint32_t
+from libc.stdint cimport uint16_t, uint32_t
 from libcpp cimport bool
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.string cimport string
@@ -33,6 +33,7 @@ cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
     cdef cppclass cpp_Shuffler "rapidsmp::shuffler::Shuffler":
         cpp_Shuffler(
             shared_ptr[cpp_Communicator] comm,
+            uint16_t op_id,
             uint32_t total_num_partitions,
             cuda_stream_view stream,
             cpp_BufferResource *br,

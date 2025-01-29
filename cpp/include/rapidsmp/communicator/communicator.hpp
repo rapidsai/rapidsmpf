@@ -46,6 +46,105 @@ namespace rapidsmp {
 using Rank = int;
 
 /**
+ * @typedef OpID
+ * @brief Operation ID defined by the user. This allows users to concurrently execute
+ * multiple operations, and each operation will be identified by its OpID.
+ *
+ * @note This limits the total number of concurrent operations to 2^16
+ */
+using OpID = std::uint16_t;
+
+/**
+ * @typedef StageID
+ * @brief Identifier for a stage of a communication operation.
+ */
+using StageID = std::uint8_t;
+
+/**
+ * @brief A tag used for identifying messages in a communication operation.
+ *
+ * @note The tag is a 32-bit integer, with the following layout:
+ * bits     |31:24| 23:16|15:8 | 7:0 |
+ * value    |empty|     op     |stage|
+ */
+class Tag {
+  public:
+    /**
+     * @typedef StorageT
+     * @brief The physical data type to store the tag
+     */
+    using StorageT = std::int32_t;
+
+    /// @brief Number of bits for the stage ID
+    static constexpr int stage_id_bits{sizeof(StageID) * 8};
+
+    /// @brief Mask for the stage ID
+    static constexpr StorageT stage_id_mask{(1 << stage_id_bits) - 1};
+
+    /// @brief Number of bits for the operation ID
+    static constexpr int op_id_bits{sizeof(OpID) * 8};
+
+    /// @brief Mask for the operation ID
+    static constexpr StorageT op_id_mask{
+        ((1 << (op_id_bits + stage_id_bits)) - 1) ^ stage_id_mask
+    };
+
+    /**
+     * @brief Constructs a tag
+     *
+     * @param op The operation ID
+     * @param stage The stage ID
+     */
+    constexpr Tag(OpID const op, StageID const stage)
+        : tag_{
+            (static_cast<StorageT>(op) << stage_id_bits) | static_cast<StorageT>(stage)
+        } {}
+
+    /**
+     * @brief Returns the max number of bits used for the tag
+     * @return bit length
+     */
+    [[nodiscard]] static constexpr size_t bit_length() noexcept {
+        return op_id_bits + stage_id_bits;
+    }
+
+    /**
+     * @brief Returns the max value of the tag
+     * @return max value
+     */
+    [[nodiscard]] static constexpr StorageT max_value() noexcept {
+        return (1 << bit_length()) - 1;
+    }
+
+    /**
+     * @brief Returns the int32 view of the tag
+     * @return int32 view of the tag
+     */
+    constexpr operator StorageT() const noexcept {
+        return tag_;
+    }
+
+    /**
+     * @brief Extracts the operation ID from the tag
+     * @return The operation ID
+     */
+    [[nodiscard]] constexpr OpID op() const noexcept {
+        return (tag_ & op_id_mask) >> stage_id_bits;
+    }
+
+    /**
+     * @brief Extracts the stage ID from the tag
+     * @return The stage ID
+     */
+    [[nodiscard]] constexpr StageID stage() const noexcept {
+        return tag_ & stage_id_mask;
+    }
+
+  private:
+    StorageT const tag_;
+};
+
+/**
  * @brief Abstract base class for a communication mechanism between nodes.
  *
  * Provides an interface for sending and receiving messages between nodes, supporting
@@ -57,8 +156,8 @@ class Communicator {
     /**
      * @brief Abstract base class for asynchronous operation within the communicator.
      *
-     * Encapsulates the concept of an asynchronous operation, allowing users to query or
-     * wait for completion.
+     * Encapsulates the concept of an asynchronous operation, allowing users to query
+     * or wait for completion.
      */
     class Future {
       public:
@@ -82,8 +181,8 @@ class Communicator {
          * @brief Construct a new logger.
          *
          * Initializes the logger with a given communicator and verbosity level.
-         * The verbosity level is determined by the environment variable `RAPIDSMP_LOG`,
-         * defaulting to `1` if not set.
+         * The verbosity level is determined by the environment variable
+         * `RAPIDSMP_LOG`, defaulting to `1` if not set.
          *
          * @param comm The `Communicator` to use.
          */
@@ -94,7 +193,8 @@ class Communicator {
         /**
          * @brief Logs a warning message.
          *
-         * Formats and outputs a warning message if the verbosity level is `1` or higher.
+         * Formats and outputs a warning message if the verbosity level is `1` or
+         * higher.
          *
          * @tparam Args Types of the message components, must support the << operator.
          * @param args The components of the message to log.
@@ -163,8 +263,8 @@ class Communicator {
         /**
          * @brief Handles the logging of informational messages.
          *
-         * Outputs a formatted informational message to `std::cout`. This method can be
-         * overridden in derived classes to customize logging behavior.
+         * Outputs a formatted informational message to `std::cout`. This method can
+         * be overridden in derived classes to customize logging behavior.
          *
          * @param ss The formatted informational message as a string stream.
          */
@@ -211,8 +311,8 @@ class Communicator {
         Communicator* comm_;
         int const level_;
 
-        /// Counter used by `std::this_thread::get_id()` to abbreviate the large number
-        /// returned by `std::this_thread::get_id()`.
+        /// Counter used by `std::this_thread::get_id()` to abbreviate the large
+        /// number returned by `std::this_thread::get_id()`.
         std::uint32_t thread_id_names_counter{0};
 
         /// Thread name record mapping thread IDs to their shorten names.
@@ -250,7 +350,7 @@ class Communicator {
     [[nodiscard]] virtual std::unique_ptr<Future> send(
         std::unique_ptr<std::vector<uint8_t>> msg,
         Rank rank,
-        int tag,
+        Tag tag,
         rmm::cuda_stream_view stream,
         BufferResource* br
     ) = 0;
@@ -266,7 +366,7 @@ class Communicator {
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
-        std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
+        std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
     ) = 0;
 
     /**
@@ -280,7 +380,7 @@ class Communicator {
      */
     [[nodiscard]] virtual std::unique_ptr<Future> recv(
         Rank rank,
-        int tag,
+        Tag tag,
         std::unique_ptr<Buffer> recv_buffer,
         rmm::cuda_stream_view stream
     ) = 0;
@@ -293,7 +393,7 @@ class Communicator {
      * sender.
      */
     [[nodiscard]] virtual std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
-        int tag
+        Tag tag
     ) = 0;
 
     /**
@@ -343,7 +443,8 @@ class Communicator {
 /**
  * @brief Overloads the stream insertion operator for the Communicator class.
  *
- * This function allows a description of a Communicator to be written to an output stream.
+ * This function allows a description of a Communicator to be written to an output
+ * stream.
  *
  * @param os The output stream to write to.
  * @param obj The object to write.
