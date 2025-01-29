@@ -105,12 +105,13 @@ void test_shuffler(
     std::shared_ptr<rapidsmp::Communicator> const& comm,
     rapidsmp::shuffler::Shuffler& shuffler,
     rapidsmp::shuffler::PartID total_num_partitions,
+    std::size_t total_num_rows,
     std::int64_t seed,
     cudf::hash_id hash_fn
 ) {
     // Every rank creates the full input table and all the expected partitions (also
     // partitions this rank might not get after the shuffle).
-    cudf::table full_input_table = random_table_with_index(seed, 100, 0, 10);
+    cudf::table full_input_table = random_table_with_index(seed, total_num_rows, 0, 10);
     auto [expect_partitions, owner] = rapidsmp::shuffler::partition_and_split(
         full_input_table, {1}, total_num_partitions, hash_fn, seed
     );
@@ -162,7 +163,8 @@ void test_shuffler(
 }
 
 class MemoryAvailable_NumPartition
-    : public cudf::test::BaseFixtureWithParam<std::tuple<MemoryAvailableMap, int>> {};
+    : public cudf::test::BaseFixtureWithParam<std::tuple<MemoryAvailableMap, int, int>> {
+};
 
 // test different `memory_available` and `total_num_partitions`.
 INSTANTIATE_TEST_SUITE_P(
@@ -173,13 +175,15 @@ INSTANTIATE_TEST_SUITE_P(
             {get_memory_available_map(rapidsmp::MemoryType::HOST),
              get_memory_available_map(rapidsmp::MemoryType::DEVICE)}
         ),
-        testing::Range(1, 10)
+        testing::Values(1, 2, 5, 10),  // total_num_partitions
+        testing::Values(1, 9, 100)  // total_num_rows
     )
 );
 
 TEST_P(MemoryAvailable_NumPartition, round_trip) {
     MemoryAvailableMap const memory_available = std::get<0>(GetParam());
     rapidsmp::shuffler::PartID const total_num_partitions = std::get<1>(GetParam());
+    std::size_t const total_num_rows = std::get<2>(GetParam());
     std::int64_t const seed = 42;
     cudf::hash_id const hash_function = cudf::hash_id::HASH_MURMUR3;
     auto stream = cudf::get_default_stream();
@@ -198,9 +202,9 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
         &br
     );
 
-    EXPECT_NO_FATAL_FAILURE(
-        test_shuffler(comm, shuffler, total_num_partitions, seed, hash_function)
-    );
+    EXPECT_NO_FATAL_FAILURE(test_shuffler(
+        comm, shuffler, total_num_partitions, total_num_rows, seed, hash_function
+    ));
 
     RAPIDSMP_MPI(MPI_Comm_free(&mpi_comm));
 }
@@ -240,6 +244,7 @@ class ConcurrentShuffleTest
             comm,
             shuffler,
             total_num_partitions,
+            100,  // total_num_rows
             t_id,  // seed
             cudf::hash_id::HASH_MURMUR3
         ));
