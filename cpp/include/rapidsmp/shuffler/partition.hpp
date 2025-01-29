@@ -87,10 +87,10 @@ partition_and_split(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& columns_to_hash,
     int num_partitions,
-    cudf::hash_id hash_function = cudf::hash_id::HASH_MURMUR3,
-    uint32_t seed = cudf::DEFAULT_HASH_SEED,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()
+    cudf::hash_id hash_function,
+    uint32_t seed,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
 );
 
 /**

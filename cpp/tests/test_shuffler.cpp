@@ -41,10 +41,15 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(NumOfPartitions, partition_and_pack) {
     int const total_num_partitions = GetParam();
     std::int64_t const seed = 42;
+    cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
+    auto stream = cudf::get_default_stream();
+    auto mr = cudf::get_current_device_resource_ref();
+
     cudf::table expect = random_table_with_index(seed, 100, 0, 10);
 
-    auto chunks =
-        rapidsmp::shuffler::partition_and_pack(expect, {1}, total_num_partitions);
+    auto chunks = rapidsmp::shuffler::partition_and_pack(
+        expect, {1}, total_num_partitions, hash_fn, seed, stream, mr
+    );
 
     // Convert to a vector
     std::vector<cudf::packed_columns> chunks_vector;
@@ -136,7 +141,7 @@ void test_shuffler(
             auto slice = cudf::slice(full_input_table, {row_offset, row_end}).at(0);
             // Hash the `slice` into chunks and pack (serialize) them.
             auto packed_chunks = rapidsmp::shuffler::partition_and_pack(
-                slice, {1}, total_num_partitions, hash_fn, seed
+                slice, {1}, total_num_partitions, hash_fn, seed, stream, mr
             );
             // Add the chunks to the shuffle
             shuffler.insert(std::move(packed_chunks));
@@ -187,7 +192,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
     rapidsmp::shuffler::PartID const total_num_partitions = std::get<1>(GetParam());
     std::size_t const total_num_rows = std::get<2>(GetParam());
     std::int64_t const seed = 42;
-    cudf::hash_id const hash_function = cudf::hash_id::HASH_MURMUR3;
+    cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
     auto stream = cudf::get_default_stream();
     auto mr = cudf::get_current_device_resource_ref();
     rapidsmp::BufferResource br{mr, memory_available};
@@ -210,7 +215,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
         total_num_partitions,
         total_num_rows,
         seed,
-        hash_function,
+        hash_fn,
         stream,
         br.device_mr()
     ));
