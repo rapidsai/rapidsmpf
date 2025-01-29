@@ -57,7 +57,8 @@ TEST_P(NumOfPartitions, partition_and_pack) {
         chunks_vector.push_back(std::move(chunk));
     }
 
-    auto result = rapidsmp::shuffler::unpack_and_concat(std::move(chunks_vector));
+    auto result =
+        rapidsmp::shuffler::unpack_and_concat(std::move(chunks_vector), stream, mr);
 
     // Compare the input table with the result. We ignore the row order by
     // sorting by their index (first column).
@@ -156,7 +157,8 @@ void test_shuffler(
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any();
         auto packed_chunks = shuffler.extract(finished_partition);
-        auto result = rapidsmp::shuffler::unpack_and_concat(std::move(packed_chunks));
+        auto result =
+            rapidsmp::shuffler::unpack_and_concat(std::move(packed_chunks), stream, mr);
 
         // We should only receive the partitions assigned to this rank.
         EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());

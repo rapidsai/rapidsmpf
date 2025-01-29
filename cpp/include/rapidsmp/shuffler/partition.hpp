@@ -110,8 +110,8 @@ partition_and_split(
  */
 [[nodiscard]] std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<cudf::packed_columns>&& partitions,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
 );
 
 
