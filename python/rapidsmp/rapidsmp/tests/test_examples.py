@@ -24,7 +24,7 @@ def test_bulk_mpi_shuffle(comm, tmpdir, batchsize, num_output_files):
     mpi_tmpdir = type(tmpdir)(name)
 
     # Generate input dataset
-    num_files = 10
+    num_files = 15
     num_rows = 100
     rank = comm.rank
     np.random.seed(42)
@@ -62,3 +62,4 @@ def test_bulk_mpi_shuffle(comm, tmpdir, batchsize, num_output_files):
         df_original = cudf.read_parquet(input_paths)
         df_shuffled = cudf.read_parquet(shuffled_paths)
         assert_eq(df_original, df_shuffled, sort_rows="a")
+    mpi_comm.barrier()
