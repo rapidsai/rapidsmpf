@@ -107,13 +107,15 @@ void test_shuffler(
     rapidsmp::shuffler::PartID total_num_partitions,
     std::size_t total_num_rows,
     std::int64_t seed,
-    cudf::hash_id hash_fn
+    cudf::hash_id hash_fn,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
 ) {
     // Every rank creates the full input table and all the expected partitions (also
     // partitions this rank might not get after the shuffle).
     cudf::table full_input_table = random_table_with_index(seed, total_num_rows, 0, 10);
     auto [expect_partitions, owner] = rapidsmp::shuffler::partition_and_split(
-        full_input_table, {1}, total_num_partitions, hash_fn, seed
+        full_input_table, {1}, total_num_partitions, hash_fn, seed, stream, mr
     );
 
     cudf::size_type row_offset = 0;
@@ -203,7 +205,14 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
     );
 
     EXPECT_NO_FATAL_FAILURE(test_shuffler(
-        comm, shuffler, total_num_partitions, total_num_rows, seed, hash_function
+        comm,
+        shuffler,
+        total_num_partitions,
+        total_num_rows,
+        seed,
+        hash_function,
+        stream,
+        br.device_mr()
     ));
 
     RAPIDSMP_MPI(MPI_Comm_free(&mpi_comm));
@@ -246,7 +255,9 @@ class ConcurrentShuffleTest
             total_num_partitions,
             100,  // total_num_rows
             t_id,  // seed
-            cudf::hash_id::HASH_MURMUR3
+            cudf::hash_id::HASH_MURMUR3,
+            stream,
+            br->device_mr()
         ));
     }
 
