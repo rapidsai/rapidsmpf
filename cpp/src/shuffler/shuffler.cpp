@@ -306,7 +306,6 @@ void Shuffler::run_event_loop_iteration(
 
     // Pick an incoming chunk's gpu_data to receive.
     //
-    // TODO: decide to receive into host or device memory.
     // TODO: pick the incoming chunk based on a strategy. For now, we just pick the
     // first chunk.
     // TODO: handle multiple chunks before continuing.
@@ -315,7 +314,7 @@ void Shuffler::run_event_loop_iteration(
         auto [src, chunk] = extract_item(incoming_chunks, first_chunk);
         log.info("picked incoming chunk data from ", src, ": ", chunk);
         // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
-        // direct to the outbox.
+        // directly to the outbox.
         if (chunk.gpu_data_size > 0) {
             // Tell the source of the chunk that we are ready to receive it.
             fire_and_forget.push_back(self.comm_->send(
@@ -325,8 +324,7 @@ void Shuffler::run_event_loop_iteration(
                 self.stream_,
                 self.br_
             ));
-            // Create a new buffer based on memory type availability and prioritizing
-            // device over host memory.
+            // Create a new buffer and let the buffer resource decide the memory type.
             auto recv_buffer =
                 allocate_buffer(chunk.gpu_data_size, self.stream_, self.br_);
             // Setup to receive the chunk into `in_transit_*`.
