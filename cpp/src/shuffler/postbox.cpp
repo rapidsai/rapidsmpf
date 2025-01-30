@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,8 @@ namespace rapidsmp::shuffler::detail {
 
 void PostBox::insert(Chunk&& chunk) {
     std::lock_guard const lock(mutex_);
-    pigeonhole_[chunk.pid].insert({chunk.cid, std::move(chunk)});
+    auto [_, inserted] = pigeonhole_[chunk.pid].insert({chunk.cid, std::move(chunk)});
+    RAPIDSMP_EXPECTS(inserted, "PostBox.insert(): chunk already exist");
 }
 
 Chunk PostBox::extract(PartID pid, ChunkID cid) {
