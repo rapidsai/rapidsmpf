@@ -49,9 +49,9 @@ def bulk_mpi_shuffle(
     shuffle_on: list[str],
     output_path: str,
     *,
-    comm: MPI.Intercomm | None = None,
+    mpi_comm: MPI.Intercomm = MPI.COMM_WORLD,
     num_output_files: int | None = None,
-    batchsize: int | None = None,
+    batchsize: int = 1,
     read_func: Callable | None = None,
     write_func: Callable | None = None,
     baseline: bool = False,
@@ -69,15 +69,13 @@ def bulk_mpi_shuffle(
     output_path
         Path of the output directory where the data will be written. This
         directory does not need to be on a shared filesystem.
-    comm
-        Optional MPI communicator. Default is MPI.COMM_WORLD.
+    mpi_comm
+        The MPI communicator to use.
     num_output_files
         Number of output files to produce. Default will preserve the
         input file count.
     batchsize
-        Number of files to read at once on each rank. Default is 1.
-        TODO: Replace this argument with a blocksize mechanism that
-        can also handle the splitting of large files.
+        Number of files to read at once on each rank.
     read_func
         Optional call-back function to read the input data. This function
         must accept a list of file paths, and return a pylibcudf Table and
@@ -98,9 +96,8 @@ def bulk_mpi_shuffle(
     this same function with the same arguments.
     """
     # Extract communicator and rank
-    mpi_comm = comm or MPI.COMM_WORLD
     comm = new_communicator(mpi_comm)
-    size = mpi_comm.size
+    nranks = comm.nranks
     rank = comm.rank
 
     # Create output directory if necessary
@@ -113,12 +110,11 @@ def bulk_mpi_shuffle(
     num_input_files = len(paths)
     num_output_files = num_output_files or num_input_files
     total_num_partitions = num_output_files
-    files_per_rank = math.ceil(num_input_files / size)
+    files_per_rank = math.ceil(num_input_files / nranks)
     start = files_per_rank * rank
     finish = start + files_per_rank
     local_files = paths[start:finish]
     num_local_files = len(local_files)
-    batchsize = batchsize or 1
     num_batches = math.ceil(num_local_files / batchsize)
 
     if baseline:
@@ -141,6 +137,7 @@ def bulk_mpi_shuffle(
         rmm.mr.set_current_device_resource(mr)
         shuffler = Shuffler(
             comm,
+            op_id=0,
             total_num_partitions=total_num_partitions,
             stream=DEFAULT_STREAM,
             br=br,
