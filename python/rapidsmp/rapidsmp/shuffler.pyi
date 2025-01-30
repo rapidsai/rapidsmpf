@@ -28,6 +28,7 @@ class Shuffler:
     def __init__(
         self,
         comm: Communicator,
+        op_id: int,
         total_num_partitions: int,
         stream: Stream,
         br: BufferResource,

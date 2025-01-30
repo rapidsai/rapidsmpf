@@ -87,6 +87,8 @@ class Shuffler {
      * @brief Construct a new shuffler for a single shuffle.
      *
      * @param comm The communicator to use.
+     * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
+     * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param stream The CUDA stream for memory operations.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
@@ -94,6 +96,7 @@ class Shuffler {
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
+        OpID op_id,
         PartID total_num_partitions,
         rmm::cuda_stream_view stream,
         BufferResource* br,
@@ -219,6 +222,7 @@ class Shuffler {
     detail::PostBox outbox_;
 
     std::shared_ptr<Communicator> comm_;
+    OpID const op_id_;
     std::thread event_loop_thread_;
     std::atomic<bool> event_loop_thread_run_{true};
 
