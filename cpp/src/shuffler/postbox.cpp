@@ -52,6 +52,10 @@ std::vector<Chunk> PostBox::extract_all() {
     return ret;
 }
 
+bool PostBox::empty() const {
+    return pigeonhole_.empty();
+}
+
 std::string PostBox::str() const {
     if (empty()) {
         return "PostBox()";
@@ -73,4 +77,5 @@ std::string PostBox::str() const {
     ss << "\b\b)";
     return ss.str();
 }
+
 }  // namespace rapidsmp::shuffler::detail
