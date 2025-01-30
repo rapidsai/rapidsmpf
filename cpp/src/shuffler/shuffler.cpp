@@ -197,6 +197,7 @@ void Shuffler::insert_finished(PartID pid) {
 }
 
 std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
+    auto& log = comm_->logger();
     auto chunks = outbox_.extract(pid);
     std::vector<cudf::packed_columns> ret;
     ret.reserve(chunks.size());
@@ -212,10 +213,17 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
     auto [reservation, overbooking] =
         br_->reserve(MemoryType::DEVICE, non_device_size, true);
 
-    // TODO: check overbooking, do we need to spill to host memory?
-    // if(overbooking > 0) {
-    //     spill chunks in inbox_ and outbox_
-    // }
+    // Check overbooking, do we need to spill to host memory?
+    if (overbooking > 0) {
+        log.warn(
+            "Shuffler::extract(pid=",
+            pid,
+            ") - overbooking with ",
+            format_nbytes(overbooking),
+            " while reserving ",
+            format_nbytes(reservation.size())
+        );
+    }
 
     // Move the gpu_data to device memory (copy if necessary).
     for (auto& [_, chunk] : chunks) {
