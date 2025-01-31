@@ -239,6 +239,8 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
                 break;
             }
             try {
+                // We get exclusive access to the chunk and keep the lock while moving
+                // the chunk to host memory.
                 auto const [chunk, lock] = outbox_.exclusive_access(pid, cid);
                 chunk.gpu_data = br_->move(
                     MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
