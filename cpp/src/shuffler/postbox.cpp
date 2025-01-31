@@ -56,6 +56,20 @@ bool PostBox::empty() const {
     return pigeonhole_.empty();
 }
 
+std::vector<std::tuple<PartID, ChunkID, std::size_t>> PostBox::search(MemoryType mem_type
+) const {
+    std::lock_guard const lock(mutex_);
+    std::vector<std::tuple<PartID, ChunkID, std::size_t>> ret;
+    for (auto& [pid, chunks] : pigeonhole_) {
+        for (auto& [cid, chunk] : chunks) {
+            if (chunk.gpu_data && chunk.gpu_data->mem_type == mem_type) {
+                ret.emplace_back(pid, cid, chunk.gpu_data->size);
+            }
+        }
+    }
+    return ret;
+}
+
 std::string PostBox::str() const {
     if (empty()) {
         return "PostBox()";
@@ -77,5 +91,6 @@ std::string PostBox::str() const {
     ss << "\b\b)";
     return ss.str();
 }
+
 
 }  // namespace rapidsmp::shuffler::detail

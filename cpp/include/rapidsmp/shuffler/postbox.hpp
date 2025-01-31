@@ -80,13 +80,24 @@ class PostBox {
     [[nodiscard]] bool empty() const;
 
     /**
+     * @brief Searches for chunks of the specified memory type.
+     *
+     * @param mem_type The type of memory to search within.
+     * @return A vector of tuples, where each tuple contains: PartID, ChunkID, and the
+     * size of the chunk.
+     */
+    [[nodiscard]] std::vector<std::tuple<PartID, ChunkID, std::size_t>> search(
+        MemoryType mem_type
+    ) const;
+
+    /**
      * @brief Returns a description of this instance.
      * @return The description.
      */
     [[nodiscard]] std::string str() const;
 
   private:
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     std::unordered_map<PartID, std::unordered_map<ChunkID, Chunk>>
         pigeonhole_;  ///< Storage for chunks, organized by partition and chunk ID.
 };
