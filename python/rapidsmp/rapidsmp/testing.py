@@ -3,7 +3,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+import io
+import os
+import sys
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any
 
 import cudf
 import cudf._lib.column
@@ -11,6 +15,9 @@ import cudf.testing
 import pylibcudf
 
 from rapidsmp.utils.cudf import pylibcudf_to_cudf_dataframe
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 def assert_eq(
@@ -62,3 +69,39 @@ def assert_eq(
         left = left.sort_values(by=sort_rows, ignore_index=ignore_index)
         right = right.sort_values(by=sort_rows, ignore_index=ignore_index)
     return cudf.testing.assert_eq(left, right, **kwargs)
+
+
+@contextmanager
+def capture_output(
+    fileno: int = sys.stdout.fileno(),
+) -> Generator[io.StringIO, None, None]:
+    """
+    Context manager to capture the output written to a file descriptor.
+
+    This context manager supports output from C/C++ extensions unlike pytest's capsys.
+
+    Parameters
+    ----------
+    fileno
+        The file descriptor to capture output from.
+
+    Yields
+    ------
+    io.StringIO
+        An in-memory string buffer containing the captured output.
+    """
+    saved_stdout_fd = os.dup(fileno)
+    read_fd, write_fd = os.pipe()
+    os.dup2(write_fd, fileno)
+    os.close(write_fd)
+
+    output = io.StringIO()
+    try:
+        yield output
+    finally:
+        os.dup2(saved_stdout_fd, fileno)
+        os.close(saved_stdout_fd)
+
+    with os.fdopen(read_fd) as f:
+        output.write(f.read())
+    output.seek(0)
