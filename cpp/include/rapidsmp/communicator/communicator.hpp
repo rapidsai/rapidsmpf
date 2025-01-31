@@ -174,6 +174,8 @@ class Communicator {
      *   - `0`: Disable all logging.
      *   - `1`: Enable warnings only (default).
      *   - `2`: Enable warnings and informational messages.
+     *   - `3`: Enable warnings, informational, and debug messages.
+     *   - `4`: Enable warnings, informational, debug, and trace messages.
      */
     class Logger {
       public:
@@ -181,8 +183,8 @@ class Communicator {
          * @brief Construct a new logger.
          *
          * Initializes the logger with a given communicator and verbosity level.
-         * The verbosity level is determined by the environment variable
-         * `RAPIDSMP_LOG`, defaulting to `1` if not set.
+         * The verbosity level is determined by the environment variable `RAPIDSMP_LOG`,
+         * defaulting to `1` if not set.
          *
          * @param comm The `Communicator` to use.
          */
@@ -193,8 +195,7 @@ class Communicator {
         /**
          * @brief Logs a warning message.
          *
-         * Formats and outputs a warning message if the verbosity level is `1` or
-         * higher.
+         * Formats and outputs a warning message if the verbosity level is `1` or higher.
          *
          * @tparam Args Types of the message components, must support the << operator.
          * @param args The components of the message to log.
@@ -227,6 +228,44 @@ class Communicator {
             std::ostringstream ss;
             (ss << ... << args);
             do_info(std::move(ss));
+        }
+
+        /**
+         * @brief Logs a debug message.
+         *
+         * Formats and outputs a debug message if the verbosity level is `3`.
+         *
+         * @tparam Args Types of the message components, must support the << operator.
+         * @param args The components of the message to log.
+         */
+        template <typename... Args>
+        void debug(Args const&... args) {
+            if (level_ < 3) {
+                return;
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            std::ostringstream ss;
+            (ss << ... << args);
+            do_debug(std::move(ss));
+        }
+
+        /**
+         * @brief Logs a trace message.
+         *
+         * Formats and outputs a trace message if the verbosity level is `4`.
+         *
+         * @tparam Args Types of the message components, must support the << operator.
+         * @param args The components of the message to log.
+         */
+        template <typename... Args>
+        void trace(Args const&... args) {
+            if (level_ < 4) {
+                return;
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            std::ostringstream ss;
+            (ss << ... << args);
+            do_trace(std::move(ss));
         }
 
       protected:
@@ -263,13 +302,39 @@ class Communicator {
         /**
          * @brief Handles the logging of informational messages.
          *
-         * Outputs a formatted informational message to `std::cout`. This method can
-         * be overridden in derived classes to customize logging behavior.
+         * Outputs a formatted informational message to `std::cout`. This method can be
+         * overridden in derived classes to customize logging behavior.
          *
          * @param ss The formatted informational message as a string stream.
          */
         virtual void do_info(std::ostringstream&& ss) {
             std::cout << "[INFO:" << comm_->rank() << ":" << get_thread_id() << "] "
+                      << ss.str() << std::endl;
+        }
+
+        /**
+         * @brief Handles the logging of debug messages.
+         *
+         * Outputs a formatted informational message to `std::cout`. This method can be
+         * overridden in derived classes to customize logging behavior.
+         *
+         * @param ss The formatted informational message as a string stream.
+         */
+        virtual void do_debug(std::ostringstream&& ss) {
+            std::cout << "[DEBUG:" << comm_->rank() << ":" << get_thread_id() << "] "
+                      << ss.str() << std::endl;
+        }
+
+        /**
+         * @brief Handles the logging of trace messages.
+         *
+         * Outputs a formatted informational message to `std::cout`. This method can be
+         * overridden in derived classes to customize logging behavior.
+         *
+         * @param ss The formatted informational message as a string stream.
+         */
+        virtual void do_trace(std::ostringstream&& ss) {
+            std::cout << "[TRACE:" << comm_->rank() << ":" << get_thread_id() << "] "
                       << ss.str() << std::endl;
         }
 
