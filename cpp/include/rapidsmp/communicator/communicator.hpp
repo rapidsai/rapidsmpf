@@ -172,8 +172,8 @@ class Communicator {
      *
      * To control the verbosity level, set the environment variable `RAPIDSMP_LOG`:
      *   - `0`: Disable all logging.
-     *   - `1`: Enable warnings only (default).
-     *   - `2`: Enable warnings and informational messages.
+     *   - `1`: Enable warnings only.
+     *   - `2`: Enable warnings and informational messages (default).
      *   - `3`: Enable warnings, informational, and debug messages.
      *   - `4`: Enable warnings, informational, debug, and trace messages.
      */
@@ -184,12 +184,12 @@ class Communicator {
          *
          * Initializes the logger with a given communicator and verbosity level.
          * The verbosity level is determined by the environment variable `RAPIDSMP_LOG`,
-         * defaulting to `1` if not set.
+         * defaulting to `2` if not set.
          *
          * @param comm The `Communicator` to use.
          */
         Logger(Communicator* comm)  // TODO: support writing to a file.
-            : comm_{comm}, level_{getenv_or("RAPIDSMP_LOG", 1)} {};
+            : comm_{comm}, level_{getenv_or("RAPIDSMP_LOG", 2)} {};
         virtual ~Logger() noexcept = default;
 
         /**
