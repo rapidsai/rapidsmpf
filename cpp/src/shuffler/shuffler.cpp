@@ -215,7 +215,7 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
 
     // Check overbooking, do we need to spill to host memory?
     if (overbooking > 0) {
-        log.warn(
+        log.info(
             "Shuffler::extract(pid=",
             pid,
             ") - overbooking with ",
@@ -223,6 +223,43 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
             " while reserving ",
             format_nbytes(reservation.size())
         );
+        // Let's look for chunks to spill in the outbox.
+        auto const chunk_infos = outbox_.search(MemoryType::DEVICE);
+        std::size_t total_spilled{0};
+        for (auto [pid, cid, size] : chunk_infos) {
+            // TODO: Use a clever strategy to decide which chunks to spill. For now, we
+            // just spill the chunks in an arbitrary order.
+            auto [host_reservation, host_overbooking] =
+                br_->reserve(MemoryType::HOST, size, true);
+            if (host_overbooking > 0) {
+                log.warn(
+                    "Cannot spill to host because of host memory overbooking: ",
+                    format_nbytes(overbooking)
+                );
+                break;
+            }
+            try {
+                auto const [chunk, lock] = outbox_.exclusive_access(pid, cid);
+                chunk.gpu_data = br_->move(
+                    MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
+                );
+            } catch (std::out_of_range const&) {
+                log.warn("While spilling, target chunk was removed underneath us");
+                continue;
+            }
+            if ((total_spilled += size) >= overbooking) {
+                break;
+            }
+        }
+        if (total_spilled < overbooking) {
+            log.warn(
+                "Cannot find enough chunks to spill to avoid overbooking - total "
+                "spilled: ",
+                format_nbytes(total_spilled),
+                ", remaining overbooking: ",
+                format_nbytes(overbooking - total_spilled)
+            );
+        }
     }
 
     // Move the gpu_data to device memory (copy if necessary).
