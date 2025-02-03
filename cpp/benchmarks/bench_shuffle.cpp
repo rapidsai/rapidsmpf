@@ -152,7 +152,7 @@ class ArgumentParser {
         }
         ss << "Local size: " << rapidsmp::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmp::format_nbytes(total_nbytes) << "\n";
-        std::cout << ss.str() << std::endl;
+        comm.logger().info(ss.str());
     }
 
     int num_runs{1};
@@ -299,7 +299,7 @@ int main(int argc, char** argv) {
         ss << "    Total Memory: "
            << rapidsmp::format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
-        log.warn(ss.str());
+        log.info(ss.str());
     }
 
     std::vector<double> elapsed_vec;
@@ -314,7 +314,7 @@ int main(int argc, char** argv) {
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
-        log.warn(ss.str());
+        log.info(ss.str());
         if (i >= args.num_warmups) {
             elapsed_vec.push_back(elapsed);
         }
@@ -334,7 +334,7 @@ int main(int argc, char** argv) {
             ss << " | rmm device memory peak: " << rapidsmp::format_nbytes(counter.peak)
                << " | total: " << rapidsmp::format_nbytes(counter.total);
         }
-        log.warn(ss.str());
+        log.info(ss.str());
     }
     RAPIDSMP_MPI(MPI_Finalize());
 
