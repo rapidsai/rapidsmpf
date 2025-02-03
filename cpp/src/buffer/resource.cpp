@@ -42,7 +42,7 @@ BufferResource::BufferResource(
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, bool allow_overbooking
 ) {
-    auto const& available = memory_available_.at(mem_type);
+    auto const& available = memory_available(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
     std::size_t& reserved = memory_reserved(mem_type);
 
