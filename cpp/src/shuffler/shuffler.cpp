@@ -137,16 +137,16 @@ Shuffler::~Shuffler() {
 void Shuffler::shutdown() {
     RAPIDSMP_EXPECTS(active_, "shuffler is inactive");
     auto& log = comm_->logger();
-    log.info("Shuffler.shutdown() - initiate");
+    log.debug("Shuffler.shutdown() - initiate");
     event_loop_thread_run_.store(false);
     event_loop_thread_.join();
-    log.info("Shuffler.shutdown() - done");
+    log.debug("Shuffler.shutdown() - done");
     active_ = false;
 }
 
 void Shuffler::insert_into_outbox(detail::Chunk&& chunk) {
     auto& log = comm_->logger();
-    log.info("insert_into_outbox: ", chunk);
+    log.trace("insert_into_outbox: ", chunk);
     auto pid = chunk.pid;
     if (chunk.expected_num_chunks) {
         finish_counter_.move_goalpost(
@@ -273,7 +273,7 @@ void Shuffler::run_event_loop_iteration(
     // Check for new chunks in the inbox and send off their metadata.
     for (auto&& chunk : self.inbox_.extract_all()) {
         auto dst = self.partition_owner(self.comm_, chunk.pid);
-        log.info("send metadata to ", dst, ": ", chunk);
+        log.trace("send metadata to ", dst, ": ", chunk);
         RAPIDSMP_EXPECTS(dst != self.comm_->rank(), "sending chunk to ourselves");
 
         fire_and_forget.push_back(self.comm_->send(
@@ -293,7 +293,7 @@ void Shuffler::run_event_loop_iteration(
         auto const [msg, src] = self.comm_->recv_any(metadata_tag);
         if (msg) {
             auto chunk = Chunk::from_metadata_message(msg);
-            log.info("recv_any from ", src, ": ", chunk);
+            log.trace("recv_any from ", src, ": ", chunk);
             RAPIDSMP_EXPECTS(
                 self.partition_owner(self.comm_, chunk.pid) == self.comm_->rank(),
                 "receiving chunk not owned by us"
@@ -313,7 +313,7 @@ void Shuffler::run_event_loop_iteration(
     if (auto first_chunk = incoming_chunks.begin(); first_chunk != incoming_chunks.end())
     {
         auto [src, chunk] = extract_item(incoming_chunks, first_chunk);
-        log.info("picked incoming chunk data from ", src, ": ", chunk);
+        log.trace("picked incoming chunk data from ", src, ": ", chunk);
         // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
         // direct to the outbox.
         if (chunk.gpu_data_size > 0) {
@@ -355,7 +355,7 @@ void Shuffler::run_event_loop_iteration(
         if (msg) {
             auto ready_for_data_msg = ReadyForDataMessage::unpack(msg);
             auto chunk = extract_value(outgoing_chunks, ready_for_data_msg.cid);
-            log.info(
+            log.trace(
                 "recv_any from ", src, ": ", ready_for_data_msg, ", sending: ", chunk
             );
             if (chunk.gpu_data->mem_type == MemoryType::DEVICE) {
@@ -410,7 +410,7 @@ void Shuffler::event_loop(Shuffler* self) {
     std::unordered_map<ChunkID, Chunk> in_transit_chunks;
     std::unordered_map<ChunkID, std::unique_ptr<Communicator::Future>> in_transit_futures;
 
-    log.info("event loop - start: ", *self);
+    log.debug("event loop - start: ", *self);
 
     // This thread needs to have a cuda context associated with it.
     // For now, do so by calling cudaFree to initialise the driver.
@@ -439,7 +439,7 @@ void Shuffler::event_loop(Shuffler* self) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    log.info("event loop - shutdown: ", self->str());
+    log.debug("event loop - shutdown: ", self->str());
 }
 
 std::string Shuffler::str() const {
