@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,6 +46,7 @@ namespace rapidsmp {
  *     the exception.
  *   - When given, the third argument is the exception to be thrown. When not
  *     specified, defaults to `std::logic_error`.
+ *
  * @throw `_exception_type` if the condition evaluates to 0 (false).
  */
 #define RAPIDSMP_EXPECTS(...)                                                       \
@@ -84,6 +85,7 @@ namespace rapidsmp {
  *     the exception.
  *   - When given, the second argument is the exception to be thrown. When not
  *     specified, defaults to `std::logic_error`.
+ *
  * @throw `_exception_type` if the condition evaluates to 0 (false).
  */
 #define RAPIDSMP_FAIL(...)                                                 \

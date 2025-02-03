@@ -10,20 +10,23 @@ cd "${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/tests/librapidsmp/"
 export OMPI_ALLOW_RUN_AS_ROOT=1  # CI runs as root
 export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
-EXTRA_ARGS="$@"
 
+EXTRA_ARGS="$@"
 run_mpirun_test() {
-    local nrank="$1"  # Number of ranks
-    local test="$2"   # Test name
-    echo "Running test: $test with $nrank ranks"
-    timeout 1m mpirun -np "$nrank" ctest --no-tests=error --output-on-failure \
-        -R "$test" $EXTRA_ARGS
+    local timeout="$1" # Timeout
+    local nrank="$2"   # Number of ranks
+    local test="$3"    # Test name
+    echo "Running ctest with $nrank ranks"
+    timeout "$timeout" mpirun -np "$nrank" ctest --no-tests=error \
+        --output-on-failure -R "$test" $EXTRA_ARGS
 }
 
+# Note, we run with many different number of ranks, which we can do as long as
+# the test suite only takes seconds to run (timeouts after one minute).
 for nrank in 1 2 3 4 5 8; do
-    run_mpirun_test $nrank mpi_tests
+    run_mpirun_test 1m $nrank mpi_tests
 done
 
 for nrank in 1 2 3 4 5 8; do
-    run_mpirun_test $nrank ucxx_tests
+    run_mpirun_test 1m $nrank ucxx_tests
 done
