@@ -311,3 +311,66 @@ TEST_P(ConcurrentShuffleTest, round_trip) {
         ASSERT_NO_THROW(f.wait());
     }
 }
+
+TEST(Shuffler, SpillOnExtraction) {
+    rapidsmp::shuffler::PartID const total_num_partitions = 2;
+    std::int64_t const seed = 42;
+    cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
+    auto stream = cudf::get_default_stream();
+
+    // Use a statistics memory resource.
+    rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource> mr(
+        cudf::get_current_device_resource_ref()
+    );
+
+    // Create a buffer resource with an availabe device memory we can control
+    // through the variable `device_memory_available`.
+    std::int64_t device_memory_available{0};
+    rapidsmp::BufferResource br{
+        mr,
+        {{rapidsmp::MemoryType::DEVICE,
+          [&device_memory_available]() -> std::int64_t { return device_memory_available; }
+        }}
+    };
+    EXPECT_EQ(
+        br.memory_available(rapidsmp::MemoryType::DEVICE)(), device_memory_available
+    );
+
+    // Create a communicator of size 1, such that each shuffler will run locally.
+    int rank;
+    RAPIDSMP_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+    MPI_Comm mpi_comm;
+    RAPIDSMP_MPI(MPI_Comm_split(MPI_COMM_WORLD, rank, 0, &mpi_comm));
+    std::shared_ptr<rapidsmp::Communicator> comm =
+        std::make_shared<rapidsmp::MPI>(mpi_comm);
+    EXPECT_EQ(comm->nranks(), 1);
+
+    // Create a shuffler and input chunks.
+    rapidsmp::shuffler::Shuffler shuffler(
+        comm,
+        0,  // op_id
+        total_num_partitions,
+        stream,
+        &br
+    );
+    cudf::table input_table = random_table_with_index(seed, 1000, 0, 10);
+    auto input_chunks = rapidsmp::shuffler::partition_and_pack(
+        input_table, {1}, total_num_partitions, hash_fn, seed, stream, mr
+    );
+
+    // Force spilling.
+    device_memory_available = -1000;
+
+    // Insert does nothing, we start with 2 device allocations.
+    EXPECT_EQ(mr.get_allocations_counter().value, 2);
+    shuffler.insert(std::move(input_chunks));
+    // And we end with two 2 device allocations.
+    EXPECT_EQ(mr.get_allocations_counter().value, 2);
+
+    // But extract triggers spillling of the partition not being extracted.
+    auto output_chunks = shuffler.extract(0);
+    EXPECT_EQ(mr.get_allocations_counter().value, 1);
+
+    shuffler.shutdown();
+    RAPIDSMP_MPI(MPI_Comm_free(&mpi_comm));
+}
