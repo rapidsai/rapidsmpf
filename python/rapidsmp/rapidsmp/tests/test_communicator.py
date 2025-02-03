@@ -12,5 +12,4 @@ def test_mpi(capfd):
     assert comm.rank == MPI.COMM_WORLD.rank
 
     comm.logger.warn("this is a warning")
-    captured = capfd.readouterr()
-    assert "this is a warning" in captured.out
+    assert "this is a warning" in capfd.readouterr().out
