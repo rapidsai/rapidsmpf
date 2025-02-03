@@ -15,6 +15,7 @@ def test_mpi(capfd, RAPIDSMP_LOG):
         comm = new_communicator(MPI.COMM_WORLD)
         assert comm.nranks == MPI.COMM_WORLD.size
         assert comm.rank == MPI.COMM_WORLD.rank
+        assert comm.logger.verbosity_level == RAPIDSMP_LOG
 
         comm.logger.warn("WARN")
         comm.logger.info("INFO")

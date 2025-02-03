@@ -1,6 +1,7 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
 from cython.operator cimport dereference as deref
+from libc.stdint cimport uint32_t
 from libcpp.memory cimport shared_ptr
 from libcpp.string cimport string
 from libcpp.utility cimport move
@@ -27,11 +28,15 @@ cdef extern from *:
     void cpp_log_trace(std::shared_ptr<rapidsmp::Communicator> comm, T && msg) {
         comm->logger().trace(msg);
     }
+    int cpp_verbosity_level(std::shared_ptr<rapidsmp::Communicator> comm) {
+        return comm->logger().verbosity_level();
+    }
     """
     void cpp_log_warn[T](shared_ptr[cpp_Communicator] comm, T msg) except +
     void cpp_log_info[T](shared_ptr[cpp_Communicator] comm, T msg) except +
     void cpp_log_debug[T](shared_ptr[cpp_Communicator] comm, T msg) except +
     void cpp_log_trace[T](shared_ptr[cpp_Communicator] comm, T msg) except +
+    uint32_t cpp_verbosity_level(shared_ptr[cpp_Communicator] comm) except +
 
 cdef class Logger:
     """
@@ -47,6 +52,17 @@ cdef class Logger:
 
     def __init__(self):
         raise TypeError("Please get a `Logger` from a communicater instance")
+
+    @property
+    def verbosity_level(self):
+        """
+        Get the verbosity level of the logger.
+
+        Returns
+        -------
+            The verbosity level.
+        """
+        return cpp_verbosity_level(self._comm._handle)
 
     def warn(self, msg: str):
         """

@@ -193,6 +193,15 @@ class Communicator {
         virtual ~Logger() noexcept = default;
 
         /**
+         * @brief Get the verbosity level of the logger.
+         *
+         * @return The verbosity level.
+         */
+        int verbosity_level() const {
+            return level_;
+        }
+
+        /**
          * @brief Logs a warning message.
          *
          * Formats and outputs a warning message if the verbosity level is `1` or higher.
@@ -355,21 +364,6 @@ class Communicator {
         Communicator* get_communicator() const {
             return comm_;
         }
-
-        /**
-         * @brief Get the verbosity level of the logger.
-         *
-         * Levels:
-         *  - `0`: Disable all logging.
-         *  - `1`: Enable warnings only (default).
-         *  - `2`: Enable warnings and informational messages.
-         *
-         * @return The verbosity level.
-         */
-        int verbosity_level() const {
-            return level_;
-        }
-
 
       private:
         std::mutex mutex_;
