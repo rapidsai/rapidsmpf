@@ -367,7 +367,7 @@ TEST(Shuffler, SpillOnExtraction) {
     // And we end with two 2 device allocations.
     EXPECT_EQ(mr.get_allocations_counter().value, 2);
 
-    // But extract triggers spillling of the partition not being extracted.
+    // But extract triggers spilling of the partition not being extracted.
     auto output_chunks = shuffler.extract(0);
     EXPECT_EQ(mr.get_allocations_counter().value, 1);
 
