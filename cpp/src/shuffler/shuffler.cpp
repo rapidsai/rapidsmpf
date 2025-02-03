@@ -246,7 +246,7 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
                     MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
                 );
             } catch (std::out_of_range const&) {
-                log.warn("While spilling, target chunk was removed underneath us");
+                log.debug("While spilling, target chunk was removed underneath us");
                 continue;
             }
             if ((total_spilled += size) >= overbooking) {
