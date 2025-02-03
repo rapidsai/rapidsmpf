@@ -37,11 +37,11 @@ partition_and_split(
     rmm::device_async_resource_ref mr
 ) {
     if (table.num_rows() == 0) {
-        // Return an copy of the empty `table`.
-        return std::
-            make_pair<std::vector<cudf::table_view>, std::unique_ptr<cudf::table>>(
-                {cudf::table(table, stream, mr)}, nullptr
-            );
+        // Return views of a copy of the empty `table`.
+        auto owner = std::make_unique<cudf::table>(table, stream, mr);
+        return {
+            std::vector<cudf::table_view>(num_partitions, owner->view()), std::move(owner)
+        };
     }
 
     auto res = cudf::hash_partition(
