@@ -11,5 +11,10 @@ def test_mpi(capfd):
     assert comm.nranks == MPI.COMM_WORLD.size
     assert comm.rank == MPI.COMM_WORLD.rank
 
-    comm.logger.warn("this is a warning")
-    assert "this is a warning" in capfd.readouterr().out
+    comm.logger.warn("WARN")
+    comm.logger.info("INFO")
+    comm.logger.debug("DEBUG")
+    comm.logger.trace("TRACE")
+    output = capfd.readouterr().out
+
+    assert output.count("WARN") == 2

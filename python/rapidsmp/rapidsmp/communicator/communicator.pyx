@@ -7,17 +7,31 @@ from libcpp.utility cimport move
 
 
 # Since a rapids::Communicator::Logger doesn't have a default ctor, we use
-# this C++ function to call the logger instance without having Cython try
-# to use the non-existent default ctor.
+# these C++ functions to call the logger instance. This way Cython doesn't
+# try to use the non-existent default ctor.
 cdef extern from *:
     """
     template<typename T>
     void cpp_log_warn(std::shared_ptr<rapidsmp::Communicator> comm, T && msg) {
         comm->logger().warn(msg);
     }
+    template<typename T>
+    void cpp_log_info(std::shared_ptr<rapidsmp::Communicator> comm, T && msg) {
+        comm->logger().info(msg);
+    }
+    template<typename T>
+    void cpp_log_debug(std::shared_ptr<rapidsmp::Communicator> comm, T && msg) {
+        comm->logger().debug(msg);
+    }
+    template<typename T>
+    void cpp_log_trace(std::shared_ptr<rapidsmp::Communicator> comm, T && msg) {
+        comm->logger().trace(msg);
+    }
     """
     void cpp_log_warn[T](shared_ptr[cpp_Communicator] comm, T msg) except +
-
+    void cpp_log_info[T](shared_ptr[cpp_Communicator] comm, T msg) except +
+    void cpp_log_debug[T](shared_ptr[cpp_Communicator] comm, T msg) except +
+    void cpp_log_trace[T](shared_ptr[cpp_Communicator] comm, T msg) except +
 
 cdef class Logger:
     """
@@ -43,10 +57,53 @@ cdef class Logger:
         Parameters
         ----------
         msg
-            The warning message to log.
+            The message to log.
         """
         cdef string _msg = msg.encode()
         cpp_log_warn(self._comm._handle, move(_msg))
+
+    def info(self, msg: str):
+        """
+        Logs an informational message.
+
+        Formats and outputs an informational message if the verbosity level is `2`
+        or higher.
+
+        Parameters
+        ----------
+        msg
+            The message to log.
+        """
+        cdef string _msg = msg.encode()
+        cpp_log_info(self._comm._handle, move(_msg))
+
+    def debug(self, msg: str):
+        """
+        Logs a debug message.
+
+        Formats and outputs a debug message if the verbosity level is `3` or higher.
+
+        Parameters
+        ----------
+        msg
+            The message to log.
+        """
+        cdef string _msg = msg.encode()
+        cpp_log_debug(self._comm._handle, move(_msg))
+
+    def trace(self, msg: str):
+        """
+        Logs a trace message.
+
+        Formats and outputs a trace message if the verbosity level is `4` or higher.
+
+        Parameters
+        ----------
+        msg
+            The message to log.
+        """
+        cdef string _msg = msg.encode()
+        cpp_log_trace(self._comm._handle, move(_msg))
 
 
 cdef class Communicator:
