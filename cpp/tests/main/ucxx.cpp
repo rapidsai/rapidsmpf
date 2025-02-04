@@ -38,7 +38,7 @@ namespace {
  * @param listener_address object containing the listener address of the root,
  * which will be read from in rank 0 and stored to in all other ranks.
  */
-void broadcast_listener_address(rapidsmp::ListenerAddress& listener_address) {
+void broadcast_listener_address(rapidsmp::ucxx::ListenerAddress& listener_address) {
     size_t host_size{listener_address.host.size()};
 
     RAPIDSMP_MPI(MPI_Bcast(&host_size, sizeof(host_size), MPI_UINT8_T, 0, MPI_COMM_WORLD)
@@ -71,25 +71,26 @@ void Environment::SetUp() {
     // Ensure CUDA context is created before UCX is initialized.
     cudaFree(0);
 
-    auto root_listener_address = rapidsmp::ListenerAddress{.rank = 0};
-    std::shared_ptr<rapidsmp::UCXX> comm;
+    auto root_listener_address = rapidsmp::ucxx::ListenerAddress{.rank = 0};
+    std::shared_ptr<rapidsmp::ucxx::UCXX> comm;
     if (rank == 0) {
-        comm = std::make_shared<rapidsmp::UCXX>(nullptr, nranks);
+        auto ucxx_initialized_rank = rapidsmp::ucxx::init(nullptr, nranks);
+        comm = std::make_shared<rapidsmp::ucxx::UCXX>(std::move(ucxx_initialized_rank));
+        comm_ = comm;
 
         root_listener_address = comm->listener_address();
-        comm_ = comm;
     }
     broadcast_listener_address(root_listener_address);
 
     if (rank != 0) {
-        comm = std::make_shared<rapidsmp::UCXX>(
+        auto ucxx_initialized_rank = rapidsmp::ucxx::init(
             nullptr, nranks, root_listener_address.host, root_listener_address.port
         );
+        comm = std::make_shared<rapidsmp::ucxx::UCXX>(std::move(ucxx_initialized_rank));
+        comm_ = comm;
     }
 
     comm->barrier();
-
-    comm_ = comm;
 }
 
 void Environment::TearDown() {
@@ -101,7 +102,7 @@ void Environment::TearDown() {
 }
 
 void Environment::barrier() {
-    std::dynamic_pointer_cast<rapidsmp::UCXX>(comm_)->barrier();
+    std::dynamic_pointer_cast<rapidsmp::ucxx::UCXX>(comm_)->barrier();
 }
 
 int main(int argc, char** argv) {

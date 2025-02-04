@@ -143,9 +143,7 @@ void test_shuffler(
         // the partitions this rank should use as input. We pick using round robin but
         // any distribution would work (as long as no rows are picked by multiple ranks).
         // TODO: we should test different distributions of the input partitions.
-        if (rapidsmp::shuffler::Shuffler::round_robin(GlobalEnvironment->comm_, i)
-            == GlobalEnvironment->comm_->rank())
-        {
+        if (rapidsmp::shuffler::Shuffler::round_robin(comm, i) == comm->rank()) {
             cudf::size_type row_end = row_offset + partiton_size;
             if (i == total_num_partitions - 1) {
                 // Include the reminder of rows in the very last partition.
@@ -174,10 +172,7 @@ void test_shuffler(
             rapidsmp::shuffler::unpack_and_concat(std::move(packed_chunks), stream, mr);
 
         // We should only receive the partitions assigned to this rank.
-        EXPECT_EQ(
-            shuffler.partition_owner(GlobalEnvironment->comm_, finished_partition),
-            GlobalEnvironment->comm_->rank()
-        );
+        EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
 
         // Check the result while ignoring the row order.
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
@@ -250,7 +245,7 @@ class ConcurrentShuffleTest
 
         // these resources will be used by multiple threads to instantiate shufflers
         br = std::make_shared<rapidsmp::BufferResource>(mr());
-        comm = std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
+        comm = GlobalEnvironment->comm_;
         stream = cudf::get_default_stream();
     }
 
@@ -262,6 +257,7 @@ class ConcurrentShuffleTest
     // test run for each thread. The test follows the same logic as
     // `MemoryAvailable_NumPartition` test, but without any memory limitations
     void RunTest(int t_id) {
+        GlobalEnvironment->barrier();
         rapidsmp::shuffler::Shuffler shuffler(
             comm,
             t_id,  // op_id, use t_id as a proxy

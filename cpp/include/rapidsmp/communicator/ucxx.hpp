@@ -31,7 +31,39 @@
 
 namespace rapidsmp {
 
+namespace ucxx {
+
+
 class UCXXSharedResources;
+
+/**
+ * @brief A UCXX initialized rank.
+ *
+ * This class is a container returned by the `init()` function with an opaque object
+ * to an initialized UCXX rank. An object of this class is later used to initialize
+ * a `UCXX` object.
+ */
+class UCXXInitializedRank {
+  public:
+    /**
+     * @brief Construct an initialized UCXX rank.
+     *
+     * Construct an initialized UCXX rank.
+     *
+     * @param shared_resources Opaque object created by `init()`.
+     */
+    UCXXInitializedRank(std::shared_ptr<UCXXSharedResources> shared_resources);
+
+    std::shared_ptr<UCXXSharedResources> shared_resources_{nullptr
+    };  ///< Opaque object created by `init()`.
+};
+
+std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
+    std::shared_ptr<::ucxx::Worker> worker,
+    std::uint32_t nranks,
+    std::optional<std::string> root_host = std::nullopt,
+    std::optional<uint16_t> root_por = std::nullopt
+);
 
 /**
  * @brief Storage for a listener address.
@@ -84,27 +116,14 @@ class UCXX final : public Communicator {
     };
 
     /**
-     * @brief Construct the root UCXX rank.
+     * @brief Construct the UCXX rank.
      *
-     * @param worker The UCXX worker, or nullptr to create one internally.
-     * @param nranks The number of ranks requested for the cluster.
-     */
-    UCXX(std::shared_ptr<::ucxx::Worker> worker, std::uint32_t nranks);
-
-    /**
-     * @brief Construct additional (non-root) UCXX rank.
+     * Construct the UCXX rank using the context previously returned from the call to
+     * `init()`.
      *
-     * @param worker The UCXX worker, or nullptr to create one internally.
-     * @param nranks The number of ranks requested for the cluster.
-     * @param root_host The hostname or IP address where the root rank is listening.
-     * @param root_port The port where the root rank is listening.
+     * @param ucxx_context The previously initialized UCXX context.
      */
-    UCXX(
-        std::shared_ptr<::ucxx::Worker> worker,
-        std::uint32_t nranks,
-        std::string root_host,
-        uint16_t root_port
-    );
+    UCXX(std::unique_ptr<UCXXInitializedRank> ucxx_context);
 
     ~UCXX() noexcept override;
 
@@ -116,9 +135,7 @@ class UCXX final : public Communicator {
     /**
      * @copydoc Communicator::nranks
      */
-    [[nodiscard]] int nranks() const override {
-        return nranks_;
-    }
+    [[nodiscard]] int nranks() const override;
 
     /**
      * @copydoc Communicator::send
@@ -209,14 +226,13 @@ class UCXX final : public Communicator {
     ListenerAddress listener_address();
 
   private:
-    std::shared_ptr<::ucxx::Worker> worker_;
     std::shared_ptr<UCXXSharedResources> shared_resources_;
-    std::uint32_t nranks_;
     Logger logger_;
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
     void progress_worker();
 };
 
+}  // namespace ucxx
 
 }  // namespace rapidsmp
