@@ -16,9 +16,11 @@ import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 import rapidsmp.communicator.mpi
-from rapidsmp.buffer.resource import BufferResource
+from rapidsmp.buffer.buffer import MemoryType
+from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
 from rapidsmp.testing import pylibcudf_to_cudf_dataframe
+from rapidsmp.utils.string import format_bytes, parse_bytes
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -181,7 +183,24 @@ def bulk_mpi_shuffle(
 def setup_and_run(args) -> None:
     """Setup the environment and run the shuffle example."""
     comm = rapidsmp.communicator.mpi.new_communicator(MPI.COMM_WORLD)
-    br = BufferResource(rmm.mr.get_current_device_resource())
+
+    # Create a RMM stack with both a device pool and statistics.
+    mr = rmm.mr.StatisticsResourceAdaptor(
+        rmm.mr.PoolMemoryResource(
+            rmm.mr.CudaMemoryResource(),
+            initial_pool_size=args.rmm_pool_size,
+            maximum_pool_size=args.rmm_pool_size,
+        )
+    )
+
+    # Create a buffer resource that limits device memory if `--spill-device`
+    # is not None.
+    memory_available = (
+        None
+        if args.spill_device is None
+        else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=args.spill_device)}
+    )
+    br = BufferResource(mr, memory_available)
 
     MPI.COMM_WORLD.barrier()
     bulk_mpi_shuffle(
@@ -236,6 +255,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "on",
+        metavar="COLUMN_LIST",
         type=str,
         help="Comma-separated list of column names to shuffle on.",
     )
@@ -257,4 +277,24 @@ if __name__ == "__main__":
         action="store_true",
         help="Maximum device memory to use.",
     )
-    setup_and_run(parser.parse_args())
+    parser.add_argument(
+        "--rmm-pool-size",
+        type=parse_bytes,
+        default=format_bytes(int(rmm.mr.available_device_memory()[1] * 0.8)),
+        help=(
+            "The size of the RMM pool as a string with unit such as '2MiB' and '4KiB'. "
+            "Default to 80%% of the total device memory, which is %(default)s."
+        ),
+    )
+    parser.add_argument(
+        "--spill-device",
+        type=lambda x: None if x is None else parse_bytes(x),
+        default=None,
+        help=(
+            "Spilling device-to-host threshold as a string with unit such as '2MiB' "
+            "and '4KiB'. Default is no spilling"
+        ),
+    )
+    args = parser.parse_args()
+    args.rmm_pool_size = (args.rmm_pool_size // 256) * 256  # Align to 256 bytes
+    setup_and_run(args)
