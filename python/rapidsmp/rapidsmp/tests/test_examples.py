@@ -51,6 +51,7 @@ def test_bulk_mpi_shuffle(comm, tmpdir, batchsize, num_output_files):
         paths=input_paths,
         shuffle_on=["b"],
         output_path=output_dir,
+        comm=comm,
         batchsize=batchsize,
         num_output_files=num_output_files,
     )

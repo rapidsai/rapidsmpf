@@ -15,13 +15,15 @@ import pylibcudf as plc
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
+import rapidsmp.communicator.mpi
 from rapidsmp.buffer.resource import BufferResource
-from rapidsmp.communicator.mpi import new_communicator
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
 from rapidsmp.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from rapidsmp.communicator.communicator import Communicator
 
 
 def read_batch(paths: list[str]) -> tuple[plc.Table, list[str]]:
@@ -48,8 +50,8 @@ def bulk_mpi_shuffle(
     paths: list[str],
     shuffle_on: list[str],
     output_path: str,
+    comm: Communicator,
     *,
-    mpi_comm: MPI.Intercomm = MPI.COMM_WORLD,
     num_output_files: int | None = None,
     batchsize: int = 1,
     read_func: Callable = read_batch,
@@ -69,8 +71,8 @@ def bulk_mpi_shuffle(
     output_path
         Path of the output directory where the data will be written. This
         directory does not need to be on a shared filesystem.
-    mpi_comm
-        The MPI communicator to use.
+    comm
+        The communicator to use.
     num_output_files
         Number of output files to produce. Default will preserve the
         input file count.
@@ -94,23 +96,18 @@ def bulk_mpi_shuffle(
     bulk-synchronous fashion. This means all ranks are expected to call
     this same function with the same arguments.
     """
-    # Extract communicator and rank
-    comm = new_communicator(mpi_comm)
-    nranks = comm.nranks
-    rank = comm.rank
-
     # Create output directory if necessary
     Path(output_path).mkdir(exist_ok=True)
 
-    if rank == 0:
+    if comm.rank == 0:
         start_time = MPI.Wtime()
 
     # Determine which files to process on this rank
     num_input_files = len(paths)
     num_output_files = num_output_files or num_input_files
     total_num_partitions = num_output_files
-    files_per_rank = math.ceil(num_input_files / nranks)
-    start = files_per_rank * rank
+    files_per_rank = math.ceil(num_input_files / comm.nranks)
+    start = files_per_rank * comm.rank
     finish = start + files_per_rank
     local_files = paths[start:finish]
     num_local_files = len(local_files)
@@ -177,9 +174,26 @@ def bulk_mpi_shuffle(
             )
         shuffler.shutdown()
 
-    if rank == 0:
+    if comm.rank == 0:
         end_time = MPI.Wtime()
         print(f"Shuffle took {end_time - start_time} seconds")
+
+
+def setup_and_run(args) -> None:
+    """Setup the environment and run the shuffle example."""
+    comm = rapidsmp.communicator.mpi.new_communicator(MPI.COMM_WORLD)
+
+    MPI.COMM_WORLD.barrier()
+    bulk_mpi_shuffle(
+        paths=sorted(map(str, args.input.glob("**/*"))),
+        shuffle_on=args.on.split(","),
+        output_path=args.output,
+        comm=comm,
+        num_output_files=args.n_output_files,
+        batchsize=args.batchsize,
+        baseline=args.baseline,
+    )
+    MPI.COMM_WORLD.barrier()
 
 
 def dir_path(path: str) -> Path:
@@ -208,19 +222,19 @@ if __name__ == "__main__":
         description="Shuffle a dataset at rest on both ends.",
     )
     parser.add_argument(
-        "--input",
+        "input",
         type=dir_path,
         metavar="DIR_PATH",
-        default="/datasets/rzamora/data/sm_timeseries_pq",
         help="Input directory path.",
     )
     parser.add_argument(
-        "--output",
-        type=str,
+        "output",
+        metavar="DIR_PATH",
+        type=Path,
         help="Output directory path.",
     )
     parser.add_argument(
-        "--on",
+        "on",
         type=str,
         help="Comma-separated list of column names to shuffle on.",
     )
@@ -242,13 +256,4 @@ if __name__ == "__main__":
         action="store_true",
         help="Maximum device memory to use.",
     )
-    args = parser.parse_args()
-
-    bulk_mpi_shuffle(
-        paths=sorted(map(str, args.input.glob("**/*"))),
-        shuffle_on=args.on.split(","),
-        output_path=args.output,
-        num_output_files=args.n_output_files,
-        batchsize=args.batchsize,
-        baseline=args.baseline,
-    )
+    setup_and_run(parser.parse_args())
