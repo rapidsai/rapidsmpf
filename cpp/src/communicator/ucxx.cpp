@@ -743,18 +743,20 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<std::vector<uint8_t>> msg,
     Rank rank,
-    int tag,
+    Tag tag,
     rmm::cuda_stream_view stream,
     BufferResource* br
 ) {
     auto req = get_endpoint(rank)->tagSend(
-        msg->data(), msg->size(), tag_with_rank(shared_resources_->rank_, tag)
+        msg->data(),
+        msg->size(),
+        tag_with_rank(shared_resources_->rank_, static_cast<int>(tag))
     );
     return std::make_unique<Future>(req, br->move(std::move(msg), stream));
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
-    std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
+    std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
 ) {
     auto req = get_endpoint(rank)->tagSend(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank_, tag)
@@ -763,7 +765,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv(
-    Rank rank, int tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
+    Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
 ) {
     auto req = get_endpoint(rank)->tagRecv(
         recv_buffer->data(),
@@ -774,9 +776,9 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
-std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(int tag) {
+std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     Logger& log = logger();
-    auto probe = worker_->tagProbe(::ucxx::Tag(tag), UserTagMask);
+    auto probe = worker_->tagProbe(::ucxx::Tag(static_cast<int>(tag)), UserTagMask);
     auto msg_available = probe.first;
     auto info = probe.second;
     auto sender_rank = static_cast<Rank>(info.senderTag >> 32);
@@ -786,7 +788,9 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(int tag) {
     auto msg = std::make_unique<std::vector<uint8_t>>(info.length
     );  // TODO: choose between host and device
 
-    auto req = worker_->tagRecv(msg->data(), msg->size(), ::ucxx::Tag(tag), UserTagMask);
+    auto req = worker_->tagRecv(
+        msg->data(), msg->size(), ::ucxx::Tag(static_cast<int>(tag)), UserTagMask
+    );
 
     while (!req->isCompleted()) {
         log.warn(
