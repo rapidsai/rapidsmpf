@@ -187,6 +187,26 @@ def bulk_mpi_shuffle(
         print(f"Shuffle took {end_time - start_time} seconds")
 
 
+def dir_path(path: str) -> Path:
+    """
+    Validate that the given path is a directory and return a Path object.
+
+    Parameters
+    ----------
+    path
+        The path to check.
+
+    Returns
+    -------
+    Path
+        A Path object representing the directory.
+    """
+    ret = Path(path)
+    if not ret.is_dir():
+        raise ValueError()
+    return ret
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="Bulk-synchronous MPI shuffle",
@@ -194,7 +214,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--input",
-        type=str,
+        type=dir_path,
+        metavar="DIR_PATH",
         default="/datasets/rzamora/data/sm_timeseries_pq",
         help="Input directory path.",
     )
@@ -229,7 +250,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     bulk_mpi_shuffle(
-        paths=sorted(map(str, Path(args.input).glob("**/*"))),
+        paths=sorted(map(str, args.input.glob("**/*"))),
         shuffle_on=args.on.split(","),
         output_path=args.output,
         num_output_files=args.n_output_files,
