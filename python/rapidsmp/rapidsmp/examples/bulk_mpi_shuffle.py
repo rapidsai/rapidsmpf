@@ -104,9 +104,6 @@ def bulk_mpi_shuffle(
     # Create output directory if necessary
     Path(output_path).mkdir(exist_ok=True)
 
-    if comm.rank == 0:
-        start_time = MPI.Wtime()
-
     # Determine which files to process on this rank
     num_input_files = len(paths)
     num_output_files = num_output_files or num_input_files
@@ -175,10 +172,6 @@ def bulk_mpi_shuffle(
             )
         shuffler.shutdown()
 
-    if comm.rank == 0:
-        end_time = MPI.Wtime()
-        print(f"Shuffle took {end_time - start_time} seconds")
-
 
 def setup_and_run(args) -> None:
     """Setup the environment and run the shuffle example."""
@@ -192,6 +185,7 @@ def setup_and_run(args) -> None:
             maximum_pool_size=args.rmm_pool_size,
         )
     )
+    rmm.mr.set_current_device_resource(mr)
 
     # Create a buffer resource that limits device memory if `--spill-device`
     # is not None.
@@ -202,7 +196,25 @@ def setup_and_run(args) -> None:
     )
     br = BufferResource(mr, memory_available)
 
+    if comm.rank == 0:
+        spill_device = (
+            "disabled" if args.spill_device is None else format_bytes(args.spill_device)
+        )
+        comm.logger.info(
+            f"""\
+Shuffle:
+    input: {args.input}
+    output: {args.output}
+    on: {args.on}
+  --n_output_files: {args.n_output_files}
+  --batchsize: {args.batchsize}
+  --baseline: {args.baseline}
+  --rmm-pool-size: {format_bytes(args.rmm_pool_size)}
+  --spill-device: {spill_device}"""
+        )
+
     MPI.COMM_WORLD.barrier()
+    start_time = MPI.Wtime()
     bulk_mpi_shuffle(
         paths=sorted(map(str, args.input.glob("**/*"))),
         shuffle_on=args.on.split(","),
@@ -213,7 +225,14 @@ def setup_and_run(args) -> None:
         batchsize=args.batchsize,
         baseline=args.baseline,
     )
+    elapsed_time = MPI.Wtime() - start_time
     MPI.COMM_WORLD.barrier()
+
+    if comm.rank == 0:
+        mem_peak = format_bytes(mr.allocation_counts.peak_bytes)
+        comm.logger.info(
+            f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
+        )
 
 
 def dir_path(path: str) -> Path:
