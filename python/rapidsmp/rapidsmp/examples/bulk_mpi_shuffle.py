@@ -220,7 +220,7 @@ def dir_path(path: str) -> Path:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="Bulk-synchronous MPI shuffle",
-        description="Shuffle a dataset at rest on both ends.",
+        description="Shuffle a dataset at rest (on disk) on both ends.",
     )
     parser.add_argument(
         "input",
