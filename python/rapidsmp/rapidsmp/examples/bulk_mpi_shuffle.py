@@ -206,7 +206,7 @@ Shuffle:
     input: {args.input}
     output: {args.output}
     on: {args.on}
-  --n_output_files: {args.n_output_files}
+  --n-output-files: {args.n_output_files}
   --batchsize: {args.batchsize}
   --baseline: {args.baseline}
   --rmm-pool-size: {format_bytes(args.rmm_pool_size)}
@@ -279,7 +279,7 @@ if __name__ == "__main__":
         help="Comma-separated list of column names to shuffle on.",
     )
     parser.add_argument(
-        "--n_output_files",
+        "--n-output-files",
         type=int,
         default=None,
         help="Number of output files. Default preserves input file count.",
