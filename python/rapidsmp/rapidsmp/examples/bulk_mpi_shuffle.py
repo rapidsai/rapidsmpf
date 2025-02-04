@@ -52,8 +52,8 @@ def bulk_mpi_shuffle(
     mpi_comm: MPI.Intercomm = MPI.COMM_WORLD,
     num_output_files: int | None = None,
     batchsize: int = 1,
-    read_func: Callable | None = None,
-    write_func: Callable | None = None,
+    read_func: Callable = read_batch,
+    write_func: Callable = write_table,
     baseline: bool = False,
 ) -> None:
     """
@@ -77,15 +77,14 @@ def bulk_mpi_shuffle(
     batchsize
         Number of files to read at once on each rank.
     read_func
-        Optional call-back function to read the input data. This function
-        must accept a list of file paths, and return a pylibcudf Table and
-        the list of column names in the table. Default logic will use
-        `pylibcudf.read_parquet`.
+        Call-back function to read the input data. This function must accept a
+        list of file paths, and return a pylibcudf Table and the list of column
+        names in the table. Default logic will use `pylibcudf.read_parquet`.
     write_func
-        Optional call-back function to write shuffled data to disk.
-        must accept `table`, `output_path`, `id`, and `column_names`
-        arguments. Default logic will write the pylibcudf table to a
-        parquet file (e.g. `f"{output_path}/part.{id}.parquet"`).
+        Call-back function to write shuffled data to disk. This function must
+        accept `table`, `output_path`, `id`, and `column_names` arguments.
+        Default logic will write the pylibcudf table to a parquet file
+        (e.g. `f"{output_path}/part.{id}.parquet"`).
     baseline
         Whether to skip the shuffle and run a simple IO baseline.
 
@@ -119,11 +118,9 @@ def bulk_mpi_shuffle(
 
     if baseline:
         # Skip the shuffle - Run IO baseline
-        read_func = read_func or read_batch
-        write_func = write_func or write_table
         for batch_id in range(num_batches):
             batch = local_files[batch_id * batchsize : (batch_id + 1) * batchsize]
-            table, columns = read_batch(batch)
+            table, columns = read_func(batch)
             write_func(
                 table,
                 output_path,
@@ -144,11 +141,10 @@ def bulk_mpi_shuffle(
         )
 
         # Read batches and submit them to the shuffler
-        read_func = read_func or read_batch
         column_names = None
         for batch_id in range(num_batches):
             batch = local_files[batch_id * batchsize : (batch_id + 1) * batchsize]
-            table, columns = read_batch(batch)
+            table, columns = read_func(batch)
             if column_names is None:
                 column_names = columns
             columns_to_hash = tuple(columns.index(val) for val in shuffle_on)
@@ -166,7 +162,6 @@ def bulk_mpi_shuffle(
             shuffler.insert_finished(pid)
 
         # Write shuffled partitions to disk as they finish
-        write_func = write_func or write_table
         while not shuffler.finished():
             partition_id = shuffler.wait_any()
             table = unpack_and_concat(
