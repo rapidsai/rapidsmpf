@@ -8,7 +8,9 @@ import pytest
 from mpi4py import MPI
 
 import cudf
+import rmm.mr
 
+from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.examples.bulk_mpi_shuffle import bulk_mpi_shuffle
 from rapidsmp.testing import assert_eq
 
@@ -46,12 +48,16 @@ def test_bulk_mpi_shuffle(comm, tmpdir, batchsize, num_output_files):
     input_paths = mpi_comm.bcast(input_paths, root=0)
     output_dir = str(mpi_tmpdir.join("output"))
 
+    # Use a default buffer resource.
+    br = BufferResource(rmm.mr.get_current_device_resource())
+
     # Perform a the shuffle
     bulk_mpi_shuffle(
         paths=input_paths,
         shuffle_on=["b"],
         output_path=output_dir,
         comm=comm,
+        br=br,
         batchsize=batchsize,
         num_output_files=num_output_files,
     )

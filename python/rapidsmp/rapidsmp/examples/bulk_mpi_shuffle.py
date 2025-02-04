@@ -51,6 +51,7 @@ def bulk_mpi_shuffle(
     shuffle_on: list[str],
     output_path: str,
     comm: Communicator,
+    br: BufferResource,
     *,
     num_output_files: int | None = None,
     batchsize: int = 1,
@@ -73,6 +74,8 @@ def bulk_mpi_shuffle(
         directory does not need to be on a shared filesystem.
     comm
         The communicator to use.
+    br
+        Buffer resource to use.
     num_output_files
         Number of output files to produce. Default will preserve the
         input file count.
@@ -125,10 +128,6 @@ def bulk_mpi_shuffle(
                 columns,
             )
     else:
-        # Create buffer resource and shuffler
-        mr = rmm.mr.StatisticsResourceAdaptor(rmm.mr.CudaMemoryResource())
-        br = BufferResource(mr)  # TODO: Set memory limit(s)
-        rmm.mr.set_current_device_resource(mr)
         shuffler = Shuffler(
             comm,
             op_id=0,
@@ -182,6 +181,7 @@ def bulk_mpi_shuffle(
 def setup_and_run(args) -> None:
     """Setup the environment and run the shuffle example."""
     comm = rapidsmp.communicator.mpi.new_communicator(MPI.COMM_WORLD)
+    br = BufferResource(rmm.mr.get_current_device_resource())
 
     MPI.COMM_WORLD.barrier()
     bulk_mpi_shuffle(
@@ -189,6 +189,7 @@ def setup_and_run(args) -> None:
         shuffle_on=args.on.split(","),
         output_path=args.output,
         comm=comm,
+        br=br,
         num_output_files=args.n_output_files,
         batchsize=args.batchsize,
         baseline=args.baseline,
