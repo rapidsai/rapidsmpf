@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,13 +25,15 @@ namespace rapidsmp::shuffler::detail {
 
 void PostBox::insert(Chunk&& chunk) {
     std::lock_guard const lock(mutex_);
-    pigeonhole_[chunk.pid].insert({chunk.cid, std::move(chunk)});
+    auto [_, inserted] = pigeonhole_[chunk.pid].insert({chunk.cid, std::move(chunk)});
+    RAPIDSMP_EXPECTS(inserted, "PostBox.insert(): chunk already exist");
 }
 
-Chunk PostBox::extract(PartID pid, ChunkID cid) {
-    std::lock_guard const lock(mutex_);
-    auto& chunks = pigeonhole_.at(pid);
-    return extract_value(chunks, cid);
+std::pair<Chunk&, std::unique_lock<std::mutex>> PostBox::exclusive_access(
+    PartID pid, ChunkID cid
+) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return {pigeonhole_.at(pid).at(cid), std::move(lock)};
 }
 
 std::unordered_map<ChunkID, Chunk> PostBox::extract(PartID pid) {
@@ -48,6 +50,24 @@ std::vector<Chunk> PostBox::extract_all() {
         }
     }
     pigeonhole_.clear();
+    return ret;
+}
+
+bool PostBox::empty() const {
+    return pigeonhole_.empty();
+}
+
+std::vector<std::tuple<PartID, ChunkID, std::size_t>> PostBox::search(MemoryType mem_type
+) const {
+    std::lock_guard const lock(mutex_);
+    std::vector<std::tuple<PartID, ChunkID, std::size_t>> ret;
+    for (auto& [pid, chunks] : pigeonhole_) {
+        for (auto& [cid, chunk] : chunks) {
+            if (chunk.gpu_data && chunk.gpu_data->mem_type == mem_type) {
+                ret.emplace_back(pid, cid, chunk.gpu_data->size);
+            }
+        }
+    }
     return ret;
 }
 
@@ -72,4 +92,6 @@ std::string PostBox::str() const {
     ss << "\b\b)";
     return ss.str();
 }
+
+
 }  // namespace rapidsmp::shuffler::detail

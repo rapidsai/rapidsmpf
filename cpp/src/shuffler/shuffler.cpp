@@ -197,6 +197,7 @@ void Shuffler::insert_finished(PartID pid) {
 }
 
 std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
+    auto& log = comm_->logger();
     auto chunks = outbox_.extract(pid);
     std::vector<cudf::packed_columns> ret;
     ret.reserve(chunks.size());
@@ -212,10 +213,56 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
     auto [reservation, overbooking] =
         br_->reserve(MemoryType::DEVICE, non_device_size, true);
 
-    // TODO: check overbooking, do we need to spill to host memory?
-    // if(overbooking > 0) {
-    //     spill chunks in inbox_ and outbox_
-    // }
+    // Check overbooking, do we need to spill to host memory?
+    if (overbooking > 0) {
+        log.info(
+            "Shuffler::extract(pid=",
+            pid,
+            ") - overbooking with ",
+            format_nbytes(overbooking),
+            " while reserving ",
+            format_nbytes(reservation.size())
+        );
+        // Let's look for chunks to spill in the outbox.
+        auto const chunk_infos = outbox_.search(MemoryType::DEVICE);
+        std::size_t total_spilled{0};
+        for (auto [pid, cid, size] : chunk_infos) {
+            // TODO: Use a clever strategy to decide which chunks to spill. For now, we
+            // just spill the chunks in an arbitrary order.
+            auto [host_reservation, host_overbooking] =
+                br_->reserve(MemoryType::HOST, size, true);
+            if (host_overbooking > 0) {
+                log.warn(
+                    "Cannot spill to host because of host memory overbooking: ",
+                    format_nbytes(overbooking)
+                );
+                break;
+            }
+            try {
+                // We get exclusive access to the chunk and keep the lock while moving
+                // the chunk to host memory.
+                auto const [chunk, lock] = outbox_.exclusive_access(pid, cid);
+                chunk.gpu_data = br_->move(
+                    MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
+                );
+            } catch (std::out_of_range const&) {
+                log.debug("While spilling, target chunk was removed underneath us");
+                continue;
+            }
+            if ((total_spilled += size) >= overbooking) {
+                break;
+            }
+        }
+        if (total_spilled < overbooking) {
+            log.warn(
+                "Cannot find enough chunks to spill to avoid overbooking - total "
+                "spilled: ",
+                format_nbytes(total_spilled),
+                ", remaining overbooking: ",
+                format_nbytes(overbooking - total_spilled)
+            );
+        }
+    }
 
     // Move the gpu_data to device memory (copy if necessary).
     for (auto& [_, chunk] : chunks) {
@@ -306,7 +353,6 @@ void Shuffler::run_event_loop_iteration(
 
     // Pick an incoming chunk's gpu_data to receive.
     //
-    // TODO: decide to receive into host or device memory.
     // TODO: pick the incoming chunk based on a strategy. For now, we just pick the
     // first chunk.
     // TODO: handle multiple chunks before continuing.
@@ -315,7 +361,7 @@ void Shuffler::run_event_loop_iteration(
         auto [src, chunk] = extract_item(incoming_chunks, first_chunk);
         log.trace("picked incoming chunk data from ", src, ": ", chunk);
         // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
-        // direct to the outbox.
+        // directly to the outbox.
         if (chunk.gpu_data_size > 0) {
             // Tell the source of the chunk that we are ready to receive it.
             fire_and_forget.push_back(self.comm_->send(
@@ -325,8 +371,7 @@ void Shuffler::run_event_loop_iteration(
                 self.stream_,
                 self.br_
             ));
-            // Create a new buffer based on memory type availability and prioritizing
-            // device over host memory.
+            // Create a new buffer and let the buffer resource decide the memory type.
             auto recv_buffer =
                 allocate_buffer(chunk.gpu_data_size, self.stream_, self.br_);
             // Setup to receive the chunk into `in_transit_*`.
