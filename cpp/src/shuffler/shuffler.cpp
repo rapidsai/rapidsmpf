@@ -91,6 +91,45 @@ std::unique_ptr<Buffer> allocate_buffer(
     return ret;
 }
 
+std::size_t spill_in_postbox(
+    BufferResource* br,
+    Communicator::Logger& log,
+    rmm::cuda_stream_view stream,
+    PostBox& postbox,
+    std::size_t amount
+) {
+    // Let's look for chunks to spill in the outbox.
+    auto const chunk_infos = postbox.search(MemoryType::DEVICE);
+    std::size_t total_spilled{0};
+    for (auto [pid, cid, size] : chunk_infos) {
+        // TODO: Use a clever strategy to decide which chunks to spill. For now, we
+        // just spill the chunks in an arbitrary order.
+        auto [host_reservation, host_overbooking] =
+            br->reserve(MemoryType::HOST, size, true);
+        if (host_overbooking > 0) {
+            log.warn(
+                "Cannot spill to host because of host memory overbooking: ",
+                format_nbytes(host_overbooking)
+            );
+            break;
+        }
+        try {
+            // We get exclusive access to the chunk and keep the lock while moving
+            // the chunk to host memory.
+            auto const [chunk, lock] = postbox.exclusive_access(pid, cid);
+            chunk.gpu_data = br->move(
+                MemoryType::HOST, std::move(chunk.gpu_data), stream, host_reservation
+            );
+        } catch (std::out_of_range const&) {
+            log.debug("While spilling, target chunk was removed underneath us");
+            continue;
+        }
+        if ((total_spilled += size) >= amount) {
+            break;
+        }
+    }
+    return total_spilled;
+}
 }  // namespace
 
 std::vector<PartID> Shuffler::local_partitions(
@@ -224,35 +263,7 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
             format_nbytes(reservation.size())
         );
         // Let's look for chunks to spill in the outbox.
-        auto const chunk_infos = outbox_.search(MemoryType::DEVICE);
-        std::size_t total_spilled{0};
-        for (auto [pid, cid, size] : chunk_infos) {
-            // TODO: Use a clever strategy to decide which chunks to spill. For now, we
-            // just spill the chunks in an arbitrary order.
-            auto [host_reservation, host_overbooking] =
-                br_->reserve(MemoryType::HOST, size, true);
-            if (host_overbooking > 0) {
-                log.warn(
-                    "Cannot spill to host because of host memory overbooking: ",
-                    format_nbytes(overbooking)
-                );
-                break;
-            }
-            try {
-                // We get exclusive access to the chunk and keep the lock while moving
-                // the chunk to host memory.
-                auto const [chunk, lock] = outbox_.exclusive_access(pid, cid);
-                chunk.gpu_data = br_->move(
-                    MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
-                );
-            } catch (std::out_of_range const&) {
-                log.debug("While spilling, target chunk was removed underneath us");
-                continue;
-            }
-            if ((total_spilled += size) >= overbooking) {
-                break;
-            }
-        }
+        auto total_spilled = spill_in_postbox(br_, log, stream_, outbox_, overbooking);
         if (total_spilled < overbooking) {
             log.warn(
                 "Cannot find enough chunks to spill to avoid overbooking - total "
