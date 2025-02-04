@@ -221,6 +221,27 @@ void Shuffler::insert(PartID pid, cudf::packed_columns&& chunk) {
 }
 
 void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks) {
+    auto& log = comm_->logger();
+
+    // Check if we should spill.
+    std::int64_t headroom = br_->memory_available(MemoryType::DEVICE)();
+    if (headroom < 0) {
+        log.info(
+            "Shuffler::insert() - device memory headroom: ", format_nbytes(headroom)
+        );
+        std::size_t spilled_need = -headroom;
+        auto total_spilled = spill_in_postbox(br_, log, stream_, outbox_, spilled_need);
+        if (total_spilled < spilled_need) {
+            log.warn(
+                "Cannot find enough chunks to spill to avoid negative headroom - total "
+                "spilled: ",
+                format_nbytes(total_spilled),
+                ", remaining spilling needed: ",
+                format_nbytes(spilled_need - total_spilled)
+            );
+        }
+    }
+
     for (auto& [pid, packed_columns] : chunks) {
         insert(pid, std::move(packed_columns));
     }
