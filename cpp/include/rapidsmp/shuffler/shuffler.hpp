@@ -112,14 +112,6 @@ class Shuffler {
      */
     void shutdown();
 
-  private:
-    /**
-     * @brief Insert a chunk into the outbox (the chunk is ready for the user).
-     *
-     * @param chunk The chunk to insert.
-     */
-    void insert_into_outbox(detail::Chunk&& chunk);
-
   public:
     /**
      * @brief Insert a chunk into the shuffle.
@@ -196,7 +188,36 @@ class Shuffler {
     [[nodiscard]] std::string str() const;
 
   private:
+    /**
+     * @brief Insert a chunk into the outbox (the chunk is ready for the user).
+     *
+     * @param chunk The chunk to insert.
+     */
+    void insert_into_outbox(detail::Chunk&& chunk);
+
+    /**
+     * @brief The event loop running by the shuffler's worker thread.
+     *
+     * @param self The shuffler instance.
+     */
     static void event_loop(Shuffler* self);
+
+    /**
+     * @brief Executes a single iteration of the shuffler's event loop.
+     *
+     * This function manages the movement of data chunks between ranks in the distributed
+     * system, handling tasks such as sending and receiving metadata, GPU data, and
+     * readiness messages. It also manages the processing of chunks in transit, both
+     * outgoing and incoming, and updates the necessary data structures for further
+     * processing.
+     *
+     * @param self The `Shuffler` instance that owns the event loop.
+     * @param fire_and_forget Ongoing "fire-and-forget" operations (non-blocking sends).
+     * @param incoming_chunks Chunks ready to be received.
+     * @param outgoing_chunks Chunks ready to be sent.
+     * @param in_transit_chunks Chunks currently in transit.
+     * @param in_transit_futures Futures corresponding to in-transit chunks.
+     */
     static void run_event_loop_iteration(
         Shuffler& self,
         std::vector<std::unique_ptr<Communicator::Future>>& fire_and_forget,

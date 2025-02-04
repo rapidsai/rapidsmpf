@@ -282,26 +282,6 @@ detail::ChunkID Shuffler::get_new_cid() {
     return upper | lower;
 }
 
-/**
- * @brief Executes a single iteration of the shuffler's event loop.
- *
- * This function manages the movement of data chunks between ranks in the distributed
- * system, handling tasks such as sending and receiving metadata, GPU data, and readiness
- * messages. It also manages the processing of chunks in transit, both outgoing and
- * incoming, and updates the necessary data structures for further processing.
- *
- * @param self Reference to the `Shuffler` instance that owns the event loop.
- * @param fire_and_forget A vector of ongoing "fire-and-forget" operations (non-blocking
- * sends).
- * @param incoming_chunks A multimap of chunks ready to be received, keyed by the source
- * rank.
- * @param outgoing_chunks A map of chunks ready to be sent, keyed by their unique chunk
- * ID.
- * @param in_transit_chunks A map of chunks currently in transit, keyed by their unique
- * chunk ID.
- * @param in_transit_futures A map of futures corresponding to in-transit chunks, keyed by
- * chunk ID.
- */
 void Shuffler::run_event_loop_iteration(
     Shuffler& self,
     std::vector<std::unique_ptr<Communicator::Future>>& fire_and_forget,
