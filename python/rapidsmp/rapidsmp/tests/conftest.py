@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 import pytest
 from mpi4py import MPI
 
+import rmm.mr
+
 from rapidsmp.communicator.mpi import new_communicator
 
 if TYPE_CHECKING:
@@ -36,3 +38,18 @@ def comm(_mpi_comm: Communicator) -> Generator[Communicator, None, None]:
     MPI.COMM_WORLD.barrier()
     yield _mpi_comm
     MPI.COMM_WORLD.barrier()
+
+
+@pytest.fixture
+def device_mr() -> Generator[rmm.mr.CudaMemoryResource, None, None]:
+    """
+    Fixture for creating a new cuda memory resource and make it the
+    current rmm resource temporarily.
+    """
+    prior_mr = rmm.mr.get_current_device_resource()
+    try:
+        mr = rmm.mr.CudaMemoryResource()
+        rmm.mr.set_current_device_resource(mr)
+        yield mr
+    finally:
+        rmm.mr.set_current_device_resource(prior_mr)
