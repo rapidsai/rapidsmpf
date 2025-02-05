@@ -241,11 +241,12 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
     auto& log = comm_->logger();
 
     // Check if we should spill. We start by spilling buffers in the outbox.
+    std::size_t total_spilled{0};
     {
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
         if (headroom < 0) {
             std::size_t spilled_need = -headroom;
-            postbox_spilling(br_, log, stream_, outbox_, spilled_need);
+            total_spilled += postbox_spilling(br_, log, stream_, outbox_, spilled_need);
         }
     }
 
@@ -274,10 +275,16 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
             chunk.gpu_data = br_->move(
                 MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
             );
+            total_spilled += chunk.gpu_data->size;
             insert(std::move(chunk));
         } else {
             insert(pid, std::move(packed_columns));
         }
+    }
+    if (total_spilled > 0) {
+        log.info(
+            "Shuffler - total spilled while inserting: ", format_nbytes(total_spilled)
+        );
     }
 
     std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
