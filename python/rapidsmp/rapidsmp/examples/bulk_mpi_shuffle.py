@@ -294,7 +294,7 @@ if __name__ == "__main__":
         "--baseline",
         default=False,
         action="store_true",
-        help="Maximum device memory to use.",
+        help="Run an IO baseline without any shuffling.",
     )
     parser.add_argument(
         "--rmm-pool-size",
