@@ -176,7 +176,7 @@ class UCXXSharedResources {
      * @throws std::logic_error If called by rank other than 0.
      */
     [[nodiscard]] Rank get_next_worker_rank() {
-        RAPIDSMP_EXPECTS(rank == 0, "This method can only be called by rank 0");
+        RAPIDSMP_EXPECTS(rank_ == 0, "This method can only be called by rank 0");
         return next_rank_++;
     }
 
@@ -204,11 +204,10 @@ class UCXXSharedResources {
      */
     void register_listener(std::shared_ptr<::ucxx::Listener> listener) {
         std::lock_guard<std::mutex> lock(listener_mutex_);
-        listener_ = listener;
-        auto listener_address = ListenerAddress{
+        rank_to_listener_address_[rank_] = ListenerAddress{
             .host = listener->getIp(), .port = listener->getPort(), .rank = rank_
         };
-        rank_to_listener_address_[rank_] = listener_address;
+        listener_ = std::move(listener);
     }
 
     /**
@@ -222,7 +221,7 @@ class UCXXSharedResources {
     void register_endpoint(const Rank rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
         rank_to_endpoint_[rank] = endpoint;
-        endpoints_[endpoint->getHandle()] = endpoint;
+        endpoints_[endpoint->getHandle()] = std::move(endpoint);
     }
 
     /**
@@ -235,7 +234,7 @@ class UCXXSharedResources {
      */
     void register_endpoint(std::shared_ptr<::ucxx::Endpoint> endpoint) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
-        endpoints_[endpoint->getHandle()] = endpoint;
+        endpoints_[endpoint->getHandle()] = std::move(endpoint);
     }
 
     /**
@@ -248,8 +247,7 @@ class UCXXSharedResources {
      */
     void associate_endpoint_rank(const Rank rank, const ucp_ep_h endpoint_handle) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
-        auto endpoint = endpoints_[endpoint_handle];
-        rank_to_endpoint_[rank] = endpoint;
+        rank_to_endpoint_[rank] = endpoints_[endpoint_handle];
     }
 
     /**
