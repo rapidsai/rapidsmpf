@@ -263,12 +263,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "input",
         type=dir_path,
-        metavar="DIR_PATH",
+        metavar="INPUT_DIR_PATH",
         help="Input directory path.",
     )
     parser.add_argument(
         "output",
-        metavar="DIR_PATH",
+        metavar="OUTPUT_DIR_PATH",
         type=Path,
         help="Output directory path.",
     )
