@@ -358,14 +358,14 @@ TEST(Shuffler, SpillOnExtraction) {
         input_table, {1}, total_num_partitions, hash_fn, seed, stream, mr
     );
 
-    // Force spilling.
-    device_memory_available = -1000;
-
-    // Insert does nothing, we start with 2 device allocations.
+    // Insert spills does nothing, we start with 2 device allocations.
     EXPECT_EQ(mr.get_allocations_counter().value, 2);
     shuffler.insert(std::move(input_chunks));
     // And we end with two 2 device allocations.
     EXPECT_EQ(mr.get_allocations_counter().value, 2);
+
+    // Force spilling.
+    device_memory_available = -1000;
 
     // But extract triggers spilling of the partition not being extracted.
     auto output_chunks = shuffler.extract(0);

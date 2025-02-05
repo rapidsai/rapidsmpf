@@ -240,27 +240,52 @@ void Shuffler::insert(PartID pid, cudf::packed_columns&& chunk) {
 void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks) {
     auto& log = comm_->logger();
 
-    // Check if we should spill.
-    std::int64_t headroom = br_->memory_available(MemoryType::DEVICE)();
-    if (headroom < 0) {
-        log.info(
-            "Shuffler::insert() - device memory headroom: ", format_nbytes(headroom)
-        );
-        std::size_t spilled_need = -headroom;
-        auto total_spilled = postbox_spilling(br_, log, stream_, outbox_, spilled_need);
-        if (total_spilled < spilled_need) {
-            log.warn(
-                "Cannot find enough chunks to spill to avoid negative headroom - total "
-                "spilled: ",
-                format_nbytes(total_spilled),
-                ", remaining spilling needed: ",
-                format_nbytes(spilled_need - total_spilled)
-            );
+    // Check if we should spill. We start by spilling buffers in the outbox.
+    {
+        std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
+        if (headroom < 0) {
+            std::size_t spilled_need = -headroom;
+            postbox_spilling(br_, log, stream_, outbox_, spilled_need);
         }
     }
 
+    // Insert each chunk into the inbox.
     for (auto& [pid, packed_columns] : chunks) {
-        insert(pid, std::move(packed_columns));
+        // Check if we should spill the chunk before inseting into the inbox.
+        std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
+        if (headroom < 0 && packed_columns.gpu_data) {
+            auto [host_reservation, host_overbooking] =
+                br_->reserve(MemoryType::HOST, packed_columns.gpu_data->size(), true);
+            if (host_overbooking > 0) {
+                log.warn(
+                    "Cannot spill to host because of host memory overbooking: ",
+                    format_nbytes(host_overbooking)
+                );
+                break;
+            }
+            detail::Chunk chunk{
+                pid,
+                get_new_cid(),
+                0,  // expected_num_chunks
+                packed_columns.gpu_data->size(),  // gpu_data_size
+                std::move(packed_columns.metadata),
+                br_->move(std::move(packed_columns.gpu_data), stream_)
+            };
+            chunk.gpu_data = br_->move(
+                MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
+            );
+            insert(std::move(chunk));
+        } else {
+            insert(pid, std::move(packed_columns));
+        }
+    }
+
+    std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
+    if (headroom < 0) {
+        log.warn(
+            "Cannot find enough chunks to spill to avoid negative headroom: ",
+            format_nbytes(headroom)
+        );
     }
 }
 
