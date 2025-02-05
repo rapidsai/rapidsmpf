@@ -777,7 +777,7 @@ UCXX::UCXX(std::unique_ptr<UCXXInitializedRank> ucxx_initialized_rank)
     return shared_resources_->nranks();
 }
 
-::ucxx::Tag tag_with_rank(Rank rank, int tag) {
+constexpr ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
     // The rapidsmp::ucxx::Communicator API uses 32-bit `int` for user tags to match
     // MPI's standard. We can thus pack the rank in the higher 32-bit of UCX's
     // 64-bit tags as aid in identifying the sender of a message. Since we're
