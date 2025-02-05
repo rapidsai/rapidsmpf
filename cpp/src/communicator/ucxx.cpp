@@ -110,7 +110,6 @@ class UCXXSharedResources {
         ::ucxx::AmReceiverCallbackInfo("rapidsmp", 0)
     };  ///< UCXX callback info for control messages
     std::vector<std::unique_ptr<HostFuture>> futures_{
-        std::vector<std::unique_ptr<HostFuture>>()
     };  ///< Futures to incomplete requests.
     std::mutex endpoints_mutex_{};
     std::mutex futures_mutex_{};
