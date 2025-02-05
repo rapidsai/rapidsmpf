@@ -91,7 +91,24 @@ std::unique_ptr<Buffer> allocate_buffer(
     return ret;
 }
 
-std::size_t spill_in_postbox(
+/**
+ * @brief Spills memory buffers within a postbox, e.g., from device to host memory.
+ *
+ * This function moves a specified amount of memory from device to host storage
+ * or another lower-priority memory space, helping manage limited GPU memory
+ * by offloading excess data.
+ *
+ * @note The postbox is locked while spilling.
+ *
+ * @param br Buffer resource for memory allocation.
+ * @param log A logger for recording events and debugging information.
+ * @param stream CUDA stream to use for memory and kernel operations.
+ * @param postbox The PostBox containing buffers to be spilled.
+ * @param amount The maximum amount of data (in bytes) to be spilled.
+ *
+ * @return The actual amount of data successfully spilled from the postbox.
+ */
+std::size_t postbox_spilling(
     BufferResource* br,
     Communicator::Logger& log,
     rmm::cuda_stream_view stream,
@@ -230,7 +247,7 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
             "Shuffler::insert() - device memory headroom: ", format_nbytes(headroom)
         );
         std::size_t spilled_need = -headroom;
-        auto total_spilled = spill_in_postbox(br_, log, stream_, outbox_, spilled_need);
+        auto total_spilled = postbox_spilling(br_, log, stream_, outbox_, spilled_need);
         if (total_spilled < spilled_need) {
             log.warn(
                 "Cannot find enough chunks to spill to avoid negative headroom - total "
@@ -284,7 +301,7 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
             format_nbytes(reservation.size())
         );
         // Let's look for chunks to spill in the outbox.
-        auto total_spilled = spill_in_postbox(br_, log, stream_, outbox_, overbooking);
+        auto total_spilled = postbox_spilling(br_, log, stream_, outbox_, overbooking);
         if (total_spilled < overbooking) {
             log.warn(
                 "Cannot find enough chunks to spill to avoid overbooking - total "
