@@ -50,7 +50,7 @@ def parse_bytes(s: str | int) -> int:
     Parameters
     ----------
     s
-        The input size string (e.g., '100 MB', '1KiB', '1e6') or an integer.
+        The input size string (e.g., '100 MB', '1KiB', '1e6') or integer.
 
     Returns
     -------

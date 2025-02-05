@@ -43,7 +43,7 @@ def comm(_mpi_comm: Communicator) -> Generator[Communicator, None, None]:
 @pytest.fixture
 def device_mr() -> Generator[rmm.mr.CudaMemoryResource, None, None]:
     """
-    Fixture for creating a new cuda memory resource and make it the
+    Fixture for creating a new cuda memory resource and making it the
     current rmm resource temporarily.
     """
     prior_mr = rmm.mr.get_current_device_resource()
