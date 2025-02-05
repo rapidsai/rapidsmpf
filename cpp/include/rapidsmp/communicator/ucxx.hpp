@@ -58,11 +58,26 @@ class UCXXInitializedRank {
     };  ///< Opaque object created by `init()`.
 };
 
+/**
+ * @brief Initialize the current process with a UCXX rank.
+ *
+ * Initialize the current process with a UCXX rank, returning an opaque object that is
+ * later used to initialize a `UCXX` object.
+ *
+ * @param worker The UCXX worker, or nullptr to create one internally.
+ * @param nranks The number of ranks requested for the cluster.
+ * @param root_host The hostname or IP address where the root rank is listening,
+ *                  should be `std::nullopt` for root rank.
+ * @param root_port The port where the root rank is listening, should be
+ *                  `std::nullopt` for root rank.
+ *
+ * @throws std::logic_error if only one of `root_host` or `root_port` is specified.
+ */
 std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
     std::uint32_t nranks,
     std::optional<std::string> root_host = std::nullopt,
-    std::optional<uint16_t> root_por = std::nullopt
+    std::optional<uint16_t> root_port = std::nullopt
 );
 
 /**

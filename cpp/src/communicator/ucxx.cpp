@@ -173,11 +173,10 @@ class UCXXSharedResources {
      * by root rank (rank 0).
      *
      * @return The next available worker rank.
-     * @throws std::runtime_error If called by rank other than 0.
+     * @throws std::logic_error If called by rank other than 0.
      */
     [[nodiscard]] Rank get_next_worker_rank() {
-        if (rank_ != 0)
-            throw std::runtime_error("This method can only be called by rank 0");
+        RAPIDSMP_EXPECTS(rank == 0, "This method can only be called by rank 0");
         return next_rank_++;
     }
 
@@ -678,12 +677,12 @@ std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
         return worker;
     };
 
-    if (root_host) {
-        if (!root_port)
-            throw std::runtime_error(
-                "Both root_host and root_port or neither must be specified."
-            );
+    RAPIDSMP_EXPECTS(
+        !(root_port.has_value() ^ root_host.has_value()),
+        "Both root_host and root_port or neither must be specified."
+    );
 
+    if (root_host) {
         if (worker == nullptr) {
             worker = create_worker();
         }
