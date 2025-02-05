@@ -218,7 +218,7 @@ class UCXXSharedResources {
      * @param rank The rank to register the endpoint for.
      * @param endpoint The endpoint to register.
      */
-    void register_endpoint(const Rank rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
+    void register_endpoint(Rank const rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
         rank_to_endpoint_[rank] = endpoint;
         endpoints_[endpoint->getHandle()] = std::move(endpoint);
@@ -245,7 +245,7 @@ class UCXXSharedResources {
      * @param rank The rank to register the endpoint for.
      * @param endpoint_handle The handle of the endpoint to register.
      */
-    void associate_endpoint_rank(const Rank rank, const ucp_ep_h endpoint_handle) {
+    void associate_endpoint_rank(Rank const rank, ucp_ep_h const endpoint_handle) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
         rank_to_endpoint_[rank] = endpoints_[endpoint_handle];
     }
@@ -270,7 +270,7 @@ class UCXXSharedResources {
      * @param ep_handle The handle of the endpoint to retrieve.
      * @return The endpoint associated with the specified handle.
      */
-    [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(const ucp_ep_h ep_handle
+    [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(ucp_ep_h const ep_handle
     ) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
         return endpoints_.at(ep_handle);
@@ -284,7 +284,7 @@ class UCXXSharedResources {
      * @param rank The rank to retrieve the endpoint for.
      * @return The endpoint associated with the specified rank.
      */
-    [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(const Rank rank) {
+    [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank const rank) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
         return rank_to_endpoint_.at(rank);
     }
@@ -297,7 +297,7 @@ class UCXXSharedResources {
      * @param rank The rank to retrieve the listener address for.
      * @return The listener address associated with the specified rank.
      */
-    [[nodiscard]] ListenerAddress get_listener_address(const Rank rank) {
+    [[nodiscard]] ListenerAddress get_listener_address(Rank const rank) {
         std::lock_guard<std::mutex> lock(listener_mutex_);
         return rank_to_listener_address_.at(rank);
     }
@@ -311,7 +311,7 @@ class UCXXSharedResources {
      * @param listener_address The listener address to register.
      */
     void register_listener_address(
-        const Rank rank, const ListenerAddress listener_address
+        Rank const rank, ListenerAddress const listener_address
     ) {
         std::lock_guard<std::mutex> lock(listener_mutex_);
         rank_to_listener_address_[rank] = listener_address;
@@ -374,7 +374,7 @@ class UCXXSharedResources {
             std::remove_if(
                 futures_.begin(),
                 futures_.end(),
-                [](const std::unique_ptr<HostFuture>& element) {
+                [](std::unique_ptr<HostFuture> const& element) {
                     return element->completed();
                 }
             ),
@@ -394,9 +394,9 @@ class UCXXSharedResources {
 
 namespace {
 
-size_t get_size(const ControlData& data) {
+size_t get_size(ControlData const& data) {
     return std::visit(
-        [](const auto& data) { return sizeof(std::decay_t<decltype(data)>); }, data
+        [](auto const& data) { return sizeof(std::decay_t<decltype(data)>); }, data
     );
 }
 
@@ -405,8 +405,8 @@ void encode(void* dest, void const* src, size_t bytes, size_t& offset) {
     offset += bytes;
 }
 
-void decode(void* dest, const void* src, size_t bytes, size_t& offset) {
-    memcpy(dest, static_cast<const char*>(src) + offset, bytes);
+void decode(void* dest, void const* src, size_t bytes, size_t& offset) {
+    memcpy(dest, static_cast<char const*>(src) + offset, bytes);
     offset += bytes;
 }
 
@@ -420,16 +420,16 @@ void decode(void* dest, const void* src, size_t bytes, size_t& offset) {
  * @return vector of bytes to be sent over the wire.
  */
 std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
-    const ListenerAddress& listener_address
+    ListenerAddress const& listener_address
 ) {
     size_t offset{0};
     size_t host_size = listener_address.host.size();
-    const size_t total_size = sizeof(host_size) + host_size
+    size_t const total_size = sizeof(host_size) + host_size
                               + sizeof(listener_address.port)
                               + sizeof(listener_address.rank);
     auto packed = std::make_unique<std::vector<uint8_t>>(total_size);
 
-    auto encode_ = [&offset, &packed](const void* data, size_t bytes) {
+    auto encode_ = [&offset, &packed](void const* data, size_t bytes) {
         encode(packed->data(), data, bytes, offset);
     };
 
@@ -483,7 +483,7 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
     ControlMessage control, ControlData data
 ) {
     size_t offset{0};
-    const size_t total_size = sizeof(control) + get_size(data);
+    size_t const total_size = sizeof(control) + get_size(data);
 
     auto packed = std::make_unique<std::vector<uint8_t>>(total_size);
 
