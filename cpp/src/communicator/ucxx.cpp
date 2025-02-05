@@ -310,11 +310,9 @@ class UCXXSharedResources {
      * @param rank The rank to register the listener address for.
      * @param listener_address The listener address to register.
      */
-    void register_listener_address(
-        Rank const rank, ListenerAddress const listener_address
-    ) {
+    void register_listener_address(Rank const rank, ListenerAddress listener_address) {
         std::lock_guard<std::mutex> lock(listener_mutex_);
-        rank_to_listener_address_[rank] = listener_address;
+        rank_to_listener_address_[rank] = std::move(listener_address);
     }
 
     /**
@@ -560,12 +558,7 @@ void control_unpack(
         ListenerAddress listener_address =
             listener_address_unpack(std::move(packed_listener_address));
         shared_resources->register_listener_address(
-            listener_address.rank,
-            ListenerAddress{
-                .host = listener_address.host,
-                .port = listener_address.port,
-                .rank = listener_address.rank,
-            }
+            listener_address.rank, std::move(listener_address)
         );
     } else if (control == ControlMessage::QueryListenerAddress) {
         Rank rank;
