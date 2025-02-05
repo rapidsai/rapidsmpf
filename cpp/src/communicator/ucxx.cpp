@@ -788,7 +788,7 @@ constexpr ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
     return ::ucxx::Tag(static_cast<uint64_t>(rank) << 32 | tag);
 }
 
-constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<int>::max()};
+constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<uint32_t>::max()};
 
 std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
     Logger& log = logger();
