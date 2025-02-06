@@ -358,18 +358,25 @@ TEST(Shuffler, SpillOnExtraction) {
         input_table, {1}, total_num_partitions, hash_fn, seed, stream, mr
     );
 
-    // Insert spills does nothing, we start with 2 device allocations.
+    // Insert spills does nothing when device memory is available, we start
+    // with 2 device allocations.
     EXPECT_EQ(mr.get_allocations_counter().value, 2);
     shuffler.insert(std::move(input_chunks));
     // And we end with two 2 device allocations.
     EXPECT_EQ(mr.get_allocations_counter().value, 2);
 
-    // Force spilling.
+    // Let's force spilling.
     device_memory_available = -1000;
 
     // But extract triggers spilling of the partition not being extracted.
-    auto output_chunks = shuffler.extract(0);
+    std::vector<cudf::packed_columns> output_chunks = shuffler.extract(0);
     EXPECT_EQ(mr.get_allocations_counter().value, 1);
+
+    // Now insert also spills thus we end up with no device allocations.
+    std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> chunk;
+    chunk.emplace(0, std::move(output_chunks.at(0)));
+    shuffler.insert(std::move(chunk));
+    EXPECT_EQ(mr.get_allocations_counter().value, 0);
 
     shuffler.shutdown();
     RAPIDSMP_MPI(MPI_Comm_free(&mpi_comm));
