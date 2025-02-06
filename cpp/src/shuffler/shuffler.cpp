@@ -128,7 +128,7 @@ std::size_t postbox_spilling(
                 "Cannot spill to host because of host memory overbooking: ",
                 format_nbytes(host_overbooking)
             );
-            break;
+            continue;
         }
         try {
             // We get exclusive access to the chunk and keep the lock while moving
@@ -255,7 +255,7 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
                     "Cannot spill to host because of host memory overbooking: ",
                     format_nbytes(host_overbooking)
                 );
-                break;
+                continue;
             }
             auto chunk = create_chunk(
                 pid,
