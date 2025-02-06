@@ -227,14 +227,7 @@ void Shuffler::insert(detail::Chunk&& chunk) {
 }
 
 void Shuffler::insert(PartID pid, cudf::packed_columns&& chunk) {
-    insert(detail::Chunk{
-        pid,
-        get_new_cid(),
-        0,  // expected_num_chunks
-        chunk.gpu_data ? chunk.gpu_data->size() : 0,  // gpu_data_size
-        std::move(chunk.metadata),
-        br_->move(std::move(chunk.gpu_data), stream_)
-    });
+    insert(create_chunk(pid, std::move(chunk.metadata), std::move(chunk.gpu_data)));
 }
 
 void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks) {
@@ -252,7 +245,7 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
 
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_columns] : chunks) {
-        // Check if we should spill the chunk before inseting into the inbox.
+        // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
         if (headroom < 0 && packed_columns.gpu_data) {
             auto [host_reservation, host_overbooking] =
@@ -264,14 +257,12 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
                 );
                 break;
             }
-            detail::Chunk chunk{
+            auto chunk = create_chunk(
                 pid,
-                get_new_cid(),
-                0,  // expected_num_chunks
-                packed_columns.gpu_data->size(),  // gpu_data_size
                 std::move(packed_columns.metadata),
-                br_->move(std::move(packed_columns.gpu_data), stream_)
-            };
+                std::move(packed_columns.gpu_data)
+            );
+            // Spill the new chunk before inserting.
             chunk.gpu_data = br_->move(
                 MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
             );

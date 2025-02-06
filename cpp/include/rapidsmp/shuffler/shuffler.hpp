@@ -231,6 +231,30 @@ class Shuffler {
     /// @brief Get an new unique chunk ID.
     [[nodiscard]] detail::ChunkID get_new_cid();
 
+    /**
+     * @brief Create a new chunk from metadata and gpu data.
+     *
+     * The chunk is assigned a new unique ID using `get_new_cid()`.
+     *
+     * @param pid The partition ID of the new chunk.
+     * @param metadata The metadata of the new chunk, can be null.
+     * @param gpu_data The gpu data of the new chunk, can be null.
+     */
+    [[nodiscard]] detail::Chunk create_chunk(
+        PartID pid,
+        std::unique_ptr<std::vector<uint8_t>> metadata,
+        std::unique_ptr<rmm::device_buffer> gpu_data
+    ) {
+        return detail::Chunk{
+            pid,
+            get_new_cid(),
+            0,  // expected_num_chunks
+            gpu_data ? gpu_data->size() : 0,  // gpu_data_size
+            std::move(metadata),
+            br_->move(std::move(gpu_data), stream_)
+        };
+    }
+
   public:
     PartID const total_num_partitions;  ///< Total number of partition in the shuffle.
     PartitionOwner const partition_owner;  ///< Function to determine partition ownership
