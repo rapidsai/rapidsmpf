@@ -112,14 +112,6 @@ class Shuffler {
      */
     void shutdown();
 
-  private:
-    /**
-     * @brief Insert a chunk into the outbox (the chunk is ready for the user).
-     *
-     * @param chunk The chunk to insert.
-     */
-    void insert_into_outbox(detail::Chunk&& chunk);
-
   public:
     /**
      * @brief Insert a chunk into the shuffle.
@@ -127,14 +119,6 @@ class Shuffler {
      * @param chunk The chunk to insert.
      */
     void insert(detail::Chunk&& chunk);
-
-    /**
-     * @brief Insert a packed (serialized) chunk into the shuffle.
-     *
-     * @param pid The partition ID the chunk belong to.
-     * @param chunk The packed chunk, `cudf::table`, to insert.
-     */
-    void insert(PartID pid, cudf::packed_columns&& chunk);
 
     /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
@@ -196,7 +180,36 @@ class Shuffler {
     [[nodiscard]] std::string str() const;
 
   private:
+    /**
+     * @brief Insert a chunk into the outbox (the chunk is ready for the user).
+     *
+     * @param chunk The chunk to insert.
+     */
+    void insert_into_outbox(detail::Chunk&& chunk);
+
+    /**
+     * @brief The event loop running by the shuffler's worker thread.
+     *
+     * @param self The shuffler instance.
+     */
     static void event_loop(Shuffler* self);
+
+    /**
+     * @brief Executes a single iteration of the shuffler's event loop.
+     *
+     * This function manages the movement of data chunks between ranks in the distributed
+     * system, handling tasks such as sending and receiving metadata, GPU data, and
+     * readiness messages. It also manages the processing of chunks in transit, both
+     * outgoing and incoming, and updates the necessary data structures for further
+     * processing.
+     *
+     * @param self The `Shuffler` instance that owns the event loop.
+     * @param fire_and_forget Ongoing "fire-and-forget" operations (non-blocking sends).
+     * @param incoming_chunks Chunks ready to be received.
+     * @param outgoing_chunks Chunks ready to be sent.
+     * @param in_transit_chunks Chunks currently in transit.
+     * @param in_transit_futures Futures corresponding to in-transit chunks.
+     */
     static void run_event_loop_iteration(
         Shuffler& self,
         std::vector<std::unique_ptr<Communicator::Future>>& fire_and_forget,
@@ -209,6 +222,30 @@ class Shuffler {
 
     /// @brief Get an new unique chunk ID.
     [[nodiscard]] detail::ChunkID get_new_cid();
+
+    /**
+     * @brief Create a new chunk from metadata and gpu data.
+     *
+     * The chunk is assigned a new unique ID using `get_new_cid()`.
+     *
+     * @param pid The partition ID of the new chunk.
+     * @param metadata The metadata of the new chunk, can be null.
+     * @param gpu_data The gpu data of the new chunk, can be null.
+     */
+    [[nodiscard]] detail::Chunk create_chunk(
+        PartID pid,
+        std::unique_ptr<std::vector<uint8_t>> metadata,
+        std::unique_ptr<rmm::device_buffer> gpu_data
+    ) {
+        return detail::Chunk{
+            pid,
+            get_new_cid(),
+            0,  // expected_num_chunks
+            gpu_data ? gpu_data->size() : 0,  // gpu_data_size
+            std::move(metadata),
+            br_->move(std::move(gpu_data), stream_)
+        };
+    }
 
   public:
     PartID const total_num_partitions;  ///< Total number of partition in the shuffle.
