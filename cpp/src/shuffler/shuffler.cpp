@@ -116,9 +116,9 @@ std::size_t postbox_spilling(
     std::size_t amount
 ) {
     // Let's look for chunks to spill in the outbox.
-    auto const chunk_infos = postbox.search(MemoryType::DEVICE);
+    auto const chunk_info = postbox.search(MemoryType::DEVICE);
     std::size_t total_spilled{0};
-    for (auto [pid, cid, size] : chunk_infos) {
+    for (auto [pid, cid, size] : chunk_info) {
         // TODO: Use a clever strategy to decide which chunks to spill. For now, we
         // just spill the chunks in an arbitrary order.
         auto [host_reservation, host_overbooking] =
