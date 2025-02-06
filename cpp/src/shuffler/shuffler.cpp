@@ -226,10 +226,6 @@ void Shuffler::insert(detail::Chunk&& chunk) {
     }
 }
 
-void Shuffler::insert(PartID pid, cudf::packed_columns&& chunk) {
-    insert(create_chunk(pid, std::move(chunk.metadata), std::move(chunk.gpu_data)));
-}
-
 void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks) {
     auto& log = comm_->logger();
 
@@ -269,7 +265,11 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
             total_spilled += chunk.gpu_data->size;
             insert(std::move(chunk));
         } else {
-            insert(pid, std::move(packed_columns));
+            insert(create_chunk(
+                pid,
+                std::move(packed_columns.metadata),
+                std::move(packed_columns.gpu_data)
+            ));
         }
     }
     if (total_spilled > 0) {

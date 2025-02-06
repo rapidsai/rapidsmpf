@@ -121,14 +121,6 @@ class Shuffler {
     void insert(detail::Chunk&& chunk);
 
     /**
-     * @brief Insert a packed (serialized) chunk into the shuffle.
-     *
-     * @param pid The partition ID the chunk belong to.
-     * @param chunk The packed chunk, `cudf::table`, to insert.
-     */
-    void insert(PartID pid, cudf::packed_columns&& chunk);
-
-    /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
      *
      * @param chunks A map of partition IDs and their packed chunks.
