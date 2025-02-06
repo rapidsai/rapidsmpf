@@ -15,13 +15,17 @@ import pylibcudf as plc
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-from rapidsmp.buffer.resource import BufferResource
-from rapidsmp.communicator.mpi import new_communicator
+import rapidsmp.communicator.mpi
+from rapidsmp.buffer.buffer import MemoryType
+from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
 from rapidsmp.testing import pylibcudf_to_cudf_dataframe
+from rapidsmp.utils.string import format_bytes, parse_bytes
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from rapidsmp.communicator.communicator import Communicator
 
 
 def read_batch(paths: list[str]) -> tuple[plc.Table, list[str]]:
@@ -48,12 +52,13 @@ def bulk_mpi_shuffle(
     paths: list[str],
     shuffle_on: list[str],
     output_path: str,
+    comm: Communicator,
+    br: BufferResource,
     *,
-    mpi_comm: MPI.Intercomm = MPI.COMM_WORLD,
     num_output_files: int | None = None,
     batchsize: int = 1,
-    read_func: Callable | None = None,
-    write_func: Callable | None = None,
+    read_func: Callable = read_batch,
+    write_func: Callable = write_table,
     baseline: bool = False,
 ) -> None:
     """
@@ -69,23 +74,24 @@ def bulk_mpi_shuffle(
     output_path
         Path of the output directory where the data will be written. This
         directory does not need to be on a shared filesystem.
-    mpi_comm
-        The MPI communicator to use.
+    comm
+        The communicator to use.
+    br
+        Buffer resource to use.
     num_output_files
         Number of output files to produce. Default will preserve the
         input file count.
     batchsize
         Number of files to read at once on each rank.
     read_func
-        Optional call-back function to read the input data. This function
-        must accept a list of file paths, and return a pylibcudf Table and
-        the list of column names in the table. Default logic will use
-        `pylibcudf.read_parquet`.
+        Call-back function to read the input data. This function must accept a
+        list of file paths, and return a pylibcudf Table and the list of column
+        names in the table. Default logic will use `pylibcudf.read_parquet`.
     write_func
-        Optional call-back function to write shuffled data to disk.
-        must accept `table`, `output_path`, `id`, and `column_names`
-        arguments. Default logic will write the pylibcudf table to a
-        parquet file (e.g. `f"{output_path}/part.{id}.parquet"`).
+        Call-back function to write shuffled data to disk. This function must
+        accept `table`, `output_path`, `id`, and `column_names` arguments.
+        Default logic will write the pylibcudf table to a parquet file
+        (e.g. `f"{output_path}/part.{id}.parquet"`).
     baseline
         Whether to skip the shuffle and run a simple IO baseline.
 
@@ -95,23 +101,15 @@ def bulk_mpi_shuffle(
     bulk-synchronous fashion. This means all ranks are expected to call
     this same function with the same arguments.
     """
-    # Extract communicator and rank
-    comm = new_communicator(mpi_comm)
-    nranks = comm.nranks
-    rank = comm.rank
-
     # Create output directory if necessary
     Path(output_path).mkdir(exist_ok=True)
-
-    if rank == 0:
-        start_time = MPI.Wtime()
 
     # Determine which files to process on this rank
     num_input_files = len(paths)
     num_output_files = num_output_files or num_input_files
     total_num_partitions = num_output_files
-    files_per_rank = math.ceil(num_input_files / nranks)
-    start = files_per_rank * rank
+    files_per_rank = math.ceil(num_input_files / comm.nranks)
+    start = files_per_rank * comm.rank
     finish = start + files_per_rank
     local_files = paths[start:finish]
     num_local_files = len(local_files)
@@ -119,11 +117,9 @@ def bulk_mpi_shuffle(
 
     if baseline:
         # Skip the shuffle - Run IO baseline
-        read_func = read_func or read_batch
-        write_func = write_func or write_table
         for batch_id in range(num_batches):
             batch = local_files[batch_id * batchsize : (batch_id + 1) * batchsize]
-            table, columns = read_batch(batch)
+            table, columns = read_func(batch)
             write_func(
                 table,
                 output_path,
@@ -131,10 +127,6 @@ def bulk_mpi_shuffle(
                 columns,
             )
     else:
-        # Create buffer resource and shuffler
-        mr = rmm.mr.StatisticsResourceAdaptor(rmm.mr.CudaMemoryResource())
-        br = BufferResource(mr)  # TODO: Set memory limit(s)
-        rmm.mr.set_current_device_resource(mr)
         shuffler = Shuffler(
             comm,
             op_id=0,
@@ -144,11 +136,10 @@ def bulk_mpi_shuffle(
         )
 
         # Read batches and submit them to the shuffler
-        read_func = read_func or read_batch
         column_names = None
         for batch_id in range(num_batches):
             batch = local_files[batch_id * batchsize : (batch_id + 1) * batchsize]
-            table, columns = read_batch(batch)
+            table, columns = read_func(batch)
             if column_names is None:
                 column_names = columns
             columns_to_hash = tuple(columns.index(val) for val in shuffle_on)
@@ -166,7 +157,6 @@ def bulk_mpi_shuffle(
             shuffler.insert_finished(pid)
 
         # Write shuffled partitions to disk as they finish
-        write_func = write_func or write_table
         while not shuffler.finished():
             partition_id = shuffler.wait_any()
             table = unpack_and_concat(
@@ -182,34 +172,114 @@ def bulk_mpi_shuffle(
             )
         shuffler.shutdown()
 
-    if rank == 0:
-        end_time = MPI.Wtime()
-        print(f"Shuffle took {end_time - start_time} seconds")
+
+def setup_and_run(args) -> None:
+    """Setup the environment and run the shuffle example."""
+    comm = rapidsmp.communicator.mpi.new_communicator(MPI.COMM_WORLD)
+
+    # Create a RMM stack with both a device pool and statistics.
+    mr = rmm.mr.StatisticsResourceAdaptor(
+        rmm.mr.PoolMemoryResource(
+            rmm.mr.CudaMemoryResource(),
+            initial_pool_size=args.rmm_pool_size,
+            maximum_pool_size=args.rmm_pool_size,
+        )
+    )
+    rmm.mr.set_current_device_resource(mr)
+
+    # Create a buffer resource that limits device memory if `--spill-device`
+    # is not None.
+    memory_available = (
+        None
+        if args.spill_device is None
+        else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=args.spill_device)}
+    )
+    br = BufferResource(mr, memory_available)
+
+    if comm.rank == 0:
+        spill_device = (
+            "disabled" if args.spill_device is None else format_bytes(args.spill_device)
+        )
+        comm.logger.info(
+            f"""\
+Shuffle:
+    input: {args.input}
+    output: {args.output}
+    on: {args.on}
+  --n-output-files: {args.n_output_files}
+  --batchsize: {args.batchsize}
+  --baseline: {args.baseline}
+  --rmm-pool-size: {format_bytes(args.rmm_pool_size)}
+  --spill-device: {spill_device}"""
+        )
+
+    MPI.COMM_WORLD.barrier()
+    start_time = MPI.Wtime()
+    bulk_mpi_shuffle(
+        paths=sorted(map(str, args.input.glob("**/*"))),
+        shuffle_on=args.on.split(","),
+        output_path=args.output,
+        comm=comm,
+        br=br,
+        num_output_files=args.n_output_files,
+        batchsize=args.batchsize,
+        baseline=args.baseline,
+    )
+    elapsed_time = MPI.Wtime() - start_time
+    MPI.COMM_WORLD.barrier()
+
+    if comm.rank == 0:
+        mem_peak = format_bytes(mr.allocation_counts.peak_bytes)
+        comm.logger.info(
+            f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
+        )
+
+
+def dir_path(path: str) -> Path:
+    """
+    Validate that the given path is a directory and return a Path object.
+
+    Parameters
+    ----------
+    path
+        The path to check.
+
+    Returns
+    -------
+    Path
+        A Path object representing the directory.
+    """
+    ret = Path(path)
+    if not ret.is_dir():
+        raise ValueError()
+    return ret
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="Bulk-synchronous MPI shuffle",
-        description="Shuffle a dataset at rest on both ends.",
+        description="Shuffle a dataset at rest (on disk) on both ends.",
     )
     parser.add_argument(
-        "--input",
-        type=str,
-        default="/datasets/rzamora/data/sm_timeseries_pq",
+        "input",
+        type=dir_path,
+        metavar="INPUT_DIR_PATH",
         help="Input directory path.",
     )
     parser.add_argument(
-        "--output",
-        type=str,
+        "output",
+        metavar="OUTPUT_DIR_PATH",
+        type=Path,
         help="Output directory path.",
     )
     parser.add_argument(
-        "--on",
+        "on",
+        metavar="COLUMN_LIST",
         type=str,
         help="Comma-separated list of column names to shuffle on.",
     )
     parser.add_argument(
-        "--n_output_files",
+        "--n-output-files",
         type=int,
         default=None,
         help="Number of output files. Default preserves input file count.",
@@ -224,15 +294,26 @@ if __name__ == "__main__":
         "--baseline",
         default=False,
         action="store_true",
-        help="Maximum device memory to use.",
+        help="Run an IO baseline without any shuffling.",
+    )
+    parser.add_argument(
+        "--rmm-pool-size",
+        type=parse_bytes,
+        default=format_bytes(int(rmm.mr.available_device_memory()[1] * 0.8)),
+        help=(
+            "The size of the RMM pool as a string with unit such as '2MiB' and '4KiB'. "
+            "Default to 80%% of the total device memory, which is %(default)s."
+        ),
+    )
+    parser.add_argument(
+        "--spill-device",
+        type=lambda x: None if x is None else parse_bytes(x),
+        default=None,
+        help=(
+            "Spilling device-to-host threshold as a string with unit such as '2MiB' "
+            "and '4KiB'. Default is no spilling"
+        ),
     )
     args = parser.parse_args()
-
-    bulk_mpi_shuffle(
-        paths=sorted(map(str, Path(args.input).glob("**/*"))),
-        shuffle_on=args.on.split(","),
-        output_path=args.output,
-        num_output_files=args.n_output_files,
-        batchsize=args.batchsize,
-        baseline=args.baseline,
-    )
+    args.rmm_pool_size = (args.rmm_pool_size // 256) * 256  # Align to 256 bytes
+    setup_and_run(args)

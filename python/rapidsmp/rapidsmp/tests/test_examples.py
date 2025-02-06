@@ -9,13 +9,14 @@ from mpi4py import MPI
 
 import cudf
 
+from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.examples.bulk_mpi_shuffle import bulk_mpi_shuffle
 from rapidsmp.testing import assert_eq
 
 
 @pytest.mark.parametrize("batchsize", [1, 2, 3])
 @pytest.mark.parametrize("num_output_files", [10, 5])
-def test_bulk_mpi_shuffle(comm, tmpdir, batchsize, num_output_files):
+def test_bulk_mpi_shuffle(comm, tmpdir, device_mr, batchsize, num_output_files):
     # Get mpi-compatible tmpdir
     mpi_comm = MPI.COMM_WORLD
     rank = mpi_comm.Get_rank()
@@ -46,11 +47,16 @@ def test_bulk_mpi_shuffle(comm, tmpdir, batchsize, num_output_files):
     input_paths = mpi_comm.bcast(input_paths, root=0)
     output_dir = str(mpi_tmpdir.join("output"))
 
+    # Use a default buffer resource.
+    br = BufferResource(device_mr)
+
     # Perform a the shuffle
     bulk_mpi_shuffle(
         paths=input_paths,
         shuffle_on=["b"],
         output_path=output_dir,
+        comm=comm,
+        br=br,
         batchsize=batchsize,
         num_output_files=num_output_files,
     )
