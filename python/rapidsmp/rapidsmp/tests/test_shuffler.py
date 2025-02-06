@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 
 import cudf
-import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmp.buffer.resource import BufferResource
@@ -21,20 +20,20 @@ from rapidsmp.utils.cudf import (
 
 @pytest.mark.parametrize("df", [{"0": [1, 2, 3], "1": [2, 2, 1]}, {"0": [], "1": []}])
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
-def test_partition_and_pack_unpack(df, num_partitions):
+def test_partition_and_pack_unpack(device_mr, df, num_partitions):
     expect = cudf.DataFrame(df)
     partitions = partition_and_pack(
         cudf_to_pylibcudf_table(expect),
         columns_to_hash=(1,),
         num_partitions=num_partitions,
         stream=DEFAULT_STREAM,
-        device_mr=rmm.mr.get_current_device_resource(),
+        device_mr=device_mr,
     )
     got = pylibcudf_to_cudf_dataframe(
         unpack_and_concat(
             tuple(partitions.values()),
             stream=DEFAULT_STREAM,
-            device_mr=rmm.mr.get_current_device_resource(),
+            device_mr=device_mr,
         )
     )
     # Since the row order isn't preserved, we sort the rows by the "0" column.
@@ -42,8 +41,8 @@ def test_partition_and_pack_unpack(df, num_partitions):
 
 
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-def test_shuffler_single_nonempty_partition(comm, total_num_partitions):
-    br = BufferResource(rmm.mr.get_current_device_resource())
+def test_shuffler_single_nonempty_partition(comm, device_mr, total_num_partitions):
+    br = BufferResource(device_mr)
 
     shuffler = Shuffler(
         comm,
@@ -59,7 +58,7 @@ def test_shuffler_single_nonempty_partition(comm, total_num_partitions):
         columns_to_hash=(df.columns.get_loc("1"),),
         num_partitions=total_num_partitions,
         stream=DEFAULT_STREAM,
-        device_mr=rmm.mr.get_current_device_resource(),
+        device_mr=device_mr,
     )
     shuffler.insert_chunks(packed_inputs)
 
@@ -73,7 +72,7 @@ def test_shuffler_single_nonempty_partition(comm, total_num_partitions):
         partition = unpack_and_concat(
             packed_chunks,
             stream=DEFAULT_STREAM,
-            device_mr=rmm.mr.get_current_device_resource(),
+            device_mr=device_mr,
         )
         local_outputs.append(partition)
     shuffler.shutdown()
@@ -91,8 +90,8 @@ def test_shuffler_single_nonempty_partition(comm, total_num_partitions):
 
 @pytest.mark.parametrize("batch_size", [None, 10])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-def test_shuffler_uniform(comm, batch_size, total_num_partitions):
-    br = BufferResource(rmm.mr.get_current_device_resource())
+def test_shuffler_uniform(comm, device_mr, batch_size, total_num_partitions):
+    br = BufferResource(device_mr)
 
     # Every rank creates the full input dataframe and all the expected partitions
     # (also partitions this rank might not get after the shuffle).
@@ -114,7 +113,7 @@ def test_shuffler_uniform(comm, batch_size, total_num_partitions):
             unpack_and_concat(
                 [packed],
                 stream=DEFAULT_STREAM,
-                device_mr=rmm.mr.get_current_device_resource(),
+                device_mr=device_mr,
             ),
             column_names=column_names,
         )
@@ -123,7 +122,7 @@ def test_shuffler_uniform(comm, batch_size, total_num_partitions):
             columns_to_hash=columns_to_hash,
             num_partitions=total_num_partitions,
             stream=DEFAULT_STREAM,
-            device_mr=rmm.mr.get_current_device_resource(),
+            device_mr=device_mr,
         ).items()
     }
 
@@ -147,7 +146,7 @@ def test_shuffler_uniform(comm, batch_size, total_num_partitions):
             columns_to_hash=columns_to_hash,
             num_partitions=total_num_partitions,
             stream=DEFAULT_STREAM,
-            device_mr=rmm.mr.get_current_device_resource(),
+            device_mr=device_mr,
         )
         shuffler.insert_chunks(packed_inputs)
 
@@ -162,7 +161,7 @@ def test_shuffler_uniform(comm, batch_size, total_num_partitions):
         partition = unpack_and_concat(
             packed_chunks,
             stream=DEFAULT_STREAM,
-            device_mr=rmm.mr.get_current_device_resource(),
+            device_mr=device_mr,
         )
         assert_eq(
             pylibcudf_to_cudf_dataframe(partition, column_names=column_names),
