@@ -38,24 +38,17 @@ namespace {
  * @param listener_address object containing the listener address of the root,
  * which will be read from in rank 0 and stored to in all other ranks.
  */
-void broadcast_listener_address(rapidsmp::ucxx::ListenerAddress& listener_address) {
-    size_t host_size{listener_address.host.size()};
-
-    RAPIDSMP_MPI(MPI_Bcast(&host_size, sizeof(host_size), MPI_UINT8_T, 0, MPI_COMM_WORLD)
-    );
-
-    listener_address.host.resize(host_size);
+void broadcast_listener_address(std::string& root_worker_address_str) {
+    size_t address_size{root_worker_address_str.size()};
 
     RAPIDSMP_MPI(
-        MPI_Bcast(listener_address.host.data(), host_size, MPI_UINT8_T, 0, MPI_COMM_WORLD)
+        MPI_Bcast(&address_size, sizeof(address_size), MPI_UINT8_T, 0, MPI_COMM_WORLD)
     );
 
+    root_worker_address_str = std::string(address_size, '\0');
+
     RAPIDSMP_MPI(MPI_Bcast(
-        &listener_address.port,
-        sizeof(listener_address.port),
-        MPI_UINT8_T,
-        0,
-        MPI_COMM_WORLD
+        root_worker_address_str.data(), address_size, MPI_UINT8_T, 0, MPI_COMM_WORLD
     ));
 }
 
@@ -72,6 +65,7 @@ void Environment::SetUp() {
     cudaFree(0);
 
     auto root_listener_address = rapidsmp::ucxx::ListenerAddress{.rank = 0};
+    std::string root_worker_address_str{};
     std::shared_ptr<rapidsmp::ucxx::UCXX> comm;
     if (rank == 0) {
         auto ucxx_initialized_rank = rapidsmp::ucxx::init(nullptr, nranks);
@@ -79,13 +73,17 @@ void Environment::SetUp() {
         comm_ = comm;
 
         root_listener_address = comm->listener_address();
+        root_worker_address_str =
+            std::get<std::shared_ptr<::ucxx::Address>>(root_listener_address.address)
+                ->getString();
     }
-    broadcast_listener_address(root_listener_address);
+    broadcast_listener_address(root_worker_address_str);
 
     if (rank != 0) {
-        auto ucxx_initialized_rank = rapidsmp::ucxx::init(
-            nullptr, nranks, root_listener_address.host, root_listener_address.port
-        );
+        auto root_worker_address =
+            ::ucxx::createAddressFromString(root_worker_address_str);
+        auto ucxx_initialized_rank =
+            rapidsmp::ucxx::init(nullptr, nranks, root_worker_address);
         comm = std::make_shared<rapidsmp::ucxx::UCXX>(std::move(ucxx_initialized_rank));
         comm_ = comm;
     }

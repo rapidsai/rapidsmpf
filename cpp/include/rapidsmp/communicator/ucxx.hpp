@@ -34,6 +34,26 @@ namespace rapidsmp {
 namespace ucxx {
 
 
+using HostPortPair =
+    std::pair<std::string, uint16_t>;  ///< A string with hostname or IP address, and the
+                                       ///< port a listener is bound to.
+using RemoteAddress = std::variant<
+    HostPortPair,
+    std::shared_ptr<::ucxx::Address>>;  ///< Host/port pair or worker address identifying
+                                        ///< the remote UCXX listener or worker.
+
+/**
+ * @brief Storage for a listener address.
+ *
+ * Stores a listener address, composed of the hostname or IP address, port and rank the
+ * listener corresponds to.
+ */
+class ListenerAddress {
+  public:
+    RemoteAddress address;  ///< Hostname/port pair or UCXX address.
+    Rank rank{};  ///< The rank of the listener.
+};
+
 class UCXXSharedResources;
 
 /**
@@ -76,22 +96,8 @@ class UCXXInitializedRank {
 std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
     std::uint32_t nranks,
-    std::optional<std::string> root_host = std::nullopt,
-    std::optional<uint16_t> root_port = std::nullopt
+    std::optional<RemoteAddress> remote_address = std::nullopt
 );
-
-/**
- * @brief Storage for a listener address.
- *
- * Stores a listener address, composed of the hostname or IP address, port and rank the
- * listener corresponds to.
- */
-class ListenerAddress {
-  public:
-    std::string host{};  ///< The hostname or IP address the listener is bound to.
-    uint16_t port{};  ///< The port the listener is bound to.
-    Rank rank{};  ///< The rank of the listener.
-};
 
 /**
  * @brief UCXX communicator class that implements the `Communicator` interface.

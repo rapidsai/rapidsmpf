@@ -16,8 +16,10 @@
 
 #include <array>
 #include <cstdint>
+#include <list>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <utility>
 
 #include <sys/types.h>
@@ -41,11 +43,7 @@ namespace {
  * 2. QueryListenerAddress: Asks the root rank for the listener address of
  * another rank, with the purpose of establishing an endpoint to that rank for
  * direct message transfers.
- * 3. RegisterRank: After connecting to another (non-root) rank with that rank's
- * listener address, inform own rank so that the remote rank can register the
- * recently-established endpoint as corresponding to this rank.
- * 4. ReplyListenerAddress: Root rank reply to `QueryListenerAddress` request
- * containing the listener address of the rank being requested.
+ *
  */
 enum class ControlMessage {
     AssignRank = 0,  //< Root assigns a rank to incoming client connection
@@ -55,7 +53,15 @@ enum class ControlMessage {
     ReplyListenerAddress  ///< Reply to `QueryListenerAddress` with the listener address
 };
 
+enum class ListenerAddressType {
+    WorkerAddress = 0,
+    HostPort,
+    Undefined
+};
+
 using Rank = rapidsmp::Rank;
+using HostPortPair = rapidsmp::ucxx::HostPortPair;
+using RemoteAddress = rapidsmp::ucxx::RemoteAddress;
 using ListenerAddress = rapidsmp::ucxx::ListenerAddress;
 using ControlData = std::variant<Rank, ListenerAddress>;
 using EndpointsMap = std::unordered_map<ucp_ep_h, std::shared_ptr<::ucxx::Endpoint>>;
@@ -204,9 +210,9 @@ class UCXXSharedResources {
      */
     void register_listener(std::shared_ptr<::ucxx::Listener> listener) {
         std::lock_guard<std::mutex> lock(listener_mutex_);
-        rank_to_listener_address_[rank_] = ListenerAddress{
-            .host = listener->getIp(), .port = listener->getPort(), .rank = rank_
-        };
+        auto worker = std::dynamic_pointer_cast<::ucxx::Worker>(listener->getParent());
+        rank_to_listener_address_[rank_] =
+            ListenerAddress{worker->getAddress(), .rank = rank_};
         listener_ = std::move(listener);
     }
 
@@ -420,23 +426,50 @@ void decode(void* dest, void const* src, size_t bytes, size_t& offset) {
 std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
     ListenerAddress const& listener_address
 ) {
-    size_t offset{0};
-    size_t host_size = listener_address.host.size();
-    size_t const total_size = sizeof(host_size) + host_size
-                              + sizeof(listener_address.port)
-                              + sizeof(listener_address.rank);
-    auto packed = std::make_unique<std::vector<uint8_t>>(total_size);
+    return std::visit(
+        [&listener_address](auto&& remote_address) {
+            size_t offset{0};
+            std::unique_ptr<std::vector<uint8_t>> packed{nullptr};
+            using T = std::decay_t<decltype(remote_address)>;
+            if constexpr (std::is_same_v<T, HostPortPair>) {
+                auto type = ListenerAddressType::HostPort;
+                auto host_size = remote_address.first.size();
+                size_t const total_size = sizeof(host_size) + host_size
+                                          + sizeof(remote_address.second)
+                                          + sizeof(listener_address.rank);
+                auto packed = std::make_unique<std::vector<uint8_t>>(total_size);
 
-    auto encode_ = [&offset, &packed](void const* data, size_t bytes) {
-        encode(packed->data(), data, bytes, offset);
-    };
+                auto encode_ = [&offset, &packed](void const* data, size_t bytes) {
+                    encode(packed->data(), data, bytes, offset);
+                };
 
-    encode_(&host_size, sizeof(host_size));
-    encode_(listener_address.host.data(), host_size);
-    encode_(&listener_address.port, sizeof(listener_address.port));
-    encode_(&listener_address.rank, sizeof(listener_address.rank));
+                encode_(&type, sizeof(type));
+                encode_(&host_size, sizeof(host_size));
+                encode_(remote_address.first.data(), host_size);
+                encode_(&remote_address.second, sizeof(remote_address.second));
+                encode_(&listener_address.rank, sizeof(listener_address.rank));
+            } else if constexpr (std::is_same_v<T, std::shared_ptr<::ucxx::Address>>) {
+                auto type = ListenerAddressType::WorkerAddress;
+                auto address_size = remote_address->getLength();
+                size_t const total_size =
+                    sizeof(address_size) + address_size + sizeof(listener_address.rank);
+                auto packed = std::make_unique<std::vector<uint8_t>>(total_size);
 
-    return packed;
+                auto encode_ = [&offset, &packed](void const* data, size_t bytes) {
+                    encode(packed->data(), data, bytes, offset);
+                };
+
+                encode_(&type, sizeof(type));
+                encode_(&address_size, sizeof(address_size));
+                encode_(remote_address->getString().data(), address_size);
+                encode_(&listener_address.rank, sizeof(listener_address.rank));
+            } else {
+                RAPIDSMP_EXPECTS(false, "Unknown argument type");
+            }
+            return packed;
+        },
+        listener_address.address
+    );
 }
 
 /**
@@ -455,17 +488,36 @@ ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> pa
         decode(data, packed->data(), bytes, offset);
     };
 
-    size_t host_size;
-    decode_(&host_size, sizeof(size_t));
+    auto type = ListenerAddressType::Undefined;
+    decode_(&type, sizeof(type));
 
-    ListenerAddress listener_address;
-    listener_address.host.resize(host_size);
-    decode_(listener_address.host.data(), host_size);
+    if (type == ListenerAddressType::WorkerAddress) {
+        size_t address_size;
+        decode_(&address_size, sizeof(address_size));
 
-    decode_(&listener_address.port, sizeof(listener_address.port));
-    decode_(&listener_address.rank, sizeof(listener_address.rank));
+        auto address = std::string(address_size, '\0');
+        auto rank = Rank{-1};
 
-    return listener_address;
+        decode_(address.data(), address_size);
+        decode_(&rank, sizeof(rank));
+
+        return ListenerAddress{::ucxx::createAddressFromString(address), rank};
+    } else if (type == ListenerAddressType::HostPort) {
+        size_t host_size;
+        decode_(&host_size, sizeof(host_size));
+
+        auto host = std::string(host_size, '\0');
+        auto port = std::uint16_t{0};
+        auto rank = Rank{-1};
+        decode_(host.data(), host_size);
+
+        decode_(&port, sizeof(port));
+        decode_(&rank, sizeof(rank));
+
+        return ListenerAddress{std::make_pair(host, port), rank};
+    } else {
+        RAPIDSMP_EXPECTS(false, "Wrong type");
+    }
 }
 
 /**
@@ -656,8 +708,7 @@ UCXXInitializedRank::UCXXInitializedRank(
 std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
     std::uint32_t nranks,
-    std::optional<std::string> root_host,
-    std::optional<uint16_t> root_port
+    std::optional<RemoteAddress> remote_address
 ) {
     auto create_worker = []() {
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
@@ -668,12 +719,7 @@ std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
         return worker;
     };
 
-    RAPIDSMP_EXPECTS(
-        !(root_port.has_value() ^ root_host.has_value()),
-        "Both root_host and root_port or neither must be specified."
-    );
-
-    if (root_host) {
+    if (remote_address) {
         if (worker == nullptr) {
             worker = create_worker();
         }
@@ -708,7 +754,23 @@ std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
         //     ". Current rank: ",
         //     shared_resources->rank()
         // );
-        auto endpoint = worker->createEndpointFromHostname("127.0.0.1", *root_port, true);
+        auto endpoint = std::visit(
+            [shared_resources](auto&& remote_address) {
+                using T = std::decay_t<decltype(remote_address)>;
+                if constexpr (std::is_same_v<T, HostPortPair>) {
+                    return shared_resources->get_worker()->createEndpointFromHostname(
+                        remote_address.first, remote_address.second, true
+                    );
+                } else if constexpr (std::is_same_v<T, std::shared_ptr<::ucxx::Address>>)
+                {
+                    return shared_resources->get_worker()
+                        ->createEndpointFromWorkerAddress(remote_address, true);
+                } else {
+                    RAPIDSMP_EXPECTS(false, "Unknown argument type");
+                }
+            },
+            *remote_address
+        );
         shared_resources->register_endpoint(Rank(0), endpoint);
 
         // Get my rank
@@ -719,8 +781,7 @@ std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
 
         // Inform listener address
         ListenerAddress listener_address = ListenerAddress{
-            .host = "localhost",
-            .port = listener->getPort(),
+            std::make_pair("localhost", listener->getPort()),
             .rank = shared_resources->rank()
         };
         auto packed_listener_address =
@@ -825,8 +886,22 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
         }
 
         auto listener_address = shared_resources_->get_listener_address(rank);
-        auto endpoint = shared_resources_->get_worker()->createEndpointFromHostname(
-            "127.0.0.1", listener_address.port, true
+        auto endpoint = std::visit(
+            [this](auto&& remote_address) {
+                using T = std::decay_t<decltype(remote_address)>;
+                if constexpr (std::is_same_v<T, HostPortPair>) {
+                    return shared_resources_->get_worker()->createEndpointFromHostname(
+                        remote_address.first, remote_address.second, true
+                    );
+                } else if constexpr (std::is_same_v<T, std::shared_ptr<::ucxx::Address>>)
+                {
+                    return shared_resources_->get_worker()
+                        ->createEndpointFromWorkerAddress(remote_address, true);
+                } else {
+                    RAPIDSMP_EXPECTS(false, "Unknown argument type");
+                }
+            },
+            listener_address.address
         );
         shared_resources_->register_endpoint(rank, endpoint);
         auto packed_register_rank = control_pack(ControlMessage::RegisterRank, rank);
