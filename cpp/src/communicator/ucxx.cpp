@@ -708,7 +708,7 @@ std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
         //     ". Current rank: ",
         //     shared_resources->rank()
         // );
-        auto endpoint = worker->createEndpointFromHostname(*root_host, *root_port, true);
+        auto endpoint = worker->createEndpointFromHostname("127.0.0.1", *root_port, true);
         shared_resources->register_endpoint(Rank(0), endpoint);
 
         // Get my rank
@@ -826,7 +826,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
 
         auto listener_address = shared_resources_->get_listener_address(rank);
         auto endpoint = shared_resources_->get_worker()->createEndpointFromHostname(
-            listener_address.host, listener_address.port, true
+            "127.0.0.1", listener_address.port, true
         );
         shared_resources_->register_endpoint(rank, endpoint);
         auto packed_register_rank = control_pack(ControlMessage::RegisterRank, rank);
