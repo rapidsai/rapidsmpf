@@ -180,7 +180,6 @@ void test_shuffler(
         );
     }
 
-    GlobalEnvironment->barrier();
     shuffler.shutdown();
 }
 
@@ -232,6 +231,8 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
         stream,
         br.device_mr()
     ));
+
+    GlobalEnvironment->barrier();
 }
 
 // Test that the same communicator can be used concurrently by multiple shufflers in
@@ -245,21 +246,19 @@ class ConcurrentShuffleTest
 
         // these resources will be used by multiple threads to instantiate shufflers
         br = std::make_shared<rapidsmp::BufferResource>(mr());
-        comm = GlobalEnvironment->comm_;
         stream = cudf::get_default_stream();
     }
 
     void TearDown() override {
         // make sure every process arrive at the end of the test case
-        RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
+        GlobalEnvironment->barrier();
     }
 
     // test run for each thread. The test follows the same logic as
     // `MemoryAvailable_NumPartition` test, but without any memory limitations
     void RunTest(int t_id) {
-        GlobalEnvironment->barrier();
         rapidsmp::shuffler::Shuffler shuffler(
-            comm,
+            GlobalEnvironment->comm_,
             t_id,  // op_id, use t_id as a proxy
             total_num_partitions,
             stream,
@@ -267,7 +266,7 @@ class ConcurrentShuffleTest
         );
 
         EXPECT_NO_FATAL_FAILURE(test_shuffler(
-            comm,
+            GlobalEnvironment->comm_,
             shuffler,
             total_num_partitions,
             100,  // total_num_rows
@@ -282,7 +281,6 @@ class ConcurrentShuffleTest
     rapidsmp::shuffler::PartID total_num_partitions;
 
     std::shared_ptr<rapidsmp::BufferResource> br;
-    std::shared_ptr<rapidsmp::Communicator> comm;
     rmm::cuda_stream_view stream;
 };
 
