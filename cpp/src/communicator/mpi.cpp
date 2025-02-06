@@ -39,12 +39,12 @@ void init(int* argc, char*** argv) {
     MPI_Comm_get_attr(MPI_COMM_WORLD, MPI_TAG_UB, &max_tag, &flag);
     RAPIDSMP_EXPECTS(flag, "Unable to get the MPI_TAG_UB attr");
 
-    // RAPIDSMP_EXPECTS(
-    //     (*max_tag) >= Tag::max_value(),
-    //     "MPI_TAG_UB(" + std::to_string(*max_tag)
-    //         + ") is unable to accommodate the required max tag("
-    //         + std::to_string(Tag::max_value()) + ")"
-    // );
+    RAPIDSMP_EXPECTS(
+        (*max_tag) >= Tag::max_value(),
+        "MPI_TAG_UB(" + std::to_string(*max_tag)
+            + ") is unable to accommodate the required max tag("
+            + std::to_string(Tag::max_value()) + ")"
+    );
 }
 
 void detail::check_mpi_error(int error_code, const char* file, int line) {
