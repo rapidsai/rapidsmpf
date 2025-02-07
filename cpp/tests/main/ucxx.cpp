@@ -14,9 +14,14 @@
  * limitations under the License.
  */
 
+#include <chrono>
+#include <functional>
+#include <thread>
+
 #include <gtest/gtest.h>
 #include <mpi.h>
 #include <ucxx/listener.h>
+#include <unistd.h>
 
 #include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/communicator/ucxx.hpp>
@@ -45,7 +50,7 @@ void broadcast_listener_address(std::string& root_worker_address_str) {
         MPI_Bcast(&address_size, sizeof(address_size), MPI_UINT8_T, 0, MPI_COMM_WORLD)
     );
 
-    root_worker_address_str = std::string(address_size, '\0');
+    root_worker_address_str.resize(address_size);
 
     RAPIDSMP_MPI(MPI_Bcast(
         root_worker_address_str.data(), address_size, MPI_UINT8_T, 0, MPI_COMM_WORLD
