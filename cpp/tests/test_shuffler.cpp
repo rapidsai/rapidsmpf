@@ -257,6 +257,8 @@ class ConcurrentShuffleTest
     // test run for each thread. The test follows the same logic as
     // `MemoryAvailable_NumPartition` test, but without any memory limitations
     void RunTest(int t_id) {
+        GlobalEnvironment->barrier();
+
         rapidsmp::shuffler::Shuffler shuffler(
             GlobalEnvironment->comm_,
             t_id,  // op_id, use t_id as a proxy
