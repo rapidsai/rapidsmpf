@@ -185,6 +185,13 @@ void test_shuffler(
 
 class MemoryAvailable_NumPartition
     : public cudf::test::BaseFixtureWithParam<std::tuple<MemoryAvailableMap, int, int>> {
+    void SetUp() override {
+        GlobalEnvironment->barrier();
+    }
+
+    void TearDown() override {
+        GlobalEnvironment->barrier();
+    }
 };
 
 // test different `memory_available` and `total_num_partitions`.
@@ -211,8 +218,6 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
     auto mr = cudf::get_current_device_resource_ref();
     rapidsmp::BufferResource br{mr, memory_available};
 
-    GlobalEnvironment->barrier();
-
     rapidsmp::shuffler::Shuffler shuffler(
         GlobalEnvironment->comm_,
         0,  // op_id
@@ -231,8 +236,6 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
         stream,
         br.device_mr()
     ));
-
-    GlobalEnvironment->barrier();
 }
 
 // Test that the same communicator can be used concurrently by multiple shufflers in
@@ -247,6 +250,12 @@ class ConcurrentShuffleTest
         // these resources will be used by multiple threads to instantiate shufflers
         br = std::make_shared<rapidsmp::BufferResource>(mr());
         stream = cudf::get_default_stream();
+
+        GlobalEnvironment->barrier();
+    }
+
+    void TearDown() override {
+        GlobalEnvironment->barrier();
     }
 
     // test run for each thread. The test follows the same logic as
@@ -297,8 +306,6 @@ TEST_P(ConcurrentShuffleTest, round_trip) {
     std::vector<std::future<void>> futures;
     futures.reserve(num_shufflers);
 
-    GlobalEnvironment->barrier();
-
     for (int t_id = 0; t_id < num_shufflers; t_id++) {
         futures.push_back(std::async(std::launch::async, [this, t_id] {
             ASSERT_NO_FATAL_FAILURE(this->RunTest(t_id));
@@ -308,5 +315,4 @@ TEST_P(ConcurrentShuffleTest, round_trip) {
     for (auto& f : futures) {
         ASSERT_NO_THROW(f.wait());
     }
-    GlobalEnvironment->barrier();
 }
