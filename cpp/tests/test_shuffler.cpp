@@ -249,16 +249,9 @@ class ConcurrentShuffleTest
         stream = cudf::get_default_stream();
     }
 
-    void TearDown() override {
-        // make sure every process arrive at the end of the test case
-        GlobalEnvironment->barrier();
-    }
-
     // test run for each thread. The test follows the same logic as
     // `MemoryAvailable_NumPartition` test, but without any memory limitations
     void RunTest(int t_id) {
-        GlobalEnvironment->barrier();
-
         rapidsmp::shuffler::Shuffler shuffler(
             GlobalEnvironment->comm_,
             t_id,  // op_id, use t_id as a proxy
@@ -304,6 +297,8 @@ TEST_P(ConcurrentShuffleTest, round_trip) {
     std::vector<std::future<void>> futures;
     futures.reserve(num_shufflers);
 
+    GlobalEnvironment->barrier();
+
     for (int t_id = 0; t_id < num_shufflers; t_id++) {
         futures.push_back(std::async(std::launch::async, [this, t_id] {
             ASSERT_NO_FATAL_FAILURE(this->RunTest(t_id));
@@ -313,4 +308,5 @@ TEST_P(ConcurrentShuffleTest, round_trip) {
     for (auto& f : futures) {
         ASSERT_NO_THROW(f.wait());
     }
+    GlobalEnvironment->barrier();
 }
