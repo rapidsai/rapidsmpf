@@ -50,9 +50,9 @@ using Rank = int;
  * @brief Operation ID defined by the user. This allows users to concurrently execute
  * multiple operations, and each operation will be identified by its OpID.
  *
- * @note This limits the total number of concurrent operations to 2^16
+ * @note This limits the total number of concurrent operations to 2^8
  */
-using OpID = std::uint16_t;
+using OpID = std::uint8_t;
 
 /**
  * @typedef StageID
@@ -64,8 +64,8 @@ using StageID = std::uint8_t;
  * @brief A tag used for identifying messages in a communication operation.
  *
  * @note The tag is a 32-bit integer, with the following layout:
- * bits     |31:24| 23:16|15:8 | 7:0 |
- * value    |empty|     op     |stage|
+ * bits     |31:16| 15:8 | 7:0 |
+ * value    |empty|  op  |stage|
  */
 class Tag {
   public:

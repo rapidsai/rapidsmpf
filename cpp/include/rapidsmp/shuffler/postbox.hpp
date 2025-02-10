@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,15 +45,26 @@ class PostBox {
     void insert(Chunk&& chunk);
 
     /**
-     * @brief Extracts a specific chunk from the PostBox.
+     * @brief Grants exclusive access to a specific chunk from the PostBox.
      *
-     * @param pid The ID of the partition.
-     * @param cid The ID of the chunk.
-     * @return The extracted chunk.
+     * This function retrieves a reference to the specified chunk and returns it along
+     * with a `std::unique_lock<std::mutex>`, ensuring exclusive access to the chunk while
+     * the lock is held.
+     *
+     * @param pid The ID of the partition containing the chunk.
+     * @param cid The ID of the chunk to be accessed.
+     * @return A pair consisting of:
+     *         - A reference to the extracted chunk.
+     *         - A unique lock that ensures exclusive access.
      *
      * @throws std::out_of_range If the specified chunk is not found.
+     *
+     * @note The returned `std::unique_lock<std::mutex>` must be kept alive as long as
+     * access to the `Chunk&` is needed to prevent race conditions.
      */
-    Chunk extract(PartID pid, ChunkID cid);
+    [[nodiscard]] std::pair<Chunk&, std::unique_lock<std::mutex>> exclusive_access(
+        PartID pid, ChunkID cid
+    );
 
     /**
      * @brief Extracts all chunks associated with a specific partition.
@@ -77,9 +88,18 @@ class PostBox {
      *
      * @return `true` if the PostBox is empty, `false` otherwise.
      */
-    [[nodiscard]] bool empty() const {
-        return pigeonhole_.empty();
-    }
+    [[nodiscard]] bool empty() const;
+
+    /**
+     * @brief Searches for chunks of the specified memory type.
+     *
+     * @param mem_type The type of memory to search within.
+     * @return A vector of tuples, where each tuple contains: PartID, ChunkID, and the
+     * size of the chunk.
+     */
+    [[nodiscard]] std::vector<std::tuple<PartID, ChunkID, std::size_t>> search(
+        MemoryType mem_type
+    ) const;
 
     /**
      * @brief Returns a description of this instance.
@@ -88,7 +108,8 @@ class PostBox {
     [[nodiscard]] std::string str() const;
 
   private:
-    std::mutex mutex_;
+    // TODO: more fine-grained locking e.g. by locking each partition individually.
+    mutable std::mutex mutex_;
     std::unordered_map<PartID, std::unordered_map<ChunkID, Chunk>>
         pigeonhole_;  ///< Storage for chunks, organized by partition and chunk ID.
 };

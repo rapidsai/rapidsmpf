@@ -18,5 +18,6 @@ class LimitAvailableMemory:
     def __init__(
         self,
         statistics_mr: StatisticsResourceAdaptor,
+        limit: int,
     ) -> None: ...
     def __call__(self) -> int: ...
