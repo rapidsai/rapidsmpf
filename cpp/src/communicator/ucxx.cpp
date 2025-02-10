@@ -126,6 +126,8 @@ class UCXXSharedResources {
     std::mutex delayed_progress_callbacks_mutex_{};
 
   public:
+    UCXX::Logger* logger{nullptr};  ///< UCXX Listener
+
     /**
      * @brief Construct UCXX shared resources.
      *
@@ -744,8 +746,9 @@ void listener_callback(ucp_conn_request_h conn_request, void* arg) {
     attr.field_mask = UCP_CONN_REQUEST_ATTR_FIELD_CLIENT_ADDR;
     auto status = ucp_conn_request_query(conn_request, &attr);
     if (status != UCS_OK) {
-        // TODO: Switch to logger
-        std::cout << "Failed to create endpoint to client" << std::endl;
+        if (shared_resources->logger)
+            // TODO: this should be error, but error level doesn't exist.
+            shared_resources->logger->warn("Failed to create endpoint to client");
         return;
     }
 
@@ -754,8 +757,13 @@ void listener_callback(ucp_conn_request_h conn_request, void* arg) {
     ::ucxx::utils::sockaddr_get_ip_port_str(
         &attr.client_address, ip_str.data(), port_str.data(), INET6_ADDRSTRLEN
     );
-    // std::cout << "Server received a connection request from client at address "
-    //           << ip_str.data() << ":" << port_str.data() << std::endl;
+    if (shared_resources->logger)
+        shared_resources->logger->info(
+            "Server received a connection request from client at address ",
+            ip_str.data(),
+            ":",
+            port_str.data()
+        );
 
     auto endpoint = shared_resources->get_listener()->createEndpointFromConnRequest(
         conn_request, true
@@ -834,9 +842,10 @@ std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
             shared_resources->get_control_callback_info(), control_callback
         );
 
-        // TODO: Fix? Remove?
-        // // Connect to root
-        // Logger& log = logger();
+        // Connect to root
+        // TODO: Enable when Logger can be created before the UCXX communicator object.
+        // See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
+        //
         // log.debug(
         //     "Connecting to root node at ",
         //     *root_host,
@@ -889,6 +898,8 @@ std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
         while (shared_resources->rank() == Rank(-1)) {
             shared_resources->progress_worker();
         }
+        // TODO: Enable when Logger can be created before the UCXX communicator object.
+        // See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
         // log.debug("Assigned rank: ", shared_resources->rank());
 
         if (const HostPortPair* host_port_pair =
@@ -926,8 +937,8 @@ std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
         );
         auto listener = shared_resources->get_listener();
 
-        // TODO: Fix? Remove?
-        // Logger& log = logger();
+        // TODO: Enable when Logger can be created before the UCXX communicator object.
+        // See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
         // log.info("Root running at address ", listener->getIp(), ":",
         // listener->getPort());
 
@@ -946,7 +957,9 @@ std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
 }
 
 UCXX::UCXX(std::unique_ptr<UCXXInitializedRank> ucxx_initialized_rank)
-    : shared_resources_(ucxx_initialized_rank->shared_resources_), logger_(this) {}
+    : shared_resources_(ucxx_initialized_rank->shared_resources_), logger_(this) {
+    shared_resources_->logger = &logger_;
+}
 
 [[nodiscard]] Rank UCXX::rank() const {
     return shared_resources_->rank();
@@ -1170,6 +1183,7 @@ UCXX::~UCXX() noexcept {
     Logger& log = logger();
     log.trace("UCXX destructor");
     shared_resources_->get_worker()->stopProgressThread();
+    shared_resources_->logger = nullptr;
 }
 
 void UCXX::progress_worker() {
