@@ -18,7 +18,6 @@
 #include <cstdlib>
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include <ucxx/api.h>
 

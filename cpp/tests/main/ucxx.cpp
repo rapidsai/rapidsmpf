@@ -14,14 +14,9 @@
  * limitations under the License.
  */
 
-#include <chrono>
-#include <functional>
-#include <thread>
-
 #include <gtest/gtest.h>
 #include <mpi.h>
 #include <ucxx/listener.h>
-#include <unistd.h>
 
 #include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/communicator/ucxx.hpp>

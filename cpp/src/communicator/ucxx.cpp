@@ -14,16 +14,10 @@
  * limitations under the License.
  */
 
-#include <array>
 #include <cstdint>
-#include <list>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <utility>
-
-#include <sys/types.h>
-#include <unistd.h>
 
 #include <rapidsmp/communicator/ucxx.hpp>
 #include <rapidsmp/error.hpp>
