@@ -141,9 +141,9 @@ class UCXX final : public Communicator {
      * Construct the UCXX rank using the context previously returned from the call to
      * `init()`.
      *
-     * @param ucxx_context The previously initialized UCXX context.
+     * @param ucxx_initialized_rank The previously initialized UCXX rank.
      */
-    UCXX(std::unique_ptr<UCXXInitializedRank> ucxx_context);
+    UCXX(std::unique_ptr<UCXXInitializedRank> ucxx_initialized_rank);
 
     ~UCXX() noexcept override;
 
