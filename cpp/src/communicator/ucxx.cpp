@@ -96,7 +96,7 @@ class HostFuture {
 
 }  // namespace
 
-class UCXXSharedResources {
+class SharedResources {
   private:
     std::shared_ptr<::ucxx::Worker> worker_{nullptr};  ///< UCXX Listener
     std::shared_ptr<::ucxx::Listener> listener_{nullptr};  ///< UCXX Listener
@@ -131,13 +131,11 @@ class UCXXSharedResources {
      * @param root Whether the rank is the root rank.
      * @param nranks The number of ranks requested for the cluster.
      */
-    UCXXSharedResources(
-        std::shared_ptr<::ucxx::Worker> worker, bool root, uint32_t nranks
-    )
+    SharedResources(std::shared_ptr<::ucxx::Worker> worker, bool root, uint32_t nranks)
         : worker_{worker}, rank_{Rank(root ? 0 : -1)}, nranks_{nranks} {}
 
-    UCXXSharedResources(UCXXSharedResources&&) = delete;  ///< Not movable.
-    UCXXSharedResources(UCXXSharedResources&) = delete;  ///< Not copyable.
+    SharedResources(SharedResources&&) = delete;  ///< Not movable.
+    SharedResources(SharedResources&) = delete;  ///< Not copyable.
 
     /**
      * @brief Sets the rank of a non-root rank.
@@ -603,10 +601,10 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
  * Unpack (i.e., deserialize) `ControlMessage` and `ControlData` received over
  * the wire, and appropriately handle contained data.
  *
- * 1. AssignRank: Calls `UCXXSharedResources->set_rank()` to set own rank.
+ * 1. AssignRank: Calls `SharedResources->set_rank()` to set own rank.
  * 2. QueryListenerAddress: Get the previously-registered listener address for
  * the rank being requested and reply the requester with the listener address.
- * A future with the reply is stored via `UCXXSharedResources->add_future()`.
+ * A future with the reply is stored via `SharedResources->add_future()`.
  * This is only executed by the root.
  * 3. RegisterRank: Associate the endpoint created during `listener_callback()`
  * with the rank informed by the client.
@@ -621,7 +619,7 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
 void control_unpack(
     std::shared_ptr<::ucxx::Buffer> buffer,
     ucp_ep_h ep,
-    std::shared_ptr<rapidsmp::ucxx::UCXXSharedResources> shared_resources
+    std::shared_ptr<rapidsmp::ucxx::SharedResources> shared_resources
 ) {
     size_t offset{0};
 
@@ -656,7 +654,7 @@ void control_unpack(
         // This block cannot be called directly from here since it makes requests
         // (creating endpoint and sending AM) that require progressing the UCX worker,
         // which isn't allowed from within the callback this is already running in.
-        // Therefore we make it a callback that is registered with UCXXSharedResources
+        // Therefore we make it a callback that is registered with SharedResources
         // and executed before progressing the worker in the next loop.
         auto callback = [shared_resources, client_rank]() {
             auto worker_address = std::get<std::shared_ptr<::ucxx::Address>>(
@@ -734,7 +732,7 @@ void control_unpack(
  * associated with the new endpoint.
  */
 void listener_callback(ucp_conn_request_h conn_request, void* arg) {
-    auto shared_resources = reinterpret_cast<rapidsmp::ucxx::UCXXSharedResources*>(arg);
+    auto shared_resources = reinterpret_cast<rapidsmp::ucxx::SharedResources*>(arg);
 
     ucp_conn_request_attr_t attr{};
     attr.field_mask = UCP_CONN_REQUEST_ATTR_FIELD_CLIENT_ADDR;
@@ -793,12 +791,12 @@ void create_cuda_context_callback(void* callbackArg) {
 
 }  // namespace
 
-UCXXInitializedRank::UCXXInitializedRank(
-    std::shared_ptr<rapidsmp::ucxx::UCXXSharedResources> shared_resources
+InitializedRank::InitializedRank(
+    std::shared_ptr<rapidsmp::ucxx::SharedResources> shared_resources
 )
     : shared_resources_(shared_resources) {}
 
-std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
+std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
     std::uint32_t nranks,
     std::optional<RemoteAddress> remote_address
@@ -817,7 +815,7 @@ std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
             worker = create_worker();
         }
         auto shared_resources =
-            std::make_shared<rapidsmp::ucxx::UCXXSharedResources>(worker, false, nranks);
+            std::make_shared<rapidsmp::ucxx::SharedResources>(worker, false, nranks);
 
         // Create listener
         shared_resources->register_listener(
@@ -917,13 +915,13 @@ std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
             while (!req->isCompleted())
                 shared_resources->progress_worker();
         }
-        return std::make_unique<rapidsmp::ucxx::UCXXInitializedRank>(shared_resources);
+        return std::make_unique<rapidsmp::ucxx::InitializedRank>(shared_resources);
     } else {
         if (worker == nullptr) {
             worker = create_worker();
         }
         auto shared_resources =
-            std::make_shared<rapidsmp::ucxx::UCXXSharedResources>(worker, true, nranks);
+            std::make_shared<rapidsmp::ucxx::SharedResources>(worker, true, nranks);
 
         // Create listener
         shared_resources->register_listener(
@@ -946,11 +944,11 @@ std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
             shared_resources->get_control_callback_info(), control_callback
         );
 
-        return std::make_unique<rapidsmp::ucxx::UCXXInitializedRank>(shared_resources);
+        return std::make_unique<rapidsmp::ucxx::InitializedRank>(shared_resources);
     }
 }
 
-UCXX::UCXX(std::unique_ptr<UCXXInitializedRank> ucxx_initialized_rank)
+UCXX::UCXX(std::unique_ptr<InitializedRank> ucxx_initialized_rank)
     : shared_resources_(ucxx_initialized_rank->shared_resources_), logger_(this) {
     shared_resources_->logger = &logger_;
 }

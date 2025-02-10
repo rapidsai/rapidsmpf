@@ -53,7 +53,7 @@ class ListenerAddress {
     Rank rank{};  ///< The rank of the listener.
 };
 
-class UCXXSharedResources;
+class SharedResources;
 
 /**
  * @brief A UCXX initialized rank.
@@ -62,7 +62,7 @@ class UCXXSharedResources;
  * to an initialized UCXX rank. An object of this class is later used to initialize
  * a `UCXX` object.
  */
-class UCXXInitializedRank {
+class InitializedRank {
   public:
     /**
      * @brief Construct an initialized UCXX rank.
@@ -71,9 +71,9 @@ class UCXXInitializedRank {
      *
      * @param shared_resources Opaque object created by `init()`.
      */
-    UCXXInitializedRank(std::shared_ptr<UCXXSharedResources> shared_resources);
+    InitializedRank(std::shared_ptr<SharedResources> shared_resources);
 
-    std::shared_ptr<UCXXSharedResources> shared_resources_{nullptr
+    std::shared_ptr<SharedResources> shared_resources_{nullptr
     };  ///< Opaque object created by `init()`.
 };
 
@@ -92,7 +92,7 @@ class UCXXInitializedRank {
  *
  * @throws std::logic_error if only one of `root_host` or `root_port` is specified.
  */
-std::unique_ptr<rapidsmp::ucxx::UCXXInitializedRank> init(
+std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
     std::uint32_t nranks,
     std::optional<RemoteAddress> remote_address = std::nullopt
@@ -143,7 +143,7 @@ class UCXX final : public Communicator {
      *
      * @param ucxx_initialized_rank The previously initialized UCXX rank.
      */
-    UCXX(std::unique_ptr<UCXXInitializedRank> ucxx_initialized_rank);
+    UCXX(std::unique_ptr<InitializedRank> ucxx_initialized_rank);
 
     ~UCXX() noexcept override;
 
@@ -246,7 +246,7 @@ class UCXX final : public Communicator {
     ListenerAddress listener_address();
 
   private:
-    std::shared_ptr<UCXXSharedResources> shared_resources_;
+    std::shared_ptr<SharedResources> shared_resources_;
     Logger logger_;
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
