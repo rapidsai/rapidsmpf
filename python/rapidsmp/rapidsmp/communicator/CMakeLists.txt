@@ -12,7 +12,7 @@
 # the License.
 # =============================================================================
 
-set(cython_modules communicator.pyx mpi.pyx)
+set(cython_modules communicator.pyx mpi.pyx ucxx.pyx)
 
 rapids_cython_create_modules(
   CXX
