@@ -173,9 +173,42 @@ def bulk_mpi_shuffle(
         shuffler.shutdown()
 
 
+def ucxx_mpi_setup():
+    """Bootstrap UCXX cluster using MPI."""
+    import ucxx._lib.libucxx as ucx_api
+
+    from rapidsmp.communicator.ucxx import (
+        barrier,
+        get_root_ucxx_address,
+        new_communicator_no_worker,
+        new_root_communicator_no_worker,
+    )
+
+    if MPI.COMM_WORLD.Get_rank() == 0:
+        comm = new_root_communicator_no_worker(MPI.COMM_WORLD.size)
+        root_address_str = get_root_ucxx_address(comm)
+    else:
+        root_address_str = None
+
+    root_address_str = MPI.COMM_WORLD.bcast(root_address_str, root=0)
+
+    if MPI.COMM_WORLD.Get_rank() != 0:
+        root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
+        comm = new_communicator_no_worker(MPI.COMM_WORLD.size, root_address)
+
+    assert comm.nranks == MPI.COMM_WORLD.size
+
+    barrier(comm)
+
+    return comm
+
+
 def setup_and_run(args) -> None:
     """Setup the environment and run the shuffle example."""
-    comm = rapidsmp.communicator.mpi.new_communicator(MPI.COMM_WORLD)
+    if args.cluster_type == "mpi":
+        comm = rapidsmp.communicator.mpi.new_communicator(MPI.COMM_WORLD)
+    elif args.cluster_type == "ucxx":
+        comm = ucxx_mpi_setup()
 
     # Create a RMM stack with both a device pool and statistics.
     mr = rmm.mr.StatisticsResourceAdaptor(
@@ -312,6 +345,16 @@ if __name__ == "__main__":
         help=(
             "Spilling device-to-host threshold as a string with unit such as '2MiB' "
             "and '4KiB'. Default is no spilling"
+        ),
+    )
+    parser.add_argument(
+        "--cluster-type",
+        type=str,
+        default="mpi",
+        choices=("mpi", "ucxx"),
+        help=(
+            "Cluster type to setup. Regardless of the cluster type selected it must "
+            "be launched with 'mpirun'."
         ),
     )
     args = parser.parse_args()
