@@ -15,33 +15,48 @@ from rapidsmp.communicator.ucxx import (
 )
 
 
+def ucxx_mpi_setup(ucxx_worker):
+    if MPI.COMM_WORLD.Get_rank() == 0:
+        comm = new_root_communicator(ucxx_worker, MPI.COMM_WORLD.size)
+        root_address_str = get_root_ucxx_address(comm)
+    else:
+        root_address_str = None
+
+    root_address_str = MPI.COMM_WORLD.bcast(root_address_str, root=0)
+
+    print(type(root_address_str))
+    assert isinstance(root_address_str, bytes)
+    # assert isinstance(root_address_str, str)
+
+    if MPI.COMM_WORLD.Get_rank() != 0:
+        root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
+        comm = new_communicator(ucxx_worker, MPI.COMM_WORLD.size, root_address)
+
+    # barrier(comm)
+
+    assert comm.nranks == MPI.COMM_WORLD.size
+
+    return comm
+
+
+def initialize_ucxx():
+    # ucxx_worker = ucxx.core._get_ctx().worker
+    ucxx_context = ucx_api.UCXContext(
+        feature_flags=(ucx_api.Feature.AM, ucx_api.Feature.TAG)
+    )
+    ucxx_worker = ucx_api.UCXWorker(ucxx_context)
+    ucxx_worker.start_progress_thread(polling_mode=True)
+
+    return ucxx_worker
+
+
 @pytest.mark.parametrize("RAPIDSMP_LOG", range(5))
 def test_mpi(capfd, RAPIDSMP_LOG):
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("RAPIDSMP_LOG", str(RAPIDSMP_LOG))
 
-        # ucxx_worker = ucxx.core._get_ctx().worker
-        ucxx_context = ucx_api.UCXContext(
-            feature_flags=(ucx_api.Feature.AM, ucx_api.Feature.TAG)
-        )
-        ucxx_worker = ucx_api.UCXWorker(ucxx_context)
-        ucxx_worker.start_progress_thread(polling_mode=True)
-
-        if MPI.COMM_WORLD.Get_rank() == 0:
-            comm = new_root_communicator(ucxx_worker, MPI.COMM_WORLD.size)
-            root_address_str = get_root_ucxx_address(comm)
-        else:
-            root_address_str = None
-
-        root_address_str = MPI.COMM_WORLD.bcast(root_address_str, root=0)
-
-        print(type(root_address_str))
-        assert isinstance(root_address_str, bytes)
-        # assert isinstance(root_address_str, str)
-
-        if MPI.COMM_WORLD.Get_rank() != 0:
-            root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
-            comm = new_communicator(ucxx_worker, MPI.COMM_WORLD.size, root_address)
+        ucxx_worker = initialize_ucxx()
+        comm = ucxx_mpi_setup(ucxx_worker)
 
         # barrier(comm)
 
