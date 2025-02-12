@@ -101,7 +101,7 @@ class SharedResources {
     std::shared_ptr<::ucxx::Worker> worker_{nullptr};  ///< UCXX Listener
     std::shared_ptr<::ucxx::Listener> listener_{nullptr};  ///< UCXX Listener
     Rank rank_{Rank(-1)};  ///< Rank of the current process
-    std::uint32_t nranks_{0};  ///< Rank of the current process
+    std::uint32_t nranks_{0};  ///< Number of ranks in the communicator
     std::atomic<Rank> next_rank_{1
     };  ///< Rank to assign for the next client that connects (root only)
     EndpointsMap endpoints_{};  ///< Map of UCP handle to UCXX endpoints of known ranks
@@ -125,7 +125,7 @@ class SharedResources {
     /**
      * @brief Construct UCXX shared resources.
      *
-     * Constructor UCXX shared resources, assigning the proper rank 0 for root,
+     * Construct UCXX shared resources, assigning the proper rank 0 for root,
      * other ranks must call `set_rank()` at the appropriate time.
      *
      * @param root Whether the rank is the root rank.
