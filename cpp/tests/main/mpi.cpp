@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,25 +19,32 @@
 
 #include <rapidsmp/communicator/mpi.hpp>
 
-class Environment : public ::testing::Environment {
-  public:
-    Environment(int argc, char** argv) : argc_(argc), argv_(argv) {}
+#include "../environment.hpp"
 
-    void SetUp() override {
-        rapidsmp::mpi::init(&argc_, &argv_);
-    }
+Environment* GlobalEnvironment = nullptr;
 
-    void TearDown() override {
-        RAPIDSMP_MPI(MPI_Finalize());
-    }
+Environment::Environment(int argc, char** argv) : argc_(argc), argv_(argv) {}
 
-  private:
-    int argc_;
-    char** argv_;
-};
+void Environment::SetUp() {
+    rapidsmp::mpi::init(&argc_, &argv_);
+
+    RAPIDSMP_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm_));
+
+    comm_ = std::make_shared<rapidsmp::MPI>(mpi_comm_);
+}
+
+void Environment::TearDown() {
+    RAPIDSMP_MPI(MPI_Comm_free(&mpi_comm_));
+    RAPIDSMP_MPI(MPI_Finalize());
+}
+
+void Environment::barrier() {
+    RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
+}
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    ::testing::AddGlobalTestEnvironment(new Environment(argc, argv));
+    GlobalEnvironment = new Environment(argc, argv);
+    ::testing::AddGlobalTestEnvironment(GlobalEnvironment);
     return RUN_ALL_TESTS();
 }

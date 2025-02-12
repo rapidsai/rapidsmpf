@@ -18,6 +18,8 @@ mamba env create --name rapidsmp-dev --file conda/environments/all_cuda-125_arch
 ./build.sh
 ```
 
+### MPI
+
 Run the test suite using MPI:
 ```
 # When using OpenMP, we need to enable CUDA support.
@@ -33,6 +35,14 @@ We can also run the shuffle benchmark. To assign each MPI rank its own GPU, we u
 wget https://raw.githubusercontent.com/LStuber/binding/refs/heads/master/binder.sh
 chmod a+x binder.sh
 mpirun -np 2 ./binder.sh cpp/build/benchmarks/bench_shuffle
+```
+
+### UCX
+
+The UCX test suite uses, for convenience, MPI to bootstrap, therefore we need to launch UCX tests with `mpirun`. Run the test suite using UCX:
+```
+# Run the suite using two processes.
+mpirun -np 2 cpp/build/gtests/ucxx_tests
 ```
 
 ## Algorithms
