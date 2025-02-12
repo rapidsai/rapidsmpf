@@ -193,7 +193,7 @@ def ucxx_mpi_setup():
 
     if MPI.COMM_WORLD.Get_rank() != 0:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
-        comm = new_communicator(MPI.COMM_WORLD.size, root_address)
+        comm = new_communicator(MPI.COMM_WORLD.size, None, root_address)
 
     assert comm.nranks == MPI.COMM_WORLD.size
 
@@ -238,6 +238,7 @@ Shuffle:
     input: {args.input}
     output: {args.output}
     on: {args.on}
+  --cluster-type: {args.cluster_type}
   --n-output-files: {args.n_output_files}
   --batchsize: {args.batchsize}
   --baseline: {args.baseline}
