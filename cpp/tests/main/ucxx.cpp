@@ -55,14 +55,14 @@ void broadcast_listener_address(std::string& root_worker_address_str) {
 }  // namespace
 
 void Environment::SetUp() {
+    // Ensure CUDA context is created before UCX is initialized.
+    cudaFree(0);
+
     rapidsmp::mpi::init(&argc_, &argv_);
 
     int rank, nranks;
     RAPIDSMP_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
     RAPIDSMP_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
-
-    // Ensure CUDA context is created before UCX is initialized.
-    cudaFree(0);
 
     auto root_listener_address = rapidsmp::ucxx::ListenerAddress{.rank = 0};
     std::string root_worker_address_str{};
