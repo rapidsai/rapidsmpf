@@ -85,12 +85,12 @@ class InitializedRank {
  *
  * @param worker The UCXX worker, or nullptr to create one internally.
  * @param nranks The number of ranks requested for the cluster.
- * @param root_host The hostname or IP address where the root rank is listening,
- *                  should be `std::nullopt` for root rank.
- * @param root_port The port where the root rank is listening, should be
- *                  `std::nullopt` for root rank.
+ * @param remote_address Host/port pair or worker address identifying the remote UCXX
+ *                       listener or worker. Used only by non-root ranks to connect to a
+ *                       previously initialized root rank, for which the default
+ *                       `std::nullopt` is specified.
  *
- * @throws std::logic_error if only one of `root_host` or `root_port` is specified.
+ * @throws std::logic_error if the `remote_address` is an invalid object.
  */
 std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
