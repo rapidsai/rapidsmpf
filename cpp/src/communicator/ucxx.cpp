@@ -128,6 +128,7 @@ class SharedResources {
      * Constructor UCXX shared resources, assigning the proper rank 0 for root,
      * other ranks must call `set_rank()` at the appropriate time.
      *
+     * @param worker The UCXX worker, or nullptr to create one internally.
      * @param root Whether the rank is the root rank.
      * @param nranks The number of ranks requested for the cluster.
      */
