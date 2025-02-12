@@ -11,20 +11,6 @@ from rapidsmp.communicator.ucxx cimport *
 from ucxx._lib.libucxx cimport Address, UCXAddress, UCXWorker, Worker
 
 
-cdef Communicator cpp_new_root_communicator(
-    shared_ptr[Worker] worker,
-    uint32_t nranks,
-):
-    cdef unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank = init(
-        worker,
-        nranks,
-        nullopt
-    )
-    cdef Communicator ret = Communicator.__new__(Communicator)
-    ret._handle = make_shared[cpp_UCXX_Communicator](move(ucxx_initialized_rank))
-    return ret
-
-
 cdef Communicator cpp_new_communicator(
     shared_ptr[Worker] worker,
     uint32_t nranks,
@@ -39,6 +25,23 @@ cdef Communicator cpp_new_communicator(
     cdef Communicator ret = Communicator.__new__(Communicator)
     ret._handle = make_shared[cpp_UCXX_Communicator](move(ucxx_initialized_rank))
     return ret
+
+
+def new_communicator(
+    uint32_t nranks = 1,
+    UCXWorker ucx_worker = None,
+    UCXAddress root_ucxx_address = None
+):
+    if ucx_worker is None:
+        ucx_worker_ptr = <shared_ptr[Worker]>nullptr
+    else:
+        ucx_worker_ptr = ucx_worker.get_ucxx_shared_ptr()
+    if root_ucxx_address is None:
+        root_ucxx_address_ptr = <shared_ptr[Address]>nullptr
+    else:
+        root_ucxx_address_ptr = root_ucxx_address.get_ucxx_shared_ptr()
+
+    return cpp_new_communicator(ucx_worker_ptr, nranks, root_ucxx_address_ptr)
 
 
 def get_root_ucxx_address(Communicator comm):
@@ -67,45 +70,3 @@ def barrier(Communicator comm):
         )
     )
     deref(ucxx_comm).barrier()
-
-
-def new_root_communicator(UCXWorker ucx_worker = None, uint32_t nranks = 1):
-    if ucx_worker is None:
-        ucx_worker_ptr = <shared_ptr[Worker]>nullptr
-    else:
-        ucx_worker_ptr = ucx_worker.get_ucxx_shared_ptr()
-
-    return cpp_new_root_communicator(ucx_worker_ptr, nranks)
-
-
-def new_communicator(
-    uint32_t nranks = 1,
-    UCXWorker ucx_worker = None,
-    UCXAddress root_ucxx_address = None
-):
-    if ucx_worker is None:
-        ucx_worker_ptr = <shared_ptr[Worker]>nullptr
-    else:
-        ucx_worker_ptr = ucx_worker.get_ucxx_shared_ptr()
-    if root_ucxx_address is None:
-        root_ucxx_address_ptr = <shared_ptr[Address]>nullptr
-    else:
-        root_ucxx_address_ptr = root_ucxx_address.get_ucxx_shared_ptr()
-
-    return cpp_new_communicator(ucx_worker_ptr, nranks, root_ucxx_address_ptr)
-
-
-def new_root_communicator_no_worker(uint32_t nranks = 1):
-    # nranks is now an optional argument. Defaults to 1.
-    return cpp_new_root_communicator(<shared_ptr[Worker]>nullptr, nranks)
-
-
-def new_communicator_no_worker(
-    uint32_t nranks = 1,
-    UCXAddress root_ucxx_address = None
-):
-    return cpp_new_communicator(
-        <shared_ptr[Worker]>nullptr,
-        nranks,
-        root_ucxx_address.get_ucxx_shared_ptr()
-    )
