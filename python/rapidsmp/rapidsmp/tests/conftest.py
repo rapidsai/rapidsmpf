@@ -57,16 +57,10 @@ def _ucxx_mpi_setup(ucxx_worker):
         barrier,
         get_root_ucxx_address,
         new_communicator,
-        new_communicator_no_worker,
-        new_root_communicator,
-        new_root_communicator_no_worker,
     )
 
     if MPI.COMM_WORLD.Get_rank() == 0:
-        if ucxx_worker is None:
-            comm = new_root_communicator_no_worker(MPI.COMM_WORLD.size)
-        else:
-            comm = new_root_communicator(ucxx_worker, MPI.COMM_WORLD.size)
+        comm = new_communicator(MPI.COMM_WORLD.size, ucxx_worker)
         root_address_str = get_root_ucxx_address(comm)
     else:
         root_address_str = None
@@ -75,10 +69,7 @@ def _ucxx_mpi_setup(ucxx_worker):
 
     if MPI.COMM_WORLD.Get_rank() != 0:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
-        if ucxx_worker is None:
-            comm = new_communicator_no_worker(MPI.COMM_WORLD.size, root_address)
-        else:
-            comm = new_communicator(ucxx_worker, MPI.COMM_WORLD.size, root_address)
+        comm = new_communicator(MPI.COMM_WORLD.size, ucxx_worker, root_address)
 
     assert comm.nranks == MPI.COMM_WORLD.size
 

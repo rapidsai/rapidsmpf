@@ -30,11 +30,12 @@ cdef Communicator cpp_new_communicator(
     uint32_t nranks,
     shared_ptr[Address] root_address,
 ):
-    cdef unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank = init(
-        worker,
-        nranks,
-        root_address
-    )
+    cdef unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
+
+    if root_address == <shared_ptr[Address]>nullptr:
+        ucxx_initialized_rank = init(worker, nranks, nullopt)
+    else:
+        ucxx_initialized_rank = init(worker, nranks, root_address)
     cdef Communicator ret = Communicator.__new__(Communicator)
     ret._handle = make_shared[cpp_UCXX_Communicator](move(ucxx_initialized_rank))
     return ret
@@ -68,25 +69,43 @@ def barrier(Communicator comm):
     deref(ucxx_comm).barrier()
 
 
-def new_root_communicator(UCXWorker ucx_worker, uint32_t nranks):
-    return cpp_new_root_communicator(ucx_worker._worker, nranks)
+def new_root_communicator(UCXWorker ucx_worker = None, uint32_t nranks = 1):
+    if ucx_worker is None:
+        ucx_worker_ptr = <shared_ptr[Worker]>nullptr
+    else:
+        ucx_worker_ptr = ucx_worker.get_ucxx_shared_ptr()
+
+    return cpp_new_root_communicator(ucx_worker_ptr, nranks)
 
 
 def new_communicator(
-    UCXWorker ucx_worker,
-    uint32_t nranks,
-    UCXAddress root_ucxx_address
+    uint32_t nranks = 1,
+    UCXWorker ucx_worker = None,
+    UCXAddress root_ucxx_address = None
 ):
-    return cpp_new_communicator(ucx_worker._worker, nranks, root_ucxx_address._address)
+    if ucx_worker is None:
+        ucx_worker_ptr = <shared_ptr[Worker]>nullptr
+    else:
+        ucx_worker_ptr = ucx_worker.get_ucxx_shared_ptr()
+    if root_ucxx_address is None:
+        root_ucxx_address_ptr = <shared_ptr[Address]>nullptr
+    else:
+        root_ucxx_address_ptr = root_ucxx_address.get_ucxx_shared_ptr()
+
+    return cpp_new_communicator(ucx_worker_ptr, nranks, root_ucxx_address_ptr)
 
 
-def new_root_communicator_no_worker(uint32_t nranks):
+def new_root_communicator_no_worker(uint32_t nranks = 1):
+    # nranks is now an optional argument. Defaults to 1.
     return cpp_new_root_communicator(<shared_ptr[Worker]>nullptr, nranks)
 
 
-def new_communicator_no_worker(uint32_t nranks, UCXAddress root_ucxx_address = None):
+def new_communicator_no_worker(
+    uint32_t nranks = 1,
+    UCXAddress root_ucxx_address = None
+):
     return cpp_new_communicator(
         <shared_ptr[Worker]>nullptr,
         nranks,
-        root_ucxx_address._address
+        root_ucxx_address.get_ucxx_shared_ptr()
     )

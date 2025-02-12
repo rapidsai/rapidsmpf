@@ -11,13 +11,12 @@ from rapidsmp.communicator.ucxx import (
     barrier,
     get_root_ucxx_address,
     new_communicator,
-    new_root_communicator,
 )
 
 
 def ucxx_mpi_setup(ucxx_worker):
     if MPI.COMM_WORLD.Get_rank() == 0:
-        comm = new_root_communicator(ucxx_worker, MPI.COMM_WORLD.size)
+        comm = new_communicator(MPI.COMM_WORLD.size, ucxx_worker)
         root_address_str = get_root_ucxx_address(comm)
     else:
         root_address_str = None
@@ -30,7 +29,7 @@ def ucxx_mpi_setup(ucxx_worker):
 
     if MPI.COMM_WORLD.Get_rank() != 0:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
-        comm = new_communicator(ucxx_worker, MPI.COMM_WORLD.size, root_address)
+        comm = new_communicator(MPI.COMM_WORLD.size, ucxx_worker, root_address)
 
     # barrier(comm)
 
