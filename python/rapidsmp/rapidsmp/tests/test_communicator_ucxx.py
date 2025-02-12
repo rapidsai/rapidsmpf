@@ -23,15 +23,9 @@ def ucxx_mpi_setup(ucxx_worker):
 
     root_address_str = MPI.COMM_WORLD.bcast(root_address_str, root=0)
 
-    print(type(root_address_str))
-    assert isinstance(root_address_str, bytes)
-    # assert isinstance(root_address_str, str)
-
     if MPI.COMM_WORLD.Get_rank() != 0:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
         comm = new_communicator(MPI.COMM_WORLD.size, ucxx_worker, root_address)
-
-    # barrier(comm)
 
     assert comm.nranks == MPI.COMM_WORLD.size
 

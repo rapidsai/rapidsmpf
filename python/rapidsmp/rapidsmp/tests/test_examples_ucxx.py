@@ -19,7 +19,6 @@ from rapidsmp.testing import assert_eq
 def test_bulk_mpi_shuffle(ucxx_comm, tmpdir, device_mr, batchsize, num_output_files):
     # Get mpi-compatible tmpdir
     mpi_comm = MPI.COMM_WORLD
-    print(f"{ucxx_comm=}", flush=True)
     comm = ucxx_comm
     rank = comm.rank
     name = str(tmpdir) if rank == 0 else None
