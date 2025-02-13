@@ -12,7 +12,7 @@ git clone https://github.com/rapidsai/rapids-multi-gpu.git
 cd rapids-multi-gpu
 
 # Choose a environment file that match your system.
-mamba env create --name rapidsmp-dev --file conda/environments/all_cuda-125_arch-x86_64.yaml
+mamba env create --name rapidsmp-dev --file conda/environments/all_cuda-128_arch-x86_64.yaml
 
 # Build
 ./build.sh
