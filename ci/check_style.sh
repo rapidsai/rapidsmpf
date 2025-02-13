@@ -2,6 +2,7 @@
 # Copyright (c) 2024, NVIDIA CORPORATION.
 
 set -euo pipefail
+set -x
 
 rapids-logger "Create checks conda environment"
 . /opt/conda/etc/profile.d/conda.sh
@@ -11,7 +12,7 @@ rapids-dependency-file-generator \
   --file-key checks \
   --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch);py=${RAPIDS_PY_VERSION}" | tee env.yaml
 
-rapids-mamba-retry env create -qy -f env.yaml -n checks
+rapids-mamba-retry env create -y -f env.yaml -n checks
 conda activate checks
 
 RAPIDS_VERSION_MAJOR_MINOR="$(rapids-version-major-minor)"
