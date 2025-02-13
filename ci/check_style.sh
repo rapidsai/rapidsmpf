@@ -1,8 +1,7 @@
 #!/bin/bash
-# Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# Copyright (c) 2024, NVIDIA CORPORATION.
 
 set -euo pipefail
-set -x
 
 rapids-logger "Create checks conda environment"
 . /opt/conda/etc/profile.d/conda.sh
