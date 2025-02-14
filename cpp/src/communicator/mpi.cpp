@@ -107,6 +107,10 @@ std::unique_ptr<Communicator::Future> MPI::send(
     BufferResource* br
 ) {
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
+    RAPIDSMP_EXPECTS(
+        msg->size() <= std::numeric_limits<int>::max(),
+        "send buffer size exceeds MPI max count"
+    );
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
     );
@@ -116,6 +120,9 @@ std::unique_ptr<Communicator::Future> MPI::send(
 std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
 ) {
+    RAPIDSMP_EXPECTS(
+        msg->size <= std::numeric_limits<int>::max(), "send buffer size exceeds MPI max count"
+    );
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
     return std::make_unique<Future>(req, std::move(msg));
@@ -124,6 +131,10 @@ std::unique_ptr<Communicator::Future> MPI::send(
 std::unique_ptr<Communicator::Future> MPI::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
 ) {
+    RAPIDSMP_EXPECTS(
+        recv_buffer->size <= std::numeric_limits<int>::max(),
+        "recv buffer size exceeds MPI max count"
+    );
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Irecv(
         recv_buffer->data(), recv_buffer->size, MPI_UINT8_T, rank, tag, comm_, &req
@@ -144,6 +155,9 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     );
     MPI_Count size;
     RAPIDSMP_MPI(MPI_Get_elements_x(&probe_status, MPI_UINT8_T, &size));
+    RAPIDSMP_EXPECTS(
+        size <= std::numeric_limits<int>::max(), "recv buffer size exceeds MPI max count"
+    );
     auto msg = std::make_unique<std::vector<uint8_t>>(size);  // TODO: uninitialize
 
     MPI_Status msg_status;
