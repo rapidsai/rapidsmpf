@@ -121,7 +121,8 @@ std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
 ) {
     RAPIDSMP_EXPECTS(
-        msg->size <= std::numeric_limits<int>::max(), "send buffer size exceeds MPI max count"
+        msg->size <= std::numeric_limits<int>::max(),
+        "send buffer size exceeds MPI max count"
     );
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
