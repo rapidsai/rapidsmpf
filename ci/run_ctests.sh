@@ -28,5 +28,7 @@ for nrank in 1 2 3 4 5 8; do
 done
 
 for nrank in 1 2 3 4 5 8; do
-    run_mpirun_test 1m $nrank ucxx_tests
+    # Temporarily increasing timeouts to 5m.
+    # See: https://github.com/rapidsai/rapids-multi-gpu/issues/75
+    run_mpirun_test 5m $nrank ucxx_tests
 done
