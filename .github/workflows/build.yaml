@@ -3,7 +3,7 @@ name: build
 on:
   push:
     branches:
-      - "pull-request/[0-9]+"
+      - "branch-*"
   workflow_dispatch:
     inputs:
       branch:
