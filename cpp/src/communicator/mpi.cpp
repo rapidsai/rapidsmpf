@@ -23,15 +23,17 @@ namespace rapidsmp {
 
 namespace mpi {
 void init(int* argc, char*** argv) {
-    int provided;
+    if (!is_initialized()) {
+        int provided;
 
-    // Initialize MPI with the desired level of thread support
-    MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
+        // Initialize MPI with the desired level of thread support
+        RAPIDSMP_MPI(MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided));
 
-    RAPIDSMP_EXPECTS(
-        provided == MPI_THREAD_MULTIPLE,
-        "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
-    );
+        RAPIDSMP_EXPECTS(
+            provided == MPI_THREAD_MULTIPLE,
+            "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
+        );
+    }
 
     // Check if max MPI TAG can accommodate the OpID + TagPrefixT
     int flag;
@@ -45,6 +47,12 @@ void init(int* argc, char*** argv) {
             + ") is unable to accommodate the required max tag("
             + std::to_string(Tag::max_value()) + ")"
     );
+}
+
+bool is_initialized() {
+    int flag;
+    RAPIDSMP_MPI(MPI_Initialized(&flag));
+    return flag;
 }
 
 void detail::check_mpi_error(int error_code, const char* file, int line) {

@@ -45,6 +45,11 @@ namespace mpi {
 void init(int* argc, char*** argv);
 
 /**
+ * @brief Check if MPI is initialized.
+ */
+bool is_initialized();
+
+/**
  * @brief Helper to check the MPI errcode of an MPI call.
  *
  * A macro to check the result of an MPI call and handle any error codes that are
