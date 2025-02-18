@@ -27,7 +27,7 @@ namespace ucxx {
  *
  * @param mpi_comm MPI communicator.
  * @return UCXX communicator.
- * 
+ *
  * @note Requires MPI to be initialized prior to calling this function.
  */
 std::shared_ptr<UCXX> init_using_mpi(MPI_Comm mpi_comm);

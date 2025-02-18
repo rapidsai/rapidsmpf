@@ -46,6 +46,8 @@ void init(int* argc, char*** argv);
 
 /**
  * @brief Check if MPI is initialized.
+ *
+ * @return true If MPI is initialized.
  */
 bool is_initialized();
 

@@ -75,7 +75,7 @@ class ArgumentParser {
                 comm_type = std::string{optarg};
                 if (!(comm_type == "mpi" || comm_type == "ucx")) {
                     if (rank == 0) {
-                        std::cerr << "-C (Communicatpr) must be one of {mpi, ucx}"
+                        std::cerr << "-C (Communicator) must be one of {mpi, ucx}"
                                   << std::endl;
                     }
                     RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
