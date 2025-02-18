@@ -17,7 +17,9 @@ rapids-dependency-file-generator \
   --prepend-channel "${CPP_CHANNEL}" --prepend-channel "${PYTHON_CHANNEL}" \
   | tee env.yaml
 
-rapids-mamba-retry env create -qy -f env.yaml -n test
+# Verbose output for debugging
+rapids-mamba-retry env create -y -vv -f env.yaml -n test
+# rapids-mamba-retry env create -qy -f env.yaml -n test
 
 # Temporarily allow unbound variables for conda activation.
 set +u
