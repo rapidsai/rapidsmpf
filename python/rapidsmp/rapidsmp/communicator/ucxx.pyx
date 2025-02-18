@@ -1,14 +1,60 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint32_t
+from libc.stdint cimport uint16_t, uint32_t
 from libcpp.memory cimport (dynamic_pointer_cast, make_shared, nullptr,
                             shared_ptr, unique_ptr)
-from libcpp.optional cimport nullopt
+from libcpp.optional cimport nullopt, nullopt_t
+from libcpp.pair cimport pair
+from libcpp.string cimport string
 from libcpp.utility cimport move
 from rapidsmp.communicator.communicator cimport *
 from rapidsmp.communicator.ucxx cimport *
 from ucxx._lib.libucxx cimport Address, UCXAddress, UCXWorker, Worker
+
+
+cdef extern from "<variant>" namespace "std" nogil:
+    cdef cppclass variant:
+        variant& operator=(variant&)
+        size_t index()
+
+    cdef T get[T](...)
+    cdef T* get_if[T](...)
+
+
+cdef extern from "<rapidsmp/communicator/ucxx.hpp>" namespace "rapidsmp::ucxx" nogil:
+    ctypedef int Rank
+
+    ctypedef pair[string, uint16_t] HostPortPair
+
+    ctypedef variant RemoteAddress
+
+    cdef cppclass cpp_UCXX_ListenerAddress "rapidsmp::ucxx::ListenerAddress":
+        RemoteAddress address
+        Rank rank
+
+    cdef cppclass cpp_UCXX_InitializedRank "rapidsmp::ucxx::InitializedRank":
+        pass
+
+    unique_ptr[cpp_UCXX_InitializedRank] init(
+        shared_ptr[Worker] worker,
+        uint32_t nranks,
+        shared_ptr[Address] remote_address
+    )
+
+    unique_ptr[cpp_UCXX_InitializedRank] init(
+        shared_ptr[Worker] worker,
+        uint32_t nranks,
+        nullopt_t remote_address
+    )
+
+    cdef cppclass cpp_UCXX_Communicator "rapidsmp::ucxx::UCXX":
+        cpp_UCXX_Communicator() except +
+        cpp_UCXX_Communicator(
+            unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
+        ) except +
+        cpp_UCXX_ListenerAddress listener_address()
+        void barrier() except +
 
 
 cdef Communicator cpp_new_communicator(
