@@ -56,7 +56,7 @@ def get_root_ucxx_address(Communicator comm):
     cdef HostPortPair* host_port_pair
 
     if address := get_if[shared_ptr[Address]](&listener_address.address):
-        # # Dereference twice: first the `get_if` result, then `shared_ptr`
+        # Dereference twice: first the `get_if` result, then `shared_ptr`
         return deref(deref(address)).getString()
     elif host_port_pair := get_if[HostPortPair](&listener_address.address):
         raise NotImplementedError("Accepting HostPortPair is not implemented yet")
@@ -69,4 +69,5 @@ def barrier(Communicator comm):
             comm._handle
         )
     )
+
     deref(ucxx_comm).barrier()
