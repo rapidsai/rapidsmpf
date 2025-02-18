@@ -52,7 +52,7 @@ async def rapidsmp_ucxx_rank_setup(
     dask_worker = get_worker()
 
     if root_address_str is None:
-        comm = new_communicator(nranks, None)
+        comm = new_communicator(nranks, None, None)
         comm.logger.trace(f"Rank {comm.rank} created")
         dask_worker._rapidsmp_comm = comm
 
