@@ -58,8 +58,8 @@ cdef extern from "<rapidsmp/communicator/ucxx.hpp>" namespace "rapidsmp::ucxx" n
 
 
 cdef Communicator cpp_new_communicator(
-    shared_ptr[Worker] worker,
     uint32_t nranks,
+    shared_ptr[Worker] worker,
     shared_ptr[Address] root_address,
 ):
     cdef unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
@@ -78,6 +78,27 @@ def new_communicator(
     UCXWorker ucx_worker = None,
     UCXAddress root_ucxx_address = None
 ):
+    """
+    Create a new UCXX communicator.
+
+    Create a new UCXX communicator with the given number of ranks. Additionally, an
+    existing UCXWorker may be specified, otherwise one will be created. The root
+    rank is created if no `root_ucxx_address` is specific, all other ranks must
+    specify the address of the root rank via that argument.
+
+    Parameters
+    ----------
+    nranks
+        The number of ranks in the cluster.
+    ucx_worker
+        An existing UCXX worker to use if specified, otherwise one will be created.
+    root_ucxx_address
+        The UCXX address of the root rank (only specified for non-root ranks).
+
+    Returns
+    -------
+        A new rapidsmp-ucxx communicator.
+    """
     if ucx_worker is None:
         ucx_worker_ptr = <shared_ptr[Worker]>nullptr
     else:
@@ -87,10 +108,33 @@ def new_communicator(
     else:
         root_ucxx_address_ptr = root_ucxx_address.get_ucxx_shared_ptr()
 
-    return cpp_new_communicator(ucx_worker_ptr, nranks, root_ucxx_address_ptr)
+    return cpp_new_communicator(nranks, ucx_worker_ptr, root_ucxx_address_ptr)
 
 
 def get_root_ucxx_address(Communicator comm):
+    """
+    Get the address of the communicator's UCXX worker.
+
+    Get the address of the communicator's UCXX worker. This function is intended
+    to be called from the root rank to communicate to other processes how to
+    reach the root, but it will return the address of UCXX worker of other ranks
+    too.
+
+    Parameters
+    ----------
+    comm
+        The rapidsmp-ucxx communicator.
+
+    Raises
+    ------
+    NotImplementedError
+        If the communicator was created with a HostPortPair, which is not yet
+        supported.
+
+    Returns
+    -------
+        A string with the UCXX worker address.
+    """
     cdef shared_ptr[cpp_UCXX_Communicator] ucxx_comm = (
         dynamic_pointer_cast[cpp_UCXX_Communicator, cpp_Communicator](
             comm._handle
@@ -110,6 +154,18 @@ def get_root_ucxx_address(Communicator comm):
 
 
 def barrier(Communicator comm):
+    """
+    Execute a barrier on the UCXX communicator.
+
+    Execute a barrier on the UCXX communicator, ensuring all ranks connected to
+    the root and all ranks reached the barrier before continuing.
+
+    Notes
+    -----
+    Executing this barrier is required after the ranks are bootstrapped to ensure
+    everyone is connected to the root. An alternative barrier, such as
+    `MPI_Barrier` will not suffice for that purpose.
+    """
     cdef shared_ptr[cpp_UCXX_Communicator] ucxx_comm = (
         dynamic_pointer_cast[cpp_UCXX_Communicator, cpp_Communicator](
             comm._handle

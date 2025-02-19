@@ -42,7 +42,9 @@ def comm(_mpi_comm: Communicator) -> Generator[Communicator, None, None]:
 
 
 def _initialize_ucxx():
-    # ucxx_worker = ucxx.core._get_ctx().worker
+    """
+    Initialize UCXX resources.
+    """
     ucxx_context = ucx_api.UCXContext(
         feature_flags=(ucx_api.Feature.AM, ucx_api.Feature.TAG)
     )
@@ -53,6 +55,9 @@ def _initialize_ucxx():
 
 
 def _ucxx_mpi_setup(ucxx_worker):
+    """
+    Bootstraps a UCXX communicator within an MPI rank.
+    """
     from rapidsmp.communicator.ucxx import (
         barrier,
         get_root_ucxx_address,
@@ -81,27 +86,24 @@ def _ucxx_mpi_setup(ucxx_worker):
 @pytest.fixture(scope="session")
 def _ucxx_comm() -> Communicator:
     """
-    Fixture for rapidsmp's MPI communicator to use throughout the session.
+    Fixture for rapidsmp's UCXX communicator to use throughout the session.
 
     This fixture provides a session-wide `Communicator` instance that wraps
-    the MPI world communicator (`MPI.COMM_WORLD`).
+    the an underlying UCXX communicator.
 
     Do not use this fixture directly, use the `comm` fixture instead.
     """
-    # ucxx_worker = _initialize_ucxx()
-    # return _ucxx_mpi_setup(ucxx_worker)
     return _ucxx_mpi_setup(None)
 
 
 @pytest.fixture
 def ucxx_comm(_ucxx_comm: Communicator) -> Generator[Communicator, None, None]:
     """
-    Fixture for a rapidsmp communicator, scoped for each test.
+    Fixture for a rapidsmp UCXX communicator, scoped for each test.
     """
     MPI.COMM_WORLD.barrier()
     yield _ucxx_comm
     MPI.COMM_WORLD.barrier()
-    # ucxx_worker.stop_progress_thread()
 
 
 @pytest.fixture

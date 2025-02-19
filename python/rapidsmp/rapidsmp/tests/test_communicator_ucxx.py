@@ -33,7 +33,6 @@ def ucxx_mpi_setup(ucxx_worker):
 
 
 def initialize_ucxx():
-    # ucxx_worker = ucxx.core._get_ctx().worker
     ucxx_context = ucx_api.UCXContext(
         feature_flags=(ucx_api.Feature.AM, ucx_api.Feature.TAG)
     )
@@ -44,14 +43,12 @@ def initialize_ucxx():
 
 
 @pytest.mark.parametrize("RAPIDSMP_LOG", range(5))
-def test_mpi(capfd, RAPIDSMP_LOG):
+def test_ucxx(capfd, RAPIDSMP_LOG):
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("RAPIDSMP_LOG", str(RAPIDSMP_LOG))
 
         ucxx_worker = initialize_ucxx()
         comm = ucxx_mpi_setup(ucxx_worker)
-
-        # barrier(comm)
 
         assert comm.nranks == MPI.COMM_WORLD.size
         # Ranks assigned by UCXX do not necessarily match MPI's
