@@ -295,10 +295,7 @@ int main(int argc, char** argv) {
         rapidsmp::mpi::init(&argc, &argv);
         comm = std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
     } else {  // ucxx
-        auto ucxx_comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
-        // barrier to synchronize all workers
-        ucxx_comm->barrier();
-        comm = std::move(ucxx_comm);
+        comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
     }
 
     args.pprint(*comm);

@@ -81,6 +81,8 @@ std::shared_ptr<UCXX> init_using_mpi(MPI_Comm mpi_comm) {
         comm = std::make_shared<UCXX>(std::move(ucxx_initialized_rank));
     }
 
+    // barrier to complete the bootstrapping process
+    comm->barrier();
     return comm;
 }
 
