@@ -221,8 +221,8 @@ dependencies:
       - output_types: [conda, pyproject]
         packages:
           - cudf==25.4.*,>=0.0.0a0
+          - dask-cuda==25.4.*,>=0.0.0a0
           - pytest
-          - rapids-dask-dependency==25.4.*,>=0.0.0a0
           - ucxx==0.43.*,>=0.0.0a0
   docs:
     common:
