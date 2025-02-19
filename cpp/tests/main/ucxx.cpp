@@ -40,7 +40,7 @@ void Environment::SetUp() {
         "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
     );
     comm_ = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
-    this->barrier();
+    barrier();
 }
 
 void Environment::TearDown() {

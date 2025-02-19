@@ -53,7 +53,7 @@ class ArgumentParser {
                     std::stringstream ss;
                     ss << "Usage: " << argv[0] << " [options]\n"
                        << "Options:\n"
-                       << "  -C <comm>  Communicator {mpi, ucx} (default: mpi)\n"
+                       << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
                        << "  -r <num>   Number of runs (default: 1)\n"
                        << "  -w <num>   Number of warmup runs (default: 0)\n"
                        << "  -c <num>   Number of columns in the input tables "
@@ -74,9 +74,9 @@ class ArgumentParser {
                 }
             case 'C':
                 comm_type = std::string{optarg};
-                if (!(comm_type == "mpi" || comm_type == "ucx")) {
+                if (!(comm_type == "mpi" || comm_type == "ucxx")) {
                     if (rank == 0) {
-                        std::cerr << "-C (Communicator) must be one of {mpi, ucx}"
+                        std::cerr << "-C (Communicator) must be one of {mpi, ucxx}"
                                   << std::endl;
                     }
                     RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
@@ -280,7 +280,7 @@ Duration run(
 
 int main(int argc, char** argv) {
     // Explicitly initialize MPI with thread support, as this is needed for both mpi and
-    // ucx communicators.
+    // ucxx communicators.
     int provided;
     RAPIDSMP_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
 
@@ -295,13 +295,14 @@ int main(int argc, char** argv) {
     if (args.comm_type == "mpi") {
         rapidsmp::mpi::init(&argc, &argv);
         comm = std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
-    } else {  // ucx
+    } else {  // ucxx
         // Ensure CUDA context is created before UCX is initialized.
         cudaFree(nullptr);
-        comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
+        auto ucxx_comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
+        // barrier to synchronize all workers
+        ucxx_comm->barrier();
+        comm = std::move(ucxx_comm);
     }
-    // barrier to synchronize all workers
-    RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
     args.pprint(*comm);
 
