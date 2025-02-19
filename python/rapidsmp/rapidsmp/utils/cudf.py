@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import cudf
-import cudf._lib.column
+import cudf.core.column
 import cudf.testing
 import pylibcudf
 
@@ -46,7 +46,7 @@ def pylibcudf_to_cudf_dataframe(
         A cuDF DataFrame representation of the input Table.
     """
     data = {
-        str(i): cudf._lib.column.Column.from_pylibcudf(col)
+        str(i): cudf.core.column.ColumnBase.from_pylibcudf(col)
         for i, col in enumerate(table.columns())
     }
     return cudf.DataFrame._from_data(data, columns=column_names)
