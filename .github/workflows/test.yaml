@@ -27,7 +27,7 @@ jobs:
       sha: ${{ inputs.sha }}
   conda-python-tests:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@no-proxy-cache
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@branch-25.04
     with:
       build_type: ${{ inputs.build_type }}
       branch: ${{ inputs.branch }}
