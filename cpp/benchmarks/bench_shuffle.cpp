@@ -17,12 +17,13 @@
 #include <string>
 #include <vector>
 
+#include <cuda_device_runtime_api.h>
 #include <mpi.h>
 #include <unistd.h>
 
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/communicator/ucx_utils.hpp>
+#include <rapidsmp/communicator/ucxx_utils.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/nvtx.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
@@ -295,6 +296,8 @@ int main(int argc, char** argv) {
         rapidsmp::mpi::init(&argc, &argv);
         comm = std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
     } else {  // ucx
+        // Ensure CUDA context is created before UCX is initialized.
+        cudaFree(nullptr);
         comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
     }
     // barrier to synchronize all workers
