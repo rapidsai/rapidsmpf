@@ -572,8 +572,7 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
         auto rank = std::get<Rank>(data);
         encode_(&rank, sizeof(rank));
         return packed;
-    } else if (control == ControlMessage::QueryRank
-               || control == ControlMessage::ReplyListenerAddress)
+    } else if (control == ControlMessage::QueryRank || control == ControlMessage::ReplyListenerAddress)
     {
         auto listener_address = std::get<ListenerAddress>(data);
         auto packed_listener_address = listener_address_pack(listener_address);
@@ -891,6 +890,7 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
         // Get my rank
         while (shared_resources->rank() == Rank(-1)) {
             shared_resources->progress_worker();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         }
         // TODO: Enable when Logger can be created before the UCXX communicator object.
         // See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
