@@ -56,7 +56,7 @@ def rmp_setup(dask_worker, pool_size: float = 0.8, spill_device: float = 0.4):
     dask_worker._buffer_resource = BufferResource(mr, memory_available)
 
 
-def maybe_initialize_comms(client):
+def initialize_ucxx_comms(client):
     """Initialize RAPIDS-MP UCXX comms for shuffling."""
     token = tokenize(client.id, list(client.scheduler_info()["workers"].keys()))
     if token not in _initialized_clusters:
@@ -240,7 +240,7 @@ class LocalRMPCluster(LocalCUDACluster):
         meta = df._meta
 
         # Setup rapidsmp communicator
-        maybe_initialize_comms(client)
+        initialize_ucxx_comms(client)
 
         # Extract mapping between ranks and worker addresses
         worker_ranks: dict[int, str] = {v: k for k, v in client.run(get_worker_rank).items()}
