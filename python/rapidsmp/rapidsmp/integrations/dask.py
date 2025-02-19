@@ -7,7 +7,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 import ucxx._lib.libucxx as ucx_api
-from distributed import get_worker
+from distributed import get_worker, wait
 
 from rapidsmp.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
 
@@ -110,3 +110,41 @@ async def rapidsmp_ucxx_comm_setup(client: Client):
         for w in workers
     ]
     await asyncio.gather(*futures)
+
+
+def rapidsmp_ucxx_comm_setup_sync(client: Client):
+    """
+    Setup UCXX-based communicator across the Distributed cluster.
+
+    Setup UCXX-based communicator across the Distributed cluster, maintaining the
+    communicator alive via state stored in the Distributed workers.
+
+    Parameters
+    ----------
+    client: Client
+        Distributed client connected to a Distributed cluster from which to setup the
+        cluster.
+    """
+    workers = list(client.scheduler_info()["workers"])
+
+    root_rank = [workers[0]]
+
+    root_address_str = client.submit(
+        rapidsmp_ucxx_rank_setup,
+        nranks=len(workers),
+        root_address_str=None,
+        workers=root_rank,
+        pure=False,
+    ).result()
+
+    futures = [
+        client.submit(
+            rapidsmp_ucxx_rank_setup,
+            nranks=len(workers),
+            root_address_str=root_address_str,
+            workers=[w],
+            pure=False,
+        )
+        for w in workers
+    ]
+    wait(futures)
