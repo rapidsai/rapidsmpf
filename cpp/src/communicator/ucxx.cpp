@@ -109,7 +109,7 @@ class SharedResources {
     RankToListenerAddressMap rank_to_listener_address_{
     };  ///< Map of rank to listener addresses
     const ::ucxx::AmReceiverCallbackInfo control_callback_info_{
-        ::ucxx::AmReceiverCallbackInfo("rapidsmp", 0)
+        "rapidsmp", 0
     };  ///< UCXX callback info for control messages
     std::vector<std::unique_ptr<HostFuture>> futures_{
     };  ///< Futures to incomplete requests.
@@ -413,7 +413,7 @@ class SharedResources {
      */
     void add_delayed_progress_callback(std::function<void()> callback) {
         std::lock_guard<std::mutex> lock(delayed_progress_callbacks_mutex_);
-        delayed_progress_callbacks_.push_back(callback);
+        delayed_progress_callbacks_.emplace_back(std::move(callback));
     }
 };
 
@@ -572,7 +572,8 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
         auto rank = std::get<Rank>(data);
         encode_(&rank, sizeof(rank));
         return packed;
-    } else if (control == ControlMessage::QueryRank || control == ControlMessage::ReplyListenerAddress)
+    } else if (control == ControlMessage::QueryRank
+               || control == ControlMessage::ReplyListenerAddress)
     {
         auto listener_address = std::get<ListenerAddress>(data);
         auto packed_listener_address = listener_address_pack(listener_address);
@@ -795,7 +796,7 @@ void create_cuda_context_callback(void* callbackArg) {
 InitializedRank::InitializedRank(
     std::shared_ptr<rapidsmp::ucxx::SharedResources> shared_resources
 )
-    : shared_resources_(shared_resources) {}
+    : shared_resources_(std::move(shared_resources)) {}
 
 std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
