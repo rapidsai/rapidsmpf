@@ -14,12 +14,12 @@ from rapidsmp.examples.bulk_mpi_shuffle import bulk_mpi_shuffle
 from rapidsmp.testing import assert_eq
 
 
-@pytest.mark.parametrize("batchsize", [1, 2, 3])
-@pytest.mark.parametrize("num_output_files", [10, 5])
-def test_bulk_mpi_shuffle(comm, tmpdir, device_mr, batchsize, num_output_files):
+def _test_bulk_shuffle(
+    comm_type, comm_fixture, tmpdir, device_mr, batchsize, num_output_files
+):
     # Get mpi-compatible tmpdir
     mpi_comm = MPI.COMM_WORLD
-    rank = mpi_comm.Get_rank()
+    rank = mpi_comm.Get_rank() if comm_type == "mpi" else comm_fixture.rank
     name = str(tmpdir) if rank == 0 else None
     name = mpi_comm.bcast(name, root=0)
     mpi_tmpdir = type(tmpdir)(name)
@@ -27,7 +27,6 @@ def test_bulk_mpi_shuffle(comm, tmpdir, device_mr, batchsize, num_output_files):
     # Generate input dataset
     num_files = 15
     num_rows = 100
-    rank = comm.rank
     np.random.seed(42)
     dataset_dir = mpi_tmpdir.join("dataset")
     if rank == 0:
@@ -55,7 +54,7 @@ def test_bulk_mpi_shuffle(comm, tmpdir, device_mr, batchsize, num_output_files):
         paths=input_paths,
         shuffle_on=["b"],
         output_path=output_dir,
-        comm=comm,
+        comm=comm_fixture,
         br=br,
         batchsize=batchsize,
         num_output_files=num_output_files,
@@ -69,3 +68,17 @@ def test_bulk_mpi_shuffle(comm, tmpdir, device_mr, batchsize, num_output_files):
         df_shuffled = cudf.read_parquet(shuffled_paths)
         assert_eq(df_original, df_shuffled, sort_rows="a")
     mpi_comm.barrier()
+
+
+@pytest.mark.parametrize("batchsize", [1, 2, 3])
+@pytest.mark.parametrize("num_output_files", [10, 5])
+def test_bulk_mpi_shuffle(comm, tmpdir, device_mr, batchsize, num_output_files):
+    _test_bulk_shuffle("mpi", comm, tmpdir, device_mr, batchsize, num_output_files)
+
+
+@pytest.mark.parametrize("batchsize", [1, 2, 3])
+@pytest.mark.parametrize("num_output_files", [10, 5])
+def test_bulk_ucxx_shuffle(ucxx_comm, tmpdir, device_mr, batchsize, num_output_files):
+    _test_bulk_shuffle(
+        "ucxx", ucxx_comm, tmpdir, device_mr, batchsize, num_output_files
+    )
