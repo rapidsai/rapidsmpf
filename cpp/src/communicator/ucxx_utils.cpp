@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <cuda_device_runtime_api.h>
 #include <ucxx/listener.h>
 
 #include <rapidsmp/communicator/mpi.hpp>
@@ -51,6 +52,9 @@ void broadcast_listener_address(MPI_Comm mpi_comm, std::string& root_worker_addr
 
 std::shared_ptr<UCXX> init_using_mpi(MPI_Comm mpi_comm) {
     RAPIDSMP_EXPECTS(::rapidsmp::mpi::is_initialized(), "MPI not initialized");
+
+    // Ensure CUDA context is created before UCX is initialized.
+    cudaFree(nullptr);
 
     int rank, nranks;
     RAPIDSMP_MPI(MPI_Comm_rank(mpi_comm, &rank));

@@ -17,7 +17,6 @@
 #include <string>
 #include <vector>
 
-#include <cuda_device_runtime_api.h>
 #include <mpi.h>
 #include <unistd.h>
 
@@ -296,8 +295,6 @@ int main(int argc, char** argv) {
         rapidsmp::mpi::init(&argc, &argv);
         comm = std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
     } else {  // ucxx
-        // Ensure CUDA context is created before UCX is initialized.
-        cudaFree(nullptr);
         auto ucxx_comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
         // barrier to synchronize all workers
         ucxx_comm->barrier();
