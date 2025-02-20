@@ -21,8 +21,7 @@ async def rapidsmp_ucxx_rank_setup(
     """
     Setup UCXX-based communicator on single rank.
 
-    Setup UCXX-based communicator on single rank. This function should run in each Dask
-    worker that is to be part of the RAPIDSMP cluster.
+    This function should run in each Dask worker that is to be part of the RAPIDSMP cluster.
 
     First, this must run on the elected root rank and will then return the UCXX address
     of the root as a string.
@@ -55,7 +54,6 @@ async def rapidsmp_ucxx_rank_setup(
         comm = new_communicator(nranks, None, None)
         comm.logger.trace(f"Rank {comm.rank} created")
         dask_worker._rapidsmp_comm = comm
-
         return get_root_ucxx_address(comm)
     else:
         if hasattr(dask_worker, "_rapidsmp_comm"):
@@ -70,7 +68,6 @@ async def rapidsmp_ucxx_rank_setup(
         comm.logger.trace(f"Rank {comm.rank} setup barrier")
         barrier(comm)
         comm.logger.trace(f"Rank {comm.rank} setup barrier passed")
-
         return None
 
 
