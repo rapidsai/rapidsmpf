@@ -268,19 +268,19 @@ class LocalRMPCluster(LocalCUDACluster):
         config.set({"distributed.scheduler.preload": preloads})
         super().__init__(**kwargs)
 
-    def get_shuffle_id(self):
+    def next_shuffle_id(self, client: Client | None = None):
         """Assign an id to the next shuffle operation."""
+        client = client or get_client()
+        initialize_ucxx_comms(client)
         self._rmp_shuffle_counter += 1
         return self._rmp_shuffle_counter
 
     def shuffle(self, df: dd.DataFrame, on: Sequence[str]):
         """Shuffle data using a RAPIDS-MP shuffle service."""
+        # Get client and shuffle id
         client = get_client()
-        shuffle_id = self.get_shuffle_id()
+        shuffle_id = self.next_shuffle_id(client)
         meta = df._meta
-
-        # Setup rapidsmp communicator
-        initialize_ucxx_comms(client)
 
         # Extract mapping between ranks and worker addresses
         worker_ranks: dict[int, str] = {
