@@ -164,7 +164,7 @@ class Shuffler {
     }
 
     /**
-     * @brief Wait for a specific partition ID to be finished (blocking).
+     * @brief Wait for a specific partition to finish (blocking).
      *
      * @param pid The desired partition ID.
      */

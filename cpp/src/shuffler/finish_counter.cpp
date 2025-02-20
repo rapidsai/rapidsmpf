@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -90,7 +90,7 @@ void FinishCounter::wait_on(PartID pid) {
         );
         RAPIDSMP_EXPECTS(
             it != partitions_ready_to_wait_on_.end(),
-            "PartID not avialable to wait on",
+            "PartID is not available to wait on",
             std::out_of_range
         );
         if (!it->second) {

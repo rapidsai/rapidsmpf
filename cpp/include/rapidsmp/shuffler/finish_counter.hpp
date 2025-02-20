@@ -110,9 +110,9 @@ class FinishCounter {
     PartID wait_any();
 
     /**
-     * @brief Wait for a specific partition ID to be finished (blocking).
+     * @brief Wait for a specific partition to be finished (blocking).
      *
-     * This function blocks until the desired partition id is finished and ready
+     * This function blocks until the desired partition is finished and ready
      * to be processed.
      *
      * @param pid The desired partition ID.
