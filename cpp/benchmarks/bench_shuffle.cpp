@@ -22,6 +22,7 @@
 
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/communicator/mpi.hpp>
+#include <rapidsmp/communicator/ucxx_utils.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/nvtx.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
@@ -34,15 +35,24 @@
 
 class ArgumentParser {
   public:
-    ArgumentParser(rapidsmp::Communicator& comm, int argc, char* const* argv) {
+    ArgumentParser(int argc, char* const* argv) {
+        RAPIDSMP_EXPECTS(
+            rapidsmp::mpi::is_initialized() == true, "MPI is not initialized"
+        );
+
+        int rank, nranks;
+        RAPIDSMP_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+        RAPIDSMP_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
+
         int option;
-        while ((option = getopt(argc, argv, "hr:w:c:n:p:m:l:x")) != -1) {
+        while ((option = getopt(argc, argv, "hC:r:w:c:n:p:m:l:x")) != -1) {
             switch (option) {
             case 'h':
                 {
                     std::stringstream ss;
                     ss << "Usage: " << argv[0] << " [options]\n"
                        << "Options:\n"
+                       << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
                        << "  -r <num>   Number of runs (default: 1)\n"
                        << "  -w <num>   Number of warmup runs (default: 0)\n"
                        << "  -c <num>   Number of columns in the input tables "
@@ -56,11 +66,21 @@ class ArgumentParser {
                           "disabled) \n"
                        << "  -x         Enable memory profiler (default: disabled)\n"
                        << "  -h         Display this help message\n";
-                    if (comm.rank() == 0) {
+                    if (rank == 0) {
                         std::cerr << ss.str();
                     }
                     RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
                 }
+            case 'C':
+                comm_type = std::string{optarg};
+                if (!(comm_type == "mpi" || comm_type == "ucxx")) {
+                    if (rank == 0) {
+                        std::cerr << "-C (Communicator) must be one of {mpi, ucxx}"
+                                  << std::endl;
+                    }
+                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                }
+                break;
             case 'r':
                 num_runs = std::stoi(optarg);
                 break;
@@ -79,7 +99,7 @@ class ArgumentParser {
             case 'm':
                 rmm_mr = std::string{optarg};
                 if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async")) {
-                    if (comm.rank() == 0) {
+                    if (rank == 0) {
                         std::cerr << "-m (RMM memory resource) must be one of "
                                      "{cuda, pool, async}"
                                   << std::endl;
@@ -100,29 +120,29 @@ class ArgumentParser {
             }
         }
         if (optind < argc) {
-            if (comm.rank() == 0) {
+            if (rank == 0) {
                 std::cerr << "Unknown option: " << argv[optind] << std::endl;
             }
             RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
         if (num_runs < 1) {
-            if (comm.rank() == 0) {
+            if (rank == 0) {
                 std::cerr << "-r (number of runs) must be greater than 0\n";
             }
             RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
         if (num_local_rows < 1000) {
-            if (comm.rank() == 0) {
+            if (rank == 0) {
                 std::cerr << "-n (number of rows per rank) must be greater than 1000\n";
             }
             RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
         local_nbytes =
             num_columns * num_local_rows * num_local_partitions * sizeof(std::int32_t);
-        total_nbytes = local_nbytes * comm.nranks();
+        total_nbytes = local_nbytes * nranks;
 
         if (rmm_mr == "cuda") {
-            if (comm.rank() == 0) {
+            if (rank == 0) {
                 std::cout << "WARNING: using the default cuda memory resource "
                              "(-m cuda) might leak memory! A bug in UCX means "
                              "that device memory received through IPC is never "
@@ -138,6 +158,7 @@ class ArgumentParser {
         }
         std::stringstream ss;
         ss << "Arguments:\n";
+        ss << "  -c " << comm_type << " (communicator)\n";
         ss << "  -r " << num_runs << " (number of runs)\n";
         ss << "  -w " << num_warmups << " (number of warmup runs)\n";
         ss << "  -c " << num_columns << " (number of columns)\n";
@@ -161,6 +182,7 @@ class ArgumentParser {
     std::uint64_t num_local_rows{1 << 20};
     rapidsmp::shuffler::PartID num_local_partitions{1};
     std::string rmm_mr{"cuda"};
+    std::string comm_type{"mpi"};
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
     bool enable_memory_profiler{false};
@@ -256,11 +278,26 @@ Duration run(
 }
 
 int main(int argc, char** argv) {
-    rapidsmp::mpi::init(&argc, &argv);
+    // Explicitly initialize MPI with thread support, as this is needed for both mpi and
+    // ucxx communicators.
+    int provided;
+    RAPIDSMP_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
 
-    std::shared_ptr<rapidsmp::Communicator> comm =
-        std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
-    ArgumentParser args{*comm, argc, argv};
+    RAPIDSMP_EXPECTS(
+        provided == MPI_THREAD_MULTIPLE,
+        "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
+    );
+
+    ArgumentParser args{argc, argv};
+
+    std::shared_ptr<rapidsmp::Communicator> comm;
+    if (args.comm_type == "mpi") {
+        rapidsmp::mpi::init(&argc, &argv);
+        comm = std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
+    } else {  // ucxx
+        comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
+    }
+
     args.pprint(*comm);
 
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
