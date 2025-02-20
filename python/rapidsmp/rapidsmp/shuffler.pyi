@@ -10,6 +10,7 @@ from rmm.pylibrmm.stream import Stream
 
 from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.communicator.communicator import Communicator
+from rapidsmp.statistics import Statistics
 
 def partition_and_pack(
     table: Table,
@@ -32,6 +33,7 @@ class Shuffler:
         total_num_partitions: int,
         stream: Stream,
         br: BufferResource,
+        statistics: Statistics | None = None,
     ) -> None: ...
     def shutdown(self) -> None: ...
     def __str__(self) -> str: ...

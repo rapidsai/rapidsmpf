@@ -13,6 +13,7 @@ from pylibcudf.libcudf.table.table cimport table as cpp_table
 from pylibcudf.libcudf.table.table_view cimport table_view
 from pylibcudf.libcudf.types cimport size_type
 from pylibcudf.table cimport Table
+from rapidsmp.statistics cimport Statistics
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.librmm.memory_resource cimport device_memory_resource
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
@@ -185,14 +186,23 @@ cdef class Shuffler:
         uint32_t total_num_partitions,
         stream,
         BufferResource br,
+        Statistics statistics = None,
     ):
         if stream is None:
             raise ValueError("stream cannot be None")
         self._stream = Stream(stream)
         self._comm = comm
         self._br = br
+        if statistics is None:
+            statistics = Statistics(nranks=0)  # Disables statistics.
+
         self._handle = make_unique[cpp_Shuffler](
-            comm._handle, op_id, total_num_partitions, self._stream.view(), br.ptr()
+            comm._handle,
+            op_id,
+            total_num_partitions,
+            self._stream.view(),
+            br.ptr(),
+            statistics._handle,
         )
 
     def shutdown(self):

@@ -12,7 +12,7 @@
 # the License.
 # =============================================================================
 
-set(cython_modules shuffler.pyx)
+set(cython_modules shuffler.pyx statistics.pyx)
 
 rapids_cython_create_modules(
   CXX
