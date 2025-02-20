@@ -26,17 +26,33 @@
 namespace rapidsmp {
 
 
+/**
+ * @brief Track statistics across RAPIDSMP operations.
+ */
 class Statistics {
   public:
+    /**
+     * @brief Stores statistics for a single peer.
+     */
     struct PeerStats {
-        std::size_t send_count{0};
-        std::size_t send_nbytes{0};
+        std::size_t comm_count{0};  ///< Number of messages communicated.
+        std::size_t comm_nbytes{0};  ///< Number of bytes communicated.
 
+        /**
+         * @brief Compares two PeerStats objects for equality.
+         * @param o The other PeerStats object to compare with.
+         * @return Answer.
+         */
         bool operator==(PeerStats const& o) const noexcept {
-            return send_count == o.send_count && send_nbytes == o.send_nbytes;
+            return comm_count == o.comm_count && comm_nbytes == o.comm_nbytes;
         }
     };
 
+    /**
+     * @brief Constructs a statistics object with a specified number of ranks (peers).
+     *
+     * @param nranks The number of ranks in the world.
+     */
     Statistics(Rank nranks = 0) : nranks_{nranks} {
         peer_stats_.resize(nranks);
     }
@@ -46,19 +62,39 @@ class Statistics {
     Statistics(const Statistics&) = delete;
     Statistics& operator=(const Statistics&) = delete;
 
+    /**
+     * @brief Move constructor.
+     * @param o The Statistics object to move from.
+     */
     Statistics(Statistics&& o) noexcept
         : nranks_(o.nranks_), peer_stats_{std::move(o.peer_stats_)} {}
 
+    /**
+     * @brief Move assignment operator.
+     *
+     * @param o The Statistics object to move from.
+     * @return A reference to the updated Statistics object.
+     */
     Statistics& operator=(Statistics&& o) noexcept {
         nranks_ = o.nranks_;
         peer_stats_ = std::move(o.peer_stats_);
         return *this;
     }
 
+    /**
+     * @brief Checks if the Statistics object is enabled (i.e., has at least one rank).
+     * @return True if the object is enabled, otherwise false.
+     */
     bool enabled() const noexcept {
         return nranks_ > 0;
     }
 
+    /**
+     * @brief Retrieves the statistics for a given peer.
+     *
+     * @param peer The rank of the peer to retrieve statistics for.
+     * @return A PeerStats object for the specified peer.
+     */
     PeerStats get_peer_stats(Rank peer) const {
         if (!enabled()) {
             return PeerStats{};
@@ -67,38 +103,51 @@ class Statistics {
         return peer_stats_.at(peer);
     }
 
+    /**
+     * @brief Add peer communication to the statistics.
+     *
+     * @param peer The rank of the peer.
+     * @param nbytes The number of bytes communicated.
+     * @return The total number of bytes communicated to the peer after the update.
+     */
     std::size_t add_peer_comm(Rank peer, std::size_t nbytes) {
         if (!enabled()) {
             return 0;
         }
         std::lock_guard<std::mutex> lock(mutex_);
         auto& p = peer_stats_.at(peer);
-        ++p.send_count;
-        return p.send_nbytes += nbytes;
+        ++p.comm_count;
+        return p.comm_nbytes += nbytes;
     }
 
-    std::string report(int column_width = 12, int label_width = 14) const {
+    /**
+     * @brief Generates a report of statistics in a formatted string.
+     *
+     * @param column_width The width of each column in the report.
+     * @param label_width The width of the labels in the report.
+     * @return A string representing the formatted statistics report.
+     */
+    std::string report(int column_width = 12, int label_width = 22) const {
         if (!enabled()) {
             return "Statistics: disabled";
         }
         std::lock_guard<std::mutex> lock(mutex_);
         std::stringstream ss;
         ss << "Statistics:\n";
-
         ss << std::setw(label_width - 3) << std::left << " - peers:";
         for (Rank i = 0; i < nranks_; ++i) {
             ss << std::right << std::setw(column_width) << "Rank" << i;
         }
-        ss << "\n" << std::setw(label_width) << std::left << " - send-total:";
+        ss << "\n" << std::setw(label_width) << std::left << " - comm-gpu-data-total:";
         for (Rank i = 0; i < nranks_; ++i) {
             ss << std::right << std::setw(column_width)
-               << format_nbytes(peer_stats_.at(i).send_nbytes) << " ";
+               << format_nbytes(peer_stats_.at(i).comm_nbytes) << " ";
         }
-        ss << "\n" << std::setw(label_width) << std::left << " - send-mean:";
+        ss << "\n" << std::setw(label_width) << std::left << " - comm-gpu-data-mean:";
         for (Rank i = 0; i < nranks_; ++i) {
             ss << std::right << std::setw(column_width)
                << format_nbytes(
-                      peer_stats_.at(i).send_nbytes / (double)peer_stats_.at(i).send_count
+                      peer_stats_.at(i).comm_nbytes / (double)peer_stats_.at(i).comm_count
                   )
                << " ";
         }
