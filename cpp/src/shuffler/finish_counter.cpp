@@ -80,7 +80,7 @@ PartID FinishCounter::wait_any() {
     }
 }
 
-PartID FinishCounter::wait_for(PartID pid) {
+void FinishCounter::wait_on(PartID pid) {
     std::unique_lock<std::mutex> lock(mutex_);
     while (true) {
         auto it = std::find_if(
@@ -94,11 +94,15 @@ PartID FinishCounter::wait_for(PartID pid) {
             std::out_of_range
         );
         if (!it->second) {
-            // Desired PartID not ready, let's wait.
+            // The desired PartID is not ready, let's wait.
             cv_.wait(lock);
         } else {
-            // Extract the finished partition.
-            return extract_key(partitions_ready_to_wait_on_, it);
+            // Extract/validate the finished PartID.
+            RAPIDSMP_EXPECTS(
+                extract_key(partitions_ready_to_wait_on_, it) == pid,
+                "Unexpected PartID key"
+            );
+            break;
         }
     }
 }

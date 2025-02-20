@@ -110,17 +110,16 @@ class FinishCounter {
     PartID wait_any();
 
     /**
-     * @brief Returns a specific partition ID once it is finished (blocking).
+     * @brief Wait for a specific partition ID to be finished (blocking).
      *
      * This function blocks until the desired partition id is finished and ready
      * to be processed.
      *
      * @param pid The desired partition ID.
-     * @return The desired partition ID.
      *
      * @throw std::out_of_range If the desired partition is unavailable.
      */
-    PartID wait_for(PartID pid);
+    void wait_on(PartID pid);
 
     /**
      * @brief Returns a vector of partition ids that are finished and haven't been waited

@@ -164,14 +164,13 @@ class Shuffler {
     }
 
     /**
-     * @brief Wait for a specific partition to finish.
+     * @brief Wait for a specific partition ID to be finished (blocking).
      *
      * @param pid The desired partition ID.
-     * @return The desired partition ID.
      */
-    PartID wait_for(PartID pid) {
+    void wait_on(PartID pid) {
         RAPIDSMP_NVTX_FUNC_RANGE();
-        return finish_counter_.wait_for(pid);
+        finish_counter_.wait_on(pid);
     }
 
     /**

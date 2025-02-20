@@ -334,7 +334,7 @@ cdef class Shuffler:
             ret = deref(self._handle).wait_any()
         return ret
 
-    def wait_for(self, uint32_t pid):
+    def wait_on(self, uint32_t pid):
         """
         Wait for a specific partition to finish.
 
@@ -345,12 +345,7 @@ cdef class Shuffler:
         ----------
         pid
             The desired partition ID.
-
-        Returns
-        -------
-        The partition ID of the next finished partition.
         """
         cdef uint32_t ret
         with nogil:
-            ret = deref(self._handle).wait_for(pid)
-        return ret
+            deref(self._handle).wait_on(pid)

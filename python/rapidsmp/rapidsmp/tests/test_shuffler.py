@@ -40,8 +40,9 @@ def test_partition_and_pack_unpack(device_mr, df, num_partitions):
     assert_eq(expect, got, sort_rows="0")
 
 
+@pytest.mark.parametrize("wait_on", [False, True])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-def test_shuffler_single_nonempty_partition(comm, device_mr, total_num_partitions):
+def test_shuffler_single_nonempty_partition(comm, device_mr, total_num_partitions, wait_on):
     br = BufferResource(device_mr)
 
     shuffler = Shuffler(
@@ -62,12 +63,22 @@ def test_shuffler_single_nonempty_partition(comm, device_mr, total_num_partition
     )
     shuffler.insert_chunks(packed_inputs)
 
+    my_partitions = set()
     for pid in range(total_num_partitions):
         shuffler.insert_finished(pid)
+        if (pid % comm.nranks) == comm.rank:
+            my_partitions.add(pid)
 
     local_outputs = []
     while not shuffler.finished():
-        partition_id = shuffler.wait_any()
+        if wait_on:
+            # Wait on a specific partition id
+            partition_id = my_partitions.pop()
+            shuffler.wait_on(partition_id)
+        else:
+            # Wait on any partition id
+            partition_id = shuffler.wait_any()
+            my_partitions.remove(partition_id)
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
             packed_chunks,
