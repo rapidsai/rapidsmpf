@@ -196,9 +196,7 @@ def ucxx_mpi_setup():
         comm = new_communicator(MPI.COMM_WORLD.size, None, root_address)
 
     assert comm.nranks == MPI.COMM_WORLD.size
-
     barrier(comm)
-
     return comm
 
 
