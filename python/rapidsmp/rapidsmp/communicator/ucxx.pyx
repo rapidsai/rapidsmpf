@@ -115,10 +115,9 @@ def get_root_ucxx_address(Communicator comm):
     """
     Get the address of the communicator's UCXX worker.
 
-    Get the address of the communicator's UCXX worker. This function is intended
-    to be called from the root rank to communicate to other processes how to
-    reach the root, but it will return the address of UCXX worker of other ranks
-    too.
+    This function is intended to be called from the root rank to communicate 
+    to other processes how to reach the root, but it will return the address of 
+    UCXX worker of other ranks too.
 
     Parameters
     ----------
@@ -171,5 +170,4 @@ def barrier(Communicator comm):
             comm._handle
         )
     )
-
     deref(ucxx_comm).barrier()
