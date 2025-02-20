@@ -13,29 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#pragma once
 
-#include <gtest/gtest.h>
 #include <mpi.h>
 
-#include <rapidsmp/communicator/communicator.hpp>
+#include <rapidsmp/communicator/ucxx.hpp>
 
-class Environment : public ::testing::Environment {
-  public:
-    Environment(int argc, char** argv);
+namespace rapidsmp {
 
-    void SetUp() override;
+namespace ucxx {
 
-    void TearDown() override;
+/**
+ * @brief Initialize UCXX Communicator using MPI.
+ *
+ * @param mpi_comm MPI communicator.
+ * @return UCXX communicator.
+ *
+ * @note Requires MPI to be initialized prior to calling this function.
+ */
+std::shared_ptr<UCXX> init_using_mpi(MPI_Comm mpi_comm);
 
-    void barrier();
-
-    std::shared_ptr<rapidsmp::Communicator> comm_;
-
-  private:
-    int argc_;
-    char** argv_;
-    MPI_Comm mpi_comm_;
-};
-
-extern Environment* GlobalEnvironment;
+}  // namespace ucxx
+}  // namespace rapidsmp
