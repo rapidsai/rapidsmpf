@@ -33,6 +33,7 @@
 #include <rapidsmp/shuffler/chunk.hpp>
 #include <rapidsmp/shuffler/finish_counter.hpp>
 #include <rapidsmp/shuffler/postbox.hpp>
+#include <rapidsmp/statistics.hpp>
 #include <rapidsmp/utils.hpp>
 
 /**
@@ -100,6 +101,7 @@ class Shuffler {
         PartID total_num_partitions,
         rmm::cuda_stream_view stream,
         BufferResource* br,
+        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(),
         PartitionOwner partition_owner = round_robin
     );
 
@@ -268,6 +270,8 @@ class Shuffler {
     mutable std::mutex outbound_chunk_counter_mutex_;
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
+
+    std::shared_ptr<Statistics> statistics_;
 };
 
 /**
