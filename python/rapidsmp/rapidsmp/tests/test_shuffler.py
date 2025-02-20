@@ -42,7 +42,9 @@ def test_partition_and_pack_unpack(device_mr, df, num_partitions):
 
 @pytest.mark.parametrize("wait_on", [False, True])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-def test_shuffler_single_nonempty_partition(comm, device_mr, total_num_partitions, wait_on):
+def test_shuffler_single_nonempty_partition(
+    comm, device_mr, total_num_partitions, wait_on
+):
     br = BufferResource(device_mr)
 
     shuffler = Shuffler(
