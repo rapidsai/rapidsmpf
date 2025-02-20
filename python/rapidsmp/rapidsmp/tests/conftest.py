@@ -47,15 +47,13 @@ def _ucxx_comm() -> Communicator:
 @pytest.fixture(
     params=["mpi", "ucxx"],
 )
-def comm(request, _mpi_comm, _ucxx_comm) -> Generator[Communicator, None, None]:
+def comm(request) -> Generator[Communicator, None, None]:
     """
     Fixture for a rapidsmp communicator, scoped for each test.
     """
     MPI.COMM_WORLD.barrier()
-    if request.param == "mpi":
-        yield _mpi_comm
-    else:
-        yield _ucxx_comm
+    comm = request.getfixturevalue(f"_{request.param}_comm")
+    yield comm
     MPI.COMM_WORLD.barrier()
 
 
