@@ -83,11 +83,7 @@ PartID FinishCounter::wait_any() {
 void FinishCounter::wait_on(PartID pid) {
     std::unique_lock<std::mutex> lock(mutex_);
     while (true) {
-        auto it = std::find_if(
-            partitions_ready_to_wait_on_.begin(),
-            partitions_ready_to_wait_on_.end(),
-            [pid](const auto& item) { return item.first == pid; }
-        );
+        auto it = partitions_ready_to_wait_on_.find(pid);
         RAPIDSMP_EXPECTS(
             it != partitions_ready_to_wait_on_.end(),
             "PartID is not available to wait on",
