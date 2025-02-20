@@ -10,7 +10,7 @@ import pandas as pd
 from dask import config
 from dask.tokenize import tokenize
 from dask_cuda import LocalCUDACluster
-from distributed import get_client, get_worker
+from distributed import get_client, get_worker, wait
 from distributed.diagnostics.plugin import SchedulerPlugin
 
 import rmm.mr
@@ -18,15 +18,15 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmp.buffer.buffer import MemoryType
 from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
-from rapidsmp.integrations.dask import rapidsmp_ucxx_comm_setup_sync
+from rapidsmp.integrations.dask import rapidsmp_ucxx_rank_setup
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
 from rapidsmp.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping, Sequence
 
+    from distributed import Client, Worker
     from distributed.scheduler import Scheduler, TaskState
-    from distributed.worker import Worker
 
     import cudf
 
@@ -60,7 +60,42 @@ def rmp_setup(dask_worker, pool_size: float = 0.8, spill_device: float = 0.4):
     dask_worker._buffer_resource = BufferResource(mr, memory_available)
 
 
-def initialize_ucxx_comms(client):
+def rapidsmp_ucxx_comm_setup_sync(client: Client):
+    """
+    Setup UCXX-based communicator across the Distributed cluster.
+
+    Parameters
+    ----------
+    client: Client
+        Distributed client connected to a Distributed cluster from
+        which to setup the cluster.
+    """
+    workers = list(client.scheduler_info()["workers"])
+
+    root_rank = [workers[0]]
+
+    root_address_str = client.submit(
+        rapidsmp_ucxx_rank_setup,
+        nranks=len(workers),
+        root_address_str=None,
+        workers=root_rank,
+        pure=False,
+    ).result()
+
+    futures = [
+        client.submit(
+            rapidsmp_ucxx_rank_setup,
+            nranks=len(workers),
+            root_address_str=root_address_str,
+            workers=[w],
+            pure=False,
+        )
+        for w in workers
+    ]
+    wait(futures)
+
+
+def initialize_ucxx_comms(client: Client):
     """Initialize RAPIDS-MP UCXX comms for shuffling."""
     token = tokenize(client.id, list(client.scheduler_info()["workers"].keys()))
     if token not in _initialized_clusters:
