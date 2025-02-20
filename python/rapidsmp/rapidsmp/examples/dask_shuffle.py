@@ -1,29 +1,34 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.
+"""Dask integration example."""
+
 from __future__ import annotations
 
-from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 import dask.dataframe as dd
+import pandas as pd
 from dask import config
 from dask.tokenize import tokenize
+from dask_cuda import LocalCUDACluster
 from distributed import get_client, get_worker
 from distributed.diagnostics.plugin import SchedulerPlugin
-from distributed.scheduler import Scheduler, TaskState
-from distributed.worker import Worker
-
-from dask_cuda import LocalCUDACluster
-
-import cudf
-import pandas as pd
 
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmp.buffer.buffer import MemoryType
 from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
+from rapidsmp.integrations.dask import rapidsmp_ucxx_comm_setup_sync
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
 from rapidsmp.testing import pylibcudf_to_cudf_dataframe
 
-from rapidsmp.integrations.dask import rapidsmp_ucxx_comm_setup_sync
+if TYPE_CHECKING:
+    from collections.abc import MutableMapping, Sequence
+
+    from distributed.scheduler import Scheduler, TaskState
+    from distributed.worker import Worker
+
+    import cudf
 
 
 _initialized_clusters = set()
@@ -31,7 +36,6 @@ _initialized_clusters = set()
 
 def rmp_setup(dask_worker, pool_size: float = 0.8, spill_device: float = 0.4):
     """Attach general RAPIDS-MP attributes to the worker."""
-
     # Add empty list of active shufflers
     dask_worker._rmp_shufflers = {}
 
@@ -66,7 +70,8 @@ def initialize_ucxx_comms(client):
 
 
 class RMPSchedulerPlugin(SchedulerPlugin):
-    """RAPIDS-MP Scheduler Plugin.
+    """
+    RAPIDS-MP Scheduler Plugin.
 
     The plugin helps manage integration with the RAPIDS-MP
     shuffle service by making it possible for the client
@@ -86,11 +91,13 @@ class RMPSchedulerPlugin(SchedulerPlugin):
         self._rmp_restricted_tasks = {}
 
     def rmp_add_restricted_tasks(self, *args, **kwargs) -> None:
+        """Add restricted tasks."""
         tasks = kwargs.pop("tasks", ())
         for key, worker in tasks.items():
             self._rmp_restricted_tasks[key] = worker
 
     def update_graph(self, *args, **kwargs) -> None:
+        """Update graph on scheduler."""
         if self._rmp_restricted_tasks:
             tasks = kwargs.pop("tasks", [])
             for key in tasks:
@@ -105,14 +112,13 @@ class RMPSchedulerPlugin(SchedulerPlugin):
             # e.g. in a hash join.
             return
         if ts.annotations is None:
-            ts.annotations = dict()
+            ts.annotations = {}
         ts.annotations["shuffle_original_restrictions"] = (
             ts.worker_restrictions.copy()
             if ts.worker_restrictions is not None
             else None
         )
         self.scheduler.set_restrictions({ts.key: {worker}})
-
 
 
 def get_comm(worker: Worker | None = None):
@@ -180,11 +186,7 @@ def rmp_shuffle_extract(
 ):
     """Extract a finished partition from the RMP shuffler."""
     shuffler = get_shuffler(shuffle_id)
-
-    # TODO: Extract the specific partition_id passed
-    # as an argument to this funciton!
-    #partition_id = shuffler.wait_any()
-    partition_id = shuffler.wait_for(partition_id)
+    shuffler.wait_on(partition_id)
     table = unpack_and_concat(
         shuffler.extract(partition_id),
         stream=DEFAULT_STREAM,
@@ -201,7 +203,9 @@ def get_worker_rank(dask_worker: Worker):
     return get_comm(dask_worker).rank
 
 
-def global_rmp_barrier(shuffle_id: int, partition_count: int, insert_results: Sequence[pd.DataFrame]):
+def global_rmp_barrier(
+    shuffle_id: int, partition_count: int, insert_results: Sequence[pd.DataFrame]
+):
     """Global RMP shuffle barrier."""
     assert len(insert_results) == partition_count
     return shuffle_id
@@ -220,6 +224,7 @@ def worker_rmp_barrier(
 
 
 class LocalRMPCluster(LocalCUDACluster):
+    """Local RAPIDSMP Dask cluster."""
 
     def __init__(self, **kwargs):
         self._rmp_shuffle_counter = 0
@@ -235,7 +240,6 @@ class LocalRMPCluster(LocalCUDACluster):
 
     def shuffle(self, df: dd.DataFrame, on: Sequence[str]):
         """Shuffle data using a RAPIDS-MP shuffle service."""
-
         client = get_client()
         shuffle_id = self.get_shuffle_id()
         meta = df._meta
@@ -244,9 +248,11 @@ class LocalRMPCluster(LocalCUDACluster):
         initialize_ucxx_comms(client)
 
         # Extract mapping between ranks and worker addresses
-        worker_ranks: dict[int, str] = {v: k for k, v in client.run(get_worker_rank).items()}
+        worker_ranks: dict[int, str] = {
+            v: k for k, v in client.run(get_worker_rank).items()
+        }
         n_workers = len(worker_ranks)
-        restricted_keys: dict[str, str] = {}
+        restricted_keys: MutableMapping[Any, str] = {}
 
         # Add operation to submit each partition to the shuffler
         partition_count = df.optimize().npartitions
@@ -267,7 +273,7 @@ class LocalRMPCluster(LocalCUDACluster):
 
         # Extract task graph and add global barrier task
         insert_keys = [(df_id._name, i) for i in range(df_id.npartitions)]
-        dsk = {
+        dsk: MutableMapping[Any, Any] = {
             (global_barrier_name, 0): (
                 global_rmp_barrier,
                 shuffle_id,
@@ -278,7 +284,7 @@ class LocalRMPCluster(LocalCUDACluster):
         dsk.update(df_id.dask)
 
         # Add worker barrier tasks
-        worker_barriers = {}
+        worker_barriers: MutableMapping[Any, Any] = {}
         for rank, addr in worker_ranks.items():
             key = (worker_barrier_name, rank)
             worker_barriers[rank] = key
@@ -328,5 +334,6 @@ class LocalRMPCluster(LocalCUDACluster):
 
 
 def dask_setup(scheduler):
+    """Setup dask cluster."""
     plugin = RMPSchedulerPlugin(scheduler)
     scheduler.add_plugin(plugin)

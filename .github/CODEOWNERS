@@ -1,0 +1,22 @@
+#cpp code owners
+cpp/                     @rapidsai/rapids-multi-gpu-cpp-codeowners
+
+#python code owners
+python/                  @rapidsai/rapids-multi-gpu-python-codeowners
+
+#cmake code owners
+CMakeLists.txt           @rapidsai/rapids-multi-gpu-cmake-codeowners
+**/cmake/                @rapidsai/rapids-multi-gpu-cmake-codeowners
+*.cmake                  @rapidsai/rapids-multi-gpu-cmake-codeowners
+
+#CI code owners
+/.github/                @rapidsai/ci-codeowners
+/ci/                     @rapidsai/ci-codeowners
+
+#packaging code owners
+/.pre-commit-config.yaml @rapidsai/packaging-codeowners
+/.devcontainer/          @rapidsai/packaging-codeowners
+/conda/                  @rapidsai/packaging-codeowners
+dependencies.yaml        @rapidsai/packaging-codeowners
+/build.sh                @rapidsai/packaging-codeowners
+pyproject.toml           @rapidsai/packaging-codeowners
