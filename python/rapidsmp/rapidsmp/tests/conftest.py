@@ -31,16 +31,6 @@ def _mpi_comm() -> Communicator:
     return new_communicator(MPI.COMM_WORLD)
 
 
-@pytest.fixture
-def comm(_mpi_comm: Communicator) -> Generator[Communicator, None, None]:
-    """
-    Fixture for a rapidsmp communicator, scoped for each test.
-    """
-    MPI.COMM_WORLD.barrier()
-    yield _mpi_comm
-    MPI.COMM_WORLD.barrier()
-
-
 @pytest.fixture(scope="session")
 def _ucxx_comm() -> Communicator:
     """
@@ -54,13 +44,18 @@ def _ucxx_comm() -> Communicator:
     return ucxx_mpi_setup(None)
 
 
-@pytest.fixture
-def ucxx_comm(_ucxx_comm: Communicator) -> Generator[Communicator, None, None]:
+@pytest.fixture(
+    params=["mpi", "ucxx"],
+)
+def comm(request, _mpi_comm, _ucxx_comm) -> Generator[Communicator, None, None]:
     """
-    Fixture for a rapidsmp UCXX communicator, scoped for each test.
+    Fixture for a rapidsmp communicator, scoped for each test.
     """
     MPI.COMM_WORLD.barrier()
-    yield _ucxx_comm
+    if request.param == "mpi":
+        yield _mpi_comm
+    else:
+        yield _ucxx_comm
     MPI.COMM_WORLD.barrier()
 
 

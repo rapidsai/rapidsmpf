@@ -40,7 +40,8 @@ def test_partition_and_pack_unpack(device_mr, df, num_partitions):
     assert_eq(expect, got, sort_rows="0")
 
 
-def _test_shuffler_single_nonempty_partition(comm, device_mr, total_num_partitions):
+@pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
+def test_shuffler_single_nonempty_partition(comm, device_mr, total_num_partitions):
     br = BufferResource(device_mr)
 
     shuffler = Shuffler(
@@ -87,21 +88,9 @@ def _test_shuffler_single_nonempty_partition(comm, device_mr, total_num_partitio
         assert_eq(res, expect, sort_rows="0")
 
 
-@pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-def test_shuffler_single_nonempty_partition_mpi(comm, device_mr, total_num_partitions):
-    _test_shuffler_single_nonempty_partition(comm, device_mr, total_num_partitions)
-
-
-@pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-def test_shuffler_single_nonempty_partition_ucxx(
-    ucxx_comm, device_mr, total_num_partitions
-):
-    _test_shuffler_single_nonempty_partition(ucxx_comm, device_mr, total_num_partitions)
-
-
 @pytest.mark.parametrize("batch_size", [None, 10])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-def _test_shuffler_uniform(comm, device_mr, batch_size, total_num_partitions):
+def test_shuffler_uniform(comm, device_mr, batch_size, total_num_partitions):
     br = BufferResource(device_mr)
 
     # Every rank creates the full input dataframe and all the expected partitions
@@ -181,15 +170,3 @@ def _test_shuffler_uniform(comm, device_mr, batch_size, total_num_partitions):
         )
 
     shuffler.shutdown()
-
-
-@pytest.mark.parametrize("batch_size", [None, 10])
-@pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-def test_shuffler_uniform_mpi(comm, device_mr, batch_size, total_num_partitions):
-    _test_shuffler_uniform(comm, device_mr, batch_size, total_num_partitions)
-
-
-@pytest.mark.parametrize("batch_size", [None, 10])
-@pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-def test_shuffler_uniform_ucxx(ucxx_comm, device_mr, batch_size, total_num_partitions):
-    _test_shuffler_uniform(ucxx_comm, device_mr, batch_size, total_num_partitions)
