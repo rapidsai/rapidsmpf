@@ -44,6 +44,7 @@ cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
         vector[packed_columns] extract(uint32_t pid)  except +
         bool finished() except +
         uint32_t wait_any() except +
+        uint32_t wait_for(uint32_t pid) except +
         string str() except +
 
 cdef class Shuffler:
