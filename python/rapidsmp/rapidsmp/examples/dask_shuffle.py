@@ -132,7 +132,7 @@ def get_shuffler(shuffle_id: int, partition_count: int | None = None):
     worker = get_worker()
 
     if shuffle_id not in worker._rmp_shufflers:
-        if partition_count is not None:
+        if partition_count is None:
             raise RuntimeError(
                 "Need partition_count to create new shuffler."
                 f" Shufflers: {worker._rmp_shufflers}"
@@ -183,7 +183,8 @@ def rmp_shuffle_extract(
 
     # TODO: Extract the specific partition_id passed
     # as an argument to this funciton!
-    partition_id = shuffler.wait_any()
+    #partition_id = shuffler.wait_any()
+    partition_id = shuffler.wait_for(partition_id)
     table = unpack_and_concat(
         shuffler.extract(partition_id),
         stream=DEFAULT_STREAM,
