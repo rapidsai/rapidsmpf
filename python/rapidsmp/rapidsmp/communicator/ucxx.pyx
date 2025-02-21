@@ -81,9 +81,9 @@ def new_communicator(
     """
     Create a new UCXX communicator with the given number of ranks.
 
-    Additionally, an existing UCXWorker may be specified, otherwise one will be created. 
-    The root rank is created if no `root_ucxx_address` is specific, all other ranks must
-    specify the address of the root rank via that argument.
+    An existing UCXWorker may be specified, otherwise one will be created. The root rank
+    is created if no `root_ucxx_address` is specific, all other ranks must specify the
+    the address of the root rank via that argument.
 
     Parameters
     ----------
@@ -155,7 +155,8 @@ def barrier(Communicator comm):
     """
     Execute a barrier on the UCXX communicator.
 
-    Ensuring all ranks connected to the root and all ranks reached the barrier before continuing.
+    Ensures all ranks connected to the root and all ranks reached the barrier before
+    continuing.
 
     Notes
     -----
