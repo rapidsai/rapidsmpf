@@ -35,15 +35,19 @@ class Statistics {
     struct PeerStats {
         std::size_t payload_send_count{0};  ///< Number of payload messages send.
         std::size_t payload_send_nbytes{0};  ///< Number of bytes of payload send.
+        std::size_t payload_recv_count{0};  ///< Number of payload messages received.
+        std::size_t payload_recv_nbytes{0};  ///< Number of bytes of payload received.
 
         /**
-         * @brief Compares two PeerStats objects for equality.
-         * @param o The other PeerStats object to compare with.
+         * @brief Compares for equality.
+         * @param o The other object to compare with.
          * @return Answer.
          */
         bool operator==(PeerStats const& o) const noexcept {
             return payload_send_count == o.payload_send_count
-                   && payload_send_nbytes == o.payload_send_nbytes;
+                   && payload_send_nbytes == o.payload_send_nbytes
+                   && payload_recv_count == o.payload_recv_count
+                   && payload_recv_nbytes == o.payload_recv_nbytes;
         }
     };
 
@@ -113,6 +117,17 @@ class Statistics {
      * @return The total payload send to the peer after the update.
      */
     std::size_t add_payload_send(Rank peer, std::size_t nbytes);
+
+    /**
+     * @brief Add payload send to specified peer.
+     *
+     * This is a no-op if the statistics is disabled.
+     *
+     * @param peer The rank of the peer.
+     * @param nbytes The number of bytes send.
+     * @return The total payload send to the peer after the update.
+     */
+    std::size_t add_payload_recv(Rank peer, std::size_t nbytes);
 
     /**
      * @brief Generates a report of statistics in a formatted string.

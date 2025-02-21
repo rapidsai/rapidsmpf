@@ -39,6 +39,16 @@ std::size_t Statistics::add_payload_send(Rank peer, std::size_t nbytes) {
     return p.payload_send_nbytes += nbytes;
 }
 
+std::size_t Statistics::add_payload_recv(Rank peer, std::size_t nbytes) {
+    if (!enabled()) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto& p = peer_stats_.at(peer);
+    ++p.payload_recv_count;
+    return p.payload_recv_nbytes += nbytes;
+}
+
 std::string Statistics::report(int column_width, int label_width) const {
     if (!enabled()) {
         return "Statistics: disabled";
