@@ -37,7 +37,7 @@ class ArgumentParser {
         RAPIDSMP_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
 
         int option;
-        while ((option = getopt(argc, argv, "hC:R:r:w:n:")) != -1) {
+        while ((option = getopt(argc, argv, "hC:r:w:n:")) != -1) {
             switch (option) {
             case 'h':
                 {
@@ -45,7 +45,6 @@ class ArgumentParser {
                     ss << "Usage: " << argv[0] << " [options]\n"
                        << "Options:\n"
                        << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
-                       << "  -R <int>   Root rank (default: 0)\n"
                        << "  -r <num>   Number of runs (default: 1)\n"
                        << "  -w <num>   Number of warmup runs (default: 0)\n"
                        << "  -n <num>   Message size in bytes (default: 1M)\n"
@@ -64,9 +63,6 @@ class ArgumentParser {
                     }
                     RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                 }
-                break;
-            case 'R':
-                root_rank = std::stoi(optarg);
                 break;
             case 'r':
                 num_runs = std::stoi(optarg);
@@ -104,14 +100,12 @@ class ArgumentParser {
         std::stringstream ss;
         ss << "Arguments:\n";
         ss << "  -c " << comm_type << " (communicator)\n";
-        ss << "  -R " << root_rank << " (root rank)\n";
+        ss << "  -n " << msg_size << " (message size)\n";
         ss << "  -r " << num_runs << " (number of runs)\n";
         ss << "  -w " << num_warmups << " (number of warmup runs)\n";
-        ss << "Message size: " << format_nbytes(msg_size) << "\n";
         comm.logger().info(ss.str());
     }
 
-    int root_rank{0};
     int num_runs{1};
     int num_warmups{0};
     std::string comm_type{"mpi"};
@@ -140,24 +134,16 @@ Duration run(
     auto const t0_elapsed = Clock::now();
     Tag const tag{0, 1};
     std::vector<std::unique_ptr<Communicator::Future>> futures;
-    if (comm->rank() == 0) {
-        for (Rank i = 0; i < comm->nranks(); ++i) {
-            if (i != args.root_rank) {
-                futures.push_back(comm->recv(i, tag, std::move(recv_bufs.at(i)), stream));
-            }
+
+    for (Rank i = 0; i < comm->nranks(); ++i) {
+        if (i != comm->rank()) {
+            futures.push_back(comm->recv(i, tag, std::move(recv_bufs.at(i)), stream));
         }
-        for (Rank i = 0; i < comm->nranks(); ++i) {
-            if (i != args.root_rank) {
-                futures.push_back(comm->send(std::move(send_bufs.at(i)), i, tag, stream));
-            }
+    }
+    for (Rank i = 0; i < comm->nranks(); ++i) {
+        if (i != comm->rank()) {
+            futures.push_back(comm->send(std::move(send_bufs.at(i)), i, tag, stream));
         }
-    } else {
-        futures.push_back(
-            comm->recv(args.root_rank, tag, std::move(recv_bufs.at(0)), stream)
-        );
-        futures.push_back(
-            comm->send(std::move(send_bufs.at(0)), args.root_rank, tag, stream)
-        );
     }
 
     while (!futures.empty()) {
@@ -200,13 +186,6 @@ int main(int argc, char** argv) {
 
     auto& log = comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
-
-    if (args.root_rank < 0 || args.root_rank > comm->nranks()) {
-        if (comm->rank() == 0) {
-            std::cerr << "option: -R (root rank) is out of bounds" << std::endl;
-        }
-        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
-    }
     args.pprint(*comm);
 
     // Print benchmark/hardware info.
