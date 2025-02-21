@@ -118,11 +118,11 @@ Duration run(
     rmm::cuda_stream_view stream,
     BufferResource* br
 ) {
+    // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
     std::vector<std::unique_ptr<Buffer>> recv_bufs;
     for (Rank i = 0; i < comm->nranks(); ++i) {
         auto [reservation, _] = br->reserve(MemoryType::DEVICE, args.msg_size * 2, true);
-
         auto buf = br->allocate(MemoryType::DEVICE, args.msg_size, stream, reservation);
         random_fill(*buf, stream, br->device_mr());
         send_bufs.push_back(std::move(buf));
@@ -132,9 +132,9 @@ Duration run(
     }
 
     auto const t0_elapsed = Clock::now();
+
     Tag const tag{0, 1};
     std::vector<std::unique_ptr<Communicator::Future>> futures;
-
     for (Rank i = 0; i < comm->nranks(); ++i) {
         if (i != comm->rank()) {
             futures.push_back(comm->recv(i, tag, std::move(recv_bufs.at(i)), stream));
