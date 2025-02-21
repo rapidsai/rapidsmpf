@@ -75,3 +75,28 @@ cudf::table random_table(
     }
     return cudf::table(std::move(cols));
 }
+
+void random_fill(
+    rapidsmp::Buffer& buffer,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
+) {
+    switch (buffer.mem_type) {
+    case rapidsmp::MemoryType::DEVICE:
+        {
+            auto vec = random_device_vector(
+                buffer.size / sizeof(std::int32_t) + sizeof(std::int32_t),
+                std::numeric_limits<std::int32_t>::min(),
+                std::numeric_limits<std::int32_t>::max(),
+                stream,
+                mr
+            );
+            RMM_CUDA_TRY(cudaMemcpyAsync(
+                buffer.data(), vec.data(), buffer.size, cudaMemcpyDeviceToDevice, stream
+            ));
+            break;
+        }
+    default:
+        RAPIDSMP_FAIL("unsupported memory type", std::invalid_argument);
+    }
+}

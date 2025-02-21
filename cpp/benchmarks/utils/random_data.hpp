@@ -92,3 +92,18 @@ cudf::table random_table(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 );
+
+/**
+ * @brief Fill a rapidsmp buffer with random data.
+ *
+ * @param buffer The buffer to fill.
+ * @param stream CUDA stream to use for memory and kernel operations.
+ * @param mr Device memory resource for allocating temporary random data.
+ *
+ * @throws std::invalid_argument if the memory type of `buffer` isn't supported.
+ */
+void random_fill(
+    rapidsmp::Buffer& buffer,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
+);
