@@ -86,7 +86,7 @@ class Statistics {
     /**
      * @brief Checks if statistics is enabled.
      *
-     * Operations on disabled statistics is no-ops.
+     * All operations are no-ops when statistics is disabled.
      *
      * @return True if the object is enabled, otherwise false.
      */
