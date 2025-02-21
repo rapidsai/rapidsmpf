@@ -227,6 +227,7 @@ void Shuffler::insert(detail::Chunk&& chunk) {
     if (partition_owner(comm_, chunk.pid) == comm_->rank()) {
         if (chunk.gpu_data) {
             statistics_->add_payload_send(comm_->rank(), chunk.gpu_data->size);
+            statistics_->add_payload_recv(comm_->rank(), chunk.gpu_data->size);
         }
         insert_into_outbox(std::move(chunk));
     } else {
@@ -445,6 +446,7 @@ void Shuffler::run_event_loop_iteration(
                 in_transit_chunks.insert({chunk.cid, std::move(chunk)}).second,
                 "in transit chunk already exist"
             );
+            self.statistics_->add_payload_recv(src, chunk.gpu_data_size);
         } else {
             if (chunk.gpu_data == nullptr) {
                 chunk.gpu_data = allocate_buffer(0, self.stream_, self.br_);

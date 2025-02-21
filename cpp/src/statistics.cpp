@@ -60,18 +60,32 @@ std::string Statistics::report(int column_width, int label_width) const {
     for (Rank i = 0; i < comm_->nranks(); ++i) {
         ss << std::right << std::setw(column_width) << "Rank" << i;
     }
-    ss << "\n" << std::setw(label_width) << std::left << " - comm-gpu-data-total:";
+    ss << "\n" << std::setw(label_width) << std::left << " - payload-total-send:";
     for (Rank i = 0; i < comm_->nranks(); ++i) {
         ss << std::right << std::setw(column_width)
            << format_nbytes(peer_stats_.at(i).payload_send_nbytes) << " ";
     }
-    ss << "\n" << std::setw(label_width) << std::left << " - comm-gpu-data-mean:";
+    ss << "\n" << std::setw(label_width) << std::left << " - payload-total-recv:";
     for (Rank i = 0; i < comm_->nranks(); ++i) {
         ss << std::right << std::setw(column_width)
-           << format_nbytes(
-                  peer_stats_.at(i).payload_send_nbytes
-                  / (double)peer_stats_.at(i).payload_send_count
-              )
+           << format_nbytes(peer_stats_.at(i).payload_recv_nbytes) << " ";
+    }
+    ss << "\n" << std::setw(label_width) << std::left << " - payload-avg-msg-size-send:";
+    for (Rank i = 0; i < comm_->nranks(); ++i) {
+        ss << std::right << std::setw(column_width)
+           << format_nbytes(safe_div<double>(
+                  peer_stats_.at(i).payload_send_nbytes,
+                  peer_stats_.at(i).payload_send_count
+              ))
+           << " ";
+    }
+    ss << "\n" << std::setw(label_width) << std::left << " - payload-avg-msg-size-recv:";
+    for (Rank i = 0; i < comm_->nranks(); ++i) {
+        ss << std::right << std::setw(column_width)
+           << format_nbytes(safe_div<double>(
+                  peer_stats_.at(i).payload_recv_nbytes,
+                  peer_stats_.at(i).payload_recv_count
+              ))
            << " ";
     }
     ss << "\n";

@@ -136,7 +136,7 @@ class Statistics {
      * @param label_width The width of the labels in the report.
      * @return A string representing the formatted statistics report.
      */
-    std::string report(int column_width = 12, int label_width = 22) const;
+    std::string report(int column_width = 12, int label_width = 30) const;
 
   private:
     mutable std::mutex mutex_;
