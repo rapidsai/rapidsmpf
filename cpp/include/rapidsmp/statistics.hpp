@@ -19,6 +19,7 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <utility>
 
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/communicator/communicator.hpp>
@@ -27,7 +28,7 @@ namespace rapidsmp {
 
 
 /**
- * @brief Track statistics across RAPIDSMP operations.
+ * @brief Track statistics across rapidsmp operations.
  */
 class Statistics {
   public:
@@ -48,13 +49,17 @@ class Statistics {
         }
     };
 
+    /// @brief A default statistics object, which is disabled (all operations are no-ops).
+    Statistics() = default;
+
     /**
-     * @brief Constructs a statistics object with a specified number of ranks (peers).
+     * @brief Constructs a new statistics object (enabled).
      *
-     * @param nranks The number of ranks in the world.
+     * @param comm The communicator to use.
      */
-    Statistics(Rank nranks = 0) : nranks_{nranks} {
-        peer_stats_.resize(nranks);
+    Statistics(std::shared_ptr<Communicator> comm) : comm_{std::move(comm)} {
+        RAPIDSMP_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
+        peer_stats_.resize(comm_->nranks());
     }
 
     ~Statistics() noexcept = default;
@@ -67,7 +72,7 @@ class Statistics {
      * @param o The Statistics object to move from.
      */
     Statistics(Statistics&& o) noexcept
-        : nranks_(o.nranks_), peer_stats_{std::move(o.peer_stats_)} {}
+        : comm_(o.comm_), peer_stats_{std::move(o.peer_stats_)} {}
 
     /**
      * @brief Move assignment operator.
@@ -76,17 +81,20 @@ class Statistics {
      * @return A reference to the updated Statistics object.
      */
     Statistics& operator=(Statistics&& o) noexcept {
-        nranks_ = o.nranks_;
+        comm_ = o.comm_;
         peer_stats_ = std::move(o.peer_stats_);
         return *this;
     }
 
     /**
-     * @brief Checks if the Statistics object is enabled (i.e., has at least one rank).
+     * @brief Checks if statistics is enabled.
+     *
+     * Operations on disabled statistics is no-ops.
+     *
      * @return True if the object is enabled, otherwise false.
      */
     bool enabled() const noexcept {
-        return nranks_ > 0;
+        return comm_ != nullptr;
     }
 
     /**
@@ -105,6 +113,8 @@ class Statistics {
 
     /**
      * @brief Add peer communication to the statistics.
+     *
+     * This is a no-op if the statistics is disabled.
      *
      * @param peer The rank of the peer.
      * @param nbytes The number of bytes communicated.
@@ -135,16 +145,16 @@ class Statistics {
         std::stringstream ss;
         ss << "Statistics:\n";
         ss << std::setw(label_width - 3) << std::left << " - peers:";
-        for (Rank i = 0; i < nranks_; ++i) {
+        for (Rank i = 0; i < comm_->nranks(); ++i) {
             ss << std::right << std::setw(column_width) << "Rank" << i;
         }
         ss << "\n" << std::setw(label_width) << std::left << " - comm-gpu-data-total:";
-        for (Rank i = 0; i < nranks_; ++i) {
+        for (Rank i = 0; i < comm_->nranks(); ++i) {
             ss << std::right << std::setw(column_width)
                << format_nbytes(peer_stats_.at(i).comm_nbytes) << " ";
         }
         ss << "\n" << std::setw(label_width) << std::left << " - comm-gpu-data-mean:";
-        for (Rank i = 0; i < nranks_; ++i) {
+        for (Rank i = 0; i < comm_->nranks(); ++i) {
             ss << std::right << std::setw(column_width)
                << format_nbytes(
                       peer_stats_.at(i).comm_nbytes / (double)peer_stats_.at(i).comm_count
@@ -157,7 +167,7 @@ class Statistics {
 
   private:
     mutable std::mutex mutex_;
-    Rank nranks_;
+    std::shared_ptr<Communicator> comm_;
     std::vector<PeerStats> peer_stats_;
 };
 

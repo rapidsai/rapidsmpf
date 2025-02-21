@@ -17,8 +17,8 @@
 
 #include <gtest/gtest.h>
 
+#include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/statistics.hpp>
-
 
 using namespace rapidsmp;
 
@@ -32,7 +32,9 @@ TEST(Statistics, Disabled) {
 }
 
 TEST(Statistics, Communication) {
-    rapidsmp::Statistics stats(2);
+    std::shared_ptr<rapidsmp::Communicator> comm =
+        std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
+    rapidsmp::Statistics stats(comm);
     EXPECT_TRUE(stats.enabled());
 
     // Invalid rank.

@@ -184,7 +184,8 @@ Shuffler::Shuffler(
       },
       statistics_{std::move(statistics)} {
     event_loop_thread_ = std::thread(Shuffler::event_loop, this);
-    RAPIDSMP_EXPECTS(br_ != nullptr, "the BufferResource cannot be NULL");
+    RAPIDSMP_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
+    RAPIDSMP_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
     RAPIDSMP_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
