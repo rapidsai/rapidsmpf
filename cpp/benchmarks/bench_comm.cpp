@@ -37,7 +37,7 @@ class ArgumentParser {
         RAPIDSMP_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
 
         int option;
-        while ((option = getopt(argc, argv, "hC:r:w:n:")) != -1) {
+        while ((option = getopt(argc, argv, "hC:r:w:n:m:")) != -1) {
             switch (option) {
             case 'h':
                 {
@@ -45,9 +45,10 @@ class ArgumentParser {
                     ss << "Usage: " << argv[0] << " [options]\n"
                        << "Options:\n"
                        << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
+                       << "  -n <num>   Message size in bytes (default: 1M)\n"
+                       << "  -m <num>   Number of messages (default: 1)\n"
                        << "  -r <num>   Number of runs (default: 1)\n"
                        << "  -w <num>   Number of warmup runs (default: 0)\n"
-                       << "  -n <num>   Message size in bytes (default: 1M)\n"
                        << "  -h         Display this help message\n";
                     if (rank == 0) {
                         std::cerr << ss.str();
@@ -64,14 +65,17 @@ class ArgumentParser {
                     RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                 }
                 break;
+            case 'n':
+                msg_size = std::stoull(optarg);
+                break;
+            case 'm':
+                num_msg = std::stoull(optarg);
+                break;
             case 'r':
                 num_runs = std::stoi(optarg);
                 break;
             case 'w':
                 num_warmups = std::stoi(optarg);
-                break;
-            case 'n':
-                msg_size = std::stoull(optarg);
                 break;
             case '?':
                 RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
@@ -101,6 +105,7 @@ class ArgumentParser {
         ss << "Arguments:\n";
         ss << "  -c " << comm_type << " (communicator)\n";
         ss << "  -n " << msg_size << " (message size)\n";
+        ss << "  -m " << msg_size << " (number of messages)\n";
         ss << "  -r " << num_runs << " (number of runs)\n";
         ss << "  -w " << num_warmups << " (number of warmup runs)\n";
         comm.logger().info(ss.str());
@@ -110,6 +115,7 @@ class ArgumentParser {
     int num_warmups{0};
     std::string comm_type{"mpi"};
     std::uint64_t msg_size{1 << 20};
+    int num_msg{1};
 };
 
 Duration run(
@@ -121,30 +127,36 @@ Duration run(
     // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
     std::vector<std::unique_ptr<Buffer>> recv_bufs;
-    for (Rank rank = 0; rank < comm->nranks(); ++rank) {
-        auto [reservation, _] = br->reserve(MemoryType::DEVICE, args.msg_size * 2, true);
-        auto buf = br->allocate(MemoryType::DEVICE, args.msg_size, stream, reservation);
-        random_fill(*buf, stream, br->device_mr());
-        send_bufs.push_back(std::move(buf));
-        recv_bufs.push_back(
-            br->allocate(MemoryType::DEVICE, args.msg_size, stream, reservation)
-        );
+    for (int i = 0; i < args.num_msg; ++i) {
+        for (Rank rank = 0; rank < comm->nranks(); ++rank) {
+            auto [res, _] = br->reserve(MemoryType::DEVICE, args.msg_size * 2, true);
+            auto buf = br->allocate(MemoryType::DEVICE, args.msg_size, stream, res);
+            random_fill(*buf, stream, br->device_mr());
+            send_bufs.push_back(std::move(buf));
+            recv_bufs.push_back(
+                br->allocate(MemoryType::DEVICE, args.msg_size, stream, res)
+            );
+        }
     }
 
     auto const t0_elapsed = Clock::now();
 
     Tag const tag{0, 1};
     std::vector<std::unique_ptr<Communicator::Future>> futures;
-    for (Rank rank = 0; rank < comm->nranks(); ++rank) {
-        if (rank != comm->rank()) {
-            futures.push_back(comm->recv(rank, tag, std::move(recv_bufs.at(rank)), stream)
-            );
+    for (int i = 0; i < args.num_msg; ++i) {
+        for (Rank rank = 0; rank < comm->nranks(); ++rank) {
+            if (rank != comm->rank()) {
+                futures.push_back(comm->recv(
+                    rank, tag, std::move(recv_bufs.at(rank + i * comm->nranks())), stream
+                ));
+            }
         }
-    }
-    for (Rank rank = 0; rank < comm->nranks(); ++rank) {
-        if (rank != comm->rank()) {
-            futures.push_back(comm->send(std::move(send_bufs.at(rank)), rank, tag, stream)
-            );
+        for (Rank rank = 0; rank < comm->nranks(); ++rank) {
+            if (rank != comm->rank()) {
+                futures.push_back(comm->send(
+                    std::move(send_bufs.at(rank + i * comm->nranks())), rank, tag, stream
+                ));
+            }
         }
     }
 
