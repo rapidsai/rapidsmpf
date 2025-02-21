@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,19 +25,19 @@
 
 #include "random_data.hpp"
 
-std::unique_ptr<cudf::column> random_column(
-    cudf::size_type nrows,
+rmm::device_uvector<std::int32_t> random_device_vector(
+    cudf::size_type nelem,
     std::int32_t min_val,
     std::int32_t max_val,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
     // Fill vector with random data.
-    rmm::device_uvector<std::int32_t> vec(nrows, stream, mr);
+    rmm::device_uvector<std::int32_t> vec(nelem, stream, mr);
     thrust::transform(
         rmm::exec_policy(stream),
         thrust::make_counting_iterator(0),
-        thrust::make_counting_iterator(nrows),
+        thrust::make_counting_iterator(nelem),
         vec.begin(),
         [min_val, max_val] __device__(cudf::size_type index) {
             thrust::default_random_engine engine(index);  // HACK: use the seed as index
@@ -45,6 +45,17 @@ std::unique_ptr<cudf::column> random_column(
             return dist(engine);
         }
     );
+    return vec;
+}
+
+std::unique_ptr<cudf::column> random_column(
+    cudf::size_type nrows,
+    std::int32_t min_val,
+    std::int32_t max_val,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
+) {
+    auto vec = random_device_vector(nrows, min_val, max_val, stream, mr);
     return std::make_unique<cudf::column>(
         std::move(vec), rmm::device_buffer{0, stream, mr}, 0
     );

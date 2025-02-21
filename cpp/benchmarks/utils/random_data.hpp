@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,32 @@
 #include <cudf/column/column.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
+
+#include <rapidsmp/buffer/buffer.hpp>
+
+
+/**
+ * @brief Generates a random numeric device vector (std::int32_t).
+ *
+ * Creates a device vector with random integer values uniformly distributed in
+ * the range `[min_val, max_val]`.
+ *
+ * @param nelem Number of elements in the generated vector.
+ * @param min_val Minimum value (inclusive) for the random data.
+ * @param max_val Maximum value (inclusive) for the random data.
+ * @param stream CUDA stream to use for memory and kernel operations.
+ * @param mr Device memory resource for allocating the device vector.
+ * @return A unique pointer to the generated device vector.
+ *
+ * @note The function uses the specified CUDA stream for asynchronous operations.
+ */
+rmm::device_uvector<std::int32_t> random_device_vector(
+    cudf::size_type nelem,
+    std::int32_t min_val,
+    std::int32_t max_val,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
+);
 
 /**
  * @brief Generates a random numeric column (std::int32_t).
