@@ -22,7 +22,25 @@ cdef class Statistics:
 
     @property
     def enabled(self):
+        """
+        Checks if statistics is enabled.
+
+        Operations on disabled statistics is no-ops.
+
+        Returns
+        -------
+        True if the object is enabled, otherwise false.
+        """
         return deref(self._handle).enabled()
 
     def report(self):
+        """
+        Generates a report of statistics in a formatted string.
+
+        Operations on disabled statistics is no-ops.
+
+        Returns
+        -------
+        A string representing the formatted statistics report.
+        """
         return deref(self._handle).report().decode('UTF-8')
