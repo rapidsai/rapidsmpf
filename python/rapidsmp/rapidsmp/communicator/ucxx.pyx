@@ -74,9 +74,9 @@ cdef Communicator cpp_new_communicator(
 
 
 def new_communicator(
-    uint32_t nranks = 1,
-    UCXWorker ucx_worker = None,
-    UCXAddress root_ucxx_address = None
+    uint32_t nranks,
+    UCXWorker ucx_worker,
+    UCXAddress root_ucxx_address
 ):
     """
     Create a new UCXX communicator with the given number of ranks.
