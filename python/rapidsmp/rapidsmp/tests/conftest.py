@@ -52,8 +52,7 @@ def comm(request) -> Generator[Communicator, None, None]:
     Fixture for a rapidsmp communicator, scoped for each test.
     """
     MPI.COMM_WORLD.barrier()
-    comm = request.getfixturevalue(f"_{request.param}_comm")
-    yield comm
+    yield request.getfixturevalue(f"_{request.param}_comm")
     MPI.COMM_WORLD.barrier()
 
 

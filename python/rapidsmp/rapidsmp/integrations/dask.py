@@ -34,9 +34,9 @@ async def rapidsmp_ucxx_rank_setup(
 
     Parameters
     ----------
-    nranks: int
+    nranks
         The total number of ranks requested for the cluster.
-    root_address_str: str, optional
+    root_address_str
         The address of the root rank if it has been already setup, `None` if this is
         setting up the root rank. Note that this function must run twice on the root rank
         one to initialize it, and again to ensure synchronization with other ranks. See
@@ -44,7 +44,7 @@ async def rapidsmp_ucxx_rank_setup(
 
     Returns
     -------
-    root_address: str, optional
+    root_address
         Returns the root rank address as a string if this function was called to setup the
         root, otherwise returns `None`.
     """
@@ -75,12 +75,11 @@ async def rapidsmp_ucxx_comm_setup(client: Client):
     """
     Setup UCXX-based communicator across the Distributed cluster.
 
-    Setup UCXX-based communicator across the Distributed cluster, maintaining the
-    communicator alive via state stored in the Distributed workers.
+    Keeps the communicator alive via state stored in the Distributed workers.
 
     Parameters
     ----------
-    client: Client
+    client
         Distributed client connected to a Distributed cluster from which to setup the
         cluster.
     """
