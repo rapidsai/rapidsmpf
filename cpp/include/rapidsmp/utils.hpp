@@ -177,7 +177,7 @@ std::pair<typename MapType::key_type, typename MapType::mapped_type> extract_ite
 bool is_running_under_valgrind();
 
 /**
- * @brief Safely performs division, preventing division by zero.
+ * @brief Performs safe division, returning 0 if the denominator is zero.
  *
  * @tparam T The numeric type of the operands.
  * @param x The numerator.
@@ -186,10 +186,7 @@ bool is_running_under_valgrind();
  */
 template <typename T>
 T safe_div(T x, T y) {
-    if (y == 0) {
-        return 0;
-    }
-    return x / y;
+    return (y == 0) ? 0 : x / y;
 }
 
 }  // namespace rapidsmp
