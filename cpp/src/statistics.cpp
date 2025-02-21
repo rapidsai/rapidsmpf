@@ -29,14 +29,14 @@ Statistics::PeerStats Statistics::get_peer_stats(Rank peer) const {
     return peer_stats_.at(peer);
 }
 
-std::size_t Statistics::add_peer_comm(Rank peer, std::size_t nbytes) {
+std::size_t Statistics::add_payload_send(Rank peer, std::size_t nbytes) {
     if (!enabled()) {
         return 0;
     }
     std::lock_guard<std::mutex> lock(mutex_);
     auto& p = peer_stats_.at(peer);
-    ++p.comm_count;
-    return p.comm_nbytes += nbytes;
+    ++p.payload_send_count;
+    return p.payload_send_nbytes += nbytes;
 }
 
 std::string Statistics::report(int column_width, int label_width) const {
@@ -53,13 +53,14 @@ std::string Statistics::report(int column_width, int label_width) const {
     ss << "\n" << std::setw(label_width) << std::left << " - comm-gpu-data-total:";
     for (Rank i = 0; i < comm_->nranks(); ++i) {
         ss << std::right << std::setw(column_width)
-           << format_nbytes(peer_stats_.at(i).comm_nbytes) << " ";
+           << format_nbytes(peer_stats_.at(i).payload_send_nbytes) << " ";
     }
     ss << "\n" << std::setw(label_width) << std::left << " - comm-gpu-data-mean:";
     for (Rank i = 0; i < comm_->nranks(); ++i) {
         ss << std::right << std::setw(column_width)
            << format_nbytes(
-                  peer_stats_.at(i).comm_nbytes / (double)peer_stats_.at(i).comm_count
+                  peer_stats_.at(i).payload_send_nbytes
+                  / (double)peer_stats_.at(i).payload_send_count
               )
            << " ";
     }

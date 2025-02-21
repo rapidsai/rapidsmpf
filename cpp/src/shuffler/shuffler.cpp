@@ -226,7 +226,7 @@ void Shuffler::insert(detail::Chunk&& chunk) {
     }
     if (partition_owner(comm_, chunk.pid) == comm_->rank()) {
         if (chunk.gpu_data) {
-            statistics_->add_peer_comm(comm_->rank(), chunk.gpu_data->size);
+            statistics_->add_payload_send(comm_->rank(), chunk.gpu_data->size);
         }
         insert_into_outbox(std::move(chunk));
     } else {
@@ -463,7 +463,7 @@ void Shuffler::run_event_loop_iteration(
             log.trace(
                 "recv_any from ", src, ": ", ready_for_data_msg, ", sending: ", chunk
             );
-            self.statistics_->add_peer_comm(src, chunk.gpu_data->size);
+            self.statistics_->add_payload_send(src, chunk.gpu_data->size);
             fire_and_forget.push_back(self.comm_->send(
                 std::move(chunk.gpu_data), src, gpu_data_tag, self.stream_
             ));
