@@ -28,7 +28,7 @@ on:
         type: string
       build_type:
         type: string
-        default: nightly
+        required: true
 
 jobs:
   conda-cpp-tests:

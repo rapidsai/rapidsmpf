@@ -31,7 +31,7 @@ on:
         type: string
       build_type:
         type: string
-        default: nightly
+        required: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

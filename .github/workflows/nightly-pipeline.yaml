@@ -16,7 +16,7 @@ on:
         type: string
       build_type:
         type: string
-        default: nightly
+        default: branch
 
 jobs:
   build:
