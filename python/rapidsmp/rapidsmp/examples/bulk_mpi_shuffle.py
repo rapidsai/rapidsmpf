@@ -184,7 +184,7 @@ def ucxx_mpi_setup():
     )
 
     if MPI.COMM_WORLD.Get_rank() == 0:
-        comm = new_communicator(MPI.COMM_WORLD.size)
+        comm = new_communicator(MPI.COMM_WORLD.size, None, None)
         root_address_str = get_root_ucxx_address(comm)
     else:
         root_address_str = None
