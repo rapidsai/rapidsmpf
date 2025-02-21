@@ -38,15 +38,14 @@ TEST(Statistics, Communication) {
     EXPECT_TRUE(stats.enabled());
 
     // Invalid rank.
-    EXPECT_THROW(stats.add_payload_send(3, 10), std::out_of_range);
-    EXPECT_THROW(stats.get_peer_stats(3), std::out_of_range);
+    EXPECT_THROW(stats.add_payload_send(comm->nranks(), 10), std::out_of_range);
+    EXPECT_THROW(stats.get_peer_stats(comm->nranks()), std::out_of_range);
 
-    EXPECT_EQ(stats.add_payload_send(1, 10), 10);
+    EXPECT_EQ(stats.add_payload_recv(0, 10), 10);
     EXPECT_EQ(stats.get_peer_stats(0).payload_send_count, 0);
     EXPECT_EQ(stats.get_peer_stats(0).payload_send_nbytes, 0);
-    EXPECT_EQ(stats.get_peer_stats(1).payload_send_count, 1);
-    EXPECT_EQ(stats.get_peer_stats(1).payload_send_nbytes, 10);
-    EXPECT_EQ(stats.add_payload_send(1, 10), 20);
-    EXPECT_EQ(stats.get_peer_stats(1).payload_send_count, 2);
-    EXPECT_EQ(stats.get_peer_stats(1).payload_send_nbytes, 20);
+    EXPECT_EQ(stats.get_peer_stats(0).payload_recv_count, 1);
+    EXPECT_EQ(stats.get_peer_stats(0).payload_recv_nbytes, 10);
+    EXPECT_EQ(stats.add_payload_recv(0, 1), 11);
+    EXPECT_EQ(stats.add_payload_send(0, 10), 10);
 }
