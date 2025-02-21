@@ -121,7 +121,7 @@ Duration run(
     // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
     std::vector<std::unique_ptr<Buffer>> recv_bufs;
-    for (Rank i = 0; i < comm->nranks(); ++i) {
+    for (Rank rank = 0; rank < comm->nranks(); ++rank) {
         auto [reservation, _] = br->reserve(MemoryType::DEVICE, args.msg_size * 2, true);
         auto buf = br->allocate(MemoryType::DEVICE, args.msg_size, stream, reservation);
         random_fill(*buf, stream, br->device_mr());
@@ -135,14 +135,16 @@ Duration run(
 
     Tag const tag{0, 1};
     std::vector<std::unique_ptr<Communicator::Future>> futures;
-    for (Rank i = 0; i < comm->nranks(); ++i) {
-        if (i != comm->rank()) {
-            futures.push_back(comm->recv(i, tag, std::move(recv_bufs.at(i)), stream));
+    for (Rank rank = 0; rank < comm->nranks(); ++rank) {
+        if (rank != comm->rank()) {
+            futures.push_back(comm->recv(rank, tag, std::move(recv_bufs.at(rank)), stream)
+            );
         }
     }
-    for (Rank i = 0; i < comm->nranks(); ++i) {
-        if (i != comm->rank()) {
-            futures.push_back(comm->send(std::move(send_bufs.at(i)), i, tag, stream));
+    for (Rank rank = 0; rank < comm->nranks(); ++rank) {
+        if (rank != comm->rank()) {
+            futures.push_back(comm->send(std::move(send_bufs.at(rank)), rank, tag, stream)
+            );
         }
     }
 
