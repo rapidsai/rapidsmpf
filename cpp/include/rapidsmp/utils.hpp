@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -175,5 +175,21 @@ std::pair<typename MapType::key_type, typename MapType::mapped_type> extract_ite
  * @return `true` if the application is running under Valgrind, `false` otherwise.
  */
 bool is_running_under_valgrind();
+
+/**
+ * @brief Safely performs division, preventing division by zero.
+ *
+ * @tparam T The numeric type of the operands.
+ * @param x The numerator.
+ * @param y The denominator.
+ * @return T The result of x / y, or 0 if y is zero.
+ */
+template <typename T>
+T safe_div(T x, T y) {
+    if (y == 0) {
+        return 0;
+    }
+    return x / y;
+}
 
 }  // namespace rapidsmp
