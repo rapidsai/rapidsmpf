@@ -172,6 +172,8 @@ cdef class Shuffler:
         The CUDA stream used for memory operations.
     br
         The buffer resource used to allocate temporary storage and shuffle results.
+    statistics
+        The statistics instance to use. If None, statistics is disabled.
 
     Notes
     -----
