@@ -16,6 +16,7 @@ from rapidsmp.examples.dask import (
     get_shuffler,
     get_worker_rank,
     global_rmp_barrier,
+    stage_shuffler,
     worker_rmp_barrier,
 )
 from rapidsmp.shuffler import partition_and_pack, unpack_and_concat
@@ -88,7 +89,13 @@ def make_rmp_shuffle_graph(
     insert_name = f"rmp-insert-{output_name}"
     global_barrier_name = f"rmp-global-barrier-{output_name}"
     worker_barrier_name = f"rmp-worker-barrier-{output_name}"
-    extract_name = f"rmp-extract-{output_name}"
+
+    # Stage a shuffler on every worker for this shuffle id
+    client.run(
+        stage_shuffler,
+        shuffle_id=shuffle_id,
+        partition_count=partition_count_out,
+    )
 
     # Add operation to submit each partition to the shuffler
     dsk: MutableMapping[Any, Any] = {
@@ -126,7 +133,7 @@ def make_rmp_shuffle_graph(
     output_keys = []
     for part_id in range(partition_count_out):
         rank = part_id % n_workers
-        output_keys.append((extract_name, part_id))
+        output_keys.append((output_name, part_id))
         dsk[output_keys[-1]] = (
             rmp_shuffle_extract_polars,
             shuffle_id,

@@ -228,14 +228,19 @@ def get_buffer_resource(worker: Worker | None = None):
     return worker._buffer_resource
 
 
-def get_shuffler(shuffle_id: int, partition_count: int | None = None):
+def get_shuffler(
+    shuffle_id: int,
+    partition_count: int | None = None,
+    worker: Worker | None = None,
+):
     """Get the active RAPIDS-MP shuffler."""
-    worker = get_worker()
+    worker = worker or get_worker()
 
     if shuffle_id not in worker._rmp_shufflers:
         if partition_count is None:
             raise RuntimeError(
                 "Need partition_count to create new shuffler."
+                f" shuffle_id: {shuffle_id}\n"
                 f" Shufflers: {worker._rmp_shufflers}"
             )
         worker._rmp_shufflers[shuffle_id] = Shuffler(
@@ -247,6 +252,19 @@ def get_shuffler(shuffle_id: int, partition_count: int | None = None):
         )
 
     return worker._rmp_shufflers[shuffle_id]
+
+
+def stage_shuffler(
+    shuffle_id: int,
+    partition_count: int,
+    dask_worker: Worker,
+):
+    """Stage a shuffler on a Dask worker."""
+    get_shuffler(
+        shuffle_id,
+        partition_count=partition_count,
+        worker=dask_worker,
+    )
 
 
 def get_memory_resource(worker: Worker | None = None):
