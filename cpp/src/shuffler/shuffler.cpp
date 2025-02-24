@@ -15,6 +15,7 @@
  */
 
 #include <memory>
+#include <utility>
 
 #include <mpi.h>
 
@@ -169,6 +170,7 @@ Shuffler::Shuffler(
     PartID total_num_partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
+    std::shared_ptr<Statistics> statistics,
     PartitionOwner partition_owner
 )
     : total_num_partitions{total_num_partitions},
@@ -179,9 +181,12 @@ Shuffler::Shuffler(
       op_id_{op_id},
       finish_counter_{
           comm_->nranks(), local_partitions(comm_, total_num_partitions, partition_owner)
-      } {
+      },
+      statistics_{std::move(statistics)} {
     event_loop_thread_ = std::thread(Shuffler::event_loop, this);
-    RAPIDSMP_EXPECTS(br_ != nullptr, "the BufferResource cannot be NULL");
+    RAPIDSMP_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
+    RAPIDSMP_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
+    RAPIDSMP_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
 Shuffler::~Shuffler() {
@@ -220,6 +225,10 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         ++outbound_chunk_counter_[chunk.pid];
     }
     if (partition_owner(comm_, chunk.pid) == comm_->rank()) {
+        if (chunk.gpu_data) {
+            statistics_->add_payload_send(comm_->rank(), chunk.gpu_data->size);
+            statistics_->add_payload_recv(comm_->rank(), chunk.gpu_data->size);
+        }
         insert_into_outbox(std::move(chunk));
     } else {
         inbox_.insert(std::move(chunk));
@@ -437,6 +446,7 @@ void Shuffler::run_event_loop_iteration(
                 in_transit_chunks.insert({chunk.cid, std::move(chunk)}).second,
                 "in transit chunk already exist"
             );
+            self.statistics_->add_payload_recv(src, chunk.gpu_data_size);
         } else {
             if (chunk.gpu_data == nullptr) {
                 chunk.gpu_data = allocate_buffer(0, self.stream_, self.br_);
@@ -455,6 +465,7 @@ void Shuffler::run_event_loop_iteration(
             log.trace(
                 "recv_any from ", src, ": ", ready_for_data_msg, ", sending: ", chunk
             );
+            self.statistics_->add_payload_send(src, chunk.gpu_data->size);
             fire_and_forget.push_back(self.comm_->send(
                 std::move(chunk.gpu_data), src, gpu_data_tag, self.stream_
             ));

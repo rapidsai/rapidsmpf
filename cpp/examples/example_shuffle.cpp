@@ -23,6 +23,7 @@
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
 #include <rapidsmp/shuffler/shuffler.hpp>
+#include <rapidsmp/statistics.hpp>
 
 #include "../benchmarks/utils/random_data.hpp"
 
@@ -46,6 +47,9 @@ int main(int argc, char** argv) {
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
     rapidsmp::BufferResource br{mr};
 
+    // Create a statistics instance for the shuffler that tracks useful information.
+    auto stats = std::make_shared<rapidsmp::Statistics>(comm);
+
     // As input data, we use a helper function from the benchmark suite. It creates a
     // random cudf table with 2 columns and 100 rows. In this example, each MPI rank
     // creates its own local input and we only have one input per rank but each rank
@@ -65,6 +69,7 @@ int main(int argc, char** argv) {
         total_num_partitions,
         stream,
         &br,
+        stats,
         rapidsmp::shuffler::Shuffler::round_robin  // partition owner
     );
 
@@ -118,6 +123,9 @@ int main(int argc, char** argv) {
     // At this point, `local_outputs` contains the local result of the shuffle.
     // Let's log the result.
     log.info("Finished shuffle with ", local_outputs.size(), " local output partitions");
+
+    // Log the statistics report.
+    log.info(stats->report());
 
     // Shutdown the Shuffler explicitly or let it go out of scope for cleanup.
     shuffler.shutdown();

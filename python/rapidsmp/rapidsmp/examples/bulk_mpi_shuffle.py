@@ -19,6 +19,7 @@ import rapidsmp.communicator.mpi
 from rapidsmp.buffer.buffer import MemoryType
 from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
+from rapidsmp.statistics import Statistics
 from rapidsmp.testing import pylibcudf_to_cudf_dataframe
 from rapidsmp.utils.string import format_bytes, parse_bytes
 
@@ -60,6 +61,7 @@ def bulk_mpi_shuffle(
     read_func: Callable = read_batch,
     write_func: Callable = write_table,
     baseline: bool = False,
+    statistics: Statistics | None = None,
 ) -> None:
     """
     Perform a bulk-synchronous dataset shuffle.
@@ -94,6 +96,8 @@ def bulk_mpi_shuffle(
         (e.g. `f"{output_path}/part.{id}.parquet"`).
     baseline
         Whether to skip the shuffle and run a simple IO baseline.
+    statistics
+        The statistics instance to use. If None, statistics is disabled.
 
     Notes
     -----
@@ -133,6 +137,7 @@ def bulk_mpi_shuffle(
             total_num_partitions=total_num_partitions,
             stream=DEFAULT_STREAM,
             br=br,
+            statistics=statistics,
         )
 
         # Read batches and submit them to the shuffler
@@ -226,6 +231,8 @@ def setup_and_run(args) -> None:
     )
     br = BufferResource(mr, memory_available)
 
+    stats = Statistics(comm if args.statistics else None)
+
     if comm.rank == 0:
         spill_device = (
             "disabled" if args.spill_device is None else format_bytes(args.spill_device)
@@ -255,6 +262,7 @@ Shuffle:
         num_output_files=args.n_output_files,
         batchsize=args.batchsize,
         baseline=args.baseline,
+        statistics=stats,
     )
     elapsed_time = MPI.Wtime() - start_time
     MPI.COMM_WORLD.barrier()
@@ -264,6 +272,8 @@ Shuffle:
         comm.logger.info(
             f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
         )
+    if stats.enabled:
+        comm.logger.info(stats.report())
 
 
 def dir_path(path: str) -> Path:
@@ -344,6 +354,12 @@ if __name__ == "__main__":
             "Spilling device-to-host threshold as a string with unit such as '2MiB' "
             "and '4KiB'. Default is no spilling"
         ),
+    )
+    parser.add_argument(
+        "--statistics",
+        default=False,
+        action="store_true",
+        help="Enable statistics.",
     )
     parser.add_argument(
         "--cluster-type",
