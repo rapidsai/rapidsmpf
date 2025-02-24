@@ -14,7 +14,7 @@ cdef class Statistics:
     comm
         The communicator to use. If None, statistics is disabled.
     """
-    def __cinit__(self, Communicator comm = None):
+    def __cinit__(self, Communicator comm):
         if comm is None:
             self._handle = make_shared[cpp_Statistics]()
         else:

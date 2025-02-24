@@ -6,7 +6,7 @@ from rapidsmp.communicator.communicator import Communicator
 class Statistics:
     def __init__(
         self,
-        comm: Communicator | None = None,
+        comm: Communicator | None,
     ) -> None: ...
     @property
     def enabled(self) -> bool: ...
