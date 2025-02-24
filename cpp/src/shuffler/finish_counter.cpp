@@ -60,7 +60,7 @@ void FinishCounter::add_finished_chunk(PartID pid) {
 PartID FinishCounter::wait_any() {
     std::unique_lock<std::mutex> lock(mutex_);
     PartID max_part_id{std::numeric_limits<PartID>::max()};
-    PartID finished_key{std::numeric_limits<PartID>::max()};
+    PartID finished_key{max_part_id};
 
     cv_.wait(lock, [&]() {
         return partitions_ready_to_wait_on_.empty()
