@@ -95,7 +95,7 @@ class Statistics {
      *
      * @return True if the object is enabled, otherwise false.
      */
-    constexpr bool enabled() const noexcept {
+    bool enabled() const noexcept {
         return comm_ != nullptr;
     }
 
