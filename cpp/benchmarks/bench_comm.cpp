@@ -170,8 +170,7 @@ Duration run(
         }
     }
 
-    auto const t1_elapsed = Clock::now();
-    return t1_elapsed - t0_elapsed;
+    return Clock::now() - t0_elapsed;
 }
 
 int main(int argc, char** argv) {
