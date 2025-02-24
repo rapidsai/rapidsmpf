@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-#include <limits>
-
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/shuffler/finish_counter.hpp>
 
@@ -59,8 +57,7 @@ void FinishCounter::add_finished_chunk(PartID pid) {
 
 PartID FinishCounter::wait_any() {
     std::unique_lock<std::mutex> lock(mutex_);
-    PartID max_part_id{std::numeric_limits<PartID>::max()};
-    PartID finished_key{max_part_id};
+    PartID finished_key{std::numeric_limits<PartID>::max()};
 
     cv_.wait(lock, [&]() {
         return partitions_ready_to_wait_on_.empty()
@@ -78,9 +75,12 @@ PartID FinishCounter::wait_any() {
     });
 
     RAPIDSMP_EXPECTS(
-        finished_key != max_part_id, "no more partitions to wait on", std::out_of_range
+        finished_key != std::numeric_limits<PartID>::max(),
+        "no more partitions to wait on",
+        std::out_of_range
     );
 
+    // We extract the partition to avoid returning the same partition twice.
     return extract_key(partitions_ready_to_wait_on_, finished_key);
 }
 
