@@ -300,7 +300,7 @@ def rapidsmp_shuffle_graph(
 
     # Stage a shuffler on every worker for this shuffle id
     client.run(
-        get_shuffler,
+        _stage_shuffler,
         shuffle_id=shuffle_id,
         partition_count=partition_count_out,
     )
@@ -621,6 +621,20 @@ def get_shuffler(
     return dask_worker._rmp_shufflers[shuffle_id]
 
 
+def _stage_shuffler(
+    shuffle_id: int,
+    partition_count: int,
+    dask_worker: Worker | None = None,
+):
+    """Stage a shuffler object without returning it."""
+    dask_worker = dask_worker or get_worker()
+    get_shuffler(
+        shuffle_id,
+        partition_count=partition_count,
+        dask_worker=dask_worker,
+    )
+
+
 def get_buffer_resource(dask_worker: Worker | None = None):
     """Get the RAPIDS-MP buffer resource for a Dask worker."""
     dask_worker = dask_worker or get_worker()
@@ -650,7 +664,7 @@ class LocalRMPCluster(LocalCUDACluster):
     def __init__(self, **kwargs):
         self._rmp_shuffle_counter = 0
         preloads = config.get("distributed.scheduler.preload")
-        preloads.append("rapidsmp.examples.dask")
+        preloads.append("rapidsmp.integrations.dask")
         config.set({"distributed.scheduler.preload": preloads})
         super().__init__(**kwargs)
 
