@@ -10,6 +10,7 @@ from mpi4py import MPI
 import rmm.mr
 
 from rapidsmp.communicator.mpi import new_communicator
+from rapidsmp.communicator.testing import ucxx_mpi_setup
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -30,13 +31,28 @@ def _mpi_comm() -> Communicator:
     return new_communicator(MPI.COMM_WORLD)
 
 
-@pytest.fixture
-def comm(_mpi_comm: Communicator) -> Generator[Communicator, None, None]:
+@pytest.fixture(scope="session")
+def _ucxx_comm() -> Communicator:
+    """
+    Fixture for rapidsmp's UCXX communicator to use throughout the session.
+
+    This fixture provides a session-wide `Communicator` instance that wraps
+    the an underlying UCXX communicator.
+
+    Do not use this fixture directly, use the `ucxx_comm` fixture instead.
+    """
+    return ucxx_mpi_setup(None)
+
+
+@pytest.fixture(
+    params=["mpi", "ucxx"],
+)
+def comm(request) -> Generator[Communicator, None, None]:
     """
     Fixture for a rapidsmp communicator, scoped for each test.
     """
     MPI.COMM_WORLD.barrier()
-    yield _mpi_comm
+    yield request.getfixturevalue(f"_{request.param}_comm")
     MPI.COMM_WORLD.barrier()
 
 
