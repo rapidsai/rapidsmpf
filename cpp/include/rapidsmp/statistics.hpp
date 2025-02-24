@@ -108,13 +108,13 @@ class Statistics {
     PeerStats get_peer_stats(Rank peer) const;
 
     /**
-     * @brief Add payload send to specified peer.
+     * @brief Add payload sent to specified peer.
      *
      * This is a no-op if the statistics is disabled.
      *
      * @param peer The rank of the peer.
-     * @param nbytes The number of bytes send.
-     * @return The total payload send to the peer after the update.
+     * @param nbytes The number of bytes sent.
+     * @return The total payload sent to the peer after the update.
      */
     std::size_t add_payload_send(Rank peer, std::size_t nbytes);
 
