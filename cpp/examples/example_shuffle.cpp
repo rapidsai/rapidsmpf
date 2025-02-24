@@ -124,6 +124,9 @@ int main(int argc, char** argv) {
     // Let's log the result.
     log.info("Finished shuffle with ", local_outputs.size(), " local output partitions");
 
+    // Log the statistics report.
+    log.info(stats->report());
+
     // Shutdown the Shuffler explicitly or let it go out of scope for cleanup.
     shuffler.shutdown();
 
