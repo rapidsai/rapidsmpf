@@ -83,7 +83,7 @@ class Statistics {
      * @return A reference to the updated Statistics object.
      */
     Statistics& operator=(Statistics&& o) noexcept {
-        comm_ = o.comm_;
+        comm_ = std::move(o.comm_);
         peer_stats_ = std::move(o.peer_stats_);
         return *this;
     }
@@ -95,7 +95,7 @@ class Statistics {
      *
      * @return True if the object is enabled, otherwise false.
      */
-    bool enabled() const noexcept {
+    constexpr bool enabled() const noexcept {
         return comm_ != nullptr;
     }
 
@@ -119,13 +119,13 @@ class Statistics {
     std::size_t add_payload_send(Rank peer, std::size_t nbytes);
 
     /**
-     * @brief Add payload send to specified peer.
+     * @brief Add payload received from specified peer.
      *
      * This is a no-op if the statistics is disabled.
      *
      * @param peer The rank of the peer.
-     * @param nbytes The number of bytes send.
-     * @return The total payload send to the peer after the update.
+     * @param nbytes The number of bytes received.
+     * @return The total payload received from the peer after the update.
      */
     std::size_t add_payload_recv(Rank peer, std::size_t nbytes);
 

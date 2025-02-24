@@ -185,7 +185,7 @@ bool is_running_under_valgrind();
  * @return T The result of x / y, or 0 if y is zero.
  */
 template <typename T>
-T safe_div(T x, T y) {
+constexpr T safe_div(T x, T y) {
     return (y == 0) ? 0 : x / y;
 }
 
