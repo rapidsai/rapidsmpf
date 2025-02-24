@@ -5,5 +5,5 @@ from rapidsmp.statistics import Statistics
 
 
 def test_disabled():
-    stats = Statistics()
+    stats = Statistics(comm=None)
     assert not stats.enabled
