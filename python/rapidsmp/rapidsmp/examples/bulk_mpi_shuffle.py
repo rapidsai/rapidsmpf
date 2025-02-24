@@ -19,6 +19,7 @@ import rapidsmp.communicator.mpi
 from rapidsmp.buffer.buffer import MemoryType
 from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
+from rapidsmp.statistics import Statistics
 from rapidsmp.testing import pylibcudf_to_cudf_dataframe
 from rapidsmp.utils.string import format_bytes, parse_bytes
 
@@ -60,6 +61,7 @@ def bulk_mpi_shuffle(
     read_func: Callable = read_batch,
     write_func: Callable = write_table,
     baseline: bool = False,
+    statistics: Statistics | None = None,
 ) -> None:
     """
     Perform a bulk-synchronous dataset shuffle.
@@ -94,6 +96,8 @@ def bulk_mpi_shuffle(
         (e.g. `f"{output_path}/part.{id}.parquet"`).
     baseline
         Whether to skip the shuffle and run a simple IO baseline.
+    statistics
+        The statistics instance to use. If None, statistics is disabled.
 
     Notes
     -----
@@ -133,6 +137,7 @@ def bulk_mpi_shuffle(
             total_num_partitions=total_num_partitions,
             stream=DEFAULT_STREAM,
             br=br,
+            statistics=statistics,
         )
 
         # Read batches and submit them to the shuffler
@@ -173,9 +178,39 @@ def bulk_mpi_shuffle(
         shuffler.shutdown()
 
 
+def ucxx_mpi_setup():
+    """Bootstrap UCXX cluster using MPI."""
+    import ucxx._lib.libucxx as ucx_api
+
+    from rapidsmp.communicator.ucxx import (
+        barrier,
+        get_root_ucxx_address,
+        new_communicator,
+    )
+
+    if MPI.COMM_WORLD.Get_rank() == 0:
+        comm = new_communicator(MPI.COMM_WORLD.size, None, None)
+        root_address_str = get_root_ucxx_address(comm)
+    else:
+        root_address_str = None
+
+    root_address_str = MPI.COMM_WORLD.bcast(root_address_str, root=0)
+
+    if MPI.COMM_WORLD.Get_rank() != 0:
+        root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
+        comm = new_communicator(MPI.COMM_WORLD.size, None, root_address)
+
+    assert comm.nranks == MPI.COMM_WORLD.size
+    barrier(comm)
+    return comm
+
+
 def setup_and_run(args) -> None:
     """Setup the environment and run the shuffle example."""
-    comm = rapidsmp.communicator.mpi.new_communicator(MPI.COMM_WORLD)
+    if args.cluster_type == "mpi":
+        comm = rapidsmp.communicator.mpi.new_communicator(MPI.COMM_WORLD)
+    elif args.cluster_type == "ucxx":
+        comm = ucxx_mpi_setup()
 
     # Create a RMM stack with both a device pool and statistics.
     mr = rmm.mr.StatisticsResourceAdaptor(
@@ -196,6 +231,8 @@ def setup_and_run(args) -> None:
     )
     br = BufferResource(mr, memory_available)
 
+    stats = Statistics(comm if args.statistics else None)
+
     if comm.rank == 0:
         spill_device = (
             "disabled" if args.spill_device is None else format_bytes(args.spill_device)
@@ -206,6 +243,7 @@ Shuffle:
     input: {args.input}
     output: {args.output}
     on: {args.on}
+  --cluster-type: {args.cluster_type}
   --n-output-files: {args.n_output_files}
   --batchsize: {args.batchsize}
   --baseline: {args.baseline}
@@ -224,6 +262,7 @@ Shuffle:
         num_output_files=args.n_output_files,
         batchsize=args.batchsize,
         baseline=args.baseline,
+        statistics=stats,
     )
     elapsed_time = MPI.Wtime() - start_time
     MPI.COMM_WORLD.barrier()
@@ -233,6 +272,8 @@ Shuffle:
         comm.logger.info(
             f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
         )
+    if stats.enabled:
+        comm.logger.info(stats.report())
 
 
 def dir_path(path: str) -> Path:
@@ -312,6 +353,22 @@ if __name__ == "__main__":
         help=(
             "Spilling device-to-host threshold as a string with unit such as '2MiB' "
             "and '4KiB'. Default is no spilling"
+        ),
+    )
+    parser.add_argument(
+        "--statistics",
+        default=False,
+        action="store_true",
+        help="Enable statistics.",
+    )
+    parser.add_argument(
+        "--cluster-type",
+        type=str,
+        default="mpi",
+        choices=("mpi", "ucxx"),
+        help=(
+            "Cluster type to setup. Regardless of the cluster type selected it must "
+            "be launched with 'mpirun'."
         ),
     )
     args = parser.parse_args()

@@ -72,6 +72,9 @@ regex = "(?P<value>.*)"
 exclude = ["_deps/*"]
 ignore_missing_imports = true
 
+[tool.pytest.ini_options]
+addopts = "--import-mode=append" # Dask subprocesses fail to import RAPIDSMP otherwise
+
 [tool.ruff]
 line-length = 88
 indent-width = 4

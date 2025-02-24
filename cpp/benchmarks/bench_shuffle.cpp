@@ -193,7 +193,8 @@ Duration run(
     std::shared_ptr<rapidsmp::Communicator> comm,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
-    rapidsmp::BufferResource* br
+    rapidsmp::BufferResource* br,
+    std::shared_ptr<rapidsmp::Statistics> statistics
 ) {
     std::int32_t const min_val = 0;
     std::int32_t const max_val = args.num_local_rows;
@@ -223,6 +224,7 @@ Duration run(
             total_num_partitions,
             stream,
             br,
+            statistics,
             rapidsmp::shuffler::Shuffler::round_robin
         );
 
@@ -339,9 +341,16 @@ int main(int argc, char** argv) {
         log.info(ss.str());
     }
 
+    // We start with disabled statistics.
+    auto stats = std::make_shared<rapidsmp::Statistics>();
+
     std::vector<double> elapsed_vec;
     for (auto i = 0; i < args.num_warmups + args.num_runs; ++i) {
-        auto const elapsed = run(comm, args, stream, &br).count();
+        // Enable statistics for the last run.
+        if (i == args.num_warmups + args.num_runs - 1) {
+            stats = std::make_shared<rapidsmp::Statistics>(comm);
+        }
+        auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;
         ss << "elapsed: " << rapidsmp::to_precision(elapsed)
            << " sec | local throughput: "
@@ -373,6 +382,7 @@ int main(int argc, char** argv) {
         }
         log.info(ss.str());
     }
+    log.info(stats->report());
     RAPIDSMP_MPI(MPI_Finalize());
 
     return 0;

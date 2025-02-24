@@ -220,8 +220,10 @@ dependencies:
     common:
       - output_types: [conda, pyproject]
         packages:
-          - pytest
           - cudf==25.4.*,>=0.0.0a0
+          - dask-cuda==25.4.*,>=0.0.0a0
+          - pytest
+          - ucxx==0.43.*,>=0.0.0a0
   docs:
     common:
       - output_types: [conda]

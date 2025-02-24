@@ -16,10 +16,10 @@ from rapidsmp.testing import assert_eq
 
 @pytest.mark.parametrize("batchsize", [1, 2, 3])
 @pytest.mark.parametrize("num_output_files", [10, 5])
-def test_bulk_mpi_shuffle(comm, tmpdir, device_mr, batchsize, num_output_files):
+def test_bulk_shuffle(comm, tmpdir, device_mr, batchsize, num_output_files):
     # Get mpi-compatible tmpdir
     mpi_comm = MPI.COMM_WORLD
-    rank = mpi_comm.Get_rank()
+    rank = comm.rank
     name = str(tmpdir) if rank == 0 else None
     name = mpi_comm.bcast(name, root=0)
     mpi_tmpdir = type(tmpdir)(name)
@@ -27,7 +27,6 @@ def test_bulk_mpi_shuffle(comm, tmpdir, device_mr, batchsize, num_output_files):
     # Generate input dataset
     num_files = 15
     num_rows = 100
-    rank = comm.rank
     np.random.seed(42)
     dataset_dir = mpi_tmpdir.join("dataset")
     if rank == 0:

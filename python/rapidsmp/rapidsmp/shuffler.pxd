@@ -10,6 +10,7 @@ from pylibcudf.libcudf.contiguous_split cimport packed_columns
 from pylibcudf.table cimport Table
 from rapidsmp.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmp.communicator.communicator cimport Communicator, cpp_Communicator
+from rapidsmp.statistics cimport cpp_Statistics
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 from rmm.pylibrmm.stream cimport Stream
@@ -37,6 +38,7 @@ cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
             uint32_t total_num_partitions,
             cuda_stream_view stream,
             cpp_BufferResource *br,
+            shared_ptr[cpp_Statistics] statistics,
         ) except +
         void shutdown() except +
         void insert(unordered_map[uint32_t, packed_columns] chunks) except +
