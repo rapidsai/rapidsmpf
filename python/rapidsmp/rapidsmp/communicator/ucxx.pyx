@@ -74,17 +74,16 @@ cdef Communicator cpp_new_communicator(
 
 
 def new_communicator(
-    uint32_t nranks = 1,
-    UCXWorker ucx_worker = None,
-    UCXAddress root_ucxx_address = None
+    uint32_t nranks,
+    UCXWorker ucx_worker,
+    UCXAddress root_ucxx_address
 ):
     """
-    Create a new UCXX communicator.
+    Create a new UCXX communicator with the given number of ranks.
 
-    Create a new UCXX communicator with the given number of ranks. Additionally, an
-    existing UCXWorker may be specified, otherwise one will be created. The root
-    rank is created if no `root_ucxx_address` is specific, all other ranks must
-    specify the address of the root rank via that argument.
+    An existing UCXWorker may be specified, otherwise one will be created. The root rank
+    is created if no `root_ucxx_address` is specific, all other ranks must specify the
+    the address of the root rank via that argument.
 
     Parameters
     ----------
@@ -156,8 +155,8 @@ def barrier(Communicator comm):
     """
     Execute a barrier on the UCXX communicator.
 
-    Execute a barrier on the UCXX communicator, ensuring all ranks connected to
-    the root and all ranks reached the barrier before continuing.
+    Ensures all ranks connected to the root and all ranks reached the barrier before
+    continuing.
 
     Notes
     -----
