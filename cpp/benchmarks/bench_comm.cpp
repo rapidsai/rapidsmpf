@@ -15,6 +15,8 @@
  */
 
 
+#include <iostream>
+
 #include <mpi.h>
 
 #include <rapidsmp/communicator/communicator.hpp>
@@ -37,7 +39,7 @@ class ArgumentParser {
         RAPIDSMP_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
 
         int option;
-        while ((option = getopt(argc, argv, "hC:r:w:n:m:")) != -1) {
+        while ((option = getopt(argc, argv, "hC:O:r:w:n:p:")) != -1) {
             switch (option) {
             case 'h':
                 {
@@ -45,8 +47,10 @@ class ArgumentParser {
                     ss << "Usage: " << argv[0] << " [options]\n"
                        << "Options:\n"
                        << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
+                       << "  -O <op>    Operation {all-to-all} (default: all-to-all)\n"
                        << "  -n <num>   Message size in bytes (default: 1M)\n"
-                       << "  -m <num>   Number of messages (default: 1)\n"
+                       << "  -p <num>   Number of concurrent operations, e.g. number of "
+                          "concurrent all-to-all operations (default: 1)\n"
                        << "  -r <num>   Number of runs (default: 1)\n"
                        << "  -w <num>   Number of warmup runs (default: 0)\n"
                        << "  -h         Display this help message\n";
@@ -65,11 +69,21 @@ class ArgumentParser {
                     RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                 }
                 break;
+            case 'O':
+                operation = std::string{optarg};
+                if (!(operation == "all-to-all")) {
+                    if (rank == 0) {
+                        std::cerr << "-O (Operation) must be one of {all-to-all}"
+                                  << std::endl;
+                    }
+                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                }
+                break;
             case 'n':
                 msg_size = std::stoull(optarg);
                 break;
-            case 'm':
-                num_msg = std::stoull(optarg);
+            case 'p':
+                num_ops = std::stoull(optarg);
                 break;
             case 'r':
                 num_runs = std::stoi(optarg);
@@ -103,9 +117,10 @@ class ArgumentParser {
         }
         std::stringstream ss;
         ss << "Arguments:\n";
-        ss << "  -c " << comm_type << " (communicator)\n";
+        ss << "  -C " << comm_type << " (communicator)\n";
+        ss << "  -O " << operation << " (operation)\n";
         ss << "  -n " << msg_size << " (message size)\n";
-        ss << "  -m " << msg_size << " (number of messages)\n";
+        ss << "  -p " << num_ops << " (number of operations)\n";
         ss << "  -r " << num_runs << " (number of runs)\n";
         ss << "  -w " << num_warmups << " (number of warmup runs)\n";
         comm.logger().info(ss.str());
@@ -114,8 +129,9 @@ class ArgumentParser {
     int num_runs{1};
     int num_warmups{0};
     std::string comm_type{"mpi"};
+    std::string operation{"all-to-all"};
     std::uint64_t msg_size{1 << 20};
-    int num_msg{1};
+    int num_ops{1};
 };
 
 Duration run(
@@ -127,7 +143,7 @@ Duration run(
     // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
     std::vector<std::unique_ptr<Buffer>> recv_bufs;
-    for (int i = 0; i < args.num_msg; ++i) {
+    for (int i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
             auto [res, _] = br->reserve(MemoryType::DEVICE, args.msg_size * 2, true);
             auto buf = br->allocate(MemoryType::DEVICE, args.msg_size, stream, res);
@@ -143,7 +159,7 @@ Duration run(
 
     Tag const tag{0, 1};
     std::vector<std::unique_ptr<Communicator::Future>> futures;
-    for (int i = 0; i < args.num_msg; ++i) {
+    for (int i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
             if (rank != comm->rank()) {
                 futures.push_back(comm->recv(
@@ -219,12 +235,13 @@ int main(int argc, char** argv) {
         log.info(ss.str());
     }
 
+    auto const total_local_msg_send = args.msg_size * args.num_ops * comm->nranks();
     std::vector<double> elapsed_vec;
     for (auto i = 0; i < args.num_warmups + args.num_runs; ++i) {
         auto const elapsed = run(comm, args, stream, &br).count();
         std::stringstream ss;
         ss << "elapsed: " << to_precision(elapsed) << " sec "
-           << "| bandwidth: " << format_nbytes(args.msg_size / elapsed) << "/s";
+           << "| throughput: " << format_nbytes(total_local_msg_send / elapsed) << "/s";
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
