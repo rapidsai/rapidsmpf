@@ -15,6 +15,7 @@
  */
 
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <rapidsmp/communicator/mpi.hpp>
@@ -29,6 +30,8 @@ TEST(Statistics, Disabled) {
     // Disabed statistics is a no-op.
     EXPECT_EQ(stats.add_payload_send(1, 10), 0);
     EXPECT_EQ(stats.get_peer_stats(42), rapidsmp::Statistics::PeerStats{});
+
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("Statistics: disabled"));
 }
 
 TEST(Statistics, Communication) {
@@ -48,4 +51,7 @@ TEST(Statistics, Communication) {
     EXPECT_EQ(stats.get_peer_stats(0).payload_recv_nbytes, 10);
     EXPECT_EQ(stats.add_payload_recv(0, 1), 11);
     EXPECT_EQ(stats.add_payload_send(0, 10), 10);
+
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("Statistics:"));
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("peers:"));
 }
