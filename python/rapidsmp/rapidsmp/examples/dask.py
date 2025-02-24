@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from dask import config
 from dask_cuda import LocalCUDACluster
@@ -21,7 +21,6 @@ from rapidsmp.shuffler import Shuffler
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    import pandas as pd
     from distributed import Client, Worker
     from distributed.scheduler import Scheduler, TaskState
 
@@ -50,7 +49,7 @@ def get_shuffle_id() -> int:
 
 def global_rmp_barrier(
     shuffle_ids: tuple[int, ...],
-    insert_results: Sequence[pd.DataFrame],
+    dependencies: Sequence[Any],
 ):
     """Global RMP shuffle barrier."""
     return shuffle_ids
@@ -72,8 +71,8 @@ def worker_rmp_barrier(
 def rmp_setup(
     dask_worker,
     *,
-    pool_size: float = 0.50,
-    spill_device: float = 0.125,
+    pool_size: float = 0.75,
+    spill_device: float = 0.0625,
 ):
     """Attach general RAPIDS-MP attributes to the worker."""
     # Add empty list of active shufflers

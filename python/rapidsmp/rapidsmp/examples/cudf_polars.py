@@ -32,7 +32,7 @@ def rmp_shuffle_insert_polars(
     shuffle_id: int,
 ):
     """Add cudf-polars DataFrame chunks to an RMP shuffler."""
-    shuffler = get_shuffler(shuffle_id, partition_count=partition_count)
+    shuffler = get_shuffler(shuffle_id)
     columns_to_hash = tuple(df.column_names.index(val) for val in on)
     packed_inputs = partition_and_pack(
         df.table,
@@ -87,7 +87,8 @@ def make_rmp_shuffle_graph(
 
     # Define task names for each stage of the shuffle
     insert_name = f"rmp-insert-{output_name}"
-    global_barrier_name = f"rmp-global-barrier-{output_name}"
+    global_barrier_1_name = f"rmp-global-barrier-1-{output_name}"
+    global_barrier_2_name = f"rmp-global-barrier-2-{output_name}"
     worker_barrier_name = f"rmp-worker-barrier-{output_name}"
 
     # Stage a shuffler on every worker for this shuffle id
@@ -110,7 +111,7 @@ def make_rmp_shuffle_graph(
     }
 
     # Add global barrier task
-    dsk[(global_barrier_name, 0)] = (
+    dsk[(global_barrier_1_name, 0)] = (
         global_rmp_barrier,
         (shuffle_id,),
         list(dsk.keys()),
@@ -125,9 +126,16 @@ def make_rmp_shuffle_graph(
             worker_rmp_barrier,
             (shuffle_id,),
             partition_count_out,
-            (global_barrier_name, 0),
+            (global_barrier_1_name, 0),
         )
         restricted_keys[key] = addr
+
+    # Add global barrier task
+    dsk[(global_barrier_2_name, 0)] = (
+        global_rmp_barrier,
+        (shuffle_id,),
+        list(worker_barriers.values()),
+    )
 
     # Add extraction tasks
     output_keys = []
@@ -139,7 +147,7 @@ def make_rmp_shuffle_graph(
             shuffle_id,
             part_id,
             column_names,
-            worker_barriers[rank],
+            (global_barrier_2_name, 0),  # worker_barriers[rank],
         )
         # Assume round-robin partition assignment
         restricted_keys[output_keys[-1]] = worker_ranks[rank]
