@@ -16,44 +16,40 @@ if TYPE_CHECKING:
 
 class RapidsMPActor:
     """
-    RapidsMPActor is a base class that instantiates a ucxx communication within them.
+    RapidsMPActor is a base class that instantiates a UCXX communication within them.
 
     Parameters
     ----------
-        rank
-            The rank of the worker
+    _rank
+        The rank of the worker (this will be inferred from the UCXX communicator)
 
-        nranks
-            The number of workers in the cluster
+    _nranks
+        The number of workers in the cluster
 
-        comm
-            The ucxx communicator
+    _comm
+        The UCXX communicator
 
     Example:
-        .. code-block:: python
-            class DummyActor(RapidsMPActor):
-                def __init__(self, rank, num_workers):
-                    super().__init__(rank, num_workers)
+    >>> @ray.remote(num_cpus=1)
+    ... class DummyActor(RapidsMPActor):
+    ...     pass
+    >>> actors = setup_ray_ucx_cluster(DummyActor, 2)
+    >>> ray.get([actor.status_check.remote() for actor in actors])
 
-
-            gpu_actors = setup_ray_ucx_cluster(DummyActor, num_workers)
-            ray.get([actor.status_check.remote() for actor in gpu_actors])
     """
 
-    def __init__(self, rank: int, nranks: int):
+    def __init__(self, nranks: int):
         """
         Initialize the RapidsMPActor.
 
         Parameters
         ----------
-        rank
-            The rank of the worker
         nranks
             The number of workers in the cluster
         """
-        self.rank: int = rank
-        self.nranks: int = nranks
-        self.comm: Communicator | None = None
+        self._rank: int = -1
+        self._nranks: int = nranks
+        self._comm: Communicator | None = None
 
     def setup_root(self) -> tuple[int, str]:
         """
@@ -66,34 +62,55 @@ class RapidsMPActor:
         root_address_str
             The address of the root
         """
-        self.comm = new_communicator(self.nranks, None, None)
-        self.comm.logger.trace(f"Rank {self.rank} created as root")
-        return self.rank, get_root_ucxx_address(self.comm)
+        self._comm = new_communicator(self._nranks, None, None)
+        self._rank = self._comm.rank
+        self._comm.logger.trace(f"Rank {self._rank} created as root")
+        return self._rank, get_root_ucxx_address(self._comm)
 
     def setup_worker(self, root_address_str: str) -> None:
         """
         Setup the worker in the cluster once the root is initialized.
+
+        This method needs to be called by every worker including the root.
 
         Parameters
         ----------
         root_address_str
             The address of the root
         """
-        if not self.comm:
+        if not self._comm:
             # this is not the root and a comm needs to be instantiated
             root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
             # create a comm pointing to the root_address
-            self.comm = new_communicator(self.nranks, None, root_address)
-            self.comm.logger.trace(f"Rank {self.comm.rank} created")
+            self._comm = new_communicator(self._nranks, None, root_address)
+            self._rank = self._comm.rank
+            self._comm.logger.trace(f"Rank {self._rank} created")
 
-        self.comm.logger.trace(f"Rank {self.comm.rank} setup barrier")
-        barrier(self.comm)
-        self.comm.logger.trace(f"Rank {self.comm.rank} setup barrier passed")
+        self._comm.logger.trace(f"Rank {self._rank} setup barrier")
+        barrier(self._comm)
+        self._comm.logger.trace(f"Rank {self._rank} setup barrier passed")
 
-    def status_check(self) -> None:
-        """Check if the communicator is initialized."""
-        if self.comm:
-            print(f"Communicator: {self.comm.get_str()}")
+        if self._nranks != self._comm.nranks:
+            raise RuntimeError(
+                f"Number of ranks mismatch in the communicator: \
+                               {self._nranks} != {self._comm.nranks}"
+            )
+
+    def to_string(self) -> str:
+        """
+        Return a string representation of the actor.
+
+        Returns
+        -------
+            A string representation of the actor
+
+        Raises
+        ------
+            RuntimeError if the communicator is not initialized
+        """
+        if self._comm:
+            return f"RapidsMPActor(rank:{self._rank}, nranks:{self._nranks}, \
+                                Communicator:{self._comm.get_str()})"
         else:
             raise RuntimeError("Communicator not initialized")
 
@@ -105,25 +122,32 @@ class RapidsMPActor:
         -------
             True if the communicator is initialized, False otherwise
         """
-        return self.comm is not None
+        return self._comm is not None and self._rank != -1
 
-    @property
-    def communicator(self) -> Communicator | None:
+    def rank(self) -> int:
         """
-        Get the underlying ucxx communicator.
+        Get the rank of the worker, as inferred from the UCXX communicator.
 
         Returns
         -------
-            The underlying ucxx communicator
+            rank of the worker if properly initialized, -1 otherwise
         """
-        return self.comm
+        return self._rank
+
+    def nranks(self) -> int:
+        """
+        Get the number of ranks in the UCXX communicator.
+
+        Returns
+        -------
+            number of ranks in the UCXX communicator
+        """
+        return self._nranks
 
 
-def setup_ray_ucx_cluster(
-    actor_cls: object, num_workers: int, root: int = 0
-) -> list[object]:
+def setup_ray_ucxx_cluster(actor_cls: object, num_workers: int) -> list[object]:
     """
-    A utility method to setup the ucxx communication using RapidsMPActor actor objects.
+    A utility method to setup the UCXX communication using RapidsMPActor actor objects.
 
     Parameters
     ----------
@@ -131,31 +155,25 @@ def setup_ray_ucx_cluster(
         The actor class to be instantiated in the cluster
     num_workers
         The number of workers in the cluster
-    root
-        The rank of the root actor (default = 0)
 
     Returns
     -------
-        gpu_actors
-            A list of actors in the cluster
+    gpu_actors
+        A list of actors in the cluster
     """
     # check if the actor_cls has a remote method
-    if (
-        not hasattr(actor_cls, "remote")
-        or not hasattr(actor_cls, "setup_root")
-        or not hasattr(actor_cls, "setup_worker")
+    if not (
+        hasattr(actor_cls, "remote") and issubclass(type(actor_cls), RapidsMPActor)
     ):
         raise ValueError(
             "actor_cls isn't a RayActor or it doesn't extend RapidsMPActor"
         )
 
     # initialize the actors remotely in the cluster
-    gpu_actors = [actor_cls.remote(i, num_workers) for i in range(num_workers)]
+    gpu_actors = [actor_cls.remote(num_workers) for _ in range(num_workers)]
 
-    # initialize the root actor remotely in the cluster
-    root_rank, root_address_str = ray.get(gpu_actors[root].setup_root.remote())
-    if root_rank != root:
-        raise RuntimeError("Root rank mismatch")
+    # initialize the first actor as the root remotely in the cluster
+    _, root_address_str = ray.get(gpu_actors[0].setup_root.remote())
 
     # setup the workers in the cluster with the root address
     ray.get([actor.setup_worker.remote(root_address_str) for actor in gpu_actors])
