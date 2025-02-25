@@ -40,6 +40,7 @@ class RapidsMPActor:
         self._nranks: int = nranks
         self._comm: Communicator | None = None
 
+    @ray.actor.method(num_returns=1)
     def setup_root(self) -> tuple[int, str]:
         """
         Setup root communicator in the cluster.
@@ -56,6 +57,7 @@ class RapidsMPActor:
         self._comm.logger.trace(f"Rank {self._rank} created as root")
         return self._rank, get_root_ucxx_address(self._comm)
 
+    @ray.actor.method(num_returns=1)
     def setup_worker(self, root_address_str: str) -> None:
         """
         Setup the worker in the cluster once the root is initialized.
@@ -104,34 +106,21 @@ class RapidsMPActor:
             raise RuntimeError("Communicator not initialized")
 
     def is_initialized(self) -> bool:
-        """
-        Check if the communicator is initialized.
-
-        Returns
-        -------
-            True if the communicator is initialized, False otherwise
-        """
+        """Check if the communicator is initialized."""
         return self._comm is not None and self._rank != -1
 
     def rank(self) -> int:
-        """
-        Get the rank of the worker, as inferred from the UCXX communicator.
-
-        Returns
-        -------
-            rank of the worker if properly initialized, -1 otherwise
-        """
+        """Get the rank of the worker, as inferred from the UCXX communicator."""
         return self._rank
 
     def nranks(self) -> int:
-        """
-        Get the number of ranks in the UCXX communicator.
-
-        Returns
-        -------
-            number of ranks in the UCXX communicator
-        """
+        """Get the number of ranks in the UCXX communicator."""
         return self._nranks
+
+    @property
+    def comm(self) -> Communicator | None:
+        """The UCXX communicator object."""
+        return self._comm
 
 
 def setup_ray_ucxx_cluster(

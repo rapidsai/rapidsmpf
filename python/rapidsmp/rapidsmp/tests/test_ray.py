@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import os
 
+os.environ["RAY_DEDUP_LOGS"] = "0"
+os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
+
 import pytest
 import ray
 
 from rapidsmp.integrations.ray import RapidsMPActor, setup_ray_ucxx_cluster
-
-os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
 
 # initialize ray with 4 cpu processes
 ray.init(num_cpus=4)
@@ -16,7 +17,9 @@ ray.init(num_cpus=4)
 
 @ray.remote(num_cpus=1)
 class DummyActor(RapidsMPActor):
-    pass
+    def use_comm(self):
+        # test if the DummyActor can use the Communicator object
+        print(self.comm.get_str())
 
 
 @pytest.mark.parametrize("num_workers", [1, 2, 4])
@@ -29,6 +32,9 @@ def test_ray_ucxx_cluster(num_workers):
 
     # ranks should be [0...num_workers-1]
     assert set(ranks) == set(range(num_workers))
+
+    # test if the DummyActor can use the Communicator object
+    ray.get([actor.use_comm.remote() for actor in gpu_actors])
 
     for actor in gpu_actors:
         ray.kill(actor)
