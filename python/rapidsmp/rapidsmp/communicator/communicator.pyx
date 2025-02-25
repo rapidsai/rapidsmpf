@@ -180,11 +180,11 @@ cdef class Communicator:
             A logger instance.
         """
         return self._logger
-    
+
     def get_str(self):
         """
         Get a string representation of the communicator.
-        
+
         Returns
         -------
             A string describing the communicater

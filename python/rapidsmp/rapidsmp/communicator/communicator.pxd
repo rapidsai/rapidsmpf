@@ -3,6 +3,7 @@
 from libcpp.memory cimport shared_ptr
 from libcpp.string cimport string
 
+
 cdef class Logger:
     cdef Communicator _comm
 
