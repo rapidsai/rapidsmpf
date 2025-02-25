@@ -85,13 +85,19 @@ PartID FinishCounter::wait_any() {
 }
 
 void FinishCounter::wait_on(PartID pid) {
+    auto predicate = [&]() {
+        auto it = partitions_ready_to_wait_on_.find(pid);
+        RAPIDSMP_EXPECTS(
+            it != partitions_ready_to_wait_on_.end(),
+            "PartID has already been extracted",
+            std::out_of_range
+        );
+        return it->second;
+    };
     std::unique_lock<std::mutex> lock(mutex_);
-    RAPIDSMP_EXPECTS(
-        partitions_ready_to_wait_on_.find(pid) != partitions_ready_to_wait_on_.end(),
-        "PartID is not available to wait on",
-        std::out_of_range
-    );
-    cv_.wait(lock, [&]() { return partitions_ready_to_wait_on_[pid]; });
+    if (!predicate()) {
+        cv_.wait(lock, predicate);
+    }
     partitions_ready_to_wait_on_.erase(pid);
 }
 
