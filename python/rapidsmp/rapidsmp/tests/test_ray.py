@@ -24,12 +24,11 @@ def test_ray_ucxx_cluster(num_workers):
     # setup the UCXX cluster using DummyActors
     gpu_actors = setup_ray_ucxx_cluster(DummyActor, num_workers)
 
-    # get the rank of each actor remotely and sort them
+    # get the rank of each actor remotely
     ranks = ray.get([actor.rank.remote() for actor in gpu_actors])
-    ranks.sort()
 
     # ranks should be [0...num_workers-1]
-    assert ranks == list(range(num_workers))
+    assert set(ranks) == set(range(num_workers))
 
     for actor in gpu_actors:
         ray.kill(actor)

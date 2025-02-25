@@ -19,21 +19,9 @@ class RapidsMPActor:
     """
     RapidsMPActor is a base class that instantiates a UCXX communication within them.
 
-    Parameters
-    ----------
-    _rank
-        The rank of the worker (this will be inferred from the UCXX communicator)
-
-    _nranks
-        The number of workers in the cluster
-
-    _comm
-        The UCXX communicator
-
     Example:
     >>> @ray.remote(num_cpus=1)
-    ... class DummyActor(RapidsMPActor):
-    ...     pass
+    ... class DummyActor(RapidsMPActor): ...
     >>> actors = setup_ray_ucx_cluster(DummyActor, 2)
     >>> ray.get([actor.status_check.remote() for actor in actors])
 
@@ -164,7 +152,7 @@ def setup_ray_ucxx_cluster(
     gpu_actors
         A list of actors in the cluster
     """
-    # check if the actor_cls has a remote method
+    # check if the actor_cls extends the ActorClass and RapidsMPActor classes
     if not (
         issubclass(type(actor_cls), ActorClass)
         and issubclass(type(actor_cls), RapidsMPActor)
