@@ -50,3 +50,24 @@ def test_ray_ucxx_cluster_not_initialized(num_workers):
 
     for actor in gpu_actors:
         ray.kill(actor)
+
+
+def test_disallowed_classes():
+    # class that doesnt extend RapidsMPActor or ray actor
+    class NonActor: ...
+
+    with pytest.raises(TypeError):
+        setup_ray_ucxx_cluster(NonActor, 1)
+
+    # class that only extends RapidsMPActor
+    class NonRayActor(RapidsMPActor): ...
+
+    with pytest.raises(TypeError):
+        setup_ray_ucxx_cluster(NonRayActor, 1)
+
+    # class that only extends ray actor
+    @ray.remote(num_cpus=1)
+    class NonRapidsMPActor: ...
+
+    with pytest.raises(TypeError):
+        setup_ray_ucxx_cluster(NonRapidsMPActor, 1)

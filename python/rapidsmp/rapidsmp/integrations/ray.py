@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import ray
 import ucxx._lib.libucxx as ucx_api
+from ray.actor import ActorClass
 
 from rapidsmp.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
 
@@ -145,7 +146,9 @@ class RapidsMPActor:
         return self._nranks
 
 
-def setup_ray_ucxx_cluster(actor_cls: object, num_workers: int) -> list[object]:
+def setup_ray_ucxx_cluster(
+    actor_cls: ray.actor.ActorClass, num_workers: int
+) -> list[object]:
     """
     A utility method to setup the UCXX communication using RapidsMPActor actor objects.
 
@@ -163,10 +166,11 @@ def setup_ray_ucxx_cluster(actor_cls: object, num_workers: int) -> list[object]:
     """
     # check if the actor_cls has a remote method
     if not (
-        hasattr(actor_cls, "remote") and issubclass(type(actor_cls), RapidsMPActor)
+        issubclass(type(actor_cls), ActorClass)
+        and issubclass(type(actor_cls), RapidsMPActor)
     ):
-        raise ValueError(
-            "actor_cls isn't a RayActor or it doesn't extend RapidsMPActor"
+        raise TypeError(
+            "actor_cls is not a subclass of ray.actor.ActorClass and rapidsmp.integrations.ray.RapidsMPActor"
         )
 
     # initialize the actors remotely in the cluster
