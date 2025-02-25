@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 import asyncio
-from functools import partial
-from typing import TYPE_CHECKING, Any, Protocol
+import threading
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
 
 import ucxx._lib.libucxx as ucx_api
 from dask import config
@@ -28,6 +28,11 @@ if TYPE_CHECKING:
     from distributed.scheduler import Scheduler, TaskState
 
 
+DataFrameT = TypeVar("DataFrameT")
+
+
+# Worker and Client caching utilities
+_worker_thread_lock: threading.RLock = threading.RLock()
 _initialized_clusters: set[str] = set()
 _shuffle_counter: int = 0
 
@@ -133,28 +138,41 @@ def get_shuffle_id() -> int:
     return _shuffle_counter
 
 
-def global_rmp_barrier(
-    shuffle_ids: tuple[int, ...],
-    dependencies: Sequence[Any],
-):
+def global_rmp_barrier(dependencies: Sequence[None]) -> None:
     """
     Global barrier for rapidsmp shuffle.
+
+    Parameters
+    ----------
+    dependencies
+        Sequence of nulls, used to enforce barrier dependencies.
 
     Notes
     -----
     A global barrier task does NOT need to be restricted
     to a specific Dask worker.
     """
-    return shuffle_ids
 
 
 def worker_rmp_barrier(
     shuffle_ids: tuple[int, ...],
     partition_count: int,
-    global_barrier: tuple[int, ...],
-):
+    dependency: None,
+) -> None:
     """
     Worker barrier for rapidsmp shuffle.
+
+    Parameters
+    ----------
+    shuffle_ids
+        Tuple of shuffle ids associated with the current
+        task graph. This tuple will only contain a single
+        integer when `rapidsmp_shuffle_graph` is used for
+        graph generation.
+    partition_count
+        Number of output partitions for the current shuffle.
+    dependency
+        Null argument used to enforce barrier dependencies.
 
     Notes
     -----
@@ -165,15 +183,15 @@ def worker_rmp_barrier(
         shuffler = get_shuffler(shuffle_id)
         for pid in range(partition_count):
             shuffler.insert_finished(pid)
-    return global_barrier
 
 
-class DaskIntegration(Protocol):
+@runtime_checkable
+class DaskIntegration(Protocol[DataFrameT]):
     """dask-integration protocol."""
 
     @staticmethod
     def insert_partition(
-        df: Any,
+        df: DataFrameT,
         on: Sequence[str],
         partition_count: int,
         shuffler: Shuffler,
@@ -184,7 +202,7 @@ class DaskIntegration(Protocol):
         Parameters
         ----------
         df
-            Partition data to add to a rapidsmp shuffler.
+            DataFrame partition to add to a rapidsmp shuffler.
         on
             Sequence of column names to shuffle on.
         partition_count
@@ -199,9 +217,9 @@ class DaskIntegration(Protocol):
         partition_id: int,
         column_names: list[str],
         shuffler: Shuffler,
-    ) -> Any:
+    ) -> DataFrameT:
         """
-        Extract a partition from a rapidsmp Shuffler.
+        Extract a DataFrame partition from a rapidsmp Shuffler.
 
         Parameters
         ----------
@@ -211,19 +229,39 @@ class DaskIntegration(Protocol):
             Sequence of output column names.
         shuffler
             The rapidsmp Shuffler object to extract from.
+
+        Returns
+        -------
+        A shuffled DataFrame partition.
         """
         raise NotImplementedError("""Extract a partition from a rapidsmp Shuffler.""")
 
 
 def _insert_partition(
-    df: Any,
+    callback: Callable[[DataFrameT, Sequence[str], int, Shuffler], None],
+    df: DataFrameT,
     on: Sequence[str],
     partition_count: int,
     shuffle_id: int,
-    *,
-    callback: Callable | None = None,
-):
-    """Add a partition to a rapidsmp Shuffler."""
+) -> None:
+    """
+    Add a partition to a rapidsmp Shuffler.
+
+    Parameters
+    ----------
+    callback
+        Insertion callback function. This function must be
+        the `insert_partition` attribute of a `DaskIntegration`
+        protocol.
+    df
+        DataFrame partition to add to a rapidsmp shuffler.
+    on
+        Sequence of column names to shuffle on.
+    partition_count
+        Number of output partitions for the current shuffle.
+    shuffle_id
+        The rapidsmp shuffle id.
+    """
     if callback is None:
         raise ValueError("callback missing in _insert_partition.")
     return callback(
@@ -235,14 +273,31 @@ def _insert_partition(
 
 
 def _extract_partition(
+    callback: Callable[[int, Sequence[str], Shuffler], DataFrameT],
     shuffle_id: int,
     partition_id: int,
     column_names: list[str],
     worker_barrier: tuple[int, ...],
-    *,
-    callback: Callable | None = None,
-):
-    """Extract a partition from a rapidsmp Shuffler."""
+) -> DataFrameT:
+    """
+    Extract a partition from a rapidsmp Shuffler.
+
+    Parameters
+    ----------
+    callback
+        Insertion callback function. This function must be
+        the `insert_partition` attribute of a `DaskIntegration`
+        protocol.
+    shuffle_id
+        The rapidsmp shuffle id.
+    partition_id
+        Partition id to extract.
+    column_names
+        Sequence of output column names.
+    worker_barrier
+        Worker-barrier task dependency. This value should
+        not be used for compute logic.
+    """
     if callback is None:
         raise ValueError("Missing callback in _extract_partition.")
     return callback(
@@ -260,7 +315,7 @@ def rapidsmp_shuffle_graph(
     partition_count_in: int,
     partition_count_out: int,
     integration: DaskIntegration,
-) -> MutableMapping[Any, Any]:
+) -> dict[Any, Any]:
     """
     Return the task graph for a rapidsmp shuffle.
 
@@ -280,10 +335,18 @@ def rapidsmp_shuffle_graph(
         Partition count of output collection.
     integration
         Dask-integration specification.
+
+    Returns
+    -------
+    A valid task graph for Dask execution.
     """
     # Get the shuffle id
     client = get_dask_client()
     shuffle_id = get_shuffle_id()
+
+    # Check integration argument
+    if not isinstance(integration, DaskIntegration):
+        raise TypeError(f"Expected DaskIntegration object, got {integration}.")
 
     # Extract mapping between ranks and worker addresses
     worker_ranks: dict[int, str] = {
@@ -306,13 +369,10 @@ def rapidsmp_shuffle_graph(
     )
 
     # Add operation to submit each partition to the shuffler
-    insert_partition = partial(
-        _insert_partition,
-        callback=integration.insert_partition,
-    )
-    graph: MutableMapping[Any, Any] = {
+    graph: dict[Any, Any] = {
         (insert_name, pid): (
-            insert_partition,
+            _insert_partition,
+            integration.insert_partition,
             (input_name, pid),
             shuffle_on,
             partition_count_out,
@@ -324,12 +384,11 @@ def rapidsmp_shuffle_graph(
     # Add global barrier task
     graph[(global_barrier_1_name, 0)] = (
         global_rmp_barrier,
-        (shuffle_id,),
         list(graph.keys()),
     )
 
     # Add worker barrier tasks
-    worker_barriers: MutableMapping[Any, Any] = {}
+    worker_barriers: dict[Any, Any] = {}
     for rank, addr in worker_ranks.items():
         key = (worker_barrier_name, rank)
         worker_barriers[rank] = key
@@ -344,21 +403,17 @@ def rapidsmp_shuffle_graph(
     # Add global barrier task
     graph[(global_barrier_2_name, 0)] = (
         global_rmp_barrier,
-        (shuffle_id,),
         list(worker_barriers.values()),
     )
 
     # Add extraction tasks
     output_keys = []
-    extract_partition = partial(
-        _extract_partition,
-        callback=integration.extract_partition,
-    )
     for part_id in range(partition_count_out):
         rank = part_id % n_workers
         output_keys.append((output_name, part_id))
         graph[output_keys[-1]] = (
-            extract_partition,
+            _extract_partition,
+            integration.extract_partition,
             shuffle_id,
             part_id,
             column_names,
@@ -402,29 +457,32 @@ def rmp_worker_setup(
     --------
     bootstrap_dask_cluster
     """
-    # Add empty list of active shufflers
-    dask_worker._rmp_shufflers = {}
+    with _worker_thread_lock:
+        if hasattr(dask_worker, "_rmp_shufflers"):
+            return  # Worker already initialized
 
-    # Setup a buffer_resource
-    # Create a RMM stack with both a device pool and statistics.
-    available_memory = rmm.mr.available_device_memory()[1]
-    rmm_pool_size = int(available_memory * pool_size)
-    rmm_pool_size = (rmm_pool_size // 256) * 256
-    mr = rmm.mr.StatisticsResourceAdaptor(
-        rmm.mr.PoolMemoryResource(
-            rmm.mr.CudaMemoryResource(),
-            initial_pool_size=rmm_pool_size,
-            maximum_pool_size=rmm_pool_size,
+        # Add empty list of active shufflers
+        dask_worker._rmp_shufflers = {}
+
+        # Setup a buffer_resource
+        # Create a RMM stack with both a device pool and statistics.
+        available_memory = rmm.mr.available_device_memory()[1]
+        rmm_pool_size = int(available_memory * pool_size)
+        rmm_pool_size = (rmm_pool_size // 256) * 256
+        mr = rmm.mr.StatisticsResourceAdaptor(
+            rmm.mr.PoolMemoryResource(
+                rmm.mr.CudaMemoryResource(),
+                initial_pool_size=rmm_pool_size,
+                maximum_pool_size=rmm_pool_size,
+            )
         )
-    )
-    rmm.mr.set_current_device_resource(mr)
-    rmp_spill_device = int(available_memory * spill_device)
-    rmp_spill_device = (rmp_spill_device // 256) * 256
-    memory_available = {
-        MemoryType.DEVICE: LimitAvailableMemory(mr, limit=rmp_spill_device)
-    }
-    dask_worker._memory_resource = mr
-    dask_worker._buffer_resource = BufferResource(mr, memory_available)
+        rmm.mr.set_current_device_resource(mr)
+        rmp_spill_device = int(available_memory * spill_device)
+        rmp_spill_device = (rmp_spill_device // 256) * 256
+        memory_available = {
+            MemoryType.DEVICE: LimitAvailableMemory(mr, limit=rmp_spill_device)
+        }
+        dask_worker._rmp_buffer_resource = BufferResource(mr, memory_available)
 
 
 def bootstrap_dask_cluster(client: Client):
@@ -602,22 +660,21 @@ def get_shuffler(
     `dask_worker`.
     """
     dask_worker = dask_worker or get_worker()
-
-    if shuffle_id not in dask_worker._rmp_shufflers:
-        if partition_count is None:
-            raise ValueError(
-                "Need partition_count to create new shuffler."
-                f" shuffle_id: {shuffle_id}\n"
-                f" Shufflers: {dask_worker._rmp_shufflers}"
+    with _worker_thread_lock:
+        if shuffle_id not in dask_worker._rmp_shufflers:
+            if partition_count is None:
+                raise ValueError(
+                    "Need partition_count to create new shuffler."
+                    f" shuffle_id: {shuffle_id}\n"
+                    f" Shufflers: {dask_worker._rmp_shufflers}"
+                )
+            dask_worker._rmp_shufflers[shuffle_id] = Shuffler(
+                get_comm(dask_worker),
+                op_id=shuffle_id,
+                total_num_partitions=partition_count,
+                stream=DEFAULT_STREAM,
+                br=dask_worker._rmp_buffer_resource,
             )
-        dask_worker._rmp_shufflers[shuffle_id] = Shuffler(
-            get_comm(dask_worker),
-            op_id=shuffle_id,
-            total_num_partitions=partition_count,
-            stream=DEFAULT_STREAM,
-            br=get_buffer_resource(dask_worker),
-        )
-
     return dask_worker._rmp_shufflers[shuffle_id]
 
 
@@ -626,25 +683,24 @@ def _stage_shuffler(
     partition_count: int,
     dask_worker: Worker | None = None,
 ):
-    """Stage a shuffler object without returning it."""
+    """
+    Stage a shuffler object without returning it.
+
+    Parameters
+    ----------
+    shuffle_id
+        Unique ID for the shuffle operation.
+    partition_count
+        Output partition count for the shuffle operation.
+    dask_worker
+        The current dask worker.
+    """
     dask_worker = dask_worker or get_worker()
     get_shuffler(
         shuffle_id,
         partition_count=partition_count,
         dask_worker=dask_worker,
     )
-
-
-def get_buffer_resource(dask_worker: Worker | None = None):
-    """Get the RAPIDS-MP buffer resource for a Dask worker."""
-    dask_worker = dask_worker or get_worker()
-    return dask_worker._buffer_resource
-
-
-def get_memory_resource(dask_worker: Worker | None = None):
-    """Get the RMM memory resource for a Dask worker."""
-    dask_worker = dask_worker or get_worker()
-    return dask_worker._memory_resource
 
 
 class LocalRMPCluster(LocalCUDACluster):
