@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -57,27 +57,48 @@ void FinishCounter::add_finished_chunk(PartID pid) {
 
 PartID FinishCounter::wait_any() {
     std::unique_lock<std::mutex> lock(mutex_);
-    while (true) {
+    PartID finished_key{std::numeric_limits<PartID>::max()};
+
+    cv_.wait(lock, [&]() {
+        return partitions_ready_to_wait_on_.empty()
+               || std::any_of(
+                   partitions_ready_to_wait_on_.cbegin(),
+                   partitions_ready_to_wait_on_.cend(),
+                   [&](auto const& item) {
+                       auto done = item.second;
+                       if (done) {
+                           finished_key = item.first;
+                       }
+                       return done;
+                   }
+               );
+    });
+
+    RAPIDSMP_EXPECTS(
+        finished_key != std::numeric_limits<PartID>::max(),
+        "no more partitions to wait on",
+        std::out_of_range
+    );
+
+    // We extract the partition to avoid returning the same partition twice.
+    return extract_key(partitions_ready_to_wait_on_, finished_key);
+}
+
+void FinishCounter::wait_on(PartID pid) {
+    auto predicate = [&]() {
+        auto it = partitions_ready_to_wait_on_.find(pid);
         RAPIDSMP_EXPECTS(
-            !partitions_ready_to_wait_on_.empty(),
-            "no more partitions to wait on",
+            it != partitions_ready_to_wait_on_.end(),
+            "PartID has already been extracted",
             std::out_of_range
         );
-
-        // Find the first ready partition (if any).
-        auto it = std::find_if(
-            partitions_ready_to_wait_on_.begin(),
-            partitions_ready_to_wait_on_.end(),
-            [](const auto& item) { return item.second; }
-        );
-        if (it == partitions_ready_to_wait_on_.end()) {
-            // No ready partitions, let's wait.
-            cv_.wait(lock);
-        } else {
-            // We extract the partition to avoid returning the same partition twice.
-            return extract_key(partitions_ready_to_wait_on_, it);
-        }
+        return it->second;
+    };
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (!predicate()) {
+        cv_.wait(lock, predicate);
     }
+    partitions_ready_to_wait_on_.erase(pid);
 }
 
 std::vector<PartID> FinishCounter::wait_some() {
