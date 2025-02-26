@@ -119,7 +119,18 @@ class RapidsMPActor:
 
     @property
     def comm(self) -> Communicator | None:
-        """The UCXX communicator object."""
+        """
+        The UCXX communicator object.
+
+        Note: This property is not meant to be called remotely from the client.
+        Then Ray will attempt to serialize the Communicator object, which will fail.
+        Instead, the subclasses can use the `comm` property to access the communicator.
+        For example, to create a Shuffle operation
+
+        Returns
+        -------
+            The UCXX communicator object if initialized, otherwise None
+        """
         return self._comm
 
 
