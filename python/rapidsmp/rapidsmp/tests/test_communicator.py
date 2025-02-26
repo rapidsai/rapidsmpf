@@ -45,7 +45,10 @@ def test_ucxx(capfd, RAPIDSMP_LOG):
         ucxx_worker = initialize_ucxx()
         print(f"[{os.getpid()}] {mpi_rank=} initializing UCXX done", flush=True)
         comm = ucxx_mpi_setup(ucxx_worker)
-        print(f"[{os.getpid()}] {mpi_rank=} initializing UCXX communicator done", flush=True)
+        print(
+            f"[{os.getpid()}] {mpi_rank=} initializing UCXX communicator done",
+            flush=True,
+        )
 
         assert comm.nranks == MPI.COMM_WORLD.size
         # Ranks assigned by UCXX do not necessarily match MPI's
@@ -73,4 +76,7 @@ def test_ucxx(capfd, RAPIDSMP_LOG):
 
         print(f"[{os.getpid()}] {mpi_rank=} stopping UCXX progress thread", flush=True)
         ucxx_worker.stop_progress_thread()
-        print(f"[{os.getpid()}] {mpi_rank=} stopping UCXX progress thread done", flush=True)
+        print(
+            f"[{os.getpid()}] {mpi_rank=} stopping UCXX progress thread done",
+            flush=True,
+        )
