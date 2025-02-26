@@ -91,6 +91,8 @@ class ArgumentParser {
                 case 'w':
                     parse_integer(num_warmups, optarg);
                     break;
+                case '?':
+                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                 default:
                     RAPIDSMP_FAIL("unknown option", std::invalid_argument);
                 }
