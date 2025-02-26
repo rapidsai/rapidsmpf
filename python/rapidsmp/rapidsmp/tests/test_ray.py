@@ -8,8 +8,14 @@ os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
 
 import pytest
 import ray
+from mpi4py import MPI
 
 from rapidsmp.integrations.ray import RapidsMPActor, setup_ray_ucxx_cluster
+
+pytestmark = pytest.mark.skipif(
+    MPI.COMM_WORLD.Get_size() > 1,
+    reason="Ray tests should not run with more than one MPI process",
+)
 
 # initialize ray with 4 cpu processes
 ray.init(num_cpus=4)
