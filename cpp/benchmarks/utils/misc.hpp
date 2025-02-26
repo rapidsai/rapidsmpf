@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,13 @@
 #pragma once
 
 #include <chrono>
+#include <limits>
 #include <stdexcept>
+#include <string>
+#include <type_traits>
 #include <vector>
+
+#include <rapidsmp/error.hpp>
 
 using Clock = std::chrono::high_resolution_clock;
 using Duration = std::chrono::duration<double>;
@@ -50,4 +55,37 @@ double harmonic_mean(std::vector<double> const& values) {
         sum += 1.0 / value;
     }
     return static_cast<double>(values.size()) / sum;
+}
+
+/**
+ * @brief Parses a string into an integer and ensures it is within the specified range.
+ *
+ * This function converts a string representation of an integer into a value of type T.
+ * It performs range validation using the provided minimum and maximum values.
+ *
+ * @tparam T The target integer type.
+ * @param output Reference to the output variable where the parsed integer will be stored.
+ * @param str The input string representing the integer.
+ * @param min_val The minimum allowed value.
+ * @param max_val The maximum allowed value.
+ * @throws std::invalid_argument If the string is not a valid integer.
+ * @throws std::out_of_range If the parsed value is outside the specified range.
+ */
+template <typename T>
+void parse_integer(
+    T& output,
+    std::string const& str,
+    std::int64_t min_val = 0,
+    std::int64_t max_val = std::numeric_limits<std::int64_t>::max()
+) {
+    long long val;
+    try {
+        val = std::stoll(str);
+    } catch (std::invalid_argument const&) {
+        RAPIDSMP_FAIL("cannot parse \"" + str + "\"", std::invalid_argument);
+    } catch (std::out_of_range const&) {
+        RAPIDSMP_FAIL("\"" + str + "\" is out of range", std::out_of_range);
+    }
+    RAPIDSMP_EXPECTS(min_val <= val && val <= max_val, "\"" + str + "\" is out of range");
+    output = static_cast<T>(val);
 }

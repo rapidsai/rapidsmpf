@@ -38,74 +38,69 @@ class ArgumentParser {
         RAPIDSMP_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
         RAPIDSMP_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
 
-        int option;
-        while ((option = getopt(argc, argv, "hC:O:r:w:n:p:")) != -1) {
-            switch (option) {
-            case 'h':
-                {
-                    std::stringstream ss;
-                    ss << "Usage: " << argv[0] << " [options]\n"
-                       << "Options:\n"
-                       << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
-                       << "  -O <op>    Operation {all-to-all} (default: all-to-all)\n"
-                       << "  -n <num>   Message size in bytes (default: 1M)\n"
-                       << "  -p <num>   Number of concurrent operations, e.g. number of "
-                          "concurrent all-to-all operations (default: 1)\n"
-                       << "  -r <num>   Number of runs (default: 1)\n"
-                       << "  -w <num>   Number of warmup runs (default: 0)\n"
-                       << "  -h         Display this help message\n";
-                    if (rank == 0) {
-                        std::cerr << ss.str();
+        try {
+            int option;
+            while ((option = getopt(argc, argv, "hC:O:r:w:n:p:")) != -1) {
+                switch (option) {
+                case 'h':
+                    {
+                        std::stringstream ss;
+                        ss << "Usage: " << argv[0] << " [options]\n"
+                           << "Options:\n"
+                           << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
+                           << "  -O <op>    Operation {all-to-all} (default: "
+                              "all-to-all)\n"
+                           << "  -n <num>   Message size in bytes (default: 1M)\n"
+                           << "  -p <num>   Number of concurrent operations, e.g. number"
+                              " of  concurrent all-to-all operations (default: 1)\n"
+                           << "  -r <num>   Number of runs (default: 1)\n"
+                           << "  -w <num>   Number of warmup runs (default: 0)\n"
+                           << "  -h         Display this help message\n";
+                        if (rank == 0) {
+                            std::cerr << ss.str();
+                        }
+                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
                     }
-                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
-                }
-            case 'C':
-                comm_type = std::string{optarg};
-                if (!(comm_type == "mpi" || comm_type == "ucxx")) {
-                    if (rank == 0) {
-                        std::cerr << "-C (Communicator) must be one of {mpi, ucxx}"
-                                  << std::endl;
+                case 'C':
+                    comm_type = std::string{optarg};
+                    if (!(comm_type == "mpi" || comm_type == "ucxx")) {
+                        if (rank == 0) {
+                            std::cerr << "-C (Communicator) must be one of {mpi, ucxx}"
+                                      << std::endl;
+                        }
+                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     }
-                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
-                }
-                break;
-            case 'O':
-                operation = std::string{optarg};
-                if (!(operation == "all-to-all")) {
-                    if (rank == 0) {
-                        std::cerr << "-O (Operation) must be one of {all-to-all}"
-                                  << std::endl;
+                    break;
+                case 'O':
+                    operation = std::string{optarg};
+                    if (operation != "all-to-all") {
+                        throw std::invalid_argument(
+                            "-O (Operation) must be one of {all-to-all}"
+                        );
                     }
-                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    break;
+                case 'n':
+                    parse_integer(msg_size, optarg);
+                    break;
+                case 'p':
+                    parse_integer(num_ops, optarg);
+                    break;
+                case 'r':
+                    parse_integer(num_runs, optarg);
+                    break;
+                case 'w':
+                    parse_integer(num_warmups, optarg);
+                    break;
+                default:
+                    RAPIDSMP_FAIL("unknown option", std::invalid_argument);
                 }
-                break;
-            case 'n':
-                msg_size = std::stoull(optarg);
-                break;
-            case 'p':
-                num_ops = std::stoull(optarg);
-                break;
-            case 'r':
-                num_runs = std::stoi(optarg);
-                break;
-            case 'w':
-                num_warmups = std::stoi(optarg);
-                break;
-            case '?':
-                RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
-            default:
-                throw std::runtime_error("Error parsing arguments.");
             }
-        }
-        if (optind < argc) {
-            if (rank == 0) {
-                std::cerr << "Unknown option: " << argv[optind] << std::endl;
+            if (optind < argc) {
+                RAPIDSMP_FAIL("unknown option", std::invalid_argument);
             }
-            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
-        }
-        if (num_runs < 1) {
+        } catch (std::exception const& e) {
             if (rank == 0) {
-                std::cerr << "-r (number of runs) must be greater than 0\n";
+                std::cerr << "Error parsing arguments: " << e.what() << std::endl;
             }
             RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
@@ -126,12 +121,12 @@ class ArgumentParser {
         comm.logger().info(ss.str());
     }
 
-    int num_runs{1};
-    int num_warmups{0};
+    std::uint64_t num_runs{1};
+    std::uint64_t num_warmups{0};
     std::string comm_type{"mpi"};
     std::string operation{"all-to-all"};
     std::uint64_t msg_size{1 << 20};
-    int num_ops{1};
+    std::uint64_t num_ops{1};
 };
 
 Duration run(
@@ -143,7 +138,7 @@ Duration run(
     // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
     std::vector<std::unique_ptr<Buffer>> recv_bufs;
-    for (int i = 0; i < args.num_ops; ++i) {
+    for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
             auto [res, _] = br->reserve(MemoryType::DEVICE, args.msg_size * 2, true);
             auto buf = br->allocate(MemoryType::DEVICE, args.msg_size, stream, res);
@@ -159,7 +154,7 @@ Duration run(
 
     Tag const tag{0, 1};
     std::vector<std::unique_ptr<Communicator::Future>> futures;
-    for (int i = 0; i < args.num_ops; ++i) {
+    for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
             if (rank != comm->rank()) {
                 futures.push_back(comm->recv(
@@ -237,7 +232,7 @@ int main(int argc, char** argv) {
 
     auto const total_local_msg_send = args.msg_size * args.num_ops * comm->nranks();
     std::vector<double> elapsed_vec;
-    for (auto i = 0; i < args.num_warmups + args.num_runs; ++i) {
+    for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         auto const elapsed = run(comm, args, stream, &br).count();
         std::stringstream ss;
         ss << "elapsed: " << to_precision(elapsed) << " sec "
