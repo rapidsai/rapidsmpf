@@ -1,6 +1,8 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 from __future__ import annotations
 
+import os
+
 import pytest
 from mpi4py import MPI
 
@@ -38,8 +40,12 @@ def test_ucxx(capfd, RAPIDSMP_LOG):
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("RAPIDSMP_LOG", str(RAPIDSMP_LOG))
 
+        mpi_rank = MPI.COMM_WORLD.rank
+        print(f"[{os.getpid()}] {mpi_rank=} initializing UCXX", flush=True)
         ucxx_worker = initialize_ucxx()
+        print(f"[{os.getpid()}] {mpi_rank=} initializing UCXX done", flush=True)
         comm = ucxx_mpi_setup(ucxx_worker)
+        print(f"[{os.getpid()}] {mpi_rank=} initializing UCXX communicator done", flush=True)
 
         assert comm.nranks == MPI.COMM_WORLD.size
         # Ranks assigned by UCXX do not necessarily match MPI's
@@ -65,4 +71,6 @@ def test_ucxx(capfd, RAPIDSMP_LOG):
         assert output.count("DEBUG") == (2 if RAPIDSMP_LOG > 2 else 0)
         assert output.count("TRACE") == (2 if RAPIDSMP_LOG > 3 else 0)
 
+        print(f"[{os.getpid()}] {mpi_rank=} stopping UCXX progress thread", flush=True)
         ucxx_worker.stop_progress_thread()
+        print(f"[{os.getpid()}] {mpi_rank=} stopping UCXX progress thread done", flush=True)
