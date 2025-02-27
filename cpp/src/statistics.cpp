@@ -55,9 +55,9 @@ Duration Statistics::add_duration_stat(std::string const& name, Duration seconds
         name,
         seconds.count(),
         [](std::ostream& os, std::size_t count, double val) {
-            os << val << " sec";
+            os << format_duration(val);
             if (count > 1) {
-                os << " (avg " << (val / count) << " sec)";
+                os << " (avg " << format_duration(val / count) << ")";
             }
         }
     ));

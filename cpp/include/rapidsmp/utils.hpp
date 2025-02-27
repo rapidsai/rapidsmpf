@@ -113,6 +113,26 @@ std::string inline format_nbytes(int64_t nbytes, int precision = 2) {
 }
 
 /**
+ * @brief Format a time duration to a human-readable string representation.
+ *
+ * @param seconds The time duration to convert (in seconds).
+ * @param precision The number of decimal places to include.
+ * @return A string representation of the time duration with the specified precision.
+ */
+std::string inline format_duration(double seconds, int precision = 2) {
+    double sec = std::abs(seconds);
+    if (sec < 1e-6) {
+        return to_precision(seconds * 1e9, precision) + " ns";
+    } else if (sec < 1e-3) {
+        return to_precision(seconds * 1e6, precision) + " us";
+    } else if (sec < 1) {
+        return to_precision(seconds * 1e3, precision) + " ms";
+    } else {
+        return to_precision(seconds, precision) + " s";
+    }
+}
+
+/**
  * @brief Extracts the value associated with a specific key from a map, removing the
  * key-value pair.
  *
