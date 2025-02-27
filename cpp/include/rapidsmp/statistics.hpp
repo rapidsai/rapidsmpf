@@ -137,10 +137,20 @@ class Statistics {
      *
      * @param name Name of the statistic.
      * @param value Value to add.
-     * @param formatter Formatter function.
+     * @param formatter Formatter function, which by default formats the value as-is.
      * @return Updated total value.
      */
-    double add_stat(std::string const& name, double value, Formatter const& formatter);
+    double add_stat(
+        std::string const& name,
+        double value,
+        Formatter const& formatter =
+            [](std::ostream& os, std::size_t count, double val) {
+                os << val;
+                if (count > 1) {
+                    os << " (avg " << (val / count) << ")";
+                }
+            }
+    );
 
     /**
      * @brief Adds a byte value to a statistic.
@@ -150,12 +160,22 @@ class Statistics {
      *
      * @param name Name of the statistic.
      * @param nbytes Number of bytes.
-     * @param with_average Whether to include the average in the report.
      * @return Updated total value.
      */
-    std::size_t add_bytes_stat(
-        std::string const& name, std::size_t nbytes, bool with_average = true
-    );
+    std::size_t add_bytes_stat(std::string const& name, std::size_t nbytes);
+
+    /**
+     * @brief Adds a byte value to a statistic.
+     *
+     * Convenience function that calls `add_stat` with a formatter suitable for
+     * durations.
+     *
+     * @param name Name of the statistic.
+     * @param seconds The duration in seconds.
+     * @return Updated total value.
+     */
+    Duration add_duration_stat(std::string const& name, Duration seconds);
+
 
   private:
     mutable std::mutex mutex_;  ///< Mutex for thread safety.

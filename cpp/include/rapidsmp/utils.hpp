@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <sstream>
@@ -25,6 +26,9 @@
 #include <cudf/types.hpp>
 
 namespace rapidsmp {
+
+using Clock = std::chrono::high_resolution_clock;
+using Duration = std::chrono::duration<double>;
 
 /**
  * @brief Converts the element at a specific index in a `cudf::column_view` to a string.

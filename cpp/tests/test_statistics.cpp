@@ -50,5 +50,5 @@ TEST(Statistics, Communication) {
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("11 by custom formatter"));
 
     EXPECT_EQ(stats.add_bytes_stat("byte-statistics", 20), 20);
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("20.00 B (avg 20.00 B)"));
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("20.00 B"));
 }

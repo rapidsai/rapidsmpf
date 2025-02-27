@@ -180,7 +180,7 @@ class ArgumentParser {
     std::int64_t device_mem_limit_mb{-1};
 };
 
-Duration run(
+rapidsmp::Duration run(
     std::shared_ptr<rapidsmp::Communicator> comm,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
@@ -206,7 +206,7 @@ Duration run(
     RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
     std::vector<cudf::table> output_partitions;
-    auto const t0_elapsed = Clock::now();
+    auto const t0_elapsed = rapidsmp::Clock::now();
     {
         RAPIDSMP_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
         rapidsmp::shuffler::Shuffler shuffler(
@@ -245,7 +245,7 @@ Duration run(
         }
         stream.synchronize();
     }
-    auto const t1_elapsed = Clock::now();
+    auto const t1_elapsed = rapidsmp::Clock::now();
 
     // Check the shuffle result (this test only works for non-empty partitions
     // thus we only check large shuffles).

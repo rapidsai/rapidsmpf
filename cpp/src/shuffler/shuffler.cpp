@@ -523,6 +523,7 @@ void Shuffler::event_loop(Shuffler* self) {
     RMM_CUDA_TRY(cudaFree(nullptr));
     // Continue the loop until both the "run" flag is false and all
     // ongoing communication is done.
+    auto const t0_event_loop = Clock::now();
     while (self->event_loop_thread_run_
            || !(
                fire_and_forget.empty() && incoming_chunks.empty()
@@ -545,6 +546,9 @@ void Shuffler::event_loop(Shuffler* self) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
+    self->statistics_->add_duration_stat(
+        "event-loop-total", Clock::now() - t0_event_loop
+    );
     log.debug("event loop - shutdown: ", self->str());
 }
 

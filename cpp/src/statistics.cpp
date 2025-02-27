@@ -40,26 +40,26 @@ double Statistics::add_stat(
     return it->second.add(value);
 }
 
-std::size_t Statistics::add_bytes_stat(
-    std::string const& name, std::size_t nbytes, bool with_average
-) {
-    if (with_average) {
-        return add_stat(
-            name,
-            nbytes,
-            [](std::ostream& os, std::size_t count, double val) {
-                os << format_nbytes(val) << " (avg " << format_nbytes(val / count) << ")";
+std::size_t Statistics::add_bytes_stat(std::string const& name, std::size_t nbytes) {
+    return add_stat(name, nbytes, [](std::ostream& os, std::size_t count, double val) {
+        os << format_nbytes(val);
+        if (count > 1) {
+            os << " (avg " << format_nbytes(val / count) << ")";
+        }
+    });
+}
+
+Duration Statistics::add_duration_stat(std::string const& name, Duration seconds) {
+    return Duration(add_stat(
+        name,
+        seconds.count(),
+        [](std::ostream& os, std::size_t count, double val) {
+            os << val << " sec";
+            if (count > 1) {
+                os << " (avg " << (val / count) << " sec)";
             }
-        );
-    } else {
-        return add_stat(
-            name,
-            nbytes,
-            [](std::ostream& os, std::size_t count, double val) {
-                os << format_nbytes(val);
-            }
-        );
-    }
+        }
+    ));
 }
 
 std::string Statistics::report(int column_width, int label_width) const {
