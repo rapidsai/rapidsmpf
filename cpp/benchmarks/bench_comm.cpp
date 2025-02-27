@@ -226,7 +226,7 @@ int main(int argc, char** argv) {
         ss << "Hardware setup: \n";
         ss << "  GPU (" << properties.name << "): \n";
         ss << "    Device number: " << cur_dev << "\n";
-        ss << "    PCI Bus ID: " << pci_bus_id << "\n";
+        ss << "    PCI Bus ID: " << pci_bus_id.substr(0, pci_bus_id.find('\0')) << "\n";
         ss << "    Total Memory: " << format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
         log.info(ss.str());
