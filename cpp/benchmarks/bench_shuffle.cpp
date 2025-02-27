@@ -325,14 +325,13 @@ int main(int argc, char** argv) {
         );
         cudaDeviceProp properties;
         CUDF_CUDA_TRY(cudaGetDeviceProperties(&properties, 0));
-        ss << "Hardware setup:" << std::endl;
-        ss << "  GPU (" << properties.name << "):" << std::endl;
-        ss << "    Device number: " << cur_dev << std::endl;
-        ss << "    PCI Bus ID: " << pci_bus_id.substr(0, pci_bus_id.find('\0'))
-           << std::endl;
+        ss << "Hardware setup: \n";
+        ss << "  GPU (" << properties.name << "): \n";
+        ss << "    Device number: " << cur_dev << "\n";
+        ss << "    PCI Bus ID: " << pci_bus_id.substr(0, pci_bus_id.find('\0')) << "\n";
         ss << "    Total Memory: "
-           << rapidsmp::format_nbytes(properties.totalGlobalMem, 0) << std::endl;
-        ss << "  Comm: " << *comm << std::endl;
+           << rapidsmp::format_nbytes(properties.totalGlobalMem, 0) << "\n";
+        ss << "  Comm: " << *comm << "\n";
         log.info(ss.str());
     }
 
