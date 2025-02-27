@@ -36,7 +36,7 @@ nvidia-smi
 cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/../
 
 rapids-logger "pytest rapidsmp"
-if [[ "${arch}" == "aarch64" ]]; then
+if [[ "$(arch)" == "aarch64" ]]; then
   ./ci/run_pytests.sh --ignore=tests/test_ray.py && EXITCODE=$? || EXITCODE=$?;
 else
   ./ci/run_pytests.sh && EXITCODE=$? || EXITCODE=$?;
