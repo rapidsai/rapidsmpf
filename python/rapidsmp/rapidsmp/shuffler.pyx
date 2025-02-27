@@ -196,7 +196,7 @@ cdef class Shuffler:
         self._comm = comm
         self._br = br
         if statistics is None:
-            statistics = Statistics(comm=None)  # Disables statistics.
+            statistics = Statistics(enable=False)  # Disables statistics.
 
         self._handle = make_unique[cpp_Shuffler](
             comm._handle,
