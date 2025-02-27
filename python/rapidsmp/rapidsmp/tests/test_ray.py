@@ -7,9 +7,13 @@ os.environ["RAY_DEDUP_LOGS"] = "0"
 os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
 
 import pytest
-import ray
 
-from rapidsmp.integrations.ray import RapidsMPActor, setup_ray_ucxx_cluster
+ray = pytest.importorskip("ray")
+
+from rapidsmp.integrations.ray import (  # noqa: E402
+    RapidsMPActor,
+    setup_ray_ucxx_cluster,
+)
 
 
 def get_rank_if_spawned_by_mpi() -> int:
