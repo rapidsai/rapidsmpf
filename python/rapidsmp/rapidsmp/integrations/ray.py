@@ -40,7 +40,6 @@ class RapidsMPActor:
         self._nranks: int = nranks
         self._comm: Communicator | None = None
 
-    @ray.actor.method(num_returns=1)
     def setup_root(self) -> tuple[int, str]:
         """
         Setup root communicator in the cluster.
@@ -57,7 +56,6 @@ class RapidsMPActor:
         self._comm.logger.trace(f"Rank {self._rank} created as root")
         return self._rank, get_root_ucxx_address(self._comm)
 
-    @ray.actor.method(num_returns=1)
     def setup_worker(self, root_address_str: str) -> None:
         """
         Setup the worker in the cluster once the root is initialized.
