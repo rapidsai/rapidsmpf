@@ -151,7 +151,7 @@ class Statistics {
     );
 
     /**
-     * @brief Adds a byte value to a statistic.
+     * @brief Adds a byte count to the statistics.
      *
      * Convenience function that calls `add_stat` with a formatter suitable for byte
      * counters.
@@ -163,7 +163,7 @@ class Statistics {
     std::size_t add_bytes_stat(std::string const& name, std::size_t nbytes);
 
     /**
-     * @brief Adds a byte value to a statistic.
+     * @brief Adds a duration to the statistics.
      *
      * Convenience function that calls `add_stat` with a formatter suitable for
      * durations.
