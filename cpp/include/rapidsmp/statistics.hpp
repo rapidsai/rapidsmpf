@@ -74,11 +74,9 @@ class Statistics {
     /**
      * @brief Generates a formatted report of collected statistics.
      *
-     * @param column_width Width of each column.
-     * @param label_width Width of the labels.
      * @return Formatted statistics report as a string.
      */
-    std::string report(int column_width = 12, int label_width = 30) const;
+    std::string report() const;
 
     /**
      * @brief Function type for formatting statistics output.
@@ -175,7 +173,6 @@ class Statistics {
      * @return Updated total value.
      */
     Duration add_duration_stat(std::string const& name, Duration seconds);
-
 
   private:
     mutable std::mutex mutex_;  ///< Mutex for thread safety.

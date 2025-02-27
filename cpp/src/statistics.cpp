@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <iomanip>
 #include <sstream>
 
 #include <rapidsmp/statistics.hpp>
@@ -62,15 +63,21 @@ Duration Statistics::add_duration_stat(std::string const& name, Duration seconds
     ));
 }
 
-std::string Statistics::report(int column_width, int label_width) const {
+std::string Statistics::report() const {
     if (!enabled()) {
         return "Statistics: disabled";
     }
     std::lock_guard<std::mutex> lock(mutex_);
+
+    std::size_t max_length{0};
+    for (auto const& [name, _] : stats_) {
+        max_length = std::max(max_length, name.size());
+    }
+
     std::stringstream ss;
     ss << "Statistics:\n";
     for (auto const& [name, stat] : stats_) {
-        ss << "  - " << name << ": ";
+        ss << " - " << std::setw(max_length + 3) << std::left << name + ": ";
         stat.formatter_(ss, stat.count_, stat.value_);
         ss << "\n";
     }

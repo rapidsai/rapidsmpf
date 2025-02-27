@@ -27,7 +27,9 @@
 
 namespace rapidsmp {
 
+/// Alias for high-resolution clock from the chrono library.
 using Clock = std::chrono::high_resolution_clock;
+/// Alias for a duration type representing time in seconds as a double.
 using Duration = std::chrono::duration<double>;
 
 /**

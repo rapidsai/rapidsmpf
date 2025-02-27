@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
+#include <chrono>
 #include <memory>
+#include <stdexcept>
 #include <utility>
 
 #include <mpi.h>
@@ -377,8 +379,10 @@ void Shuffler::run_event_loop_iteration(
     Tag const gpu_data_tag{self.op_id_, 3};
 
     auto& log = self.comm_->logger();
+    auto& stats = *self.statistics_;
 
     // Check for new chunks in the inbox and send off their metadata.
+    auto const t0_send_metadata = Clock::now();
     for (auto&& chunk : self.inbox_.extract_all()) {
         auto dst = self.partition_owner(self.comm_, chunk.pid);
         log.trace("send metadata to ", dst, ": ", chunk);
@@ -394,9 +398,11 @@ void Shuffler::run_event_loop_iteration(
             );
         }
     }
+    stats.add_duration_stat("event-loop-metadata-send", Clock::now() - t0_send_metadata);
 
     // Receive any incoming metadata of remote chunks and place them in
     // `incoming_chunks`.
+    auto const t0_metadata_recv = Clock::now();
     while (true) {
         auto const [msg, src] = self.comm_->recv_any(metadata_tag);
         if (msg) {
@@ -411,12 +417,14 @@ void Shuffler::run_event_loop_iteration(
             break;
         }
     }
+    stats.add_duration_stat("event-loop-metadata-recv", Clock::now() - t0_metadata_recv);
 
     // Pick an incoming chunk's gpu_data to receive.
     //
     // TODO: pick the incoming chunk based on a strategy. For now, we just pick the
     // first chunk.
     // TODO: handle multiple chunks before continuing.
+    auto const t0_pick_incoming_chunk = Clock::now();
     if (auto first_chunk = incoming_chunks.begin(); first_chunk != incoming_chunks.end())
     {
         auto [src, chunk] = extract_item(incoming_chunks, first_chunk);
@@ -454,9 +462,13 @@ void Shuffler::run_event_loop_iteration(
             self.insert_into_outbox(std::move(chunk));
         }
     }
+    stats.add_duration_stat(
+        "event-loop-pick-incoming-chunk", Clock::now() - t0_pick_incoming_chunk
+    );
 
     // Receive any incoming ready-for-data messages and start sending the
     // requested data.
+    auto const t0_init_gpu_data_send = Clock::now();
     while (true) {
         auto const [msg, src] = self.comm_->recv_any(ready_for_data_tag);
         if (msg) {
@@ -475,8 +487,12 @@ void Shuffler::run_event_loop_iteration(
             break;
         }
     }
+    stats.add_duration_stat(
+        "event-loop-init-gpu-data-send", Clock::now() - t0_init_gpu_data_send
+    );
 
     // Check if any data in transit is finished.
+    auto const t0_check_future_finish = Clock::now();
     if (!in_transit_futures.empty()) {
         std::vector<ChunkID> finished = self.comm_->test_some(in_transit_futures);
         for (auto cid : finished) {
@@ -497,6 +513,9 @@ void Shuffler::run_event_loop_iteration(
             fire_and_forget.erase(fire_and_forget.begin() + i);
         }
     }
+    stats.add_duration_stat(
+        "event-loop-check-future-finish", Clock::now() - t0_check_future_finish
+    );
 }
 
 /**
