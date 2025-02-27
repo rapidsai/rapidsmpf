@@ -342,7 +342,7 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == args.num_warmups + args.num_runs - 1) {
-            stats = std::make_shared<rapidsmp::Statistics>(comm);
+            stats = std::make_shared<rapidsmp::Statistics>();
         }
         auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;

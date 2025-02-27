@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <mutex>
 #include <string>
+#include <utility>
 
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/communicator/communicator.hpp>
@@ -25,123 +26,140 @@ namespace rapidsmp {
 
 
 /**
+ * @class Statistics
  * @brief Track statistics across rapidsmp operations.
  */
 class Statistics {
   public:
     /**
-     * @brief Stores statistics for a single peer.
-     */
-    struct PeerStats {
-        std::size_t payload_send_count{0};  ///< Number of payload messages send.
-        std::size_t payload_send_nbytes{0};  ///< Number of bytes of payload send.
-        std::size_t payload_recv_count{0};  ///< Number of payload messages received.
-        std::size_t payload_recv_nbytes{0};  ///< Number of bytes of payload received.
-
-        /**
-         * @brief Compares for equality.
-         * @param o The other object to compare with.
-         * @return Answer.
-         */
-        bool operator==(PeerStats const& o) const noexcept {
-            return payload_send_count == o.payload_send_count
-                   && payload_send_nbytes == o.payload_send_nbytes
-                   && payload_recv_count == o.payload_recv_count
-                   && payload_recv_nbytes == o.payload_recv_nbytes;
-        }
-    };
-
-    /// @brief A default statistics object, which is disabled (all operations are no-ops).
-    Statistics() = default;
-
-    /**
-     * @brief Constructs a new statistics object (enabled).
+     * @brief Constructs a new Statistics object.
      *
-     * @param comm The communicator to use.
+     * @param enabled Whether statistics tracking is enabled.
      */
-    Statistics(std::shared_ptr<Communicator> comm) : comm_{std::move(comm)} {
-        RAPIDSMP_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
-        peer_stats_.resize(comm_->nranks());
-    }
+    Statistics(bool enabled = true) : enabled_{enabled} {}
 
     ~Statistics() noexcept = default;
-
     Statistics(const Statistics&) = delete;
     Statistics& operator=(const Statistics&) = delete;
 
     /**
      * @brief Move constructor.
+     *
      * @param o The Statistics object to move from.
      */
     Statistics(Statistics&& o) noexcept
-        : comm_(o.comm_), peer_stats_{std::move(o.peer_stats_)} {}
+        : enabled_(o.enabled_), stats_{std::move(o.stats_)} {}
 
     /**
      * @brief Move assignment operator.
      *
      * @param o The Statistics object to move from.
-     * @return A reference to the updated Statistics object.
+     * @return Reference to the updated Statistics object.
      */
     Statistics& operator=(Statistics&& o) noexcept {
-        comm_ = std::move(o.comm_);
-        peer_stats_ = std::move(o.peer_stats_);
+        enabled_ = o.enabled_;
+        stats_ = std::move(o.stats_);
         return *this;
     }
 
     /**
-     * @brief Checks if statistics is enabled.
+     * @brief Checks if statistics tracking is enabled.
      *
-     * All operations are no-ops when statistics is disabled.
-     *
-     * @return True if the object is enabled, otherwise false.
+     * @return True if enabled, otherwise false.
      */
     bool enabled() const noexcept {
-        return comm_ != nullptr;
+        return enabled_;
     }
 
     /**
-     * @brief Retrieves the statistics for a given peer.
+     * @brief Generates a formatted report of collected statistics.
      *
-     * @param peer The rank of the peer to retrieve statistics for.
-     * @return A PeerStats object for the specified peer.
-     */
-    PeerStats get_peer_stats(Rank peer) const;
-
-    /**
-     * @brief Add payload sent to specified peer.
-     *
-     * This is a no-op if the statistics is disabled.
-     *
-     * @param peer The rank of the peer.
-     * @param nbytes The number of bytes sent.
-     * @return The total payload sent to the peer after the update.
-     */
-    std::size_t add_payload_send(Rank peer, std::size_t nbytes);
-
-    /**
-     * @brief Add payload received from specified peer.
-     *
-     * This is a no-op if the statistics is disabled.
-     *
-     * @param peer The rank of the peer.
-     * @param nbytes The number of bytes received.
-     * @return The total payload received from the peer after the update.
-     */
-    std::size_t add_payload_recv(Rank peer, std::size_t nbytes);
-
-    /**
-     * @brief Generates a report of statistics in a formatted string.
-     *
-     * @param column_width The width of each column in the report.
-     * @param label_width The width of the labels in the report.
-     * @return A string representing the formatted statistics report.
+     * @param column_width Width of each column.
+     * @param label_width Width of the labels.
+     * @return Formatted statistics report as a string.
      */
     std::string report(int column_width = 12, int label_width = 30) const;
 
-  private:
-    mutable std::mutex mutex_;
-    std::shared_ptr<Communicator> comm_;
-    std::vector<PeerStats> peer_stats_;
-};
+    /**
+     * @brief Function type for formatting statistics output.
+     *
+     * Must take an ostream, counter, and value.
+     */
+    using Formatter = std::function<void(std::ostream&, std::size_t, double)>;
 
+    /**
+     * @brief Represents an individual statistic entry.
+     */
+    struct Stat {
+        /**
+         * @brief Constructs a statistic with specified formatter.
+         *
+         * @param formatter The formatter function.
+         */
+        Stat(Formatter formatter) : formatter_{std::move(formatter)} {}
+
+        /**
+         * @brief Equality comparison operator.
+         *
+         * @param o Other statistic object.
+         * @return True if equal, otherwise false.
+         */
+        bool operator==(Stat const& o) const noexcept {
+            return count_ == o.count_ && value_ == o.value_;
+        }
+
+        /**
+         * @brief Adds a value to the statistic.
+         *
+         * @param value Value to add.
+         * @return Updated total value.
+         */
+        double add(double value) {
+            ++count_;
+            return value_ += value;
+        }
+
+        std::size_t count_{0};  ///< Number of times the statistic was updated.
+        double value_{0};  ///< Accumulated value.
+        Formatter formatter_;  ///< Formatter function.
+    };
+
+    /**
+     * @brief Retrieves a statistic by name.
+     *
+     * @param name Name of the statistic.
+     * @return The requested statistic.
+     */
+    Stat get_stat(std::string const& name) const;
+
+    /**
+     * @brief Adds a value to a statistic.
+     *
+     * @param name Name of the statistic.
+     * @param value Value to add.
+     * @param formatter Formatter function.
+     * @return Updated total value.
+     */
+    double add_stat(std::string const& name, double value, Formatter const& formatter);
+
+    /**
+     * @brief Adds a byte value to a statistic.
+     *
+     * Convenience function that calls `add_stat` with a formatter suitable for byte
+     * counters.
+     *
+     * @param name Name of the statistic.
+     * @param nbytes Number of bytes.
+     * @param with_average Whether to include the average in the report.
+     * @return Updated total value.
+     */
+    std::size_t add_bytes_stat(
+        std::string const& name, std::size_t nbytes, bool with_average = true
+    );
+
+  private:
+    mutable std::mutex mutex_;  ///< Mutex for thread safety.
+    bool enabled_;  ///< Whether statistics tracking is enabled.
+    std::map<std::string, Stat> stats_;  ///< Map of statistics by name.
+};
 }  // namespace rapidsmp
