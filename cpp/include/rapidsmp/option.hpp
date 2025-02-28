@@ -43,8 +43,8 @@ std::string trim_and_lowercase(std::string str);
  * converted to the specified type `T`.
  */
 template <typename T>
-T getenv_or(std::string_view env_var_name, T default_val) {
-    auto const* env_val = std::getenv(env_var_name.data());
+T getenv_or(std::string const& env_var_name, T default_val) {
+    auto const* env_val = std::getenv(env_var_name.c_str());
     if (env_val == nullptr) {
         return default_val;
     }
@@ -78,8 +78,8 @@ T getenv_or(std::string_view env_var_name, T default_val) {
  * interpreted as a boolean.
  */
 template <>
-inline bool getenv_or(std::string_view env_var_name, bool default_val) {
-    auto const* env_val = std::getenv(env_var_name.data());
+inline bool getenv_or(std::string const& env_var_name, bool default_val) {
+    auto const* env_val = std::getenv(env_var_name.c_str());
     if (env_val == nullptr) {
         return default_val;
     }

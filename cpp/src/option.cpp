@@ -23,8 +23,8 @@ namespace rapidsmp {
 namespace detail {
 std::string trim_and_lowercase(std::string str) {
     // Special considerations regarding the case conversion:
-    // - std::tolower() is not an addressable function. Passing it to std::transform() as
-    //   a function pointer, if the compile turns out successful, causes the program
+    // - std::tolower() is not an addressable function. Passing it to std::transform()
+    //   as a function pointer, if the compile turns out successful, causes the program
     //   behavior "unspecified (possibly ill-formed)", hence the lambda. ::tolower() is
     //   addressable and does not have this problem, but the following item still applies.
     // - To avoid UB in std::tolower() or ::tolower(), the character must be cast to
