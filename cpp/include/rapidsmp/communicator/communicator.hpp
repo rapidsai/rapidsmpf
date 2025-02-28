@@ -175,6 +175,7 @@ class Communicator {
      * based on the configured verbosity level.
      */
     class Logger {
+      public:
         /**
          * @brief Log verbosity levels.
          *
@@ -237,7 +238,6 @@ class Communicator {
             throw std::invalid_argument(ss.str());
         }
 
-      public:
         /**
          * @brief Construct a new logger.
          *
