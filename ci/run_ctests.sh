@@ -17,7 +17,7 @@ run_mpirun_test() {
     local nrank="$2"   # Number of ranks
     local test="$3"    # Test name
     echo "Running ctest with $nrank ranks"
-    timeout "$timeout" mpirun --map-by node --bind-to none -np "$nrank" \
+    timeout -v "$timeout" mpirun --map-by node --bind-to none -np "$nrank" \
         ctest --verbose --no-tests=error --output-on-failure -R "$test" $EXTRA_ARGS
 }
 
