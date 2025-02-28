@@ -167,19 +167,41 @@ class Communicator {
         Future(Future&) = delete;  ///< Not copyable.
     };
 
+    /**
+     * @brief A logger base class for handling different levels of log messages.
+     *
+     * The logger class provides various logging methods with different verbosity levels.
+     * It ensures thread-safety using a mutex and allows filtering of log messages
+     * based on the configured verbosity level.
+     */
     class Logger {
+        /**
+         * @brief Log verbosity levels.
+         *
+         * Defines different logging levels for filtering messages.
+         */
         enum class LEVEL : std::uint32_t {
-            NONE = 0,
-            PRINT,
-            WARN,
-            INFO,
-            DEBUG,
-            TRACE
+            NONE = 0,  ///< No logging.
+            PRINT,  ///< General print messages.
+            WARN,  ///< Warning messages.
+            INFO,  ///< Informational messages.
+            DEBUG,  ///< Debug messages.
+            TRACE  ///< Trace messages.
         };
+
+        /**
+         * @brief Log level names corresponding to the LEVEL enum.
+         */
         constexpr static std::array<char const*, 6> LEVEL_NAMES{
             "NONE", "PRINT", "WARN", "INFO", "DEBUG", "TRACE"
         };
 
+        /**
+         * @brief Get the string name of a log level.
+         *
+         * @param level The log level.
+         * @return The corresponding log level name or "UNKNOWN" if out of range.
+         */
         constexpr const char* level_name(LEVEL level) {
             auto index = static_cast<std::size_t>(level);
             return index < LEVEL_NAMES.size() ? LEVEL_NAMES[index] : "UNKNOWN";
@@ -211,9 +233,9 @@ class Communicator {
         /**
          * @brief Logs a message using the specified verbosity level.
          *
-         * Formats and outputs a message if `level < verbosity_level()`.
+         * Formats and outputs a message if the verbosity level is high enough.
          *
-         * @tparam Args Types of the message components, must support the << operator.
+         * @tparam Args Types of the message components, must support the `<<` operator.
          * @param level The verbosity level of the message.
          * @param args The components of the message to log.
          */
@@ -228,26 +250,56 @@ class Communicator {
             do_log(level, std::move(ss));
         }
 
+        /**
+         * @brief Logs a print message.
+         *
+         * @tparam Args Types of the message components.
+         * @param args The components of the message to log.
+         */
         template <typename... Args>
         void print(Args const&... args) {
             log(LEVEL::PRINT, std::forward<Args const&>(args)...);
         }
 
+        /**
+         * @brief Logs a warning message.
+         *
+         * @tparam Args Types of the message components.
+         * @param args The components of the message to log.
+         */
         template <typename... Args>
         void warn(Args const&... args) {
             log(LEVEL::WARN, std::forward<Args const&>(args)...);
         }
 
+        /**
+         * @brief Logs an informational message.
+         *
+         * @tparam Args Types of the message components.
+         * @param args The components of the message to log.
+         */
         template <typename... Args>
         void info(Args const&... args) {
             log(LEVEL::INFO, std::forward<Args const&>(args)...);
         }
 
+        /**
+         * @brief Logs a debug message.
+         *
+         * @tparam Args Types of the message components.
+         * @param args The components of the message to log.
+         */
         template <typename... Args>
         void debug(Args const&... args) {
             log(LEVEL::DEBUG, std::forward<Args const&>(args)...);
         }
 
+        /**
+         * @brief Logs a trace message.
+         *
+         * @tparam Args Types of the message components.
+         * @param args The components of the message to log.
+         */
         template <typename... Args>
         void trace(Args const&... args) {
             log(LEVEL::TRACE, std::forward<Args const&>(args)...);
