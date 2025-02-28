@@ -181,7 +181,7 @@ class Communicator {
          *
          * Defines different logging levels for filtering messages.
          */
-        enum class LEVEL : std::uint32_t {
+        enum class LOG_LEVEL : std::uint32_t {
             NONE = 0,  ///< No logging.
             PRINT,  ///< General print messages.
             WARN,  ///< Warning messages.
@@ -191,9 +191,9 @@ class Communicator {
         };
 
         /**
-         * @brief Log level names corresponding to the LEVEL enum.
+         * @brief Log level names corresponding to the LOG_LEVEL enum.
          */
-        static constexpr std::array<char const*, 6> LEVEL_NAMES{
+        static constexpr std::array<char const*, 6> LOG_LEVEL_NAMES{
             "NONE", "PRINT", "WARN", "INFO", "DEBUG", "TRACE"
         };
 
@@ -203,9 +203,9 @@ class Communicator {
          * @param level The log level.
          * @return The corresponding log level name or "UNKNOWN" if out of range.
          */
-        static constexpr const char* level_name(LEVEL level) {
+        static constexpr const char* level_name(LOG_LEVEL level) {
             auto index = static_cast<std::size_t>(level);
-            return index < LEVEL_NAMES.size() ? LEVEL_NAMES[index] : "UNKNOWN";
+            return index < LOG_LEVEL_NAMES.size() ? LOG_LEVEL_NAMES[index] : "UNKNOWN";
         }
 
         /**
@@ -216,22 +216,22 @@ class Communicator {
          * level names. If the environment variable is not set, the default value `"WARN"`
          * is used.
          *
-         * @return The corresponding logging level of type `LEVEL`.
+         * @return The corresponding logging level of type `LOG_LEVEL`.
          *
          * @throws std::invalid_argument If the environment variable contains an unknown
          * value.
          */
-        static LEVEL level_from_env() {
+        static LOG_LEVEL level_from_env() {
             auto env = to_upper(trim(getenv_or<std::string>("RAPIDSMP_LOG", "WARN")));
-            for (std::uint32_t i = 0; i < LEVEL_NAMES.size(); ++i) {
-                auto level = static_cast<LEVEL>(i);
+            for (std::uint32_t i = 0; i < LOG_LEVEL_NAMES.size(); ++i) {
+                auto level = static_cast<LOG_LEVEL>(i);
                 if (env == level_name(level)) {
                     return level;
                 }
             }
             std::stringstream ss;
             ss << "RAPIDSMP_LOG - unknown value: \"" << env << "\", valid choices: { ";
-            for (auto const& name : LEVEL_NAMES) {
+            for (auto const& name : LOG_LEVEL_NAMES) {
                 ss << name << " ";
             }
             ss << "}";
@@ -256,7 +256,7 @@ class Communicator {
          *
          * @return The verbosity level.
          */
-        LEVEL verbosity_level() const {
+        LOG_LEVEL verbosity_level() const {
             return level_;
         }
 
@@ -270,7 +270,7 @@ class Communicator {
          * @param args The components of the message to log.
          */
         template <typename... Args>
-        void log(LEVEL level, Args const&... args) {
+        void log(LOG_LEVEL level, Args const&... args) {
             if (static_cast<std::uint32_t>(level_) < static_cast<std::uint32_t>(level)) {
                 return;
             }
@@ -288,7 +288,7 @@ class Communicator {
          */
         template <typename... Args>
         void print(Args const&... args) {
-            log(LEVEL::PRINT, std::forward<Args const&>(args)...);
+            log(LOG_LEVEL::PRINT, std::forward<Args const&>(args)...);
         }
 
         /**
@@ -299,7 +299,7 @@ class Communicator {
          */
         template <typename... Args>
         void warn(Args const&... args) {
-            log(LEVEL::WARN, std::forward<Args const&>(args)...);
+            log(LOG_LEVEL::WARN, std::forward<Args const&>(args)...);
         }
 
         /**
@@ -310,7 +310,7 @@ class Communicator {
          */
         template <typename... Args>
         void info(Args const&... args) {
-            log(LEVEL::INFO, std::forward<Args const&>(args)...);
+            log(LOG_LEVEL::INFO, std::forward<Args const&>(args)...);
         }
 
         /**
@@ -321,7 +321,7 @@ class Communicator {
          */
         template <typename... Args>
         void debug(Args const&... args) {
-            log(LEVEL::DEBUG, std::forward<Args const&>(args)...);
+            log(LOG_LEVEL::DEBUG, std::forward<Args const&>(args)...);
         }
 
         /**
@@ -332,7 +332,7 @@ class Communicator {
          */
         template <typename... Args>
         void trace(Args const&... args) {
-            log(LEVEL::TRACE, std::forward<Args const&>(args)...);
+            log(LOG_LEVEL::TRACE, std::forward<Args const&>(args)...);
         }
 
       protected:
@@ -362,7 +362,7 @@ class Communicator {
          *  @param level The verbosity level of the message.
          * @param ss The formatted message as a string stream.
          */
-        virtual void do_log(LEVEL level, std::ostringstream&& ss) {
+        virtual void do_log(LOG_LEVEL level, std::ostringstream&& ss) {
             std::cout << "[" << level_name(level) << ":" << comm_->rank() << ":"
                       << get_thread_id() << "] " << ss.str() << std::endl;
         }
@@ -388,7 +388,7 @@ class Communicator {
       private:
         std::mutex mutex_;
         Communicator* comm_;
-        LEVEL const level_;
+        LOG_LEVEL const level_;
 
         /// Counter used by `std::this_thread::get_id()` to abbreviate the large
         /// number returned by `std::this_thread::get_id()`.
