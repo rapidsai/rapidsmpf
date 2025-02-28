@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
 #include <rapidsmp/shuffler/shuffler.hpp>
+#include <rapidsmp/statistics.hpp>
 
 #include "../benchmarks/utils/random_data.hpp"
 
@@ -46,6 +47,9 @@ int main(int argc, char** argv) {
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
     rapidsmp::BufferResource br{mr};
 
+    // Create a statistics instance for the shuffler that tracks useful information.
+    auto stats = std::make_shared<rapidsmp::Statistics>(comm);
+
     // As input data, we use a helper function from the benchmark suite. It creates a
     // random cudf table with 2 columns and 100 rows. In this example, each MPI rank
     // creates its own local input and we only have one input per rank but each rank
@@ -60,7 +64,13 @@ int main(int argc, char** argv) {
     // map partitions to their destination ranks. All ranks must use the same owner
     // function, in this example we use the included round-robin owner function.
     rapidsmp::shuffler::Shuffler shuffler(
-        comm, total_num_partitions, stream, &br, rapidsmp::shuffler::Shuffler::round_robin
+        comm,
+        0,  // op_id
+        total_num_partitions,
+        stream,
+        &br,
+        stats,
+        rapidsmp::shuffler::Shuffler::round_robin  // partition owner
     );
 
     // It is our own responsibility to partition and pack (serialize) the input for
@@ -71,7 +81,7 @@ int main(int argc, char** argv) {
     std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> packed_inputs =
         rapidsmp::shuffler::partition_and_pack(
             local_input,
-            {0},
+            {0},  // columns_to_hash
             total_num_partitions,
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
@@ -107,12 +117,15 @@ int main(int argc, char** argv) {
         // Unpack (deserialize) and concatenate the chunks into a single table using a
         // convenience function.
         local_outputs.push_back(
-            rapidsmp::shuffler::unpack_and_concat(std::move(packed_chunks))
+            rapidsmp::shuffler::unpack_and_concat(std::move(packed_chunks), stream, mr)
         );
     }
     // At this point, `local_outputs` contains the local result of the shuffle.
     // Let's log the result.
     log.info("Finished shuffle with ", local_outputs.size(), " local output partitions");
+
+    // Log the statistics report.
+    log.info(stats->report());
 
     // Shutdown the Shuffler explicitly or let it go out of scope for cleanup.
     shuffler.shutdown();

@@ -87,6 +87,16 @@ if(RAPIDSMP_BUILD_TESTS)
     BUILD_EXPORT_SET rapidsmp-exports
     INSTALL_EXPORT_SET rapidsmp-exports
   )
+  rapids_find_package(
+    UCX REQUIRED
+    BUILD_EXPORT_SET rapidsmp-exports
+    INSTALL_EXPORT_SET rapidsmp-exports
+  )
+  rapids_find_package(
+    UCXX REQUIRED
+    BUILD_EXPORT_SET rapidsmp-exports
+    INSTALL_EXPORT_SET rapidsmp-exports
+  )
 endif()
 
 # ##################################################################################################

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,31 +13,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#pragma once
 
 #include <gtest/gtest.h>
 #include <mpi.h>
 
-#include <rapidsmp/communicator/mpi.hpp>
+#include <rapidsmp/communicator/communicator.hpp>
 
 class Environment : public ::testing::Environment {
   public:
-    Environment(int argc, char** argv) : argc_(argc), argv_(argv) {}
+    Environment(int argc, char** argv);
 
-    void SetUp() override {
-        rapidsmp::mpi::init(&argc_, &argv_);
-    }
+    void SetUp() override;
 
-    void TearDown() override {
-        RAPIDSMP_MPI(MPI_Finalize());
-    }
+    void TearDown() override;
+
+    void barrier();
+
+    std::shared_ptr<rapidsmp::Communicator> comm_;
 
   private:
     int argc_;
     char** argv_;
+    MPI_Comm mpi_comm_;
 };
 
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    ::testing::AddGlobalTestEnvironment(new Environment(argc, argv));
-    return RUN_ALL_TESTS();
-}
+extern Environment* GlobalEnvironment;

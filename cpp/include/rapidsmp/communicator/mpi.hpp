@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,6 +43,13 @@ namespace mpi {
  * @param argv Pointer to the argument vector passed to the program.
  */
 void init(int* argc, char*** argv);
+
+/**
+ * @brief Check if MPI is initialized.
+ *
+ * @return true If MPI is initialized.
+ */
+bool is_initialized();
 
 /**
  * @brief Helper to check the MPI errcode of an MPI call.
@@ -132,18 +139,18 @@ class MPI final : public Communicator {
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
         std::unique_ptr<std::vector<uint8_t>> msg,
         Rank rank,
-        int tag,
+        Tag tag,
         rmm::cuda_stream_view stream,
         BufferResource* br
     ) override;
 
     // clang-format off
     /**
-     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream)
+     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream)
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
+        std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
     ) override;
 
     /**
@@ -151,7 +158,7 @@ class MPI final : public Communicator {
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> recv(
         Rank rank,
-        int tag,
+        Tag tag,
         std::unique_ptr<Buffer> recv_buffer,
         rmm::cuda_stream_view stream
     ) override;
@@ -159,7 +166,7 @@ class MPI final : public Communicator {
     /**
      * @copydoc Communicator::recv_any
      */
-    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(int tag
+    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(Tag tag
     ) override;
 
     /**

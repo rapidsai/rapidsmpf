@@ -149,6 +149,19 @@ class BufferResource {
     }
 
     /**
+     * @brief Retrieves the memory availability function for a given memory type.
+     *
+     * This function returns the callback function used to determine the available memory
+     * for the specified memory type.
+     *
+     * @param mem_type The type of memory whose availability function is requested.
+     * @return Reference to the memory availability function associated with `mem_type`.
+     */
+    [[nodiscard]] MemoryAvailable const& memory_available(MemoryType mem_type) const {
+        return memory_available_.at(mem_type);
+    }
+
+    /**
      * @brief Get the current reserved memory of the specified memory type.
      *
      * @param mem_type The target memory type.
@@ -371,7 +384,7 @@ class LimitAvailableMemory {
      * @param limit The maximum memory available (in bytes). Used to calculate the
      * remaining memory.
      */
-    LimitAvailableMemory(rmm_statistics_resource const* mr, std::int64_t limit)
+    constexpr LimitAvailableMemory(rmm_statistics_resource const* mr, std::int64_t limit)
         : limit{limit}, mr_{mr} {}
 
     /**

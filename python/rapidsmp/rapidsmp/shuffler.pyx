@@ -13,19 +13,36 @@ from pylibcudf.libcudf.table.table cimport table as cpp_table
 from pylibcudf.libcudf.table.table_view cimport table_view
 from pylibcudf.libcudf.types cimport size_type
 from pylibcudf.table cimport Table
-from rmm._cuda.stream cimport Stream
+from rapidsmp.statistics cimport Statistics
+from rmm.librmm.cuda_stream_view cimport cuda_stream_view
+from rmm.librmm.memory_resource cimport device_memory_resource
+from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
+from rmm.pylibrmm.stream cimport Stream
 
 
 cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
+    int cpp_HASH_MURMUR3"cudf::hash_id::HASH_MURMUR3"
+    uint32_t cpp_DEFAULT_HASH_SEED"cudf::DEFAULT_HASH_SEED",
+
     cdef unordered_map[uint32_t, packed_columns] cpp_partition_and_pack \
         "rapidsmp::shuffler::partition_and_pack"(
             const table_view& table,
             const vector[size_type] &columns_to_hash,
             int num_partitions,
+            int hash_function,
+            uint32_t seed,
+            cuda_stream_view stream,
+            device_memory_resource *mr,
         ) except +
 
 
-cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions):
+cpdef dict partition_and_pack(
+    Table table,
+    columns_to_hash,
+    int num_partitions,
+    stream,
+    DeviceMemoryResource device_mr,
+):
     """
     Partition rows from the input table into multiple packed (serialized) tables.
 
@@ -37,6 +54,10 @@ cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions):
         Indices of the input columns to use for hashing.
     num_partitions : int
         The number of partitions to create.
+    stream
+        The CUDA stream used for memory operations.
+    device_mr
+        Reference to the RMM device memory resource used for device allocations.
 
     Returns
     -------
@@ -56,8 +77,19 @@ cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions):
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, packed_columns] _ret
     cdef table_view tbl = table.view()
+    if stream is None:
+        raise ValueError("stream cannot be None")
+    cdef cuda_stream_view _stream = Stream(stream).view()
     with nogil:
-        _ret = cpp_partition_and_pack(tbl, _columns_to_hash, num_partitions)
+        _ret = cpp_partition_and_pack(
+            tbl,
+            _columns_to_hash,
+            num_partitions,
+            cpp_HASH_MURMUR3,
+            cpp_DEFAULT_HASH_SEED,
+            _stream,
+            device_mr.get_mr()
+        )
     ret = {}
     cdef unordered_map[uint32_t, packed_columns].iterator it = _ret.begin()
     while(it != _ret.end()):
@@ -71,11 +103,17 @@ cpdef dict partition_and_pack(Table table, columns_to_hash, int num_partitions):
 cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
     cdef unique_ptr[cpp_table] cpp_unpack_and_concat \
         "rapidsmp::shuffler::unpack_and_concat"(
-            vector[packed_columns] partition
+            vector[packed_columns] partition,
+            cuda_stream_view stream,
+            device_memory_resource *mr,
         ) except +
 
 
-cpdef Table unpack_and_concat(partitions):
+cpdef Table unpack_and_concat(
+    partitions,
+    stream,
+    DeviceMemoryResource device_mr,
+):
     """
     Unpack (deserialize) input tables and concatenate them.
 
@@ -83,6 +121,10 @@ cpdef Table unpack_and_concat(partitions):
     ----------
     partitions
         The packed input tables to unpack and concatenate.
+    stream
+        The CUDA stream used for memory operations.
+    device_mr
+        Reference to the RMM device memory resource used for device allocations.
 
     Returns
     -------
@@ -99,9 +141,16 @@ cpdef Table unpack_and_concat(partitions):
         if not (<PackedColumns?>part).c_obj:
             raise ValueError("PackedColumns was empty")
         _partitions.push_back(move(deref((<PackedColumns?>part).c_obj)))
+    if stream is None:
+        raise ValueError("stream cannot be None")
+    cdef cuda_stream_view _stream = Stream(stream).view()
     cdef unique_ptr[cpp_table] _ret
     with nogil:
-        _ret = cpp_unpack_and_concat(move(_partitions))
+        _ret = cpp_unpack_and_concat(
+            move(_partitions),
+            _stream,
+            device_mr.get_mr()
+        )
     return Table.from_libcudf(move(_ret))
 
 
@@ -123,6 +172,8 @@ cdef class Shuffler:
         The CUDA stream used for memory operations.
     br
         The buffer resource used to allocate temporary storage and shuffle results.
+    statistics
+        The statistics instance to use. If None, statistics is disabled.
 
     Notes
     -----
@@ -133,15 +184,27 @@ cdef class Shuffler:
     def __init__(
         self,
         Communicator comm,
+        uint16_t op_id,
         uint32_t total_num_partitions,
         stream,
         BufferResource br,
+        Statistics statistics = None,
     ):
+        if stream is None:
+            raise ValueError("stream cannot be None")
         self._stream = Stream(stream)
         self._comm = comm
         self._br = br
+        if statistics is None:
+            statistics = Statistics(comm=None)  # Disables statistics.
+
         self._handle = make_unique[cpp_Shuffler](
-            comm._handle, total_num_partitions, self._stream.view(), br.ptr()
+            comm._handle,
+            op_id,
+            total_num_partitions,
+            self._stream.view(),
+            br.ptr(),
+            statistics._handle,
         )
 
     def shutdown(self):
@@ -282,3 +345,18 @@ cdef class Shuffler:
         with nogil:
             ret = deref(self._handle).wait_any()
         return ret
+
+    def wait_on(self, uint32_t pid):
+        """
+        Wait for a specific partition to finish.
+
+        This method blocks until the desired partition
+        is ready for processing.
+
+        Parameters
+        ----------
+        pid
+            The desired partition ID.
+        """
+        with nogil:
+            deref(self._handle).wait_on(pid)

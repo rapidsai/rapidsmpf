@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,15 +23,36 @@ namespace rapidsmp {
 
 namespace mpi {
 void init(int* argc, char*** argv) {
-    int provided;
+    if (!is_initialized()) {
+        int provided;
 
-    // Initialize MPI with the desired level of thread support
-    MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided);
+        // Initialize MPI with the desired level of thread support
+        RAPIDSMP_MPI(MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided));
+
+        RAPIDSMP_EXPECTS(
+            provided == MPI_THREAD_MULTIPLE,
+            "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
+        );
+    }
+
+    // Check if max MPI TAG can accommodate the OpID + TagPrefixT
+    int flag;
+    int32_t* max_tag;
+    MPI_Comm_get_attr(MPI_COMM_WORLD, MPI_TAG_UB, &max_tag, &flag);
+    RAPIDSMP_EXPECTS(flag, "Unable to get the MPI_TAG_UB attr");
 
     RAPIDSMP_EXPECTS(
-        provided == MPI_THREAD_MULTIPLE,
-        "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
+        (*max_tag) >= Tag::max_value(),
+        "MPI_TAG_UB(" + std::to_string(*max_tag)
+            + ") is unable to accommodate the required max tag("
+            + std::to_string(Tag::max_value()) + ")"
     );
+}
+
+bool is_initialized() {
+    int flag;
+    RAPIDSMP_MPI(MPI_Initialized(&flag));
+    return flag;
 }
 
 void detail::check_mpi_error(int error_code, const char* file, int line) {
@@ -89,11 +110,15 @@ MPI::MPI(MPI_Comm comm) : comm_{comm}, logger_{this} {
 std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<std::vector<uint8_t>> msg,
     Rank rank,
-    int tag,
+    Tag tag,
     rmm::cuda_stream_view stream,
     BufferResource* br
 ) {
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
+    RAPIDSMP_EXPECTS(
+        msg->size() <= std::numeric_limits<int>::max(),
+        "send buffer size exceeds MPI max count"
+    );
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
     );
@@ -101,16 +126,24 @@ std::unique_ptr<Communicator::Future> MPI::send(
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<Buffer> msg, Rank rank, int tag, rmm::cuda_stream_view stream
+    std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
 ) {
+    RAPIDSMP_EXPECTS(
+        msg->size <= std::numeric_limits<int>::max(),
+        "send buffer size exceeds MPI max count"
+    );
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
     return std::make_unique<Future>(req, std::move(msg));
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
-    Rank rank, int tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
+    Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
 ) {
+    RAPIDSMP_EXPECTS(
+        recv_buffer->size <= std::numeric_limits<int>::max(),
+        "recv buffer size exceeds MPI max count"
+    );
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Irecv(
         recv_buffer->data(), recv_buffer->size, MPI_UINT8_T, rank, tag, comm_, &req
@@ -118,7 +151,7 @@ std::unique_ptr<Communicator::Future> MPI::recv(
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
-std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(int tag) {
+std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     Logger& log = logger();
     int msg_available;
     MPI_Status probe_status;
@@ -131,6 +164,9 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(int tag) {
     );
     MPI_Count size;
     RAPIDSMP_MPI(MPI_Get_elements_x(&probe_status, MPI_UINT8_T, &size));
+    RAPIDSMP_EXPECTS(
+        size <= std::numeric_limits<int>::max(), "recv buffer size exceeds MPI max count"
+    );
     auto msg = std::make_unique<std::vector<uint8_t>>(size);  // TODO: uninitialize
 
     MPI_Status msg_status;

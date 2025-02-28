@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) 2024, NVIDIA CORPORATION.
+# Copyright (c) 2024-2025, NVIDIA CORPORATION.
 
 set -xeuo pipefail
 
@@ -12,4 +12,5 @@ export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
 
 # Ensure that benchmarks are runnable
-mpirun -np 3 ./bench_shuffle
+mpirun --map-by node --bind-to none -np 3 ./bench_shuffle
+mpirun --map-by node --bind-to none -np 3 ./bench_comm

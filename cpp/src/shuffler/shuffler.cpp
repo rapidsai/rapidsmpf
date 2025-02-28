@@ -15,6 +15,7 @@
  */
 
 #include <memory>
+#include <utility>
 
 #include <mpi.h>
 
@@ -22,6 +23,7 @@
 #include <cudf/detail/contiguous_split.hpp>  // `cudf::detail::pack` (stream ordered version)
 
 #include <rapidsmp/buffer/resource.hpp>
+#include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/shuffler/shuffler.hpp>
 #include <rapidsmp/utils.hpp>
 
@@ -90,6 +92,62 @@ std::unique_ptr<Buffer> allocate_buffer(
     return ret;
 }
 
+/**
+ * @brief Spills memory buffers within a postbox, e.g., from device to host memory.
+ *
+ * This function moves a specified amount of memory from device to host storage
+ * or another lower-priority memory space, helping manage limited GPU memory
+ * by offloading excess data.
+ *
+ * @note The postbox is locked while spilling.
+ *
+ * @param br Buffer resource for memory allocation.
+ * @param log A logger for recording events and debugging information.
+ * @param stream CUDA stream to use for memory and kernel operations.
+ * @param postbox The PostBox containing buffers to be spilled.
+ * @param amount The maximum amount of data (in bytes) to be spilled.
+ *
+ * @return The actual amount of data successfully spilled from the postbox.
+ */
+std::size_t postbox_spilling(
+    BufferResource* br,
+    Communicator::Logger& log,
+    rmm::cuda_stream_view stream,
+    PostBox& postbox,
+    std::size_t amount
+) {
+    // Let's look for chunks to spill in the outbox.
+    auto const chunk_info = postbox.search(MemoryType::DEVICE);
+    std::size_t total_spilled{0};
+    for (auto [pid, cid, size] : chunk_info) {
+        // TODO: Use a clever strategy to decide which chunks to spill. For now, we
+        // just spill the chunks in an arbitrary order.
+        auto [host_reservation, host_overbooking] =
+            br->reserve(MemoryType::HOST, size, true);
+        if (host_overbooking > 0) {
+            log.warn(
+                "Cannot spill to host because of host memory overbooking: ",
+                format_nbytes(host_overbooking)
+            );
+            continue;
+        }
+        try {
+            // We get exclusive access to the chunk and keep the lock while moving
+            // the chunk to host memory.
+            auto const [chunk, lock] = postbox.exclusive_access(pid, cid);
+            chunk.gpu_data = br->move(
+                MemoryType::HOST, std::move(chunk.gpu_data), stream, host_reservation
+            );
+        } catch (std::out_of_range const&) {
+            log.debug("While spilling, target chunk was removed underneath us");
+            continue;
+        }
+        if ((total_spilled += size) >= amount) {
+            break;
+        }
+    }
+    return total_spilled;
+}
 }  // namespace
 
 std::vector<PartID> Shuffler::local_partitions(
@@ -108,9 +166,11 @@ std::vector<PartID> Shuffler::local_partitions(
 
 Shuffler::Shuffler(
     std::shared_ptr<Communicator> comm,
+    OpID op_id,
     PartID total_num_partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
+    std::shared_ptr<Statistics> statistics,
     PartitionOwner partition_owner
 )
     : total_num_partitions{total_num_partitions},
@@ -118,11 +178,15 @@ Shuffler::Shuffler(
       stream_{stream},
       br_{br},
       comm_{std::move(comm)},
+      op_id_{op_id},
       finish_counter_{
           comm_->nranks(), local_partitions(comm_, total_num_partitions, partition_owner)
-      } {
+      },
+      statistics_{std::move(statistics)} {
     event_loop_thread_ = std::thread(Shuffler::event_loop, this);
-    RAPIDSMP_EXPECTS(br_ != nullptr, "the BufferResource cannot be NULL");
+    RAPIDSMP_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
+    RAPIDSMP_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
+    RAPIDSMP_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
 Shuffler::~Shuffler() {
@@ -134,16 +198,16 @@ Shuffler::~Shuffler() {
 void Shuffler::shutdown() {
     RAPIDSMP_EXPECTS(active_, "shuffler is inactive");
     auto& log = comm_->logger();
-    log.info("Shuffler.shutdown() - initiate");
+    log.debug("Shuffler.shutdown() - initiate");
     event_loop_thread_run_.store(false);
     event_loop_thread_.join();
-    log.info("Shuffler.shutdown() - done");
+    log.debug("Shuffler.shutdown() - done");
     active_ = false;
 }
 
 void Shuffler::insert_into_outbox(detail::Chunk&& chunk) {
     auto& log = comm_->logger();
-    log.info("insert_into_outbox: ", chunk);
+    log.trace("insert_into_outbox: ", chunk);
     auto pid = chunk.pid;
     if (chunk.expected_num_chunks) {
         finish_counter_.move_goalpost(
@@ -161,26 +225,74 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         ++outbound_chunk_counter_[chunk.pid];
     }
     if (partition_owner(comm_, chunk.pid) == comm_->rank()) {
+        if (chunk.gpu_data) {
+            statistics_->add_payload_send(comm_->rank(), chunk.gpu_data->size);
+            statistics_->add_payload_recv(comm_->rank(), chunk.gpu_data->size);
+        }
         insert_into_outbox(std::move(chunk));
     } else {
         inbox_.insert(std::move(chunk));
     }
 }
 
-void Shuffler::insert(PartID pid, cudf::packed_columns&& chunk) {
-    insert(detail::Chunk{
-        pid,
-        get_new_cid(),
-        0,
-        chunk.gpu_data ? chunk.gpu_data->size() : 0,
-        std::move(chunk.metadata),
-        br_->move(std::move(chunk.gpu_data), stream_)
-    });
-}
-
 void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks) {
+    auto& log = comm_->logger();
+
+    // Check if we should spill. We start by spilling buffers in the outbox.
+    std::size_t total_spilled{0};
+    {
+        std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
+        if (headroom < 0) {
+            std::size_t spilled_need = -headroom;
+            total_spilled += postbox_spilling(br_, log, stream_, outbox_, spilled_need);
+        }
+    }
+
+    // Insert each chunk into the inbox.
     for (auto& [pid, packed_columns] : chunks) {
-        insert(pid, std::move(packed_columns));
+        // Check if we should spill the chunk before inserting into the inbox.
+        std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
+        if (headroom < 0 && packed_columns.gpu_data) {
+            auto [host_reservation, host_overbooking] =
+                br_->reserve(MemoryType::HOST, packed_columns.gpu_data->size(), true);
+            if (host_overbooking > 0) {
+                log.warn(
+                    "Cannot spill to host because of host memory overbooking: ",
+                    format_nbytes(host_overbooking)
+                );
+                continue;
+            }
+            auto chunk = create_chunk(
+                pid,
+                std::move(packed_columns.metadata),
+                std::move(packed_columns.gpu_data)
+            );
+            // Spill the new chunk before inserting.
+            chunk.gpu_data = br_->move(
+                MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
+            );
+            total_spilled += chunk.gpu_data->size;
+            insert(std::move(chunk));
+        } else {
+            insert(create_chunk(
+                pid,
+                std::move(packed_columns.metadata),
+                std::move(packed_columns.gpu_data)
+            ));
+        }
+    }
+    if (total_spilled > 0) {
+        log.info(
+            "Shuffler - total spilled while inserting: ", format_nbytes(total_spilled)
+        );
+    }
+
+    std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
+    if (headroom < 0) {
+        log.warn(
+            "Cannot find enough chunks to spill to avoid negative headroom: ",
+            format_nbytes(headroom)
+        );
     }
 }
 
@@ -194,6 +306,7 @@ void Shuffler::insert_finished(PartID pid) {
 }
 
 std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
+    auto& log = comm_->logger();
     auto chunks = outbox_.extract(pid);
     std::vector<cudf::packed_columns> ret;
     ret.reserve(chunks.size());
@@ -209,10 +322,28 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
     auto [reservation, overbooking] =
         br_->reserve(MemoryType::DEVICE, non_device_size, true);
 
-    // TODO: check overbooking, do we need to spill to host memory?
-    // if(overbooking > 0) {
-    //     spill chunks in inbox_ and outbox_
-    // }
+    // Check overbooking, do we need to spill to host memory?
+    if (overbooking > 0) {
+        log.info(
+            "Shuffler::extract(pid=",
+            pid,
+            ") - overbooking with ",
+            format_nbytes(overbooking),
+            " while reserving ",
+            format_nbytes(reservation.size())
+        );
+        // Let's look for chunks to spill in the outbox.
+        auto total_spilled = postbox_spilling(br_, log, stream_, outbox_, overbooking);
+        if (total_spilled < overbooking) {
+            log.warn(
+                "Cannot find enough chunks to spill to avoid overbooking - total "
+                "spilled: ",
+                format_nbytes(total_spilled),
+                ", remaining overbooking: ",
+                format_nbytes(overbooking - total_spilled)
+            );
+        }
+    }
 
     // Move the gpu_data to device memory (copy if necessary).
     for (auto& [_, chunk] : chunks) {
@@ -232,26 +363,6 @@ detail::ChunkID Shuffler::get_new_cid() {
     return upper | lower;
 }
 
-/**
- * @brief Executes a single iteration of the shuffler's event loop.
- *
- * This function manages the movement of data chunks between ranks in the distributed
- * system, handling tasks such as sending and receiving metadata, GPU data, and readiness
- * messages. It also manages the processing of chunks in transit, both outgoing and
- * incoming, and updates the necessary data structures for further processing.
- *
- * @param self Reference to the `Shuffler` instance that owns the event loop.
- * @param fire_and_forget A vector of ongoing "fire-and-forget" operations (non-blocking
- * sends).
- * @param incoming_chunks A multimap of chunks ready to be received, keyed by the source
- * rank.
- * @param outgoing_chunks A map of chunks ready to be sent, keyed by their unique chunk
- * ID.
- * @param in_transit_chunks A map of chunks currently in transit, keyed by their unique
- * chunk ID.
- * @param in_transit_futures A map of futures corresponding to in-transit chunks, keyed by
- * chunk ID.
- */
 void Shuffler::run_event_loop_iteration(
     Shuffler& self,
     std::vector<std::unique_ptr<Communicator::Future>>& fire_and_forget,
@@ -260,22 +371,21 @@ void Shuffler::run_event_loop_iteration(
     std::unordered_map<ChunkID, Chunk>& in_transit_chunks,
     std::unordered_map<ChunkID, std::unique_ptr<Communicator::Future>>& in_transit_futures
 ) {
-    enum TAG : int {
-        metadata = 1,
-        gpu_data = 2,
-        ready_for_data = 3
-    };
+    // Tags for each stage of the shuffle
+    Tag const ready_for_data_tag{self.op_id_, 1};
+    Tag const metadata_tag{self.op_id_, 2};
+    Tag const gpu_data_tag{self.op_id_, 3};
 
     auto& log = self.comm_->logger();
 
     // Check for new chunks in the inbox and send off their metadata.
     for (auto&& chunk : self.inbox_.extract_all()) {
         auto dst = self.partition_owner(self.comm_, chunk.pid);
-        log.info("send metadata to ", dst, ": ", chunk);
+        log.trace("send metadata to ", dst, ": ", chunk);
         RAPIDSMP_EXPECTS(dst != self.comm_->rank(), "sending chunk to ourselves");
 
         fire_and_forget.push_back(self.comm_->send(
-            chunk.to_metadata_message(), dst, TAG::metadata, self.stream_, self.br_
+            chunk.to_metadata_message(), dst, metadata_tag, self.stream_, self.br_
         ));
         if (chunk.gpu_data_size > 0) {
             RAPIDSMP_EXPECTS(
@@ -288,10 +398,10 @@ void Shuffler::run_event_loop_iteration(
     // Receive any incoming metadata of remote chunks and place them in
     // `incoming_chunks`.
     while (true) {
-        auto const [msg, src] = self.comm_->recv_any(TAG::metadata);
+        auto const [msg, src] = self.comm_->recv_any(metadata_tag);
         if (msg) {
             auto chunk = Chunk::from_metadata_message(msg);
-            log.info("recv_any from ", src, ": ", chunk);
+            log.trace("recv_any from ", src, ": ", chunk);
             RAPIDSMP_EXPECTS(
                 self.partition_owner(self.comm_, chunk.pid) == self.comm_->rank(),
                 "receiving chunk not owned by us"
@@ -304,33 +414,30 @@ void Shuffler::run_event_loop_iteration(
 
     // Pick an incoming chunk's gpu_data to receive.
     //
-    // TODO: decide to receive into host or device memory.
     // TODO: pick the incoming chunk based on a strategy. For now, we just pick the
     // first chunk.
     // TODO: handle multiple chunks before continuing.
     if (auto first_chunk = incoming_chunks.begin(); first_chunk != incoming_chunks.end())
     {
         auto [src, chunk] = extract_item(incoming_chunks, first_chunk);
-        log.info("picked incoming chunk data from ", src, ": ", chunk);
+        log.trace("picked incoming chunk data from ", src, ": ", chunk);
         // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
-        // direct to the outbox.
+        // directly to the outbox.
         if (chunk.gpu_data_size > 0) {
             // Tell the source of the chunk that we are ready to receive it.
             fire_and_forget.push_back(self.comm_->send(
                 ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
                 src,
-                TAG::ready_for_data,
+                ready_for_data_tag,
                 self.stream_,
                 self.br_
             ));
-            // Create a new buffer based on memory type availability and prioritizing
-            // device over host memory.
+            // Create a new buffer and let the buffer resource decide the memory type.
             auto recv_buffer =
                 allocate_buffer(chunk.gpu_data_size, self.stream_, self.br_);
             // Setup to receive the chunk into `in_transit_*`.
-            auto future = self.comm_->recv(
-                src, TAG::gpu_data, std::move(recv_buffer), self.stream_
-            );
+            auto future =
+                self.comm_->recv(src, gpu_data_tag, std::move(recv_buffer), self.stream_);
             RAPIDSMP_EXPECTS(
                 in_transit_futures.insert({chunk.cid, std::move(future)}).second,
                 "in transit future already exist"
@@ -339,6 +446,7 @@ void Shuffler::run_event_loop_iteration(
                 in_transit_chunks.insert({chunk.cid, std::move(chunk)}).second,
                 "in transit chunk already exist"
             );
+            self.statistics_->add_payload_recv(src, chunk.gpu_data_size);
         } else {
             if (chunk.gpu_data == nullptr) {
                 chunk.gpu_data = allocate_buffer(0, self.stream_, self.br_);
@@ -350,20 +458,17 @@ void Shuffler::run_event_loop_iteration(
     // Receive any incoming ready-for-data messages and start sending the
     // requested data.
     while (true) {
-        auto const [msg, src] = self.comm_->recv_any(TAG::ready_for_data);
+        auto const [msg, src] = self.comm_->recv_any(ready_for_data_tag);
         if (msg) {
             auto ready_for_data_msg = ReadyForDataMessage::unpack(msg);
             auto chunk = extract_value(outgoing_chunks, ready_for_data_msg.cid);
-            log.info(
+            log.trace(
                 "recv_any from ", src, ": ", ready_for_data_msg, ", sending: ", chunk
             );
-            if (chunk.gpu_data->mem_type == MemoryType::DEVICE) {
-                fire_and_forget.push_back(self.comm_->send(
-                    std::move(chunk.gpu_data), src, TAG::gpu_data, self.stream_
-                ));
-            } else {
-                RAPIDSMP_FAIL("Not implemented");
-            }
+            self.statistics_->add_payload_send(src, chunk.gpu_data->size);
+            fire_and_forget.push_back(self.comm_->send(
+                std::move(chunk.gpu_data), src, gpu_data_tag, self.stream_
+            ));
         } else {
             break;
         }
@@ -409,7 +514,7 @@ void Shuffler::event_loop(Shuffler* self) {
     std::unordered_map<ChunkID, Chunk> in_transit_chunks;
     std::unordered_map<ChunkID, std::unique_ptr<Communicator::Future>> in_transit_futures;
 
-    log.info("event loop - start: ", *self);
+    log.debug("event loop - start: ", *self);
 
     // This thread needs to have a cuda context associated with it.
     // For now, do so by calling cudaFree to initialise the driver.
@@ -438,7 +543,7 @@ void Shuffler::event_loop(Shuffler* self) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    log.info("event loop - shutdown: ", self->str());
+    log.debug("event loop - shutdown: ", self->str());
 }
 
 std::string Shuffler::str() const {

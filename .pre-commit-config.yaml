@@ -84,10 +84,13 @@ repos:
             ^CHANGELOG.md$
           )
   - repo: https://github.com/rapidsai/pre-commit-hooks
-    rev: v0.4.0
+    rev: v0.6.0
     hooks:
       - id: verify-copyright
+        args: [--fix, --main-branch=main]
       - id: verify-alpha-spec
+      - id: verify-codeowners
+        args: [--fix, --project-prefix=rapids-multi-gpu]
   - repo: https://github.com/rapidsai/dependency-file-generator
     rev: v1.16.0
     hooks:

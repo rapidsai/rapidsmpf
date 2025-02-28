@@ -1,0 +1,52 @@
+name: test
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        required: true
+        type: string
+      date:
+        required: true
+        type: string
+      sha:
+        required: true
+        type: string
+      build_type:
+        type: string
+        default: nightly
+  workflow_call:
+    inputs:
+      branch:
+        required: true
+        type: string
+      date:
+        required: true
+        type: string
+      sha:
+        required: true
+        type: string
+      build_type:
+        type: string
+        required: true
+
+jobs:
+  conda-cpp-tests:
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@branch-25.04
+    with:
+      build_type: ${{ inputs.build_type }}
+      branch: ${{ inputs.branch }}
+      date: ${{ inputs.date }}
+      sha: ${{ inputs.sha }}
+      container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
+  conda-python-tests:
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@branch-25.04
+    with:
+      build_type: ${{ inputs.build_type }}
+      branch: ${{ inputs.branch }}
+      date: ${{ inputs.date }}
+      sha: ${{ inputs.sha }}
+      container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
+      run_codecov: false

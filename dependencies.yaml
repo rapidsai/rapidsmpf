@@ -3,7 +3,7 @@ files:
   all:
     output: conda
     matrix:
-      cuda: ["11.8", "12.5"]
+      cuda: ["11.8", "12.8"]
       arch: [aarch64, x86_64]
     includes:
       - build-universal
@@ -59,8 +59,9 @@ dependencies:
         packages:
           - c-compiler
           - cxx-compiler
-          - &rmm_unsuffixed rmm==25.2.*,>=0.0.0a0
-          - libcudf==25.2.*,>=0.0.0a0
+          - &rmm_unsuffixed rmm==25.4.*,>=0.0.0a0
+          - libcudf==25.4.*,>=0.0.0a0
+          - libucxx==0.43.*,>=0.0.0a0
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
           - spdlog
     specific:
@@ -68,14 +69,28 @@ dependencies:
         matrices:
           - matrix:
               arch: x86_64
+              cuda: "11.*"
             packages:
               - gcc_linux-64=11.*
-              - sysroot_linux-64=2.17
+              - sysroot_linux-64=2.28
           - matrix:
               arch: aarch64
+              cuda: "11.*"
             packages:
               - gcc_linux-aarch64=11.*
-              - sysroot_linux-aarch64=2.17
+              - sysroot_linux-aarch64=2.28
+          - matrix:
+              arch: x86_64
+              cuda: "12.*"
+            packages:
+              - gcc_linux-64=13.*
+              - sysroot_linux-64=2.28
+          - matrix:
+              arch: aarch64
+              cuda: "12.*"
+            packages:
+              - gcc_linux-aarch64=13.*
+              - sysroot_linux-aarch64=2.28
       - output_types: conda
         matrices:
           - matrix:
@@ -109,7 +124,7 @@ dependencies:
         packages:
           - cython>=3.0.3
           - *rmm_unsuffixed
-          - pylibcudf==25.2.*,>=0.0.0a0
+          - pylibcudf==25.4.*,>=0.0.0a0
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
           - mpi4py
   checks:
@@ -150,6 +165,10 @@ dependencies:
               cuda: "12.5"
             packages:
               - cuda-version=12.5
+          - matrix:
+              cuda: "12.8"
+            packages:
+              - cuda-version=12.8
   cuda:
     specific:
       - output_types: conda
@@ -191,17 +210,30 @@ dependencies:
           - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
           - valgrind
           - cuda-sanitizer-api
+          - click >=8.1
   test_rapidsmp:
     common:
       - output_types: conda
         packages:
-          - rapidsmp==25.2.*,>=0.0.0a0
+          - rapidsmp==25.4.*,>=0.0.0a0
   test_python:
     common:
       - output_types: [conda, pyproject]
         packages:
+          - cudf==25.4.*,>=0.0.0a0
+          - dask-cuda==25.4.*,>=0.0.0a0
           - pytest
-          - cudf==25.2.*,>=0.0.0a0
+          - ucxx==0.43.*,>=0.0.0a0
+    specific:
+      - output_types: conda
+        matrices:
+          - matrix:
+              arch: x86_64
+            packages:
+              - ray-default==2.42.*,>=0.0.0a0
+          - matrix:
+              arch: aarch64
+            packages:
   docs:
     common:
       - output_types: [conda]
