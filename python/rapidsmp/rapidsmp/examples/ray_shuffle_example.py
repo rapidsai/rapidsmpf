@@ -1,28 +1,34 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.
+"""Example running a RapidsMP Shuffle operation using Ray and UCXX communication."""
 
-import math
-import ray
+from __future__ import annotations
 
 import argparse
-import rmm
-import cudf  
-import numpy as np
+import math
 
+import numpy as np
+import ray
+
+import cudf
+import rmm
 
 from rapidsmp.buffer.resource import BufferResource
-
+from rapidsmp.integrations.ray import (
+    RapidsMPActor,
+    setup_ray_ucxx_cluster,
+)
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
 from rapidsmp.testing import assert_eq
 from rapidsmp.utils.cudf import (
     cudf_to_pylibcudf_table,
     pylibcudf_to_cudf_dataframe,
 )
-from rapidsmp.integrations.ray import (  # noqa: E402
-    RapidsMPActor,
-    setup_ray_ucxx_cluster,
-)
+
 
 @ray.remote(num_gpus=1)
 class ShufflingActor(RapidsMPActor):
+    """Ray actor that performs a shuffle operation."""
+
     def __init__(self, nranks):
         super().__init__(nranks)
 
@@ -30,22 +36,24 @@ class ShufflingActor(RapidsMPActor):
         mr = rmm.mr.CudaMemoryResource()
         rmm.mr.set_current_device_resource(mr)
         return mr
-    
+
     def _gen_cudf(self, args):
         # Every rank creates the full input dataframe and all the expected partitions
         # (also partitions this rank might not get after the shuffle).
 
-        np.random.seed(42)  # Make sure all ranks create the same input dataframe.    
+        np.random.seed(42)  # Make sure all ranks create the same input dataframe.
 
         return cudf.DataFrame(
-        {
-            "a": range(args.num_rows),
-            "b": np.random.randint(0, 1000, args.num_rows),
-            "c": ["cat", "dog"] * (args.num_rows // 2),
-        })
+            {
+                "a": range(args.num_rows),
+                "b": np.random.randint(0, 1000, args.num_rows),
+                "c": ["cat", "dog"] * (args.num_rows // 2),
+            }
+        )
 
-    def run(self, args):
-        if not self.is_initialized():
+    def run(self, args) -> None:
+        """Runs the shuffle operation, and this will be called remotely from the client."""
+        if self.comm is None:
             raise RuntimeError("RapidsMP not initialized")
 
         # If DEFAULT_STREAM was imported outside of this context, it will be pickled,
@@ -63,7 +71,6 @@ class ShufflingActor(RapidsMPActor):
 
         columns_to_hash = (df.columns.get_loc("b"),)
         column_names = list(df.columns)
-
 
         # Calculate the expected output partitions on all ranks
         expected = {
@@ -83,7 +90,6 @@ class ShufflingActor(RapidsMPActor):
                 device_mr=mr,
             ).items()
         }
-
 
         # Create shuffler
         shuffler = Shuffler(
@@ -132,7 +138,6 @@ class ShufflingActor(RapidsMPActor):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(
         description="RapidsMP Ray Shuffling Actor example ",
     )
@@ -142,16 +147,15 @@ if __name__ == "__main__":
     parser.add_argument("--total_nparts", type=int, default=-1)
     args = parser.parse_args()
 
-    ray.init()  # init ray with all resources 
+    ray.init()  # init ray with all resources
 
     # Create shufflling actors
     gpu_actors = setup_ray_ucxx_cluster(ShufflingActor, args.nranks)
 
     try:
         # run the ShufflingActor.run method remotely
-        ray.get([actor.run.remote(args) for actor in gpu_actors]) # type: ignore
+        ray.get([actor.run.remote(args) for actor in gpu_actors])  # type: ignore
 
     finally:
         for actor in gpu_actors:
             ray.kill(actor)
-
