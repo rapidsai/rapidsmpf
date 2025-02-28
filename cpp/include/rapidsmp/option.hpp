@@ -23,8 +23,14 @@
 namespace rapidsmp {
 
 namespace detail {
+/**
+ * @brief Trims whitespace from both ends of the string and converts it to lowercase.
+ *
+ * @param str The input string to be processed.
+ * @return The trimmed and lowercased string.
+ */
 std::string trim_and_lowercase(std::string str);
-}
+}  // namespace detail
 
 /**
  * @brief Retrieves the value of an environment variable and converts it to a specified
