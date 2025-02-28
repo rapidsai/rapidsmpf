@@ -481,6 +481,9 @@ void Shuffler::run_event_loop_iteration(
             fire_and_forget.erase(fire_and_forget.begin() + i);
         }
     }
+
+    // Do we need to spill?
+    self.spill();
 }
 
 /**
