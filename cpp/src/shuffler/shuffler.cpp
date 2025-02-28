@@ -239,7 +239,7 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
     auto& log = comm_->logger();
 
     // Check if we should spill.
-    std::size_t total_spilled = spill();
+    spill();
 
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_columns] : chunks) {
@@ -264,7 +264,6 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
             chunk.gpu_data = br_->move(
                 MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
             );
-            total_spilled += chunk.gpu_data->size;
             insert(std::move(chunk));
         } else {
             insert(create_chunk(
@@ -273,19 +272,6 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
                 std::move(packed_columns.gpu_data)
             ));
         }
-    }
-    if (total_spilled > 0) {
-        log.info(
-            "Shuffler - total spilled while inserting: ", format_nbytes(total_spilled)
-        );
-    }
-
-    std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
-    if (headroom < 0) {
-        log.warn(
-            "Cannot find enough chunks to spill to avoid negative headroom: ",
-            format_nbytes(headroom)
-        );
     }
 }
 
