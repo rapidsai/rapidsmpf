@@ -238,15 +238,8 @@ void Shuffler::insert(detail::Chunk&& chunk) {
 void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks) {
     auto& log = comm_->logger();
 
-    // Check if we should spill. We start by spilling buffers in the outbox.
-    std::size_t total_spilled{0};
-    {
-        std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
-        if (headroom < 0) {
-            std::size_t spilled_need = -headroom;
-            total_spilled += postbox_spilling(br_, log, stream_, outbox_, spilled_need);
-        }
-    }
+    // Check if we should spill.
+    std::size_t total_spilled = spill();
 
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_columns] : chunks) {
@@ -306,7 +299,6 @@ void Shuffler::insert_finished(PartID pid) {
 }
 
 std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
-    auto& log = comm_->logger();
     auto chunks = outbox_.extract(pid);
     std::vector<cudf::packed_columns> ret;
     ret.reserve(chunks.size());
@@ -324,25 +316,7 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
 
     // Check overbooking, do we need to spill to host memory?
     if (overbooking > 0) {
-        log.info(
-            "Shuffler::extract(pid=",
-            pid,
-            ") - overbooking with ",
-            format_nbytes(overbooking),
-            " while reserving ",
-            format_nbytes(reservation.size())
-        );
-        // Let's look for chunks to spill in the outbox.
-        auto total_spilled = postbox_spilling(br_, log, stream_, outbox_, overbooking);
-        if (total_spilled < overbooking) {
-            log.warn(
-                "Cannot find enough chunks to spill to avoid overbooking - total "
-                "spilled: ",
-                format_nbytes(total_spilled),
-                ", remaining overbooking: ",
-                format_nbytes(overbooking - total_spilled)
-            );
-        }
+        spill(overbooking);
     }
 
     // Move the gpu_data to device memory (copy if necessary).
@@ -353,6 +327,32 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
         );
     }
     return ret;
+}
+
+std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
+    std::size_t spill_need{0};
+    if (amount.has_value()) {
+        spill_need = amount.value();
+    } else {
+        std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
+        if (headroom < 0) {
+            spill_need = -headroom;
+        }
+    }
+
+    std::size_t spilled{0};
+    if (spill_need > 0) {
+        spilled = postbox_spilling(br_, comm_->logger(), stream_, outbox_, spill_need);
+    }
+    if (spilled < spill_need) {
+        comm_->logger().warn(
+            "Cannot find enough device buffers to spill - spilled: ",
+            format_nbytes(spilled),
+            " but needed: ",
+            format_nbytes(spill_need)
+        );
+    }
+    return spilled;
 }
 
 detail::ChunkID Shuffler::get_new_cid() {
