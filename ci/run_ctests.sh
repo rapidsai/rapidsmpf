@@ -24,7 +24,9 @@ run_mpirun_test() {
 # Note, we run with many different number of ranks, which we can do as long as
 # the test suite only takes seconds to run (timeouts after one minute).
 for nrank in 1 2 3 4 5 8; do
-    run_mpirun_test 1m $nrank mpi_tests
+    # Temporarily increasing timeouts to 5m.
+    # See: https://github.com/rapidsai/rapids-multi-gpu/issues/75
+    run_mpirun_test 5m $nrank mpi_tests
 done
 
 for nrank in 1 2 3 4 5 8; do
