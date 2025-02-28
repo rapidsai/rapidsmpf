@@ -12,17 +12,18 @@ ray = pytest.importorskip("ray")
 
 from rapidsmp.integrations.ray import (  # noqa: E402
     RapidsMPActor,
+    ShufflingActor,
     setup_ray_ucxx_cluster,
 )
 
 
-def get_rank_if_spawned_by_mpi() -> int:
+def get_nranks_if_spawned_by_mpi() -> int:
     """Check if running on an MPI env without importing MPI libs"""
     mpi_env_vars = [
-        "OMPI_COMM_WORLD_RANK",  # OpenMPI
-        "PMI_RANK",  # MPICH/SLURM
-        "MPI_LOCALRANKID",  # IntelMPI
-        "MV2_COMM_WORLD_RANK",  # MVAPICH
+        "OMPI_COMM_WORLD_SIZE",  # OpenMPI
+        "PMI_SIZE",  # MPICH/SLURM
+        "MPI_WORLD_SIZE",  # Intel MPI
+        "MV2_COMM_WORLD_SIZE",  # MVAPICH
     ]
 
     for var in mpi_env_vars:
@@ -33,7 +34,7 @@ def get_rank_if_spawned_by_mpi() -> int:
 
 
 pytestmark = pytest.mark.skipif(
-    get_rank_if_spawned_by_mpi() > 1,
+    get_nranks_if_spawned_by_mpi() > 1,
     reason="Ray tests should not run with more than one MPI process",
 )
 
@@ -107,3 +108,27 @@ def test_disallowed_classes():
 
     with pytest.raises(TypeError):
         setup_ray_ucxx_cluster(NonRapidsMPActor, 1)
+
+
+@pytest.mark.parametrize("num_workers", [1, 2, 4])
+@pytest.mark.parametrize("batch_size", [-1, 10])
+@pytest.mark.parametrize("total_num_partitions", [1, 2, 10])
+def test_ray_shuffle_actor(num_workers, batch_size, total_num_partitions):
+    # Test shuffling actor that uses 1/num_workers fractional GPUs
+    @ray.remote(num_gpus=(1 / num_workers))
+    class TestShufflingActor(ShufflingActor): ...
+
+    # setup the UCXX cluster using TestShufflingActor
+    gpu_actors = setup_ray_ucxx_cluster(
+        TestShufflingActor,
+        num_workers,
+        batch_sz=batch_size,
+        total_nparts=total_num_partitions,
+    )
+
+    try:
+        # call run on all actors remotely
+        ray.get([actor.run.remote() for actor in gpu_actors])
+    finally:
+        for actor in gpu_actors:
+            ray.kill(actor)
