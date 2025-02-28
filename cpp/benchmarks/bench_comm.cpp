@@ -252,7 +252,10 @@ int main(int argc, char** argv) {
         auto const elapsed = run(comm, args, stream, &br).count();
         std::stringstream ss;
         ss << "elapsed: " << to_precision(elapsed) << " sec "
-           << "| throughput: " << format_nbytes(total_local_msg_send / elapsed) << "/s";
+           << "| local throughput: " << format_nbytes(total_local_msg_send / elapsed)
+           << "/s | total throughput: "
+           << format_nbytes(total_local_msg_send * comm->nranks() / elapsed) << "/s";
+
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
