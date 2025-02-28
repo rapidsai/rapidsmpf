@@ -192,7 +192,7 @@ class Communicator {
         /**
          * @brief Log level names corresponding to the LEVEL enum.
          */
-        constexpr static std::array<char const*, 6> LEVEL_NAMES{
+        static constexpr std::array<char const*, 6> LEVEL_NAMES{
             "NONE", "PRINT", "WARN", "INFO", "DEBUG", "TRACE"
         };
 
@@ -202,9 +202,39 @@ class Communicator {
          * @param level The log level.
          * @return The corresponding log level name or "UNKNOWN" if out of range.
          */
-        constexpr const char* level_name(LEVEL level) {
+        static constexpr const char* level_name(LEVEL level) {
             auto index = static_cast<std::size_t>(level);
             return index < LEVEL_NAMES.size() ? LEVEL_NAMES[index] : "UNKNOWN";
+        }
+
+        /**
+         * @brief Get the verbosity level from the environment variable `RAPIDSMP_LOG`.
+         *
+         * This function reads the `RAPIDSMP_LOG` environment variable, trims whitespace,
+         * converts the value to uppercase, and attempts to match it against known logging
+         * level names. If the environment variable is not set, the default value `"WARN"`
+         * is used.
+         *
+         * @return The corresponding logging level of type `LEVEL`.
+         *
+         * @throws std::invalid_argument If the environment variable contains an unknown
+         * value.
+         */
+        static LEVEL level_from_env() {
+            auto env = to_upper(trim(getenv_or<std::string>("RAPIDSMP_LOG", "WARN")));
+            for (std::uint32_t i = 0; i < LEVEL_NAMES.size(); ++i) {
+                auto level = static_cast<LEVEL>(i);
+                if (env == level_name(level)) {
+                    return level;
+                }
+            }
+            std::stringstream ss;
+            ss << "RAPIDSMP_LOG - unknown value: \"" << env << "\", valid choices: { ";
+            for (auto const& name : LEVEL_NAMES) {
+                ss << name << " ";
+            }
+            ss << "}";
+            throw std::invalid_argument(ss.str());
         }
 
       public:
@@ -218,7 +248,7 @@ class Communicator {
          * @param comm The `Communicator` to use.
          */
         Logger(Communicator* comm)  // TODO: support writing to a file.
-            : comm_{comm}, level_{static_cast<LEVEL>(getenv_or("RAPIDSMP_LOG", 2))} {};
+            : comm_{comm}, level_{level_from_env()} {};
         virtual ~Logger() noexcept = default;
 
         /**
