@@ -336,7 +336,7 @@ int main(int argc, char** argv) {
     }
 
     // We start with disabled statistics.
-    auto stats = std::make_shared<rapidsmp::Statistics>();
+    auto stats = std::make_shared<rapidsmp::Statistics>(/* enable = */ false);
 
     std::vector<double> elapsed_vec;
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
