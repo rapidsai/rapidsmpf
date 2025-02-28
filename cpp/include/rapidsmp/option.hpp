@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,16 @@
  */
 #pragma once
 
-#include <algorithm>
 #include <cstdlib>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 
 namespace rapidsmp {
+
+namespace detail {
+std::string trim_and_lowercase(std::string str);
+}
 
 /**
  * @brief Retrieves the value of an environment variable and converts it to a specified
@@ -85,24 +88,8 @@ inline bool getenv_or(std::string_view env_var_name, bool default_val) {
         return static_cast<bool>(std::stoi(env_val));
     } catch (std::invalid_argument const&) {
     }
-    // Convert to lowercase
-    std::string str{env_val};
-    // Special considerations regarding the case conversion:
-    // - std::tolower() is not an addressable function. Passing it to std::transform() as
-    //   a function pointer, if the compile turns out successful, causes the program
-    //   behavior "unspecified (possibly ill-formed)", hence the lambda. ::tolower() is
-    //   addressable and does not have this problem, but the following item still applies.
-    // - To avoid UB in std::tolower() or ::tolower(), the character must be cast to
-    // unsigned char.
-    std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c) {
-        return std::tolower(c);
-    });
-    // Trim whitespaces
-    std::stringstream trimmer;
-    trimmer << str;
-    str.clear();
-    trimmer >> str;
-    // Match value
+
+    std::string str = detail::trim_and_lowercase(env_val);
     if (str == "true" || str == "on" || str == "yes") {
         return true;
     }
