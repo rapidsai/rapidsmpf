@@ -14,32 +14,10 @@
  * limitations under the License.
  */
 
-#include <algorithm>
-
 #include <rapidsmp/option.hpp>
+#include <rapidsmp/utils.hpp>
 
 namespace rapidsmp {
-
-namespace detail {
-std::string trim_and_lowercase(std::string str) {
-    // Special considerations regarding the case conversion:
-    // - std::tolower() is not an addressable function. Passing it to std::transform()
-    //   as a function pointer, if the compile turns out successful, causes the program
-    //   behavior "unspecified (possibly ill-formed)", hence the lambda. ::tolower() is
-    //   addressable and does not have this problem, but the following item still applies.
-    // - To avoid UB in std::tolower() or ::tolower(), the character must be cast to
-    // unsigned char.
-    std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c) {
-        return std::tolower(c);
-    });
-    // Trim whitespaces
-    std::stringstream trimmer;
-    trimmer << str;
-    str.clear();
-    trimmer >> str;
-    return str;
-}
-}  // namespace detail
 
 template <>
 bool getenv_or(std::string const& env_var_name, bool default_val) {
@@ -53,7 +31,7 @@ bool getenv_or(std::string const& env_var_name, bool default_val) {
     } catch (std::invalid_argument const&) {
     }
 
-    std::string str = detail::trim_and_lowercase(env_val);
+    std::string str = to_lower(trim(env_val));
     if (str == "true" || str == "on" || str == "yes") {
         return true;
     }
