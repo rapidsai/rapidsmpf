@@ -175,8 +175,8 @@ class Statistics {
     Duration add_duration_stat(std::string const& name, Duration seconds);
 
   private:
-    mutable std::mutex mutex_;  ///< Mutex for thread safety.
-    bool enabled_;  ///< Whether statistics tracking is enabled.
-    std::map<std::string, Stat> stats_;  ///< Map of statistics by name.
+    mutable std::mutex mutex_;
+    bool enabled_;
+    std::map<std::string, Stat> stats_;
 };
 }  // namespace rapidsmp
