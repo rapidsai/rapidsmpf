@@ -43,104 +43,95 @@ class ArgumentParser {
         int rank, nranks;
         RAPIDSMP_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
         RAPIDSMP_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
+        try {
+            int option;
+            while ((option = getopt(argc, argv, "hC:r:w:c:n:p:m:l:x")) != -1) {
+                switch (option) {
+                case 'h':
+                    {
+                        std::stringstream ss;
+                        ss << "Usage: " << argv[0] << " [options]\n"
+                           << "Options:\n"
+                           << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
+                           << "  -r <num>   Number of runs (default: 1)\n"
+                           << "  -w <num>   Number of warmup runs (default: 0)\n"
+                           << "  -c <num>   Number of columns in the input tables "
+                              "(default: 1)\n"
+                           << "  -n <num>   Number of rows per rank (default: 1M)\n"
+                           << "  -p <num>   Number of partitions (input tables) per "
+                              "rank (default: 1)\n"
+                           << "  -m <mr>    RMM memory resource {cuda, pool, async} "
+                              "(default: cuda)\n"
+                           << "  -l <num>   Device memory limit in MiB (default:-1, "
+                              "disabled)\n"
+                           << "  -x         Enable memory profiler (default: disabled)\n"
+                           << "  -h         Display this help message\n";
+                        if (rank == 0) {
+                            std::cerr << ss.str();
+                        }
+                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
+                    }
+                case 'C':
+                    comm_type = std::string{optarg};
+                    if (!(comm_type == "mpi" || comm_type == "ucxx")) {
+                        if (rank == 0) {
+                            std::cerr << "-C (Communicator) must be one of {mpi, ucxx}"
+                                      << std::endl;
+                        }
+                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    }
+                    break;
+                case 'r':
+                    parse_integer(num_runs, optarg);
+                    break;
+                case 'w':
+                    parse_integer(num_warmups, optarg);
+                    break;
+                case 'c':
+                    parse_integer(num_columns, optarg);
+                    break;
+                case 'n':
+                    parse_integer(num_local_rows, optarg);
+                    break;
+                case 'p':
+                    parse_integer(num_local_partitions, optarg);
+                    break;
+                case 'm':
+                    rmm_mr = std::string{optarg};
+                    if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async")) {
+                        if (rank == 0) {
+                            std::cerr << "-m (RMM memory resource) must be one of "
+                                         "{cuda, pool, async}"
+                                      << std::endl;
+                        }
+                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    }
+                    break;
+                case 'l':
+                    parse_integer(device_mem_limit_mb, optarg);
+                    break;
+                case 'x':
+                    enable_memory_profiler = true;
+                    break;
+                case '?':
+                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                default:
+                    throw std::runtime_error("Error parsing arguments.");
+                }
+            }
+            if (optind < argc) {
+                RAPIDSMP_FAIL("unknown option", std::invalid_argument);
+            }
+        } catch (std::exception const& e) {
+            if (rank == 0) {
+                std::cerr << "Error parsing arguments: " << e.what() << std::endl;
+            }
+            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+        }
 
-        int option;
-        while ((option = getopt(argc, argv, "hC:r:w:c:n:p:m:l:x")) != -1) {
-            switch (option) {
-            case 'h':
-                {
-                    std::stringstream ss;
-                    ss << "Usage: " << argv[0] << " [options]\n"
-                       << "Options:\n"
-                       << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
-                       << "  -r <num>   Number of runs (default: 1)\n"
-                       << "  -w <num>   Number of warmup runs (default: 0)\n"
-                       << "  -c <num>   Number of columns in the input tables "
-                          "(default: 1)\n"
-                       << "  -n <num>   Number of rows per rank (default: 1M)\n"
-                       << "  -p <num>   Number of partitions (input tables) per "
-                          "rank (default: 1)\n"
-                       << "  -m <mr>    RMM memory resource {cuda, pool, async} "
-                          "(default: cuda)\n"
-                       << "  -l <num>   Device memory limit in MiB (default:-1, "
-                          "disabled) \n"
-                       << "  -x         Enable memory profiler (default: disabled)\n"
-                       << "  -h         Display this help message\n";
-                    if (rank == 0) {
-                        std::cerr << ss.str();
-                    }
-                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
-                }
-            case 'C':
-                comm_type = std::string{optarg};
-                if (!(comm_type == "mpi" || comm_type == "ucxx")) {
-                    if (rank == 0) {
-                        std::cerr << "-C (Communicator) must be one of {mpi, ucxx}"
-                                  << std::endl;
-                    }
-                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
-                }
-                break;
-            case 'r':
-                num_runs = std::stoi(optarg);
-                break;
-            case 'w':
-                num_warmups = std::stoi(optarg);
-                break;
-            case 'c':
-                num_columns = std::stoul(optarg);
-                break;
-            case 'n':
-                num_local_rows = std::stoull(optarg);
-                break;
-            case 'p':
-                num_local_partitions = std::stoull(optarg);
-                break;
-            case 'm':
-                rmm_mr = std::string{optarg};
-                if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async")) {
-                    if (rank == 0) {
-                        std::cerr << "-m (RMM memory resource) must be one of "
-                                     "{cuda, pool, async}"
-                                  << std::endl;
-                    }
-                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
-                }
-                break;
-            case 'l':
-                device_mem_limit_mb = std::stoll(optarg);
-                break;
-            case 'x':
-                enable_memory_profiler = true;
-                break;
-            case '?':
-                RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
-            default:
-                throw std::runtime_error("Error parsing arguments.");
-            }
-        }
-        if (optind < argc) {
-            if (rank == 0) {
-                std::cerr << "Unknown option: " << argv[optind] << std::endl;
-            }
-            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
-        }
-        if (num_runs < 1) {
-            if (rank == 0) {
-                std::cerr << "-r (number of runs) must be greater than 0\n";
-            }
-            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
-        }
-        if (num_local_rows < 1000) {
-            if (rank == 0) {
-                std::cerr << "-n (number of rows per rank) must be greater than 1000\n";
-            }
-            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
-        }
         local_nbytes =
             num_columns * num_local_rows * num_local_partitions * sizeof(std::int32_t);
         total_nbytes = local_nbytes * nranks;
-
         if (rmm_mr == "cuda") {
             if (rank == 0) {
                 std::cout << "WARNING: using the default cuda memory resource "
@@ -176,8 +167,8 @@ class ArgumentParser {
         comm.logger().info(ss.str());
     }
 
-    int num_runs{1};
-    int num_warmups{0};
+    std::uint64_t num_runs{1};
+    std::uint64_t num_warmups{0};
     std::uint32_t num_columns{1};
     std::uint64_t num_local_rows{1 << 20};
     rapidsmp::shuffler::PartID num_local_partitions{1};
@@ -256,25 +247,28 @@ Duration run(
     }
     auto const t1_elapsed = Clock::now();
 
-    // Check the shuffle result
-    for (const auto& output_partition : output_partitions) {
-        auto [parts, owner] = rapidsmp::shuffler::partition_and_split(
-            output_partition,
-            {0},
-            total_num_partitions,
-            cudf::hash_id::HASH_MURMUR3,
-            cudf::DEFAULT_HASH_SEED,
-            stream,
-            br->device_mr()
-        );
-        RAPIDSMP_EXPECTS(
-            std::count_if(
-                parts.begin(),
-                parts.end(),
-                [](auto const& table) { return table.num_rows() > 0; }
-            ) == 1,
-            "all rows in an output partition should hash to the same"
-        );
+    // Check the shuffle result (this test only works for non-empty partitions
+    // thus we only check large shuffles).
+    if (args.num_local_rows >= 1000000) {
+        for (const auto& output_partition : output_partitions) {
+            auto [parts, owner] = rapidsmp::shuffler::partition_and_split(
+                output_partition,
+                {0},
+                total_num_partitions,
+                cudf::hash_id::HASH_MURMUR3,
+                cudf::DEFAULT_HASH_SEED,
+                stream,
+                br->device_mr()
+            );
+            RAPIDSMP_EXPECTS(
+                std::count_if(
+                    parts.begin(),
+                    parts.end(),
+                    [](auto const& table) { return table.num_rows() > 0; }
+                ) == 1,
+                "all rows in an output partition should hash to the same"
+            );
+        }
     }
     return t1_elapsed - t0_elapsed;
 }
@@ -334,7 +328,7 @@ int main(int argc, char** argv) {
         ss << "Hardware setup: \n";
         ss << "  GPU (" << properties.name << "): \n";
         ss << "    Device number: " << cur_dev << "\n";
-        ss << "    PCI Bus ID: " << pci_bus_id << "\n";
+        ss << "    PCI Bus ID: " << pci_bus_id.substr(0, pci_bus_id.find('\0')) << "\n";
         ss << "    Total Memory: "
            << rapidsmp::format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
@@ -345,7 +339,7 @@ int main(int argc, char** argv) {
     auto stats = std::make_shared<rapidsmp::Statistics>();
 
     std::vector<double> elapsed_vec;
-    for (auto i = 0; i < args.num_warmups + args.num_runs; ++i) {
+    for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == args.num_warmups + args.num_runs - 1) {
             stats = std::make_shared<rapidsmp::Statistics>(comm);

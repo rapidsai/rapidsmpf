@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import dask
 import pytest
-from dask.distributed import Client
-from dask_cuda import LocalCUDACluster
-from dask_cuda.utils import get_n_gpus
-from distributed.utils_test import cleanup, gen_test, loop, loop_in_thread  # noqa: F401
-from mpi4py import MPI
 
-from rapidsmp.integrations.dask import rapidsmp_ucxx_comm_setup
+dask_cuda = pytest.importorskip("dask_cuda")
+
+from dask.distributed import Client  # noqa: E402
+from dask_cuda import LocalCUDACluster  # noqa: E402
+from dask_cuda.utils import get_n_gpus  # noqa: E402
+from distributed.utils_test import cleanup, gen_test, loop, loop_in_thread # noqa: E402
+from mpi4py import MPI  # noqa: E402
+
+from rapidsmp.integrations.dask import rapidsmp_ucxx_comm_setup  # noqa: E402
 
 
 def get_mpi_nsize():

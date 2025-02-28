@@ -17,14 +17,16 @@ run_mpirun_test() {
     local nrank="$2"   # Number of ranks
     local test="$3"    # Test name
     echo "Running ctest with $nrank ranks"
-    timeout "$timeout" mpirun -np "$nrank" ctest --verbose --no-tests=error \
-        --output-on-failure -R "$test" $EXTRA_ARGS
+    timeout -v "$timeout" mpirun --map-by node --bind-to none -np "$nrank" \
+        ctest --verbose --no-tests=error --output-on-failure -R "$test" $EXTRA_ARGS
 }
 
 # Note, we run with many different number of ranks, which we can do as long as
 # the test suite only takes seconds to run (timeouts after one minute).
 for nrank in 1 2 3 4 5 8; do
-    run_mpirun_test 1m $nrank mpi_tests
+    # Temporarily increasing timeouts to 5m.
+    # See: https://github.com/rapidsai/rapids-multi-gpu/issues/75
+    run_mpirun_test 5m $nrank mpi_tests
 done
 
 for nrank in 1 2 3 4 5 8; do
