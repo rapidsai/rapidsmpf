@@ -153,6 +153,16 @@ std::size_t postbox_spilling(
     }
     statistics.add_bytes_stat("spill-device-to-host-bytes", total_spilled);
     statistics.add_duration_stat("spill-device-to-host-time", Clock::now() - t0_elapsed);
+    if (total_spilled < amount) {
+        // TODO: use a "max" statistic when it is available, for now we use the average.
+        statistics.add_stat(
+            "spill-device-limit-breach",
+            amount - total_spilled,
+            [](std::ostream& os, std::size_t count, double val) {
+                os << "avg " << format_nbytes(val / count);
+            }
+        );
+    }
     return total_spilled;
 }
 }  // namespace
@@ -332,19 +342,10 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
             spill_need = -headroom;
         }
     }
-
     std::size_t spilled{0};
     if (spill_need > 0) {
         spilled = postbox_spilling(
             br_, comm_->logger(), *statistics_, stream_, outbox_, spill_need
-        );
-    }
-    if (spilled < spill_need) {
-        comm_->logger().warn(
-            "Cannot find enough device buffers to spill - spilled: ",
-            format_nbytes(spilled),
-            " but needed: ",
-            format_nbytes(spill_need)
         );
     }
     return spilled;
