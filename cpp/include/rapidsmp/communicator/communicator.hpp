@@ -366,9 +366,10 @@ class Communicator {
          * @param ss The formatted message as a string stream.
          */
         virtual void do_log(LOG_LEVEL level, std::ostringstream&& ss) {
+            ss << "[" << level_name(level) << ":" << comm_->rank() << ":"
+               << get_thread_id() << "] " << ss.str();
             std::lock_guard<std::mutex> lock(mutex_);
-            std::cout << "[" << level_name(level) << ":" << comm_->rank() << ":"
-                      << get_thread_id() << "] " << ss.str() << std::endl;
+            std::cout << ss.str() << std::endl;
         }
 
         /**
