@@ -86,6 +86,18 @@ class Statistics {
     using Formatter = std::function<void(std::ostream&, std::size_t, double)>;
 
     /**
+     * @brief Default formatter for statistics output (implements `Formatter`).
+     *
+     * Outputs the value as-is and an average if the statistic consist of the sum
+     * of multiple values.
+     *
+     * @param os The output stream to write to.
+     * @param count The number of elements contributing to the value.
+     * @param val The total value to be formatted.
+     */
+    static void FormatterDefault(std::ostream& os, std::size_t count, double val);
+
+    /**
      * @brief Represents an individual statistic entry.
      */
     struct Stat {
@@ -141,13 +153,7 @@ class Statistics {
     double add_stat(
         std::string const& name,
         double value,
-        Formatter const& formatter =
-            [](std::ostream& os, std::size_t count, double val) {
-                os << val;
-                if (count > 1) {
-                    os << " (avg " << (val / count) << ")";
-                }
-            }
+        Formatter const& formatter = FormatterDefault
     );
 
     /**

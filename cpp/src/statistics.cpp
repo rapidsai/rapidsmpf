@@ -21,6 +21,12 @@
 
 namespace rapidsmp {
 
+void Statistics::FormatterDefault(std::ostream& os, std::size_t count, double val) {
+    os << val;
+    if (count > 1) {
+        os << " (avg " << (val / count) << ")";
+    }
+};
 
 Statistics::Stat Statistics::get_stat(std::string const& name) const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -83,4 +89,6 @@ std::string Statistics::report() const {
     }
     return ss.str();
 }
+
+
 }  // namespace rapidsmp
