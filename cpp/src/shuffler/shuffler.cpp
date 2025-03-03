@@ -437,6 +437,10 @@ void Shuffler::run_event_loop_iteration(
             // Create a new buffer and let the buffer resource decide the memory type.
             auto recv_buffer =
                 allocate_buffer(chunk.gpu_data_size, self.stream_, self.br_);
+            if (recv_buffer->mem_type == MemoryType::HOST) {
+                stats.add_bytes_stat("spill-recv-to-host", recv_buffer->size);
+            }
+
             // Setup to receive the chunk into `in_transit_*`.
             auto future =
                 self.comm_->recv(src, gpu_data_tag, std::move(recv_buffer), self.stream_);
