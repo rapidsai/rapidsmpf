@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from rapidsmp.communicator.communicator import Communicator
 
 
-def initialize_ucxx() -> ucx_api.UCXWorker:
+def initialize_ucxx() -> None:
     """Initialize UCXX resources."""
     ucxx_context = ucx_api.UCXContext(
         feature_flags=(ucx_api.Feature.AM, ucx_api.Feature.TAG)

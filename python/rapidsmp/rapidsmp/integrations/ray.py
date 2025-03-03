@@ -134,7 +134,7 @@ class RapidsMPActor:
 
 def setup_ray_ucxx_cluster(
     actor_cls: ray.actor.ActorClass, num_workers: int
-) -> list[ray.actor.ActorHandle]:
+) -> list[object]:
     """
     A utility method to setup the UCXX communication using RapidsMPActor actor objects.
 

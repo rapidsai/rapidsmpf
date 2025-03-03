@@ -43,9 +43,8 @@ ray.init(num_cpus=4)
 
 @ray.remote(num_cpus=1)
 class DummyActor(RapidsMPActor):
-    def use_comm(self) -> None:
+    def use_comm(self):
         # test if the DummyActor can use the Communicator object
-        assert self.comm is not None  # for mypy
         assert all(
             sub in self.comm.get_str()
             for sub in ["UCXX", f"rank={self._rank}", f"nranks={self._nranks}"]
@@ -53,7 +52,7 @@ class DummyActor(RapidsMPActor):
 
 
 @pytest.mark.parametrize("num_workers", [1, 2, 4])
-def test_ray_ucxx_cluster(num_workers: int) -> None:
+def test_ray_ucxx_cluster(num_workers):
     # setup the UCXX cluster using DummyActors
     gpu_actors = setup_ray_ucxx_cluster(DummyActor, num_workers)
 
@@ -72,10 +71,9 @@ def test_ray_ucxx_cluster(num_workers: int) -> None:
 
 
 @pytest.mark.parametrize("num_workers", [1, 2, 4])
-def test_ray_ucxx_cluster_not_initialized(num_workers: int) -> None:
+def test_ray_ucxx_cluster_not_initialized(num_workers):
     # setup the UCXX cluster using DummyActors
-    # there's some fancy monkeypatching in ray making `DummyActor.remote` available
-    gpu_actors = [DummyActor.remote(num_workers) for _ in range(num_workers)]  # type: ignore[attr-defined]
+    gpu_actors = [DummyActor.remote(num_workers) for _ in range(num_workers)]
 
     try:
         # all actors should not be initialized
@@ -90,7 +88,7 @@ def test_ray_ucxx_cluster_not_initialized(num_workers: int) -> None:
             ray.kill(actor)
 
 
-def test_disallowed_classes() -> None:
+def test_disallowed_classes():
     # class that doesnt extend RapidsMPActor or ray actor
     class NonActor: ...
 
