@@ -164,7 +164,7 @@ class ArgumentParser {
         }
         ss << "Local size: " << rapidsmp::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmp::format_nbytes(total_nbytes) << "\n";
-        comm.logger().info(ss.str());
+        comm.logger().print(ss.str());
     }
 
     std::uint64_t num_runs{1};
@@ -332,7 +332,7 @@ int main(int argc, char** argv) {
         ss << "    Total Memory: "
            << rapidsmp::format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
-        log.info(ss.str());
+        log.print(ss.str());
     }
 
     // We start with disabled statistics.
@@ -354,7 +354,7 @@ int main(int argc, char** argv) {
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
-        log.info(ss.str());
+        log.print(ss.str());
         if (i >= args.num_warmups) {
             elapsed_vec.push_back(elapsed);
         }
@@ -374,9 +374,9 @@ int main(int argc, char** argv) {
             ss << " | rmm device memory peak: " << rapidsmp::format_nbytes(counter.peak)
                << " | total: " << rapidsmp::format_nbytes(counter.total);
         }
-        log.info(ss.str());
+        log.print(ss.str());
     }
-    log.info(stats->report());
+    log.print(stats->report());
     RAPIDSMP_MPI(MPI_Finalize());
 
     return 0;
