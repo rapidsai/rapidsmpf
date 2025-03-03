@@ -362,7 +362,7 @@ class Communicator {
          * This base implementation prepend the rank and thread id to the message
          * and print it to `std::cout`.
          *
-         * Override this method can in a derived classes to customize logging behavior.
+         * Override this method in a derived classes to customize logging behavior.
          *
          * @param level The verbosity level of the message.
          * @param ss The formatted message as a string stream.
