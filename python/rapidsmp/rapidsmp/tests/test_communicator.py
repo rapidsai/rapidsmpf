@@ -9,7 +9,7 @@ from rapidsmp.communicator.testing import initialize_ucxx, ucxx_mpi_setup
 
 
 @pytest.mark.parametrize("RAPIDSMP_LOG", range(5))
-def test_mpi(capfd, RAPIDSMP_LOG):
+def test_mpi(capfd: pytest.CaptureFixture[str], RAPIDSMP_LOG: int) -> None:
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("RAPIDSMP_LOG", str(RAPIDSMP_LOG))
 
@@ -34,7 +34,7 @@ def test_mpi(capfd, RAPIDSMP_LOG):
 
 
 @pytest.mark.parametrize("RAPIDSMP_LOG", range(5))
-def test_ucxx(capfd, RAPIDSMP_LOG):
+def test_ucxx(capfd: pytest.CaptureFixture[str], RAPIDSMP_LOG: int) -> None:
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("RAPIDSMP_LOG", str(RAPIDSMP_LOG))
 

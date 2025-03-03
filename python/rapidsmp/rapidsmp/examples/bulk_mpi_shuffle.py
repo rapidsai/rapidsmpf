@@ -40,7 +40,7 @@ def read_batch(paths: list[str]) -> tuple[plc.Table, list[str]]:
 
 def write_table(
     table: plc.Table, output_path: str, id: int | str, column_names: list[str] | None
-):
+) -> None:
     """Write a pylibcudf Table to a Parquet file."""
     path = f"{output_path}/part.{id}.parquet"
     pylibcudf_to_cudf_dataframe(
@@ -178,7 +178,7 @@ def bulk_mpi_shuffle(
         shuffler.shutdown()
 
 
-def ucxx_mpi_setup():
+def ucxx_mpi_setup() -> Communicator:
     """Bootstrap UCXX cluster using MPI."""
     import ucxx._lib.libucxx as ucx_api
 
@@ -205,7 +205,7 @@ def ucxx_mpi_setup():
     return comm
 
 
-def setup_and_run(args) -> None:
+def setup_and_run(args: argparse.Namespace) -> None:
     """Setup the environment and run the shuffle example."""
     if args.cluster_type == "mpi":
         comm = rapidsmp.communicator.mpi.new_communicator(MPI.COMM_WORLD)

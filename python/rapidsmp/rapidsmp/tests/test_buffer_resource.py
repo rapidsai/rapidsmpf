@@ -13,7 +13,7 @@ def KiB(x: int) -> int:
     return x * 2**10
 
 
-def test_limit_available_memory():
+def test_limit_available_memory() -> None:
     with pytest.raises(
         TypeError,
         match="expected rmm.pylibrmm.memory_resource.StatisticsResourceAdaptor",
@@ -45,7 +45,7 @@ def test_limit_available_memory():
     assert mem_available() == KiB(100)
 
 
-def test_buffer_resource():
+def test_buffer_resource() -> None:
     mr = rmm.mr.StatisticsResourceAdaptor(rmm.mr.CudaMemoryResource())
 
     with pytest.raises(
