@@ -24,34 +24,33 @@
 using namespace rapidsmp;
 
 TEST(Statistics, Disabled) {
-    rapidsmp::Statistics stats;
+    rapidsmp::Statistics stats(false);
     EXPECT_FALSE(stats.enabled());
 
     // Disabed statistics is a no-op.
-    EXPECT_EQ(stats.add_payload_send(1, 10), 0);
-    EXPECT_EQ(stats.get_peer_stats(42), rapidsmp::Statistics::PeerStats{});
-
+    EXPECT_EQ(stats.add_bytes_stat("name", 1), 0);
+    EXPECT_THROW(stats.get_stat("name"), std::out_of_range);
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("Statistics: disabled"));
 }
 
 TEST(Statistics, Communication) {
-    std::shared_ptr<rapidsmp::Communicator> comm =
-        std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
-    rapidsmp::Statistics stats(comm);
+    rapidsmp::Statistics stats;
     EXPECT_TRUE(stats.enabled());
 
-    // Invalid rank.
-    EXPECT_THROW(stats.add_payload_send(comm->nranks(), 10), std::out_of_range);
-    EXPECT_THROW(stats.get_peer_stats(comm->nranks()), std::out_of_range);
+    EXPECT_THROW(stats.get_stat("unknown-name"), std::out_of_range);
 
-    EXPECT_EQ(stats.add_payload_recv(0, 10), 10);
-    EXPECT_EQ(stats.get_peer_stats(0).payload_send_count, 0);
-    EXPECT_EQ(stats.get_peer_stats(0).payload_send_nbytes, 0);
-    EXPECT_EQ(stats.get_peer_stats(0).payload_recv_count, 1);
-    EXPECT_EQ(stats.get_peer_stats(0).payload_recv_nbytes, 10);
-    EXPECT_EQ(stats.add_payload_recv(0, 1), 11);
-    EXPECT_EQ(stats.add_payload_send(0, 10), 10);
+    auto custom_formatter = [](std::ostream& os, std::size_t count, double val) {
+        os << val << " by custom formatter";
+    };
 
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("Statistics:"));
-    EXPECT_THAT(stats.report(), ::testing::HasSubstr("peers:"));
+    EXPECT_EQ(stats.add_stat("custom-formatter", 10, custom_formatter), 10);
+    EXPECT_EQ(stats.add_stat("custom-formatter", 1, custom_formatter), 11);
+    EXPECT_EQ(stats.get_stat("custom-formatter").count_, 2);
+    EXPECT_EQ(stats.get_stat("custom-formatter").value_, 11);
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("custom-formatter"));
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("11 by custom formatter"));
+
+    EXPECT_EQ(stats.add_bytes_stat("byte-statistics", 20), 20);
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("byte-statistics"));
+    EXPECT_THAT(stats.report(), ::testing::HasSubstr("20.00 B"));
 }

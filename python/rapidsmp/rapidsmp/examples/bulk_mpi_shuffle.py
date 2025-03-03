@@ -231,7 +231,7 @@ def setup_and_run(args) -> None:
     )
     br = BufferResource(mr, memory_available)
 
-    stats = Statistics(comm if args.statistics else None)
+    stats = Statistics(args.statistics)
 
     if comm.rank == 0:
         spill_device = (
