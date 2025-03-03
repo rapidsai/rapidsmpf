@@ -57,7 +57,7 @@ cdef class Logger:
 
     def print(self, msg: str):
         """
-        Logs a warning message.
+        Logs a print message.
 
         Parameters
         ----------
