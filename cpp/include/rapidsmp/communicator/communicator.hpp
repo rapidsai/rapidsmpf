@@ -359,17 +359,20 @@ class Communicator {
         /**
          * @brief Handles the logging of a messages.
          *
-         * Outputs a formatted message to `std::cout`. This method can be
-         * overridden in derived classes to customize logging behavior.
+         * This base implementation prepend the rank and thread id to the message
+         * and print it to `std::cout`.
          *
-         *  @param level The verbosity level of the message.
+         * Override this method can in a derived classes to customize logging behavior.
+         *
+         * @param level The verbosity level of the message.
          * @param ss The formatted message as a string stream.
          */
         virtual void do_log(LOG_LEVEL level, std::ostringstream&& ss) {
-            ss << "[" << level_name(level) << ":" << comm_->rank() << ":"
-               << get_thread_id() << "] " << ss.str();
+            std::ostringstream full_log_msg;
+            full_log_msg << "[" << level_name(level) << ":" << comm_->rank() << ":"
+                         << get_thread_id() << "] " << ss.str();
             std::lock_guard<std::mutex> lock(mutex_);
-            std::cout << ss.str() << std::endl;
+            std::cout << full_log_msg.str() << std::endl;
         }
 
         /**
