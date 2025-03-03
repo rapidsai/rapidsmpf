@@ -439,7 +439,7 @@ def rmp_worker_setup(
     dask_worker,
     *,
     pool_size: float = 0.75,
-    spill_device: float = 0.50,  # 0.0625,
+    spill_device: float = 0.50,
 ):
     """
     Attach rapidsmp shuffling attributes to a Dask worker.
