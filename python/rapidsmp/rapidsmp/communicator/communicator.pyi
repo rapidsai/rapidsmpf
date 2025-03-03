@@ -1,8 +1,20 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
+from enum import IntEnum
+from typing import cast
+
+class LOG_LEVEL(IntEnum):
+    NONE = cast(int, ...)
+    PRINT = cast(int, ...)
+    WARN = cast(int, ...)
+    INFO = cast(int, ...)
+    DEBUG = cast(int, ...)
+    TRACE = cast(int, ...)
+
 class Logger:
     @property
-    def verbosity_level(self) -> int: ...
+    def verbosity_level(self) -> LOG_LEVEL: ...
+    def print(self, msg: str) -> None: ...
     def warn(self, msg: str) -> None: ...
     def info(self, msg: str) -> None: ...
     def debug(self, msg: str) -> None: ...

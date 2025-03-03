@@ -132,7 +132,7 @@ class ArgumentParser {
         ss << "  -r " << num_runs << " (number of runs)\n";
         ss << "  -w " << num_warmups << " (number of warmup runs)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
-        comm.logger().info(ss.str());
+        comm.logger().print(ss.str());
     }
 
     std::uint64_t num_runs{1};
@@ -243,7 +243,7 @@ int main(int argc, char** argv) {
         ss << "    PCI Bus ID: " << pci_bus_id.substr(0, pci_bus_id.find('\0')) << "\n";
         ss << "    Total Memory: " << format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
-        log.info(ss.str());
+        log.print(ss.str());
     }
 
     auto const total_local_msg_send = args.msg_size * args.num_ops * comm->nranks();
@@ -259,7 +259,7 @@ int main(int argc, char** argv) {
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
-        log.info(ss.str());
+        log.print(ss.str());
         if (i >= args.num_warmups) {
             elapsed_vec.push_back(elapsed);
         }
