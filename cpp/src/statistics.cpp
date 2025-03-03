@@ -21,74 +21,74 @@
 
 namespace rapidsmp {
 
-Statistics::PeerStats Statistics::get_peer_stats(Rank peer) const {
-    if (!enabled()) {
-        return PeerStats{};
+void Statistics::FormatterDefault(std::ostream& os, std::size_t count, double val) {
+    os << val;
+    if (count > 1) {
+        os << " (avg " << (val / count) << ")";
     }
+};
+
+Statistics::Stat Statistics::get_stat(std::string const& name) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return peer_stats_.at(peer);
+    return stats_.at(name);
 }
 
-std::size_t Statistics::add_payload_send(Rank peer, std::size_t nbytes) {
-    if (!enabled()) {
-        return 0;
-    }
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto& p = peer_stats_.at(peer);
-    ++p.payload_send_count;
-    return p.payload_send_nbytes += nbytes;
-}
-
-std::size_t Statistics::add_payload_recv(Rank peer, std::size_t nbytes) {
+double Statistics::add_stat(
+    std::string const& name, double value, Formatter const& formatter
+) {
     if (!enabled()) {
         return 0;
     }
     std::lock_guard<std::mutex> lock(mutex_);
-    auto& p = peer_stats_.at(peer);
-    ++p.payload_recv_count;
-    return p.payload_recv_nbytes += nbytes;
+    auto it = stats_.find(name);
+    if (it == stats_.end()) {
+        it = stats_.insert({name, Stat(formatter)}).first;
+    }
+    return it->second.add(value);
 }
 
-std::string Statistics::report(int column_width, int label_width) const {
+std::size_t Statistics::add_bytes_stat(std::string const& name, std::size_t nbytes) {
+    return add_stat(name, nbytes, [](std::ostream& os, std::size_t count, double val) {
+        os << format_nbytes(val);
+        if (count > 1) {
+            os << " (avg " << format_nbytes(val / count) << ")";
+        }
+    });
+}
+
+Duration Statistics::add_duration_stat(std::string const& name, Duration seconds) {
+    return Duration(add_stat(
+        name,
+        seconds.count(),
+        [](std::ostream& os, std::size_t count, double val) {
+            os << format_duration(val);
+            if (count > 1) {
+                os << " (avg " << format_duration(val / count) << ")";
+            }
+        }
+    ));
+}
+
+std::string Statistics::report() const {
     if (!enabled()) {
         return "Statistics: disabled";
     }
     std::lock_guard<std::mutex> lock(mutex_);
+
+    std::size_t max_length{0};
+    for (auto const& [name, _] : stats_) {
+        max_length = std::max(max_length, name.size());
+    }
+
     std::stringstream ss;
     ss << "Statistics:\n";
-    ss << std::setw(label_width - 3) << std::left << " - peers:";
-    for (Rank i = 0; i < comm_->nranks(); ++i) {
-        ss << std::right << std::setw(column_width) << "Rank" << i;
+    for (auto const& [name, stat] : stats_) {
+        ss << " - " << std::setw(max_length + 3) << std::left << name + ": ";
+        stat.formatter_(ss, stat.count_, stat.value_);
+        ss << "\n";
     }
-    ss << "\n" << std::setw(label_width) << std::left << " - payload-total-send:";
-    for (Rank i = 0; i < comm_->nranks(); ++i) {
-        ss << std::right << std::setw(column_width)
-           << format_nbytes(peer_stats_.at(i).payload_send_nbytes) << " ";
-    }
-    ss << "\n" << std::setw(label_width) << std::left << " - payload-total-recv:";
-    for (Rank i = 0; i < comm_->nranks(); ++i) {
-        ss << std::right << std::setw(column_width)
-           << format_nbytes(peer_stats_.at(i).payload_recv_nbytes) << " ";
-    }
-    ss << "\n" << std::setw(label_width) << std::left << " - payload-avg-msg-size-send:";
-    for (Rank i = 0; i < comm_->nranks(); ++i) {
-        ss << std::right << std::setw(column_width)
-           << format_nbytes(safe_div<double>(
-                  peer_stats_.at(i).payload_send_nbytes,
-                  peer_stats_.at(i).payload_send_count
-              ))
-           << " ";
-    }
-    ss << "\n" << std::setw(label_width) << std::left << " - payload-avg-msg-size-recv:";
-    for (Rank i = 0; i < comm_->nranks(); ++i) {
-        ss << std::right << std::setw(column_width)
-           << format_nbytes(safe_div<double>(
-                  peer_stats_.at(i).payload_recv_nbytes,
-                  peer_stats_.at(i).payload_recv_count
-              ))
-           << " ";
-    }
-    ss << "\n";
     return ss.str();
 }
+
+
 }  // namespace rapidsmp
