@@ -7,10 +7,8 @@ import argparse
 
 import ray
 
-from rapidsmp.integrations.ray import (
-    ShufflingActor,
-    setup_ray_ucxx_cluster,
-)
+from rapidsmp.integrations.ray import setup_ray_ucxx_cluster
+from rapidsmp.utils.ray_utils import ShufflingActor
 
 
 @ray.remote(num_gpus=1)
@@ -24,7 +22,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--nranks", type=int, default=1)
     parser.add_argument("--num_rows", type=int, default=100)
-    parser.add_argument("--batch_sz", type=int, default=-1)
+    parser.add_argument("--batch_size", type=int, default=-1)
     parser.add_argument("--total_nparts", type=int, default=-1)
     args = parser.parse_args()
 
@@ -32,7 +30,7 @@ if __name__ == "__main__":
 
     # Create shufflling actors
     gpu_actors = setup_ray_ucxx_cluster(
-        ShuffleExample, args.nranks, args.num_rows, args.batch_sz, args.total_nparts
+        ShuffleExample, args.nranks, args.num_rows, args.batch_size, args.total_nparts
     )
 
     try:

@@ -8,13 +8,13 @@ os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
 
 import pytest
 
-ray = pytest.importorskip("ray")
-
-from rapidsmp.integrations.ray import (  # noqa: E402
+from rapidsmp.integrations.ray import (
     RapidsMPActor,
-    ShufflingActor,
     setup_ray_ucxx_cluster,
 )
+from rapidsmp.utils.ray_utils import ShufflingActor
+
+ray = pytest.importorskip("ray")
 
 
 def get_nranks_if_spawned_by_mpi() -> int:
@@ -122,7 +122,7 @@ def test_ray_shuffle_actor(num_workers, batch_size, total_num_partitions):
     gpu_actors = setup_ray_ucxx_cluster(
         TestShufflingActor,
         num_workers,
-        batch_sz=batch_size,
+        batch_size=batch_size,
         total_nparts=total_num_partitions,
     )
 
