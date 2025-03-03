@@ -378,8 +378,7 @@ int main(int argc, char** argv) {
         }
         log.print(ss.str());
     }
-    log.print(stats->report());
+    log.print(stats->report("Statistics (of the last run):"));
     RAPIDSMP_MPI(MPI_Finalize());
-
     return 0;
 }

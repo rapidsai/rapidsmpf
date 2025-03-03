@@ -74,9 +74,10 @@ class Statistics {
     /**
      * @brief Generates a formatted report of collected statistics.
      *
+     * @param header The header to use for the report.
      * @return Formatted statistics report as a string.
      */
-    std::string report() const;
+    std::string report(std::string const& header = "Statistics:") const;
 
     /**
      * @brief Function type for formatting statistics output.

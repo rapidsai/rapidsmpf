@@ -264,7 +264,6 @@ int main(int argc, char** argv) {
            << "| local throughput: " << format_nbytes(total_local_msg_send / elapsed)
            << "/s | total throughput: "
            << format_nbytes(total_local_msg_send * comm->nranks() / elapsed) << "/s";
-
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
@@ -273,8 +272,7 @@ int main(int argc, char** argv) {
             elapsed_vec.push_back(elapsed);
         }
     }
-    log.info(stats->report());
-
+    log.info(stats->report("Statistics (of the last run):"));
     RAPIDSMP_MPI(MPI_Finalize());
     return 0;
 }
