@@ -71,12 +71,6 @@ regex = "(?P<value>.*)"
 [tool.mypy]
 exclude = ["_deps/*"]
 ignore_missing_imports = true
-warn_return_any = true
-warn_unused_configs = true
-
-[[tool.mypy.overrides]]
-module = "rapidsmp.*"
-disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=append" # Dask subprocesses fail to import RAPIDSMP otherwise

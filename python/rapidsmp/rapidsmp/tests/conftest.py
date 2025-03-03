@@ -47,7 +47,7 @@ def _ucxx_comm() -> Communicator:
 @pytest.fixture(
     params=["mpi", "ucxx"],
 )
-def comm(request: pytest.FixtureRequest) -> Generator[Communicator, None, None]:
+def comm(request) -> Generator[Communicator, None, None]:
     """
     Fixture for a rapidsmp communicator, scoped for each test.
     """

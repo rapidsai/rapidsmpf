@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
@@ -18,17 +17,10 @@ from rapidsmp.utils.cudf import (
     pylibcudf_to_cudf_dataframe,
 )
 
-if TYPE_CHECKING:
-    import rmm.mr
-
-    from rapidsmp.communicator.communicator import Communicator
-
 
 @pytest.mark.parametrize("df", [{"0": [1, 2, 3], "1": [2, 2, 1]}, {"0": [], "1": []}])
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
-def test_partition_and_pack_unpack(
-    device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
-) -> None:
+def test_partition_and_pack_unpack(device_mr, df, num_partitions):
     expect = cudf.DataFrame(df)
     partitions = partition_and_pack(
         cudf_to_pylibcudf_table(expect),
@@ -51,11 +43,8 @@ def test_partition_and_pack_unpack(
 @pytest.mark.parametrize("wait_on", [False, True])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
 def test_shuffler_single_nonempty_partition(
-    comm: Communicator,
-    device_mr: rmm.mr.CudaMemoryResource,
-    total_num_partitions: int,
-    wait_on: bool,  # noqa: FBT001
-) -> None:
+    comm, device_mr, total_num_partitions, wait_on
+):
     br = BufferResource(device_mr)
 
     shuffler = Shuffler(
@@ -114,12 +103,7 @@ def test_shuffler_single_nonempty_partition(
 
 @pytest.mark.parametrize("batch_size", [None, 10])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-def test_shuffler_uniform(
-    comm: Communicator,
-    device_mr: rmm.mr.CudaMemoryResource,
-    batch_size: int | None,
-    total_num_partitions: int,
-) -> None:
+def test_shuffler_uniform(comm, device_mr, batch_size, total_num_partitions):
     br = BufferResource(device_mr)
 
     # Every rank creates the full input dataframe and all the expected partitions
