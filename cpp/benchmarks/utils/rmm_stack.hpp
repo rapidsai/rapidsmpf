@@ -45,6 +45,7 @@ set_current_rmm_stack(std::string const& name) {
     } else if (name == "pool") {
         ret = rmm::mr::make_owning_wrapper<rmm::mr::pool_memory_resource>(
             std::make_shared<rmm::mr::cuda_memory_resource>(),
+            rmm::percent_of_free_device_memory(80),
             rmm::percent_of_free_device_memory(80)
         );
     } else {

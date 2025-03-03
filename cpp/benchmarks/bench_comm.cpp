@@ -25,6 +25,7 @@
 
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"
+#include "utils/rmm_stack.hpp"
 
 
 using namespace rapidsmp;
@@ -40,7 +41,7 @@ class ArgumentParser {
 
         try {
             int option;
-            while ((option = getopt(argc, argv, "hC:O:r:w:n:p:")) != -1) {
+            while ((option = getopt(argc, argv, "hC:O:r:w:n:p:m:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -53,6 +54,8 @@ class ArgumentParser {
                            << "  -n <num>   Message size in bytes (default: 1M)\n"
                            << "  -p <num>   Number of concurrent operations, e.g. number"
                               " of  concurrent all-to-all operations (default: 1)\n"
+                           << "  -m <mr>    RMM memory resource {cuda, pool, async} "
+                              "(default: cuda)\n"
                            << "  -r <num>   Number of runs (default: 1)\n"
                            << "  -w <num>   Number of warmup runs (default: 0)\n"
                            << "  -h         Display this help message\n";
@@ -84,6 +87,14 @@ class ArgumentParser {
                     break;
                 case 'p':
                     parse_integer(num_ops, optarg);
+                    break;
+                case 'm':
+                    rmm_mr = std::string{optarg};
+                    if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async")) {
+                        throw std::invalid_argument(
+                            "-m (RMM memory resource) must be one of {cuda, pool, async}"
+                        );
+                    }
                     break;
                 case 'r':
                     parse_integer(num_runs, optarg);
@@ -120,11 +131,13 @@ class ArgumentParser {
         ss << "  -p " << num_ops << " (number of operations)\n";
         ss << "  -r " << num_runs << " (number of runs)\n";
         ss << "  -w " << num_warmups << " (number of warmup runs)\n";
+        ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
         comm.logger().info(ss.str());
     }
 
     std::uint64_t num_runs{1};
     std::uint64_t num_warmups{0};
+    std::string rmm_mr{"cuda"};
     std::string comm_type{"mpi"};
     std::string operation{"all-to-all"};
     std::uint64_t msg_size{1 << 20};
@@ -207,12 +220,13 @@ int main(int argc, char** argv) {
         comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
     }
 
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    BufferResource br{mr};
-
     auto& log = comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     args.pprint(*comm);
+    auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
+
+    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
+    BufferResource br{mr};
 
     // Print benchmark/hardware info.
     {
@@ -238,7 +252,10 @@ int main(int argc, char** argv) {
         auto const elapsed = run(comm, args, stream, &br).count();
         std::stringstream ss;
         ss << "elapsed: " << to_precision(elapsed) << " sec "
-           << "| throughput: " << format_nbytes(total_local_msg_send / elapsed) << "/s";
+           << "| local throughput: " << format_nbytes(total_local_msg_send / elapsed)
+           << "/s | total throughput: "
+           << format_nbytes(total_local_msg_send * comm->nranks() / elapsed) << "/s";
+
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
