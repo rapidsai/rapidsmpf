@@ -151,12 +151,12 @@ std::size_t postbox_spilling(
             break;
         }
     }
-    statistics.add_duration_stat("spill-device-to-host-time", Clock::now() - t0_elapsed);
-    statistics.add_bytes_stat("spill-device-to-host-bytes", total_spilled);
+    statistics.add_duration_stat("spill-time-device-to-host", Clock::now() - t0_elapsed);
+    statistics.add_bytes_stat("spill-bytes-device-to-host", total_spilled);
     if (total_spilled < amount) {
         // TODO: use a "max" statistic when it is available, for now we use the average.
         statistics.add_stat(
-            "spill-device-limit-breach",
+            "spill-breach-device-limit",
             amount - total_spilled,
             [](std::ostream& os, std::size_t count, double val) {
                 os << "avg " << format_nbytes(val / count);
@@ -283,10 +283,10 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
                 MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
             );
             statistics_->add_duration_stat(
-                "spill-device-to-host-time", Clock::now() - t0_elapsed
+                "spill-time-host-to-device", Clock::now() - t0_elapsed
             );
             statistics_->add_bytes_stat(
-                "spill-device-to-host-bytes", chunk.gpu_data->size
+                "spill-bytes-host-to-device", chunk.gpu_data->size
             );
             insert(std::move(chunk));
         } else {
@@ -341,8 +341,10 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
             br_->move_to_device_buffer(std::move(chunk.gpu_data), stream_, reservation)
         );
     }
-    statistics_->add_duration_stat("unspill-to-device-time", Clock::now() - t0_unspill);
-    statistics_->add_bytes_stat("unspill-to-device-bytes", total_unspilled);
+    statistics_->add_duration_stat(
+        "spill-time-device-to-host", Clock::now() - t0_unspill
+    );
+    statistics_->add_bytes_stat("spill-bytes-device-to-host", total_unspilled);
     return ret;
 }
 
@@ -452,7 +454,7 @@ void Shuffler::run_event_loop_iteration(
             auto recv_buffer =
                 allocate_buffer(chunk.gpu_data_size, self.stream_, self.br_);
             if (recv_buffer->mem_type == MemoryType::HOST) {
-                stats.add_bytes_stat("spill-recv-to-host", recv_buffer->size);
+                stats.add_bytes_stat("spill-bytes-recv-to-host", recv_buffer->size);
             }
 
             // Setup to receive the chunk into `in_transit_*`.
