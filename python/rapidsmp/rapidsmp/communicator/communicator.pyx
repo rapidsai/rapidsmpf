@@ -32,7 +32,13 @@ cdef class Logger:
     """
     Logger.
 
-    To control the verbosity level, set the environment variable `RAPIDSMP_LOG`.
+    To control the verbosity level, set the environment variable `RAPIDSMP_LOG`:
+      - NONE:  No logging.
+      - PRINT: General print messages.
+      - WARN:  Warning messages (default)
+      - INFO:  Informational messages.
+      - DEBUG: Debug messages.
+      - TRACE: Trace messages.
     """
 
     def __init__(self):

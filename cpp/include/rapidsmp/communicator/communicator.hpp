@@ -241,9 +241,13 @@ class Communicator {
         /**
          * @brief Construct a new logger.
          *
-         * Initializes the logger with a given communicator and verbosity level.
-         * The verbosity level is determined by the environment variable `RAPIDSMP_LOG`,
-         * defaulting to `2` if not set.
+         * To control the verbosity level, set the environment variable `RAPIDSMP_LOG`:
+         *  - NONE:  No logging.
+         *  - PRINT: General print messages.
+         *  - WARN:  Warning messages (default)
+         *  - INFO:  Informational messages.
+         *  - DEBUG: Debug messages.
+         *  - TRACE: Trace messages.
          *
          * @param comm The `Communicator` to use.
          */
