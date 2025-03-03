@@ -278,7 +278,6 @@ class Communicator {
             if (static_cast<std::uint32_t>(level_) < static_cast<std::uint32_t>(level)) {
                 return;
             }
-            std::lock_guard<std::mutex> lock(mutex_);
             std::ostringstream ss;
             (ss << ... << args);
             do_log(level, std::move(ss));
@@ -367,17 +366,9 @@ class Communicator {
          * @param ss The formatted message as a string stream.
          */
         virtual void do_log(LOG_LEVEL level, std::ostringstream&& ss) {
+            std::lock_guard<std::mutex> lock(mutex_);
             std::cout << "[" << level_name(level) << ":" << comm_->rank() << ":"
                       << get_thread_id() << "] " << ss.str() << std::endl;
-        }
-
-        /**
-         * @brief Get a reference to the class mutex.
-         *
-         * @return Reference to the mutex.
-         */
-        std::mutex& mutex() {
-            return mutex_;
         }
 
         /**
