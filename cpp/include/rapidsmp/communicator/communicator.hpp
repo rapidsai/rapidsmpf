@@ -168,91 +168,28 @@ class Communicator {
     };
 
     /**
-     * @brief A logger base class for handling different levels of log messages.
+     * @brief Logger base class.
      *
-     * The logger class provides various logging methods with different verbosity levels.
-     * It ensures thread-safety using a mutex and allows filtering of log messages
-     * based on the configured verbosity level.
+     * To control the verbosity level, set the environment variable `RAPIDSMP_LOG`:
+     *   - `0`: Disable all logging.
+     *   - `1`: Enable warnings only.
+     *   - `2`: Enable warnings and informational messages (default).
+     *   - `3`: Enable warnings, informational, and debug messages.
+     *   - `4`: Enable warnings, informational, debug, and trace messages.
      */
     class Logger {
       public:
         /**
-         * @brief Log verbosity levels.
-         *
-         * Defines different logging levels for filtering messages.
-         */
-        enum class LOG_LEVEL : std::uint32_t {
-            NONE = 0,  ///< No logging.
-            PRINT,  ///< General print messages.
-            WARN,  ///< Warning messages.
-            INFO,  ///< Informational messages.
-            DEBUG,  ///< Debug messages.
-            TRACE  ///< Trace messages.
-        };
-
-        /**
-         * @brief Log level names corresponding to the LOG_LEVEL enum.
-         */
-        static constexpr std::array<char const*, 6> LOG_LEVEL_NAMES{
-            "NONE", "PRINT", "WARN", "INFO", "DEBUG", "TRACE"
-        };
-
-        /**
-         * @brief Get the string name of a log level.
-         *
-         * @param level The log level.
-         * @return The corresponding log level name or "UNKNOWN" if out of range.
-         */
-        static constexpr const char* level_name(LOG_LEVEL level) {
-            auto index = static_cast<std::size_t>(level);
-            return index < LOG_LEVEL_NAMES.size() ? LOG_LEVEL_NAMES[index] : "UNKNOWN";
-        }
-
-        /**
-         * @brief Get the verbosity level from the environment variable `RAPIDSMP_LOG`.
-         *
-         * This function reads the `RAPIDSMP_LOG` environment variable, trims whitespace,
-         * converts the value to uppercase, and attempts to match it against known logging
-         * level names. If the environment variable is not set, the default value `"WARN"`
-         * is used.
-         *
-         * @return The corresponding logging level of type `LOG_LEVEL`.
-         *
-         * @throws std::invalid_argument If the environment variable contains an unknown
-         * value.
-         */
-        static LOG_LEVEL level_from_env() {
-            auto env = to_upper(trim(getenv_or<std::string>("RAPIDSMP_LOG", "WARN")));
-            for (std::uint32_t i = 0; i < LOG_LEVEL_NAMES.size(); ++i) {
-                auto level = static_cast<LOG_LEVEL>(i);
-                if (env == level_name(level)) {
-                    return level;
-                }
-            }
-            std::stringstream ss;
-            ss << "RAPIDSMP_LOG - unknown value: \"" << env << "\", valid choices: { ";
-            for (auto const& name : LOG_LEVEL_NAMES) {
-                ss << name << " ";
-            }
-            ss << "}";
-            throw std::invalid_argument(ss.str());
-        }
-
-        /**
          * @brief Construct a new logger.
          *
-         * To control the verbosity level, set the environment variable `RAPIDSMP_LOG`:
-         *  - NONE:  No logging.
-         *  - PRINT: General print messages.
-         *  - WARN:  Warning messages (default)
-         *  - INFO:  Informational messages.
-         *  - DEBUG: Debug messages.
-         *  - TRACE: Trace messages.
+         * Initializes the logger with a given communicator and verbosity level.
+         * The verbosity level is determined by the environment variable `RAPIDSMP_LOG`,
+         * defaulting to `2` if not set.
          *
          * @param comm The `Communicator` to use.
          */
         Logger(Communicator* comm)  // TODO: support writing to a file.
-            : comm_{comm}, level_{level_from_env()} {};
+            : comm_{comm}, level_{getenv_or("RAPIDSMP_LOG", 2)} {};
         virtual ~Logger() noexcept = default;
 
         /**
@@ -260,82 +197,84 @@ class Communicator {
          *
          * @return The verbosity level.
          */
-        LOG_LEVEL verbosity_level() const {
+        int verbosity_level() const {
             return level_;
-        }
-
-        /**
-         * @brief Logs a message using the specified verbosity level.
-         *
-         * Formats and outputs a message if the verbosity level is high enough.
-         *
-         * @tparam Args Types of the message components, must support the `<<` operator.
-         * @param level The verbosity level of the message.
-         * @param args The components of the message to log.
-         */
-        template <typename... Args>
-        void log(LOG_LEVEL level, Args const&... args) {
-            if (static_cast<std::uint32_t>(level_) < static_cast<std::uint32_t>(level)) {
-                return;
-            }
-            std::ostringstream ss;
-            (ss << ... << args);
-            do_log(level, std::move(ss));
-        }
-
-        /**
-         * @brief Logs a print message.
-         *
-         * @tparam Args Types of the message components.
-         * @param args The components of the message to log.
-         */
-        template <typename... Args>
-        void print(Args const&... args) {
-            log(LOG_LEVEL::PRINT, std::forward<Args const&>(args)...);
         }
 
         /**
          * @brief Logs a warning message.
          *
-         * @tparam Args Types of the message components.
+         * Formats and outputs a warning message if the verbosity level is `1` or higher.
+         *
+         * @tparam Args Types of the message components, must support the << operator.
          * @param args The components of the message to log.
          */
         template <typename... Args>
         void warn(Args const&... args) {
-            log(LOG_LEVEL::WARN, std::forward<Args const&>(args)...);
+            if (level_ < 1) {
+                return;
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            std::ostringstream ss;
+            (ss << ... << args);
+            do_warn(std::move(ss));
         }
 
         /**
          * @brief Logs an informational message.
          *
-         * @tparam Args Types of the message components.
+         * Formats and outputs an informational message if the verbosity level is `2`.
+         *
+         * @tparam Args Types of the message components, must support the << operator.
          * @param args The components of the message to log.
          */
         template <typename... Args>
         void info(Args const&... args) {
-            log(LOG_LEVEL::INFO, std::forward<Args const&>(args)...);
+            if (level_ < 2) {
+                return;
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            std::ostringstream ss;
+            (ss << ... << args);
+            do_info(std::move(ss));
         }
 
         /**
          * @brief Logs a debug message.
          *
-         * @tparam Args Types of the message components.
+         * Formats and outputs a debug message if the verbosity level is `3`.
+         *
+         * @tparam Args Types of the message components, must support the << operator.
          * @param args The components of the message to log.
          */
         template <typename... Args>
         void debug(Args const&... args) {
-            log(LOG_LEVEL::DEBUG, std::forward<Args const&>(args)...);
+            if (level_ < 3) {
+                return;
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            std::ostringstream ss;
+            (ss << ... << args);
+            do_debug(std::move(ss));
         }
 
         /**
          * @brief Logs a trace message.
          *
-         * @tparam Args Types of the message components.
+         * Formats and outputs a trace message if the verbosity level is `4`.
+         *
+         * @tparam Args Types of the message components, must support the << operator.
          * @param args The components of the message to log.
          */
         template <typename... Args>
         void trace(Args const&... args) {
-            log(LOG_LEVEL::TRACE, std::forward<Args const&>(args)...);
+            if (level_ < 4) {
+                return;
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            std::ostringstream ss;
+            (ss << ... << args);
+            do_trace(std::move(ss));
         }
 
       protected:
@@ -357,22 +296,64 @@ class Communicator {
         }
 
         /**
-         * @brief Handles the logging of a messages.
+         * @brief Handles the logging of warning messages.
          *
-         * This base implementation prepend the rank and thread id to the message
-         * and print it to `std::cout`.
+         * Outputs a formatted warning message to `std::cout`. This method can be
+         * overridden in derived classes to customize logging behavior.
          *
-         * Override this method in a derived classes to customize logging behavior.
-         *
-         * @param level The verbosity level of the message.
-         * @param ss The formatted message as a string stream.
+         * @param ss The formatted warning message as a string stream.
          */
-        virtual void do_log(LOG_LEVEL level, std::ostringstream&& ss) {
-            std::ostringstream full_log_msg;
-            full_log_msg << "[" << level_name(level) << ":" << comm_->rank() << ":"
-                         << get_thread_id() << "] " << ss.str();
-            std::lock_guard<std::mutex> lock(mutex_);
-            std::cout << full_log_msg.str() << std::endl;
+        virtual void do_warn(std::ostringstream&& ss) {
+            std::cout << "[WARN:" << comm_->rank() << ":" << get_thread_id() << "] "
+                      << ss.str() << std::endl;
+        }
+
+        /**
+         * @brief Handles the logging of informational messages.
+         *
+         * Outputs a formatted informational message to `std::cout`. This method can be
+         * overridden in derived classes to customize logging behavior.
+         *
+         * @param ss The formatted informational message as a string stream.
+         */
+        virtual void do_info(std::ostringstream&& ss) {
+            std::cout << "[INFO:" << comm_->rank() << ":" << get_thread_id() << "] "
+                      << ss.str() << std::endl;
+        }
+
+        /**
+         * @brief Handles the logging of debug messages.
+         *
+         * Outputs a formatted informational message to `std::cout`. This method can be
+         * overridden in derived classes to customize logging behavior.
+         *
+         * @param ss The formatted informational message as a string stream.
+         */
+        virtual void do_debug(std::ostringstream&& ss) {
+            std::cout << "[DEBUG:" << comm_->rank() << ":" << get_thread_id() << "] "
+                      << ss.str() << std::endl;
+        }
+
+        /**
+         * @brief Handles the logging of trace messages.
+         *
+         * Outputs a formatted informational message to `std::cout`. This method can be
+         * overridden in derived classes to customize logging behavior.
+         *
+         * @param ss The formatted informational message as a string stream.
+         */
+        virtual void do_trace(std::ostringstream&& ss) {
+            std::cout << "[TRACE:" << comm_->rank() << ":" << get_thread_id() << "] "
+                      << ss.str() << std::endl;
+        }
+
+        /**
+         * @brief Get a reference to the class mutex.
+         *
+         * @return Reference to the mutex.
+         */
+        std::mutex& mutex() {
+            return mutex_;
         }
 
         /**
@@ -387,7 +368,7 @@ class Communicator {
       private:
         std::mutex mutex_;
         Communicator* comm_;
-        LOG_LEVEL const level_;
+        int const level_;
 
         /// Counter used by `std::this_thread::get_id()` to abbreviate the large
         /// number returned by `std::this_thread::get_id()`.

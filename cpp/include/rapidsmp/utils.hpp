@@ -215,28 +215,4 @@ constexpr T safe_div(T x, T y) {
     return (y == 0) ? 0 : x / y;
 }
 
-/**
- * @brief Trims whitespace from both ends of the specified string.
- *
- * @param str The input string to be processed.
- * @return The trimmed string.
- */
-std::string trim(std::string const& str);
-
-/**
- * @brief Converts the specified string to lowercase.
- *
- * @param str The input string to be processed.
- * @return The trimmed string.
- */
-std::string to_lower(std::string str);
-
-/**
- * @brief Converts the specified string to uppercase.
- *
- * @param str The input string to be processed.
- * @return The trimmed string.
- */
-std::string to_upper(std::string str);
-
 }  // namespace rapidsmp

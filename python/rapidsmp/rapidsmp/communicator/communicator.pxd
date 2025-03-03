@@ -13,16 +13,6 @@ cdef extern from "<rapidsmp/communicator/communicator.hpp>" nogil:
         int nranks() except +
         string str() except +
 
-cdef extern from "<rapidsmp/communicator/communicator.hpp>" namespace \
-  "rapidsmp::Communicator::Logger" nogil:
-    cpdef enum class LOG_LEVEL(int):
-        NONE
-        PRINT
-        WARN
-        INFO
-        DEBUG
-        TRACE
-
 cdef class Communicator:
     cdef shared_ptr[cpp_Communicator] _handle
     cdef Logger _logger
