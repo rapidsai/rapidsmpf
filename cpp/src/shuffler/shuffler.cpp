@@ -105,6 +105,7 @@ std::unique_ptr<Buffer> allocate_buffer(
  *
  * @param br Buffer resource for memory allocation.
  * @param log A logger for recording events and debugging information.
+ * @param statistics The statistics instance to use.
  * @param stream CUDA stream to use for memory and kernel operations.
  * @param postbox The PostBox containing buffers to be spilled.
  * @param amount The maximum amount of data (in bytes) to be spilled.
@@ -114,10 +115,12 @@ std::unique_ptr<Buffer> allocate_buffer(
 std::size_t postbox_spilling(
     BufferResource* br,
     Communicator::Logger& log,
+    Statistics& statistics,
     rmm::cuda_stream_view stream,
     PostBox& postbox,
     std::size_t amount
 ) {
+    auto const t0_elapsed = Clock::now();
     // Let's look for chunks to spill in the outbox.
     auto const chunk_info = postbox.search(MemoryType::DEVICE);
     std::size_t total_spilled{0};
@@ -147,6 +150,18 @@ std::size_t postbox_spilling(
         if ((total_spilled += size) >= amount) {
             break;
         }
+    }
+    statistics.add_duration_stat("spill-time-device-to-host", Clock::now() - t0_elapsed);
+    statistics.add_bytes_stat("spill-bytes-device-to-host", total_spilled);
+    if (total_spilled < amount) {
+        // TODO: use a "max" statistic when it is available, for now we use the average.
+        statistics.add_stat(
+            "spill-breach-device-limit",
+            amount - total_spilled,
+            [](std::ostream& os, std::size_t count, double val) {
+                os << "avg " << format_nbytes(val / count);
+            }
+        );
     }
     return total_spilled;
 }
@@ -240,15 +255,7 @@ void Shuffler::insert(detail::Chunk&& chunk) {
 void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks) {
     auto& log = comm_->logger();
 
-    // Check if we should spill. We start by spilling buffers in the outbox.
-    std::size_t total_spilled{0};
-    {
-        std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
-        if (headroom < 0) {
-            std::size_t spilled_need = -headroom;
-            total_spilled += postbox_spilling(br_, log, stream_, outbox_, spilled_need);
-        }
-    }
+    spill();  // Spill if current device memory usage is too high.
 
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_columns] : chunks) {
@@ -270,10 +277,16 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
                 std::move(packed_columns.gpu_data)
             );
             // Spill the new chunk before inserting.
+            auto const t0_elapsed = Clock::now();
             chunk.gpu_data = br_->move(
                 MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
             );
-            total_spilled += chunk.gpu_data->size;
+            statistics_->add_duration_stat(
+                "spill-time-host-to-device", Clock::now() - t0_elapsed
+            );
+            statistics_->add_bytes_stat(
+                "spill-bytes-host-to-device", chunk.gpu_data->size
+            );
             insert(std::move(chunk));
         } else {
             insert(create_chunk(
@@ -282,19 +295,6 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
                 std::move(packed_columns.gpu_data)
             ));
         }
-    }
-    if (total_spilled > 0) {
-        log.info(
-            "Shuffler - total spilled while inserting: ", format_nbytes(total_spilled)
-        );
-    }
-
-    std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
-    if (headroom < 0) {
-        log.warn(
-            "Cannot find enough chunks to spill to avoid negative headroom: ",
-            format_nbytes(headroom)
-        );
     }
 }
 
@@ -308,7 +308,6 @@ void Shuffler::insert_finished(PartID pid) {
 }
 
 std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
-    auto& log = comm_->logger();
     auto chunks = outbox_.extract(pid);
     std::vector<cudf::packed_columns> ret;
     ret.reserve(chunks.size());
@@ -326,35 +325,45 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
 
     // Check overbooking, do we need to spill to host memory?
     if (overbooking > 0) {
-        log.info(
-            "Shuffler::extract(pid=",
-            pid,
-            ") - overbooking with ",
-            format_nbytes(overbooking),
-            " while reserving ",
-            format_nbytes(reservation.size())
-        );
-        // Let's look for chunks to spill in the outbox.
-        auto total_spilled = postbox_spilling(br_, log, stream_, outbox_, overbooking);
-        if (total_spilled < overbooking) {
-            log.warn(
-                "Cannot find enough chunks to spill to avoid overbooking - total "
-                "spilled: ",
-                format_nbytes(total_spilled),
-                ", remaining overbooking: ",
-                format_nbytes(overbooking - total_spilled)
-            );
-        }
+        spill(overbooking);
     }
 
     // Move the gpu_data to device memory (copy if necessary).
+    auto const t0_unspill = Clock::now();
+    std::uint64_t total_unspilled{0};
     for (auto& [_, chunk] : chunks) {
+        if (chunk.gpu_data->mem_type != MemoryType::DEVICE) {
+            total_unspilled += chunk.gpu_data->size;
+        }
         ret.emplace_back(
             std::move(chunk.metadata),
             br_->move_to_device_buffer(std::move(chunk.gpu_data), stream_, reservation)
         );
     }
+    statistics_->add_duration_stat(
+        "spill-time-device-to-host", Clock::now() - t0_unspill
+    );
+    statistics_->add_bytes_stat("spill-bytes-device-to-host", total_unspilled);
     return ret;
+}
+
+std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
+    std::size_t spill_need{0};
+    if (amount.has_value()) {
+        spill_need = amount.value();
+    } else {
+        std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
+        if (headroom < 0) {
+            spill_need = -headroom;
+        }
+    }
+    std::size_t spilled{0};
+    if (spill_need > 0) {
+        spilled = postbox_spilling(
+            br_, comm_->logger(), *statistics_, stream_, outbox_, spill_need
+        );
+    }
+    return spilled;
 }
 
 detail::ChunkID Shuffler::get_new_cid() {
@@ -443,6 +452,10 @@ void Shuffler::run_event_loop_iteration(
             // Create a new buffer and let the buffer resource decide the memory type.
             auto recv_buffer =
                 allocate_buffer(chunk.gpu_data_size, self.stream_, self.br_);
+            if (recv_buffer->mem_type == MemoryType::HOST) {
+                stats.add_bytes_stat("spill-bytes-recv-to-host", recv_buffer->size);
+            }
+
             // Setup to receive the chunk into `in_transit_*`.
             auto future =
                 self.comm_->recv(src, gpu_data_tag, std::move(recv_buffer), self.stream_);
@@ -516,6 +529,8 @@ void Shuffler::run_event_loop_iteration(
     stats.add_duration_stat(
         "event-loop-check-future-finish", Clock::now() - t0_check_future_finish
     );
+
+    self.spill();  // Spill if current device memory usage is too high.
 }
 
 /**
