@@ -151,8 +151,8 @@ std::size_t postbox_spilling(
             break;
         }
     }
-    statistics.add_bytes_stat("spill-device-to-host-bytes", total_spilled);
     statistics.add_duration_stat("spill-device-to-host-time", Clock::now() - t0_elapsed);
+    statistics.add_bytes_stat("spill-device-to-host-bytes", total_spilled);
     if (total_spilled < amount) {
         // TODO: use a "max" statistic when it is available, for now we use the average.
         statistics.add_stat(
@@ -323,12 +323,19 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
     }
 
     // Move the gpu_data to device memory (copy if necessary).
+    auto const t0_unspill = Clock::now();
+    std::uint64_t total_unspilled{0};
     for (auto& [_, chunk] : chunks) {
+        if (chunk.gpu_data->mem_type != MemoryType::DEVICE) {
+            total_unspilled += chunk.gpu_data->size;
+        }
         ret.emplace_back(
             std::move(chunk.metadata),
             br_->move_to_device_buffer(std::move(chunk.gpu_data), stream_, reservation)
         );
     }
+    statistics_->add_duration_stat("unspill-to-device-time", Clock::now() - t0_unspill);
+    statistics_->add_bytes_stat("unspill-to-device-bytes", total_unspilled);
     return ret;
 }
 
