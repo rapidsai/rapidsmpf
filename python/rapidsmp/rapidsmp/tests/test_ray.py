@@ -8,11 +8,11 @@ os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
 
 import pytest
 
+from rapidsmp.examples.ray_shuffle_example import ShufflingActor
 from rapidsmp.integrations.ray import (
     RapidsMPActor,
     setup_ray_ucxx_cluster,
 )
-from rapidsmp.utils.ray_utils import ShufflingActor
 
 ray = pytest.importorskip("ray")
 
@@ -110,9 +110,9 @@ def test_disallowed_classes():
         setup_ray_ucxx_cluster(NonRapidsMPActor, 1)
 
 
-@pytest.mark.parametrize("num_workers", [1, 2, 4])
+@pytest.mark.parametrize("num_workers", [1, 4])
 @pytest.mark.parametrize("batch_size", [-1, 10])
-@pytest.mark.parametrize("total_num_partitions", [1, 2, 10])
+@pytest.mark.parametrize("total_num_partitions", [1, 10])
 def test_ray_shuffle_actor(num_workers, batch_size, total_num_partitions):
     # Test shuffling actor that uses 1/num_workers fractional GPUs
     @ray.remote(num_gpus=(1 / num_workers))

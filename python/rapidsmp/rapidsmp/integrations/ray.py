@@ -116,7 +116,7 @@ class RapidsMPActor:
         return self._nranks
 
     @property
-    def comm(self) -> Communicator | None:
+    def comm(self) -> Communicator:
         """
         The UCXX communicator object.
 
@@ -128,7 +128,13 @@ class RapidsMPActor:
         Returns
         -------
             The UCXX communicator object if initialized, otherwise None
+
+        Raises
+        ------
+            RuntimeError if the communicator is not initialized
         """
+        if self._comm is None:
+            raise RuntimeError("Communicator not initialized")
         return self._comm
 
 

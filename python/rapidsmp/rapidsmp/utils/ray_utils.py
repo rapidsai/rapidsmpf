@@ -3,130 +3,103 @@
 
 from __future__ import annotations
 
-import math
-
-import numpy as np
-
-import cudf
 import rmm
+import rmm.pylibrmm
+import rmm.pylibrmm.stream
+from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.integrations.ray import RapidsMPActor
-from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
-from rapidsmp.testing import assert_eq
-from rapidsmp.utils.cudf import (
-    cudf_to_pylibcudf_table,
-    pylibcudf_to_cudf_dataframe,
-)
+from rapidsmp.shuffler import Shuffler
 
 
-class ShufflingActor(RapidsMPActor):
-    """Ray actor that performs a shuffle operation."""
+class AbstractShufflingActor(RapidsMPActor):
+    """Abstract actor that initializes a shuffle operation upon setting up UCXX communication."""
 
-    def __init__(self, nranks, num_rows=100, batch_size=-1, total_nparts=-1):
+    def __init__(self, nranks: int, op_id: int = 0, total_nparts: int = -1):
+        """Initialize the actor."""
         super().__init__(nranks)
-        self.num_rows = num_rows
-        self.batch_size = batch_size
-        self.total_nparts = total_nparts
+        self._op_id: int = op_id
+        self._total_nparts: int = total_nparts if total_nparts > 0 else nranks
+        self._shuffler: Shuffler | None = None
+        self._device_mr: rmm.mr.DeviceMemoryResource | None = None
+        self._buffer_resource: BufferResource | None = None
 
-    def _setup_device_mr(self):
-        mr = rmm.mr.CudaMemoryResource()
-        rmm.mr.set_current_device_resource(mr)
-        return mr
+    def setup_worker(self, root_address_str) -> None:
+        """
+        Setup the UCXX communication and a shuffle operation.
 
-    def _gen_cudf(self):
-        # Every rank creates the full input dataframe and all the expected partitions
-        # (also partitions this rank might not get after the shuffle).
+        This method overrides the parent method. It will also call the create_device_mr
+        and create_buffer_resource methods prior to creating the shuffler object.
+        """
+        # First, call RapidsMPActor, which will set up the UCXX workers
+        super().setup_worker(root_address_str)
 
-        np.random.seed(42)  # Make sure all ranks create the same input dataframe.
+        # create the device memory resource
+        mr = self.create_device_mr()
+        br = self.create_buffer_resource(mr)
 
-        return cudf.DataFrame(
-            {
-                "a": range(self.num_rows),
-                "b": np.random.randint(0, 1000, self.num_rows),
-                "c": ["cat", "dog"] * (self.num_rows // 2),
-            }
+        # initialize the shuffler
+        self._shuffler = Shuffler(
+            self.comm, self._op_id, self._total_nparts, DEFAULT_STREAM, br
         )
 
-    def run(self) -> None:
-        """Runs the shuffle operation, and this will be called remotely from the client."""
-        if self.comm is None:
-            raise RuntimeError("RapidsMP not initialized")
+    def create_device_mr(self) -> rmm.mr.DeviceMemoryResource:
+        """
+        Create a Device Memory Resource for this class.
 
-        # If DEFAULT_STREAM was imported outside of this context, it will be pickled,
-        # and it is not serializable. Therefore, we need to import it here.
-        from rmm.pylibrmm.stream import DEFAULT_STREAM
+        This will set `self.device_mr` property. This will be called by the
+        `self.setup_worker` method. By default, it will create a CudaMemoryResource.
 
-        # if total_nparts is not set, set it to the number of ranks
-        self.total_nparts = self._nranks if self.total_nparts < 0 else self.total_nparts
+        Override this method to use a different device memory resource
+        """
+        self._device_mr = rmm.mr.CudaMemoryResource()
+        rmm.mr.set_current_device_resource(self._device_mr)
+        return self._device_mr
 
-        mr = self._setup_device_mr()
-        br = BufferResource(mr)
+    def create_buffer_resource(
+        self, device_mr: rmm.mr.DeviceMemoryResource
+    ) -> BufferResource:
+        """
+        Create a Buffer Resource with this class' device memory resource.
 
-        df = self._gen_cudf()
-        columns_to_hash = (df.columns.get_loc("b"),)
-        column_names = list(df.columns)
+        This will set `self.buffer_resource` property. This will be called by the
+        `self.setup_worker` method. By default, it will create a BufferResource
+        without any limits.
+        """
+        self._buffer_resource = BufferResource(device_mr)
+        return self._buffer_resource
 
-        # Calculate the expected output partitions on all ranks
-        expected = {
-            partition_id: pylibcudf_to_cudf_dataframe(
-                unpack_and_concat(
-                    [packed],
-                    stream=DEFAULT_STREAM,
-                    device_mr=mr,
-                ),
-                column_names=column_names,
-            )
-            for partition_id, packed in partition_and_pack(
-                cudf_to_pylibcudf_table(df),
-                columns_to_hash=columns_to_hash,
-                num_partitions=self.total_nparts,
-                stream=DEFAULT_STREAM,
-                device_mr=mr,
-            ).items()
-        }
+    @property
+    def device_mr(self) -> rmm.mr.DeviceMemoryResource:
+        """Returns the device memory resource if initialized."""
+        if self._device_mr is None:
+            raise RuntimeError("Device memory resource not initialized")
 
-        # Create shuffler
-        shuffler = Shuffler(
-            self.comm,
-            op_id=0,
-            total_num_partitions=self.total_nparts,
-            stream=DEFAULT_STREAM,
-            br=br,
-        )
+        return self._device_mr
 
-        # Slice df and submit local slices to shuffler
-        stride = math.ceil(self.num_rows / self.comm.nranks)
-        local_df = df.iloc[self.comm.rank * stride : (self.comm.rank + 1) * stride]
-        num_rows_local = len(local_df)
-        self.batch_size = num_rows_local if self.batch_size < 0 else self.batch_size
-        for i in range(0, num_rows_local, self.batch_size):
-            packed_inputs = partition_and_pack(
-                cudf_to_pylibcudf_table(local_df.iloc[i : i + self.batch_size]),
-                columns_to_hash=columns_to_hash,
-                num_partitions=self.total_nparts,
-                stream=DEFAULT_STREAM,
-                device_mr=mr,
-            )
-            shuffler.insert_chunks(packed_inputs)
+    @property
+    def buffer_resource(self) -> BufferResource:
+        """Returns the buffer resource if initialized."""
+        if self._buffer_resource is None:
+            raise RuntimeError("Buffer resource not initialized")
+        return self._buffer_resource
 
-        # Tell shuffler we are done adding data
-        for pid in range(self.total_nparts):
-            shuffler.insert_finished(pid)
+    @property
+    def shuffler(self) -> Shuffler:
+        """Returns the shuffler if initialized."""
+        if self._shuffler is None:
+            raise RuntimeError("Shuffler not initialized")
 
-        # Extract and check shuffled partitions
-        while not shuffler.finished():
-            partition_id = shuffler.wait_any()
-            packed_chunks = shuffler.extract(partition_id)
-            partition = unpack_and_concat(
-                packed_chunks,
-                stream=DEFAULT_STREAM,
-                device_mr=mr,
-            )
-            assert_eq(
-                pylibcudf_to_cudf_dataframe(partition, column_names=column_names),
-                expected[partition_id],
-                sort_rows="a",
-            )
+        return self._shuffler
 
-        shuffler.shutdown()
+    @property
+    def total_nparts(self) -> int:
+        """Returns the total number of partitions."""
+        return self._total_nparts
+
+    def shutdown(self) -> None:
+        """Shuts down the shuffler."""
+        if self._shuffler is not None:
+            self.shuffler.shutdown()
+            self._shuffler = None
