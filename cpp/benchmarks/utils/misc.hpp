@@ -15,17 +15,12 @@
  */
 #pragma once
 
-#include <chrono>
 #include <limits>
 #include <stdexcept>
 #include <string>
-#include <type_traits>
 #include <vector>
 
 #include <rapidsmp/error.hpp>
-
-using Clock = std::chrono::high_resolution_clock;
-using Duration = std::chrono::duration<double>;
 
 /**
  * @brief Computes the harmonic mean of a set of values.

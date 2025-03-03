@@ -1,8 +1,8 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
 from cython.operator cimport dereference as deref
+from libcpp cimport bool
 from libcpp.memory cimport make_shared
-from rapidsmp.communicator.communicator cimport Communicator
 
 
 cdef class Statistics:
@@ -11,14 +11,11 @@ cdef class Statistics:
 
     Parameters
     ----------
-    comm
-        The communicator to use. If None, statistics is disabled.
+    enable
+        Whether statistics tracking is enabled.
     """
-    def __cinit__(self, Communicator comm):
-        if comm is None:
-            self._handle = make_shared[cpp_Statistics]()
-        else:
-            self._handle = make_shared[cpp_Statistics](comm._handle)
+    def __cinit__(self, bool enable):
+        self._handle = make_shared[cpp_Statistics](enable)
 
     @property
     def enabled(self):
