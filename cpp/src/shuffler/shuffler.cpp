@@ -341,9 +341,9 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
         );
     }
     statistics_->add_duration_stat(
-        "spill-time-device-to-host", Clock::now() - t0_unspill
+        "spill-time-host-to-device", Clock::now() - t0_unspill
     );
-    statistics_->add_bytes_stat("spill-bytes-device-to-host", total_unspilled);
+    statistics_->add_bytes_stat("spill-bytes-host-to-device", total_unspilled);
     return ret;
 }
 

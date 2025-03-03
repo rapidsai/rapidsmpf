@@ -272,7 +272,7 @@ int main(int argc, char** argv) {
             elapsed_vec.push_back(elapsed);
         }
     }
-    log.info(stats->report("Statistics (of the last run):"));
+    log.print(stats->report("Statistics (of the last run):"));
     RAPIDSMP_MPI(MPI_Finalize());
     return 0;
 }
