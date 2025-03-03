@@ -18,8 +18,8 @@ def assert_eq(
     *,
     ignore_index: bool = True,
     sort_rows: str | None = None,
-    **kwargs,
-):
+    **kwargs: dict[str, Any],
+) -> Any:
     """
     Assert that two cudf/pylibcudf-like things are equivalent.
 
