@@ -339,9 +339,10 @@ int main(int argc, char** argv) {
     auto stats = std::make_shared<rapidsmp::Statistics>(/* enable = */ false);
 
     std::vector<double> elapsed_vec;
-    for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
+    std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
+    for (std::uint64_t i = 0; i < total_num_runs; ++i) {
         // Enable statistics for the last run.
-        if (i == args.num_warmups + args.num_runs - 1) {
+        if (i == total_num_runs - 1) {
             stats = std::make_shared<rapidsmp::Statistics>();
         }
         auto const elapsed = run(comm, args, stream, &br, stats).count();
@@ -371,8 +372,9 @@ int main(int argc, char** argv) {
            << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
         if (args.enable_memory_profiler) {
             auto const counter = stat_enabled_mr->get_bytes_counter();
-            ss << " | rmm device memory peak: " << rapidsmp::format_nbytes(counter.peak)
-               << " | total: " << rapidsmp::format_nbytes(counter.total);
+            ss << " | device memory - peak: " << rapidsmp::format_nbytes(counter.peak)
+               << ", total: " << rapidsmp::format_nbytes(counter.total / total_num_runs)
+               << " (avg)";
         }
         log.print(ss.str());
     }
