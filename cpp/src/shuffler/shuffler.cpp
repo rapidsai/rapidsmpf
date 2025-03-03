@@ -105,6 +105,7 @@ std::unique_ptr<Buffer> allocate_buffer(
  *
  * @param br Buffer resource for memory allocation.
  * @param log A logger for recording events and debugging information.
+ * @param statistics The statistics instance to use.
  * @param stream CUDA stream to use for memory and kernel operations.
  * @param postbox The PostBox containing buffers to be spilled.
  * @param amount The maximum amount of data (in bytes) to be spilled.
@@ -114,10 +115,12 @@ std::unique_ptr<Buffer> allocate_buffer(
 std::size_t postbox_spilling(
     BufferResource* br,
     Communicator::Logger& log,
+    Statistics& statistics,
     rmm::cuda_stream_view stream,
     PostBox& postbox,
     std::size_t amount
 ) {
+    auto const t0_elapsed = Clock::now();
     // Let's look for chunks to spill in the outbox.
     auto const chunk_info = postbox.search(MemoryType::DEVICE);
     std::size_t total_spilled{0};
@@ -148,6 +151,8 @@ std::size_t postbox_spilling(
             break;
         }
     }
+    statistics.add_bytes_stat("spill-device-to-host-bytes", total_spilled);
+    statistics.add_duration_stat("spill-device-to-host-time", Clock::now() - t0_elapsed);
     return total_spilled;
 }
 }  // namespace
@@ -330,7 +335,9 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
 
     std::size_t spilled{0};
     if (spill_need > 0) {
-        spilled = postbox_spilling(br_, comm_->logger(), stream_, outbox_, spill_need);
+        spilled = postbox_spilling(
+            br_, comm_->logger(), *statistics_, stream_, outbox_, spill_need
+        );
     }
     if (spilled < spill_need) {
         comm_->logger().warn(
