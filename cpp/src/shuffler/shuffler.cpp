@@ -255,8 +255,7 @@ void Shuffler::insert(detail::Chunk&& chunk) {
 void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks) {
     auto& log = comm_->logger();
 
-    // Check if we should spill.
-    spill();
+    spill();  // Spill if current device memory usage is too high.
 
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_columns] : chunks) {
@@ -531,8 +530,7 @@ void Shuffler::run_event_loop_iteration(
         "event-loop-check-future-finish", Clock::now() - t0_check_future_finish
     );
 
-    // Do we need to spill?
-    self.spill();
+    self.spill();  // Spill if current device memory usage is too high.
 }
 
 /**
