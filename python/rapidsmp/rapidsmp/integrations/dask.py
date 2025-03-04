@@ -71,7 +71,7 @@ async def rapidsmp_ucxx_rank_setup(
         return None
 
 
-async def rapidsmp_ucxx_comm_setup(client: Client):
+async def rapidsmp_ucxx_comm_setup(client: Client) -> None:
     """
     Setup UCXX-based communicator across the Distributed cluster.
 
