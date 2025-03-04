@@ -68,11 +68,6 @@ def write_table(
         Unique identifier used to generate the filename using `part.{id}.parque`.
     column_names
         List of column names.
-
-    Returns
-    -------
-    None
-        This function does not return anything.
     """
     path = f"{output_path}/part.{id}.parquet"
     pylibcudf_to_cudf_dataframe(
