@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import ray
 import ucxx._lib.libucxx as ucx_api
@@ -24,7 +24,6 @@ class RapidsMPActor:
     ... class DummyActor(RapidsMPActor): ...
     >>> actors = setup_ray_ucx_cluster(DummyActor, 2)
     >>> ray.get([actor.status_check.remote() for actor in actors])
-
     """
 
     def __init__(self, nranks: int):
@@ -47,9 +46,9 @@ class RapidsMPActor:
         Returns
         -------
         rank
-            The rank of the root
+            The rank of the root.
         root_address_str
-            The address of the root
+            The address of the root.
         """
         self._comm = new_communicator(self._nranks, None, None)
         self._rank = self._comm.rank
@@ -65,7 +64,7 @@ class RapidsMPActor:
         Parameters
         ----------
         root_address_str
-            The address of the root
+            The address of the root.
         """
         if not self._comm:
             # this is not the root and a comm needs to be instantiated
@@ -104,15 +103,33 @@ class RapidsMPActor:
             raise RuntimeError("Communicator not initialized")
 
     def is_initialized(self) -> bool:
-        """Check if the communicator is initialized."""
+        """
+        Check if the communicator is initialized.
+
+        Returns
+        -------
+            True if the communicator is initialized, False otherwise.
+        """
         return self._comm is not None and self._rank != -1
 
     def rank(self) -> int:
-        """Get the rank of the worker, as inferred from the UCXX communicator."""
+        """
+        Get the rank of the worker, as inferred from the UCXX communicator.
+
+        Returns
+        -------
+            The rank of the worker
+        """
         return self._rank
 
     def nranks(self) -> int:
-        """Get the number of ranks in the UCXX communicator."""
+        """
+        Get the number of ranks in the UCXX communicator.
+
+        Returns
+        -------
+            The number of ranks in the UCXX communicator
+        """
         return self._nranks
 
     @property
@@ -139,7 +156,7 @@ class RapidsMPActor:
 
 
 def setup_ray_ucxx_cluster(
-    actor_cls: ray.actor.ActorClass, num_workers: int, *args, **kwargs
+    actor_cls: ray.actor.ActorClass, num_workers: int, *args: Any, **kwargs: Any
 ) -> list[ray.actor.ActorHandle]:
     """
     A utility method to setup the UCXX communication using RapidsMPActor actor objects.
@@ -147,18 +164,18 @@ def setup_ray_ucxx_cluster(
     Parameters
     ----------
     actor_cls
-        The actor class to be instantiated in the cluster
+        The actor class to be instantiated in the cluster.
     num_workers
         The number of workers in the cluster.
     *args
-        Additional arguments to be passed to the actor class
+        Additional arguments to be passed to the actor class.
     **kwargs
-        Additional keyword arguments to be passed to the actor class
+        Additional keyword arguments to be passed to the actor class.
 
     Returns
     -------
     gpu_actors
-        A list of actors in the cluster
+        A list of actors in the cluster.
     """
     # check if the actor_cls extends the ActorClass and RapidsMPActor classes
     if not (

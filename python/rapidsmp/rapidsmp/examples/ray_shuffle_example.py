@@ -18,18 +18,47 @@ from rapidsmp.utils.cudf import (
     cudf_to_pylibcudf_table,
     pylibcudf_to_cudf_dataframe,
 )
-from rapidsmp.utils.ray_utils import AbstractShufflingActor
+from rapidsmp.utils.ray_utils import BaseShufflingActor
 
 
-class ShufflingActor(AbstractShufflingActor):
+class ShufflingActor(BaseShufflingActor):
     """Ray actor that performs a shuffle operation."""
 
-    def __init__(self, nranks, num_rows=100, batch_size=-1, total_nparts=-1):
-        super().__init__(nranks, op_id=0, total_nparts=total_nparts)
-        self.num_rows = num_rows
-        self.batch_size = batch_size
+    def __init__(
+        self,
+        nranks: int,
+        num_rows: int = 100,
+        batch_size: int = -1,
+        total_nparts: int = -1,
+    ):
+        """
+        Initialize the actor.
 
-    def _gen_cudf(self):
+        Parameters
+        ----------
+        nranks
+            Number of ranks.
+        num_rows
+            Number of rows in the input dataframe. Default 100.
+        batch_size
+            Batch size (rows) of the input. The input dataframe will be split into batches of this size. Default -1.
+        total_nparts
+            Total number of partitions to which the input dataframe will be partitioned. Default -1.
+        """
+        super().__init__(nranks)
+        self._num_rows: int = num_rows
+        self._batch_size: int = batch_size
+        self._total_nparts: int = total_nparts if total_nparts > 0 else nranks
+
+    def _gen_cudf(self) -> cudf.DataFrame:
+        """
+        Generate a dummy dataframe.
+
+        Returns
+        -------
+        cudf.DataFrame
+            The input dataframe.
+        """
         # Every rank creates the full input dataframe and all the expected partitions
         # (also partitions this rank might not get after the shuffle).
 
@@ -37,14 +66,14 @@ class ShufflingActor(AbstractShufflingActor):
 
         return cudf.DataFrame(
             {
-                "a": range(self.num_rows),
-                "b": np.random.randint(0, 1000, self.num_rows),
-                "c": ["cat", "dog"] * (self.num_rows // 2),
+                "a": range(self._num_rows),
+                "b": np.random.randint(0, 1000, self._num_rows),
+                "c": ["cat", "dog"] * (self._num_rows // 2),
             }
         )
 
     def run(self) -> None:
-        """Runs the shuffle operation, and this will be called remotely from the client."""
+        """Run the shuffle operation, and this will be called remotely from the client."""
         # If DEFAULT_STREAM was imported outside of this context, it will be pickled,
         # and it is not serializable. Therefore, we need to import it here.
         from rmm.pylibrmm.stream import DEFAULT_STREAM
@@ -66,35 +95,38 @@ class ShufflingActor(AbstractShufflingActor):
             for partition_id, packed in partition_and_pack(
                 cudf_to_pylibcudf_table(df),
                 columns_to_hash=columns_to_hash,
-                num_partitions=self.total_nparts,
+                num_partitions=self._total_nparts,
                 stream=DEFAULT_STREAM,
                 device_mr=self.device_mr,
             ).items()
         }
 
+        # initialize a shuffler
+        shuffler = self.initialize_shuffler(total_num_partitions=self._total_nparts)
+
         # Slice df and submit local slices to shuffler
-        stride = math.ceil(self.num_rows / self.comm.nranks)
+        stride = math.ceil(self._num_rows / self.comm.nranks)
         local_df = df.iloc[self.comm.rank * stride : (self.comm.rank + 1) * stride]
         num_rows_local = len(local_df)
-        self.batch_size = num_rows_local if self.batch_size < 0 else self.batch_size
-        for i in range(0, num_rows_local, self.batch_size):
+        self._batch_size = num_rows_local if self._batch_size < 0 else self._batch_size
+        for i in range(0, num_rows_local, self._batch_size):
             packed_inputs = partition_and_pack(
-                cudf_to_pylibcudf_table(local_df.iloc[i : i + self.batch_size]),
+                cudf_to_pylibcudf_table(local_df.iloc[i : i + self._batch_size]),
                 columns_to_hash=columns_to_hash,
-                num_partitions=self.total_nparts,
+                num_partitions=self._total_nparts,
                 stream=DEFAULT_STREAM,
                 device_mr=self.device_mr,
             )
-            self.shuffler.insert_chunks(packed_inputs)
+            shuffler.insert_chunks(packed_inputs)
 
         # Tell shuffler we are done adding data
-        for pid in range(self.total_nparts):
-            self.shuffler.insert_finished(pid)
+        for pid in range(self._total_nparts):
+            shuffler.insert_finished(pid)
 
         # Extract and check shuffled partitions
-        while not self.shuffler.finished():
-            partition_id = self.shuffler.wait_any()
-            packed_chunks = self.shuffler.extract(partition_id)
+        while not shuffler.finished():
+            partition_id = shuffler.wait_any()
+            packed_chunks = shuffler.extract(partition_id)
             partition = unpack_and_concat(
                 packed_chunks,
                 stream=DEFAULT_STREAM,
@@ -106,7 +138,7 @@ class ShufflingActor(AbstractShufflingActor):
                 sort_rows="a",
             )
 
-        self.shutdown()
+        shuffler.shutdown()
 
 
 @ray.remote(num_gpus=1)

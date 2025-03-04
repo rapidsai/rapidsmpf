@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import os
 
+import pynvml
+
 os.environ["RAY_DEDUP_LOGS"] = "0"
 os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
 
@@ -112,12 +114,22 @@ def test_disallowed_classes() -> None:
         setup_ray_ucxx_cluster(NonRapidsMPActor, 1)
 
 
+def get_gpu_count() -> int:
+    pynvml.nvmlInit()
+    return int(pynvml.nvmlDeviceGetCount())  # casting Any to int
+
+
 @pytest.mark.parametrize("num_workers", [1, 4])
 @pytest.mark.parametrize("batch_size", [-1, 10])
 @pytest.mark.parametrize("total_num_partitions", [1, 10])
-def test_ray_shuffle_actor(num_workers, batch_size, total_num_partitions):
-    # Test shuffling actor that uses 1/num_workers fractional GPUs
-    @ray.remote(num_gpus=(1 / num_workers))
+def test_ray_shuffle_actor(
+    num_workers: int, batch_size: int, total_num_partitions: int
+) -> None:
+    gpu_count = get_gpu_count()
+
+    # Test shuffling actor that uses 1/num_workers fractional GPUs if
+    # gpu_count < num_workers or 1 GPU otherwise
+    @ray.remote(num_gpus=(gpu_count / num_workers) if gpu_count < num_workers else 1)
     class TestShufflingActor(ShufflingActor): ...
 
     # setup the UCXX cluster using TestShufflingActor
