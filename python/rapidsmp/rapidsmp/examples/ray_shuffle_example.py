@@ -22,7 +22,20 @@ from rapidsmp.utils.ray_utils import BaseShufflingActor
 
 
 class ShufflingActor(BaseShufflingActor):
-    """Ray actor that performs a shuffle operation."""
+    """
+    Ray actor that performs a shuffle operation.
+
+    Parameters
+    ----------
+    nranks
+        Number of ranks.
+    num_rows
+        Number of rows in the input dataframe. Default 100.
+    batch_size
+        Batch size (rows) of the input. The input dataframe will be split into batches of this size. Default -1.
+    total_nparts
+        Total number of partitions to which the input dataframe will be partitioned. Default -1.
+    """
 
     def __init__(
         self,
@@ -31,20 +44,6 @@ class ShufflingActor(BaseShufflingActor):
         batch_size: int = -1,
         total_nparts: int = -1,
     ):
-        """
-        Initialize the actor.
-
-        Parameters
-        ----------
-        nranks
-            Number of ranks.
-        num_rows
-            Number of rows in the input dataframe. Default 100.
-        batch_size
-            Batch size (rows) of the input. The input dataframe will be split into batches of this size. Default -1.
-        total_nparts
-            Total number of partitions to which the input dataframe will be partitioned. Default -1.
-        """
         super().__init__(nranks)
         self._num_rows: int = num_rows
         self._batch_size: int = batch_size

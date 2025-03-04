@@ -13,17 +13,16 @@ from rapidsmp.shuffler import Shuffler
 
 
 class BaseShufflingActor(RapidsMPActor):
-    """Base actor that initializes a shuffle operation upon setting up UCXX communication."""
+    """
+    Base actor that initializes a shuffle operation upon setting up UCXX communication.
+
+    Parameters
+    ----------
+    nranks
+        The number of ranks in the cluster.
+    """
 
     def __init__(self, nranks: int):
-        """
-        Initialize the actor.
-
-        Parameters
-        ----------
-        nranks
-            The number of ranks in the cluster.
-        """
         super().__init__(nranks)
         self._device_mr: rmm.mr.DeviceMemoryResource | None = None
         self._buffer_resource: BufferResource | None = None

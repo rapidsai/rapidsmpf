@@ -23,18 +23,15 @@ class RapidsMPActor:
     >>> @ray.remote(num_cpus=1)
     ... class DummyActor(RapidsMPActor): ...
     >>> actors = setup_ray_ucx_cluster(DummyActor, 2)
-    >>> ray.get([actor.status_check.remote() for actor in actors])
+    >>> ray.get([actor.status_check.remote() for actor in actors]
+
+    Parameters
+    ----------
+    nranks
+        The number of workers in the cluster.
     """
 
     def __init__(self, nranks: int):
-        """
-        Initialize the RapidsMPActor.
-
-        Parameters
-        ----------
-        nranks
-            The number of workers in the cluster
-        """
         self._rank: int = -1
         self._nranks: int = nranks
         self._comm: Communicator | None = None
