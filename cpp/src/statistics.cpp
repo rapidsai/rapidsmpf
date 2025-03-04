@@ -69,9 +69,12 @@ Duration Statistics::add_duration_stat(std::string const& name, Duration seconds
     ));
 }
 
-std::string Statistics::report() const {
+std::string Statistics::report(std::string const& header) const {
+    std::stringstream ss;
+    ss << header;
     if (!enabled()) {
-        return "Statistics: disabled";
+        ss << " disabled.";
+        return ss.str();
     }
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -79,9 +82,7 @@ std::string Statistics::report() const {
     for (auto const& [name, _] : stats_) {
         max_length = std::max(max_length, name.size());
     }
-
-    std::stringstream ss;
-    ss << "Statistics:\n";
+    ss << "\n";
     for (auto const& [name, stat] : stats_) {
         ss << " - " << std::setw(max_length + 3) << std::left << name + ": ";
         stat.formatter_(ss, stat.count_, stat.value_);
