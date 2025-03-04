@@ -22,6 +22,7 @@
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/communicator/ucxx_utils.hpp>
+#include <rapidsmp/statistics.hpp>
 
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"
@@ -148,7 +149,8 @@ Duration run(
     std::shared_ptr<Communicator> comm,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
-    BufferResource* br
+    BufferResource* br,
+    std::shared_ptr<rapidsmp::Statistics> statistics
 ) {
     // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
@@ -171,17 +173,17 @@ Duration run(
     std::vector<std::unique_ptr<Communicator::Future>> futures;
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
+            auto buf = std::move(recv_bufs.at(rank + i * comm->nranks()));
+            statistics->add_bytes_stat("all-to-all-recv", buf->size);
             if (rank != comm->rank()) {
-                futures.push_back(comm->recv(
-                    rank, tag, std::move(recv_bufs.at(rank + i * comm->nranks())), stream
-                ));
+                futures.push_back(comm->recv(rank, tag, std::move(buf), stream));
             }
         }
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
+            auto buf = std::move(send_bufs.at(rank + i * comm->nranks()));
+            statistics->add_bytes_stat("all-to-all-send", buf->size);
             if (rank != comm->rank()) {
-                futures.push_back(comm->send(
-                    std::move(send_bufs.at(rank + i * comm->nranks())), rank, tag, stream
-                ));
+                futures.push_back(comm->send(std::move(buf), rank, tag, stream));
             }
         }
     }
@@ -246,16 +248,22 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
+    // We start with disabled statistics.
+    auto stats = std::make_shared<rapidsmp::Statistics>(/* enable = */ false);
+
     auto const total_local_msg_send = args.msg_size * args.num_ops * comm->nranks();
     std::vector<double> elapsed_vec;
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
-        auto const elapsed = run(comm, args, stream, &br).count();
+        // Enable statistics for the last run.
+        if (i == args.num_warmups + args.num_runs - 1) {
+            stats = std::make_shared<rapidsmp::Statistics>();
+        }
+        auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;
         ss << "elapsed: " << to_precision(elapsed) << " sec "
            << "| local throughput: " << format_nbytes(total_local_msg_send / elapsed)
            << "/s | total throughput: "
            << format_nbytes(total_local_msg_send * comm->nranks() / elapsed) << "/s";
-
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
@@ -264,6 +272,7 @@ int main(int argc, char** argv) {
             elapsed_vec.push_back(elapsed);
         }
     }
+    log.print(stats->report("Statistics (of the last run):"));
     RAPIDSMP_MPI(MPI_Finalize());
     return 0;
 }

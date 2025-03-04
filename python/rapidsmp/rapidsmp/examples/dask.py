@@ -26,7 +26,17 @@ if TYPE_CHECKING:
 
 
 class DaskCudfIntegration:
-    """cuDF Polars protocol for Dask integration."""
+    """
+    cuDF Polars protocol for Dask integration.
+
+    This protocol can be used to implement a rapidsmp-shuffle
+    operation on a Dask-cuDF collection.
+
+    See Also
+    --------
+    rapidsmp.integrations.dask.DaskIntegration
+        Base Dask-integration protocol definition.
+    """
 
     @staticmethod
     def insert_partition(
@@ -35,7 +45,20 @@ class DaskCudfIntegration:
         partition_count: int,
         shuffler: Shuffler,
     ) -> None:
-        """Add cudf DataFrame chunks to an RMP shuffler."""
+        """
+        Add cudf DataFrame chunks to an RMP shuffler.
+
+        Parameters
+        ----------
+        df
+            DataFrame partition to add to a rapidsmp shuffler.
+        on
+            Sequence of column names to shuffle on.
+        partition_count
+            Number of output partitions for the current shuffle.
+        shuffler
+            The rapidsmp Shuffler object to extract from.
+        """
         columns_to_hash = tuple(list(df.columns).index(val) for val in on)
         packed_inputs = partition_and_pack(
             df.to_pylibcudf()[0],
@@ -52,7 +75,22 @@ class DaskCudfIntegration:
         column_names: list[str],
         shuffler: Shuffler,
     ) -> cudf.DataFrame:
-        """Extract a finished partition from the RMP shuffler."""
+        """
+        Extract a finished partition from the RMP shuffler.
+
+        Parameters
+        ----------
+        partition_id
+            Partition id to extract.
+        column_names
+            Sequence of output column names.
+        shuffler
+            The rapidsmp Shuffler object to extract from.
+
+        Returns
+        -------
+        A shuffled DataFrame partition.
+        """
         shuffler.wait_on(partition_id)
         table = unpack_and_concat(
             shuffler.extract(partition_id),
@@ -83,6 +121,10 @@ def dask_cudf_shuffle(
     partition_count
         Output partition count. Default will preserve
         the input partition count.
+
+    Returns
+    -------
+    Shuffled Dask-cuDF DataFrame collection.
     """
     df0 = df.optimize()
     count_in = df0.npartitions
