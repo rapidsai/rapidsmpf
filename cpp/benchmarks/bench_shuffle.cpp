@@ -230,6 +230,7 @@ rapidsmp::Duration run(
                 stream,
                 br->device_mr()
             ));
+            partition.release();
         }
         // Tell the shuffler that we have no more data.
         for (rapidsmp::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
