@@ -133,66 +133,121 @@ std::string inline format_duration(double seconds, int precision = 2) {
 }
 
 /**
- * @brief Extracts the value associated with a specific key from a map, removing the
- * key-value pair.
+ * @brief Extracts a key-value pair from a map, removing it from the map.
  *
  * @tparam MapType The type of the associative container.
- * @tparam KeyType The type of the key.
- * @param map The map from which to extract the value.
- * @param key The key associated with the value to extract.
- * @return The extracted value.
+ * @param map The map from which to extract the key-value pair.
+ * @param position Const iterator pointing to a node in the map.
+ * @return A pair containing the extracted key and value.
  *
- * @throws std::out_of_range If the key is not found in the map.
+ * @note Invalidates any iterators to the extracted element (notably `position`).
+ *
+ * @throws std::out_of_range If the iterator is not found in the map.
  */
-template <typename MapType, typename KeyType>
-typename MapType::mapped_type extract_value(MapType& map, KeyType const& key) {
-    auto node = map.extract(key);
+template <typename MapType>
+std::pair<typename MapType::key_type, typename MapType::mapped_type> extract_item(
+    MapType& map, typename MapType::const_iterator position
+) {
+    auto node = map.extract(position);
     if (!node) {
-        throw std::out_of_range("key not found");
+        throw std::out_of_range("Invalid iterator passed to extract");
     }
-    return std::move(node.mapped());
-}
-
-/**
- * @brief Extracts a key from a map, removing the key-value pair.
- *
- * @tparam MapType The type of the associative container.
- * @tparam KeyType The type of the key.
- * @param map The map from which to extract the key.
- * @param key The key to extract.
- * @return The extracted key.
- *
- * @throws std::out_of_range If the key is not found in the map.
- */
-template <typename MapType, typename KeyType>
-typename MapType::key_type extract_key(MapType& map, KeyType const& key) {
-    auto node = map.extract(key);
-    if (!node) {
-        throw std::out_of_range("key not found");
-    }
-    return std::move(node.key());
+    return {std::move(node.key()), std::move(node.mapped())};
 }
 
 /**
  * @brief Extracts a key-value pair from a map, removing it from the map.
  *
  * @tparam MapType The type of the associative container.
- * @tparam KeyType The type of the key.
  * @param map The map from which to extract the key-value pair.
- * @param key The key associated with the pair to extract.
+ * @param key The key to extract.
  * @return A pair containing the extracted key and value.
  *
  * @throws std::out_of_range If the key is not found in the map.
  */
-template <typename MapType, typename KeyType>
+template <typename MapType>
 std::pair<typename MapType::key_type, typename MapType::mapped_type> extract_item(
-    MapType& map, KeyType const& key
+    MapType& map, typename MapType::key_type const& key
 ) {
     auto node = map.extract(key);
     if (!node) {
-        throw std::out_of_range("key not found");
+        throw std::out_of_range("Invalid key passed to extract");
     }
     return {std::move(node.key()), std::move(node.mapped())};
+}
+
+/**
+ * @brief Extracts the value associated with a specific key from a map, removing the
+ * key-value pair.
+ *
+ * @tparam MapType The type of the associative container.
+ * @param map The map from which to extract the value.
+ * @param key The key associated with the value to extract.
+ * @return The extracted value.
+ *
+ * @throws std::out_of_range If the key is not found in the map.
+ */
+template <typename MapType>
+typename MapType::mapped_type extract_value(
+    MapType& map, typename MapType::key_type const& key
+) {
+    return std::move(extract_item(map, key).second);
+}
+
+/**
+ * @brief Extracts the value associated with a specific key from a map, removing the
+ * key-value pair.
+ *
+ * @tparam MapType The type of the associative container.
+ * @param map The map from which to extract the value.
+ * @param position Const iterator pointing to a node in the map.
+ * @return The extracted value.
+ *
+ * @note Invalidates any iterators to the extracted element (notably `position`).
+ *
+ * @throws std::out_of_range If the key is not found in the map.
+ */
+template <typename MapType>
+typename MapType::mapped_type extract_value(
+    MapType& map, typename MapType::const_iterator position
+) {
+    return std::move(extract_item(map, position).second);
+}
+
+/**
+ * @brief Extracts a key from a map, removing the key-value pair.
+ *
+ * @tparam MapType The type of the associative container.
+ * @param map The map from which to extract the key.
+ * @param key The key to extract.
+ * @return The extracted key.
+ *
+ * @throws std::out_of_range If the key is not found in the map.
+ */
+template <typename MapType>
+typename MapType::key_type extract_key(
+    MapType& map, typename MapType::key_type const& key
+) {
+    return std::move(extract_item(map, key).first);
+}
+
+/**
+ * @brief Extracts a key from a map, removing the key-value pair.
+ *
+ * @tparam MapType The type of the associative container.
+ * @param map The map from which to extract the key.
+ * @param position Const iterator pointing to a node in the map.
+ * @return The extracted key.
+ *
+ * @note Invalidates any iterators to the extracted element (notably `position`).
+ *
+ * @throws std::out_of_range If the key is not found in the map.
+ */
+template <typename MapType>
+typename MapType::key_type extract_key(
+    MapType& map, typename MapType::const_iterator position
+) {
+    return std::move(extract_item(map, position).first);
 }
 
 /**

@@ -428,27 +428,17 @@ void Shuffler::run_event_loop_iteration(
     }
     stats.add_duration_stat("event-loop-metadata-recv", Clock::now() - t0_metadata_recv);
 
-    // Pick an incoming chunk's gpu_data to receive.
-    //
-    // TODO: pick the incoming chunk based on a strategy. For now, we just pick the
-    // first chunk.
-    // TODO: handle multiple chunks before continuing.
-    auto const t0_pick_incoming_chunk = Clock::now();
-    if (auto first_chunk = incoming_chunks.begin(); first_chunk != incoming_chunks.end())
+    // Post receives for incoming chunks
+    auto const t0_post_incoming_chunk_recv = Clock::now();
+    for (auto first_chunk = incoming_chunks.begin();
+         first_chunk != incoming_chunks.end();)
     {
-        auto [src, chunk] = extract_item(incoming_chunks, first_chunk);
+        // Note, extract_item invalidates the iterator, so must increment here.
+        auto [src, chunk] = extract_item(incoming_chunks, first_chunk++);
         log.trace("picked incoming chunk data from ", src, ": ", chunk);
         // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
         // directly to the outbox.
         if (chunk.gpu_data_size > 0) {
-            // Tell the source of the chunk that we are ready to receive it.
-            fire_and_forget.push_back(self.comm_->send(
-                ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
-                src,
-                ready_for_data_tag,
-                self.stream_,
-                self.br_
-            ));
             // Create a new buffer and let the buffer resource decide the memory type.
             auto recv_buffer =
                 allocate_buffer(chunk.gpu_data_size, self.stream_, self.br_);
@@ -468,6 +458,14 @@ void Shuffler::run_event_loop_iteration(
                 "in transit chunk already exist"
             );
             self.statistics_->add_bytes_stat("shuffle-payload-recv", chunk.gpu_data_size);
+            // Tell the source of the chunk that we are ready to receive it.
+            fire_and_forget.push_back(self.comm_->send(
+                ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
+                src,
+                ready_for_data_tag,
+                self.stream_,
+                self.br_
+            ));
         } else {
             if (chunk.gpu_data == nullptr) {
                 chunk.gpu_data = allocate_buffer(0, self.stream_, self.br_);
@@ -476,7 +474,7 @@ void Shuffler::run_event_loop_iteration(
         }
     }
     stats.add_duration_stat(
-        "event-loop-pick-incoming-chunk", Clock::now() - t0_pick_incoming_chunk
+        "event-loop-post-incoming-chunk-recv", Clock::now() - t0_post_incoming_chunk_recv
     );
 
     // Receive any incoming ready-for-data messages and start sending the
