@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 
 
-def format_bytes(nbytes: int) -> str:
+def format_bytes(nbytes: int | float) -> str:
     """
     Convert a byte size into a human-readable string.
 

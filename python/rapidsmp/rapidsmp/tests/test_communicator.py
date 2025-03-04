@@ -12,7 +12,7 @@ from rapidsmp.communicator.testing import initialize_ucxx, ucxx_mpi_setup
 @pytest.mark.parametrize(
     "level", list(LOG_LEVEL), ids=[level.name for level in LOG_LEVEL]
 )
-def test_log_level(capfd, level: LOG_LEVEL):
+def test_log_level(capfd: pytest.CaptureFixture[str], level: LOG_LEVEL) -> None:
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("RAPIDSMP_LOG", level.name)
 
@@ -35,13 +35,13 @@ def test_log_level(capfd, level: LOG_LEVEL):
         assert output.count("TRACE") == (2 if level >= LOG_LEVEL.TRACE else 0)
 
 
-def test_mpi():
+def test_mpi() -> None:
     comm = new_communicator(MPI.COMM_WORLD)
     assert comm.nranks == MPI.COMM_WORLD.size
     assert comm.rank == MPI.COMM_WORLD.rank
 
 
-def test_ucxx():
+def test_ucxx() -> None:
     ucxx_worker = initialize_ucxx()
     comm = ucxx_mpi_setup(ucxx_worker)
     assert comm.nranks == MPI.COMM_WORLD.size
