@@ -372,9 +372,9 @@ int main(int argc, char** argv) {
            << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
         if (args.enable_memory_profiler) {
             auto const counter = stat_enabled_mr->get_bytes_counter();
-            ss << " | device memory - peak: " << rapidsmp::format_nbytes(counter.peak)
-               << ", total: " << rapidsmp::format_nbytes(counter.total / total_num_runs)
-               << " (avg)";
+            ss << " | device memory peak: " << rapidsmp::format_nbytes(counter.peak)
+               << " | device memory total: "
+               << rapidsmp::format_nbytes(counter.total / total_num_runs) << " (avg)";
         }
         log.print(ss.str());
     }
