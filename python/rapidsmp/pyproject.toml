@@ -201,3 +201,14 @@ rapids = ["rmm", "pylibcudf", "cudf"]
 
 [tool.ruff.format]
 docstring-code-format = true
+
+[tool.numpydoc_validation]
+checks = [
+    "all",   # report on all checks, except the below
+    "EX01",
+    "SA01",
+    "ES01",
+    "PR04",
+    "SS02",
+#    "RT03",
+]

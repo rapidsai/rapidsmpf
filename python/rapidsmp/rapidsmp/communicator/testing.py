@@ -13,7 +13,14 @@ if TYPE_CHECKING:
 
 
 def initialize_ucxx() -> ucx_api.UCXWorker:
-    """Initialize UCXX resources."""
+    """
+    Initialize UCXX resources.
+
+    Returns
+    -------
+    ucx_api.UCXWorker
+        A new UCXWorker.
+    """
     ucxx_context = ucx_api.UCXContext(
         feature_flags=(ucx_api.Feature.AM, ucx_api.Feature.TAG)
     )
@@ -25,7 +32,7 @@ def initialize_ucxx() -> ucx_api.UCXWorker:
 
 def ucxx_mpi_setup(ucxx_worker: ucx_api.UCXWorker) -> Communicator:
     """
-    Bootstraps a UCXX communicator within an MPI rank.
+    Bootstrap a UCXX communicator within an MPI rank.
 
     Parameters
     ----------
@@ -34,6 +41,7 @@ def ucxx_mpi_setup(ucxx_worker: ucx_api.UCXWorker) -> Communicator:
 
     Returns
     -------
+    Communicator
         A new rapidsmp-ucxx communicator.
     """
     from rapidsmp.communicator.ucxx import (
