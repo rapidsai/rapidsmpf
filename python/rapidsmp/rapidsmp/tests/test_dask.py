@@ -11,14 +11,18 @@ dask_cuda = pytest.importorskip("dask_cuda")
 from dask.distributed import Client  # noqa: E402
 from dask_cuda import LocalCUDACluster  # noqa: E402
 from dask_cuda.utils import get_n_gpus  # noqa: E402
-from distributed.utils_test import gen_test  # noqa: E402
+from distributed.utils_test import (  # noqa: E402, F401
+    cleanup,
+    gen_test,
+    loop,
+    loop_in_thread,
+)
 from mpi4py import MPI  # noqa: E402
 
 from rapidsmp.integrations.dask import rapidsmp_ucxx_comm_setup  # noqa: E402
 
 if TYPE_CHECKING:
     from distributed.worker import Worker
-    from tornado.ioloop import IOLoop
 
 
 def get_mpi_nsize() -> int:
@@ -55,7 +59,7 @@ async def test_dask_ucxx_cluster() -> None:
 
 
 @pytest.mark.parametrize("partition_count", [None, 3])
-def test_dask_cudf_integration(loop: IOLoop, partition_count: int) -> None:
+def test_dask_cudf_integration(loop: pytest.FixtureDef, partition_count: int) -> None:  # noqa: F811
     # Test basic Dask-cuDF integration
     pytest.importorskip("dask_cudf")
 
