@@ -71,6 +71,12 @@ regex = "(?P<value>.*)"
 [tool.mypy]
 exclude = ["_deps/*"]
 ignore_missing_imports = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = "rapidsmp.*"
+disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=append" # Dask subprocesses fail to import RAPIDSMP otherwise
@@ -195,3 +201,20 @@ rapids = ["rmm", "pylibcudf", "cudf"]
 
 [tool.ruff.format]
 docstring-code-format = true
+
+[tool.numpydoc_validation]
+checks = [
+    "all",   # report on all checks, except the below
+    "EX01",
+    "SA01",
+    "ES01",
+    "PR04",
+    "SS02",
+    "RT03",
+]
+
+# don't report on objects that match any of these regex
+# remember to use single quotes for regex in TOML
+exclude = [
+    '.*__init__',
+]
