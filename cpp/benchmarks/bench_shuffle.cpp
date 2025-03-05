@@ -350,7 +350,7 @@ int main(int argc, char** argv) {
         ss << "elapsed: " << rapidsmp::to_precision(elapsed)
            << " sec | local throughput: "
            << rapidsmp::format_nbytes(args.local_nbytes / elapsed)
-           << "/s | total throughput: "
+           << "/s | global throughput: "
            << rapidsmp::format_nbytes(args.total_nbytes / elapsed) << "/s";
         if (i < args.num_warmups) {
             ss << " (warmup run)";
@@ -368,7 +368,7 @@ int main(int argc, char** argv) {
         ss << "means: " << rapidsmp::to_precision(elapsed_mean)
            << " sec | local throughput: "
            << rapidsmp::format_nbytes(args.local_nbytes / elapsed_mean)
-           << "/s | total throughput: "
+           << "/s | global throughput: "
            << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
         if (args.enable_memory_profiler) {
             auto const counter = stat_enabled_mr->get_bytes_counter();
