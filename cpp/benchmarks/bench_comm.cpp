@@ -251,7 +251,9 @@ int main(int argc, char** argv) {
     // We start with disabled statistics.
     auto stats = std::make_shared<rapidsmp::Statistics>(/* enable = */ false);
 
-    auto const total_local_msg_send = args.msg_size * args.num_ops * comm->nranks();
+    auto const local_messages_send = args.msg_size * args.num_ops * (comm->nranks() - 1);
+    auto const local_messages = args.msg_size * args.num_ops * comm->nranks();
+    // auto const total_local_msg_send = args.msg_size * args.num_ops * comm->nranks();
     std::vector<double> elapsed_vec;
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         // Enable statistics for the last run.
@@ -260,10 +262,11 @@ int main(int argc, char** argv) {
         }
         auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;
-        ss << "elapsed: " << to_precision(elapsed) << " sec "
-           << "| local throughput: " << format_nbytes(total_local_msg_send / elapsed)
-           << "/s | total throughput: "
-           << format_nbytes(total_local_msg_send * comm->nranks() / elapsed) << "/s";
+        ss << "elapsed: " << to_precision(elapsed) << " sec"
+           << " | local comm: " << format_nbytes(local_messages_send / elapsed)
+           << "/s | local throughput: " << format_nbytes(local_messages / elapsed)
+           << "/s | global throughput: "
+           << format_nbytes(local_messages * comm->nranks() / elapsed) << "/s";
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
