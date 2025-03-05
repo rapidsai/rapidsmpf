@@ -38,17 +38,9 @@ set +e
 
 rapids-logger "Build CPP docs"
 pushd cpp/doxygen
-aws s3 cp s3://rapidsai-docs/librmm/html/"${RAPIDS_VERSION_MAJOR_MINOR}"/rmm.tag . || echo "Failed to download rmm Doxygen tag"
 doxygen Doxyfile
-mkdir -p "${RAPIDS_DOCS_DIR}/libcudf/html"
-mv html/* "${RAPIDS_DOCS_DIR}/libcudf/html"
-popd
-
-rapids-logger "Build Python docs"
-pushd docs/cudf
-make dirhtml O="-j 8"
-mkdir -p "${RAPIDS_DOCS_DIR}/cudf/html"
-mv build/dirhtml/* "${RAPIDS_DOCS_DIR}/cudf/html"
+mkdir -p "${RAPIDS_DOCS_DIR}/rapidsmp/html"
+mv html/* "${RAPIDS_DOCS_DIR}/rapidsmp/html"
 popd
 
 rapids-logger "Build rapidsmp Sphinx docs"
