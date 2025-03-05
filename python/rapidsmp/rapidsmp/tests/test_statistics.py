@@ -4,6 +4,6 @@ from __future__ import annotations
 from rapidsmp.statistics import Statistics
 
 
-def test_disabled():
-    stats = Statistics(comm=None)
+def test_disabled() -> None:
+    stats = Statistics(enable=False)
     assert not stats.enabled

@@ -19,6 +19,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -102,7 +103,7 @@ class Shuffler {
         PartID total_num_partitions,
         rmm::cuda_stream_view stream,
         BufferResource* br,
-        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(),
+        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false),
         PartitionOwner partition_owner = round_robin
     );
 
@@ -185,6 +186,24 @@ class Shuffler {
         RAPIDSMP_NVTX_FUNC_RANGE();
         return finish_counter_.wait_some();
     }
+
+    /**
+     * @brief Spills data to device if necessary.
+     *
+     * This function has two modes:
+     *  - If `amount` is specified, it tries to spill at least `amount` bytes of
+     *    device memory.
+     *  - If `amount` is not specified (the default case), it spills based on the
+     *    current available device memory returned by the buffer resource.
+     *
+     * In both modes, it adds to the "spill-device-limit-breach" statistic if not
+     * enough memory could be spilled.
+     *
+     * @param amount An optional amount of memory to spill. If not provided, the
+     * function will check the current available device memory.
+     * @return The amount of memory actually spilled.
+     */
+    std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
 
     /**
      * @brief Returns a description of this instance.

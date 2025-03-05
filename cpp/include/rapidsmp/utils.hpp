@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <sstream>
@@ -25,6 +26,11 @@
 #include <cudf/types.hpp>
 
 namespace rapidsmp {
+
+/// Alias for high-resolution clock from the chrono library.
+using Clock = std::chrono::high_resolution_clock;
+/// Alias for a duration type representing time in seconds as a double.
+using Duration = std::chrono::duration<double>;
 
 /**
  * @brief Converts the element at a specific index in a `cudf::column_view` to a string.
@@ -104,6 +110,26 @@ std::string inline format_nbytes(int64_t nbytes, int precision = 2) {
         n /= 1024.0;
     }
     return to_precision(n, precision) + " PiB";
+}
+
+/**
+ * @brief Format a time duration to a human-readable string representation.
+ *
+ * @param seconds The time duration to convert (in seconds).
+ * @param precision The number of decimal places to include.
+ * @return A string representation of the time duration with the specified precision.
+ */
+std::string inline format_duration(double seconds, int precision = 2) {
+    double sec = std::abs(seconds);
+    if (sec < 1e-6) {
+        return to_precision(seconds * 1e9, precision) + " ns";
+    } else if (sec < 1e-3) {
+        return to_precision(seconds * 1e6, precision) + " us";
+    } else if (sec < 1) {
+        return to_precision(seconds * 1e3, precision) + " ms";
+    } else {
+        return to_precision(seconds, precision) + " s";
+    }
 }
 
 /**
@@ -188,5 +214,29 @@ template <typename T>
 constexpr T safe_div(T x, T y) {
     return (y == 0) ? 0 : x / y;
 }
+
+/**
+ * @brief Trims whitespace from both ends of the specified string.
+ *
+ * @param str The input string to be processed.
+ * @return The trimmed string.
+ */
+std::string trim(std::string const& str);
+
+/**
+ * @brief Converts the specified string to lowercase.
+ *
+ * @param str The input string to be processed.
+ * @return The trimmed string.
+ */
+std::string to_lower(std::string str);
+
+/**
+ * @brief Converts the specified string to uppercase.
+ *
+ * @param str The input string to be processed.
+ * @return The trimmed string.
+ */
+std::string to_upper(std::string str);
 
 }  // namespace rapidsmp

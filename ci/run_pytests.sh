@@ -16,7 +16,7 @@ run_mpirun_test() {
     local timeout="$1" # Timeout
     local nrank="$2"   # Number of ranks
     echo "Running pytest with $nrank ranks"
-    timeout "$timeout" mpirun --map-by node --bind-to none -np "$nrank" \
+    timeout -v "$timeout" mpirun --map-by node --bind-to none -np "$nrank" \
         python -m pytest --cache-clear --verbose $EXTRA_ARGS tests
 }
 

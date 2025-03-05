@@ -1167,7 +1167,7 @@ std::string UCXX::str() const {
 
     std::stringstream ss;
     ss << "UCXX(rank=" << shared_resources_->rank()
-       << ", nranks: " << shared_resources_->nranks() << ", ucx-version=" << major << "."
+       << ", nranks=" << shared_resources_->nranks() << ", ucx-version=" << major << "."
        << minor << "." << release << ")";
     return ss.str();
 }

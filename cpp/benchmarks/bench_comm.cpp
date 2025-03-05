@@ -22,9 +22,11 @@
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/communicator/ucxx_utils.hpp>
+#include <rapidsmp/statistics.hpp>
 
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"
+#include "utils/rmm_stack.hpp"
 
 
 using namespace rapidsmp;
@@ -40,7 +42,7 @@ class ArgumentParser {
 
         try {
             int option;
-            while ((option = getopt(argc, argv, "hC:O:r:w:n:p:")) != -1) {
+            while ((option = getopt(argc, argv, "hC:O:r:w:n:p:m:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -53,6 +55,8 @@ class ArgumentParser {
                            << "  -n <num>   Message size in bytes (default: 1M)\n"
                            << "  -p <num>   Number of concurrent operations, e.g. number"
                               " of  concurrent all-to-all operations (default: 1)\n"
+                           << "  -m <mr>    RMM memory resource {cuda, pool, async} "
+                              "(default: cuda)\n"
                            << "  -r <num>   Number of runs (default: 1)\n"
                            << "  -w <num>   Number of warmup runs (default: 0)\n"
                            << "  -h         Display this help message\n";
@@ -84,6 +88,14 @@ class ArgumentParser {
                     break;
                 case 'p':
                     parse_integer(num_ops, optarg);
+                    break;
+                case 'm':
+                    rmm_mr = std::string{optarg};
+                    if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async")) {
+                        throw std::invalid_argument(
+                            "-m (RMM memory resource) must be one of {cuda, pool, async}"
+                        );
+                    }
                     break;
                 case 'r':
                     parse_integer(num_runs, optarg);
@@ -120,11 +132,13 @@ class ArgumentParser {
         ss << "  -p " << num_ops << " (number of operations)\n";
         ss << "  -r " << num_runs << " (number of runs)\n";
         ss << "  -w " << num_warmups << " (number of warmup runs)\n";
-        comm.logger().info(ss.str());
+        ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
+        comm.logger().print(ss.str());
     }
 
     std::uint64_t num_runs{1};
     std::uint64_t num_warmups{0};
+    std::string rmm_mr{"cuda"};
     std::string comm_type{"mpi"};
     std::string operation{"all-to-all"};
     std::uint64_t msg_size{1 << 20};
@@ -135,7 +149,8 @@ Duration run(
     std::shared_ptr<Communicator> comm,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
-    BufferResource* br
+    BufferResource* br,
+    std::shared_ptr<rapidsmp::Statistics> statistics
 ) {
     // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
@@ -158,17 +173,17 @@ Duration run(
     std::vector<std::unique_ptr<Communicator::Future>> futures;
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
+            auto buf = std::move(recv_bufs.at(rank + i * comm->nranks()));
+            statistics->add_bytes_stat("all-to-all-recv", buf->size);
             if (rank != comm->rank()) {
-                futures.push_back(comm->recv(
-                    rank, tag, std::move(recv_bufs.at(rank + i * comm->nranks())), stream
-                ));
+                futures.push_back(comm->recv(rank, tag, std::move(buf), stream));
             }
         }
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
+            auto buf = std::move(send_bufs.at(rank + i * comm->nranks()));
+            statistics->add_bytes_stat("all-to-all-send", buf->size);
             if (rank != comm->rank()) {
-                futures.push_back(comm->send(
-                    std::move(send_bufs.at(rank + i * comm->nranks())), rank, tag, stream
-                ));
+                futures.push_back(comm->send(std::move(buf), rank, tag, stream));
             }
         }
     }
@@ -207,12 +222,13 @@ int main(int argc, char** argv) {
         comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
     }
 
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    BufferResource br{mr};
-
     auto& log = comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     args.pprint(*comm);
+    auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
+
+    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
+    BufferResource br{mr};
 
     // Print benchmark/hardware info.
     {
@@ -226,27 +242,37 @@ int main(int argc, char** argv) {
         ss << "Hardware setup: \n";
         ss << "  GPU (" << properties.name << "): \n";
         ss << "    Device number: " << cur_dev << "\n";
-        ss << "    PCI Bus ID: " << pci_bus_id << "\n";
+        ss << "    PCI Bus ID: " << pci_bus_id.substr(0, pci_bus_id.find('\0')) << "\n";
         ss << "    Total Memory: " << format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
-        log.info(ss.str());
+        log.print(ss.str());
     }
+
+    // We start with disabled statistics.
+    auto stats = std::make_shared<rapidsmp::Statistics>(/* enable = */ false);
 
     auto const total_local_msg_send = args.msg_size * args.num_ops * comm->nranks();
     std::vector<double> elapsed_vec;
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
-        auto const elapsed = run(comm, args, stream, &br).count();
+        // Enable statistics for the last run.
+        if (i == args.num_warmups + args.num_runs - 1) {
+            stats = std::make_shared<rapidsmp::Statistics>();
+        }
+        auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;
         ss << "elapsed: " << to_precision(elapsed) << " sec "
-           << "| throughput: " << format_nbytes(total_local_msg_send / elapsed) << "/s";
+           << "| local throughput: " << format_nbytes(total_local_msg_send / elapsed)
+           << "/s | total throughput: "
+           << format_nbytes(total_local_msg_send * comm->nranks() / elapsed) << "/s";
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
-        log.info(ss.str());
+        log.print(ss.str());
         if (i >= args.num_warmups) {
             elapsed_vec.push_back(elapsed);
         }
     }
+    log.print(stats->report("Statistics (of the last run):"));
     RAPIDSMP_MPI(MPI_Finalize());
     return 0;
 }

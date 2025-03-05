@@ -164,7 +164,7 @@ class ArgumentParser {
         }
         ss << "Local size: " << rapidsmp::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmp::format_nbytes(total_nbytes) << "\n";
-        comm.logger().info(ss.str());
+        comm.logger().print(ss.str());
     }
 
     std::uint64_t num_runs{1};
@@ -180,7 +180,7 @@ class ArgumentParser {
     std::int64_t device_mem_limit_mb{-1};
 };
 
-Duration run(
+rapidsmp::Duration run(
     std::shared_ptr<rapidsmp::Communicator> comm,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
@@ -206,7 +206,7 @@ Duration run(
     RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
     std::vector<cudf::table> output_partitions;
-    auto const t0_elapsed = Clock::now();
+    auto const t0_elapsed = rapidsmp::Clock::now();
     {
         RAPIDSMP_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
         rapidsmp::shuffler::Shuffler shuffler(
@@ -245,7 +245,7 @@ Duration run(
         }
         stream.synchronize();
     }
-    auto const t1_elapsed = Clock::now();
+    auto const t1_elapsed = rapidsmp::Clock::now();
 
     // Check the shuffle result (this test only works for non-empty partitions
     // thus we only check large shuffles).
@@ -328,21 +328,22 @@ int main(int argc, char** argv) {
         ss << "Hardware setup: \n";
         ss << "  GPU (" << properties.name << "): \n";
         ss << "    Device number: " << cur_dev << "\n";
-        ss << "    PCI Bus ID: " << pci_bus_id << "\n";
+        ss << "    PCI Bus ID: " << pci_bus_id.substr(0, pci_bus_id.find('\0')) << "\n";
         ss << "    Total Memory: "
            << rapidsmp::format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
-        log.info(ss.str());
+        log.print(ss.str());
     }
 
     // We start with disabled statistics.
-    auto stats = std::make_shared<rapidsmp::Statistics>();
+    auto stats = std::make_shared<rapidsmp::Statistics>(/* enable = */ false);
 
     std::vector<double> elapsed_vec;
-    for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
+    std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
+    for (std::uint64_t i = 0; i < total_num_runs; ++i) {
         // Enable statistics for the last run.
-        if (i == args.num_warmups + args.num_runs - 1) {
-            stats = std::make_shared<rapidsmp::Statistics>(comm);
+        if (i == total_num_runs - 1) {
+            stats = std::make_shared<rapidsmp::Statistics>();
         }
         auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;
@@ -354,7 +355,7 @@ int main(int argc, char** argv) {
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
-        log.info(ss.str());
+        log.print(ss.str());
         if (i >= args.num_warmups) {
             elapsed_vec.push_back(elapsed);
         }
@@ -371,13 +372,13 @@ int main(int argc, char** argv) {
            << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
         if (args.enable_memory_profiler) {
             auto const counter = stat_enabled_mr->get_bytes_counter();
-            ss << " | rmm device memory peak: " << rapidsmp::format_nbytes(counter.peak)
-               << " | total: " << rapidsmp::format_nbytes(counter.total);
+            ss << " | device memory peak: " << rapidsmp::format_nbytes(counter.peak)
+               << " | device memory total: "
+               << rapidsmp::format_nbytes(counter.total / total_num_runs) << " (avg)";
         }
-        log.info(ss.str());
+        log.print(ss.str());
     }
-    log.info(stats->report());
+    log.print(stats->report("Statistics (of the last run):"));
     RAPIDSMP_MPI(MPI_Finalize());
-
     return 0;
 }

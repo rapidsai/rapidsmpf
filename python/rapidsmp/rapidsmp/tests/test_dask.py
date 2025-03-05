@@ -1,19 +1,29 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import pytest
-from dask.distributed import Client
-from dask_cuda import LocalCUDACluster
-from dask_cuda.utils import get_n_gpus
-from distributed.utils_test import gen_test
-from mpi4py import MPI
 
-from rapidsmp.integrations.dask import rapidsmp_ucxx_comm_setup
+dask_cuda = pytest.importorskip("dask_cuda")
+
+from dask.distributed import Client  # noqa: E402
+from dask_cuda import LocalCUDACluster  # noqa: E402
+from dask_cuda.utils import get_n_gpus  # noqa: E402
+from distributed.utils_test import gen_test  # noqa: E402
+from mpi4py import MPI  # noqa: E402
+
+from rapidsmp.integrations.dask import rapidsmp_ucxx_comm_setup  # noqa: E402
+
+if TYPE_CHECKING:
+    from distributed.worker import Worker
 
 
-def get_mpi_nsize():
+def get_mpi_nsize() -> int:
     comm = MPI.COMM_WORLD
-    return comm.Get_size()
+    size = comm.Get_size()
+    # without the cast, mypy sees this as Any
+    return cast(int, size)
 
 
 pytestmark = pytest.mark.skipif(
@@ -23,7 +33,7 @@ pytestmark = pytest.mark.skipif(
 
 
 @gen_test(timeout=30)
-async def test_dask_ucxx_cluster():
+async def test_dask_ucxx_cluster() -> None:
     async with (
         LocalCUDACluster(
             scheduler_port=0, asynchronous=True, device_memory_limit=1
@@ -34,8 +44,9 @@ async def test_dask_ucxx_cluster():
 
         await rapidsmp_ucxx_comm_setup(client)
 
-        def get_rank(dask_worker):
-            return dask_worker._rapidsmp_comm.rank
+        def get_rank(dask_worker: Worker) -> int:
+            # TODO: maybe move the cast into rapidsmp_comm?
+            return cast(int, dask_worker._rapidsmp_comm.rank)
 
         result = await client.run(get_rank)
         assert set(result.values()) == set(range(len(cluster.workers)))
