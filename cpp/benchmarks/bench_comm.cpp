@@ -257,7 +257,6 @@ int main(int argc, char** argv) {
 
     auto const local_messages_send = args.msg_size * args.num_ops * (comm->nranks() - 1);
     auto const local_messages = args.msg_size * args.num_ops * comm->nranks();
-    // auto const total_local_msg_send = args.msg_size * args.num_ops * comm->nranks();
     std::vector<double> elapsed_vec;
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         // Enable statistics for the last run.

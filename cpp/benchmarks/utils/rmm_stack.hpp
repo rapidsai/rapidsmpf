@@ -31,10 +31,10 @@
  * @brief Create and set a RMM stack as the current device memory resource.
  *
  * @param name The name of the stack:
- *  - `cuda`: use the default cuda memory resource.
- *  - `async`: use an cuda async memory resource.
- *  - `pool`: use an memory pool backed by a cuda memory resource.
- *  - `managed`: use an memory pool backed by a managed memory resource.
+ *  - `cuda`: use the default CUDA memory resource.
+ *  - `async`: use a CUDA async memory resource.
+ *  - `pool`: use a memory pool backed by a CUDA memory resource.
+ *  - `managed`: use a memory pool backed by a CUDA managed memory resource.
  * @return A owning memory resource, which must be kept alive.
  */
 [[nodiscard]] inline std::shared_ptr<rmm::mr::device_memory_resource>
