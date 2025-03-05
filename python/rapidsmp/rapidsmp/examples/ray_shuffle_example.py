@@ -101,7 +101,7 @@ class ShufflingActor(BaseShufflingActor):
         }
 
         # initialize a shuffler
-        shuffler = self.initialize_shuffler(total_num_partitions=self._total_nparts)
+        shuffler = self.create_shuffler(0, total_num_partitions=self._total_nparts)
 
         # Slice df and submit local slices to shuffler
         stride = math.ceil(self._num_rows / self.comm.nranks)

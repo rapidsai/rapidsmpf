@@ -29,10 +29,11 @@ class BaseShufflingActor(RapidsMPActor):
 
     def setup_worker(self, root_address_str: str) -> None:
         """
-        Setup the UCXX communication and a shuffle operation.
+        Setup the UCXX communication and create device resources.
 
-        This method overrides the parent method. It will also call the create_device_mr
-        and create_buffer_resource methods prior to creating the shuffler object.
+        This method overrides the parent method. It will create a Cuda memory resource
+        and a buffer resource, which can be used to create Shuffler objects later.
+        Override this method to use a different device memory resource.
 
         Parameters
         ----------
@@ -43,64 +44,25 @@ class BaseShufflingActor(RapidsMPActor):
         super().setup_worker(root_address_str)
 
         # create the device memory resource
-        mr = self.create_device_mr()
-        self.create_buffer_resource(mr)
-
-    def create_device_mr(self) -> rmm.mr.DeviceMemoryResource:
-        """
-        Create a Device Memory Resource for this class.
-
-        This will set `self.device_mr` property. This will be called by the
-        `self.setup_worker` method. By default, it will create a CudaMemoryResource.
-
-        Override this method to use a different device memory resourcef
-
-        Returns
-        -------
-        rmm.mr.DeviceMemoryResource
-            The device memory resource.
-        """
         self._device_mr = rmm.mr.CudaMemoryResource()
         rmm.mr.set_current_device_resource(self._device_mr)
-        return self._device_mr
 
-    def create_buffer_resource(
-        self, device_mr: rmm.mr.DeviceMemoryResource
-    ) -> BufferResource:
-        """
-        Create a Buffer Resource with this class' device memory resource.
+        self._buffer_resource = BufferResource(self._device_mr)
 
-        This will set `self.buffer_resource` property. This will be called by the
-        `self.setup_worker` method. By default, it will create a BufferResource
-        without any limits.
-
-        Parameters
-        ----------
-        device_mr
-            The device memory resource to use.
-
-        Returns
-        -------
-        BufferResource
-            The buffer resource.
-        """
-        self._buffer_resource = BufferResource(device_mr)
-        return self._buffer_resource
-
-    def initialize_shuffler(
+    def create_shuffler(
         self,
-        op_id: int = 0,
-        total_num_partitions: int = -1,
+        op_id: int,
+        total_num_partitions: int | None = None,
     ) -> Shuffler:
         """
-        Initialize a Shuffler using the communicator and buffer resource.
+        Create a Shuffler using the communicator and buffer resource.
 
         Parameters
         ----------
         op_id
-            The operation id. Default 0.
+            The operation id.
         total_num_partitions
-            The total number of partitions. Default -1.
+            The total number of partitions. By default, one partition per rank.
 
         Returns
         -------
@@ -112,10 +74,13 @@ class BaseShufflingActor(RapidsMPActor):
         if self.comm is None:
             raise RuntimeError("Communicator not initialized")
 
+        if self.buffer_resource is None:
+            raise RuntimeError("Buffer resource not initialized")
+
         return Shuffler(
             self.comm,
             op_id,
-            total_num_partitions if total_num_partitions > 0 else self.nranks(),
+            total_num_partitions if total_num_partitions is not None else self.nranks(),
             DEFAULT_STREAM,
             self.buffer_resource,
         )
