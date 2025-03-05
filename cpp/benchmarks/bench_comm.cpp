@@ -178,15 +178,15 @@ Duration run(
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
             auto buf = std::move(recv_bufs.at(rank + i * comm->nranks()));
-            statistics->add_bytes_stat("all-to-all-recv", buf->size);
             if (rank != comm->rank()) {
+                statistics->add_bytes_stat("all-to-all-recv", buf->size);
                 futures.push_back(comm->recv(rank, tag, std::move(buf), stream));
             }
         }
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
             auto buf = std::move(send_bufs.at(rank + i * comm->nranks()));
-            statistics->add_bytes_stat("all-to-all-send", buf->size);
             if (rank != comm->rank()) {
+                statistics->add_bytes_stat("all-to-all-send", buf->size);
                 futures.push_back(comm->send(std::move(buf), rank, tag, stream));
             }
         }
