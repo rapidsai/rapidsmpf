@@ -10,13 +10,13 @@ os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
 
 import pytest
 
-from rapidsmp.examples.ray_shuffle_example import ShufflingActor
-from rapidsmp.integrations.ray import (
+ray = pytest.importorskip("ray")
+
+from rapidsmp.examples.ray_shuffle_example import ShufflingActor  # noqa: E402
+from rapidsmp.integrations.ray import (  # noqa: E402
     RapidsMPActor,
     setup_ray_ucxx_cluster,
 )
-
-ray = pytest.importorskip("ray")
 
 
 def get_nranks_if_spawned_by_mpi() -> int:

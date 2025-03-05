@@ -10,6 +10,7 @@ import numpy as np
 import ray
 
 import cudf
+import rmm
 
 from rapidsmp.integrations.ray import setup_ray_ucxx_cluster
 from rapidsmp.shuffler import partition_and_pack, unpack_and_concat
@@ -81,13 +82,16 @@ class ShufflingActor(BaseShufflingActor):
         columns_to_hash = (df.columns.get_loc("b"),)
         column_names = list(df.columns)
 
+        mr = rmm.mr.get_current_device_resource()  # use the current device resource
+        stream = DEFAULT_STREAM  # use the default stream
+
         # Calculate the expected output partitions on all ranks
         expected = {
             partition_id: pylibcudf_to_cudf_dataframe(
                 unpack_and_concat(
                     [packed],
-                    stream=DEFAULT_STREAM,
-                    device_mr=self.device_mr,
+                    stream=stream,
+                    device_mr=mr,
                 ),
                 column_names=column_names,
             )
@@ -95,13 +99,15 @@ class ShufflingActor(BaseShufflingActor):
                 cudf_to_pylibcudf_table(df),
                 columns_to_hash=columns_to_hash,
                 num_partitions=self._total_nparts,
-                stream=DEFAULT_STREAM,
-                device_mr=self.device_mr,
+                stream=stream,
+                device_mr=mr,
             ).items()
         }
 
-        # initialize a shuffler
-        shuffler = self.create_shuffler(0, total_num_partitions=self._total_nparts)
+        # initialize a shuffler with the default buffer resource
+        shuffler = self.create_shuffler(
+            0, total_num_partitions=self._total_nparts, stream=stream
+        )
 
         # Slice df and submit local slices to shuffler
         stride = math.ceil(self._num_rows / self.comm.nranks)
@@ -113,8 +119,8 @@ class ShufflingActor(BaseShufflingActor):
                 cudf_to_pylibcudf_table(local_df.iloc[i : i + self._batch_size]),
                 columns_to_hash=columns_to_hash,
                 num_partitions=self._total_nparts,
-                stream=DEFAULT_STREAM,
-                device_mr=self.device_mr,
+                stream=stream,
+                device_mr=mr,
             )
             shuffler.insert_chunks(packed_inputs)
 
@@ -128,8 +134,8 @@ class ShufflingActor(BaseShufflingActor):
             packed_chunks = shuffler.extract(partition_id)
             partition = unpack_and_concat(
                 packed_chunks,
-                stream=DEFAULT_STREAM,
-                device_mr=self.device_mr,
+                stream=stream,
+                device_mr=mr,
             )
             assert_eq(
                 pylibcudf_to_cudf_dataframe(partition, column_names=column_names),

@@ -24,10 +24,10 @@ dependencies:
 - libucxx==0.43.*,>=0.0.0a0
 - mpi4py
 - ninja
+- nvidia-ml-py
 - openmpi
 - pre-commit
 - pylibcudf==25.4.*,>=0.0.0a0
-- pynvml
 - pytest
 - python>=3.10,<3.13
 - rapids-build-backend>=0.3.0,<0.4.0.dev0

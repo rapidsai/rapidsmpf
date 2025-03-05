@@ -19,16 +19,17 @@ class RapidsMPActor:
     """
     RapidsMPActor is a base class that instantiates a UCXX communication within them.
 
-    Example:
-    >>> @ray.remote(num_cpus=1)
-    ... class DummyActor(RapidsMPActor): ...
-    >>> actors = setup_ray_ucx_cluster(DummyActor, 2)
-    >>> ray.get([actor.status_check.remote() for actor in actors]
-
     Parameters
     ----------
     nranks
         The number of workers in the cluster.
+
+    Examples
+    --------
+    >>> @ray.remote(num_cpus=1)
+    ... class DummyActor(RapidsMPActor): ...
+    >>> actors = setup_ray_ucx_cluster(DummyActor, 2)
+    >>> ray.get([actor.status_check.remote() for actor in actors]
     """
 
     def __init__(self, nranks: int):
@@ -87,11 +88,11 @@ class RapidsMPActor:
 
         Returns
         -------
-            A string representation of the actor
+        A string representation of the actor
 
         Raises
         ------
-            RuntimeError if the communicator is not initialized
+        RuntimeError if the communicator is not initialized
         """
         if self._comm:
             return f"RapidsMPActor(rank:{self._rank}, nranks:{self._nranks}, \
@@ -105,7 +106,7 @@ class RapidsMPActor:
 
         Returns
         -------
-            True if the communicator is initialized, False otherwise.
+        True if the communicator is initialized, False otherwise.
         """
         return self._comm is not None and self._rank != -1
 
@@ -115,7 +116,7 @@ class RapidsMPActor:
 
         Returns
         -------
-            The rank of the worker
+        The rank of the worker
         """
         return self._rank
 
@@ -125,7 +126,7 @@ class RapidsMPActor:
 
         Returns
         -------
-            The number of ranks in the UCXX communicator
+        The number of ranks in the UCXX communicator
         """
         return self._nranks
 
@@ -134,18 +135,20 @@ class RapidsMPActor:
         """
         The UCXX communicator object.
 
-        Note: This property is not meant to be called remotely from the client.
-        Then Ray will attempt to serialize the Communicator object, which will fail.
-        Instead, the subclasses can use the `comm` property to access the communicator.
-        For example, to create a Shuffle operation
-
         Returns
         -------
-            The UCXX communicator object if initialized, otherwise None
+        The UCXX communicator object if initialized, otherwise None
 
         Raises
         ------
-            RuntimeError if the communicator is not initialized
+        RuntimeError if the communicator is not initialized
+
+        Notes
+        -----
+        This property is not meant to be called remotely from the client.
+        Then Ray will attempt to serialize the Communicator object, which will fail.
+        Instead, the subclasses can use the `comm` property to access the communicator.
+        For example, to create a Shuffle operation
         """
         if self._comm is None:
             raise RuntimeError("Communicator not initialized")
