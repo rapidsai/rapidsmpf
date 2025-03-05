@@ -239,3 +239,9 @@ dependencies:
       - output_types: [conda]
         packages:
           - *doxygen
+          - sphinx
+          - myst-parser
+          - pydata-sphinx-theme
+          - numpydoc
+          - sphinx-autobuild
+          - sphinx-copybutton
