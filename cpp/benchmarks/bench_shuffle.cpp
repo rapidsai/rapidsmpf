@@ -60,7 +60,8 @@ class ArgumentParser {
                            << "  -n <num>   Number of rows per rank (default: 1M)\n"
                            << "  -p <num>   Number of partitions (input tables) per "
                               "rank (default: 1)\n"
-                           << "  -m <mr>    RMM memory resource {cuda, pool, async} "
+                           << "  -m <mr>    RMM memory resource {cuda, pool, async, "
+                              "managed} "
                               "(default: cuda)\n"
                            << "  -l <num>   Device memory limit in MiB (default:-1, "
                               "disabled)\n"
@@ -98,10 +99,12 @@ class ArgumentParser {
                     break;
                 case 'm':
                     rmm_mr = std::string{optarg};
-                    if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async")) {
+                    if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async"
+                          || rmm_mr == "managed"))
+                    {
                         if (rank == 0) {
                             std::cerr << "-m (RMM memory resource) must be one of "
-                                         "{cuda, pool, async}"
+                                         "{cuda, pool, async, managed}"
                                       << std::endl;
                         }
                         RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));

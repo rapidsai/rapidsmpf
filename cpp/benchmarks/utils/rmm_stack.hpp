@@ -20,6 +20,7 @@
 #include <cudf/utilities/memory_resource.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
+#include <rmm/mr/device/managed_memory_resource.hpp>
 #include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
 #include <rmm/mr/device/statistics_resource_adaptor.hpp>
@@ -33,6 +34,7 @@
  *  - `cuda`: use the default cuda memory resource.
  *  - `async`: use an cuda async memory resource.
  *  - `pool`: use an memory pool backed by a cuda memory resource.
+ *  - `managed`: use an memory pool backed by a managed memory resource.
  * @return A owning memory resource, which must be kept alive.
  */
 [[nodiscard]] inline std::shared_ptr<rmm::mr::device_memory_resource>
@@ -42,6 +44,8 @@ set_current_rmm_stack(std::string const& name) {
         ret = std::make_shared<rmm::mr::cuda_memory_resource>();
     } else if (name == "async") {
         ret = std::make_shared<rmm::mr::cuda_async_memory_resource>();
+    } else if (name == "managed") {
+        ret = std::make_shared<rmm::mr::managed_memory_resource>();
     } else if (name == "pool") {
         ret = rmm::mr::make_owning_wrapper<rmm::mr::pool_memory_resource>(
             std::make_shared<rmm::mr::cuda_memory_resource>(),

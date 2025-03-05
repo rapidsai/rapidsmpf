@@ -55,7 +55,8 @@ class ArgumentParser {
                            << "  -n <num>   Message size in bytes (default: 1M)\n"
                            << "  -p <num>   Number of concurrent operations, e.g. number"
                               " of  concurrent all-to-all operations (default: 1)\n"
-                           << "  -m <mr>    RMM memory resource {cuda, pool, async} "
+                           << "  -m <mr>    RMM memory resource {cuda, pool, async, "
+                              "managed} "
                               "(default: cuda)\n"
                            << "  -r <num>   Number of runs (default: 1)\n"
                            << "  -w <num>   Number of warmup runs (default: 0)\n"
@@ -91,9 +92,12 @@ class ArgumentParser {
                     break;
                 case 'm':
                     rmm_mr = std::string{optarg};
-                    if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async")) {
+                    if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async"
+                          || rmm_mr == "managed"))
+                    {
                         throw std::invalid_argument(
-                            "-m (RMM memory resource) must be one of {cuda, pool, async}"
+                            "-m (RMM memory resource) must be one of {cuda, pool, async, "
+                            "managed}"
                         );
                     }
                     break;
