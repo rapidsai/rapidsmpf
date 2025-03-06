@@ -60,7 +60,8 @@ class ArgumentParser {
                            << "  -n <num>   Number of rows per rank (default: 1M)\n"
                            << "  -p <num>   Number of partitions (input tables) per "
                               "rank (default: 1)\n"
-                           << "  -m <mr>    RMM memory resource {cuda, pool, async} "
+                           << "  -m <mr>    RMM memory resource {cuda, pool, async, "
+                              "managed} "
                               "(default: cuda)\n"
                            << "  -l <num>   Device memory limit in MiB (default:-1, "
                               "disabled)\n"
@@ -98,10 +99,12 @@ class ArgumentParser {
                     break;
                 case 'm':
                     rmm_mr = std::string{optarg};
-                    if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async")) {
+                    if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async"
+                          || rmm_mr == "managed"))
+                    {
                         if (rank == 0) {
                             std::cerr << "-m (RMM memory resource) must be one of "
-                                         "{cuda, pool, async}"
+                                         "{cuda, pool, async, managed}"
                                       << std::endl;
                         }
                         RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
@@ -350,7 +353,7 @@ int main(int argc, char** argv) {
         ss << "elapsed: " << rapidsmp::to_precision(elapsed)
            << " sec | local throughput: "
            << rapidsmp::format_nbytes(args.local_nbytes / elapsed)
-           << "/s | total throughput: "
+           << "/s | global throughput: "
            << rapidsmp::format_nbytes(args.total_nbytes / elapsed) << "/s";
         if (i < args.num_warmups) {
             ss << " (warmup run)";
@@ -368,7 +371,7 @@ int main(int argc, char** argv) {
         ss << "means: " << rapidsmp::to_precision(elapsed_mean)
            << " sec | local throughput: "
            << rapidsmp::format_nbytes(args.local_nbytes / elapsed_mean)
-           << "/s | total throughput: "
+           << "/s | global throughput: "
            << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
         if (args.enable_memory_profiler) {
             auto const counter = stat_enabled_mr->get_bytes_counter();
