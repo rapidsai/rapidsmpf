@@ -226,7 +226,6 @@ class DaskIntegration(Protocol[DataFrameT]):
         shuffler
             The rapidsmp Shuffler object to extract from.
         """
-        raise NotImplementedError("""Add a partition to a rapidsmp Shuffler.""")
 
     @staticmethod
     def extract_partition(
@@ -250,7 +249,6 @@ class DaskIntegration(Protocol[DataFrameT]):
         -------
         A shuffled DataFrame partition.
         """
-        raise NotImplementedError("""Extract a partition from a rapidsmp Shuffler.""")
 
 
 def _insert_partition(
