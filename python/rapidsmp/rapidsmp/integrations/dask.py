@@ -162,6 +162,8 @@ def global_rmp_barrier(dependencies: Sequence[None]) -> None:
     -----
     A global barrier task does NOT need to be restricted
     to a specific Dask worker.
+
+    This function is meant to be a no-op.
     """
 
 
@@ -275,14 +277,10 @@ def _insert_partition(
         Number of output partitions for the current shuffle.
     shuffle_id
         The rapidsmp shuffle id.
-
-    Returns
-    -------
-    None
     """
     if callback is None:
         raise ValueError("callback missing in _insert_partition.")
-    return callback(
+    callback(
         df,
         on,
         partition_count,
@@ -453,7 +451,7 @@ def rapidsmp_shuffle_graph(
     if len(set(shuffle_on)) != len(shuffle_on):
         raise ValueError(f"Got duplicate keys in shuffle_on: {shuffle_on}")
 
-    # Add operation to submit each partition to the shuffler
+    # Add tasks to insert each partition into the shuffler
     graph: dict[Any, Any] = {
         (insert_name, pid): (
             _insert_partition,
@@ -516,7 +514,6 @@ def rapidsmp_shuffle_graph(
         }
     )
 
-    # Return the graph
     return graph
 
 
@@ -525,6 +522,7 @@ def rmp_worker_setup(
     *,
     pool_size: float = 0.75,
     spill_device: float = 0.50,
+    enable_statistics: bool = True,
 ) -> None:
     """
     Attach rapidsmp shuffling attributes to a Dask worker.
@@ -537,6 +535,13 @@ def rmp_worker_setup(
         The desired RMM pool size.
     spill_device
         GPU memory limit for shuffling.
+    enable_statistics
+        Whether to track shuffler statistics.
+
+    Warnings
+    --------
+    This function creates a new RMM memory pool, and
+    sets it as the current device resource.
 
     See Also
     --------
@@ -551,17 +556,20 @@ def rmp_worker_setup(
         if hasattr(dask_worker, "_rmp_shufflers"):
             return  # Worker already initialized
 
-        # Add empty list of active shufflers
+        # We start with no active shufflers
         dask_worker._rmp_shufflers = {}
 
-        # Print statstics at worker shutdown
-        dask_worker._rmp_statistics = Statistics(enable=True)
-        weakref.finalize(
-            dask_worker,
-            lambda name, stats: print(name, stats.report()),
-            name=str(dask_worker),
-            stats=dask_worker._rmp_statistics,
-        )
+        # Print statistics at worker shutdown.
+        if enable_statistics:
+            dask_worker._rmp_statistics = Statistics(enable=True)
+            weakref.finalize(
+                dask_worker,
+                lambda name, stats: print(name, stats.report()),
+                name=str(dask_worker),
+                stats=dask_worker._rmp_statistics,
+            )
+        else:
+            dask_worker._rmp_statistics = None
 
         # Setup a buffer_resource
         # Create a RMM stack with both a device pool and statistics.
@@ -589,6 +597,7 @@ def bootstrap_dask_cluster(
     *,
     pool_size: float = 0.75,
     spill_device: float = 0.50,
+    enable_statistics: bool = True,
 ) -> None:
     """
     Setup a Dask cluster for rapidsmp shuffling.
@@ -601,6 +610,8 @@ def bootstrap_dask_cluster(
         The desired RMM pool size.
     spill_device
         GPU memory limit for shuffling.
+    enable_statistics
+        Whether to track shuffler statistics.
 
     See Also
     --------
@@ -672,6 +683,7 @@ def bootstrap_dask_cluster(
             rmp_worker_setup,
             pool_size=pool_size,
             spill_device=spill_device,
+            enable_statistics=enable_statistics,
         )
 
         # Only run the above steps once
@@ -711,7 +723,7 @@ class RMPSchedulerPlugin(SchedulerPlugin):
 
     def rmp_add_restricted_tasks(self, *args: Any, **kwargs: Any) -> None:
         """
-        Add restricted tasks.
+        Add restricted tasks that must run on specific workers.
 
         Parameters
         ----------
@@ -727,7 +739,7 @@ class RMPSchedulerPlugin(SchedulerPlugin):
 
     def update_graph(self, *args: Any, **kwargs: Any) -> None:
         """
-        Update graph on scheduler.
+        Graph update hook: apply task restrictions.
 
         Parameters
         ----------
@@ -830,7 +842,7 @@ def get_shuffler(
     Notes
     -----
     Whenever a new `Shuffler` object is created, it is
-    cached as `dask_worker._rmp_shufflers[shuffle_id]`.
+    saved as `dask_worker._rmp_shufflers[shuffle_id]`.
 
     This function is expected to run on a Dask worker.
     """
