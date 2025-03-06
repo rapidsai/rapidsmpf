@@ -103,9 +103,6 @@ class BulkRayShufflerActor(RapidsMPActor):
         # Create a statistics object
         stats = Statistics(self.enable_statistics)
         # Create a shuffler
-        if self.shuffler is not None:
-            raise RuntimeError("Shuffler already initialized")
-
         self.shuffler: Shuffler = Shuffler(
             self.comm,
             op_id=0,
@@ -291,11 +288,7 @@ def bulk_ray_shuffle(
     num_output_files = num_output_files or num_input_files
     total_num_partitions = num_output_files
     files_per_rank = math.ceil(num_input_files / num_workers)
-    # start = files_per_rank * comm.rank
-    # finish = start + files_per_rank
-    # local_files = paths[start:finish]
-    # num_local_files = len(local_files)
-    # num_batches = math.ceil(num_local_files / batchsize)
+
     actors = setup_ray_ucxx_cluster(
         BulkRayShufflerActor,
         num_workers=num_workers,
