@@ -22,6 +22,7 @@ dependencies:
 - gcc_linux-64=13.*
 - libcudf==25.4.*,>=0.0.0a0
 - libucxx==0.43.*,>=0.0.0a0
+- make
 - mpi4py
 - myst-parser
 - ninja
