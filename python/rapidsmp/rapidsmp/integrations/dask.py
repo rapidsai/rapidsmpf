@@ -791,7 +791,9 @@ def get_comm(dask_worker: Worker | None = None) -> Communicator:
     This function is expected to run on a Dask worker.
     """
     dask_worker = dask_worker or get_worker()
-    assert isinstance(dask_worker._rapidsmp_comm, Communicator)
+    assert isinstance(dask_worker._rapidsmp_comm, Communicator), (
+        f"Expected Communicator, got {dask_worker._rapidsmp_comm}"
+    )
     return dask_worker._rapidsmp_comm
 
 

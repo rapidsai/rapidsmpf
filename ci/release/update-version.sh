@@ -37,6 +37,8 @@ sed_runner "s/ucxx==.*/ucxx==${NEXT_UCXX_SHORT_TAG_PEP440}.*,>=0.0.0a0/g" depend
 
 DEPENDENCIES=(
   cudf
+  dask-cuda
+  dask-cudf
   libcudf
   pylibcudf
   rapidsmp
