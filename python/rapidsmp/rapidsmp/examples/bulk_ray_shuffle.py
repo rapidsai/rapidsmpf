@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -101,7 +102,7 @@ class BulkRayShufflerActor(RapidsMPActor):
         )
         br = BufferResource(mr, memory_available)
         # Create a statistics object
-        stats = Statistics(self.enable_statistics)
+        self.stats = Statistics(self.enable_statistics)
         # Create a shuffler
         self.shuffler: Shuffler = Shuffler(
             self.comm,
@@ -109,11 +110,13 @@ class BulkRayShufflerActor(RapidsMPActor):
             total_num_partitions=self.total_nparts,
             stream=DEFAULT_STREAM,
             br=br,
-            statistics=stats,
+            statistics=self.stats,
         )
 
     def cleanup(self) -> None:
         """Cleanup the UCXX communication and the shuffle operation."""
+        if self.enable_statistics and self.stats is not None:
+            self.comm.logger.info(self.stats.report())
         if self.shuffler is not None:
             self.shuffler.shutdown()
 
@@ -205,13 +208,13 @@ class BulkRayShufflerActor(RapidsMPActor):
             tbl, column_names = self.read_batch(paths[i : i + self.batchsize])
             self.insert_chunk(tbl, column_names)
         self.insert_finished()
-        print("Insert finished")
         return column_names
 
     def insert_finished(self) -> None:
         """Tell the shuffler that we are done inserting data."""
         for pid in range(self.total_nparts):
             self.shuffler.insert_finished(pid)
+        self.comm.logger.info("Insert finished")
 
     def extract(self) -> Iterator[tuple[int, plc.Table]]:
         """
@@ -349,7 +352,11 @@ def setup_and_run(args: argparse.Namespace) -> None:
     args : argparse.Namespace
         The parsed command line arguments.
     """
-    ray.init(num_gpus=args.num_workers, dashboard_host="0.0.0.0")
+    if args.ray_address or os.environ.get("RAY_ADDRESS") is not None:
+        ray.init(address="auto")  # connect to existing cluster
+    else:
+        ray.init(num_gpus=args.num_workers, dashboard_host="0.0.0.0")
+
     bulk_ray_shuffle(
         paths=sorted(map(str, args.input.glob("**/*"))),
         shuffle_on=args.on.split(","),
@@ -361,7 +368,6 @@ def setup_and_run(args: argparse.Namespace) -> None:
         rmm_pool_size=args.rmm_pool_size,
         spill_device=args.spill_device,
     )
-    ray.shutdown()
 
 
 if __name__ == "__main__":
@@ -428,6 +434,12 @@ if __name__ == "__main__":
         default=False,
         action="store_true",
         help="Enable statistics.",
+    )
+    parser.add_argument(
+        "--ray-address",
+        type=str,
+        default=None,
+        help="Connect to an existing Ray cluster.",
     )
     args = parser.parse_args()
     args.rmm_pool_size = (args.rmm_pool_size // 256) * 256  # Align to 256 bytes
