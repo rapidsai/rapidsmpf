@@ -53,3 +53,5 @@ include_pandas_compat = True
 
 html_theme = "pydata_sphinx_theme"
 html_logo = "_static/RAPIDS-logo-purple.png"
+
+numpydoc_class_members_toctree = False
