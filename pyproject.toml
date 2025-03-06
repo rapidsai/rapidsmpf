@@ -34,7 +34,7 @@ select = [
   "ISC", # flake8-implicit-str-concat
   "INP", # flake8-no-pep420 (namespace packages)
   "SIM", # flake8-simplify
-  "TCH", # flake8-type-checking
+  "TC", # flake8-type-checking
   "TID", # flake8-tidy-imports
   "PLC", # pylint-convention
   "PLE", # pylint-error
