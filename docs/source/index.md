@@ -1,8 +1,8 @@
-# rapidsmp documentation
+# RAPIDSMP documentation
 
-rapidsmp provides a collection of multi-GPU, distributed memory algorithms.
+`rapidsmp` provides a collection of multi-GPU, distributed memory algorithms.
 
-Follow the RAPIDS [installation guide] to install rapidsmp and the necessary dependencies.
+Follow the RAPIDS [installation guide] to install `rapidsmp` and the necessary dependencies.
 
 ```{toctree}
 ---
