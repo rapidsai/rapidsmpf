@@ -39,8 +39,8 @@ set +e
 rapids-logger "Build CPP docs"
 pushd cpp/doxygen
 doxygen Doxyfile
-mkdir -p "${RAPIDS_DOCS_DIR}/rapidsmp/html"
-mv html/* "${RAPIDS_DOCS_DIR}/rapidsmp/html"
+mkdir -p "${RAPIDS_DOCS_DIR}/librapidsmp/html"
+mv html/* "${RAPIDS_DOCS_DIR}/librapidsmp/html"
 popd
 
 rapids-logger "Build rapidsmp Sphinx docs"
