@@ -82,7 +82,7 @@ def new_communicator(
     Create a new UCXX communicator with the given number of ranks.
 
     An existing UCXWorker may be specified, otherwise one will be created. The root rank
-    is created if no `root_ucxx_address` is specific, all other ranks must specify the
+    is created if no ``root_ucxx_address`` is specific, all other ranks must specify the
     the address of the root rank via that argument.
 
     Parameters
