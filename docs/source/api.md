@@ -36,10 +36,18 @@ This page contains the API reference for `rapidsmp`.
 
 .. automodule:: rapidsmp.communicator.communicator
    :members:
+```
 
+### MPI Communicator
+
+```{eval-rst}
 .. automodule:: rapidsmp.communicator.mpi
    :members:
+```
 
+### UCXX Communicator
+
+```{eval-rst}
 .. automodule:: rapidsmp.communicator.ucxx
    :members:
 ```

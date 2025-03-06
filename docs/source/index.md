@@ -6,7 +6,7 @@ Follow the RAPIDS [installation guide] to install `rapidsmp` and the necessary d
 
 ```{toctree}
 ---
-maxdepth: 2
+maxdepth: 3
 caption: Contents:
 ---
 quickstart.md
