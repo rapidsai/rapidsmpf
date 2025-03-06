@@ -55,7 +55,8 @@ class ArgumentParser {
                            << "  -n <num>   Message size in bytes (default: 1M)\n"
                            << "  -p <num>   Number of concurrent operations, e.g. number"
                               " of  concurrent all-to-all operations (default: 1)\n"
-                           << "  -m <mr>    RMM memory resource {cuda, pool, async} "
+                           << "  -m <mr>    RMM memory resource {cuda, pool, async, "
+                              "managed} "
                               "(default: cuda)\n"
                            << "  -r <num>   Number of runs (default: 1)\n"
                            << "  -w <num>   Number of warmup runs (default: 0)\n"
@@ -91,9 +92,12 @@ class ArgumentParser {
                     break;
                 case 'm':
                     rmm_mr = std::string{optarg};
-                    if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async")) {
+                    if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async"
+                          || rmm_mr == "managed"))
+                    {
                         throw std::invalid_argument(
-                            "-m (RMM memory resource) must be one of {cuda, pool, async}"
+                            "-m (RMM memory resource) must be one of {cuda, pool, async, "
+                            "managed}"
                         );
                     }
                     break;
@@ -174,15 +178,15 @@ Duration run(
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
             auto buf = std::move(recv_bufs.at(rank + i * comm->nranks()));
-            statistics->add_bytes_stat("all-to-all-recv", buf->size);
             if (rank != comm->rank()) {
+                statistics->add_bytes_stat("all-to-all-recv", buf->size);
                 futures.push_back(comm->recv(rank, tag, std::move(buf), stream));
             }
         }
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
             auto buf = std::move(send_bufs.at(rank + i * comm->nranks()));
-            statistics->add_bytes_stat("all-to-all-send", buf->size);
             if (rank != comm->rank()) {
+                statistics->add_bytes_stat("all-to-all-send", buf->size);
                 futures.push_back(comm->send(std::move(buf), rank, tag, stream));
             }
         }
@@ -251,7 +255,8 @@ int main(int argc, char** argv) {
     // We start with disabled statistics.
     auto stats = std::make_shared<rapidsmp::Statistics>(/* enable = */ false);
 
-    auto const total_local_msg_send = args.msg_size * args.num_ops * comm->nranks();
+    auto const local_messages_send = args.msg_size * args.num_ops * (comm->nranks() - 1);
+    auto const local_messages = args.msg_size * args.num_ops * comm->nranks();
     std::vector<double> elapsed_vec;
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         // Enable statistics for the last run.
@@ -260,10 +265,11 @@ int main(int argc, char** argv) {
         }
         auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;
-        ss << "elapsed: " << to_precision(elapsed) << " sec "
-           << "| local throughput: " << format_nbytes(total_local_msg_send / elapsed)
-           << "/s | total throughput: "
-           << format_nbytes(total_local_msg_send * comm->nranks() / elapsed) << "/s";
+        ss << "elapsed: " << to_precision(elapsed) << " sec"
+           << " | local comm: " << format_nbytes(local_messages_send / elapsed)
+           << "/s | local throughput: " << format_nbytes(local_messages / elapsed)
+           << "/s | global throughput: "
+           << format_nbytes(local_messages * comm->nranks() / elapsed) << "/s";
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
