@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 class DaskCudfIntegration:
     """
-    cuDF Polars protocol for Dask integration.
+    Dask-cuDF protocol for Dask integration.
 
     This protocol can be used to implement a rapidsmp-shuffle
     operation on a Dask-cuDF collection.

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import weakref
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast, runtime_checkable
 
 import ucxx._lib.libucxx as ucx_api
@@ -21,6 +22,7 @@ from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmp.communicator.communicator import Communicator
 from rapidsmp.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
 from rapidsmp.shuffler import Shuffler
+from rapidsmp.statistics import Statistics
 
 if TYPE_CHECKING:
     from collections.abc import Callable, MutableMapping, Sequence
@@ -304,7 +306,7 @@ def _extract_partition(
     ----------
     callback
         Insertion callback function. This function must be
-        the `insert_partition` attribute of a `DaskIntegration`
+        the `extract_partition` attribute of a `DaskIntegration`
         protocol.
     shuffle_id
         The rapidsmp shuffle id.
@@ -449,6 +451,10 @@ def rapidsmp_shuffle_graph(
         partition_count=partition_count_out,
     )
 
+    # Make sure shuffle_on does not contain duplicate keys
+    if len(set(shuffle_on)) != len(shuffle_on):
+        raise ValueError(f"Got duplicate keys in shuffle_on: {shuffle_on}")
+
     # Add operation to submit each partition to the shuffler
     graph: dict[Any, Any] = {
         (insert_name, pid): (
@@ -538,6 +544,10 @@ def rmp_worker_setup(
     --------
     bootstrap_dask_cluster
         Setup a Dask cluster for rapidsmp shuffling.
+
+    Notes
+    -----
+    This function is expected to run on a Dask worker.
     """
     with _worker_thread_lock:
         if hasattr(dask_worker, "_rmp_shufflers"):
@@ -545,6 +555,15 @@ def rmp_worker_setup(
 
         # Add empty list of active shufflers
         dask_worker._rmp_shufflers = {}
+
+        # Print statstics at worker shutdown
+        dask_worker._rmp_statistics = Statistics(enable=True)
+        weakref.finalize(
+            dask_worker,
+            lambda name, stats: print(name, stats.report()),
+            name=str(dask_worker),
+            stats=dask_worker._rmp_statistics,
+        )
 
         # Setup a buffer_resource
         # Create a RMM stack with both a device pool and statistics.
@@ -756,6 +775,10 @@ def get_comm(dask_worker: Worker | None = None) -> Communicator:
     Returns
     -------
     Current rapidsmp communicator.
+
+    Notes
+    -----
+    This function is expected to run on a Dask worker.
     """
     dask_worker = dask_worker or get_worker()
     assert isinstance(dask_worker._rapidsmp_comm, Communicator)
@@ -774,6 +797,10 @@ def get_worker_rank(dask_worker: Worker | None = None) -> int:
     Returns
     -------
     Local rapidsmp worker rank.
+
+    Notes
+    -----
+    This function is expected to run on a Dask worker.
     """
     dask_worker = dask_worker or get_worker()
     return get_comm(dask_worker).rank
@@ -806,6 +833,8 @@ def get_shuffler(
     -----
     Whenever a new `Shuffler` object is created, it is
     cached as `dask_worker._rmp_shufflers[shuffle_id]`.
+
+    This function is expected to run on a Dask worker.
     """
     dask_worker = dask_worker or get_worker()
     with _worker_thread_lock:
@@ -822,6 +851,7 @@ def get_shuffler(
                 total_num_partitions=partition_count,
                 stream=DEFAULT_STREAM,
                 br=dask_worker._rmp_buffer_resource,
+                statistics=dask_worker._rmp_statistics,
             )
     return cast(Shuffler, dask_worker._rmp_shufflers[shuffle_id])
 
@@ -842,6 +872,10 @@ def _stage_shuffler(
         Output partition count for the shuffle operation.
     dask_worker
         The current dask worker.
+
+    Notes
+    -----
+    This function is expected to run on a Dask worker.
     """
     dask_worker = dask_worker or get_worker()
     get_shuffler(
