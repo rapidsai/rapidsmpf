@@ -38,7 +38,11 @@ set +e
 
 rapids-logger "Build CPP docs"
 pushd cpp/doxygen
+aws s3 cp s3://rapidsai-docs/librmm/html/"${RAPIDS_VERSION_MAJOR_MINOR}"/rmm.tag . || echo "Failed to download rmm Doxygen tag"
+aws s3 cp s3://rapidsai-docs/cudf/html/"${RAPIDS_VERSION_MAJOR_MINOR}"/cudf.tag . || echo "Failed to download cudf Doxygen tag"
+
 doxygen Doxyfile
+
 mkdir -p "${RAPIDS_DOCS_DIR}/librapidsmp/html"
 mv html/* "${RAPIDS_DOCS_DIR}/librapidsmp/html"
 popd
