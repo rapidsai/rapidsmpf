@@ -18,6 +18,7 @@ dependencies:
 - cxx-compiler
 - cython>=3.0.3
 - dask-cuda==25.4.*,>=0.0.0a0
+- dask-cudf==25.4.*,>=0.0.0a0
 - doxygen=1.9.1
 - gcc_linux-aarch64=13.*
 - libcudf==25.4.*,>=0.0.0a0

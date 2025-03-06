@@ -85,6 +85,9 @@ requirements:
     {% else %}
     - cuda-cudart
     {% endif %}
+  run_constrained:
+    - dask-cuda ={{ minor_version }}
+    - dask-cudf ={{ minor_version }}
 
 test:
   requires:
