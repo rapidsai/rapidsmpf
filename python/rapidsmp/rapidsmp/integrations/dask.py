@@ -578,10 +578,10 @@ def rmp_worker_setup(
             )
         )
         rmm.mr.set_current_device_resource(mr)
-        rmp_spill_device = int(available_memory * spill_device)
-        rmp_spill_device = (rmp_spill_device // 256) * 256
         memory_available = {
-            MemoryType.DEVICE: LimitAvailableMemory(mr, limit=rmp_spill_device)
+            MemoryType.DEVICE: LimitAvailableMemory(
+                mr, limit=int(available_memory * spill_device)
+            )
         }
         dask_worker._rmp_buffer_resource = BufferResource(mr, memory_available)
 
