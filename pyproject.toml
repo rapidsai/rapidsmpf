@@ -1,0 +1,153 @@
+# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+# See file LICENSE for terms.
+
+[tool.mypy]
+exclude = ["_deps/*"]
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = "rapidsmp.*"
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=append" # Dask subprocesses fail to import RAPIDSMP otherwise
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+target-version = "py310"
+fix = true
+
+[tool.ruff.lint]
+select = [
+  "E", # pycodestyle
+  "W", # pycodestyle
+  "F", # Pyflakes
+  "B", # flake8-bugbear
+  "C4", # flake8-comprehensions
+  "D", # flake8-docstrings
+  "D213", # Augment NumPy docstring convention: Multi-line docstring summary should start at the second line
+  "D417", # Augment NumPy docstring convention: Missing argument descriptions
+  "I", # isort
+  "ISC", # flake8-implicit-str-concat
+  "INP", # flake8-no-pep420 (namespace packages)
+  "SIM", # flake8-simplify
+  "TCH", # flake8-type-checking
+  "TID", # flake8-tidy-imports
+  "PLC", # pylint-convention
+  "PLE", # pylint-error
+  # Not enabling PLR (pylint-refactor) since it conflicts with other rules
+  "PLW", # pylint-warning
+  "PERF", # perflint
+  "UP", # pyupgrade
+  "PT", # flake8-pytest-style
+  # https://docs.astral.sh/ruff/rules/#flake8-return-ret
+  "RET502", # no implicit return
+  "RET503", # no implicit return
+  "RET504", # no implicit return
+  "RUF", # Ruff-specific rules
+  "PTH", # flake8-use-pathlib
+  "FA", # flake8-future-annotations
+  "PIE", # flake8-pie
+  "TD", # flake8-todos
+  "TRY", # tryceratops
+  "FBT", # flake8-boolean-trap
+]
+
+ignore = [
+  # Line length regulated by formatter
+  "E501",
+  # pydocstyle: http://www.pydocstyle.org/en/stable/error_codes.html
+  "D401", # Relax NumPy docstring convention: First line should be in imperative mood
+  # flake8-pytest-style:
+  "PT011", # pytest.raises({exception}) is too broad, set the match parameter or use a more specific exception
+  # flake8-simplify
+  "SIM108", # Use ternary operator
+  # flake8-todos
+  "TD002", # Missing author in TODO
+  "TD003", # Missing issue link on the line following this TODO
+  # tryceratops
+  "TRY003", # Avoid specifying long messages outside the exception class
+  # pyupgrade
+  "UP038",  # Use `X | Y` in `isinstance` call instead of `(X, Y)`
+  # Lints below are turned off because of conflicts with the ruff
+  # formatter
+  # See https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules
+  "W191", # tab-indentation
+  "E111", # indentation-with-invalid-multiple
+  "E114", # indentation-with-invalid-multiple-comment
+  "E117", # over-indented
+  "D206", # indent-with-spaces
+  "D300", # triple-single-quotes
+  "Q000", # bad-quotes-inline-string
+  "Q001", # bad-quotes-multiline-string
+  "Q002", # bad-quotes-docstring
+  "Q003", # avoidable-escaped-quote
+  "COM812", # missing-trailing-comma
+  "COM819", # prohibited-trailing-comma
+  "ISC001", # single-line-implicit-string-concatenation
+  "ISC002", # multi-line-implicit-string-concatenation
+]
+fixable = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**/*.py" = ["D", "INP001"]
+
+[tool.ruff.lint.flake8-pytest-style]
+# https://docs.astral.sh/ruff/settings/#lintflake8-pytest-style
+fixture-parentheses = false
+mark-parentheses = false
+parametrize-names-type = "csv"
+parametrize-values-type = "list"
+parametrize-values-row-type = "tuple"
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-type-checking]
+strict = true
+
+[tool.ruff.lint.isort]
+case-sensitive = true
+combine-as-imports = true
+order-by-type = true
+default-section = "third-party"
+section-order = [
+  "future",
+  "standard-library",
+  "third-party",
+  "rapids",
+  "rapidsmp",
+  "first-party",
+  "local-folder"
+]
+required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.lint.isort.sections]
+rapidsmp = ["rapidsmp"]
+rapids = ["rmm", "pylibcudf", "cudf"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.numpydoc_validation]
+checks = [
+    "all",   # report on all checks, except the below
+    "EX01",
+    "SA01",
+    "ES01",
+    "PR04",
+    "SS02",
+    "RT03",
+]
+
+# don't report on objects that match any of these regex
+# remember to use single quotes for regex in TOML
+exclude = [
+    '.*__init__',
+]
