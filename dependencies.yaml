@@ -222,6 +222,7 @@ dependencies:
         packages:
           - cudf==25.4.*,>=0.0.0a0
           - dask-cuda==25.4.*,>=0.0.0a0
+          - dask-cudf==25.4.*,>=0.0.0a0
           - pytest
           - ucxx==0.43.*,>=0.0.0a0
     specific:
