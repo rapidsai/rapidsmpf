@@ -240,7 +240,9 @@ dependencies:
       - output_types: [conda]
         packages:
           - *doxygen
+          - *rmm_unsuffixed
           - dask
+          - dask-cuda==25.4.*,>=0.0.0a0
           - make
           - myst-parser
           - numpydoc
