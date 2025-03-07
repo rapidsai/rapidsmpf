@@ -72,8 +72,8 @@ cpdef dict partition_and_pack(
     References
     ----------
     - `rapidsmp.shuffler.unpack_and_concat`
-    - ``cudf.hash_partition``
-    - ``cudf.pack``
+    - `pylibcudf.partitioning.hash_partition`
+    - `pylibcudf.contiguous_split.pack`
     """
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, packed_columns] _ret
