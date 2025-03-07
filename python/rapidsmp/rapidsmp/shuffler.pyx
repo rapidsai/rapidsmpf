@@ -67,7 +67,7 @@ cpdef dict partition_and_pack(
     Raises
     ------
     IndexError
-        If an index in `columns_to_hash` is invalid.
+        If an index in ``columns_to_hash`` is invalid.
 
     References
     ----------
@@ -133,9 +133,9 @@ cpdef Table unpack_and_concat(
 
     References
     ----------
-    - `rapidsmp.shuffler.partition_and_pack`
-    - `cudf.unpack`
-    - `cudf.concatenate`
+    - ``rapidsmp.shuffler.partition_and_pack``
+    - ``cudf.unpack``
+    - ``cudf.concatenate``
     """
     cdef vector[packed_columns] _partitions
     for part in partitions:
@@ -159,9 +159,10 @@ cdef class Shuffler:
     """
     Shuffle service for partitioned data.
 
-    The `Shuffler` class provides an interface for performing a shuffle operation
-    on partitioned data. It uses a distribution scheme to distribute and collect
-    data chunks across different ranks.
+    The `~rapidsmp.shuffler.Shuffler` class provides an interface for
+    performing a shuffle operation on partitioned data. It uses a
+    distribution scheme to distribute and collect data chunks across
+    different ranks.
 
     Parameters
     ----------
@@ -247,7 +248,7 @@ cdef class Shuffler:
         Parameters
         ----------
         chunks
-            A map where keys are partition IDs (`int`) and values are packed
+            A map where keys are partition IDs (``int``) and values are packed
             chunks (`cudf.packed_columns`).
 
         Notes

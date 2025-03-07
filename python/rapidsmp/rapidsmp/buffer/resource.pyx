@@ -107,7 +107,7 @@ cdef class LimitAvailableMemory:
     ----------
     statistics_mr
         A statistics resource adaptor that tracks memory usage and provides
-        statistics about the memory consumption. The ``LimitAvailableMemory``
+        statistics about the memory consumption. The `LimitAvailableMemory`
         instance keeps a reference to ``statistics_mr`` to keep it alive.
     limit
         The maximum memory limit (in bytes). Used to calculate the remaining

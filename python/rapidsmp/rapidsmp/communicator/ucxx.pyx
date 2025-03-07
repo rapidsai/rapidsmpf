@@ -163,7 +163,7 @@ def barrier(Communicator comm):
     -----
     Executing this barrier is required after the ranks are bootstrapped to ensure
     everyone is connected to the root. An alternative barrier, such as
-    `MPI_Barrier` will not suffice for that purpose.
+    ``MPI_Barrier`` will not suffice for that purpose.
     """
     cdef shared_ptr[cpp_UCXX_Communicator] ucxx_comm = (
         dynamic_pointer_cast[cpp_UCXX_Communicator, cpp_Communicator](

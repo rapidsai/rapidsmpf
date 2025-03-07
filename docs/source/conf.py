@@ -22,6 +22,7 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.autosectionlabel",
+    "sphinx.ext.intersphinx",
 ]
 
 templates_path = ['_templates']
@@ -55,3 +56,14 @@ html_theme = "pydata_sphinx_theme"
 html_logo = "_static/RAPIDS-logo-purple.png"
 
 numpydoc_class_members_toctree = False
+
+
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#confval-default_role
+default_role = "any"
+
+
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    "dask-cuda": ("https://docs.rapids.ai/api/dask-cuda/stable/", None),
+    "cudf": ("https://docs.rapids.ai/api/cudf/stable/", None),
+}

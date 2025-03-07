@@ -52,7 +52,7 @@ async def rapidsmp_ucxx_rank_setup(
     of the root as a string.
 
     With the root rank already setup, this should run again with the valid root address
-    specified via `root_address_str` in all workers, including the root rank. Non-root
+    specified via ``root_address_str`` in all workers, including the root rank. Non-root
     ranks will connect to the root and all ranks, including the root, will then run a
     barrier, the barrier is important to ensure the underlying UCXX worker is progressed,
     thus why it is necessary to run again on root.
@@ -365,24 +365,24 @@ def rapidsmp_shuffle_graph(
     A rapidsmp shuffle operation comprises four general phases:
 
     **Staging phase**
-    A new `Shuffler` object must be staged on every worker
+    A new `~rapidsmp.shuffler.Shuffler` object must be staged on every worker
     in the current Dask cluster.
 
     **Insertion phase**
     Each input partition is split into a dictionary of chunks,
-    and that dictionary is passed to the appropriate `Shuffler`
-    object (using `Shuffler.insert`).
+    and that dictionary is passed to the appropriate `~rapidsmp.shuffler.Shuffler`
+    object (using `~rapidsmp.shuffler.Shuffler.insert_chunks`).
 
     The insertion phase will include a single task for each of
-    the `partition_count_in` partitions in the input DataFrame.
+    the ``partition_count_in`` partitions in the input DataFrame.
     The partitioning and insertion logic must be defined by the
-    `insert_partition` classmethod of the `integration` argument.
+    ``insert_partition`` classmethod of the ``integration`` argument.
 
     Insertion tasks are NOT restricted to specific Dask workers.
     These tasks may run anywhere in the cluster.
 
     **Barrier phase**
-    All `Shuffler` objects must be 'informed' that the insertion
+    All `~rapidsmp.shuffler.Shuffler` objects must be 'informed' that the insertion
     phase is complete (on all workers) before the subsequent
     extraction phase begins. We call this synchronization step
     the 'barrier phase'.
@@ -391,13 +391,13 @@ def rapidsmp_shuffle_graph(
 
     1. First global barrier - A single barrier task is used to
     signal that all input partitions have been submitted to
-    a `Shuffler` object on one of the workers. This task may
+    a `~rapidsmp.shuffler.Shuffler` object on one of the workers. This task may
     also run anywhere on the cluster, but it must depend on
     ALL insertion tasks.
 
     2. Worker barrier(s) - Each worker must execute a single
     worker-barrier task. This task will call `insert_finished`
-    for every output partition on the local `Shuffler`. These
+    for every output partition on the local `~rapidsmp.shuffler.Shuffler`. These
     tasks must be restricted to specific workers, and they
     must all depend on the first global barrier.
 
@@ -408,13 +408,13 @@ def rapidsmp_shuffle_graph(
 
     **Extraction phase**
     Each output partition is extracted from the local
-    `Shuffler` object on the worker (using `Shuffler.wait_on`
+    `~rapidsmp.shuffler.Shuffler` object on the worker (using `~rapidsmp.shuffler.Shuffler.wait_on`
     and `rapidsmp.shuffler.unpack_and_concat`).
 
     The extraction phase will include a single task for each of
-    the `partition_count_out` partitions in the shuffled output
+    the ``partition_count_out`` partitions in the shuffled output
     DataFrame. The extraction logic must be defined by the
-    `extract_partition` classmethod of the `integration` argument.
+    ``extract_partition`` classmethod of the ``integration`` argument.
 
     Extraction tasks must be restricted to specific Dask workers,
     and they must also depend on the second global-barrier task.
@@ -622,7 +622,7 @@ def bootstrap_dask_cluster(
     -----
     This utility must be executed before rapidsmp shuffling
     can be used within a Dask cluster. This function is called
-    automatically by `rapidsmp.integrations.dask.get_client`.
+    automatically by `get_dask_client`.
 
     The `LocalRMPCluster` API is strongly recommended for
     local Dask-cluster generation, because it will automatically
@@ -824,7 +824,7 @@ def get_shuffler(
     dask_worker: Worker | None = None,
 ) -> Shuffler:
     """
-    Return the appropriate `Shuffler` object.
+    Return the appropriate `~rapidsmp.shuffler.Shuffler` object.
 
     Parameters
     ----------
@@ -837,14 +837,14 @@ def get_shuffler(
 
     Returns
     -------
-    The active rapidsmp `Shuffler` object associated with
-    the specified `shuffle_id`, `partition_count` and
-    `dask_worker`.
+    The active rapidsmp `~rapidsmp.shuffler.Shuffler` object associated with
+    the specified ``shuffle_id``, ``partition_count`` and
+    ``dask_worker``.
 
     Notes
     -----
-    Whenever a new `Shuffler` object is created, it is
-    saved as `dask_worker._rmp_shufflers[shuffle_id]`.
+    Whenever a new `~rapidsmp.shuffler.Shuffler` object is created, it is
+    saved as ``dask_worker._rmp_shufflers[shuffle_id]``.
 
     This function is expected to run on a Dask worker.
     """
