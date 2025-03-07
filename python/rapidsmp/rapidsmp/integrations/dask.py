@@ -365,13 +365,13 @@ def rapidsmp_shuffle_graph(
     A rapidsmp shuffle operation comprises four general phases:
 
     **Staging phase**
-    A new `rapidsmp.shuffler.Shuffler` object must be staged on every worker
+    A new :class:`Shuffler` object must be staged on every worker
     in the current Dask cluster.
 
     **Insertion phase**
     Each input partition is split into a dictionary of chunks,
-    and that dictionary is passed to the appropriate `rapidsmp.shuffler.Shuffler`
-    object (using `rapidsmp.shuffler.Shuffler.insert_chunks`).
+    and that dictionary is passed to the appropriate :class:`Shuffler`
+    object (using `Shuffler.insert_chunks`).
 
     The insertion phase will include a single task for each of
     the ``partition_count_in`` partitions in the input DataFrame.
@@ -382,7 +382,7 @@ def rapidsmp_shuffle_graph(
     These tasks may run anywhere in the cluster.
 
     **Barrier phase**
-    All `rapidsmp.shuffler.Shuffler` objects must be 'informed' that the insertion
+    All :class:`Shuffler` objects must be 'informed' that the insertion
     phase is complete (on all workers) before the subsequent
     extraction phase begins. We call this synchronization step
     the 'barrier phase'.
@@ -391,13 +391,13 @@ def rapidsmp_shuffle_graph(
 
     1. First global barrier - A single barrier task is used to
     signal that all input partitions have been submitted to
-    a `rapidsmp.shuffler.Shuffler` object on one of the workers. This task may
+    a :class:`Shuffler` object on one of the workers. This task may
     also run anywhere on the cluster, but it must depend on
     ALL insertion tasks.
 
     2. Worker barrier(s) - Each worker must execute a single
     worker-barrier task. This task will call `insert_finished`
-    for every output partition on the local `rapidsmp.shuffler.Shuffler`. These
+    for every output partition on the local :class:`Shuffler`. These
     tasks must be restricted to specific workers, and they
     must all depend on the first global barrier.
 
@@ -408,7 +408,7 @@ def rapidsmp_shuffle_graph(
 
     **Extraction phase**
     Each output partition is extracted from the local
-    `rapidsmp.shuffler.Shuffler` object on the worker (using `rapidsmp.shuffler.Shuffler.wait_on`
+    :class:`Shuffler` object on the worker (using `Shuffler.wait_on`
     and `rapidsmp.shuffler.unpack_and_concat`).
 
     The extraction phase will include a single task for each of
@@ -824,7 +824,7 @@ def get_shuffler(
     dask_worker: Worker | None = None,
 ) -> Shuffler:
     """
-    Return the appropriate `rapidsmp.shuffler.Shuffler` object.
+    Return the appropriate :class:`Shuffler` object.
 
     Parameters
     ----------
@@ -837,13 +837,13 @@ def get_shuffler(
 
     Returns
     -------
-    The active rapidsmp `rapidsmp.shuffler.Shuffler` object associated with
+    The active rapidsmp :class:`Shuffler` object associated with
     the specified ``shuffle_id``, ``partition_count`` and
     ``dask_worker``.
 
     Notes
     -----
-    Whenever a new `rapidsmp.shuffler.Shuffler` object is created, it is
+    Whenever a new :class:`Shuffler` object is created, it is
     saved as ``dask_worker._rmp_shufflers[shuffle_id]``.
 
     This function is expected to run on a Dask worker.
