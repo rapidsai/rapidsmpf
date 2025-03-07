@@ -907,6 +907,10 @@ class LocalRMPCluster(LocalCUDACluster):
         Key-word arguments to be passed through to
         `dask_cuda.LocalCUDACluster`.
 
+    Methods
+    -------
+    __init__
+
     Notes
     -----
     This class wraps `dask_cuda.LocalCUDACluster`, and
@@ -915,10 +919,6 @@ class LocalRMPCluster(LocalCUDACluster):
     client to inform the scheduler of specific worker
     restrictions at graph-construction time. This feature
     is currently needed for dask + rapidsmp integration.
-
-    Methods
-    -------
-    __init__
     """
 
     # We need __init__ to avoid warnings during doc builds.
