@@ -72,8 +72,8 @@ cpdef dict partition_and_pack(
     References
     ----------
     - `rapidsmp.shuffler.unpack_and_concat`
-    - `cudf.hash_partition`
-    - `cudf.pack`
+    - ``cudf.hash_partition``
+    - ``cudf.pack``
     """
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, packed_columns] _ret
@@ -159,7 +159,7 @@ cdef class Shuffler:
     """
     Shuffle service for partitioned data.
 
-    The `~rapidsmp.shuffler.Shuffler` class provides an interface for
+    The `rapidsmp.shuffler.Shuffler` class provides an interface for
     performing a shuffle operation on partitioned data. It uses a
     distribution scheme to distribute and collect data chunks across
     different ranks.
@@ -249,7 +249,7 @@ cdef class Shuffler:
         ----------
         chunks
             A map where keys are partition IDs (``int``) and values are packed
-            chunks (`cudf.packed_columns`).
+            chunks (``cudf.packed_columns``).
 
         Notes
         -----
