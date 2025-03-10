@@ -20,6 +20,34 @@ enable_testing()
 include(rapids-test)
 rapids_test_init()
 
+# Create separate test case for each of this n_ranks
+set(nranks_to_run 1 2 3 4 5 8)
+
+# A helper function to create a test case to run each parallelism (defined by n_ranks_to_run).
+# TEST_TARGET is the name of the test target (required). This will add len(n_ranks_to_run) test
+# cases identified by <TEST_TARGET>_<n_ranks>
+function(rapidsmp_mpirun_test_add)
+  set(options) # no options
+  set(one_value TEST_TARGET)
+  set(multi_value) # no multi_value args
+  cmake_parse_arguments(_MPIRUN_TEST "${options}" "${one_value}" "${multi_value}" ${ARGN})
+
+  if(NOT DEFINED _MPIRUN_TEST_TEST_TARGET)
+    message(FATAL_ERROR "rapidsmp_mpirun_test_add called without a test prefix")
+  endif()
+
+  message(STATUS "Adding mpirun test: ${_MPIRUN_TEST_TEST_TARGET} nranks: ${nranks_to_run}")
+  foreach(np IN ITEMS ${nranks_to_run})
+    rapids_test_add(
+      NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}"
+      COMMAND mpirun --map-by node --bind-to none -np "${np}"
+              "$<BUILD_INTERFACE:${RAPIDSMP_BINARY_DIR}/gtests>/${_MPIRUN_TEST_TEST_TARGET}"
+      GPUS 1
+      INSTALL_COMPONENT_SET testing
+    )
+  endforeach(np)
+endfunction(rapidsmp_mpirun_test_add)
+
 file(GLOB SOURCES "main/mpi.cpp" "*.cpp")
 add_executable(mpi_tests ${SOURCES})
 set_target_properties(
@@ -40,12 +68,8 @@ target_link_libraries(
   mpi_tests PRIVATE rapidsmp::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
                     GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
 )
-rapids_test_add(
-  NAME mpi_tests
-  COMMAND mpi_tests
-  GPUS 1
-  INSTALL_COMPONENT_SET testing
-)
+
+rapidsmp_mpirun_test_add(TEST_TARGET mpi_tests)
 
 file(GLOB SOURCES "main/ucxx.cpp" "*.cpp")
 add_executable(ucxx_tests ${SOURCES})
@@ -67,12 +91,8 @@ target_link_libraries(
   ucxx_tests PRIVATE rapidsmp::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
                      GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
 )
-rapids_test_add(
-  NAME ucxx_tests
-  COMMAND ucxx_tests
-  GPUS 1
-  INSTALL_COMPONENT_SET testing
-)
+
+rapidsmp_mpirun_test_add(TEST_TARGET ucxx_tests)
 
 # Install tests
 rapids_test_install_relocatable(INSTALL_COMPONENT_SET testing DESTINATION bin/tests/librapidsmp)
