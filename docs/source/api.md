@@ -6,6 +6,7 @@ This page contains the API reference for `rapidsmp`.
 
 {mod}`rapidsmp.integrations` contains integration with other libraries.
 
+(api-integration-dask)=
 ### Dask
 
 ```{eval-rst}

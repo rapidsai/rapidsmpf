@@ -34,4 +34,4 @@ with LocalRMPCluster() as cluster:
 ```
 
 After shuffling on `name`, all of the records with a particular name will be in
-the same partition. See `rapidsmp.integrations.dask` for more.
+the same partition. See [Dask Integration](#api-integration-dask) for more.
