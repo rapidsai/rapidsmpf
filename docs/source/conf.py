@@ -41,7 +41,7 @@ html_theme_options = {
     "icon_links": [],
     "github_url": "https://github.com/rapidsai/rapidsmp",
     "twitter_url": "https://twitter.com/rapidsai",
-    "show_toc_level": 1,
+    "show_toc_level": 2,
     "navbar_align": "right",
     "navigation_with_keys": True,
 }
