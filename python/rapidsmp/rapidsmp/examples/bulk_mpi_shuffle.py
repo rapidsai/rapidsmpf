@@ -278,7 +278,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
         spill_device = (
             "disabled" if args.spill_device is None else format_bytes(args.spill_device)
         )
-        comm.logger.info(
+        comm.logger.print(
             f"""\
 Shuffle:
     input: {args.input}
@@ -309,11 +309,11 @@ Shuffle:
     MPI.COMM_WORLD.barrier()
 
     mem_peak = format_bytes(mr.allocation_counts.peak_bytes)
-    comm.logger.info(
+    comm.logger.print(
         f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
     )
     if stats.enabled:
-        comm.logger.info(stats.report())
+        comm.logger.print(stats.report())
 
 
 def dir_path(path: str) -> Path:
