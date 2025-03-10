@@ -69,11 +69,11 @@ cpdef dict partition_and_pack(
     IndexError
         If an index in ``columns_to_hash`` is invalid.
 
-    References
-    ----------
-    - `rapidsmp.shuffler.unpack_and_concat`
-    - `pylibcudf.partitioning.hash_partition`
-    - :py:func:`pylibcudf.contiguous_split.pack`
+    See Also
+    --------
+    rapidsmp.shuffler.unpack_and_concat
+    pylibcudf.partitioning.hash_partition
+    pylibcudf.contiguous_split.pack
     """
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, packed_columns] _ret
@@ -131,11 +131,11 @@ cpdef Table unpack_and_concat(
     -------
     The unpacked and concatenated result as a single table.
 
-    References
-    ----------
-    - ``rapidsmp.shuffler.partition_and_pack``
-    - ``cudf.unpack``
-    - ``cudf.concatenate``
+    See Also
+    --------
+    rapidsmp.shuffler.partition_and_pack
+    cudf.unpack
+    cudf.concatenate
     """
     cdef vector[packed_columns] _partitions
     for part in partitions:
