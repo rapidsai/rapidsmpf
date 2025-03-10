@@ -40,7 +40,7 @@ function(rapidsmp_mpirun_test_add)
   foreach(np IN ITEMS ${nranks_to_run})
     rapids_test_add(
       NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}"
-      COMMAND mpirun --map-by node --bind-to none -np "${np}"
+      COMMAND mpirun --map-by=node --bind-to=none -np=${np}
               "$<BUILD_INTERFACE:${RAPIDSMP_BINARY_DIR}/gtests>/${_MPIRUN_TEST_TEST_TARGET}"
       GPUS 1
       INSTALL_COMPONENT_SET testing
