@@ -558,7 +558,7 @@ void Shuffler::event_loop(Shuffler* self) {
 
     // This thread needs to have a cuda context associated with it.
     // For now, do so by calling cudaFree to initialise the driver.
-    RMM_CUDA_TRY(cudaFree(nullptr));
+    RAPIDSMP_CUDA_TRY_ALLOC(cudaFree(nullptr));
     // Continue the loop until both the "run" flag is false and all
     // ongoing communication is done.
     auto const t0_event_loop = Clock::now();
