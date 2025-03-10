@@ -8,7 +8,10 @@ some larger runtime.
 
 ## Dask-cuDF Example
 
-``rapidsmp`` can be used with Dask-cuDF to shuffle a Dask DataFrame.
+``rapidsmp`` can be used with Dask-cuDF to shuffle a Dask DataFrame. This toy
+example just loads the shuffled data into GPU memory. In practice, would write
+the output to
+
 
 ```python
 import dask.distributed
@@ -18,17 +21,17 @@ from rapidsmp.examples.dask import dask_cudf_shuffle
 from rapidsmp.integrations.dask import LocalRMPCluster, bootstrap_dask_cluster
 
 
+df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
+
 with LocalRMPCluster() as cluster:
     with dask.distributed.Client(cluster) as client:
         bootstrap_dask_cluster(client)
 
-        df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
         shuffled = dask_cudf_shuffle(df, shuffle_on=["name"])
-        # For this example, just compute the result in memory.
-        # In practice, this would be larger than memory so you'd
-        # reduce the result or write it to disk.
+
+        # collect the results in memory.
         result = shuffled.compute()
 ```
 
 After shuffling on `name`, all of the records with a particular name will be in
-the same partition.
+the same partition. See `rapidsmp.integrations.dask` for more.
