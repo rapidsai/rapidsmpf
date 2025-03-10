@@ -1,6 +1,9 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.
 """Example performing a streaming shuffle."""
 
 from __future__ import annotations
+
+import argparse
 
 import cupy as cp
 
@@ -15,7 +18,18 @@ from rapidsmp.statistics import Statistics
 
 
 def generate_partition(n_rows: int = 100) -> cudf.DataFrame:
-    """Generate a random partition of data."""
+    """
+    Generate a random partition of data.
+
+    Parameters
+    ----------
+    n_rows : int
+        The length of the dataframe.
+
+    Returns
+    -------
+    cudf.DataFrame
+    """
     return cudf.DataFrame(
         {
             "id": cp.arange(n_rows),
@@ -25,12 +39,41 @@ def generate_partition(n_rows: int = 100) -> cudf.DataFrame:
     )
 
 
-def main():
-    n_partitions = 10
-    n_rows = 100
+def parse_args(
+    args: list[str] | None = None,
+) -> argparse.Namespace:  # numpydoc ignore=PR01,RT01
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--n-partitions", type=int, default=10, help="Number of partitions"
+    )
+    parser.add_argument(
+        "--n-rows", type=int, default=100, help="Number of rows per partition"
+    )
+    parser.add_argument(
+        "--report",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Print the statistics report",
+    )
+    parser.add_argument(
+        "--progress",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Print the shuffling progress",
+    )
+    return parser.parse_args(args)
+
+
+def main(args: list[str] | None = None) -> None:  # numpydoc ignore=PR01
+    """Example performing a streaming shuffle."""
+    parsed = parse_args(args)
+
+    n_partitions = parsed.n_partitions
+    n_rows = parsed.n_rows
     operation_id = 0
 
-    comm = new_communicator(1, None, None)
+    comm = new_communicator(nranks=1, ucx_worker=None, root_ucxx_address=None)
 
     # Create a RMM stack with both a device pool and statistics.
     mr = rmm.mr.StatisticsResourceAdaptor(
@@ -52,7 +95,8 @@ def main():
     )
 
     for partition_id in range(n_partitions):
-        print(f"Inserting partition {partition_id}")
+        if parsed.progress:
+            print(f"Inserting partition {partition_id}", end="\r")
         df = generate_partition(n_rows)
         (table, _) = df.to_pylibcudf()
         packed_inputs = partition_and_pack(
@@ -67,6 +111,9 @@ def main():
     for partition_id in range(n_partitions):
         shuffler.insert_finished(partition_id)
 
+    if parsed.progress:
+        print("\nShuffling...", flush=True)
+
     while not shuffler.finished():
         partition_id = shuffler.wait_any()
         unpack_and_concat(
@@ -74,7 +121,13 @@ def main():
             stream=DEFAULT_STREAM,
             device_mr=rmm.mr.get_current_device_resource(),
         )
-        print(f"Finished partition {partition_id}")
+        if parsed.progress:
+            print(f"Finished partition {partition_id}", end="\r")
+
+    if parsed.progress:
+        print("\nDone!", flush=True)
+    if parsed.report:
+        print(statistics.report())
 
 
 if __name__ == "__main__":
