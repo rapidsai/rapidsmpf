@@ -29,6 +29,7 @@
 
 #include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/communicator/communicator.hpp>
+#include <rapidsmp/communicator/progress_thread.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/nvtx.hpp>
 #include <rapidsmp/shuffler/chunk.hpp>
@@ -52,7 +53,7 @@ namespace rapidsmp::shuffler {
  * tables, using a partitioning scheme to distribute and collect data chunks across
  * different ranks.
  */
-class Shuffler {
+class Shuffler : public rapidsmp::ProgressThreadIterable {
   public:
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the
@@ -220,13 +221,6 @@ class Shuffler {
     void insert_into_outbox(detail::Chunk&& chunk);
 
     /**
-     * @brief The event loop running by the shuffler's worker thread.
-     *
-     * @param self The shuffler instance.
-     */
-    static void event_loop(Shuffler* self);
-
-    /**
      * @brief Executes a single iteration of the shuffler's event loop.
      *
      * This function manages the movement of data chunks between ranks in the distributed
@@ -235,22 +229,14 @@ class Shuffler {
      * outgoing and incoming, and updates the necessary data structures for further
      * processing.
      *
-     * @param self The `Shuffler` instance that owns the event loop.
-     * @param fire_and_forget Ongoing "fire-and-forget" operations (non-blocking sends).
-     * @param incoming_chunks Chunks ready to be received.
-     * @param outgoing_chunks Chunks ready to be sent.
-     * @param in_transit_chunks Chunks currently in transit.
-     * @param in_transit_futures Futures corresponding to in-transit chunks.
+     * It makes use of the following members:
+     * - `fire_and_forget`: Ongoing "fire-and-forget" operations (non-blocking sends).
+     * - `incoming_chunks`: Chunks ready to be received.
+     * - `outgoing_chunks`: Chunks ready to be sent.
+     * - `in_transit_chunks`: Chunks currently in transit.
+     * - `in_transit_futures`: Futures corresponding to in-transit chunks.
      */
-    static void run_event_loop_iteration(
-        Shuffler& self,
-        std::vector<std::unique_ptr<Communicator::Future>>& fire_and_forget,
-        std::multimap<Rank, detail::Chunk>& incoming_chunks,
-        std::unordered_map<detail::ChunkID, detail::Chunk>& outgoing_chunks,
-        std::unordered_map<detail::ChunkID, detail::Chunk>& in_transit_chunks,
-        std::unordered_map<detail::ChunkID, std::unique_ptr<Communicator::Future>>&
-            in_transit_futures
-    );
+    bool progress() override;
 
     /// @brief Get an new unique chunk ID.
     [[nodiscard]] detail::ChunkID get_new_cid();
@@ -300,6 +286,13 @@ class Shuffler {
     mutable std::mutex outbound_chunk_counter_mutex_;
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
+
+    std::vector<std::unique_ptr<Communicator::Future>> fire_and_forget_;
+    std::multimap<Rank, detail::Chunk> incoming_chunks_;
+    std::unordered_map<detail::ChunkID, detail::Chunk> outgoing_chunks_;
+    std::unordered_map<detail::ChunkID, detail::Chunk> in_transit_chunks_;
+    std::unordered_map<detail::ChunkID, std::unique_ptr<Communicator::Future>>
+        in_transit_futures_;
 
     std::shared_ptr<Statistics> statistics_;
 };
