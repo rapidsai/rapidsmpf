@@ -119,12 +119,13 @@ std::vector<PartID> FinishCounter::wait_some() {
     // TODO: hand-writing iteration rather than range-for to avoid
     // needing to rehash the key during extract_key. Needs
     // std::ranges, I think.
-    for (auto it = partitions_ready_to_wait_on_.begin();
-         it != partitions_ready_to_wait_on_.end();
-         *it++)
+    for (auto it = partitions_ready_to_wait_on_.cbegin();
+         it != partitions_ready_to_wait_on_.cend();)
     {
-        if (it->second) {
-            result.push_back(extract_key(partitions_ready_to_wait_on_, it));
+        // extract_key invalidates the iterator
+        auto tmp = it++;
+        if (tmp->second) {
+            result.push_back(extract_key(partitions_ready_to_wait_on_, tmp));
         }
     }
     return result;
