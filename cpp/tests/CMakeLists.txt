@@ -43,6 +43,17 @@ set_tests_properties(
   generate_resource_spec PROPERTIES FIXTURES_SETUP resource_spec GENERATE_RESOURCE_SPEC_FILE
                                     "${rapidsmp_test_spec_file}"
 )
+add_library(rapids_test_install_testing INTERFACE)
+set_property(
+  TARGET rapids_test_install_testing
+  APPEND
+  PROPERTY "TESTS_TO_RUN" generate_resource_json
+)
+set_property(
+  TARGET rapids_test_install_testing
+  APPEND
+  PROPERTY "TARGETS_TO_INSTALL" generate_resource_json
+)
 
 set(CTEST_RESOURCE_SPEC_FILE "${rapidsmp_test_spec_file}")
 include(rapids-test)
