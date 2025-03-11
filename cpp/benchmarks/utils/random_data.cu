@@ -91,7 +91,7 @@ void random_fill(
                 stream,
                 mr
             );
-            RMM_CUDA_TRY(cudaMemcpyAsync(
+            RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
                 buffer.data(), vec.data(), buffer.size, cudaMemcpyDeviceToDevice, stream
             ));
             break;
