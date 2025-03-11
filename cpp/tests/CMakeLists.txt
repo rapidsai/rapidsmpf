@@ -17,9 +17,6 @@
 # ##################################################################################################
 enable_testing()
 
-include(rapids-test)
-rapids_test_init()
-
 # Create separate test case for each of this n_ranks
 set(nranks_to_run 1 2 3 4 5 8)
 
@@ -38,12 +35,10 @@ function(rapidsmp_mpirun_test_add)
 
   message(STATUS "Adding mpirun test: ${_MPIRUN_TEST_TEST_TARGET} nranks: ${nranks_to_run}")
   foreach(np IN ITEMS ${nranks_to_run})
-    rapids_test_add(
+    add_test(
       NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}"
       COMMAND mpirun --map-by=node --bind-to=none -np=${np}
               "$<BUILD_INTERFACE:${RAPIDSMP_BINARY_DIR}/gtests>/${_MPIRUN_TEST_TEST_TARGET}"
-      GPUS 1
-      INSTALL_COMPONENT_SET testing
     )
   endforeach(np)
 endfunction(rapidsmp_mpirun_test_add)
@@ -94,5 +89,9 @@ target_link_libraries(
 
 rapidsmp_mpirun_test_add(TEST_TARGET ucxx_tests)
 
-# Install tests
-rapids_test_install_relocatable(INSTALL_COMPONENT_SET testing DESTINATION bin/tests/librapidsmp)
+# Install the CTestTestfile.cmake to bin/tests/librapidsmp directory
+install(
+  FILES "${RAPIDSMP_BINARY_DIR}/tests/CTestTestfile.cmake"
+  DESTINATION bin/tests/librapidsmp
+  COMPONENT testing
+)
