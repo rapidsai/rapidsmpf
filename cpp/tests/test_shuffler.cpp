@@ -179,6 +179,9 @@ void test_shuffler(
             sort_table(result), sort_table(expect_partitions[finished_partition])
         );
     }
+
+    GlobalEnvironment->barrier();
+    shuffler.shutdown();
 }
 
 class MemoryAvailable_NumPartition
