@@ -120,6 +120,7 @@ std::size_t postbox_spilling(
     PostBox& postbox,
     std::size_t amount
 ) {
+    RAPIDSMP_NVTX_FUNC_RANGE();
     auto const t0_elapsed = Clock::now();
     // Let's look for chunks to spill in the outbox.
     auto const chunk_info = postbox.search(MemoryType::DEVICE);
@@ -253,6 +254,7 @@ void Shuffler::insert(detail::Chunk&& chunk) {
 }
 
 void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks) {
+    RAPIDSMP_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
 
     spill();  // Spill if current device memory usage is too high.
@@ -308,6 +310,7 @@ void Shuffler::insert_finished(PartID pid) {
 }
 
 std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
+    RAPIDSMP_NVTX_FUNC_RANGE();
     auto chunks = outbox_.extract(pid);
     std::vector<cudf::packed_columns> ret;
     ret.reserve(chunks.size());
@@ -348,6 +351,7 @@ std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
 }
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
+    RAPIDSMP_NVTX_FUNC_RANGE();
     std::size_t spill_need{0};
     if (amount.has_value()) {
         spill_need = amount.value();
@@ -552,7 +556,7 @@ void Shuffler::event_loop(Shuffler* self) {
 
     // This thread needs to have a cuda context associated with it.
     // For now, do so by calling cudaFree to initialise the driver.
-    RMM_CUDA_TRY(cudaFree(nullptr));
+    RAPIDSMP_CUDA_TRY_ALLOC(cudaFree(nullptr));
     // Continue the loop until both the "run" flag is false and all
     // ongoing communication is done.
     auto const t0_event_loop = Clock::now();

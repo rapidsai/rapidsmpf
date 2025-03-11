@@ -30,7 +30,21 @@ if TYPE_CHECKING:
 
 
 def read_batch(paths: list[str]) -> tuple[plc.Table, list[str]]:
-    """Read a single batch of Parquet files."""
+    """
+    Read a single batch of Parquet files.
+
+    Parameters
+    ----------
+    paths
+        List of file paths to the Parquet files.
+
+    Returns
+    -------
+    plc.Table
+        The table containing the data read from the Parquet files.
+    list of str
+        Column names from the Parquet files, excluding nested children.
+    """
     options = plc.io.parquet.ParquetReaderOptions.builder(
         plc.io.SourceInfo(paths)
     ).build()
@@ -41,7 +55,20 @@ def read_batch(paths: list[str]) -> tuple[plc.Table, list[str]]:
 def write_table(
     table: plc.Table, output_path: str, id: int | str, column_names: list[str] | None
 ) -> None:
-    """Write a pylibcudf Table to a Parquet file."""
+    """
+    Write a pylibcudf Table to a Parquet file.
+
+    Parameters
+    ----------
+    table
+        The table to be written to the Parquet file.
+    output_path : str
+        Directory where the Parquet file will be written.
+    id
+        Unique identifier used to generate the filename using `part.{id}.parque`.
+    column_names
+        List of column names.
+    """
     path = f"{output_path}/part.{id}.parquet"
     pylibcudf_to_cudf_dataframe(
         table,
@@ -179,7 +206,14 @@ def bulk_mpi_shuffle(
 
 
 def ucxx_mpi_setup() -> Communicator:
-    """Bootstrap UCXX cluster using MPI."""
+    """
+    Bootstrap UCXX cluster using MPI.
+
+    Returns
+    -------
+    Communicator
+        A new ucxx communicator.
+    """
     import ucxx._lib.libucxx as ucx_api
 
     from rapidsmp.communicator.ucxx import (
@@ -206,7 +240,14 @@ def ucxx_mpi_setup() -> Communicator:
 
 
 def setup_and_run(args: argparse.Namespace) -> None:
-    """Setup the environment and run the shuffle example."""
+    """
+    Set up the environment and run the shuffle example.
+
+    Parameters
+    ----------
+    args
+        Command-line arguments containing the configuration for the shuffle example.
+    """
     if args.cluster_type == "mpi":
         comm = rapidsmp.communicator.mpi.new_communicator(MPI.COMM_WORLD)
     elif args.cluster_type == "ucxx":
@@ -237,7 +278,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
         spill_device = (
             "disabled" if args.spill_device is None else format_bytes(args.spill_device)
         )
-        comm.logger.info(
+        comm.logger.print(
             f"""\
 Shuffle:
     input: {args.input}
@@ -267,13 +308,12 @@ Shuffle:
     elapsed_time = MPI.Wtime() - start_time
     MPI.COMM_WORLD.barrier()
 
-    if comm.rank == 0:
-        mem_peak = format_bytes(mr.allocation_counts.peak_bytes)
-        comm.logger.info(
-            f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
-        )
+    mem_peak = format_bytes(mr.allocation_counts.peak_bytes)
+    comm.logger.print(
+        f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
+    )
     if stats.enabled:
-        comm.logger.info(stats.report())
+        comm.logger.print(stats.report())
 
 
 def dir_path(path: str) -> Path:
