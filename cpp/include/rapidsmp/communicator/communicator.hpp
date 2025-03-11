@@ -28,6 +28,7 @@
 
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/buffer/resource.hpp>
+#include <rapidsmp/communicator/progress_thread.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/option.hpp>
 
@@ -397,11 +398,32 @@ class Communicator {
         std::unordered_map<std::thread::id, std::uint32_t> thread_id_names;
     };
 
+  private:
+    rapidsmp::ProgressThread progress_thread_;
+
   protected:
     Communicator() = default;
 
   public:
     virtual ~Communicator() noexcept = default;
+
+    /**
+     * @brief Insert an object to process as part of the progress thread.
+     *
+     * @param iterable The iterable instance.
+     */
+    void insert_iterable(ProgressThreadIterable* iterable) {
+        progress_thread_.insert_iterable(iterable);
+    }
+
+    /**
+     * @brief Remove an object and stop processing it as part of the progress thread.
+     *
+     * @param iterable The iterable instance.
+     */
+    void erase_iterable(ProgressThreadIterable* iterable) {
+        progress_thread_.erase_iterable(iterable);
+    }
 
     /**
      * @brief Retrieves the rank of the current node.
