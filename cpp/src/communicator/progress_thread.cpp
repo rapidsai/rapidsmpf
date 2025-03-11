@@ -18,6 +18,7 @@
 
 #include <rapidsmp/communicator/progress_thread.hpp>
 #include <rapidsmp/error.hpp>
+#include <rapidsmp/utils.hpp>
 
 namespace rapidsmp {
 
