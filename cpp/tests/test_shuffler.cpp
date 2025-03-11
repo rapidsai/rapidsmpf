@@ -165,6 +165,8 @@ void test_shuffler(
         shuffler.insert_finished(i);
     }
 
+    GlobalEnvironment->barrier();
+
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any();
         auto packed_chunks = shuffler.extract(finished_partition);
