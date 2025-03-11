@@ -18,6 +18,8 @@
 
 #include <stdexcept>  // NOLINT(unused-includes)
 
+#include <cuda_runtime_api.h>
+
 namespace rapidsmp {
 
 /**
