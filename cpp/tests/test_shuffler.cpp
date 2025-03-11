@@ -165,8 +165,6 @@ void test_shuffler(
         shuffler.insert_finished(i);
     }
 
-    GlobalEnvironment->barrier();
-
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any();
         auto packed_chunks = shuffler.extract(finished_partition);
@@ -181,8 +179,6 @@ void test_shuffler(
             sort_table(result), sort_table(expect_partitions[finished_partition])
         );
     }
-
-    shuffler.shutdown();
 }
 
 class MemoryAvailable_NumPartition
