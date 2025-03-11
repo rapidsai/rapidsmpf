@@ -36,6 +36,11 @@ std::pair<Chunk&, std::unique_lock<std::mutex>> PostBox::exclusive_access(
     return {pigeonhole_.at(pid).at(cid), std::move(lock)};
 }
 
+Chunk PostBox::extract(PartID pid, ChunkID cid) {
+    std::lock_guard const lock(mutex_);
+    return extract_item(pigeonhole_.at(pid), cid).second;
+}
+
 std::unordered_map<ChunkID, Chunk> PostBox::extract(PartID pid) {
     std::lock_guard const lock(mutex_);
     return extract_value(pigeonhole_, pid);

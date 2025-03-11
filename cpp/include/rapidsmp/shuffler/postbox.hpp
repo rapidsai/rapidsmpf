@@ -67,6 +67,17 @@ class PostBox {
     );
 
     /**
+     * @brief Extracts a specific chunk from the PostBox.
+     *
+     * @param pid The ID of the partition containing the chunk.
+     * @param cid The ID of the chunk to be accessed.
+     * @return The extracted chunk.
+     *
+     * @throws std::out_of_range If the chunk is not found.
+     */
+    [[nodiscard]] Chunk extract(PartID pid, ChunkID cid);
+
+    /**
      * @brief Extracts all chunks associated with a specific partition.
      *
      * @param pid The ID of the partition.
