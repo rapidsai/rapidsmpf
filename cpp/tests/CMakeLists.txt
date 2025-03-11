@@ -17,50 +17,39 @@
 # ##################################################################################################
 enable_testing()
 
-# Use an MPI-aware vendored version of the resource spec generation. Since we run ctest with
-# `mpiexec -n NUM_PROCESSES ctest` we need to make the resource spec generation only produce output
-# on a single rank.
-set(rapidsmp_test_spec_file "${RAPIDSMP_BINARY_DIR}/resource_spec.json")
-# This next bit does what rapids_test_init does to generate the CTEST_RESOURCE_SPEC_FILE variable.
-# But we need to change the file being compiled.
-add_executable(generate_resource_json "generate_resource_spec.cpp")
-set_target_properties(
-  generate_resource_json
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMP_BINARY_DIR}/gtests>"
-             CXX_STANDARD 17
-             CXX_STANDARD_REQUIRED ON
-             CUDA_STANDARD 17
-             CUDA_STANDARD_REQUIRED ON
-)
-target_compile_options(
-  generate_resource_json PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMP_CXX_FLAGS}>"
-                                 "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMP_CUDA_FLAGS}>"
-)
-target_link_libraries(generate_resource_json PRIVATE CUDA::cudart MPI::MPI_C)
-
-add_test(NAME generate_resource_spec COMMAND generate_resource_json "${rapidsmp_test_spec_file}")
-set_tests_properties(
-  generate_resource_spec PROPERTIES FIXTURES_SETUP resource_spec GENERATE_RESOURCE_SPEC_FILE
-                                    "${rapidsmp_test_spec_file}"
-)
-add_library(rapids_test_install_testing INTERFACE)
-set_property(
-  TARGET rapids_test_install_testing
-  APPEND
-  PROPERTY "TESTS_TO_RUN" generate_resource_json
-)
-set_property(
-  TARGET rapids_test_install_testing
-  APPEND
-  PROPERTY "TARGETS_TO_INSTALL" generate_resource_json
-)
-
-set(CTEST_RESOURCE_SPEC_FILE "${rapidsmp_test_spec_file}")
 include(rapids-test)
 rapids_test_init()
 
-set(RAPIDSMP_GENERIC_TEST_SOURCES test_buffer_resource.cpp test_shuffler.cpp test_statistics.cpp)
-add_executable(mpi_tests main/mpi.cpp "${RAPIDSMP_GENERIC_TEST_SOURCES}")
+# Create separate test case for each of this n_ranks
+set(nranks_to_run 1 2 3 4 5 8)
+
+# A helper function to create a test case to run each parallelism (defined by n_ranks_to_run).
+# TEST_TARGET is the name of the test target (required). This will add len(n_ranks_to_run) test
+# cases identified by <TEST_TARGET>_<n_ranks>
+function(rapidsmp_mpirun_test_add)
+  set(options) # no options
+  set(one_value TEST_TARGET)
+  set(multi_value) # no multi_value args
+  cmake_parse_arguments(_MPIRUN_TEST "${options}" "${one_value}" "${multi_value}" ${ARGN})
+
+  if(NOT DEFINED _MPIRUN_TEST_TEST_TARGET)
+    message(FATAL_ERROR "rapidsmp_mpirun_test_add called without a test prefix")
+  endif()
+
+  message(STATUS "Adding mpirun test: ${_MPIRUN_TEST_TEST_TARGET} nranks: ${nranks_to_run}")
+  foreach(np IN ITEMS ${nranks_to_run})
+    rapids_test_add(
+      NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}"
+      COMMAND mpirun --map-by=node --bind-to=none -np=${np}
+              "$<BUILD_INTERFACE:${RAPIDSMP_BINARY_DIR}/gtests>/${_MPIRUN_TEST_TEST_TARGET}"
+      GPUS 1
+      INSTALL_COMPONENT_SET testing
+    )
+  endforeach(np)
+endfunction(rapidsmp_mpirun_test_add)
+
+file(GLOB SOURCES "main/mpi.cpp" "*.cpp")
+add_executable(mpi_tests ${SOURCES})
 set_target_properties(
   mpi_tests
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMP_BINARY_DIR}/gtests>"
@@ -79,14 +68,11 @@ target_link_libraries(
   mpi_tests PRIVATE rapidsmp::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
                     GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
 )
-rapids_test_add(
-  NAME mpi_tests
-  COMMAND mpi_tests
-  GPUS 1
-  INSTALL_COMPONENT_SET testing
-)
 
-add_executable(ucxx_tests "main/ucxx.cpp" "${RAPIDSMP_GENERIC_TEST_SOURCES}")
+rapidsmp_mpirun_test_add(TEST_TARGET mpi_tests)
+
+file(GLOB SOURCES "main/ucxx.cpp" "*.cpp")
+add_executable(ucxx_tests ${SOURCES})
 set_target_properties(
   ucxx_tests
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMP_BINARY_DIR}/gtests>"
@@ -105,12 +91,8 @@ target_link_libraries(
   ucxx_tests PRIVATE rapidsmp::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
                      GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
 )
-rapids_test_add(
-  NAME ucxx_tests
-  COMMAND ucxx_tests
-  GPUS 1
-  INSTALL_COMPONENT_SET testing
-)
+
+rapidsmp_mpirun_test_add(TEST_TARGET ucxx_tests)
 
 # Install tests
 rapids_test_install_relocatable(INSTALL_COMPONENT_SET testing DESTINATION bin/tests/librapidsmp)
