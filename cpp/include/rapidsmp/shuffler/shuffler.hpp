@@ -301,7 +301,7 @@ class Shuffler {
 
     // We protect outbox extraction to avoid returning a chunk that is in the process
     // of being spilled by `Shuffler::spill`.
-    mutable std::mutex outbox_spillling_mutex_;
+    mutable std::mutex outbox_spilling_mutex_;
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
