@@ -7,7 +7,7 @@ Collection of multi-gpu, distributed memory algorithms.
 Currently, there is no conda or pip packages for rapidsmp thus we have to build from source.
 
 Clone rapidsmp and install the dependencies in a conda environment:
-```
+```bash
 git clone https://github.com/rapidsai/rapids-multi-gpu.git
 cd rapids-multi-gpu
 
@@ -21,16 +21,19 @@ mamba env create --name rapidsmp-dev --file conda/environments/all_cuda-128_arch
 ### MPI
 
 Run the test suite using MPI:
-```
+```bash
 # When using OpenMP, we need to enable CUDA support.
 export OMPI_MCA_opal_cuda_support=1
 
 # Run the suite using two MPI processes.
 mpirun -np 2 cpp/build/gtests/mpi_tests
+
+# Alternatively
+cd cpp/build && ctest -R mpi_tests_2
 ```
 
 We can also run the shuffle benchmark. To assign each MPI rank its own GPU, we use a [binder script](https://github.com/LStuber/binding/blob/master/binder.sh):
-```
+```bash
 # The binder script requires numactl `mamba install numactl`
 wget https://raw.githubusercontent.com/LStuber/binding/refs/heads/master/binder.sh
 chmod a+x binder.sh
@@ -40,7 +43,7 @@ mpirun -np 2 ./binder.sh cpp/build/benchmarks/bench_shuffle
 ### UCX
 
 The UCX test suite uses, for convenience, MPI to bootstrap, therefore we need to launch UCX tests with `mpirun`. Run the test suite using UCX:
-```
+```bash
 # Run the suite using two processes.
 mpirun -np 2 cpp/build/gtests/ucxx_tests
 ```

@@ -117,7 +117,7 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
         case MemoryType::HOST:  // device -> host
             {
                 auto ret = std::make_unique<std::vector<uint8_t>>(device()->size());
-                RMM_CUDA_TRY(cudaMemcpyAsync(
+                RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
                     ret->data(),
                     device()->data(),
                     device()->size(),
