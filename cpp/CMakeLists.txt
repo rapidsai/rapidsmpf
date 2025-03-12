@@ -80,23 +80,23 @@ rapids_find_package(
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
+rapids_find_package(
+  MPI REQUIRED
+  BUILD_EXPORT_SET rapidsmp-exports
+  INSTALL_EXPORT_SET rapidsmp-exports
+)
+rapids_find_package(
+  UCX REQUIRED
+  BUILD_EXPORT_SET rapidsmp-exports
+  INSTALL_EXPORT_SET rapidsmp-exports
+)
+rapids_find_package(
+  ucxx REQUIRED
+  BUILD_EXPORT_SET rapidsmp-exports
+  INSTALL_EXPORT_SET rapidsmp-exports
+)
 if(RAPIDSMP_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
-  rapids_find_package(
-    MPI REQUIRED
-    BUILD_EXPORT_SET rapidsmp-exports
-    INSTALL_EXPORT_SET rapidsmp-exports
-  )
-  rapids_find_package(
-    UCX REQUIRED
-    BUILD_EXPORT_SET rapidsmp-exports
-    INSTALL_EXPORT_SET rapidsmp-exports
-  )
-  rapids_find_package(
-    UCXX REQUIRED
-    BUILD_EXPORT_SET rapidsmp-exports
-    INSTALL_EXPORT_SET rapidsmp-exports
-  )
 endif()
 
 # ##################################################################################################
@@ -131,7 +131,7 @@ target_include_directories(
   INTERFACE "$<INSTALL_INTERFACE:include>"
 )
 
-target_link_libraries(rapidsmp PUBLIC rmm::rmm cudf::cudf)
+target_link_libraries(rapidsmp PUBLIC rmm::rmm cudf::cudf ucxx::ucxx)
 
 # Add Conda library, and include paths if specified
 if(TARGET conda_env)
