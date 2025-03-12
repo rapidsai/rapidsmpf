@@ -29,13 +29,6 @@ void PostBox::insert(Chunk&& chunk) {
     RAPIDSMP_EXPECTS(inserted, "PostBox.insert(): chunk already exist");
 }
 
-std::pair<Chunk&, std::unique_lock<std::mutex>> PostBox::exclusive_access(
-    PartID pid, ChunkID cid
-) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    return {pigeonhole_.at(pid).at(cid), std::move(lock)};
-}
-
 Chunk PostBox::extract(PartID pid, ChunkID cid) {
     std::lock_guard const lock(mutex_);
     return extract_item(pigeonhole_.at(pid), cid).second;

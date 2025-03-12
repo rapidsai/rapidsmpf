@@ -45,28 +45,6 @@ class PostBox {
     void insert(Chunk&& chunk);
 
     /**
-     * @brief Grants exclusive access to a specific chunk from the PostBox.
-     *
-     * This function retrieves a reference to the specified chunk and returns it along
-     * with a `std::unique_lock<std::mutex>`, ensuring exclusive access to the chunk while
-     * the lock is held.
-     *
-     * @param pid The ID of the partition containing the chunk.
-     * @param cid The ID of the chunk to be accessed.
-     * @return A pair consisting of:
-     *         - A reference to the extracted chunk.
-     *         - A unique lock that ensures exclusive access.
-     *
-     * @throws std::out_of_range If the specified chunk is not found.
-     *
-     * @note The returned `std::unique_lock<std::mutex>` must be kept alive as long as
-     * access to the `Chunk&` is needed to prevent race conditions.
-     */
-    [[nodiscard]] std::pair<Chunk&, std::unique_lock<std::mutex>> exclusive_access(
-        PartID pid, ChunkID cid
-    );
-
-    /**
      * @brief Extracts a specific chunk from the PostBox.
      *
      * @param pid The ID of the partition containing the chunk.
