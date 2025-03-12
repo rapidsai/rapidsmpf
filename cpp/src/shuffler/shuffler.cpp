@@ -311,7 +311,11 @@ void Shuffler::insert_finished(PartID pid) {
 
 std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
     RAPIDSMP_NVTX_FUNC_RANGE();
+    // Protect the chunk extraction to make sure we don't get a chunk
+    // `Shuffler::spill` is in the process of spilling.
+    std::unique_lock<std::mutex> lock(outbox_spillling_mutex_);
     auto chunks = outbox_.extract(pid);
+    lock.unlock();
     std::vector<cudf::packed_columns> ret;
     ret.reserve(chunks.size());
 
@@ -363,6 +367,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     }
     std::size_t spilled{0};
     if (spill_need > 0) {
+        std::lock_guard<std::mutex> lock(outbox_spillling_mutex_);
         spilled = postbox_spilling(
             br_, comm_->logger(), *statistics_, stream_, outbox_, spill_need
         );
