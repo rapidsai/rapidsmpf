@@ -23,7 +23,7 @@ set(nranks_to_run 1 2 3 4 5 8)
 # A helper function to create a test case to run each parallelism (defined by n_ranks_to_run).
 # TEST_TARGET is the name of the test target (required). This will add len(n_ranks_to_run) test
 # cases identified by <TEST_TARGET>_<n_ranks>. NOTE: When running ctest, the TEST_TARGET executable
-# should be located in PWD/gtests/TEST_TARGET location
+# should be located in the ./gtests/ directory relative to the PWD.
 function(rapidsmp_mpirun_test_add)
   set(options) # no options
   set(one_value TEST_TARGET)
@@ -41,6 +41,7 @@ function(rapidsmp_mpirun_test_add)
 
   message(STATUS "Adding mpirun test: ${_MPIRUN_TEST_TEST_TARGET} nranks: ${nranks_to_run}")
   foreach(np IN ITEMS ${nranks_to_run})
+    # add the test using the relative path of the target
     add_test(
       NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}"
       COMMAND mpirun --map-by=node --bind-to=none -np=${np} "gtests/${_MPIRUN_TEST_TEST_TARGET}"
@@ -59,7 +60,7 @@ set_target_properties(
              CXX_EXTENSIONS ON
              CUDA_STANDARD 17
              CUDA_STANDARD_REQUIRED ON
-             COMPONENT testing
+             COMPONENT testing # custom test property, so that this could be searched later
 )
 target_compile_options(
   mpi_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMP_CXX_FLAGS}>"
@@ -83,7 +84,7 @@ set_target_properties(
              CXX_EXTENSIONS ON
              CUDA_STANDARD 17
              CUDA_STANDARD_REQUIRED ON
-             COMPONENT testing
+             COMPONENT testing # custom test property, so that this could be searched later
 )
 target_compile_options(
   ucxx_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMP_CXX_FLAGS}>"
@@ -96,7 +97,7 @@ target_link_libraries(
 
 rapidsmp_mpirun_test_add(TEST_TARGET ucxx_tests)
 
-# Create a list of targets that contains property KEY:VALUE
+# Create a list of targets that contains property KEY:VALUE.
 function(rapidsmp_targets_with_property)
   set(options)
   set(one_value KEY VALUE OUTPUT)
@@ -136,15 +137,17 @@ function(rapidsmp_targets_with_property)
   )
 endfunction(rapidsmp_targets_with_property)
 
+# Search for all targets that has COMPONENT:testing property
 rapidsmp_targets_with_property(KEY COMPONENT VALUE testing OUTPUT testing_targets)
 
+# Install testing targets to bin/tests/librapidsmp/gtests
 install(
   TARGETS ${testing_targets}
   DESTINATION bin/tests/librapidsmp/gtests
   COMPONENT testing
 )
 
-# Install the CTestTestfile.cmake to bin/tests/librapidsmp directory
+# Install the CTestTestfile.cmake to bin/tests/librapidsmp
 install(
   FILES "${RAPIDSMP_BINARY_DIR}/tests/CTestTestfile.cmake"
   DESTINATION bin/tests/librapidsmp
