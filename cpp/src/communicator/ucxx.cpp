@@ -118,6 +118,10 @@ class SharedResources {
     std::mutex futures_mutex_{};
     std::mutex listener_mutex_{};
     std::mutex delayed_progress_callbacks_mutex_{};
+    bool enable_endpoint_error_handling_{false
+    };  ///< Whether to request UCX endpoint error handling. This is currently disabled
+        ///< as it impacts performance very negatively.
+        ///< See https://github.com/rapidsai/rapids-multi-gpu/issues/140.
 
   public:
     UCXX::Logger* logger{nullptr};  ///< UCXX Listener
@@ -415,6 +419,15 @@ class SharedResources {
         std::lock_guard<std::mutex> lock(delayed_progress_callbacks_mutex_);
         delayed_progress_callbacks_.emplace_back(std::move(callback));
     }
+
+    /**
+     * @brief Whether endpoint error handling should be enabled.
+     *
+     * @return `true` if endpoint error handling should be enabled, `false` otherwise.
+     */
+    bool enable_endpoint_error_handling() {
+        return enable_endpoint_error_handling_;
+    }
 };
 
 namespace {
@@ -663,7 +676,7 @@ void control_unpack(
             );
             auto endpoint =
                 shared_resources->get_worker()->createEndpointFromWorkerAddress(
-                    worker_address, true
+                    worker_address, shared_resources->enable_endpoint_error_handling()
                 );
             shared_resources->register_endpoint(client_rank, endpoint);
 
@@ -759,7 +772,7 @@ void listener_callback(ucp_conn_request_h conn_request, void* arg) {
         );
 
     auto endpoint = shared_resources->get_listener()->createEndpointFromConnRequest(
-        conn_request, true
+        conn_request, shared_resources->enable_endpoint_error_handling()
     );
 
     if (shared_resources->rank() == 0) {
@@ -852,13 +865,16 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
                 using T = std::decay_t<decltype(remote_address)>;
                 if constexpr (std::is_same_v<T, HostPortPair>) {
                     return shared_resources->get_worker()->createEndpointFromHostname(
-                        remote_address.first, remote_address.second, true
+                        remote_address.first,
+                        remote_address.second,
+                        shared_resources->enable_endpoint_error_handling()
                     );
                 } else if constexpr (std::is_same_v<T, std::shared_ptr<::ucxx::Address>>)
                 {
                     auto root_endpoint =
                         shared_resources->get_worker()->createEndpointFromWorkerAddress(
-                            remote_address, true
+                            remote_address,
+                            shared_resources->enable_endpoint_error_handling()
                         );
 
                     auto packed_listener_address_rank = control_pack(
@@ -1015,12 +1031,17 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
                 using T = std::decay_t<decltype(remote_address)>;
                 if constexpr (std::is_same_v<T, HostPortPair>) {
                     return shared_resources_->get_worker()->createEndpointFromHostname(
-                        remote_address.first, remote_address.second, true
+                        remote_address.first,
+                        remote_address.second,
+                        shared_resources_->enable_endpoint_error_handling()
                     );
                 } else if constexpr (std::is_same_v<T, std::shared_ptr<::ucxx::Address>>)
                 {
                     return shared_resources_->get_worker()
-                        ->createEndpointFromWorkerAddress(remote_address, true);
+                        ->createEndpointFromWorkerAddress(
+                            remote_address,
+                            shared_resources_->enable_endpoint_error_handling()
+                        );
                 } else {
                     RAPIDSMP_EXPECTS(false, "Unknown argument type");
                 }
