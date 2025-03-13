@@ -1,5 +1,7 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
+from enum import Enum
+
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint16_t, uint32_t
 from libcpp.memory cimport (dynamic_pointer_cast, make_shared, nullptr,
@@ -29,6 +31,12 @@ cdef extern from "<rapidsmp/communicator/ucxx.hpp>" namespace "rapidsmp::ucxx" n
 
     ctypedef variant RemoteAddress
 
+    cpdef enum class ProgressMode(int):
+        Blocking
+        Polling
+        ThreadBlocking
+        ThreadPolling
+
     cdef cppclass cpp_UCXX_ListenerAddress "rapidsmp::ucxx::ListenerAddress":
         RemoteAddress address
         Rank rank
@@ -39,13 +47,15 @@ cdef extern from "<rapidsmp/communicator/ucxx.hpp>" namespace "rapidsmp::ucxx" n
     unique_ptr[cpp_UCXX_InitializedRank] init(
         shared_ptr[Worker] worker,
         uint32_t nranks,
-        shared_ptr[Address] remote_address
+        shared_ptr[Address] remote_address,
+        ProgressMode progress_mode
     )
 
     unique_ptr[cpp_UCXX_InitializedRank] init(
         shared_ptr[Worker] worker,
         uint32_t nranks,
-        nullopt_t remote_address
+        nullopt_t remote_address,
+        ProgressMode progress_mode
     )
 
     cdef cppclass cpp_UCXX_Communicator "rapidsmp::ucxx::UCXX":
@@ -61,13 +71,14 @@ cdef Communicator cpp_new_communicator(
     uint32_t nranks,
     shared_ptr[Worker] worker,
     shared_ptr[Address] root_address,
+    ProgressMode progress_mode,
 ):
     cdef unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
 
     if root_address == <shared_ptr[Address]>nullptr:
-        ucxx_initialized_rank = init(worker, nranks, nullopt)
+        ucxx_initialized_rank = init(worker, nranks, nullopt, progress_mode)
     else:
-        ucxx_initialized_rank = init(worker, nranks, root_address)
+        ucxx_initialized_rank = init(worker, nranks, root_address, progress_mode)
     cdef Communicator ret = Communicator.__new__(Communicator)
     ret._handle = make_shared[cpp_UCXX_Communicator](move(ucxx_initialized_rank))
     return ret
@@ -76,7 +87,8 @@ cdef Communicator cpp_new_communicator(
 def new_communicator(
     uint32_t nranks,
     UCXWorker ucx_worker,
-    UCXAddress root_ucxx_address
+    UCXAddress root_ucxx_address,
+    ProgressMode progress_mode = ProgressMode.ThreadBlocking,
 ):
     """
     Create a new UCXX communicator with the given number of ranks.
@@ -93,6 +105,8 @@ def new_communicator(
         An existing UCXX worker to use if specified, otherwise one will be created.
     root_ucxx_address
         The UCXX address of the root rank (only specified for non-root ranks).
+    progress_mode
+        The progress mode to use with the UCXX worker.
 
     Returns
     -------
@@ -107,7 +121,12 @@ def new_communicator(
     else:
         root_ucxx_address_ptr = root_ucxx_address.get_ucxx_shared_ptr()
 
-    return cpp_new_communicator(nranks, ucx_worker_ptr, root_ucxx_address_ptr)
+    return cpp_new_communicator(
+        nranks,
+        ucx_worker_ptr,
+        root_ucxx_address_ptr,
+        progress_mode
+    )
 
 
 def get_root_ucxx_address(Communicator comm):
