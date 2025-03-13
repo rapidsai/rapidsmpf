@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-
-#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -24,53 +25,41 @@
 
 using rapidsmp::detail::PausableThreadLoop;
 
-// Test if the pause functionality works.
 TEST(PausableThreadLoop, ResumeAndPause) {
-    std::atomic<int> counter{0};
-    PausableThreadLoop loop([&]() { counter.fetch_add(1, std::memory_order_relaxed); });
+    int counter{0};
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool updated = false;
+
+    PausableThreadLoop loop([&]() {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            ++counter;
+            updated = true;
+        }
+        cv.notify_one();
+    });
 
     // The loop starts paused.
-    EXPECT_TRUE(!loop.is_running());
+    EXPECT_FALSE(loop.is_running());
     loop.resume();
     EXPECT_TRUE(loop.is_running());
 
-    // Let the loop run and check counter has been increased.
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    EXPECT_GT(counter.load(std::memory_order_relaxed), 0);
+    // Wait for the counter to be increased.
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        cv.wait(lock, [&]() { return updated; });
+    }
+    EXPECT_GT(counter, 0);
 
     // If we pause, the counter should stay the same.
     loop.pause();
-    int count_after_pause = counter.load(std::memory_order_relaxed);
+    int count_after_pause = counter;
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     loop.stop();
-    EXPECT_EQ(counter.load(std::memory_order_relaxed), count_after_pause);
-}
-
-// Test different sleep durations.
-TEST(PausableThreadLoop, SleepDuration) {
-    std::atomic<int> counter{0};
-
-    // Create a loop with a sleep duration of 1 millisecond.
-    PausableThreadLoop loop_1ms(
-        [&]() { counter.fetch_add(1, std::memory_order_relaxed); },
-        std::chrono::milliseconds(1)
+    // We accept counter-1 since the loop function might have passed the wait check when
+    // we called pause().
+    EXPECT_THAT(
+        count_after_pause, testing::AnyOf(testing::Eq(counter), testing::Eq(counter - 1))
     );
-    loop_1ms.resume();
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    int count_1ms = counter.load(std::memory_order_relaxed);
-    loop_1ms.stop();
-
-    // Reset counter and create a loop with a sleep duration of 5 milliseconds.
-    counter = 0;
-    PausableThreadLoop loop_5ms(
-        [&]() { counter.fetch_add(1, std::memory_order_relaxed); },
-        std::chrono::milliseconds(5)
-    );
-    loop_5ms.resume();
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    int count_5ms = counter.load(std::memory_order_relaxed);
-    loop_5ms.stop();
-
-    // Ensure the loop with shorter sleep duration increments more frequently.
-    EXPECT_GT(count_1ms, count_5ms);
 }

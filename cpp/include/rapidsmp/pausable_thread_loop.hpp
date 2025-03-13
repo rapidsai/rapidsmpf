@@ -52,15 +52,16 @@ class PausableThreadLoop {
         std::function<void()> func,
         std::chrono::microseconds sleep = std::chrono::microseconds(0)
     ) {
-        thread_ = std::thread([this, func, sleep]() {
+        thread_ = std::thread([this, f = std::move(func), sleep]() {
             while (true) {
                 {
                     std::unique_lock<std::mutex> lock(mutex_);
                     cv_.wait(lock, [this]() { return !paused_ || !active_; });
-                    if (!active_)
-                        break;
+                    if (!active_) {
+                        return;
+                    }
                 }
-                func();
+                f();
                 if (sleep > std::chrono::microseconds(0)) {
                     std::this_thread::sleep_for(sleep);
                 } else {
