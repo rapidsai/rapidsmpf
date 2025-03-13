@@ -21,6 +21,8 @@
 #include <mutex>
 #include <thread>
 
+#include <rapidsmp/utils.hpp>
+
 namespace rapidsmp::detail {
 /**
  * @brief A thread loop that can be paused, resumed, and stopped.
@@ -32,12 +34,25 @@ class PausableThreadLoop {
     /**
      * @brief Constructs a thread to run the specified function in a loop.
      *
-     * @note The loop starts paused.
+     * The loop will execute the given function repeatedly in a separate thread.
+     * The thread starts in a paused state and will remain paused until the `resume()`
+     * method is called.
+     *
+     * If a sleep duration is provided, the thread will sleep for the specified duration
+     * between executions of the task.
+     *
+     * A short sleep is introduced when running under Valgrind to avoid potential issues
+     * with thread starvation.
      *
      * @param func The function to execute repeatedly in the thread.
+     * @param sleep The duration to sleep between executions of the task. By default, the
+     * thread yields execution instead of sleeping.
      */
-    PausableThreadLoop(std::function<void()> func) {
-        thread_ = std::thread([this, func]() {
+    PausableThreadLoop(
+        std::function<void()> func,
+        std::chrono::microseconds sleep = std::chrono::microseconds(0)
+    ) {
+        thread_ = std::thread([this, func, sleep]() {
             while (true) {
                 {
                     std::unique_lock<std::mutex> lock(mutex_);
@@ -46,7 +61,15 @@ class PausableThreadLoop {
                         break;
                 }
                 func();
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                if (sleep > std::chrono::microseconds(0)) {
+                    std::this_thread::sleep_for(sleep);
+                } else {
+                    std::this_thread::yield();
+                }
+                // Add a short sleep to avoid other threads starving under Valgrind.
+                if (is_running_under_valgrind()) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
             }
         });
     }

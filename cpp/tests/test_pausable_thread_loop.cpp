@@ -24,7 +24,7 @@
 
 using rapidsmp::detail::PausableThreadLoop;
 
-// Test if the pause functionality works
+// Test if the pause functionality works.
 TEST(PausableThreadLoop, ResumeAndPause) {
     std::atomic<int> counter{0};
     PausableThreadLoop loop([&]() { counter.fetch_add(1, std::memory_order_relaxed); });
@@ -44,4 +44,33 @@ TEST(PausableThreadLoop, ResumeAndPause) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     loop.stop();
     EXPECT_EQ(counter.load(std::memory_order_relaxed), count_after_pause);
+}
+
+// Test different sleep durations.
+TEST(PausableThreadLoop, SleepDuration) {
+    std::atomic<int> counter{0};
+
+    // Create a loop with a sleep duration of 1 millisecond.
+    PausableThreadLoop loop_1ms(
+        [&]() { counter.fetch_add(1, std::memory_order_relaxed); },
+        std::chrono::milliseconds(1)
+    );
+    loop_1ms.resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    int count_1ms = counter.load(std::memory_order_relaxed);
+    loop_1ms.stop();
+
+    // Reset counter and create a loop with a sleep duration of 5 milliseconds.
+    counter = 0;
+    PausableThreadLoop loop_5ms(
+        [&]() { counter.fetch_add(1, std::memory_order_relaxed); },
+        std::chrono::milliseconds(5)
+    );
+    loop_5ms.resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    int count_5ms = counter.load(std::memory_order_relaxed);
+    loop_5ms.stop();
+
+    // Ensure the loop with shorter sleep duration increments more frequently.
+    EXPECT_GT(count_1ms, count_5ms);
 }
