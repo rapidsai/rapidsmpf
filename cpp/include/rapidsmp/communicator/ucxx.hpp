@@ -42,6 +42,16 @@ using RemoteAddress = std::variant<
                                         ///< the remote UCXX listener or worker.
 
 /**
+ * @brief The progress mode to use with UCXX worker.
+ */
+enum class ProgressMode {
+    Blocking = 0,
+    Polling,
+    ThreadBlocking,
+    ThreadPolling
+};
+
+/**
  * @brief Storage for a listener address.
  *
  * Stores a listener address, composed of the hostname or IP address, port and rank the
@@ -89,13 +99,15 @@ class InitializedRank {
  *                       listener or worker. Used only by non-root ranks to connect to a
  *                       previously initialized root rank, for which the default
  *                       `std::nullopt` is specified.
+ * @param progress_mode The progress mode to use with the UCXX worker.
  *
  * @throws std::logic_error if the `remote_address` is an invalid object.
  */
 std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
     std::uint32_t nranks,
-    std::optional<RemoteAddress> remote_address = std::nullopt
+    std::optional<RemoteAddress> remote_address = std::nullopt,
+    ProgressMode progress_mode = ProgressMode::ThreadBlocking
 );
 
 /**

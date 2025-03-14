@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -113,14 +114,19 @@ class SharedResources {
     };  ///< UCXX callback info for control messages
     std::vector<std::unique_ptr<HostFuture>> futures_{
     };  ///< Futures to incomplete requests.
-    std::vector<std::function<void()>> delayed_progress_callbacks_{};
-    std::mutex endpoints_mutex_{};
-    std::mutex futures_mutex_{};
-    std::mutex listener_mutex_{};
-    std::mutex delayed_progress_callbacks_mutex_{};
+    std::vector<std::function<void()>> delayed_progress_callbacks_{
+    };  ///< Callbacks from incomplete requests to execute before progressing the worker
+    std::mutex endpoints_mutex_{};  ///< Mutex to control access to `endpoints_`
+    std::mutex futures_mutex_{};  ///< Mutex to control access to `futures_`
+    std::mutex listener_mutex_{
+    };  ///< Mutex to control access to `listener_` and `rank_to_listener_address_`
+    std::mutex delayed_progress_callbacks_mutex_{
+    };  ///< Mutex to control access to `delayed_progress_callbacks_`
+    std::atomic<std::uint64_t> progress_count{0
+    };  ///< Counts how many times `maybe_progress_worker` has been called
 
   public:
-    UCXX::Logger* logger{nullptr};  ///< UCXX Listener
+    UCXX::Logger* logger{nullptr};  ///< UCXX logger
 
     /**
      * @brief Construct UCXX shared resources.
@@ -388,6 +394,27 @@ class SharedResources {
         );
     }
 
+    void ensure_progress_thread_progress() {
+        if (worker_->isProgressThreadRunning()) {
+            // Ensure a complete progress thread iteration occurs
+            while (true) {
+                bool pre = false;
+                if (!worker_->registerGenericPre([&pre]() { pre = true; }, 100000))
+                    continue;
+                if (pre)
+                    break;
+            }
+
+            while (true) {
+                bool post = false;
+                if (!worker_->registerGenericPost([&post]() { post = true; }, 100000))
+                    continue;
+                if (post)
+                    break;
+            }
+        }
+    }
+
     void progress_worker() {
         decltype(delayed_progress_callbacks_) delayed_progress_callbacks{};
         {
@@ -396,12 +423,19 @@ class SharedResources {
         }
         for (auto& callback : delayed_progress_callbacks)
             callback();
-        if (!worker_->isProgressThreadRunning()) {
+        if (worker_->isProgressThreadRunning()) {
+            ensure_progress_thread_progress();
+        } else {
+            // TODO: Support blocking progress mode in addition to polling
             worker_->progress();
-            // TODO: Support blocking progress mode
         }
 
         clear_completed_futures();
+    }
+
+    void maybe_progress_worker() {
+        if (++progress_count % 100)
+            progress_worker();
     }
 
     /**
@@ -800,14 +834,25 @@ InitializedRank::InitializedRank(
 std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
     std::uint32_t nranks,
-    std::optional<RemoteAddress> remote_address
+    std::optional<RemoteAddress> remote_address,
+    ProgressMode progress_mode
 ) {
-    auto create_worker = []() {
+    auto create_worker = [progress_mode]() {
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
         auto worker = context->createWorker(false);
-        // TODO: Allow other modes
-        worker->setProgressThreadStartCallback(create_cuda_context_callback, nullptr);
-        worker->startProgressThread(true);
+
+        RAPIDSMP_EXPECTS(
+            progress_mode != ProgressMode::Blocking,
+            "Blocking progress mode not implemented yet."
+        );
+
+        if (progress_mode == ProgressMode::ThreadBlocking
+            || progress_mode == ProgressMode::ThreadPolling)
+        {
+            worker->setProgressThreadStartCallback(create_cuda_context_callback, nullptr);
+            worker->startProgressThread(progress_mode == ProgressMode::ThreadBlocking);
+        };
+
         return worker;
     };
 
@@ -836,8 +881,8 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
         );
 
         // Connect to root
-        // TODO: Enable when Logger can be created before the UCXX communicator object.
-        // See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
+        // TODO: Enable when Logger can be created before the UCXX communicator
+        // object. See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
         //
         // log.debug(
         //     "Connecting to root node at ",
@@ -891,8 +936,8 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
         while (shared_resources->rank() == Rank(-1)) {
             shared_resources->progress_worker();
         }
-        // TODO: Enable when Logger can be created before the UCXX communicator object.
-        // See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
+        // TODO: Enable when Logger can be created before the UCXX communicator
+        // object. See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
         // log.debug("Assigned rank: ", shared_resources->rank());
 
         if (const HostPortPair* host_port_pair =
@@ -930,8 +975,8 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
         );
         auto listener = shared_resources->get_listener();
 
-        // TODO: Enable when Logger can be created before the UCXX communicator object.
-        // See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
+        // TODO: Enable when Logger can be created before the UCXX communicator
+        // object. See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
         // log.info("Root running at address ", listener->getIp(), ":",
         // listener->getPort());
 
@@ -1180,7 +1225,7 @@ UCXX::~UCXX() noexcept {
 }
 
 void UCXX::progress_worker() {
-    shared_resources_->progress_worker();
+    shared_resources_->maybe_progress_worker();
 }
 
 ListenerAddress UCXX::listener_address() {
