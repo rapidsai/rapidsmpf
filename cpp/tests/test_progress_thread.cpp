@@ -25,6 +25,7 @@
 #include <rapidsmp/progress_thread.hpp>
 
 #include "environment.hpp"
+#include "rapidsmp/statistics.hpp"
 
 using rapidsmp::FunctionID;
 using rapidsmp::ProgressState;
@@ -38,7 +39,7 @@ TEST(ProgressThread, Shutdown) {
 }
 
 class ProgressThreadEvents
-    : public cudf::test::BaseFixtureWithParam<std::tuple<int, int>> {};
+    : public cudf::test::BaseFixtureWithParam<std::tuple<int, int, bool>> {};
 
 // test different `num_threads` and `num_functions`.
 INSTANTIATE_TEST_SUITE_P(
@@ -46,7 +47,8 @@ INSTANTIATE_TEST_SUITE_P(
     ProgressThreadEvents,
     testing::Combine(
         testing::Values(1, 2, 4, 8),  // num_threads
-        testing::Values(0, 1, 2, 4, 8)  // num_functions
+        testing::Values(0, 1, 2, 4, 8),  // num_functions
+        testing::Values(false, true)  // enable_statistics
     )
 );
 
@@ -60,9 +62,10 @@ struct TestFunction {
 TEST_P(ProgressThreadEvents, events) {
     size_t const num_threads = std::get<0>(GetParam());
     size_t const num_functions = std::get<1>(GetParam());
+    bool const enable_statistics = std::get<2>(GetParam());
 
     auto& logger = GlobalEnvironment->comm_->logger();
-    ProgressThread progress_thread(logger);
+    auto statistics = std::make_shared<rapidsmp::Statistics>(enable_statistics);
     std::vector<std::unique_ptr<ProgressThread>> progress_threads;
     std::vector<std::vector<std::shared_ptr<TestFunction>>> test_functions(num_threads);
 
@@ -71,7 +74,8 @@ TEST_P(ProgressThreadEvents, events) {
     };
 
     for (size_t thread = 0; thread < num_threads; ++thread) {
-        progress_threads.emplace_back(std::make_unique<ProgressThread>(logger));
+        progress_threads.emplace_back(std::make_unique<ProgressThread>(logger, statistics)
+        );
 
         for (size_t function = 0; function < num_functions; ++function) {
             auto test_function = std::make_shared<TestFunction>();
@@ -107,5 +111,9 @@ TEST_P(ProgressThreadEvents, events) {
         }
 
         progress_threads[thread]->shutdown();
+    }
+
+    if (statistics->enabled() && num_functions > 0) {
+        EXPECT_THAT(statistics->report(), ::testing::HasSubstr("event-loop-total"));
     }
 }

@@ -23,6 +23,7 @@
 
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/pausable_thread_loop.hpp>
+#include <rapidsmp/statistics.hpp>
 
 namespace rapidsmp {
 
@@ -111,9 +112,13 @@ class ProgressThread {
     /**
      * @brief Construct a new progress thread that can handle multiple functions.
      *
-     * @param logger The logger to use.
+     * @param logger The logger instance to use.
+     * @param statistics The statistics instance to use (disabled by default).
      */
-    ProgressThread(Communicator::Logger& logger);
+    ProgressThread(
+        Communicator::Logger& logger,
+        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false)
+    );
 
     ~ProgressThread();
 
@@ -154,14 +159,15 @@ class ProgressThread {
      */
     static void event_loop(ProgressThread* self);
 
-    bool active_{true};
     detail::PausableThreadLoop thread_;
+    Communicator::Logger& logger_;
+    std::shared_ptr<Statistics> statistics_;
+    bool active_{true};
     std::list<FunctionState> functions_;
     std::thread event_loop_thread_;
     std::atomic<bool> event_loop_thread_run_{true};
     std::mutex mutex_;
     std::uint64_t next_function_id_;
-    Communicator::Logger& logger_;
 };
 
 }  // namespace rapidsmp

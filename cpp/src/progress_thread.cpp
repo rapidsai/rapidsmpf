@@ -40,7 +40,9 @@ constexpr bool operator==(const FunctionState& lhs, const FunctionID& function_i
     return lhs.function_id == function_id;
 }
 
-ProgressThread::ProgressThread(Communicator::Logger& logger)
+ProgressThread::ProgressThread(
+    Communicator::Logger& logger, std::shared_ptr<Statistics> statistics
+)
     : thread_([this]() {
           // This thread needs to have a cuda context associated with it.
           // For now, do so by calling cudaFree to initialise the driver.
@@ -48,7 +50,8 @@ ProgressThread::ProgressThread(Communicator::Logger& logger)
 
           return event_loop(this);
       }),
-      logger_(logger) {
+      logger_(logger),
+      statistics_(std::move(statistics)) {
     thread_.resume();
 }
 
@@ -101,11 +104,9 @@ void ProgressThread::remove_function(FunctionID function_id) {
 }
 
 void ProgressThread::event_loop(ProgressThread* self) {
-    self->logger_.debug("event loop - start: ", self);
-
     // Continue the loop until both the "run" flag is false and all
     // ongoing communication is done.
-    // auto const t0_event_loop = Clock::now();
+    auto const t0_event_loop = Clock::now();
     if (self->event_loop_thread_run_ || !self->functions_.empty()) {
         {
             std::lock_guard const lock(self->mutex_);
@@ -115,10 +116,9 @@ void ProgressThread::event_loop(ProgressThread* self) {
             }
         }
     }
-    // self->statistics_->add_duration_stat(
-    //     "event-loop-total", Clock::now() - t0_event_loop
-    // );
-    self->logger_.debug("event loop - shutdown: ", self);
+    self->statistics_->add_duration_stat(
+        "event-loop-total", Clock::now() - t0_event_loop
+    );
 }
 
 }  // namespace rapidsmp
