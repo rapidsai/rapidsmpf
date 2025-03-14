@@ -39,6 +39,11 @@ int main(int argc, char** argv) {
     std::shared_ptr<rapidsmp::Communicator> comm =
         std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
 
+    // Then a progress thread where the shuffler event loop executes is created. A single
+    // progress thread may be used by multiple shufflers simultaneously.
+    std::shared_ptr<rapidsmp::ProgressThread> progress_thread =
+        std::make_shared<rapidsmp::ProgressThread>();
+
     // The Communicator provides a logger.
     auto& log = comm->logger();
 
@@ -65,6 +70,7 @@ int main(int argc, char** argv) {
     // function, in this example we use the included round-robin owner function.
     rapidsmp::shuffler::Shuffler shuffler(
         comm,
+        progress_thread,
         0,  // op_id
         total_num_partitions,
         stream,

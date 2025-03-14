@@ -20,11 +20,12 @@
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/utils.hpp>
 
+#include "rapidsmp/pausable_thread_loop.hpp"
+
 namespace rapidsmp {
 
-ProgressThread::ProgressThread() {
-    event_loop_thread_ = std::thread(ProgressThread::event_loop, this);
-}
+ProgressThread::ProgressThread()
+    : detail::PausableThreadLoop([this]() { return event_loop(this); }) {}
 
 ProgressThread::~ProgressThread() {
     if (active_) {
@@ -37,33 +38,32 @@ void ProgressThread::shutdown() {
     // auto& log = comm_->logger();
     // log.debug("Shuffler.shutdown() - initiate");
     event_loop_thread_run_.store(false);
-    event_loop_thread_.join();
+    stop();
+    // event_loop_thread_.join();
     // log.debug("Shuffler.shutdown() - done");
     active_ = false;
 }
 
-void ProgressThread::insert_iterable(ProgressThreadIterable* iterable) {
-    auto it = iterables_.find(iterable);
-    RAPIDSMP_EXPECTS(it == iterables_.end(), "Iterable already registered");
+FunctionID ProgressThread::add_function(std::function<ProgressState()> function) {
     std::lock_guard const lock(mutex_);
-    iterables_.insert({iterable, std::make_unique<ProgressThreadIterableState>(iterable)}
-    );
+    auto id = next_function_id_++;
+    functions_.emplace_back(function, id);
+    return id;
 }
 
-void ProgressThread::erase_iterable(ProgressThreadIterable* iterable) {
-    auto it = iterables_.find(iterable);
+void ProgressThread::remove_function(FunctionID function_id) {
+    auto state = std::find(functions_.begin(), functions_.end(), function_id);
     RAPIDSMP_EXPECTS(
-        it != iterables_.end(), "Iterable not registered or already removed"
+        state != functions_.end(), "Iterable not registered or already removed"
     );
-    auto iterable_state = it->second.get();
     {
-        std::unique_lock iterable_lock(iterable_state->mutex);
-        iterable_state->condition_variable.wait(iterable_lock, [iterable_state]() {
-            return iterable_state->latest_state;
+        std::unique_lock state_lock(state->mutex);
+        state->condition_variable.wait(state_lock, [state]() {
+            return state->latest_state;
         });
 
         std::lock_guard const lock(mutex_);
-        iterables_.erase(iterable);
+        functions_.erase(state);
     }
 }
 
@@ -78,24 +78,14 @@ void ProgressThread::event_loop(ProgressThread* self) {
     // Continue the loop until both the "run" flag is false and all
     // ongoing communication is done.
     // auto const t0_event_loop = Clock::now();
-    while (self->event_loop_thread_run_ || !self->iterables_.empty()) {
+    if (self->event_loop_thread_run_ || !self->functions_.empty()) {
         {
-            // if (!self->event_loop_thread_run_) continue;
             std::lock_guard const lock(self->mutex_);
-            for (auto& iterable_pair : self->iterables_) {
-                auto iterable = iterable_pair.first;
-                auto iterable_state = iterable_pair.second.get();
-                iterable_state->latest_state = iterable->progress();
-                if (iterable_state->latest_state)
-                    iterable_state->condition_variable.notify_all();
+            for (auto& function : self->functions_) {
+                function();
             }
         }
-        std::this_thread::yield();
-
-        // Let's add a short sleep to avoid other threads starving under Valgrind.
-        if (is_running_under_valgrind()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
+        // std::this_thread::yield();
     }
     // self->statistics_->add_duration_stat(
     //     "event-loop-total", Clock::now() - t0_event_loop

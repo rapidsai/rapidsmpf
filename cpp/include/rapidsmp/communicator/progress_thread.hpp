@@ -17,54 +17,62 @@
 
 #include <atomic>
 #include <condition_variable>
-#include <memory>
+#include <list>
 #include <mutex>
 #include <thread>
-#include <unordered_map>
+#include <utility>
+
+#include <rapidsmp/pausable_thread_loop.hpp>
 
 namespace rapidsmp {
 
-/**
- * @brief Base for a class that can be iterated on by `ProgressThread`.
- *
- * Adds a single abstract method `progress()` that is called as part of the
- * `ProgressThread` to ensure the object is progressed in each iteration of
- * event loop.
- */
-class ProgressThreadIterable {
-  public:
-    ProgressThreadIterable() = default;
-    virtual ~ProgressThreadIterable() noexcept = default;
-
-    /**
-     * @brief Progress the object in the progress thread.
-     *
-     * @return Whether the object has completed progressing and can be destroyed.
-     */
-    virtual bool progress() = 0;
+enum ProgressState : bool {
+    InProgress,
+    Done,
 };
+
+using FunctionID = std::uint64_t;
+using Function = std::function<ProgressState()>;
 
 /**
  * @brief Store state of a `ProgressThreadIterable`.
  */
-class ProgressThreadIterableState {
+class FunctionState {
   public:
-    ProgressThreadIterableState() = delete;
+    FunctionState() = delete;
 
     /**
      * @brief Construct state of an iterable.
      *
      * @param iterable The raw pointer to the iterable instance.
      */
-    ProgressThreadIterableState(rapidsmp::ProgressThreadIterable* iterable)
-        : iterable{iterable} {}
+    FunctionState(Function function, FunctionID function_id)
+        : function(std::move(function)), function_id{function_id} {}
 
-    rapidsmp::ProgressThreadIterable* iterable;  ///< Pointer to the iterable instance.
+    ProgressState operator()() {
+        std::lock_guard const lock(mutex);
+        latest_state = function();
+        if (latest_state == ProgressState::Done)
+            condition_variable.notify_all();
+        return latest_state;
+    }
+
+    Function function;
+    FunctionID
+        function_id;  ///< The unique identifier of the function this object refers to.
     std::mutex mutex;  ///< Mutex to control access to state.
     std::condition_variable
         condition_variable;  ///< Condition variable to prevent early removal.
-    bool latest_state{false};  ///< Latest progress state of iterable.
+    ProgressState latest_state{InProgress};  ///< Latest progress state of iterable.
 };
+
+constexpr bool operator==(const FunctionState& lhs, const FunctionState& rhs) {
+    return lhs.function_id == rhs.function_id;
+}
+
+constexpr bool operator==(const FunctionState& lhs, const FunctionID& function_id) {
+    return lhs.function_id == function_id;
+}
 
 /**
  * @brief A progress thread that can execute arbitrary iteratables.
@@ -74,7 +82,7 @@ class ProgressThreadIterableState {
  * when progressing iterables, thus the iterables should not enforce any
  * dependency on the progress of other iterables.
  */
-class ProgressThread {
+class ProgressThread : public detail::PausableThreadLoop {
   public:
     /**
      * @brief Construct a new progress thread that can handle multiple iterables.
@@ -95,14 +103,14 @@ class ProgressThread {
      *
      * @param iterable The iterable instance.
      */
-    void insert_iterable(ProgressThreadIterable* iterable);
+    FunctionID add_function(std::function<ProgressState()> function);
 
     /**
      * @brief Remove a iterable object and stop processing it as part of the event loop.
      *
      * @param iterable The iterable instance.
      */
-    void erase_iterable(ProgressThreadIterable* iterable);
+    void remove_function(FunctionID function_id);
 
   private:
     /**
@@ -116,13 +124,11 @@ class ProgressThread {
     static void event_loop(ProgressThread* self);
 
     bool active_{true};
-    std::unordered_map<
-        ProgressThreadIterable*,
-        std::unique_ptr<ProgressThreadIterableState>>
-        iterables_;
+    std::list<FunctionState> functions_;
     std::thread event_loop_thread_;
     std::atomic<bool> event_loop_thread_run_{true};
     std::mutex mutex_;
+    FunctionID next_function_id_;
 };
 
 }  // namespace rapidsmp

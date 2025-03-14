@@ -53,7 +53,7 @@ namespace rapidsmp::shuffler {
  * tables, using a partitioning scheme to distribute and collect data chunks across
  * different ranks.
  */
-class Shuffler : public rapidsmp::ProgressThreadIterable {
+class Shuffler {
   public:
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the
@@ -100,6 +100,7 @@ class Shuffler : public rapidsmp::ProgressThreadIterable {
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
+        std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         PartID total_num_partitions,
         rmm::cuda_stream_view stream,
@@ -236,7 +237,7 @@ class Shuffler : public rapidsmp::ProgressThreadIterable {
      * - `in_transit_chunks`: Chunks currently in transit.
      * - `in_transit_futures`: Futures corresponding to in-transit chunks.
      */
-    bool progress() override;
+    ProgressState progress();
 
     /// @brief Get an new unique chunk ID.
     [[nodiscard]] detail::ChunkID get_new_cid();
@@ -277,6 +278,8 @@ class Shuffler : public rapidsmp::ProgressThreadIterable {
     detail::PostBox outbox_;
 
     std::shared_ptr<Communicator> comm_;
+    std::shared_ptr<ProgressThread> progress_thread_;
+    FunctionID function_id_;
     OpID const op_id_;
     std::thread event_loop_thread_;
     std::atomic<bool> event_loop_thread_run_{true};

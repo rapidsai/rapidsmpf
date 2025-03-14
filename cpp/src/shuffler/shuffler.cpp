@@ -181,6 +181,7 @@ std::vector<PartID> Shuffler::local_partitions(
 
 Shuffler::Shuffler(
     std::shared_ptr<Communicator> comm,
+    std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
     PartID total_num_partitions,
     rmm::cuda_stream_view stream,
@@ -193,12 +194,13 @@ Shuffler::Shuffler(
       stream_{stream},
       br_{br},
       comm_{std::move(comm)},
+      progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
       finish_counter_{
           comm_->nranks(), local_partitions(comm_, total_num_partitions, partition_owner)
       },
       statistics_{std::move(statistics)} {
-    comm_->insert_iterable(this);
+    function_id_ = progress_thread->add_function([this]() { return progress(); });
     RAPIDSMP_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMP_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
     RAPIDSMP_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
@@ -214,7 +216,7 @@ void Shuffler::shutdown() {
     RAPIDSMP_EXPECTS(active_, "shuffler is inactive");
     auto& log = comm_->logger();
     log.debug("Shuffler.shutdown() - initiate");
-    comm_->erase_iterable(this);
+    progress_thread_->remove_function(function_id_);
     log.debug("Shuffler.shutdown() - done");
     active_ = false;
 }
@@ -379,7 +381,7 @@ detail::ChunkID Shuffler::get_new_cid() {
     return upper | lower;
 }
 
-bool Shuffler::progress() {
+ProgressState Shuffler::progress() {
     // Tags for each stage of the shuffle
     Tag const ready_for_data_tag{op_id_, 1};
     Tag const metadata_tag{op_id_, 2};
@@ -525,8 +527,10 @@ bool Shuffler::progress() {
     spill();  // Spill if current device memory usage is too high.
 
     return fire_and_forget_.empty() && incoming_chunks_.empty()
-           && outgoing_chunks_.empty() && in_transit_chunks_.empty()
-           && in_transit_futures_.empty() && inbox_.empty();
+                   && outgoing_chunks_.empty() && in_transit_chunks_.empty()
+                   && in_transit_futures_.empty() && inbox_.empty()
+               ? ProgressState::Done
+               : ProgressState::InProgress;
 }
 
 std::string Shuffler::str() const {

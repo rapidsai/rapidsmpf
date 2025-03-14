@@ -185,6 +185,7 @@ class ArgumentParser {
 
 rapidsmp::Duration run(
     std::shared_ptr<rapidsmp::Communicator> comm,
+    std::shared_ptr<rapidsmp::ProgressThread> progress_thread,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     rapidsmp::BufferResource* br,
@@ -214,6 +215,7 @@ rapidsmp::Duration run(
         RAPIDSMP_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
         rapidsmp::shuffler::Shuffler shuffler(
             comm,
+            progress_thread,
             0,  // op_id
             total_num_partitions,
             stream,
@@ -298,6 +300,9 @@ int main(int argc, char** argv) {
         comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
     }
 
+    std::shared_ptr<rapidsmp::ProgressThread> progress_thread =
+        std::make_shared<rapidsmp::ProgressThread>();
+
     args.pprint(*comm);
 
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
@@ -349,7 +354,7 @@ int main(int argc, char** argv) {
         if (i == total_num_runs - 1) {
             stats = std::make_shared<rapidsmp::Statistics>();
         }
-        auto const elapsed = run(comm, args, stream, &br, stats).count();
+        auto const elapsed = run(comm, progress_thread, args, stream, &br, stats).count();
         std::stringstream ss;
         ss << "elapsed: " << rapidsmp::to_precision(elapsed)
            << " sec | local throughput: "
