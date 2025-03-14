@@ -77,16 +77,24 @@ class PausableThreadLoop {
 
     /**
      * @brief Checks if the thread is currently running (not paused).
+     *
+     * @note If false, the loop function might still be in the middle of running its
+     * last iteration before being paused.
+     *
      * @return True if the thread is running, false if paused.
      */
     [[nodiscard]] bool is_running() const noexcept {
+        std::lock_guard<std::mutex> lock(mutex_);
         return !paused_;
     }
 
     /**
      * @brief Pauses the execution of the thread.
      *
-     * The thread will stop executing the func until `resume()` is called.
+     * The thread will stop executing the loop function until `resume()` is called.
+     *
+     * @note This function is non-blocking and will let the loop function finish its
+     * current execution asynchronously.
      */
     void pause() {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -110,6 +118,9 @@ class PausableThreadLoop {
      * @brief Stops the execution of the thread and joins it.
      *
      * Once stopped, the thread cannot be resumed.
+     *
+     * @note This function is blocking and will let the loop function finish its
+     * current execution synchronously.
      */
     void stop() {
         {
@@ -132,7 +143,7 @@ class PausableThreadLoop {
 
   private:
     std::thread thread_;
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     std::condition_variable cv_;
     bool active_{true};
     bool paused_{true};
