@@ -51,29 +51,8 @@ class PausableThreadLoop {
     PausableThreadLoop(
         std::function<void()> func,
         std::chrono::microseconds sleep = std::chrono::microseconds(0)
-    ) {
-        thread_ = std::thread([this, f = std::move(func), sleep]() {
-            while (true) {
-                {
-                    std::unique_lock<std::mutex> lock(mutex_);
-                    cv_.wait(lock, [this]() { return !paused_ || !active_; });
-                    if (!active_) {
-                        return;
-                    }
-                }
-                f();
-                if (sleep > std::chrono::microseconds(0)) {
-                    std::this_thread::sleep_for(sleep);
-                } else {
-                    std::this_thread::yield();
-                }
-                // Add a short sleep to avoid other threads starving under Valgrind.
-                if (is_running_under_valgrind()) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                }
-            }
-        });
-    }
+    );
+    ~PausableThreadLoop();
 
     /**
      * @brief Checks if the thread is currently running (not paused).
@@ -83,10 +62,7 @@ class PausableThreadLoop {
      *
      * @return True if the thread is running, false if paused.
      */
-    [[nodiscard]] bool is_running() const noexcept {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return !paused_;
-    }
+    [[nodiscard]] bool is_running() const noexcept;
 
     /**
      * @brief Pauses the execution of the thread.
@@ -96,23 +72,14 @@ class PausableThreadLoop {
      * @note This function is non-blocking and will let the loop function finish its
      * current execution asynchronously.
      */
-    void pause() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        paused_ = true;
-    }
+    void pause();
 
     /**
      * @brief Resumes execution of the thread after being paused.
      *
      * Calling resume on an already running loop is a no-op and is allowed.
      */
-    void resume() {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            paused_ = false;
-        }
-        cv_.notify_one();
-    }
+    void resume();
 
     /**
      * @brief Stops the execution of the thread and joins it.
@@ -122,24 +89,7 @@ class PausableThreadLoop {
      * @note This function is blocking and will wait on the loop function
      * to finish its current execution.
      */
-    void stop() {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            active_ = false;
-            paused_ = false;  // Ensure it's not stuck in pause
-        }
-        cv_.notify_one();  // Wake up thread to exit
-        if (thread_.joinable()) {
-            thread_.join();
-        }
-    }
-
-    /**
-     * @brief Destructor that ensures the thread is stopped before destruction.
-     */
-    ~PausableThreadLoop() {
-        stop();
-    }
+    void stop();
 
   private:
     std::thread thread_;
