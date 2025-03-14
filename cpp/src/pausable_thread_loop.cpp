@@ -78,5 +78,4 @@ void PausableThreadLoop::stop() {
     }
 }
 
-
 }  // namespace rapidsmp::detail
