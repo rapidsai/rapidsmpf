@@ -101,7 +101,9 @@ std::unique_ptr<Buffer> allocate_buffer(
  * or another lower-priority memory space, helping manage limited GPU memory
  * by offloading excess data.
  *
- * @note The postbox is locked while spilling.
+ * @note While spilling, chunks are temporarily extracted from the postbox thus other
+ * threads trying to extract a chunk that is in the process of being spilled, will fail.
+ * To avoid this, the Shuffler uses `outbox_spillling_mutex_` to serialize extractions.
  *
  * @param br Buffer resource for memory allocation.
  * @param log A logger for recording events and debugging information.
@@ -137,17 +139,12 @@ std::size_t postbox_spilling(
             );
             continue;
         }
-        try {
-            // We get exclusive access to the chunk and keep the lock while moving
-            // the chunk to host memory.
-            auto const [chunk, lock] = postbox.exclusive_access(pid, cid);
-            chunk.gpu_data = br->move(
-                MemoryType::HOST, std::move(chunk.gpu_data), stream, host_reservation
-            );
-        } catch (std::out_of_range const&) {
-            log.debug("While spilling, target chunk was removed underneath us");
-            continue;
-        }
+        // We extract the chunk, spilled it, and insert it back into the PostBox.
+        auto chunk = postbox.extract(pid, cid);
+        chunk.gpu_data = br->move(
+            MemoryType::HOST, std::move(chunk.gpu_data), stream, host_reservation
+        );
+        postbox.insert(std::move(chunk));
         if ((total_spilled += size) >= amount) {
             break;
         }
@@ -310,7 +307,11 @@ void Shuffler::insert_finished(PartID pid) {
 
 std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
     RAPIDSMP_NVTX_FUNC_RANGE();
+    // Protect the chunk extraction to make sure we don't get a chunk
+    // `Shuffler::spill` is in the process of spilling.
+    std::unique_lock<std::mutex> lock(outbox_spilling_mutex_);
     auto chunks = outbox_.extract(pid);
+    lock.unlock();
     std::vector<cudf::packed_columns> ret;
     ret.reserve(chunks.size());
 
@@ -362,6 +363,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     }
     std::size_t spilled{0};
     if (spill_need > 0) {
+        std::lock_guard<std::mutex> lock(outbox_spilling_mutex_);
         spilled = postbox_spilling(
             br_, comm_->logger(), *statistics_, stream_, outbox_, spill_need
         );
@@ -406,7 +408,7 @@ bool Shuffler::progress() {
     stats.add_duration_stat("event-loop-metadata-send", Clock::now() - t0_send_metadata);
 
     // Receive any incoming metadata of remote chunks and place them in
-    // `incoming_chunks`.
+    // `incoming_chunks_`.
     auto const t0_metadata_recv = Clock::now();
     while (true) {
         auto const [msg, src] = comm_->recv_any(metadata_tag);
@@ -424,28 +426,17 @@ bool Shuffler::progress() {
     }
     stats.add_duration_stat("event-loop-metadata-recv", Clock::now() - t0_metadata_recv);
 
-    // Pick an incoming chunk's gpu_data to receive.
-    //
-    // TODO: pick the incoming chunk based on a strategy. For now, we just pick the
-    // first chunk.
-    // TODO: handle multiple chunks before continuing.
-    auto const t0_pick_incoming_chunk = Clock::now();
-    if (auto first_chunk = incoming_chunks_.begin();
-        first_chunk != incoming_chunks_.end())
+    // Post receives for incoming chunks
+    auto const t0_post_incoming_chunk_recv = Clock::now();
+    for (auto first_chunk = incoming_chunks_.begin();
+         first_chunk != incoming_chunks_.end();)
     {
-        auto [src, chunk] = extract_item(incoming_chunks_, first_chunk);
+        // Note, extract_item invalidates the iterator, so must increment here.
+        auto [src, chunk] = extract_item(incoming_chunks_, first_chunk++);
         log.trace("picked incoming chunk data from ", src, ": ", chunk);
         // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
         // directly to the outbox.
         if (chunk.gpu_data_size > 0) {
-            // Tell the source of the chunk that we are ready to receive it.
-            fire_and_forget_.push_back(comm_->send(
-                ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
-                src,
-                ready_for_data_tag,
-                stream_,
-                br_
-            ));
             // Create a new buffer and let the buffer resource decide the memory type.
             auto recv_buffer = allocate_buffer(chunk.gpu_data_size, stream_, br_);
             if (recv_buffer->mem_type == MemoryType::HOST) {
@@ -463,6 +454,14 @@ bool Shuffler::progress() {
                 "in transit chunk already exist"
             );
             statistics_->add_bytes_stat("shuffle-payload-recv", chunk.gpu_data_size);
+            // Tell the source of the chunk that we are ready to receive it.
+            fire_and_forget_.push_back(comm_->send(
+                ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
+                src,
+                ready_for_data_tag,
+                stream_,
+                br_
+            ));
         } else {
             if (chunk.gpu_data == nullptr) {
                 chunk.gpu_data = allocate_buffer(0, stream_, br_);
@@ -471,7 +470,7 @@ bool Shuffler::progress() {
         }
     }
     stats.add_duration_stat(
-        "event-loop-pick-incoming-chunk", Clock::now() - t0_pick_incoming_chunk
+        "event-loop-post-incoming-chunk-recv", Clock::now() - t0_post_incoming_chunk_recv
     );
 
     // Receive any incoming ready-for-data messages and start sending the
@@ -512,7 +511,7 @@ bool Shuffler::progress() {
     // Check if we can free some of the outstanding futures.
     if (!fire_and_forget_.empty()) {
         std::vector<std::size_t> finished = comm_->test_some(fire_and_forget_);
-        // Sort the indexes into `fire_and_forget` in descending order.
+        // Sort the indexes into `fire_and_forget_` in descending order.
         std::sort(finished.begin(), finished.end(), std::greater<>());
         // And erase from the right.
         for (auto i : finished) {
