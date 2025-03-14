@@ -66,14 +66,6 @@ void PausableThreadLoop::resume() {
     cv_.notify_one();
 }
 
-/**
- * @brief Stops the execution of the thread and joins it.
- *
- * Once stopped, the thread cannot be resumed.
- *
- * @note This function is blocking and will wait on the loop function
- * to finish its current execution.
- */
 void PausableThreadLoop::stop() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
