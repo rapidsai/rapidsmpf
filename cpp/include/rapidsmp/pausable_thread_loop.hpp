@@ -119,8 +119,8 @@ class PausableThreadLoop {
      *
      * Once stopped, the thread cannot be resumed.
      *
-     * @note This function is blocking and will let the loop function finish its
-     * current execution synchronously.
+     * @note This function is blocking and will wait on the loop function
+     * to finish its current execution.
      */
     void stop() {
         {
