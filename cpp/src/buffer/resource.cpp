@@ -28,11 +28,75 @@ MemoryReservation::~MemoryReservation() noexcept {
     }
 }
 
+SpillManager::SpillManager(BufferResource* br) : br_{br} {}
+
+SpillManager::~SpillManager() {}
+
+SpillManager::SpillFunctionID SpillManager::add_spill_function(
+    SpillFunction spill_function, int priority
+) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto const id = spill_function_id_counter_++;
+    RAPIDSMP_EXPECTS(
+        spill_functions_.insert({id, std::move(spill_function)}).second,
+        "corrupted id counter"
+    );
+    spill_function_priorities_.insert({priority, id});
+    return id;
+}
+
+void SpillManager::remove_spill_function(SpillFunctionID fid) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto& prio = spill_function_priorities_;
+    for (auto it = prio.begin(); it != prio.end(); ++it) {
+        if (it->second == fid) {
+            prio.erase(it);  // Erase the first occurrence
+            break;  // Exit after erasing to ensure only the first one is removed
+        }
+    }
+    spill_functions_.erase(fid);
+}
+
+std::size_t SpillManager::spill(std::size_t amount) {
+    std::size_t spilled{0};
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto const [_, fid] : spill_function_priorities_) {
+        if (spilled >= amount) {
+            break;
+        }
+        spilled += spill_functions_.at(fid)(amount - spilled);
+    }
+    return spilled;
+}
+
+/**
+ * @brief Attempts to free up memory by spilling data until the requested headroom is
+ * available.
+ *
+ * This method checks the currently available memory and, if insufficient, triggers
+ * spilling mechanisms to free up space. Spilling is performed in order of the function
+ * priorities until the required headroom is reached or no more spilling is possible.
+ *
+ * @param headroom The target amount of headroom (in bytes). Allowed to be negative.
+ * @return The actual amount of memory spilled (in bytes), which may be less than
+ * requested if there is insufficient spillable data.
+ */
+std::size_t SpillManager::spill_to_make_headroom(std::int64_t headroom) {
+    // TODO: check other memory types.
+    std::int64_t available = br_->memory_available(MemoryType::DEVICE)();
+    if (headroom <= available) {
+        return 0;
+    }
+    return spill(headroom - available);
+}
+
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available
 )
-    : device_mr_{device_mr}, memory_available_{std::move(memory_available)} {
+    : device_mr_{device_mr},
+      memory_available_{std::move(memory_available)},
+      spill_manager_{this} {
     for (MemoryType mem_type : MEMORY_TYPES) {
         // Add missing memory availability functions.
         memory_available_.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);

@@ -19,6 +19,7 @@
 #include <array>
 #include <mutex>
 #include <unordered_map>
+#include <utility>
 
 #include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
@@ -98,6 +99,29 @@ class MemoryReservation {
     MemoryType mem_type_;  ///< The type of memory for this reservation.
     BufferResource* br_;  ///< The buffer resource that manages this reservation.
     std::size_t size_;  ///< The remaining size of the reserved memory in bytes.
+};
+
+class SpillManager {
+  public:
+    using SpillFunction = std::function<std::size_t(std::size_t)>;
+    using SpillFunctionID = std::size_t;
+
+    SpillManager(BufferResource* br);
+    ~SpillManager();
+
+    SpillFunctionID add_spill_function(SpillFunction spill_function, int priority);
+    void remove_spill_function(SpillFunctionID fid);
+    std::size_t spill(std::size_t amount);
+    std::size_t spill_to_make_headroom(std::int64_t headroom = 0);
+
+  private:
+    mutable std::mutex mutex_;
+
+    BufferResource* br_;
+
+    std::size_t spill_function_id_counter_{0};
+    std::map<SpillFunctionID, SpillFunction> spill_functions_;
+    std::multimap<int, SpillFunctionID, std::greater<>> spill_function_priorities_;
 };
 
 /**
@@ -347,12 +371,17 @@ class BufferResource {
         MemoryReservation& reservation
     );
 
+    SpillManager& spill_manager() {
+        return spill_manager_;
+    }
+
   private:
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
+    SpillManager spill_manager_;
 };
 
 /**
