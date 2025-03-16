@@ -18,6 +18,7 @@
 
 #include <array>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 
@@ -25,6 +26,7 @@
 
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/error.hpp>
+#include <rapidsmp/pausable_thread_loop.hpp>
 #include <rapidsmp/utils.hpp>
 
 namespace rapidsmp {
@@ -106,13 +108,17 @@ class SpillManager {
     using SpillFunction = std::function<std::size_t(std::size_t)>;
     using SpillFunctionID = std::size_t;
 
-    SpillManager(BufferResource* br);
+    SpillManager(
+        BufferResource* br,
+        std::optional<std::chrono::microseconds> periodic_spill_check = std::nullopt
+    );
     ~SpillManager();
 
     SpillFunctionID add_spill_function(SpillFunction spill_function, int priority);
     void remove_spill_function(SpillFunctionID fid);
     std::size_t spill(std::size_t amount);
     std::size_t spill_to_make_headroom(std::int64_t headroom = 0);
+
 
   private:
     mutable std::mutex mutex_;
@@ -122,6 +128,8 @@ class SpillManager {
     std::size_t spill_function_id_counter_{0};
     std::map<SpillFunctionID, SpillFunction> spill_functions_;
     std::multimap<int, SpillFunctionID, std::greater<>> spill_function_priorities_;
+
+    std::optional<detail::PausableThreadLoop> periodic_spill_thread_;
 };
 
 /**

@@ -15,6 +15,7 @@
  */
 
 #include <limits>
+#include <optional>
 #include <utility>
 
 #include <rapidsmp/buffer/resource.hpp>
@@ -28,9 +29,22 @@ MemoryReservation::~MemoryReservation() noexcept {
     }
 }
 
-SpillManager::SpillManager(BufferResource* br) : br_{br} {}
+SpillManager::SpillManager(
+    BufferResource* br, std::optional<std::chrono::microseconds> periodic_spill_check
+)
+    : br_{br} {
+    if (periodic_spill_check.has_value()) {
+        periodic_spill_thread_.emplace(
+            [this]() { spill_to_make_headroom(0); }, *periodic_spill_check
+        );
+    }
+}
 
-SpillManager::~SpillManager() {}
+SpillManager::~SpillManager() {
+    if (periodic_spill_thread_.has_value()) {
+        periodic_spill_thread_->stop();
+    }
+}
 
 SpillManager::SpillFunctionID SpillManager::add_spill_function(
     SpillFunction spill_function, int priority
