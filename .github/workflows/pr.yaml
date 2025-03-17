@@ -31,14 +31,14 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@branch-25.04
     with:
       build_type: pull-request
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not)
+      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   conda-cpp-tests:
     needs: conda-cpp-build
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@branch-25.04
     with:
       build_type: pull-request
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not)
+      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
   conda-python-build:
     needs: conda-cpp-build
@@ -46,13 +46,13 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@branch-25.04
     with:
       build_type: pull-request
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not)
+      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   conda-python-tests:
     needs: conda-python-build
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@branch-25.04
     with:
       build_type: pull-request
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not)
+      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       run_codecov: false

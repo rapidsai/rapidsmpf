@@ -39,7 +39,7 @@ jobs:
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not)
+      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
   conda-python-tests:
     secrets: inherit
@@ -49,6 +49,6 @@ jobs:
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not)
+      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       run_codecov: false
