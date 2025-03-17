@@ -35,19 +35,13 @@ build:
     - SCCACHE_S3_NO_CREDENTIALS
   ignore_run_exports_from:
     - {{ compiler('cuda') }}
-    {% if cuda_major != "11" %}
     - cuda-cudart-dev
-    {% endif %}
 
 requirements:
   build:
     - {{ compiler('c') }}
     - {{ compiler('cxx') }}
-    {% if cuda_major == "11" %}
-    - {{ compiler('cuda') }} ={{ cuda_version }}
-    {% else %}
     - {{ compiler('cuda') }}
-    {% endif %}
     - cuda-version ={{ cuda_version }}
     - cmake {{ cmake_version }}
     - ninja
@@ -56,11 +50,7 @@ requirements:
     - python
     - pip
     - cython >=3.0.0
-    {% if cuda_major == "11" %}
-    - cudatoolkit
-    {% else %}
     - cuda-cudart-dev
-    {% endif %}
     - cuda-version ={{ cuda_version }}
     - rapids-build-backend >=0.3.0,<0.4.0.dev0
     - scikit-build-core >=0.10.0
@@ -80,11 +70,7 @@ requirements:
     - openmpi
     - mpi4py
     - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
-    {% if cuda_major == "11" %}
-    - cudatoolkit
-    {% else %}
     - cuda-cudart
-    {% endif %}
   run_constrained:
     - dask-cuda ={{ minor_version }}
     - dask-cudf ={{ minor_version }}
