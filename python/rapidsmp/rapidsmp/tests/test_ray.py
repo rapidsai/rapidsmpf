@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 
 import pynvml
+import toolz
 
 os.environ["RAY_DEDUP_LOGS"] = "0"
 os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
@@ -114,9 +115,12 @@ def test_disallowed_classes() -> None:
         setup_ray_ucxx_cluster(NonRapidsMPActor, 1)
 
 
+@toolz.memoize
 def get_gpu_count() -> int:
     pynvml.nvmlInit()
-    return int(pynvml.nvmlDeviceGetCount())  # casting Any to int
+    device_count = int(pynvml.nvmlDeviceGetCount())  # casting Any to int
+    pynvml.nvmlShutdown()
+    return device_count
 
 
 @pytest.mark.parametrize("num_workers", [1, 4])
