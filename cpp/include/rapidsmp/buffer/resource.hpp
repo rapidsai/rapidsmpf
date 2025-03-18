@@ -166,7 +166,9 @@ class BufferResource {
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
-        std::unordered_map<MemoryType, MemoryAvailable> memory_available = {}
+        std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
+        std::optional<std::chrono::microseconds> periodic_spill_check =
+            std::chrono::microseconds{1000}
     );
 
     ~BufferResource() noexcept = default;
