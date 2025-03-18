@@ -56,6 +56,11 @@ SpillManager::SpillFunctionID SpillManager::add_spill_function(
         "corrupted id counter"
     );
     spill_function_priorities_.insert({priority, id});
+
+    // Make sure the spill thread is running.
+    if (periodic_spill_thread_.has_value()) {
+        periodic_spill_thread_->resume();
+    }
     return id;
 }
 
@@ -69,6 +74,11 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
         }
     }
     spill_functions_.erase(fid);
+
+    // Pause the spill thread if no spill functions is left.
+    if (periodic_spill_thread_.has_value() && spill_functions_.empty()) {
+        periodic_spill_thread_->pause();
+    }
 }
 
 std::size_t SpillManager::spill(std::size_t amount) {
