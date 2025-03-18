@@ -75,7 +75,7 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
     }
     spill_functions_.erase(fid);
 
-    // Pause the spill thread if no spill functions is left.
+    // Pause the spill thread if no spill functions are left.
     if (periodic_spill_thread_.has_value() && spill_functions_.empty()) {
         periodic_spill_thread_->pause();
     }
@@ -93,18 +93,6 @@ std::size_t SpillManager::spill(std::size_t amount) {
     return spilled;
 }
 
-/**
- * @brief Attempts to free up memory by spilling data until the requested headroom is
- * available.
- *
- * This method checks the currently available memory and, if insufficient, triggers
- * spilling mechanisms to free up space. Spilling is performed in order of the function
- * priorities until the required headroom is reached or no more spilling is possible.
- *
- * @param headroom The target amount of headroom (in bytes). Allowed to be negative.
- * @return The actual amount of memory spilled (in bytes), which may be less than
- * requested if there is insufficient spillable data.
- */
 std::size_t SpillManager::spill_to_make_headroom(std::int64_t headroom) {
     // TODO: check other memory types.
     std::int64_t available = br_->memory_available(MemoryType::DEVICE)();
@@ -253,4 +241,7 @@ std::unique_ptr<Buffer> BufferResource::copy(
     return ret;
 }
 
+SpillManager& BufferResource::spill_manager() {
+    return spill_manager_;
+}
 }  // namespace rapidsmp
