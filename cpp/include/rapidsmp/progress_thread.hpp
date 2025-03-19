@@ -72,8 +72,15 @@ class ProgressThread {
          * @param function The function to execute.
          * @param function_id The ID that was assigned to the function by
          * `ProgressThread`.
+         * @param mutex The mutex to use for synchronization.
+         * @param cv The condition variable to use for synchronization.
          */
-        FunctionState(Function function, FunctionID function_id);
+        FunctionState(
+            Function function,
+            FunctionID function_id,
+            std::mutex& mutex,
+            std::condition_variable& cv
+        );
 
         /**
          * @brief Execute the function.
@@ -105,10 +112,34 @@ class ProgressThread {
             return this->function_id == function_id;
         }
 
+        /**
+         * @brief Wait for the function to complete.
+         *
+         * This function blocks until the function's state changes to Done.
+         */
+        void wait_for_completion() {
+            std::unique_lock<std::mutex> lock(mutex_);
+            cv_.wait(lock, [this]() { return is_done_; });
+        }
+
+        /**
+         * @brief Check if the function is done.
+         *
+         * @return True if the function is done, false otherwise.
+         */
+        bool is_done() const {
+            std::lock_guard<std::mutex> lock(mutex_);
+            return is_done_;
+        }
+
         Function function;  ///< The function to execute.
         FunctionID function_id;  ///< The unique identifier of the function this object
                                  ///< refers to.
-        ProgressState latest_state{InProgress};  ///< Latest progress state of iterable.
+
+      private:
+        std::mutex& mutex_;  ///< Reference to the shared mutex
+        std::condition_variable& cv_;  ///< Reference to the shared condition variable
+        bool is_done_{false};  ///< Whether the function has completed
     };
 
     /**
@@ -168,7 +199,9 @@ class ProgressThread {
     std::list<FunctionState> functions_;
     std::thread event_loop_thread_;
     std::atomic<bool> event_loop_thread_run_{true};
-    std::mutex mutex_;
+    std::mutex mutex_;  ///< Mutex for thread-safe access to functions_
+    std::mutex state_mutex_;  ///< Mutex for synchronizing function states
+    std::condition_variable state_cv_;  ///< Condition variable for function state changes
     std::uint64_t next_function_id_;
 };
 
