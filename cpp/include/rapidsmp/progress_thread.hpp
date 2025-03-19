@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <list>
 #include <mutex>
 #include <thread>
@@ -35,13 +36,11 @@ enum ProgressState : bool {
     Done,
 };
 
-class ProgressThread;
-
 /**
  * @typedef FunctionID
  * @brief The unique ID of a function registered with `ProgressThread`.
  */
-using FunctionID = std::pair<ProgressThread*, std::uint64_t>;
+using FunctionID = std::pair<std::uintptr_t, std::uint64_t>;
 
 /**
  * @typedef Function

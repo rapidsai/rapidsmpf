@@ -72,7 +72,9 @@ void ProgressThread::shutdown() {
 
 FunctionID ProgressThread::add_function(std::function<ProgressState()> function) {
     std::lock_guard const lock(mutex_);
-    auto id = std::make_pair<ProgressThread*, std::uint64_t>(this, next_function_id_++);
+    auto id = std::make_pair<std::uintptr_t, std::uint64_t>(
+        reinterpret_cast<std::uintptr_t>(this), next_function_id_++
+    );
     functions_.emplace_back(function, id);
     return id;
 }
@@ -82,7 +84,8 @@ void ProgressThread::remove_function(FunctionID function_id) {
     bool is_valid = false;
 
     RAPIDSMP_EXPECTS(
-        function_id.first == this, "Function was not registered with this ProgressThread"
+        function_id.first == reinterpret_cast<std::uintptr_t>(this),
+        "Function was not registered with this ProgressThread"
     );
 
     while (true) {
@@ -98,7 +101,7 @@ void ProgressThread::remove_function(FunctionID function_id) {
 
         if (state->latest_state == ProgressState::Done) {
             functions_.erase(state);
-            return;
+            break;
         }
     }
 }
