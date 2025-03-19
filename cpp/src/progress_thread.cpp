@@ -52,13 +52,10 @@ ProgressThread::ProgressThread(
           // This thread needs to have a cuda context associated with it.
           // For now, do so by calling cudaFree to initialise the driver.
           RAPIDSMP_CUDA_TRY(cudaFree(nullptr));
-
           return event_loop(this);
       }),
       logger_(logger),
-      statistics_(std::move(statistics)) {
-    thread_.resume();
-}
+      statistics_(std::move(statistics)) {}
 
 ProgressThread::~ProgressThread() {
     if (active_) {
@@ -83,6 +80,7 @@ ProgressThread::FunctionID ProgressThread::add_function(
         reinterpret_cast<std::uintptr_t>(this), next_function_id_++
     );
     functions_.emplace_back(function, id);
+    thread_.resume();
     return id;
 }
 
@@ -111,6 +109,8 @@ void ProgressThread::remove_function(FunctionID function_id) {
             break;
         }
     }
+    if (functions_.empty())
+        thread_.pause();
 }
 
 void ProgressThread::event_loop(ProgressThread* self) {
