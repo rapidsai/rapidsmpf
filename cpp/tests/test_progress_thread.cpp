@@ -27,8 +27,6 @@
 #include "environment.hpp"
 #include "rapidsmp/statistics.hpp"
 
-using rapidsmp::FunctionID;
-using rapidsmp::ProgressState;
 using rapidsmp::ProgressThread;
 
 TEST(ProgressThread, Shutdown) {
@@ -54,7 +52,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 struct TestFunction {
     size_t counter{0};
-    FunctionID id;
+    ProgressThread::FunctionID id;
     std::mutex mutex;
     std::condition_variable cv;
 };
@@ -82,11 +80,12 @@ TEST_P(ProgressThreadEvents, events) {
             auto expected = expected_count(thread, function);
             test_function->id =
                 progress_threads[thread]->add_function([test_function, expected]() {
-                    ProgressState ret = ProgressState::InProgress;
+                    ProgressThread::ProgressState ret =
+                        ProgressThread::ProgressState::InProgress;
                     {
                         std::lock_guard<std::mutex> lock(test_function->mutex);
                         if (++test_function->counter == expected) {
-                            ret = ProgressState::Done;
+                            ret = ProgressThread::ProgressState::Done;
                         }
                     }
                     test_function->cv.notify_one();

@@ -24,19 +24,24 @@
 
 namespace rapidsmp {
 
-FunctionState::FunctionState(Function function, FunctionID function_id)
+ProgressThread::FunctionState::FunctionState(Function function, FunctionID function_id)
     : function(std::move(function)), function_id{std::move(function_id)} {}
 
-ProgressState FunctionState::operator()() {
+ProgressThread::ProgressState ProgressThread::FunctionState::operator()() {
     latest_state = function();
     return latest_state;
 }
 
-constexpr bool operator==(const FunctionState& lhs, const FunctionState& rhs) {
+constexpr bool operator==(
+    const ProgressThread::FunctionState& lhs, const ProgressThread::FunctionState& rhs
+) {
     return lhs.function_id == rhs.function_id;
 }
 
-constexpr bool operator==(const FunctionState& lhs, const FunctionID& function_id) {
+constexpr bool operator==(
+    const ProgressThread::FunctionState& lhs,
+    const ProgressThread::FunctionID& function_id
+) {
     return lhs.function_id == function_id;
 }
 
@@ -70,7 +75,9 @@ void ProgressThread::shutdown() {
     active_ = false;
 }
 
-FunctionID ProgressThread::add_function(std::function<ProgressState()> function) {
+ProgressThread::FunctionID ProgressThread::add_function(
+    std::function<ProgressState()> function
+) {
     std::lock_guard const lock(mutex_);
     auto id = std::make_pair<std::uintptr_t, std::uint64_t>(
         reinterpret_cast<std::uintptr_t>(this), next_function_id_++

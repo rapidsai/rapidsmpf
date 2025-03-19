@@ -29,76 +29,6 @@
 namespace rapidsmp {
 
 /**
- * @brief The progress state of a function, can be either `InProgress` or `Done`.
- */
-enum ProgressState : bool {
-    InProgress,
-    Done,
-};
-
-/**
- * @typedef FunctionID
- * @brief The unique ID of a function registered with `ProgressThread`.
- */
-using FunctionID = std::pair<std::uintptr_t, std::uint64_t>;
-
-/**
- * @typedef Function
- * @brief The function type supported by `ProgressThread`, returning the progress
- * state of thee function.
- */
-using Function = std::function<ProgressState()>;
-
-/**
- * @brief Store state of a function.
- */
-class FunctionState {
-  public:
-    FunctionState() = delete;
-
-    /**
-     * @brief Construct state of a function.
-     *
-     * @param function The function to execute.
-     * @param function_id The ID that was assigned to the function by `ProgressThread`.
-     */
-    FunctionState(Function function, FunctionID function_id);
-
-    /**
-     * @brief Execute the function.
-     *
-     * @return The progress state of the function, that can be either
-     * `ProgressState::InProgress` or `ProgressState::Done`.
-     */
-    ProgressState operator()();
-
-    Function function;  ///< The function to execute.
-    FunctionID
-        function_id;  ///< The unique identifier of the function this object refers to.
-    ProgressState latest_state{InProgress};  ///< Latest progress state of iterable.
-};
-
-/**
- * @brief Equality operator for a `FunctionState`.
- *
- * @param lhs The left hand side of the operator.
- * @param rhs The right hand side of the operator.
- *
- * @return Whether the objects point to the same function.
- */
-constexpr bool operator==(const FunctionState& lhs, const FunctionState& rhs);
-
-/**
- * @brief Equality operator for a `FunctionState`.
- *
- * @param lhs The left hand side of the operator.
- * @param function_id The function ID to compare to.
- *
- * @return Whether the objects point to the same function.
- */
-constexpr bool operator==(const FunctionState& lhs, const FunctionID& function_id);
-
-/**
  * @brief A progress thread that can execute arbitrary functions.
  *
  * Execute each of the registered arbitrary functions in a separate thread. The
@@ -108,6 +38,79 @@ constexpr bool operator==(const FunctionState& lhs, const FunctionID& function_i
  */
 class ProgressThread {
   public:
+    /**
+     * @brief The progress state of a function, can be either `InProgress` or `Done`.
+     */
+    enum ProgressState : bool {
+        InProgress,
+        Done,
+    };
+
+    /**
+     * @typedef FunctionID
+     * @brief The unique ID of a function registered with `ProgressThread`.
+     */
+    using FunctionID = std::pair<std::uintptr_t, std::uint64_t>;
+
+    /**
+     * @typedef Function
+     * @brief The function type supported by `ProgressThread`, returning the progress
+     * state of thee function.
+     */
+    using Function = std::function<ProgressState()>;
+
+    /**
+     * @brief Store state of a function.
+     */
+    class FunctionState {
+      public:
+        FunctionState() = delete;
+
+        /**
+         * @brief Construct state of a function.
+         *
+         * @param function The function to execute.
+         * @param function_id The ID that was assigned to the function by
+         * `ProgressThread`.
+         */
+        FunctionState(Function function, FunctionID function_id);
+
+        /**
+         * @brief Execute the function.
+         *
+         * @return The progress state of the function, that can be either
+         * `ProgressState::InProgress` or `ProgressState::Done`.
+         */
+        ProgressState operator()();
+
+        /**
+         * @brief Equality operator comparing this function state with another.
+         *
+         * @param rhs The right hand side of the operator.
+         *
+         * @return Whether the objects point to the same function.
+         */
+        constexpr bool operator==(const FunctionState& rhs) const {
+            return function_id == rhs.function_id;
+        }
+
+        /**
+         * @brief Equality operator comparing this function state with a function ID.
+         *
+         * @param function_id The function ID to compare to.
+         *
+         * @return Whether this object points to the specified function.
+         */
+        constexpr bool operator==(const FunctionID& function_id) const {
+            return this->function_id == function_id;
+        }
+
+        Function function;  ///< The function to execute.
+        FunctionID function_id;  ///< The unique identifier of the function this object
+                                 ///< refers to.
+        ProgressState latest_state{InProgress};  ///< Latest progress state of iterable.
+    };
+
     /**
      * @brief Construct a new progress thread that can handle multiple functions.
      *
@@ -168,5 +171,30 @@ class ProgressThread {
     std::mutex mutex_;
     std::uint64_t next_function_id_;
 };
+
+/**
+ * @brief Equality operator for a `FunctionState`.
+ *
+ * @param lhs The left hand side of the operator.
+ * @param rhs The right hand side of the operator.
+ *
+ * @return Whether the objects point to the same function.
+ */
+constexpr bool operator==(
+    const ProgressThread::FunctionState& lhs, const ProgressThread::FunctionState& rhs
+);
+
+/**
+ * @brief Equality operator for a `FunctionState`.
+ *
+ * @param lhs The left hand side of the operator.
+ * @param function_id The function ID to compare to.
+ *
+ * @return Whether the objects point to the same function.
+ */
+constexpr bool operator==(
+    const ProgressThread::FunctionState& lhs,
+    const ProgressThread::FunctionID& function_id
+);
 
 }  // namespace rapidsmp
