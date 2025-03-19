@@ -4,44 +4,52 @@
 from __future__ import annotations
 
 import argparse
+import threading
+from typing import TYPE_CHECKING
 
 import cupy as cp
-
+import ucxx._lib.libucxx as ucx_api
 from mpi4py import MPI
 
 import cudf
 import rmm.mr
+from pylibcudf.contiguous_split import pack
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 import rapidsmp.communicator.mpi
-from rapidsmp.communicator import Communicator
-from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.buffer.buffer import MemoryType
 from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
-from rapidsmp.communicator.ucxx import new_communicator
-from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
+from rapidsmp.communicator.ucxx import (
+    barrier,
+    get_root_ucxx_address,
+    new_communicator,
+)
+from rapidsmp.shuffler import Shuffler
 from rapidsmp.statistics import Statistics
-from rapidsmp.utils.string import parse_bytes, format_bytes
+from rapidsmp.utils.string import format_bytes, parse_bytes
+
+if TYPE_CHECKING:
+    from rapidsmp.communicator.communicator import Communicator
 
 
-def generate_partition(n_rows: int = 100) -> cudf.DataFrame:
+def generate_partition(size_bytes: int) -> cudf.DataFrame:
     """
     Generate a random partition of data.
 
     Parameters
     ----------
-    n_rows : int
-        The length of the dataframe.
+    size_bytes : int
+        size of the dataframe in bytes
 
     Returns
     -------
     cudf.DataFrame
     """
+    n_rows = size_bytes // 8  # each row is 8 bytes
     return cudf.DataFrame(
         {
-            "id": cp.arange(n_rows),
-            "group": cp.random.randint(0, 10, size=n_rows),
-            "value": cp.random.uniform(size=n_rows),
+            "id": cp.arange(0, n_rows, dtype=cp.int32),
+            "value": cp.arange(0, n_rows, dtype=cp.float32),
         }
     )
 
@@ -54,20 +62,23 @@ def parse_args(
 
     parser.add_argument(
         "--out-parts",
-        type=int | None,
+        type=int,
         help="Number of output partitions. Default: n_ranks in the cluster",
         default=None,
     )
 
     parser.add_argument(
-        "--local-sz", type=parse_bytes, default="1GiB", help="Local data size"
+        "--local-sz",
+        type=parse_bytes,
+        default="1MiB",
+        help="Local data size. Default: 1MiB",
     )
 
     parser.add_argument(
         "--part-sz",
         type=parse_bytes,
-        default="1GiB",
-        help="Partition size. Local size will be split into partitions of this size",
+        default=-1,
+        help="Partition size. Local size will be split into partitions of this size. Default: local_sz.",
     )
     parser.add_argument(
         "--comm",
@@ -80,7 +91,8 @@ def parse_args(
     parser.add_argument(
         "--rmm-pool-size",
         type=parse_bytes,
-        default=format_bytes(int(rmm.mr.available_device_memory()[1] * 0.8)),
+        default=(int(parse_bytes(rmm.mr.available_device_memory()[1]) * 0.8) // 256)
+        * 256,
         help=(
             "The size of the RMM pool as a string with unit such as '2MiB' and '4KiB'. "
             "Default to 80%% of the total device memory, which is %(default)s."
@@ -109,7 +121,127 @@ def parse_args(
         default=True,
         help="Print the shuffling progress",
     )
+
+    parser.add_argument(
+        "--statistics",
+        default=False,
+        action="store_true",
+        help="Enable statistics.",
+    )
     return parser.parse_args(args)
+
+
+def consume_finished_partitions(
+    event: threading.Event,
+    total_partitions: int,
+    comm: Communicator,
+    shuffler: Shuffler,
+) -> None:
+    """
+    Consume the finished partitions.
+
+    Parameters
+    ----------
+    event
+        Threading event to signal the main thread that the consumer thread is done.
+    total_partitions
+        The total number of partitions.
+    comm
+        The communicator to use.
+    shuffler
+        The shuffler to use.
+    """
+    finished = 0
+    while not shuffler.finished():
+        partition_id = shuffler.wait_any()
+        assert partition_id % comm.nranks() == comm.rank()
+
+        splits = shuffler.extract(partition_id)
+        del splits  # discard the extracted partition splits
+        finished += 1
+
+    assert finished == total_partitions / comm.nranks()
+
+    event.set()  # notify finished
+
+
+def streaming_shuffle(
+    comm: Communicator,
+    br: BufferResource,
+    stats: Statistics,
+    output_nparts: int,
+    local_size: int,
+    part_size: int,
+) -> None:
+    """
+    Run shuffle opeartion in a streaming fashion.
+
+    Main thread will produce local partitions and stream them through the shuffler. A separate
+    consumer thread will consume the finished partitions, and discard them.
+
+    Parameters
+    ----------
+    comm
+        The communicator to use.
+    br
+        The buffer resource to use.
+    stats
+        The statistics to use.
+    output_nparts
+        The total number of output partitions.
+    local_size
+        The size of the local partition.
+    part_size
+        The size of each partition.
+    """
+    assert local_size >= part_size, "local_size must be >= part_size"
+    assert local_size % part_size == 0, "local_size must be divisible by part_size"
+    assert part_size >= 8 * output_nparts, "part_size must be >= 8 * output_nparts"
+    assert part_size % output_nparts == 0, (
+        "part_size must be divisible by output_nparts"
+    )
+
+    # create a shuffler instance
+    shuffler = Shuffler(
+        comm,
+        op_id=0,
+        total_num_partitions=output_nparts,
+        stream=DEFAULT_STREAM,
+        br=br,
+        statistics=stats,
+    )
+
+    event = threading.Event()  # event to signal the consumer thread has finished
+
+    # create a thread to consume the finished partitions
+    consumer_thread = threading.Thread(
+        target=consume_finished_partitions,
+        args=(event, output_nparts, comm, shuffler),
+    )
+    consumer_thread.start()
+
+    n_parts_local = local_size // part_size
+
+    # simulate a hash partition by splitting a partition into total_num_partitions
+    split_size = part_size // output_nparts
+    dummy_table = generate_partition(split_size).to_pylibcudf()
+
+    for _ in range(n_parts_local):
+        # generate chunks for a single local partition by deep copying the dummy table as packed columns
+        chunks = {}
+        for i in range(output_nparts):
+            chunks[i] = pack(dummy_table)
+
+        shuffler.insert_chunks(chunks)
+
+    # finish inserting all partitions
+    for i in range(output_nparts):
+        shuffler.insert_finished(i)
+
+    # wait for all partitions to be consumed
+    event.wait()
+
+    consumer_thread.join()
 
 
 def ucxx_mpi_setup() -> Communicator:
@@ -121,14 +253,6 @@ def ucxx_mpi_setup() -> Communicator:
     Communicator
         A new ucxx communicator.
     """
-    import ucxx._lib.libucxx as ucx_api
-
-    from rapidsmp.communicator.ucxx import (
-        barrier,
-        get_root_ucxx_address,
-        new_communicator,
-    )
-
     if MPI.COMM_WORLD.Get_rank() == 0:
         comm = new_communicator(MPI.COMM_WORLD.size, None, None)
         root_address_str = get_root_ucxx_address(comm)
@@ -153,10 +277,11 @@ def setup_and_run(args: argparse.Namespace) -> None:
     Parameters
     ----------
     args
+        The arguments to parse.
     """
-    if args.cluster_type == "mpi":
+    if args.comm == "mpi":
         comm = rapidsmp.communicator.mpi.new_communicator(MPI.COMM_WORLD)
-    elif args.cluster_type == "ucxx":
+    elif args.comm == "ucxx":
         comm = ucxx_mpi_setup()
 
     # Create a RMM stack with both a device pool and statistics.
@@ -180,23 +305,36 @@ def setup_and_run(args: argparse.Namespace) -> None:
 
     stats = Statistics(args.statistics)
 
+    out_nparts: int = args.out_parts if args.out_parts is not None else comm.nranks
+    local_size: int = args.local_sz
+    part_size: int = args.part_sz if args.part_sz > 0 else local_size
+
     MPI.COMM_WORLD.barrier()
     start_time = MPI.Wtime()
-    streaming_shuffle(
-        comm=comm,
-        br=br,
-        statistics=stats,
-    )
+    streaming_shuffle(comm, br, stats, out_nparts, local_size, part_size)
     elapsed_time = MPI.Wtime() - start_time
     MPI.COMM_WORLD.barrier()
 
+    mem_peak = format_bytes(mr.allocation_counts.peak_bytes)
+    comm.logger.print(
+        f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
+    )
 
 
 def main(args: list[str] | None = None) -> None:  # numpydoc ignore=PR01
     """Example performing a streaming shuffle."""
+    print(
+        parse_bytes(
+            format_bytes((int(rmm.mr.available_device_memory()[1] * 0.8) // 256) * 256)
+        )
+    )
+
     parsed = parse_args(args)
 
+    print(parsed)
+
     setup_and_run(parsed)
+
 
 if __name__ == "__main__":
     main()
