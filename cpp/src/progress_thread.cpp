@@ -102,6 +102,7 @@ void ProgressThread::remove_function(FunctionID function_id) {
             RAPIDSMP_EXPECTS(
                 state != functions_.end(), "Iterable not registered or already removed"
             );
+            is_valid = true;
         }
 
         if (state->latest_state == ProgressState::Done) {
