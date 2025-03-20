@@ -36,7 +36,7 @@ rapids_cmake_build_type(Release)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
-option(BUILD_SHARED_LIBS "Build rapids-mp shared library" ON)
+option(BUILD_SHARED_LIBS "Build rapidsmp shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMP_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
@@ -226,7 +226,7 @@ install(DIRECTORY include/rapidsmp/ DESTINATION include/rapidsmp)
 
 set(doc_string
     [=[
-RAPIDS-MP.
+RAPIDSMP.
     ]=]
 )
 

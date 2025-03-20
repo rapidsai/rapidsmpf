@@ -64,7 +64,7 @@ repos:
     rev: 'v1.14.1'
     hooks:
       - id: mypy
-        args: ["--config-file=python/rapidsmp/pyproject.toml",
+        args: ["--config-file=pyproject.toml",
                "python/rapidsmp/"]
         pass_filenames: false
   - repo: https://github.com/PyCQA/isort
@@ -79,7 +79,7 @@ repos:
     rev: v1.8.0
     hooks:
       - id: numpydoc-validation
-        exclude: python/rapidsmp/rapidsmp/tests/
+        exclude: (python/rapidsmp/rapidsmp/tests/|.*__init__)
   - repo: https://github.com/codespell-project/codespell
     rev: v2.2.6
     hooks:
