@@ -1,7 +1,7 @@
 
-# Contributing to Rapids-MP
+# Contributing to RAPIDSMP
 
-Contributions to Rapids-MP fall into the following categories:
+Contributions to `rapidmsp` fall into the following categories:
 
 1. To report a bug, request a new feature, or report a problem with documentation, please file an
    [issue](https://github.com/rapidsai/rapids-multi-gpu/issues/new/choose) describing the problem or new feature
