@@ -126,7 +126,7 @@ class ProgressThread {
     void shutdown();
 
     /**
-     * @brief Insert an iterable object to process as part of the event loop.
+     * @brief Insert a function to process as part of the event loop.
      *
      * @param function The function to register.
      *
@@ -146,9 +146,9 @@ class ProgressThread {
 
   private:
     /**
-     * @brief The event loop progressing each of the iterables.
+     * @brief The event loop progressing each of the functions.
      *
-     * The event loop continuously progresses registered iterables in no
+     * The event loop continuously progresses registered functions in no
      * specific order.
      *
      * @param self The `ProgressThread` instance.

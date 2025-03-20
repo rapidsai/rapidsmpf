@@ -114,8 +114,6 @@ void ProgressThread::remove_function(FunctionID function_id) {
 }
 
 void ProgressThread::event_loop(ProgressThread* self) {
-    // Continue the loop until both the "run" flag is false and all
-    // ongoing communication is done.
     auto const t0_event_loop = Clock::now();
     if (self->event_loop_thread_run_ || !self->functions_.empty()) {
         {
