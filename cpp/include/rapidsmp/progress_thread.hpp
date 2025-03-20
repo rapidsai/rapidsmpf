@@ -21,8 +21,8 @@
 #include <list>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 
-#include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/pausable_thread_loop.hpp>
 #include <rapidsmp/statistics.hpp>
 
@@ -47,10 +47,17 @@ class ProgressThread {
     };
 
     /**
+     * @typedef FunctionIndex
+     * @brief The sequential index of a function within a ProgressThread.
+     */
+    using FunctionIndex = std::uint64_t;
+
+    /**
      * @typedef FunctionID
      * @brief The unique ID of a function registered with `ProgressThread`.
+     * Composed of the ProgressThread address and a sequential function index.
      */
-    using FunctionID = std::pair<std::uintptr_t, std::uint64_t>;
+    using FunctionID = std::pair<std::uintptr_t, FunctionIndex>;
 
     /**
      * @typedef Function
@@ -70,44 +77,15 @@ class ProgressThread {
          * @brief Construct state of a function.
          *
          * @param function The function to execute.
-         * @param function_id The ID that was assigned to the function by
-         * `ProgressThread`.
          * @param mutex The mutex to use for synchronization.
          * @param cv The condition variable to use for synchronization.
          */
-        FunctionState(
-            Function function,
-            FunctionID function_id,
-            std::mutex& mutex,
-            std::condition_variable& cv
-        );
+        FunctionState(Function function, std::mutex& mutex, std::condition_variable& cv);
 
         /**
          * @brief Execute the function.
          */
         void operator()();
-
-        /**
-         * @brief Equality operator comparing this function state with another.
-         *
-         * @param rhs The right hand side of the operator.
-         *
-         * @return Whether the objects point to the same function.
-         */
-        constexpr bool operator==(const FunctionState& rhs) const {
-            return function_id == rhs.function_id;
-        }
-
-        /**
-         * @brief Equality operator comparing this function state with a function ID.
-         *
-         * @param function_id The function ID to compare to.
-         *
-         * @return Whether this object points to the specified function.
-         */
-        constexpr bool operator==(const FunctionID& function_id) const {
-            return this->function_id == function_id;
-        }
 
         /**
          * @brief Wait for the function to complete.
@@ -120,8 +98,6 @@ class ProgressThread {
         }
 
         Function function;  ///< The function to execute.
-        FunctionID function_id;  ///< The unique identifier of the function this object
-                                 ///< refers to.
         bool is_done{false};  ///< Whether the function has completed
 
       private:
@@ -183,38 +159,13 @@ class ProgressThread {
     Communicator::Logger& logger_;
     std::shared_ptr<Statistics> statistics_;
     bool active_{true};
-    std::list<FunctionState> functions_;
+    std::unordered_map<FunctionIndex, FunctionState> functions_;
     std::thread event_loop_thread_;
     std::atomic<bool> event_loop_thread_run_{true};
     std::mutex mutex_;  ///< Mutex for thread-safe access to functions_
     std::mutex state_mutex_;  ///< Mutex for synchronizing function states
     std::condition_variable state_cv_;  ///< Condition variable for function state changes
-    std::uint64_t next_function_id_;
+    FunctionIndex next_function_id_;  ///< Counter for generating unique function indices
 };
-
-/**
- * @brief Equality operator for a `FunctionState`.
- *
- * @param lhs The left hand side of the operator.
- * @param rhs The right hand side of the operator.
- *
- * @return Whether the objects point to the same function.
- */
-constexpr bool operator==(
-    const ProgressThread::FunctionState& lhs, const ProgressThread::FunctionState& rhs
-);
-
-/**
- * @brief Equality operator for a `FunctionState`.
- *
- * @param lhs The left hand side of the operator.
- * @param function_id The function ID to compare to.
- *
- * @return Whether the objects point to the same function.
- */
-constexpr bool operator==(
-    const ProgressThread::FunctionState& lhs,
-    const ProgressThread::FunctionID& function_id
-);
 
 }  // namespace rapidsmp

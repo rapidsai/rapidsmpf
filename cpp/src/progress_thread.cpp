@@ -25,15 +25,9 @@
 namespace rapidsmp {
 
 ProgressThread::FunctionState::FunctionState(
-    Function function,
-    FunctionID function_id,
-    std::mutex& mutex,
-    std::condition_variable& cv
+    Function function, std::mutex& mutex, std::condition_variable& cv
 )
-    : function(std::move(function)),
-      function_id{std::move(function_id)},
-      mutex_(mutex),
-      cv_(cv) {}
+    : function(std::move(function)), mutex_(mutex), cv_(cv) {}
 
 void ProgressThread::FunctionState::operator()() {
     if (is_done) {
@@ -50,19 +44,6 @@ void ProgressThread::FunctionState::operator()() {
         }
         cv_.notify_all();
     }
-}
-
-constexpr bool operator==(
-    const ProgressThread::FunctionState& lhs, const ProgressThread::FunctionState& rhs
-) {
-    return lhs.function_id == rhs.function_id;
-}
-
-constexpr bool operator==(
-    const ProgressThread::FunctionState& lhs,
-    const ProgressThread::FunctionID& function_id
-) {
-    return lhs.function_id == function_id;
 }
 
 ProgressThread::ProgressThread(
@@ -96,28 +77,28 @@ ProgressThread::FunctionID ProgressThread::add_function(
     std::function<ProgressState()> function
 ) {
     std::lock_guard const lock(mutex_);
-    auto id = std::make_pair<std::uintptr_t, std::uint64_t>(
+    auto id = std::make_pair<std::uintptr_t, FunctionIndex>(
         reinterpret_cast<std::uintptr_t>(this), next_function_id_++
     );
-    functions_.emplace_back(function, id, state_mutex_, state_cv_);
+    functions_.emplace(id.second, FunctionState(function, state_mutex_, state_cv_));
     thread_.resume();
     return id;
 }
 
 void ProgressThread::remove_function(FunctionID function_id) {
-    decltype(functions_)::iterator state;
-
     RAPIDSMP_EXPECTS(
         function_id.first == reinterpret_cast<std::uintptr_t>(this),
         "Function was not registered with this ProgressThread"
     );
 
+    FunctionState* state = nullptr;
     {
         std::lock_guard const lock(mutex_);
-        state = std::find(functions_.begin(), functions_.end(), function_id);
+        auto it = functions_.find(function_id.second);
         RAPIDSMP_EXPECTS(
-            state != functions_.end(), "Iterable not registered or already removed"
+            it != functions_.end(), "Iterable not registered or already removed"
         );
+        state = &it->second;
     }
 
     // Wait for the function to complete
@@ -125,7 +106,7 @@ void ProgressThread::remove_function(FunctionID function_id) {
 
     {
         std::lock_guard const lock(mutex_);
-        functions_.erase(state);
+        functions_.erase(function_id.second);
     }
 
     if (functions_.empty())
@@ -139,7 +120,7 @@ void ProgressThread::event_loop(ProgressThread* self) {
     if (self->event_loop_thread_run_ || !self->functions_.empty()) {
         {
             std::lock_guard const lock(self->mutex_);
-            for (auto& function : self->functions_) {
+            for (auto& [id, function] : self->functions_) {
                 function();
             }
         }
