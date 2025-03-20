@@ -84,11 +84,8 @@ class ProgressThread {
 
         /**
          * @brief Execute the function.
-         *
-         * @return The progress state of the function, that can be either
-         * `ProgressState::InProgress` or `ProgressState::Done`.
          */
-        ProgressState operator()();
+        void operator()();
 
         /**
          * @brief Equality operator comparing this function state with another.
@@ -119,27 +116,17 @@ class ProgressThread {
          */
         void wait_for_completion() {
             std::unique_lock<std::mutex> lock(mutex_);
-            cv_.wait(lock, [this]() { return is_done_; });
-        }
-
-        /**
-         * @brief Check if the function is done.
-         *
-         * @return True if the function is done, false otherwise.
-         */
-        bool is_done() const {
-            std::lock_guard<std::mutex> lock(mutex_);
-            return is_done_;
+            cv_.wait(lock, [this]() { return is_done; });
         }
 
         Function function;  ///< The function to execute.
         FunctionID function_id;  ///< The unique identifier of the function this object
                                  ///< refers to.
+        bool is_done{false};  ///< Whether the function has completed
 
       private:
         std::mutex& mutex_;  ///< Reference to the shared mutex
         std::condition_variable& cv_;  ///< Reference to the shared condition variable
-        bool is_done_{false};  ///< Whether the function has completed
     };
 
     /**

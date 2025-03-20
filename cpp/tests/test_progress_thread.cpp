@@ -78,35 +78,25 @@ TEST_P(ProgressThreadEvents, events) {
         for (size_t function = 0; function < num_functions; ++function) {
             auto test_function = std::make_shared<TestFunction>();
             auto expected = expected_count(thread, function);
+
             test_function->id =
                 progress_threads[thread]->add_function([test_function, expected]() {
-                    ProgressThread::ProgressState ret =
-                        ProgressThread::ProgressState::InProgress;
-                    {
-                        std::lock_guard<std::mutex> lock(test_function->mutex);
-                        if (++test_function->counter == expected) {
-                            ret = ProgressThread::ProgressState::Done;
-                        }
+                    if (++test_function->counter == expected) {
+                        return ProgressThread::ProgressState::Done;
+                    } else {
+                        return ProgressThread::ProgressState::InProgress;
                     }
-                    test_function->cv.notify_one();
-                    return ret;
                 });
 
-            test_functions[thread].emplace_back(test_function);
+            test_functions[thread].push_back(std::move(test_function));
         }
     }
 
     for (size_t thread = 0; thread < num_threads; ++thread) {
         for (size_t function = 0; function < num_functions; ++function) {
             auto test_function = test_functions[thread][function];
-            auto expected = expected_count(thread, function);
-            std::unique_lock<std::mutex> lock(test_function->mutex);
-            test_function->cv.wait(lock, [test_function, expected]() {
-                return test_function->counter == expected;
-            });
             progress_threads[thread]->remove_function(test_function->id);
-
-            EXPECT_EQ(test_function->counter, expected);
+            EXPECT_EQ(test_function->counter, expected_count(thread, function));
         }
 
         progress_threads[thread]->shutdown();

@@ -35,16 +35,21 @@ ProgressThread::FunctionState::FunctionState(
       mutex_(mutex),
       cv_(cv) {}
 
-ProgressThread::ProgressState ProgressThread::FunctionState::operator()() {
+void ProgressThread::FunctionState::operator()() {
+    if (is_done) {
+        cv_.notify_all();
+        return;
+    }
+
     ProgressState state = function();
+
     if (state == ProgressState::Done) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            is_done_ = true;
+            is_done = true;
         }
         cv_.notify_all();
     }
-    return state;
 }
 
 constexpr bool operator==(
