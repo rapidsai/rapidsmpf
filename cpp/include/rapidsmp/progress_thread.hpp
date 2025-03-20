@@ -153,7 +153,7 @@ class ProgressThread {
      *
      * @param self The `ProgressThread` instance.
      */
-    static void event_loop(ProgressThread* self);
+    void event_loop();
 
     detail::PausableThreadLoop thread_;
     Communicator::Logger& logger_;

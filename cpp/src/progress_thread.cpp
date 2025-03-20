@@ -53,7 +53,7 @@ ProgressThread::ProgressThread(
           // This thread needs to have a cuda context associated with it.
           // For now, do so by calling cudaFree to initialise the driver.
           RAPIDSMP_CUDA_TRY(cudaFree(nullptr));
-          return event_loop(this);
+          return event_loop();
       }),
       logger_(logger),
       statistics_(std::move(statistics)) {}
@@ -96,7 +96,7 @@ void ProgressThread::remove_function(FunctionID function_id) {
         std::lock_guard const lock(mutex_);
         auto it = functions_.find(function_id.second);
         RAPIDSMP_EXPECTS(
-            it != functions_.end(), "Iterable not registered or already removed"
+            it != functions_.end(), "Function not registered or already removed"
         );
         state = &it->second;
     }
@@ -113,21 +113,19 @@ void ProgressThread::remove_function(FunctionID function_id) {
         thread_.pause();
 }
 
-void ProgressThread::event_loop(ProgressThread* self) {
+void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
-    if (self->event_loop_thread_run_ || !self->functions_.empty()) {
+    if (event_loop_thread_run_ || !functions_.empty()) {
         {
-            std::lock_guard const lock(self->mutex_);
-            for (auto& [id, function] : self->functions_) {
+            std::lock_guard const lock(mutex_);
+            for (auto& [id, function] : functions_) {
                 function();
             }
         }
         // Notify all waiting functions that we've completed an iteration
-        self->state_cv_.notify_all();
+        state_cv_.notify_all();
     }
-    self->statistics_->add_duration_stat(
-        "event-loop-total", Clock::now() - t0_event_loop
-    );
+    statistics_->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 }
 
 }  // namespace rapidsmp
