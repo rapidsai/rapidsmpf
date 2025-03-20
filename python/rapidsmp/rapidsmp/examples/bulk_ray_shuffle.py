@@ -17,18 +17,21 @@ import rmm.mr
 
 from rapidsmp.buffer.buffer import MemoryType
 from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
-from rapidsmp.integrations.ray import RapidsMPActor, setup_ray_ucxx_cluster
-from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
+from rapidsmp.integrations.ray import setup_ray_ucxx_cluster
+from rapidsmp.shuffler import partition_and_pack, unpack_and_concat
 from rapidsmp.statistics import Statistics
 from rapidsmp.utils.cudf import pylibcudf_to_cudf_dataframe
+from rapidsmp.utils.ray_utils import BaseShufflingActor
 from rapidsmp.utils.string import format_bytes, parse_bytes
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from rapidsmp.shuffler import Shuffler
+
 
 @ray.remote(num_gpus=1, num_cpus=4)
-class BulkRayShufflerActor(RapidsMPActor):
+class BulkRayShufflerActor(BaseShufflingActor):
     """
     Actor that performs a bulk shuffle operation using Ray.
 
@@ -79,11 +82,10 @@ class BulkRayShufflerActor(RapidsMPActor):
 
         Parameters
         ----------
-        root_address_str : str
+        root_address_str
             Address string of the root worker for UCXX initialization.
         """
         super().setup_worker(root_address_str)
-        from rmm.pylibrmm.stream import DEFAULT_STREAM
 
         # Initialize the RMM memory resource
         mr = rmm.mr.StatisticsResourceAdaptor(
@@ -104,11 +106,10 @@ class BulkRayShufflerActor(RapidsMPActor):
         # Create a statistics object
         self.stats = Statistics(self.enable_statistics)
         # Create a shuffler
-        self.shuffler: Shuffler = Shuffler(
+        self.shuffler: Shuffler = self.create_shuffler(
             self.comm,
             op_id=0,
             total_num_partitions=self.total_nparts,
-            stream=DEFAULT_STREAM,
             br=br,
             statistics=self.stats,
         )
@@ -126,12 +127,11 @@ class BulkRayShufflerActor(RapidsMPActor):
 
         Parameters
         ----------
-        paths : list[str]
+        paths
             List of file paths to the Parquet files.
 
         Returns
         -------
-        tuple[plc.Table, list[str]]
             A tuple containing the read in table and the column names.
         """
         options = plc.io.parquet.ParquetReaderOptions.builder(
@@ -152,13 +152,13 @@ class BulkRayShufflerActor(RapidsMPActor):
 
         Parameters
         ----------
-        table : plc.Table
+        table
             The table to write.
-        output_path : str
+        output_path
             The path to write the table to.
-        id : int or str
+        id
             Partition id used for naming the output file.
-        column_names : list[str]
+        column_names
             The column names of the table.
         """
         path = f"{output_path}/part.{id}.parquet"
@@ -173,9 +173,9 @@ class BulkRayShufflerActor(RapidsMPActor):
 
         Parameters
         ----------
-        table : plc.Table
+        table
             The table to insert.
-        column_names : list[str]
+        column_names
             The column names of the table.
         """
         from rmm.pylibrmm.stream import DEFAULT_STREAM
@@ -196,12 +196,11 @@ class BulkRayShufflerActor(RapidsMPActor):
 
         Parameters
         ----------
-        paths : list[str]
+        paths
             List of file paths to the Parquet files.
 
         Returns
         -------
-        list[str]
             The column names of the table.
         """
         for i in range(0, len(paths), self.batchsize):
@@ -222,7 +221,6 @@ class BulkRayShufflerActor(RapidsMPActor):
 
         Returns
         -------
-        Iterator[tuple[int, plc.Table]]
             An iterator over the shuffled partitions.
         """
         from rmm.pylibrmm.stream import DEFAULT_STREAM
@@ -243,7 +241,7 @@ class BulkRayShufflerActor(RapidsMPActor):
 
         Parameters
         ----------
-        column_names : list[str]
+        column_names
             The column names of the table.
         """
         for partition_id, partition in self.extract():
@@ -267,23 +265,23 @@ def bulk_ray_shuffle(
 
     Parameters
     ----------
-    paths : list[str]
+    paths
         The list of paths to the input files.
-    shuffle_on : list[str]
+    shuffle_on
         The list of column names to shuffle on.
-    output_path : str
+    output_path
         The directory to write the shuffled data.
-    num_workers : int
+    num_workers
         The number of workers to use.
-    batchsize : int
+    batchsize
         The number of files to read on each rank at once.
-    num_output_files : int
+    num_output_files
         The number of output files to write.
-    rmm_pool_size : int
+    rmm_pool_size
         The size of the RMM pool.
-    spill_device : int
+    spill_device
         Device memory limit for spilling to host.
-    enable_statistics : bool
+    enable_statistics
         Whether to collect statistics.
     """
     # Initialize the UCXX cluster

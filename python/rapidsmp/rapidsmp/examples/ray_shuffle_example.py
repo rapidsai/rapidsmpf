@@ -24,18 +24,21 @@ from rapidsmp.utils.ray_utils import BaseShufflingActor
 
 class ShufflingActor(BaseShufflingActor):
     """
-    Ray actor that performs a shuffle operation.
+    An example of a Ray actor that performs a shuffle operation.
+
+    It makes use of the BaseShufflingActor class to initiate a shuffler,
+    and uses that for cudf dataframe example.
 
     Parameters
     ----------
     nranks
         Number of ranks.
     num_rows
-        Number of rows in the input dataframe. Default 100.
+        Number of rows in the input dataframe.
     batch_size
-        Batch size (rows) of the input. The input dataframe will be split into batches of this size. Default -1.
+        Batch size (rows) of the input. The input dataframe will be split into batches of this size.
     total_nparts
-        Total number of partitions to which the input dataframe will be partitioned. Default -1.
+        Total number of partitions to which the input dataframe will be partitioned.
     """
 
     def __init__(
