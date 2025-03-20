@@ -79,7 +79,11 @@ repos:
     rev: v1.8.0
     hooks:
       - id: numpydoc-validation
-        exclude: (python/rapidsmp/rapidsmp/tests/|.*__init__)
+        exclude: |
+          (?x)^(
+            python/rapidsmp/rapidsmp/tests/|
+            .*/__init__\.py$
+          )
   - repo: https://github.com/codespell-project/codespell
     rev: v2.2.6
     hooks:

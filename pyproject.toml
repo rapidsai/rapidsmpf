@@ -136,6 +136,7 @@ rapids = ["rmm", "pylibcudf", "cudf"]
 docstring-code-format = true
 
 [tool.numpydoc_validation]
+# sync this with python/rapidsmp/pyproject.toml
 checks = [
     "all",   # report on all checks, except the below
     "EX01",
