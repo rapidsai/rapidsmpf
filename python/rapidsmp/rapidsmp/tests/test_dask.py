@@ -90,7 +90,6 @@ def test_dask_cudf_integration(loop: pytest.FixtureDef, partition_count: int) ->
     with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
             bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
-            print("Cluster ready!")
             df = (
                 dask.datasets.timeseries(
                     freq="3600s",
