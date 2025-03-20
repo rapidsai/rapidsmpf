@@ -1,17 +1,6 @@
-/*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+/**
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <chrono>
@@ -101,7 +90,9 @@ std::unique_ptr<Buffer> allocate_buffer(
  * or another lower-priority memory space, helping manage limited GPU memory
  * by offloading excess data.
  *
- * @note The postbox is locked while spilling.
+ * @note While spilling, chunks are temporarily extracted from the postbox thus other
+ * threads trying to extract a chunk that is in the process of being spilled, will fail.
+ * To avoid this, the Shuffler uses `outbox_spillling_mutex_` to serialize extractions.
  *
  * @param br Buffer resource for memory allocation.
  * @param log A logger for recording events and debugging information.
@@ -137,17 +128,12 @@ std::size_t postbox_spilling(
             );
             continue;
         }
-        try {
-            // We get exclusive access to the chunk and keep the lock while moving
-            // the chunk to host memory.
-            auto const [chunk, lock] = postbox.exclusive_access(pid, cid);
-            chunk.gpu_data = br->move(
-                MemoryType::HOST, std::move(chunk.gpu_data), stream, host_reservation
-            );
-        } catch (std::out_of_range const&) {
-            log.debug("While spilling, target chunk was removed underneath us");
-            continue;
-        }
+        // We extract the chunk, spilled it, and insert it back into the PostBox.
+        auto chunk = postbox.extract(pid, cid);
+        chunk.gpu_data = br->move(
+            MemoryType::HOST, std::move(chunk.gpu_data), stream, host_reservation
+        );
+        postbox.insert(std::move(chunk));
         if ((total_spilled += size) >= amount) {
             break;
         }
@@ -311,7 +297,11 @@ void Shuffler::insert_finished(PartID pid) {
 
 std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
     RAPIDSMP_NVTX_FUNC_RANGE();
+    // Protect the chunk extraction to make sure we don't get a chunk
+    // `Shuffler::spill` is in the process of spilling.
+    std::unique_lock<std::mutex> lock(outbox_spilling_mutex_);
     auto chunks = outbox_.extract(pid);
+    lock.unlock();
     std::vector<cudf::packed_columns> ret;
     ret.reserve(chunks.size());
 
@@ -363,6 +353,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     }
     std::size_t spilled{0};
     if (spill_need > 0) {
+        std::lock_guard<std::mutex> lock(outbox_spilling_mutex_);
         spilled = postbox_spilling(
             br_, comm_->logger(), *statistics_, stream_, outbox_, spill_need
         );

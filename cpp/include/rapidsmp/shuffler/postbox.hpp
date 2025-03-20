@@ -1,17 +1,6 @@
-/*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+/**
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
@@ -45,26 +34,15 @@ class PostBox {
     void insert(Chunk&& chunk);
 
     /**
-     * @brief Grants exclusive access to a specific chunk from the PostBox.
-     *
-     * This function retrieves a reference to the specified chunk and returns it along
-     * with a `std::unique_lock<std::mutex>`, ensuring exclusive access to the chunk while
-     * the lock is held.
+     * @brief Extracts a specific chunk from the PostBox.
      *
      * @param pid The ID of the partition containing the chunk.
      * @param cid The ID of the chunk to be accessed.
-     * @return A pair consisting of:
-     *         - A reference to the extracted chunk.
-     *         - A unique lock that ensures exclusive access.
+     * @return The extracted chunk.
      *
-     * @throws std::out_of_range If the specified chunk is not found.
-     *
-     * @note The returned `std::unique_lock<std::mutex>` must be kept alive as long as
-     * access to the `Chunk&` is needed to prevent race conditions.
+     * @throws std::out_of_range If the chunk is not found.
      */
-    [[nodiscard]] std::pair<Chunk&, std::unique_lock<std::mutex>> exclusive_access(
-        PartID pid, ChunkID cid
-    );
+    [[nodiscard]] Chunk extract(PartID pid, ChunkID cid);
 
     /**
      * @brief Extracts all chunks associated with a specific partition.
