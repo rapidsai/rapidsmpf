@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import rmm
 import rmm.pylibrmm
 import rmm.pylibrmm.stream
@@ -10,6 +12,9 @@ import rmm.pylibrmm.stream
 from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.integrations.ray import RapidsMPActor
 from rapidsmp.shuffler import Shuffler
+
+if TYPE_CHECKING:
+    from rapidsmp.statistics import Statistics
 
 
 class BaseShufflingActor(RapidsMPActor):
@@ -51,6 +56,7 @@ class BaseShufflingActor(RapidsMPActor):
         total_num_partitions: int | None = None,
         stream: rmm.pylibrmm.stream.Stream | None = None,
         buffer_resource: BufferResource | None = None,
+        statistics: Statistics | None = None,
     ) -> Shuffler:
         """
         Create a Shuffler using the communicator and buffer resource.
@@ -66,6 +72,8 @@ class BaseShufflingActor(RapidsMPActor):
             Stream to use for the shuffle operation. If None, the default stream will be used.
         buffer_resource
             The buffer resource to use for the shuffle operation. If None, the default buffer resource will be used.
+        statistics
+            Statistics object to use.
 
         Returns
         -------
@@ -88,6 +96,7 @@ class BaseShufflingActor(RapidsMPActor):
             buffer_resource
             if buffer_resource is not None
             else self.default_buffer_resource,
+            statistics=statistics,
         )
 
     @property
