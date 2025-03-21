@@ -177,6 +177,7 @@ class ProgressThread {
     Communicator::Logger& logger_;
     std::shared_ptr<Statistics> statistics_;
     bool active_{true};
+    bool is_thread_initialized_{false};
     std::unordered_map<FunctionIndex, FunctionState> functions_;
     std::atomic<bool> event_loop_thread_run_{true};
     std::mutex mutex_;  ///< Mutex for thread-safe access to functions_
