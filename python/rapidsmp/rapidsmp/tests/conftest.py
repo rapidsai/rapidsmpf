@@ -1,5 +1,5 @@
-# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
-# See file LICENSE for terms.
+# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0 All rights reserved.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

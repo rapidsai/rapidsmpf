@@ -1,4 +1,5 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
 """Integration for Ray clusters."""
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ class RapidsMPActor:
         self._nranks: int = nranks
         self._comm: Communicator | None = None
 
-    def setup_root(self) -> tuple[int, str]:
+    def setup_root(self) -> tuple[int, bytes]:
         """
         Setup root communicator in the cluster.
 
@@ -45,7 +46,7 @@ class RapidsMPActor:
         -------
         rank
             The rank of the root.
-        root_address_str
+        root_address_bytes
             The address of the root.
         """
         self._comm = new_communicator(self._nranks, None, None)
@@ -53,7 +54,7 @@ class RapidsMPActor:
         self._comm.logger.trace(f"Rank {self._rank} created as root")
         return self._rank, get_root_ucxx_address(self._comm)
 
-    def setup_worker(self, root_address_str: str) -> None:
+    def setup_worker(self, root_address_bytes: bytes) -> None:
         """
         Setup the worker in the cluster once the root is initialized.
 
@@ -61,12 +62,12 @@ class RapidsMPActor:
 
         Parameters
         ----------
-        root_address_str
+        root_address_bytes
             The address of the root.
         """
         if not self._comm:
             # this is not the root and a comm needs to be instantiated
-            root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
+            root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
             # create a comm pointing to the root_address
             self._comm = new_communicator(self._nranks, None, root_address)
             self._rank = self._comm.rank
@@ -181,9 +182,9 @@ def setup_ray_ucxx_cluster(
     gpu_actors = [actor_cls.remote(num_workers) for _ in range(num_workers)]
 
     # initialize the first actor as the root remotely in the cluster
-    _, root_address_str = ray.get(gpu_actors[0].setup_root.remote())
+    _, root_address_bytes = ray.get(gpu_actors[0].setup_root.remote())
 
     # setup the workers in the cluster with the root address
-    ray.get([actor.setup_worker.remote(root_address_str) for actor in gpu_actors])
+    ray.get([actor.setup_worker.remote(root_address_bytes) for actor in gpu_actors])
 
     return gpu_actors
