@@ -16,7 +16,7 @@ FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_parti
     }
 }
 
-void FinishCounter::move_goalpost(Rank rank, PartID pid, ChunkID nchunks) {
+void FinishCounter::move_goalpost(Rank /* rank */, PartID pid, ChunkID nchunks) {
     std::unique_lock<std::mutex> lock(mutex_);
     auto& [rank_counter, chunk_goal] = goalposts_[pid];
     RAPIDSMP_EXPECTS(
