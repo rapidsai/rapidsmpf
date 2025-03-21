@@ -75,15 +75,6 @@ repos:
         args: ["--config-root=python/", "--resolve-all-configs"]
         files: python/.*
         types_or: [cython]
-  - repo: https://github.com/numpy/numpydoc
-    rev: v1.8.0
-    hooks:
-      - id: numpydoc-validation
-        exclude: |
-          (?x)^(
-            python/rapidsmp/rapidsmp/tests/|
-            .*/__init__\.py$
-          )
   - repo: https://github.com/codespell-project/codespell
     rev: v2.2.6
     hooks:
