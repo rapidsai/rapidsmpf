@@ -43,7 +43,7 @@ _shuffle_counter: int = 0
 
 async def rapidsmp_ucxx_rank_setup(
     nranks: int, root_address_bytes: bytes | None = None
-) -> str | None:
+) -> bytes | None:
     """
     Setup UCXX-based communicator on single rank.
 
@@ -71,8 +71,8 @@ async def rapidsmp_ucxx_rank_setup(
     Returns
     -------
     root_address
-        Returns the root rank address as a string if this function was called to setup the
-        root, otherwise returns `None`.
+        Returns the root rank address as a bytes string if this function was called to setup
+        the root, otherwise returns `None`.
     """
     dask_worker = get_worker()
 

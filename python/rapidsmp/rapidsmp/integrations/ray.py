@@ -38,7 +38,7 @@ class RapidsMPActor:
         self._nranks: int = nranks
         self._comm: Communicator | None = None
 
-    def setup_root(self) -> tuple[int, str]:
+    def setup_root(self) -> tuple[int, bytes]:
         """
         Setup root communicator in the cluster.
 
