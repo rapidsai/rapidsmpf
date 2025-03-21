@@ -52,7 +52,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 struct TestFunction {
     size_t counter{0};
-    ProgressThread::FunctionID id;
+    ProgressThread::FunctionID id{0, 0};
     std::mutex mutex;
     std::condition_variable cv;
 };

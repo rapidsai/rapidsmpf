@@ -53,11 +53,29 @@ class ProgressThread {
     using FunctionIndex = std::uint64_t;
 
     /**
-     * @typedef FunctionID
+     * @typedef ProgressThreadAddress
+     * @brief The address of a ProgressThread instance.
+     */
+    using ProgressThreadAddress = std::uintptr_t;
+
+    /**
      * @brief The unique ID of a function registered with `ProgressThread`.
      * Composed of the ProgressThread address and a sequential function index.
      */
-    using FunctionID = std::pair<std::uintptr_t, FunctionIndex>;
+    struct FunctionID {
+        ProgressThreadAddress
+            thread_address;  ///< The address of the ProgressThread instance
+        FunctionIndex function_index;  ///< The sequential index of the function
+
+        /**
+         * @brief Construct a new FunctionID
+         *
+         * @param thread_addr The address of the ProgressThread instance
+         * @param index The sequential index of the function
+         */
+        constexpr FunctionID(ProgressThreadAddress thread_addr, FunctionIndex index)
+            : thread_address(thread_addr), function_index(index) {}
+    };
 
     /**
      * @typedef Function

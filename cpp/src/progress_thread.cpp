@@ -77,24 +77,25 @@ ProgressThread::FunctionID ProgressThread::add_function(
     std::function<ProgressState()> function
 ) {
     std::lock_guard const lock(mutex_);
-    auto id = std::make_pair<std::uintptr_t, FunctionIndex>(
-        reinterpret_cast<std::uintptr_t>(this), next_function_id_++
+    auto id =
+        FunctionID(reinterpret_cast<ProgressThreadAddress>(this), next_function_id_++);
+    functions_.emplace(
+        id.function_index, FunctionState(function, state_mutex_, state_cv_)
     );
-    functions_.emplace(id.second, FunctionState(function, state_mutex_, state_cv_));
     thread_.resume();
     return id;
 }
 
 void ProgressThread::remove_function(FunctionID function_id) {
     RAPIDSMP_EXPECTS(
-        function_id.first == reinterpret_cast<std::uintptr_t>(this),
+        function_id.thread_address == reinterpret_cast<ProgressThreadAddress>(this),
         "Function was not registered with this ProgressThread"
     );
 
     FunctionState* state = nullptr;
     {
         std::lock_guard const lock(mutex_);
-        auto it = functions_.find(function_id.second);
+        auto it = functions_.find(function_id.function_index);
         RAPIDSMP_EXPECTS(
             it != functions_.end(), "Function not registered or already removed"
         );
@@ -106,7 +107,7 @@ void ProgressThread::remove_function(FunctionID function_id) {
 
     {
         std::lock_guard const lock(mutex_);
-        functions_.erase(function_id.second);
+        functions_.erase(function_id.function_index);
     }
 
     if (functions_.empty())
