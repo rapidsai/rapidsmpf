@@ -165,15 +165,21 @@ Duration run(
     Tag const tag{0, 1};
     std::vector<std::unique_ptr<Communicator::Future>> futures;
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
-        for (Rank rank = 0; rank < comm->nranks(); ++rank) {
-            auto buf = std::move(recv_bufs.at(rank + i * comm->nranks()));
+        for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
+            auto buf = std::move(recv_bufs.at(
+                static_cast<std::uint64_t>(rank)
+                + i * static_cast<std::uint64_t>(comm->nranks())
+            ));
             if (rank != comm->rank()) {
                 statistics->add_bytes_stat("all-to-all-recv", buf->size);
                 futures.push_back(comm->recv(rank, tag, std::move(buf), stream));
             }
         }
-        for (Rank rank = 0; rank < comm->nranks(); ++rank) {
-            auto buf = std::move(send_bufs.at(rank + i * comm->nranks()));
+        for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
+            auto buf = std::move(send_bufs.at(
+                static_cast<std::uint64_t>(rank)
+                + i * static_cast<std::uint64_t>(comm->nranks())
+            ));
             if (rank != comm->rank()) {
                 statistics->add_bytes_stat("all-to-all-send", buf->size);
                 futures.push_back(comm->send(std::move(buf), rank, tag, stream));
@@ -187,7 +193,7 @@ Duration run(
         std::sort(finished.begin(), finished.end(), std::greater<>());
         // And erase from the right.
         for (auto i : finished) {
-            futures.erase(futures.begin() + i);
+            futures.erase(futures.begin() + static_cast<std::ptrdiff_t>(i));
         }
     }
 
@@ -244,8 +250,10 @@ int main(int argc, char** argv) {
     // We start with disabled statistics.
     auto stats = std::make_shared<rapidsmp::Statistics>(/* enable = */ false);
 
-    auto const local_messages_send = args.msg_size * args.num_ops * (comm->nranks() - 1);
-    auto const local_messages = args.msg_size * args.num_ops * comm->nranks();
+    auto const local_messages_send =
+        args.msg_size * args.num_ops * (static_cast<std::uint64_t>(comm->nranks()) - 1);
+    auto const local_messages =
+        args.msg_size * args.num_ops * static_cast<std::uint64_t>(comm->nranks());
     std::vector<double> elapsed_vec;
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         // Enable statistics for the last run.
@@ -258,7 +266,10 @@ int main(int argc, char** argv) {
            << " | local comm: " << format_nbytes(local_messages_send / elapsed)
            << "/s | local throughput: " << format_nbytes(local_messages / elapsed)
            << "/s | global throughput: "
-           << format_nbytes(local_messages * comm->nranks() / elapsed) << "/s";
+           << format_nbytes(
+                  local_messages * static_cast<std::uint64_t>(comm->nranks()) / elapsed
+              )
+           << "/s";
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
