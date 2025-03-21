@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast, runtime_checkabl
 
 import dask.utils
 import ucxx._lib.libucxx as ucx_api
-from dask_cuda import LocalCUDACluster
 from distributed import get_client, get_worker
 from distributed.diagnostics.plugin import SchedulerPlugin, WorkerPlugin
 from distributed.utils import Deadline
@@ -615,11 +614,6 @@ class RMPSchedulerPlugin(SchedulerPlugin):
     shuffle service by making it possible for the client
     to inform the scheduler of tasks that must be
     constrained to specific workers.
-
-    See Also
-    --------
-    LocalRMPCluster
-        Local rapidsmp-specific Dask cluster.
     """
 
     scheduler: Scheduler
@@ -1073,10 +1067,6 @@ def _stage_shuffler(
         partition_count=partition_count,
         dask_worker=dask_worker,
     )
-
-
-# backwards compat
-LocalRMPCluster = LocalCUDACluster
 
 
 def _exponential_backoff(
