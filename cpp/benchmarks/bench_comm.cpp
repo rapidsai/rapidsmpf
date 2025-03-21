@@ -55,6 +55,7 @@ class ArgumentParser {
                         }
                         RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
                     }
+                    break;
                 case 'C':
                     comm_type = std::string{optarg};
                     if (!(comm_type == "mpi" || comm_type == "ucxx")) {
@@ -98,6 +99,7 @@ class ArgumentParser {
                     break;
                 case '?':
                     RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    break;
                 default:
                     RAPIDSMP_FAIL("unknown option", std::invalid_argument);
                 }
