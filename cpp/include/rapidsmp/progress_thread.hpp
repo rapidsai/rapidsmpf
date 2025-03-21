@@ -178,7 +178,6 @@ class ProgressThread {
     std::shared_ptr<Statistics> statistics_;
     bool active_{true};
     std::unordered_map<FunctionIndex, FunctionState> functions_;
-    std::thread event_loop_thread_;
     std::atomic<bool> event_loop_thread_run_{true};
     std::mutex mutex_;  ///< Mutex for thread-safe access to functions_
     std::mutex state_mutex_;  ///< Mutex for synchronizing function states
