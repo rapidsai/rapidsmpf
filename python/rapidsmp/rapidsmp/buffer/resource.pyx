@@ -1,4 +1,5 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
@@ -108,14 +109,14 @@ cdef class LimitAvailableMemory:
     statistics_mr
         A statistics resource adaptor that tracks memory usage and provides
         statistics about the memory consumption. The `LimitAvailableMemory`
-        instance keeps a reference to `statistics_mr` to keep it alive.
+        instance keeps a reference to ``statistics_mr`` to keep it alive.
     limit
         The maximum memory limit (in bytes). Used to calculate the remaining
         available memory.
 
     Notes
     -----
-    - The `statistics_mr` resource must not be destroyed while this object is
+    - The ``statistics_mr`` resource must not be destroyed while this object is
       still in use.
 
     Examples

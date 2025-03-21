@@ -1,4 +1,6 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
+"""The Shuffler interface for rapidsmp."""
 
 from cython.operator cimport dereference as deref
 from cython.operator cimport postincrement
@@ -66,13 +68,13 @@ cpdef dict partition_and_pack(
     Raises
     ------
     IndexError
-        If an index in `columns_to_hash` is invalid.
+        If an index in ``columns_to_hash`` is invalid.
 
-    References
-    ----------
-    - `rapidsmp.shuffler.unpack_and_concat`
-    - `cudf.hash_partition`
-    - `cudf.pack`
+    See Also
+    --------
+    rapidsmp.shuffler.unpack_and_concat
+    pylibcudf.partitioning.hash_partition
+    pylibcudf.contiguous_split.pack
     """
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, packed_columns] _ret
@@ -130,11 +132,11 @@ cpdef Table unpack_and_concat(
     -------
     The unpacked and concatenated result as a single table.
 
-    References
-    ----------
-    - `rapidsmp.shuffler.partition_and_pack`
-    - `cudf.unpack`
-    - `cudf.concatenate`
+    See Also
+    --------
+    rapidsmp.shuffler.partition_and_pack
+    cudf.unpack
+    cudf.concatenate
     """
     cdef vector[packed_columns] _partitions
     for part in partitions:
@@ -158,9 +160,10 @@ cdef class Shuffler:
     """
     Shuffle service for partitioned data.
 
-    The `Shuffler` class provides an interface for performing a shuffle operation
-    on partitioned data. It uses a distribution scheme to distribute and collect
-    data chunks across different ranks.
+    The `rapidsmp.shuffler.Shuffler` class provides an interface for
+    performing a shuffle operation on partitioned data. It uses a
+    distribution scheme to distribute and collect data chunks across
+    different ranks.
 
     Parameters
     ----------
@@ -246,8 +249,8 @@ cdef class Shuffler:
         Parameters
         ----------
         chunks
-            A map where keys are partition IDs (`int`) and values are packed
-            chunks (`cudf.packed_columns`).
+            A map where keys are partition IDs (``int``) and values are packed
+            chunks (``cudf.packed_columns``).
 
         Notes
         -----
