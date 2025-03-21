@@ -4,8 +4,8 @@
 # =================================================================================
 
 if(CMAKE_COMPILER_IS_GNUCXX)
-  list(APPEND RAPIDSMP_CXX_FLAGS -Wall -Werror -Wno-unknown-pragmas
-       -Wno-error=deprecated-declarations
+  list(APPEND RAPIDSMP_CXX_FLAGS -Wall -Werror -Wextra -Wsign-conversion -Wno-unknown-pragmas
+       -Wno-missing-field-initializers -Wno-error=deprecated-declarations
   )
 endif()
 
@@ -17,7 +17,11 @@ if(CUDA_WARNINGS_AS_ERRORS)
 else()
   list(APPEND RAPIDSMP_CUDA_FLAGS -Werror=cross-execution-space-call)
 endif()
-list(APPEND RAPIDSMP_CUDA_FLAGS -Xcompiler=-Wall,-Werror,-Wno-error=deprecated-declarations)
+list(
+  APPEND
+  RAPIDSMP_CUDA_FLAGS
+  -Xcompiler=-Wall,-Werror,-Wextra,-Wsign-conversion,-Wno-unknown-pragmas,-Wno-missing-field-initializes,-Wno-error=deprecated-declarations
+)
 # This warning needs to be suppressed because some parts of cudf instantiate templated CCCL
 # functions in contexts where the resulting instantiations would have internal linkage (e.g. in
 # anonymous namespaces). In such contexts, the visibility attribute on the template is ignored, and
