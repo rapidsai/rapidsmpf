@@ -67,9 +67,3 @@ intersphinx_mapping = {
     "dask-cuda": ("https://docs.rapids.ai/api/dask-cuda/stable/", None),
     "cudf": ("https://docs.rapids.ai/api/cudf/stable/", None),
 }
-
-nitpick_ignore = [
-    # https://github.com/rapidsai/cudf/pull/18194
-    # Remove once RAPIDS 25.04 is released.
-    ("py:func", "pylibcudf.contiguous_split.pack"),
-]
