@@ -24,15 +24,13 @@
 
 namespace rapidsmp {
 
-ProgressThread::FunctionState::FunctionState(
-    Function function, std::mutex& mutex, std::condition_variable& cv
-)
-    : function(std::move(function)), mutex_(mutex), cv_(cv) {}
+ProgressThread::FunctionState::FunctionState(Function function)
+    : function(std::move(function)) {}
 
-void ProgressThread::FunctionState::operator()() {
+void ProgressThread::FunctionState::operator()(std::mutex& mutex) {
     // Only call `function()` if it isn't done yet.
     if (!is_done && function() == ProgressState::Done) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(mutex);
         is_done = true;
     }
 }
@@ -73,9 +71,7 @@ ProgressThread::FunctionID ProgressThread::add_function(
     std::lock_guard const lock(mutex_);
     auto id =
         FunctionID(reinterpret_cast<ProgressThreadAddress>(this), next_function_id_++);
-    functions_.emplace(
-        id.function_index, FunctionState(function, state_mutex_, state_cv_)
-    );
+    functions_.emplace(id.function_index, FunctionState(function));
     thread_.resume();
     return id;
 }
@@ -97,7 +93,7 @@ void ProgressThread::remove_function(FunctionID function_id) {
     }
 
     // Wait for the function to complete
-    state->wait_for_completion();
+    state->wait_for_completion(state_mutex_, state_cv_);
 
     {
         std::lock_guard const lock(mutex_);
@@ -114,7 +110,7 @@ void ProgressThread::event_loop() {
         {
             std::lock_guard const lock(mutex_);
             for (auto& [id, function] : functions_) {
-                function();
+                function(state_mutex_);
             }
         }
         // Notify all waiting functions that we've completed an iteration

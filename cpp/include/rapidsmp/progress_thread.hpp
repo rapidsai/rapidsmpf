@@ -95,32 +95,31 @@ class ProgressThread {
          * @brief Construct state of a function.
          *
          * @param function The function to execute.
-         * @param mutex The mutex to use for synchronization.
-         * @param cv The condition variable to use for synchronization.
          */
-        FunctionState(Function function, std::mutex& mutex, std::condition_variable& cv);
+        FunctionState(Function function);
 
         /**
          * @brief Execute the function.
+         *
+         * @param mutex The mutex to use for synchronization.
          */
-        void operator()();
+        void operator()(std::mutex& mutex);
 
         /**
          * @brief Wait for the function to complete.
          *
          * This function blocks until the function's state changes to Done.
+         *
+         * @param mutex The mutex to use for synchronization.
+         * @param cv The condition variable to use for synchronization.
          */
-        void wait_for_completion() {
-            std::unique_lock<std::mutex> lock(mutex_);
-            cv_.wait(lock, [this]() { return is_done; });
+        void wait_for_completion(std::mutex& mutex, std::condition_variable& cv) {
+            std::unique_lock<std::mutex> lock(mutex);
+            cv.wait(lock, [this]() { return is_done; });
         }
 
         Function function;  ///< The function to execute.
         bool is_done{false};  ///< Whether the function has completed
-
-      private:
-        std::mutex& mutex_;  ///< Reference to the shared mutex
-        std::condition_variable& cv_;  ///< Reference to the shared condition variable
     };
 
     /**
