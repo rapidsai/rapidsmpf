@@ -577,7 +577,7 @@ def bootstrap_dask_cluster(
 
     See Also
     --------
-    bootstrap_dask_cluster
+    bootstrap_dask_cluster_async
         Setup an asynchronous Dask cluster for rapidsmp shuffling.
 
     Notes
