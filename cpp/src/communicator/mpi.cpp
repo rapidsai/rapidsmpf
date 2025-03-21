@@ -50,7 +50,10 @@ void detail::check_mpi_error(int error_code, const char* file, int line) {
         int error_length;
         MPI_Error_string(error_code, error_string.data(), &error_length);
         std::cerr << "MPI error at " << file << ":" << line << ": "
-                  << std::string(error_string.data(), error_length) << std::endl;
+                  << std::string(
+                         error_string.data(), static_cast<std::size_t>(error_length)
+                     )
+                  << std::endl;
         MPI_Abort(MPI_COMM_WORLD, error_code);
     }
 }
@@ -208,7 +211,7 @@ std::vector<std::size_t> MPI::test_some(
             completed.data(),
             MPI_STATUSES_IGNORE
         ));
-        completed.resize(num_completed);
+        completed.resize(static_cast<std::size_t>(num_completed));
     }
     return std::vector<std::size_t>(completed.begin(), completed.end());
 }
@@ -239,13 +242,13 @@ std::vector<std::size_t> MPI::test_some(
             completed.data(),
             MPI_STATUSES_IGNORE
         ));
-        completed.resize(num_completed);
+        completed.resize(static_cast<std::size_t>(num_completed));
     }
 
     std::vector<std::size_t> ret;
     ret.reserve(completed.size());
     for (int i : completed) {
-        ret.push_back(key_reqs.at(i));
+        ret.push_back(key_reqs.at(static_cast<std::size_t>(i)));
     }
     return ret;
 }

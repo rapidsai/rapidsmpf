@@ -517,7 +517,9 @@ void Shuffler::run_event_loop_iteration(
         std::sort(finished.begin(), finished.end(), std::greater<>());
         // And erase from the right.
         for (auto i : finished) {
-            fire_and_forget.erase(fire_and_forget.begin() + i);
+            fire_and_forget.erase(
+                fire_and_forget.begin() + static_cast<std::ptrdiff_t>(i)
+            );
         }
     }
     stats.add_duration_stat(

@@ -29,7 +29,10 @@ partition_and_split(
         // Return views of a copy of the empty `table`.
         auto owner = std::make_unique<cudf::table>(table, stream, mr);
         return {
-            std::vector<cudf::table_view>(num_partitions, owner->view()), std::move(owner)
+            std::vector<cudf::table_view>(
+                static_cast<std::size_t>(num_partitions), owner->view()
+            ),
+            std::move(owner)
         };
     }
 
