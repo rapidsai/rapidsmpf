@@ -184,7 +184,8 @@ Shuffler::Shuffler(
       comm_{std::move(comm)},
       op_id_{op_id},
       finish_counter_{
-          comm_->nranks(), local_partitions(comm_, total_num_partitions, partition_owner)
+          static_cast<Rank>(comm_->nranks()),
+          local_partitions(comm_, total_num_partitions, partition_owner)
       },
       statistics_{std::move(statistics)} {
     event_loop_thread_ = std::thread(Shuffler::event_loop, this);
@@ -365,7 +366,7 @@ detail::ChunkID Shuffler::get_new_cid() {
     // Place the counter in the first 38 bits (supports 256G chunks).
     std::uint64_t upper = ++chunk_id_counter_ << 26;
     // and place the rank in last 26 bits (supports 64M ranks).
-    std::uint64_t lower = comm_->rank();
+    std::uint64_t lower = static_cast<std::uint64_t>(comm_->rank());
     return upper | lower;
 }
 

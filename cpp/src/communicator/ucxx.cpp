@@ -90,7 +90,7 @@ class SharedResources {
     std::shared_ptr<::ucxx::Worker> worker_{nullptr};  ///< UCXX Listener
     std::shared_ptr<::ucxx::Listener> listener_{nullptr};  ///< UCXX Listener
     Rank rank_{Rank(-1)};  ///< Rank of the current process
-    std::uint32_t nranks_{0};  ///< Number of ranks in the communicator
+    std::int32_t nranks_{0};  ///< Number of ranks in the communicator
     std::atomic<Rank> next_rank_{1
     };  ///< Rank to assign for the next client that connects (root only)
     EndpointsMap endpoints_{};  ///< Map of UCP handle to UCXX endpoints of known ranks
@@ -125,7 +125,7 @@ class SharedResources {
      * @param root Whether the rank is the root rank.
      * @param nranks The number of ranks requested for the cluster.
      */
-    SharedResources(std::shared_ptr<::ucxx::Worker> worker, bool root, uint32_t nranks)
+    SharedResources(std::shared_ptr<::ucxx::Worker> worker, bool root, int32_t nranks)
         : worker_{worker}, rank_{Rank(root ? 0 : -1)}, nranks_{nranks} {}
 
     SharedResources(SharedResources&&) = delete;  ///< Not movable.
@@ -160,7 +160,7 @@ class SharedResources {
      *
      * @return The number of ranks in the cluster.
      */
-    [[nodiscard]] std::uint32_t nranks() const {
+    [[nodiscard]] std::int32_t nranks() const {
         return nranks_;
     }
 
@@ -801,7 +801,7 @@ InitializedRank::InitializedRank(
 
 std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
-    std::uint32_t nranks,
+    std::int32_t nranks,
     std::optional<RemoteAddress> remote_address
 ) {
     auto create_worker = []() {
@@ -962,7 +962,7 @@ UCXX::UCXX(std::unique_ptr<InitializedRank> ucxx_initialized_rank)
     return shared_resources_->rank();
 }
 
-[[nodiscard]] int UCXX::nranks() const {
+[[nodiscard]] std::int32_t UCXX::nranks() const {
     return shared_resources_->nranks();
 }
 

@@ -144,7 +144,7 @@ class UCXX final : public Communicator {
     /**
      * @copydoc Communicator::nranks
      */
-    [[nodiscard]] int nranks() const override;
+    [[nodiscard]] std::int32_t nranks() const override;
 
     /**
      * @copydoc Communicator::send

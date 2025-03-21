@@ -92,7 +92,7 @@ MPI::MPI(MPI_Comm comm) : comm_{comm}, logger_{this} {
     RAPIDSMP_MPI(MPI_Comm_rank(comm_, &rank));
     RAPIDSMP_MPI(MPI_Comm_size(comm_, &nranks));
     rank_ = rank;
-    nranks_ = nranks;
+    nranks_ = static_cast<std::int32_t>(nranks);
     check_mpi_thread_support();
 }
 
