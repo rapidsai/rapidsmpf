@@ -14,7 +14,7 @@ namespace {
 template <typename T>
 [[nodiscard]] std::unique_ptr<T> check_null(std::unique_ptr<T> ptr) {
     RAPIDSMP_EXPECTS(ptr, "unique pointer cannot be null", std::invalid_argument);
-    return std::move(ptr);
+    return ptr;
 }
 }  // namespace
 
