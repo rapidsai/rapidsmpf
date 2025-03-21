@@ -32,11 +32,8 @@ ProgressThread::FunctionState::FunctionState(
 void ProgressThread::FunctionState::operator()() {
     // Only call `function()` if it isn't done yet.
     if (!is_done && function() == ProgressState::Done) {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            is_done = true;
-        }
-        cv_.notify_all();
+        std::lock_guard<std::mutex> lock(mutex_);
+        is_done = true;
     }
 }
 
