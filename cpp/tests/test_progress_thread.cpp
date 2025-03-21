@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-#include <condition_variable>
-#include <mutex>
-
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -53,8 +50,6 @@ INSTANTIATE_TEST_SUITE_P(
 struct TestFunction {
     size_t counter{0};
     ProgressThread::FunctionID id{0, 0};
-    std::mutex mutex;
-    std::condition_variable cv;
 };
 
 TEST_P(ProgressThreadEvents, events) {
