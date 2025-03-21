@@ -105,10 +105,10 @@ void ProgressThread::remove_function(FunctionID function_id) {
     {
         std::lock_guard const lock(mutex_);
         functions_.erase(function_id.function_index);
-    }
 
-    if (functions_.empty())
-        thread_.pause();
+        if (functions_.empty())
+            thread_.pause();
+    }
 }
 
 void ProgressThread::event_loop() {
