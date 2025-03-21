@@ -116,7 +116,11 @@ def test_dask_cudf_integration(loop: pytest.FixtureDef, partition_count: int) ->
 def test_bootstrap_dask_cluster_idempotent() -> None:
     with LocalCUDACluster() as cluster, Client(cluster) as client:
         bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
+        before = client.run(lambda dask_worker: id(dask_worker._rapidsmp_comm))
+
         bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
+        after = client.run(lambda dask_worker: id(dask_worker._rapidsmp_comm))
+        assert before == after
 
 
 @gen_test(timeout=30)
@@ -126,7 +130,11 @@ async def test_bootstrap_dask_cluster_async_idempotent() -> None:
         Client(cluster, asynchronous=True) as client,
     ):
         await bootstrap_dask_cluster_async(client, pool_size=0.25, spill_device=0.1)
+        before = await client.run(lambda dask_worker: id(dask_worker._rapidsmp_comm))
+
         await bootstrap_dask_cluster_async(client, pool_size=0.25, spill_device=0.1)
+        after = await client.run(lambda dask_worker: id(dask_worker._rapidsmp_comm))
+        assert before == after
 
 
 def test_boostrap_single_node_cluster_no_deadlock() -> None:
