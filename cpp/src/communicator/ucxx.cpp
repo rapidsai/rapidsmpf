@@ -788,7 +788,7 @@ void listener_callback(ucp_conn_request_h conn_request, void* arg) {
 /**
  * @brief Callback executed by UCXX progress thread to create/acquire CUDA context.
  */
-void create_cuda_context_callback(void* callbackArg) {
+void create_cuda_context_callback(void* /* callbackArg */) {
     cudaFree(nullptr);
 }
 
