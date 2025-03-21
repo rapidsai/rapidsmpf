@@ -974,7 +974,7 @@ constexpr ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
     // `rapidsmp::ucxx::shuffler::Shuffler::get_new_cid()`), we are essentially using
     // 58-bits for the tags and the remaining 6-bits may be used in the future,
     // such as to identify groups.
-    return ::ucxx::Tag(static_cast<uint64_t>(rank) << 32 | tag);
+    return ::ucxx::Tag(static_cast<uint64_t>(rank) << 32 | static_cast<uint64_t>(tag));
 }
 
 constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<uint32_t>::max()};
