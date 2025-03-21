@@ -76,16 +76,16 @@ class BulkRayShufflerActor(BaseShufflingActor):
         self.spill_device = spill_device
         self.enable_statistics = enable_statistics
 
-    def setup_worker(self, root_address_str: str) -> None:
+    def setup_worker(self, root_address_bytes: bytes) -> None:
         """
         Setup the UCXX communication and a shuffle operation.
 
         Parameters
         ----------
-        root_address_str
-            Address string of the root worker for UCXX initialization.
+        root_address_bytes
+            Address of the root worker for UCXX initialization.
         """
-        super().setup_worker(root_address_str)
+        super().setup_worker(root_address_bytes)
 
         # Initialize the RMM memory resource
         mr = rmm.mr.StatisticsResourceAdaptor(

@@ -31,7 +31,7 @@ class BaseShufflingActor(RapidsMPActor):
         super().__init__(nranks)
         self._default_br: BufferResource | None = None
 
-    def setup_worker(self, root_address_str: str) -> None:
+    def setup_worker(self, root_address_bytes: bytes) -> None:
         """
         Setup the UCXX communication and initializes the default buffer resource with the current RMM device resource.
 
@@ -41,11 +41,11 @@ class BaseShufflingActor(RapidsMPActor):
 
         Parameters
         ----------
-        root_address_str
+        root_address_bytes
             The address of the root node.
         """
         # First, call RapidsMPActor, which will set up the UCXX workers
-        super().setup_worker(root_address_str)
+        super().setup_worker(root_address_bytes)
 
         # Initialize the default buffer resource using the current rmm device resource.
         self._default_br = BufferResource(rmm.mr.get_current_device_resource())
