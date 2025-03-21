@@ -62,6 +62,7 @@ TEST_P(ProgressThreadEvents, events) {
     std::vector<std::unique_ptr<ProgressThread>> progress_threads;
     std::vector<std::vector<std::shared_ptr<TestFunction>>> test_functions(num_threads);
 
+    // The number of times a particular function is expected to be called
     auto expected_count = [num_functions](size_t thread, size_t function) {
         return thread * num_functions + function + 1;
     };
