@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, cast
 
 import dask
+import distributed.utils
 import pytest
 
 dask_cuda = pytest.importorskip("dask_cuda")
@@ -130,3 +132,35 @@ async def test_bootstrap_dask_cluster_async_idempotent() -> None:
 def test_boostrap_single_node_cluster_no_deadlock() -> None:
     with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
         bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
+
+
+def test_bootstrap_dask_cluster_late_worker() -> None:
+    with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
+        workers = set(client.scheduler_info()["workers"])
+        bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
+        # Add a worker late
+        cluster.scale(2)
+        client.wait_for_workers(2)
+
+        (new_worker,) = list(set(client.scheduler_info()["workers"]) - workers)
+
+        # this worker is already running, thanks to the wait_for_workers.
+        # But add a very short deadline to avoid a race condition with
+        # when the plugin runs.
+        deadline = distributed.utils.Deadline.after(1)
+
+        while not deadline.expired:
+            logs = client.get_worker_logs()[new_worker]
+            messages = [message for (level, message) in logs]
+            if any(
+                "Dask worker started but not included in the shuffle" in message
+                for message in messages
+            ):
+                break
+            time.sleep(0.1)
+
+        # for pytest
+        assert any(
+            "Dask worker started but not included in the shuffle" in message
+            for message in messages
+        )

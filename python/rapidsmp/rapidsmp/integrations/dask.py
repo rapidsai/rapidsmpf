@@ -528,9 +528,19 @@ async def bootstrap_dask_cluster_async(
 
     Notes
     -----
-    This utility must be executed before rapidsmp shuffling
-    can be used within a Dask cluster. This function is called
-    automatically by `rapidsmp.integrations.dask.get_client`.
+    This utility must be executed before rapidsmp shuffling can be used within a
+    Dask cluster. This function is called automatically by
+    `rapidsmp.integrations.dask.rapids_shuffle_graph`, but may be called
+    manually to set things up before the first shuffle.
+
+    Subsequent shuffles on the same cluster will reuse the resources established
+    on the cluster by this function.
+
+    All the workers reported by :meth:`distributed.Client.scheduler_info` will
+    be used. Note that while Dask Clusters can change over time, as workers are
+    added or removed, rapidsmp does not currently support dynamic clusters.
+    expect that the set of workers be fixed throughout the lifetime of the
+    cluster.
     """
     if not client.asynchronous:
         raise ValueError("Client must be asynchronous")
@@ -581,9 +591,19 @@ def bootstrap_dask_cluster(
 
     Notes
     -----
-    This utility must be executed before rapidsmp shuffling
-    can be used within a Dask cluster. This function is called
-    automatically by `rapidsmp.integrations.dask.get_client`.
+    This utility must be executed before rapidsmp shuffling can be used within a
+    Dask cluster. This function is called automatically by
+    `rapidsmp.integrations.dask.rapids_shuffle_graph`, but may be called
+    manually to set things up before the first shuffle.
+
+    Subsequent shuffles on the same cluster will reuse the resources established
+    on the cluster by this function.
+
+    All the workers reported by :meth:`distributed.Client.scheduler_info` will
+    be used. Note that while Dask Clusters can change over time, as workers are
+    added or removed, rapidsmp does not currently support dynamic clusters.
+    expect that the set of workers be fixed throughout the lifetime of the
+    cluster.
     """
     if client.asynchronous:
         raise ValueError("Client must be synchronous")
@@ -790,6 +810,16 @@ class RMPWorkerPlugin(WorkerPlugin):
 
         if hasattr(worker, "_rapidsmp_comm"):
             # We've already been called.
+            return
+
+        if worker.address not in self.worker_addresses:
+            # This is maybe a worker who showed up late, or a worker who
+            # crashed and restarted. Eitehr way, it can't really join
+            # in the UCXX comm, so we'll just ignore it.
+            _dask_logger.info(
+                "Dask worker started but not included in the shuffle. address=%s",
+                worker.address,
+            )
             return
 
         worker.handlers["_root_ucxx_address"] = self._root_ucxx_address
