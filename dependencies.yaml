@@ -241,3 +241,15 @@ dependencies:
       - output_types: [conda]
         packages:
           - *doxygen
+          - *rmm_unsuffixed
+          - dask
+          - dask-cuda==25.4.*,>=0.0.0a0
+          - make
+          - myst-parser
+          - numpydoc
+          - pydata-sphinx-theme
+          - ray-default==2.42.*,>=0.0.0a0
+          - sphinx
+          - sphinx-autobuild
+          - sphinx-copybutton
+          - ucxx==0.43.*,>=0.0.0a0

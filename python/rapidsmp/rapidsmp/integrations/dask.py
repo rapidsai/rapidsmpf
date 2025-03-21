@@ -42,8 +42,8 @@ _shuffle_counter: int = 0
 
 
 async def rapidsmp_ucxx_rank_setup(
-    nranks: int, root_address_str: str | None = None
-) -> str | None:
+    nranks: int, root_address_bytes: bytes | None = None
+) -> bytes | None:
     """
     Setup UCXX-based communicator on single rank.
 
@@ -53,7 +53,7 @@ async def rapidsmp_ucxx_rank_setup(
     of the root as a string.
 
     With the root rank already setup, this should run again with the valid root address
-    specified via `root_address_str` in all workers, including the root rank. Non-root
+    specified via ``root_address_bytes`` in all workers, including the root rank. Non-root
     ranks will connect to the root and all ranks, including the root, will then run a
     barrier, the barrier is important to ensure the underlying UCXX worker is progressed,
     thus why it is necessary to run again on root.
@@ -62,8 +62,8 @@ async def rapidsmp_ucxx_rank_setup(
     ----------
     nranks
         The total number of ranks requested for the cluster.
-    root_address_str
-        The address of the root rank if it has been already setup, `None` if this is
+    root_address_bytes
+        The address of the root rank if it has been already setup, ``None`` if this is
         setting up the root rank. Note that this function must run twice on the root rank
         one to initialize it, and again to ensure synchronization with other ranks. See
         the function extended description for details.
@@ -71,13 +71,13 @@ async def rapidsmp_ucxx_rank_setup(
     Returns
     -------
     root_address
-        Returns the root rank address as a string if this function was called to setup the
-        root, otherwise returns `None`.
+        Returns the root rank address as a bytes string if this function was called to setup
+        the root, otherwise returns `None`.
     """
     dask_worker = get_worker()
 
     comm: Communicator
-    if root_address_str is None:
+    if root_address_bytes is None:
         comm = new_communicator(nranks, None, None)
         comm.logger.trace(f"Rank {comm.rank} created")
         dask_worker._rapidsmp_comm = comm
@@ -87,7 +87,7 @@ async def rapidsmp_ucxx_rank_setup(
             assert isinstance(dask_worker._rapidsmp_comm, Communicator)
             comm = dask_worker._rapidsmp_comm
         else:
-            root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
+            root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
             comm = new_communicator(nranks, None, root_address)
 
             comm.logger.trace(f"Rank {comm.rank} created")
@@ -115,10 +115,10 @@ async def rapidsmp_ucxx_comm_setup(client: Client) -> None:
 
     root_rank = [workers[0]]
 
-    root_address_str = await client.submit(
+    root_address_bytes = await client.submit(
         rapidsmp_ucxx_rank_setup,
         nranks=len(workers),
-        root_address_str=None,
+        root_address_bytes=None,
         workers=root_rank,
         pure=False,
     ).result()
@@ -127,7 +127,7 @@ async def rapidsmp_ucxx_comm_setup(client: Client) -> None:
         client.submit(
             rapidsmp_ucxx_rank_setup,
             nranks=len(workers),
-            root_address_str=root_address_str,
+            root_address_bytes=root_address_bytes,
             workers=[w],
             pure=False,
         )
@@ -366,24 +366,24 @@ def rapidsmp_shuffle_graph(
     A rapidsmp shuffle operation comprises four general phases:
 
     **Staging phase**
-    A new `Shuffler` object must be staged on every worker
+    A new :class:`Shuffler` object must be staged on every worker
     in the current Dask cluster.
 
     **Insertion phase**
     Each input partition is split into a dictionary of chunks,
-    and that dictionary is passed to the appropriate `Shuffler`
-    object (using `Shuffler.insert`).
+    and that dictionary is passed to the appropriate :class:`Shuffler`
+    object (using `Shuffler.insert_chunks`).
 
     The insertion phase will include a single task for each of
-    the `partition_count_in` partitions in the input DataFrame.
+    the ``partition_count_in`` partitions in the input DataFrame.
     The partitioning and insertion logic must be defined by the
-    `insert_partition` classmethod of the `integration` argument.
+    ``insert_partition`` classmethod of the ``integration`` argument.
 
     Insertion tasks are NOT restricted to specific Dask workers.
     These tasks may run anywhere in the cluster.
 
     **Barrier phase**
-    All `Shuffler` objects must be 'informed' that the insertion
+    All :class:`Shuffler` objects must be 'informed' that the insertion
     phase is complete (on all workers) before the subsequent
     extraction phase begins. We call this synchronization step
     the 'barrier phase'.
@@ -392,13 +392,13 @@ def rapidsmp_shuffle_graph(
 
     1. First global barrier - A single barrier task is used to
     signal that all input partitions have been submitted to
-    a `Shuffler` object on one of the workers. This task may
+    a :class:`Shuffler` object on one of the workers. This task may
     also run anywhere on the cluster, but it must depend on
     ALL insertion tasks.
 
     2. Worker barrier(s) - Each worker must execute a single
     worker-barrier task. This task will call `insert_finished`
-    for every output partition on the local `Shuffler`. These
+    for every output partition on the local :class:`Shuffler`. These
     tasks must be restricted to specific workers, and they
     must all depend on the first global barrier.
 
@@ -409,13 +409,13 @@ def rapidsmp_shuffle_graph(
 
     **Extraction phase**
     Each output partition is extracted from the local
-    `Shuffler` object on the worker (using `Shuffler.wait_on`
+    :class:`Shuffler` object on the worker (using `Shuffler.wait_on`
     and `rapidsmp.shuffler.unpack_and_concat`).
 
     The extraction phase will include a single task for each of
-    the `partition_count_out` partitions in the shuffled output
+    the ``partition_count_out`` partitions in the shuffled output
     DataFrame. The extraction logic must be defined by the
-    `extract_partition` classmethod of the `integration` argument.
+    ``extract_partition`` classmethod of the ``integration`` argument.
 
     Extraction tasks must be restricted to specific Dask workers,
     and they must also depend on the second global-barrier task.
@@ -623,7 +623,7 @@ def bootstrap_dask_cluster(
     -----
     This utility must be executed before rapidsmp shuffling
     can be used within a Dask cluster. This function is called
-    automatically by `rapidsmp.integrations.dask.get_client`.
+    automatically by `get_dask_client`.
 
     The `LocalRMPCluster` API is strongly recommended for
     local Dask-cluster generation, because it will automatically
@@ -658,10 +658,10 @@ def bootstrap_dask_cluster(
         # Setup "root" ucxx-comm rank
         workers = list(client.scheduler_info()["workers"])
         root_rank = [workers[0]]
-        root_address_str = client.submit(
+        root_address_bytes = client.submit(
             rapidsmp_ucxx_rank_setup,
             nranks=len(workers),
-            root_address_str=None,
+            root_address_bytes=None,
             workers=root_rank,
             pure=False,
         ).result()
@@ -671,7 +671,7 @@ def bootstrap_dask_cluster(
             client.submit(
                 rapidsmp_ucxx_rank_setup,
                 nranks=len(workers),
-                root_address_str=root_address_str,
+                root_address_bytes=root_address_bytes,
                 workers=[w],
                 pure=False,
             )
@@ -825,7 +825,7 @@ def get_shuffler(
     dask_worker: Worker | None = None,
 ) -> Shuffler:
     """
-    Return the appropriate `Shuffler` object.
+    Return the appropriate :class:`Shuffler` object.
 
     Parameters
     ----------
@@ -838,14 +838,14 @@ def get_shuffler(
 
     Returns
     -------
-    The active rapidsmp `Shuffler` object associated with
-    the specified `shuffle_id`, `partition_count` and
-    `dask_worker`.
+    The active rapidsmp :class:`Shuffler` object associated with
+    the specified ``shuffle_id``, ``partition_count`` and
+    ``dask_worker``.
 
     Notes
     -----
-    Whenever a new `Shuffler` object is created, it is
-    saved as `dask_worker._rmp_shufflers[shuffle_id]`.
+    Whenever a new :class:`Shuffler` object is created, it is
+    saved as ``dask_worker._rmp_shufflers[shuffle_id]``.
 
     This function is expected to run on a Dask worker.
     """
@@ -908,6 +908,10 @@ class LocalRMPCluster(LocalCUDACluster):
         Key-word arguments to be passed through to
         `dask_cuda.LocalCUDACluster`.
 
+    Methods
+    -------
+    __init__
+
     Notes
     -----
     This class wraps `dask_cuda.LocalCUDACluster`, and
@@ -917,6 +921,8 @@ class LocalRMPCluster(LocalCUDACluster):
     restrictions at graph-construction time. This feature
     is currently needed for dask + rapidsmp integration.
     """
+
+    # We need __init__ to avoid warnings during doc builds.
 
     def __init__(self, **kwargs: Any):
         self._rmp_shuffle_counter = 0

@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
+"""ucxx-based implementation of a rapidsmp Communicator."""
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint16_t, uint32_t
@@ -83,7 +84,7 @@ def new_communicator(
     Create a new UCXX communicator with the given number of ranks.
 
     An existing UCXWorker may be specified, otherwise one will be created. The root rank
-    is created if no `root_ucxx_address` is specific, all other ranks must specify the
+    is created if no ``root_ucxx_address`` is specific, all other ranks must specify the
     the address of the root rank via that argument.
 
     Parameters
@@ -132,7 +133,7 @@ def get_root_ucxx_address(Communicator comm):
 
     Returns
     -------
-        A string with the UCXX worker address.
+        A bytes sequence with the UCXX worker address.
     """
     cdef shared_ptr[cpp_UCXX_Communicator] ucxx_comm = (
         dynamic_pointer_cast[cpp_UCXX_Communicator, cpp_Communicator](
@@ -146,7 +147,7 @@ def get_root_ucxx_address(Communicator comm):
 
     if address := get_if[shared_ptr[Address]](&listener_address.address):
         # Dereference twice: first the `get_if` result, then `shared_ptr`
-        return deref(deref(address)).getString()
+        return bytes(deref(deref(address)).getString())
     elif host_port_pair := get_if[HostPortPair](&listener_address.address):
         raise NotImplementedError("Accepting HostPortPair is not implemented yet")
         assert host_port_pair  # Prevent "defined but unused" error
@@ -163,7 +164,7 @@ def barrier(Communicator comm):
     -----
     Executing this barrier is required after the ranks are bootstrapped to ensure
     everyone is connected to the root. An alternative barrier, such as
-    `MPI_Barrier` will not suffice for that purpose.
+    ``MPI_Barrier`` will not suffice for that purpose.
     """
     cdef shared_ptr[cpp_UCXX_Communicator] ucxx_comm = (
         dynamic_pointer_cast[cpp_UCXX_Communicator, cpp_Communicator](
