@@ -42,8 +42,8 @@ _shuffle_counter: int = 0
 
 
 async def rapidsmp_ucxx_rank_setup(
-    nranks: int, root_address_str: str | None = None
-) -> str | None:
+    nranks: int, root_address_bytes: bytes | None = None
+) -> bytes | None:
     """
     Setup UCXX-based communicator on single rank.
 
@@ -53,7 +53,7 @@ async def rapidsmp_ucxx_rank_setup(
     of the root as a string.
 
     With the root rank already setup, this should run again with the valid root address
-    specified via ``root_address_str`` in all workers, including the root rank. Non-root
+    specified via ``root_address_bytes`` in all workers, including the root rank. Non-root
     ranks will connect to the root and all ranks, including the root, will then run a
     barrier, the barrier is important to ensure the underlying UCXX worker is progressed,
     thus why it is necessary to run again on root.
@@ -62,7 +62,7 @@ async def rapidsmp_ucxx_rank_setup(
     ----------
     nranks
         The total number of ranks requested for the cluster.
-    root_address_str
+    root_address_bytes
         The address of the root rank if it has been already setup, ``None`` if this is
         setting up the root rank. Note that this function must run twice on the root rank
         one to initialize it, and again to ensure synchronization with other ranks. See
@@ -71,13 +71,13 @@ async def rapidsmp_ucxx_rank_setup(
     Returns
     -------
     root_address
-        Returns the root rank address as a string if this function was called to setup the
-        root, otherwise returns `None`.
+        Returns the root rank address as a bytes string if this function was called to setup
+        the root, otherwise returns `None`.
     """
     dask_worker = get_worker()
 
     comm: Communicator
-    if root_address_str is None:
+    if root_address_bytes is None:
         comm = new_communicator(nranks, None, None)
         comm.logger.trace(f"Rank {comm.rank} created")
         dask_worker._rapidsmp_comm = comm
@@ -87,7 +87,7 @@ async def rapidsmp_ucxx_rank_setup(
             assert isinstance(dask_worker._rapidsmp_comm, Communicator)
             comm = dask_worker._rapidsmp_comm
         else:
-            root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
+            root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
             comm = new_communicator(nranks, None, root_address)
 
             comm.logger.trace(f"Rank {comm.rank} created")
@@ -115,10 +115,10 @@ async def rapidsmp_ucxx_comm_setup(client: Client) -> None:
 
     root_rank = [workers[0]]
 
-    root_address_str = await client.submit(
+    root_address_bytes = await client.submit(
         rapidsmp_ucxx_rank_setup,
         nranks=len(workers),
-        root_address_str=None,
+        root_address_bytes=None,
         workers=root_rank,
         pure=False,
     ).result()
@@ -127,7 +127,7 @@ async def rapidsmp_ucxx_comm_setup(client: Client) -> None:
         client.submit(
             rapidsmp_ucxx_rank_setup,
             nranks=len(workers),
-            root_address_str=root_address_str,
+            root_address_bytes=root_address_bytes,
             workers=[w],
             pure=False,
         )
@@ -658,10 +658,10 @@ def bootstrap_dask_cluster(
         # Setup "root" ucxx-comm rank
         workers = list(client.scheduler_info()["workers"])
         root_rank = [workers[0]]
-        root_address_str = client.submit(
+        root_address_bytes = client.submit(
             rapidsmp_ucxx_rank_setup,
             nranks=len(workers),
-            root_address_str=None,
+            root_address_bytes=None,
             workers=root_rank,
             pure=False,
         ).result()
@@ -671,7 +671,7 @@ def bootstrap_dask_cluster(
             client.submit(
                 rapidsmp_ucxx_rank_setup,
                 nranks=len(workers),
-                root_address_str=root_address_str,
+                root_address_bytes=root_address_bytes,
                 workers=[w],
                 pure=False,
             )
