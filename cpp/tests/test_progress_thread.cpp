@@ -68,21 +68,21 @@ TEST_P(ProgressThreadEvents, events) {
     };
 
     for (size_t thread = 0; thread < num_threads; ++thread) {
-        progress_threads.emplace_back(std::make_unique<ProgressThread>(logger, statistics)
+        auto& pt = progress_threads.emplace_back(
+            std::make_unique<ProgressThread>(logger, statistics)
         );
 
         for (size_t function = 0; function < num_functions; ++function) {
             auto test_function = std::make_shared<TestFunction>();
             auto expected = expected_count(thread, function);
 
-            test_function->id =
-                progress_threads[thread]->add_function([test_function, expected]() {
-                    if (++test_function->counter == expected) {
-                        return ProgressThread::ProgressState::Done;
-                    } else {
-                        return ProgressThread::ProgressState::InProgress;
-                    }
-                });
+            test_function->id = pt->add_function([test_function, expected]() {
+                if (++test_function->counter == expected) {
+                    return ProgressThread::ProgressState::Done;
+                } else {
+                    return ProgressThread::ProgressState::InProgress;
+                }
+            });
 
             test_functions[thread].push_back(std::move(test_function));
         }
