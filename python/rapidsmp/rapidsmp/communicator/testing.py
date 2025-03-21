@@ -1,4 +1,5 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
 """Submodule for testing."""
 
 from __future__ import annotations
@@ -52,14 +53,14 @@ def ucxx_mpi_setup(ucxx_worker: ucx_api.UCXWorker) -> Communicator:
 
     if MPI.COMM_WORLD.Get_rank() == 0:
         comm = new_communicator(MPI.COMM_WORLD.size, ucxx_worker, None)
-        root_address_str = get_root_ucxx_address(comm)
+        root_address_bytes = get_root_ucxx_address(comm)
     else:
-        root_address_str = None
+        root_address_bytes = None
 
-    root_address_str = MPI.COMM_WORLD.bcast(root_address_str, root=0)
+    root_address_bytes = MPI.COMM_WORLD.bcast(root_address_bytes, root=0)
 
     if MPI.COMM_WORLD.Get_rank() != 0:
-        root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
+        root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
         comm = new_communicator(MPI.COMM_WORLD.size, ucxx_worker, root_address)
 
     assert comm.nranks == MPI.COMM_WORLD.size

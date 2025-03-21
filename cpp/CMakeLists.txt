@@ -1,16 +1,7 @@
-# =============================================================================
-# Copyright (c) 2024-2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
-# in compliance with the License. You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-# is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
-# or implied. See the License for the specific language governing permissions and limitations under
-# the License.
-# =============================================================================
+# =================================================================================
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
+# =================================================================================
 
 cmake_minimum_required(VERSION 3.26.4 FATAL_ERROR)
 
@@ -45,7 +36,7 @@ rapids_cmake_build_type(Release)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
-option(BUILD_SHARED_LIBS "Build rapids-mp shared library" ON)
+option(BUILD_SHARED_LIBS "Build rapidsmp shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMP_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
@@ -235,7 +226,7 @@ install(DIRECTORY include/rapidsmp/ DESTINATION include/rapidsmp)
 
 set(doc_string
     [=[
-RAPIDS-MP.
+RAPIDSMP.
     ]=]
 )
 

@@ -1,4 +1,4 @@
-# RAPIDS-MP
+# RAPIDSMP
 
 Collection of multi-gpu, distributed memory algorithms.
 
