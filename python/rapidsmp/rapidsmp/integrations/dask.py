@@ -899,9 +899,7 @@ class RMPWorkerPlugin(WorkerPlugin):
 
         return None
 
-    def _root_ucxx_address(self, *, caller: str) -> str | None:
-        # https://github.com/rapidsai/rapids-multi-gpu/issues/147
-        # This actually returns bytes | None
+    def _root_ucxx_address(self, *, caller: str) -> bytes | None:
         """
         Get the UCXX address of the root worker.
 
