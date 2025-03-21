@@ -1,4 +1,5 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
 from libcpp.memory cimport shared_ptr
@@ -32,7 +33,7 @@ cdef class Logger:
     """
     Logger.
 
-    To control the verbosity level, set the environment variable `RAPIDSMP_LOG`:
+    To control the verbosity level, set the environment variable ``RAPIDSMP_LOG``:
       - NONE:  No logging.
       - PRINT: General print messages.
       - WARN:  Warning messages (default)
