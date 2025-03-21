@@ -9,6 +9,13 @@ if(CMAKE_COMPILER_IS_GNUCXX)
   )
 endif()
 
+# Function to disable -Wsign-conversion for specific targets
+function(disable_sign_conversion_warning target)
+  if(CMAKE_COMPILER_IS_GNUCXX)
+    target_compile_options(${target} PRIVATE -Wno-sign-conversion)
+  endif()
+endfunction()
+
 list(APPEND RAPIDSMP_CUDA_FLAGS --expt-extended-lambda --expt-relaxed-constexpr)
 
 # set warnings as errors
