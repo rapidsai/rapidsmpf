@@ -110,7 +110,7 @@ void ProgressThread::remove_function(FunctionID function_id) {
 
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
-    if (event_loop_thread_run_ || !functions_.empty()) {
+    if (event_loop_thread_run_) {
         {
             std::lock_guard const lock(mutex_);
             for (auto& [id, function] : functions_) {
