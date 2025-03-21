@@ -348,7 +348,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     } else {
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
         if (headroom < 0) {
-            spill_need = -headroom;
+            spill_need = static_cast<std::size_t>(std::abs(headroom));
         }
     }
     std::size_t spilled{0};
