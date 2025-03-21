@@ -115,7 +115,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
+    std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view /* stream */
 ) {
     RAPIDSMP_EXPECTS(
         msg->size <= std::numeric_limits<int>::max(),
@@ -127,7 +127,10 @@ std::unique_ptr<Communicator::Future> MPI::send(
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
-    Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
+    Rank rank,
+    Tag tag,
+    std::unique_ptr<Buffer> recv_buffer,
+    rmm::cuda_stream_view /* stream */
 ) {
     RAPIDSMP_EXPECTS(
         recv_buffer->size <= std::numeric_limits<int>::max(),

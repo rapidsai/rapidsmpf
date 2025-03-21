@@ -1073,7 +1073,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
-    std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
+    std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view /* stream */
 ) {
     auto req = get_endpoint(rank)->tagSend(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
@@ -1082,7 +1082,10 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv(
-    Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
+    Rank rank,
+    Tag tag,
+    std::unique_ptr<Buffer> recv_buffer,
+    rmm::cuda_stream_view /* stream */
 ) {
     auto req = get_endpoint(rank)->tagRecv(
         recv_buffer->data(),
