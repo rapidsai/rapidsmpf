@@ -71,7 +71,7 @@ int main(int argc, char** argv) {
         rapidsmp::shuffler::partition_and_pack(
             local_input,
             {0},  // columns_to_hash
-            total_num_partitions,
+            static_cast<std::size_t>(total_num_partitions),
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
             stream,
