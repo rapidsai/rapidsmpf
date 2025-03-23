@@ -160,12 +160,12 @@ class SpillManager {
      * @brief Initiates spilling to free up a specified amount of memory.
      *
      * This method iterates through registered spill functions in priority order, invoking
-     * them until the requested amount of memory has been spilled or no more spilling is
-     * possible.
+     * them until at least the requested amount of memory has been spilled or no more
+     * spilling is possible.
      *
      * @param amount The amount of memory (in bytes) to spill.
-     * @return The actual amount of memory spilled (in bytes), which may be less than
-     * requested.
+     * @return The actual amount of memory spilled (in bytes), which may be more, less
+     * or equal to the requested.
      */
     std::size_t spill(std::size_t amount);
 
@@ -180,7 +180,8 @@ class SpillManager {
      *
      * @param headroom The target amount of headroom (in bytes). Allowed to be negative.
      * @return The actual amount of memory spilled (in bytes), which may be less than
-     * requested if there is insufficient spillable data.
+     * requested if there is insufficient spillable data, but may also be more
+     * or equal to requested depending on the sizes of spillable data buffers.
      */
     std::size_t spill_to_make_headroom(std::int64_t headroom = 0);
 

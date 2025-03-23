@@ -70,17 +70,17 @@ TEST(SpillManager, SpillFunction) {
     func2_called = false;
     EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 30_KiB);
 
-    // Removing `func2` means it shouldn's run.
+    // Removing `func2` means it shouldn't run.
     br.spill_manager().remove_spill_function(fid2);
     EXPECT_EQ(br.spill_manager().spill(10_KiB), 10_KiB);
     EXPECT_FALSE(func2_called);
     EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 40_KiB);
 
-    // If the headroom is already their, no spilling should be happening.
+    // If the headroom is already there, no spilling should be happening.
     EXPECT_EQ(br.spill_manager().spill_to_make_headroom(10_KiB), 0);
     EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 40_KiB);
 
-    // If the headroom isn't their, we should spill to get the headroom.
+    // If the headroom isn't there, we should spill to get the headroom.
     EXPECT_EQ(br.spill_manager().spill_to_make_headroom(100_KiB), 60_KiB);
     EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 100_KiB);
 }
