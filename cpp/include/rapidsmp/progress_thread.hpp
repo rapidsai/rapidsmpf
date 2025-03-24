@@ -112,10 +112,7 @@ class ProgressThread {
          * @param mutex The mutex to use for synchronization.
          * @param cv The condition variable to use for synchronization.
          */
-        void wait_for_completion(std::mutex& mutex, std::condition_variable& cv) {
-            std::unique_lock<std::mutex> lock(mutex);
-            cv.wait(lock, [this]() { return is_done.load(); });
-        }
+        void wait_for_completion(std::mutex& mutex, std::condition_variable& cv);
 
         Function function;  ///< The function to execute.
         std::atomic<bool> is_done{false};  ///< Whether the function has completed

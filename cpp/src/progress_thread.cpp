@@ -33,6 +33,13 @@ void ProgressThread::FunctionState::operator()() {
         is_done.store(true);
 }
 
+void ProgressThread::FunctionState::wait_for_completion(
+    std::mutex& mutex, std::condition_variable& cv
+) {
+    std::unique_lock<std::mutex> lock(mutex);
+    cv.wait(lock, [this]() { return is_done.load(); });
+}
+
 ProgressThread::ProgressThread(
     Communicator::Logger& logger, std::shared_ptr<Statistics> statistics
 )
