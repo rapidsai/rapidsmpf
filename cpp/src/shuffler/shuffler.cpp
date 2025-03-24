@@ -215,9 +215,7 @@ void Shuffler::insert_into_outbox(detail::Chunk&& chunk) {
     log.trace("insert_into_outbox: ", chunk);
     auto pid = chunk.pid;
     if (chunk.expected_num_chunks) {
-        finish_counter_.move_goalpost(
-            comm_->rank(), chunk.pid, chunk.expected_num_chunks
-        );
+        finish_counter_.move_goalpost(chunk.pid, chunk.expected_num_chunks);
     } else {
         outbox_.insert(std::move(chunk));
     }
