@@ -598,10 +598,8 @@ def bootstrap_dask_cluster(
     on the cluster by this function.
 
     All the workers reported by :meth:`distributed.Client.scheduler_info` will
-    be used. Note that while Dask Clusters can change over time, as workers are
-    added or removed, rapidsmp does not currently support dynamic clusters.
-    expect that the set of workers be fixed throughout the lifetime of the
-    cluster.
+    be used. Note that rapidsmp does not currently support adding or removing
+    workers from the cluster.
     """
     if client.asynchronous:
         raise ValueError("Client must be synchronous")
