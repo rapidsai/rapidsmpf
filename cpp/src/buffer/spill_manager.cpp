@@ -81,7 +81,7 @@ std::size_t SpillManager::spill_to_make_headroom(std::int64_t headroom) {
     if (headroom <= available) {
         return 0;
     }
-    return spill(headroom - available);
+    return spill(static_cast<std::size_t>(headroom - available));
 }
 
 }  // namespace rapidsmp
