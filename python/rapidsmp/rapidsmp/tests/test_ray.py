@@ -14,13 +14,12 @@ import pytest
 
 ray = pytest.importorskip("ray")
 
+from rapidsmp.examples.ray.ray_shuffle_example import (  # noqa: E402
+    ShufflingActor,
+)
 from rapidsmp.integrations.ray import (  # noqa: E402
     RapidsMPActor,
     setup_ray_ucxx_cluster,
-)
-
-from python.rapidsmp.rapidsmp.examples.ray.ray_shuffle_example import (  # noqa: E402
-    ShufflingActor,
 )
 
 
