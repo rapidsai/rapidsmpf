@@ -22,7 +22,7 @@ rmm::device_uvector<std::int32_t> random_device_vector(
     rmm::device_async_resource_ref mr
 ) {
     // Fill vector with random data.
-    rmm::device_uvector<std::int32_t> vec(nelem, stream, mr);
+    rmm::device_uvector<std::int32_t> vec(static_cast<std::size_t>(nelem), stream, mr);
     thrust::transform(
         rmm::exec_policy(stream),
         thrust::make_counting_iterator(0),

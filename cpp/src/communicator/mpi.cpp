@@ -50,7 +50,10 @@ void detail::check_mpi_error(int error_code, const char* file, int line) {
         int error_length;
         MPI_Error_string(error_code, error_string.data(), &error_length);
         std::cerr << "MPI error at " << file << ":" << line << ": "
-                  << std::string(error_string.data(), error_length) << std::endl;
+                  << std::string(
+                         error_string.data(), static_cast<std::size_t>(error_length)
+                     )
+                  << std::endl;
         MPI_Abort(MPI_COMM_WORLD, error_code);
     }
 }
@@ -97,11 +100,7 @@ MPI::MPI(MPI_Comm comm) : comm_{comm}, logger_{this} {
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<std::vector<uint8_t>> msg,
-    Rank rank,
-    Tag tag,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
+    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
 ) {
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
     RAPIDSMP_EXPECTS(
@@ -111,11 +110,11 @@ std::unique_ptr<Communicator::Future> MPI::send(
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
     );
-    return std::make_unique<Future>(req, br->move(std::move(msg), stream));
+    return std::make_unique<Future>(req, br->move(std::move(msg)));
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
+    std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
     RAPIDSMP_EXPECTS(
         msg->size <= std::numeric_limits<int>::max(),
@@ -127,7 +126,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
-    Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
+    Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
     RAPIDSMP_EXPECTS(
         recv_buffer->size <= std::numeric_limits<int>::max(),
@@ -205,7 +204,7 @@ std::vector<std::size_t> MPI::test_some(
             completed.data(),
             MPI_STATUSES_IGNORE
         ));
-        completed.resize(num_completed);
+        completed.resize(static_cast<std::size_t>(num_completed));
     }
     return std::vector<std::size_t>(completed.begin(), completed.end());
 }
@@ -236,13 +235,13 @@ std::vector<std::size_t> MPI::test_some(
             completed.data(),
             MPI_STATUSES_IGNORE
         ));
-        completed.resize(num_completed);
+        completed.resize(static_cast<std::size_t>(num_completed));
     }
 
     std::vector<std::size_t> ret;
     ret.reserve(completed.size());
     for (int i : completed) {
-        ret.push_back(key_reqs.at(i));
+        ret.push_back(key_reqs.at(static_cast<std::size_t>(i)));
     }
     return ret;
 }

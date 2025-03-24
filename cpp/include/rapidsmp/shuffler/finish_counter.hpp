@@ -54,14 +54,13 @@ class FinishCounter {
      * This function sets the number of chunks that need to be received from a specific
      * rank and partition. It should only be called once per rank and partition.
      *
-     * @param rank The rank the goalpost is assigned to.
      * @param pid The partition ID the goalpost is assigned to.
      * @param nchunks The number of chunks required.
      *
      * @throw cudf::logic_error If the goalpost is moved more than once for the same rank
      * and partition.
      */
-    void move_goalpost(Rank rank, PartID pid, ChunkID nchunks);
+    void move_goalpost(PartID pid, ChunkID nchunks);
 
     /**
      * @brief Add a finished chunk to a partition counter.

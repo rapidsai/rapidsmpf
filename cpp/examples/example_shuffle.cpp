@@ -46,7 +46,8 @@ int main(int argc, char** argv) {
     cudf::table local_input = random_table(2, 100, 0, 10, stream, mr);
 
     // The total number of inputs equals the number of ranks, in this case.
-    rapidsmp::shuffler::PartID const total_num_partitions = comm->nranks();
+    rapidsmp::shuffler::PartID const total_num_partitions =
+        static_cast<rapidsmp::shuffler::PartID>(comm->nranks());
 
     // We create a new shuffler instance, which represents a single shuffle. It takes
     // a Communicator, the total number of partitions, and a "owner function", which
@@ -71,7 +72,7 @@ int main(int argc, char** argv) {
         rapidsmp::shuffler::partition_and_pack(
             local_input,
             {0},  // columns_to_hash
-            total_num_partitions,
+            static_cast<int>(total_num_partitions),
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
             stream,

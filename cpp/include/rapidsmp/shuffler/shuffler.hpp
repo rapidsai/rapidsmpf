@@ -57,7 +57,7 @@ class Shuffler {
      * @return The rank owning the partition.
      */
     static Rank round_robin(std::shared_ptr<Communicator> const& comm, PartID pid) {
-        return pid % comm->nranks();
+        return static_cast<Rank>(pid % static_cast<PartID>(comm->nranks()));
     }
 
     /**
@@ -264,7 +264,7 @@ class Shuffler {
             0,  // expected_num_chunks
             gpu_data ? gpu_data->size() : 0,  // gpu_data_size
             std::move(metadata),
-            br_->move(std::move(gpu_data), stream_)
+            br_->move(std::move(gpu_data))
         };
     }
 

@@ -61,6 +61,7 @@ class ArgumentParser {
                         }
                         RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
                     }
+                    break;
                 case 'C':
                     comm_type = std::string{optarg};
                     if (!(comm_type == "mpi" || comm_type == "ucxx")) {
@@ -107,8 +108,9 @@ class ArgumentParser {
                     break;
                 case '?':
                     RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    break;
                 default:
-                    throw std::runtime_error("Error parsing arguments.");
+                    RAPIDSMP_FAIL("unknown option", std::invalid_argument);
                 }
             }
             if (optind < argc) {
@@ -123,7 +125,7 @@ class ArgumentParser {
 
         local_nbytes =
             num_columns * num_local_rows * num_local_partitions * sizeof(std::int32_t);
-        total_nbytes = local_nbytes * nranks;
+        total_nbytes = local_nbytes * static_cast<std::uint64_t>(nranks);
         if (rmm_mr == "cuda") {
             if (rank == 0) {
                 std::cout << "WARNING: using the default cuda memory resource "
@@ -182,12 +184,13 @@ rapidsmp::Duration run(
     std::int32_t const min_val = 0;
     std::int32_t const max_val = args.num_local_rows;
     rapidsmp::shuffler::PartID const total_num_partitions =
-        args.num_local_partitions * comm->nranks();
+        args.num_local_partitions
+        * static_cast<rapidsmp::shuffler::PartID>(comm->nranks());
     std::vector<cudf::table> input_partitions;
     for (rapidsmp::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
         input_partitions.push_back(random_table(
-            args.num_columns,
-            args.num_local_rows,
+            static_cast<cudf::size_type>(args.num_columns),
+            static_cast<cudf::size_type>(args.num_local_rows),
             min_val,
             max_val,
             stream,
@@ -204,7 +207,7 @@ rapidsmp::Duration run(
         rapidsmp::shuffler::Shuffler shuffler(
             comm,
             0,  // op_id
-            total_num_partitions,
+            static_cast<rapidsmp::shuffler::PartID>(total_num_partitions),
             stream,
             br,
             statistics,
@@ -216,7 +219,7 @@ rapidsmp::Duration run(
             shuffler.insert(rapidsmp::shuffler::partition_and_pack(
                 partition,
                 {0},
-                total_num_partitions,
+                static_cast<std::int32_t>(total_num_partitions),
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
                 stream,
@@ -247,7 +250,7 @@ rapidsmp::Duration run(
             auto [parts, owner] = rapidsmp::shuffler::partition_and_split(
                 output_partition,
                 {0},
-                total_num_partitions,
+                static_cast<std::int32_t>(total_num_partitions),
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
                 stream,
@@ -365,9 +368,13 @@ int main(int argc, char** argv) {
            << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
         if (args.enable_memory_profiler) {
             auto const counter = stat_enabled_mr->get_bytes_counter();
-            ss << " | device memory peak: " << rapidsmp::format_nbytes(counter.peak)
+            ss << " | device memory peak: "
+               << rapidsmp::format_nbytes(static_cast<std::uint64_t>(counter.peak))
                << " | device memory total: "
-               << rapidsmp::format_nbytes(counter.total / total_num_runs) << " (avg)";
+               << rapidsmp::format_nbytes(
+                      static_cast<std::uint64_t>(counter.total) / total_num_runs
+                  )
+               << " (avg)";
         }
         log.print(ss.str());
     }
