@@ -16,6 +16,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <list>
@@ -96,7 +97,7 @@ class ProgressThread {
          *
          * @param function The function to execute.
          */
-        FunctionState(Function function);
+        explicit FunctionState(Function&& function);
 
         /**
          * @brief Execute the function.
@@ -115,11 +116,11 @@ class ProgressThread {
          */
         void wait_for_completion(std::mutex& mutex, std::condition_variable& cv) {
             std::unique_lock<std::mutex> lock(mutex);
-            cv.wait(lock, [this]() { return is_done; });
+            cv.wait(lock, [this]() { return is_done.load(); });
         }
 
         Function function;  ///< The function to execute.
-        bool is_done{false};  ///< Whether the function has completed
+        std::atomic<bool> is_done{false};  ///< Whether the function has completed
     };
 
     /**
@@ -149,7 +150,7 @@ class ProgressThread {
      *
      * @return The unique ID of the function that was registered.
      */
-    FunctionID add_function(std::function<ProgressState()> function);
+    FunctionID add_function(Function&& function);
 
     /**
      * @brief Remove a function and stop processing it as part of the event loop.
@@ -167,22 +168,21 @@ class ProgressThread {
      *
      * The event loop continuously progresses registered functions in no
      * specific order.
-     *
-     * @param self The `ProgressThread` instance.
      */
     void event_loop();
 
     detail::PausableThreadLoop thread_;
     Communicator::Logger& logger_;
     std::shared_ptr<Statistics> statistics_;
-    bool active_{true};
+    std::atomic<bool> active_{true};
     bool is_thread_initialized_{false};
-    std::unordered_map<FunctionIndex, FunctionState> functions_;
-    std::atomic<bool> event_loop_thread_run_{true};
-    std::mutex mutex_;  ///< Mutex for thread-safe access to functions_
+    std::shared_mutex mutex_;  ///< Shared mutex for thread-safe access to functions_
     std::mutex state_mutex_;  ///< Mutex for synchronizing function states
     std::condition_variable state_cv_;  ///< Condition variable for function state changes
-    FunctionIndex next_function_id_;  ///< Counter for generating unique function indices
+    FunctionIndex next_function_id_{0
+    };  ///< Counter for generating unique function indices
+    std::atomic<bool> event_loop_thread_run_{true};
+    std::unordered_map<FunctionIndex, FunctionState> functions_;
 };
 
 }  // namespace rapidsmp

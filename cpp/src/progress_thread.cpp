@@ -24,15 +24,13 @@
 
 namespace rapidsmp {
 
-ProgressThread::FunctionState::FunctionState(Function function)
+ProgressThread::FunctionState::FunctionState(Function&& function)
     : function(std::move(function)) {}
 
 void ProgressThread::FunctionState::operator()(std::mutex& mutex) {
     // Only call `function()` if it isn't done yet.
-    if (!is_done && function() == ProgressState::Done) {
-        std::lock_guard<std::mutex> lock(mutex);
-        is_done = true;
-    }
+    if (!is_done.load() && function() == ProgressState::Done)
+        is_done.store(true);
 }
 
 ProgressThread::ProgressThread(
@@ -51,27 +49,25 @@ ProgressThread::ProgressThread(
       statistics_(std::move(statistics)) {}
 
 ProgressThread::~ProgressThread() {
-    if (active_) {
+    if (active_.load()) {
         shutdown();
     }
 }
 
 void ProgressThread::shutdown() {
-    RAPIDSMP_EXPECTS(active_, "ProgressThread is inactive");
+    RAPIDSMP_EXPECTS(active_.load(), "ProgressThread is inactive");
     logger_.debug("ProgressThread.shutdown() - initiate");
     event_loop_thread_run_.store(false);
     thread_.stop();
     logger_.debug("ProgressThread.shutdown() - done");
-    active_ = false;
+    active_.store(false);
 }
 
-ProgressThread::FunctionID ProgressThread::add_function(
-    std::function<ProgressState()> function
-) {
+ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
     std::lock_guard const lock(mutex_);
     auto id =
         FunctionID(reinterpret_cast<ProgressThreadAddress>(this), next_function_id_++);
-    functions_.emplace(id.function_index, FunctionState(function));
+    functions_.emplace(id.function_index, std::move(function));
     thread_.resume();
     return id;
 }
@@ -106,16 +102,19 @@ void ProgressThread::remove_function(FunctionID function_id) {
 
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
-    if (event_loop_thread_run_) {
-        {
-            std::lock_guard const lock(mutex_);
-            for (auto& [id, function] : functions_) {
-                function(state_mutex_);
-            }
-        }
-        // Notify all waiting functions that we've completed an iteration
-        state_cv_.notify_all();
+    if (!event_loop_thread_run_.load()) {
+        return;
     }
+
+    {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        for (auto& [id, function] : functions_) {
+            function(state_mutex_);
+        }
+    }
+    // Notify all waiting functions that we've completed an iteration
+    state_cv_.notify_all();
+
     statistics_->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 }
 
