@@ -144,6 +144,9 @@ class ProgressThread {
     /**
      * @brief Insert a function to process as part of the event loop.
      *
+     * @note This function does not need to bethread-safe if not used in
+     * multiple progress threads.
+     *
      * @param function The function to register.
      *
      * @return The unique ID of the function that was registered.
