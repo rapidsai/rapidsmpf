@@ -3,7 +3,7 @@ files:
   all:
     output: conda
     matrix:
-      cuda: ["11.8", "12.8"]
+      cuda: ["12.8"]
       arch: [aarch64, x86_64]
     includes:
       - build-universal
@@ -69,18 +69,6 @@ dependencies:
         matrices:
           - matrix:
               arch: x86_64
-              cuda: "11.*"
-            packages:
-              - gcc_linux-64=11.*
-              - sysroot_linux-64=2.28
-          - matrix:
-              arch: aarch64
-              cuda: "11.*"
-            packages:
-              - gcc_linux-aarch64=11.*
-              - sysroot_linux-aarch64=2.28
-          - matrix:
-              arch: x86_64
               cuda: "12.*"
             packages:
               - gcc_linux-64=13.*
@@ -93,16 +81,6 @@ dependencies:
               - sysroot_linux-aarch64=2.28
       - output_types: conda
         matrices:
-          - matrix:
-              arch: x86_64
-              cuda: "11.8"
-            packages:
-              - nvcc_linux-64=11.8
-          - matrix:
-              arch: aarch64
-              cuda: "11.8"
-            packages:
-              - nvcc_linux-aarch64=11.8
           - matrix:
               cuda: "12.*"
             packages:
@@ -138,22 +116,6 @@ dependencies:
       - output_types: conda
         matrices:
           - matrix:
-              cuda: "11.2"
-            packages:
-              - cuda-version=11.2
-          - matrix:
-              cuda: "11.4"
-            packages:
-              - cuda-version=11.4
-          - matrix:
-              cuda: "11.5"
-            packages:
-              - cuda-version=11.5
-          - matrix:
-              cuda: "11.8"
-            packages:
-              - cuda-version=11.8
-          - matrix:
               cuda: "12.0"
             packages:
               - cuda-version=12.0
@@ -173,10 +135,6 @@ dependencies:
     specific:
       - output_types: conda
         matrices:
-          - matrix:
-              cuda: "11.*"
-            packages:
-              - cudatoolkit
           - matrix:
               cuda: "12.*"
             packages:

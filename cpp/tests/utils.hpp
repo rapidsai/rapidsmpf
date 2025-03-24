@@ -36,7 +36,7 @@ template <typename T>
     std::int64_t min = std::numeric_limits<std::int64_t>::min(),
     std::int64_t max = std::numeric_limits<std::int64_t>::max()
 ) {
-    std::mt19937 rng(seed);
+    std::mt19937 rng(static_cast<std::mt19937::result_type>(seed));
     std::uniform_int_distribution<std::int64_t> dist(min, max);
     std::vector<std::int64_t> ret(nelem);
     std::generate(ret.begin(), ret.end(), [&]() { return dist(rng); });
@@ -68,7 +68,7 @@ template <typename T>
 
 [[nodiscard]] inline cudf::table sort_table(
     cudf::table_view const& table,
-    std::vector<cudf::size_type> const& column_indices = {0}
+    std::vector<cudf::size_type> const& /* column_indices */ = {0}
 ) {
     return cudf::gather(table, cudf::sorted_order(table.select({0}))->view())->release();
 }

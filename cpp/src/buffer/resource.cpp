@@ -4,7 +4,6 @@
  */
 
 #include <limits>
-#include <utility>
 
 #include <rapidsmp/buffer/resource.hpp>
 
@@ -19,9 +18,12 @@ MemoryReservation::~MemoryReservation() noexcept {
 
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
-    std::unordered_map<MemoryType, MemoryAvailable> memory_available
+    std::unordered_map<MemoryType, MemoryAvailable> memory_available,
+    std::optional<std::chrono::microseconds> periodic_spill_check
 )
-    : device_mr_{device_mr}, memory_available_{std::move(memory_available)} {
+    : device_mr_{device_mr},
+      memory_available_{std::move(memory_available)},
+      spill_manager_{this, periodic_spill_check} {
     for (MemoryType mem_type : MEMORY_TYPES) {
         // Add missing memory availability functions.
         memory_available_.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);
@@ -36,9 +38,12 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     std::size_t& reserved = memory_reserved(mem_type);
 
     // Calculate the available memory _after_ the memory has been reserved.
-    std::int64_t headroom = available() - (reserved + size);
+    std::int64_t headroom =
+        available()
+        - (static_cast<std::int64_t>(reserved) + static_cast<std::int64_t>(size));
     // If negative, we are overbooking.
-    std::size_t overbooking = headroom < 0 ? -headroom : 0;
+    std::size_t overbooking =
+        headroom < 0 ? static_cast<std::size_t>(std::abs(headroom)) : 0;
     if (overbooking > 0 && !allow_overbooking) {
         // Cancel the reservation, overbooking isn't allowed.
         return {MemoryReservation(mem_type, this, 0), overbooking};
@@ -96,15 +101,11 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     return ret;
 }
 
-std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<std::vector<uint8_t>> data, rmm::cuda_stream_view stream
-) {
+std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<std::vector<uint8_t>> data) {
     return std::make_unique<Buffer>(Buffer{std::move(data), this});
 }
 
-std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
-) {
+std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<rmm::device_buffer> data) {
     return std::make_unique<Buffer>(Buffer{std::move(data), this});
 }
 
@@ -153,4 +154,7 @@ std::unique_ptr<Buffer> BufferResource::copy(
     return ret;
 }
 
+SpillManager& BufferResource::spill_manager() {
+    return spill_manager_;
+}
 }  // namespace rapidsmp
