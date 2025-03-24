@@ -81,7 +81,7 @@ class ProgressThread {
     /**
      * @typedef Function
      * @brief The function type supported by `ProgressThread`, returning the progress
-     * state of thee function.
+     * state of the function.
      */
     using Function = std::function<ProgressState()>;
 
@@ -90,8 +90,6 @@ class ProgressThread {
      */
     class FunctionState {
       public:
-        FunctionState() = delete;
-
         /**
          * @brief Construct state of a function.
          *
