@@ -100,7 +100,7 @@ def streaming_shuffle(
     wait_timeout: int | None,
 ) -> None:
     """
-    Run shuffle opeartion in a streaming fashion.
+    Run shuffle operation in a streaming fashion.
 
     Main thread will produce local partitions and stream them through the shuffler. A separate
     consumer thread will consume the finished partitions, and discard them.
