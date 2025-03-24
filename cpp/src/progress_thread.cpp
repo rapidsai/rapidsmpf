@@ -64,7 +64,7 @@ void ProgressThread::shutdown() {
 }
 
 ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
-    std::lock_guard const lock(mutex_);
+    std::unique_lock<std::shared_mutex> lock(mutex_);
     auto id =
         FunctionID(reinterpret_cast<ProgressThreadAddress>(this), next_function_id_++);
     functions_.emplace(id.function_index, std::move(function));
