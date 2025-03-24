@@ -44,7 +44,8 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     auto stream = cudf::get_default_stream();
     auto mr = cudf::get_current_device_resource_ref();
 
-    cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
+    cudf::table expect =
+        random_table_with_index(seed, static_cast<std::size_t>(num_rows), 0, 10);
 
     auto chunks = rapidsmp::shuffler::partition_and_pack(
         expect, {1}, num_partitions, hash_fn, seed, stream, mr
@@ -121,11 +122,18 @@ void test_shuffler(
     // partitions this rank might not get after the shuffle).
     cudf::table full_input_table = random_table_with_index(seed, total_num_rows, 0, 10);
     auto [expect_partitions, owner] = rapidsmp::shuffler::partition_and_split(
-        full_input_table, {1}, total_num_partitions, hash_fn, seed, stream, mr
+        full_input_table,
+        {1},
+        static_cast<std::int32_t>(total_num_partitions),
+        hash_fn,
+        seed,
+        stream,
+        mr
     );
 
     cudf::size_type row_offset = 0;
-    cudf::size_type partiton_size = full_input_table.num_rows() / total_num_partitions;
+    cudf::size_type partiton_size =
+        full_input_table.num_rows() / static_cast<cudf::size_type>(total_num_partitions);
     for (rapidsmp::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
         // To simulate that `full_input_table` is distributed between multiple ranks,
         // we divided them into `total_num_partitions` number of partitions and pick
@@ -142,7 +150,13 @@ void test_shuffler(
             auto slice = cudf::slice(full_input_table, {row_offset, row_end}).at(0);
             // Hash the `slice` into chunks and pack (serialize) them.
             auto packed_chunks = rapidsmp::shuffler::partition_and_pack(
-                slice, {1}, total_num_partitions, hash_fn, seed, stream, mr
+                slice,
+                {1},
+                static_cast<std::int32_t>(total_num_partitions),
+                hash_fn,
+                seed,
+                stream,
+                mr
             );
             // Add the chunks to the shuffle
             shuffler.insert(std::move(packed_chunks));
@@ -173,7 +187,8 @@ void test_shuffler(
 }
 
 class MemoryAvailable_NumPartition
-    : public cudf::test::BaseFixtureWithParam<std::tuple<MemoryAvailableMap, int, int>> {
+    : public cudf::test::BaseFixtureWithParam<
+          std::tuple<MemoryAvailableMap, rapidsmp::shuffler::PartID, std::size_t>> {
     void SetUp() override {
         GlobalEnvironment->barrier();
     }
@@ -234,7 +249,8 @@ class ConcurrentShuffleTest
   public:
     void SetUp() override {
         num_shufflers = std::get<0>(GetParam());
-        total_num_partitions = std::get<1>(GetParam());
+        total_num_partitions =
+            static_cast<rapidsmp::shuffler::PartID>(std::get<1>(GetParam()));
 
         // these resources will be used by multiple threads to instantiate shufflers
         br = std::make_shared<rapidsmp::BufferResource>(mr());
@@ -293,7 +309,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(ConcurrentShuffleTest, round_trip) {
     std::vector<std::future<void>> futures;
-    futures.reserve(num_shufflers);
+    futures.reserve(static_cast<std::size_t>(num_shufflers));
 
     for (int t_id = 0; t_id < num_shufflers; t_id++) {
         futures.push_back(std::async(std::launch::async, [this, t_id] {

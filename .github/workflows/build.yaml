@@ -3,7 +3,9 @@ name: build
 on:
   push:
     branches:
-      - "main"
+      - "branch-*"
+    tags:
+      - v[0-9][0-9].[0-9][0-9].[0-9][0-9]
   workflow_dispatch:
     inputs:
       branch:
@@ -46,6 +48,7 @@ jobs:
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
+      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   conda-python-build:
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@branch-25.06
@@ -54,9 +57,10 @@ jobs:
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
+      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   docs-build:
     if: github.ref_type == 'branch'
-    needs: python-build
+    needs: conda-python-build
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-25.06
     with:

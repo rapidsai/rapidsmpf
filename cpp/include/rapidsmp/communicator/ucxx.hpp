@@ -83,7 +83,7 @@ class InitializedRank {
  */
 std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
-    std::uint32_t nranks,
+    Rank nranks,
     std::optional<RemoteAddress> remote_address = std::nullopt
 );
 
@@ -144,36 +144,29 @@ class UCXX final : public Communicator {
     /**
      * @copydoc Communicator::nranks
      */
-    [[nodiscard]] int nranks() const override;
+    [[nodiscard]] Rank nranks() const override;
 
     /**
      * @copydoc Communicator::send
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg,
-        Rank rank,
-        Tag tag,
-        rmm::cuda_stream_view stream,
-        BufferResource* br
+        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
     ) override;
 
     // clang-format off
     /**
-     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream)
+     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, Rank rank, Tag tag)
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
+        std::unique_ptr<Buffer> msg, Rank rank, Tag tag
     ) override;
 
     /**
      * @copydoc Communicator::recv
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> recv(
-        Rank rank,
-        Tag tag,
-        std::unique_ptr<Buffer> recv_buffer,
-        rmm::cuda_stream_view stream
+        Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
     ) override;
 
     /**

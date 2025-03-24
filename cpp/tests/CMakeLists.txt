@@ -61,6 +61,7 @@ target_link_libraries(
   mpi_tests PRIVATE rapidsmp::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
                     GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
 )
+disable_sign_conversion_warning(mpi_tests)
 
 rapidsmp_mpirun_test_add(TEST_TARGET mpi_tests)
 
@@ -85,6 +86,7 @@ target_link_libraries(
   ucxx_tests PRIVATE rapidsmp::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
                      GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
 )
+disable_sign_conversion_warning(ucxx_tests)
 
 rapidsmp_mpirun_test_add(TEST_TARGET ucxx_tests)
 

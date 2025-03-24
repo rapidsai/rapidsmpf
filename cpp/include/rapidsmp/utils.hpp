@@ -89,7 +89,7 @@ std::string to_precision(T value, int precision = 2) {
  * @param precision The number of decimal places to include.
  * @return A string representation of the byte size with the specified precision.
  */
-std::string inline format_nbytes(int64_t nbytes, int precision = 2) {
+std::string inline format_nbytes(std::size_t nbytes, int precision = 2) {
     constexpr std::array<const char*, 6> units = {" B", " KiB", " MiB", " GiB", " TiB"};
     auto n = static_cast<double>(nbytes);
     for (auto const& unit : units) {
