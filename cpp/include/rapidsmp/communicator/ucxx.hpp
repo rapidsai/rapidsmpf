@@ -83,7 +83,7 @@ class InitializedRank {
  */
 std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
-    std::uint32_t nranks,
+    Rank nranks,
     std::optional<RemoteAddress> remote_address = std::nullopt
 );
 
@@ -144,7 +144,7 @@ class UCXX final : public Communicator {
     /**
      * @copydoc Communicator::nranks
      */
-    [[nodiscard]] std::int32_t nranks() const override;
+    [[nodiscard]] Rank nranks() const override;
 
     /**
      * @copydoc Communicator::send

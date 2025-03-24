@@ -28,11 +28,12 @@ namespace rapidsmp {
 
 /**
  * @typedef Rank
- * @brief The rank of a node (e.g. the rank of a MPI process).
+ * @brief The rank of a node (e.g. the rank of a MPI process), or world size (total number
+ * of ranks).
  *
  * @note Ranks are always consecutive integers from zero to the total number of ranks.
  */
-using Rank = int;
+using Rank = std::int32_t;
 
 /**
  * @typedef OpID
@@ -402,7 +403,7 @@ class Communicator {
      * @brief Retrieves the total number of ranks.
      * @return The total number of ranks.
      */
-    [[nodiscard]] virtual std::int32_t nranks() const = 0;
+    [[nodiscard]] virtual Rank nranks() const = 0;
 
     /**
      * @brief Sends a host message to a specific rank.
