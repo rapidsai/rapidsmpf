@@ -537,10 +537,8 @@ async def bootstrap_dask_cluster_async(
     on the cluster by this function.
 
     All the workers reported by :meth:`distributed.Client.scheduler_info` will
-    be used. Note that while Dask Clusters can change over time, as workers are
-    added or removed, rapidsmp does not currently support dynamic clusters.
-    expect that the set of workers be fixed throughout the lifetime of the
-    cluster.
+    be used. Note that rapidsmp does not currently support adding or removing
+    workers from the cluster.
     """
     if not client.asynchronous:
         raise ValueError("Client must be asynchronous")
@@ -692,20 +690,20 @@ class RMPWorkerPlugin(WorkerPlugin):
     RAPIDS-MP Worker Plugin.
 
     This plugin ensures that the cluster is ready to shuffle data by
-    establishing a UCXX communicators between all workers.
+    establishing a UCXX communicator between all workers.
 
     Parameters
     ----------
-    worker_addresses : list[str]
+    worker_addresses
         The addresses of each worker in the cluster. Use
         :meth:`distributed.Client.scheduler_info()["workers"]` to get this list.
-    pool_size : float
+    pool_size
         The desired RMM pool size.
-    spill_device : float
+    spill_device
         GPU memory limit for shuffling.
-    enable_statistics : bool
+    enable_statistics
         Whether to track shuffler statistics.
-    ready_timeout : float | str
+    ready_timeout
         Timeout for a worker to become ready. For the root worker, this includes
         the time to create its own UCXX communicator and wait for all other
         nodes to check in. For non-root workers, this includes the time for it
@@ -877,11 +875,7 @@ class RMPWorkerPlugin(WorkerPlugin):
                         worker.address,
                         attempt,
                     )
-                    await asyncio.sleep(
-                        _exponential_backoff(
-                            attempt, multiplier=1, exponential_base=0.5, max_interval=10
-                        )
-                    )
+                    await asyncio.sleep(_exponential_backoff(attempt))
                     attempt += 1
 
             if root_ucxx_address is None:
@@ -1099,9 +1093,7 @@ def _stage_shuffler(
     )
 
 
-def _exponential_backoff(
-    attempt: int, multiplier: float, exponential_base: float, max_interval: float
-) -> float:
+def _exponential_backoff(attempt: int) -> float:
     """
     Calculate the duration of an exponential backoff.
 
@@ -1109,20 +1101,16 @@ def _exponential_backoff(
     ----------
     attempt : int
         The attempt number. Increment this between attempts.
-    multiplier : float
-        The multiplier for the exponential backoff.
-    exponential_base : float
-        The base for the exponential backoff.
-    max_interval : float
-        The maximum interval for the exponential backoff.
 
     Returns
     -------
     float
         The duration of the exponential backoff.
     """
+    max_interval = 10
+
     try:
-        interval = multiplier * exponential_base**attempt
+        interval = 0.5**attempt
     except OverflowError:
         return max_interval
 
