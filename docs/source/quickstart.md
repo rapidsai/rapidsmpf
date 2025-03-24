@@ -22,7 +22,7 @@ from rapidsmp.examples.dask import dask_cudf_shuffle
 
 df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
 
-with LocalRMPCluster() as cluster:
+with LocalCUDACluster() as cluster:
     with dask.distributed.Client(cluster) as client:
         shuffled = dask_cudf_shuffle(df, shuffle_on=["name"])
 
