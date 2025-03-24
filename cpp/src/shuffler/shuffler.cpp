@@ -184,7 +184,8 @@ Shuffler::Shuffler(
       comm_{std::move(comm)},
       op_id_{op_id},
       finish_counter_{
-          comm_->nranks(), local_partitions(comm_, total_num_partitions, partition_owner)
+          static_cast<Rank>(comm_->nranks()),
+          local_partitions(comm_, total_num_partitions, partition_owner)
       },
       statistics_{std::move(statistics)} {
     event_loop_thread_ = std::thread(Shuffler::event_loop, this);
@@ -214,9 +215,7 @@ void Shuffler::insert_into_outbox(detail::Chunk&& chunk) {
     log.trace("insert_into_outbox: ", chunk);
     auto pid = chunk.pid;
     if (chunk.expected_num_chunks) {
-        finish_counter_.move_goalpost(
-            comm_->rank(), chunk.pid, chunk.expected_num_chunks
-        );
+        finish_counter_.move_goalpost(chunk.pid, chunk.expected_num_chunks);
     } else {
         outbox_.insert(std::move(chunk));
     }
@@ -349,7 +348,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     } else {
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
         if (headroom < 0) {
-            spill_need = -headroom;
+            spill_need = static_cast<std::size_t>(std::abs(headroom));
         }
     }
     std::size_t spilled{0};
@@ -366,7 +365,7 @@ detail::ChunkID Shuffler::get_new_cid() {
     // Place the counter in the first 38 bits (supports 256G chunks).
     std::uint64_t upper = ++chunk_id_counter_ << 26;
     // and place the rank in last 26 bits (supports 64M ranks).
-    std::uint64_t lower = comm_->rank();
+    std::uint64_t lower = static_cast<std::uint64_t>(comm_->rank());
     return upper | lower;
 }
 
@@ -393,9 +392,9 @@ void Shuffler::run_event_loop_iteration(
         log.trace("send metadata to ", dst, ": ", chunk);
         RAPIDSMP_EXPECTS(dst != self.comm_->rank(), "sending chunk to ourselves");
 
-        fire_and_forget.push_back(self.comm_->send(
-            chunk.to_metadata_message(), dst, metadata_tag, self.stream_, self.br_
-        ));
+        fire_and_forget.push_back(
+            self.comm_->send(chunk.to_metadata_message(), dst, metadata_tag, self.br_)
+        );
         if (chunk.gpu_data_size > 0) {
             RAPIDSMP_EXPECTS(
                 outgoing_chunks.insert({chunk.cid, std::move(chunk)}).second,
@@ -443,8 +442,7 @@ void Shuffler::run_event_loop_iteration(
             }
 
             // Setup to receive the chunk into `in_transit_*`.
-            auto future =
-                self.comm_->recv(src, gpu_data_tag, std::move(recv_buffer), self.stream_);
+            auto future = self.comm_->recv(src, gpu_data_tag, std::move(recv_buffer));
             RAPIDSMP_EXPECTS(
                 in_transit_futures.insert({chunk.cid, std::move(future)}).second,
                 "in transit future already exist"
@@ -459,7 +457,6 @@ void Shuffler::run_event_loop_iteration(
                 ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
                 src,
                 ready_for_data_tag,
-                self.stream_,
                 self.br_
             ));
         } else {
@@ -487,9 +484,9 @@ void Shuffler::run_event_loop_iteration(
             self.statistics_->add_bytes_stat(
                 "shuffle-payload-send", chunk.gpu_data->size
             );
-            fire_and_forget.push_back(self.comm_->send(
-                std::move(chunk.gpu_data), src, gpu_data_tag, self.stream_
-            ));
+            fire_and_forget.push_back(
+                self.comm_->send(std::move(chunk.gpu_data), src, gpu_data_tag)
+            );
         } else {
             break;
         }
@@ -517,7 +514,9 @@ void Shuffler::run_event_loop_iteration(
         std::sort(finished.begin(), finished.end(), std::greater<>());
         // And erase from the right.
         for (auto i : finished) {
-            fire_and_forget.erase(fire_and_forget.begin() + i);
+            fire_and_forget.erase(
+                fire_and_forget.begin() + static_cast<std::ptrdiff_t>(i)
+            );
         }
     }
     stats.add_duration_stat(
