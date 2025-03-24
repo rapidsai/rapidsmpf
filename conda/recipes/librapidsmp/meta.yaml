@@ -36,22 +36,14 @@ requirements:
   build:
     - {{ compiler('c') }}
     - {{ compiler('cxx') }}
-    {% if cuda_major == "11" %}
-    - {{ compiler('cuda') }} ={{ cuda_version }}
-    {% else %}
     - {{ compiler('cuda') }}
-    {% endif %}
     - cuda-version ={{ cuda_version }}
     - cmake {{ cmake_version }}
     - ninja
     - {{ stdlib("c") }}
   host:
     - cuda-version ={{ cuda_version }}
-    {% if cuda_major == "11" %}
-    - cudatoolkit
-    {% else %}
     - cuda-cudart-dev
-    {% endif %}
     - librmm ={{ minor_version }}
     - libcudf ={{ minor_version }}
     - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
@@ -68,24 +60,16 @@ outputs:
         - {{ pin_subpackage("librapidsmp", max_pin="x.x") }}
       ignore_run_exports_from:
         - {{ compiler('cuda') }}
-        {% if cuda_major != "11" %}
         - cuda-cudart-dev
-        {% endif %}
     requirements:
       build:
         - cmake {{ cmake_version }}
       host:
         - cuda-version ={{ cuda_version }}
-        {% if cuda_major != "11" %}
         - cuda-cudart-dev
-        {% endif %}
       run:
         - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
-        {% if cuda_major == "11" %}
-        - cudatoolkit
-        {% else %}
         - cuda-cudart
-        {% endif %}
         - librmm ={{ minor_version }}
         - libcudf ={{ minor_version }}
         - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
@@ -107,24 +91,16 @@ outputs:
       string: cuda{{ cuda_major }}_{{ date_string }}_{{ GIT_DESCRIBE_HASH }}_{{ GIT_DESCRIBE_NUMBER }}
       ignore_run_exports_from:
         - {{ compiler('cuda') }}
-        {% if cuda_major != "11" %}
         - cuda-cudart-dev
-        {% endif %}
     requirements:
       build:
         - cmake {{ cmake_version }}
       host:
         - cuda-version ={{ cuda_version }}
-        {% if cuda_major != "11" %}
         - cuda-cudart-dev
-        {% endif %}
       run:
         - {{ pin_compatible('cuda-version', max_pin='x', min_pin='x') }}
-        {% if cuda_major == "11" %}
-        - cudatoolkit
-        {% else %}
         - cuda-cudart
-        {% endif %}
         - librmm ={{ minor_version }}
         - libcudf ={{ minor_version }}
         - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
