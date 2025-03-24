@@ -18,6 +18,7 @@ dependencies:
 - dask-cudf==25.6.*,>=0.0.0a0
 - doxygen=1.9.1
 - gcc_linux-aarch64=11.*
+- gdb
 - libcudf==25.6.*,>=0.0.0a0
 - libucxx==0.44.*,>=0.0.0a0
 - make
@@ -28,6 +29,7 @@ dependencies:
 - nvcc_linux-aarch64=11.8
 - openmpi
 - pre-commit
+- psutil
 - pydata-sphinx-theme
 - pylibcudf==25.6.*,>=0.0.0a0
 - pytest
