@@ -119,7 +119,10 @@ void ProgressThread::event_loop() {
         }
     }
     // Notify all waiting functions that we've completed an iteration
-    state_cv_.notify_all();
+    {
+        std::lock_guard const lock(state_mutex_);
+        state_cv_.notify_all();
+    }
 
     statistics_->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 }
