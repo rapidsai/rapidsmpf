@@ -768,7 +768,7 @@ class RMPWorkerPlugin(WorkerPlugin):
 
         Parameters
         ----------
-        worker : distributed.Worker
+        worker
             The Dask worker this setup is being called on. This will be supplied
             by the distributed runtime.
         """
@@ -926,7 +926,7 @@ class RMPWorkerPlugin(WorkerPlugin):
 
         Parameters
         ----------
-        caller : str
+        caller
             The Dask address of the caller. This is used by handler to track
             which workers have made it to this point.
 
@@ -1099,7 +1099,7 @@ def _exponential_backoff(attempt: int) -> float:
 
     Parameters
     ----------
-    attempt : int
+    attempt
         The attempt number. Increment this between attempts.
 
     Returns
