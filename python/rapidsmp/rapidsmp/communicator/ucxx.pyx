@@ -3,7 +3,7 @@
 """ucxx-based implementation of a rapidsmp Communicator."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint16_t, uint32_t
+from libc.stdint cimport uint16_t
 from libcpp.memory cimport (dynamic_pointer_cast, make_shared, nullptr,
                             shared_ptr, unique_ptr)
 from libcpp.optional cimport nullopt, nullopt_t
@@ -25,8 +25,6 @@ cdef extern from "<variant>" namespace "std" nogil:
 
 
 cdef extern from "<rapidsmp/communicator/ucxx.hpp>" namespace "rapidsmp::ucxx" nogil:
-    ctypedef int Rank
-
     ctypedef pair[string, uint16_t] HostPortPair
 
     ctypedef variant RemoteAddress
@@ -40,13 +38,13 @@ cdef extern from "<rapidsmp/communicator/ucxx.hpp>" namespace "rapidsmp::ucxx" n
 
     unique_ptr[cpp_UCXX_InitializedRank] init(
         shared_ptr[Worker] worker,
-        uint32_t nranks,
+        Rank nranks,
         shared_ptr[Address] remote_address
     )
 
     unique_ptr[cpp_UCXX_InitializedRank] init(
         shared_ptr[Worker] worker,
-        uint32_t nranks,
+        Rank nranks,
         nullopt_t remote_address
     )
 
@@ -60,7 +58,7 @@ cdef extern from "<rapidsmp/communicator/ucxx.hpp>" namespace "rapidsmp::ucxx" n
 
 
 cdef Communicator cpp_new_communicator(
-    uint32_t nranks,
+    Rank nranks,
     shared_ptr[Worker] worker,
     shared_ptr[Address] root_address,
 ):
@@ -76,7 +74,7 @@ cdef Communicator cpp_new_communicator(
 
 
 def new_communicator(
-    uint32_t nranks,
+    Rank nranks,
     UCXWorker ucx_worker,
     UCXAddress root_ucxx_address
 ):

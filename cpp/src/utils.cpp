@@ -29,10 +29,10 @@ struct str_cudf_column_scalar_fn {
 
     template <typename T, std::enable_if_t<!cudf::is_numeric<T>()>* = nullptr>
     std::string operator()(
-        cudf::column_view col,
-        cudf::size_type index,
-        rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
+        cudf::column_view /* col */,
+        cudf::size_type /* index */,
+        rmm::cuda_stream_view /* stream */,
+        rmm::device_async_resource_ref /* mr */
     ) {
         RAPIDSMP_FAIL("not implemented");
     }

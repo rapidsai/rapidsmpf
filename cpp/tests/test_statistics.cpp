@@ -28,7 +28,7 @@ TEST(Statistics, Communication) {
 
     EXPECT_THROW(stats.get_stat("unknown-name"), std::out_of_range);
 
-    auto custom_formatter = [](std::ostream& os, std::size_t count, double val) {
+    auto custom_formatter = [](std::ostream& os, std::size_t /* count */, double val) {
         os << val << " by custom formatter";
     };
 

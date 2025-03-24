@@ -90,7 +90,7 @@ class SharedResources {
     std::shared_ptr<::ucxx::Worker> worker_{nullptr};  ///< UCXX Listener
     std::shared_ptr<::ucxx::Listener> listener_{nullptr};  ///< UCXX Listener
     Rank rank_{Rank(-1)};  ///< Rank of the current process
-    std::uint32_t nranks_{0};  ///< Number of ranks in the communicator
+    Rank nranks_{0};  ///< Number of ranks in the communicator
     std::atomic<Rank> next_rank_{1
     };  ///< Rank to assign for the next client that connects (root only)
     EndpointsMap endpoints_{};  ///< Map of UCP handle to UCXX endpoints of known ranks
@@ -125,7 +125,7 @@ class SharedResources {
      * @param root Whether the rank is the root rank.
      * @param nranks The number of ranks requested for the cluster.
      */
-    SharedResources(std::shared_ptr<::ucxx::Worker> worker, bool root, uint32_t nranks)
+    SharedResources(std::shared_ptr<::ucxx::Worker> worker, bool root, Rank nranks)
         : worker_{worker}, rank_{Rank(root ? 0 : -1)}, nranks_{nranks} {}
 
     SharedResources(SharedResources&&) = delete;  ///< Not movable.
@@ -160,7 +160,7 @@ class SharedResources {
      *
      * @return The number of ranks in the cluster.
      */
-    [[nodiscard]] std::uint32_t nranks() const {
+    [[nodiscard]] Rank nranks() const {
         return nranks_;
     }
 
@@ -788,7 +788,7 @@ void listener_callback(ucp_conn_request_h conn_request, void* arg) {
 /**
  * @brief Callback executed by UCXX progress thread to create/acquire CUDA context.
  */
-void create_cuda_context_callback(void* callbackArg) {
+void create_cuda_context_callback(void* /* callbackArg */) {
     cudaFree(nullptr);
 }
 
@@ -801,7 +801,7 @@ InitializedRank::InitializedRank(
 
 std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
-    std::uint32_t nranks,
+    Rank nranks,
     std::optional<RemoteAddress> remote_address
 ) {
     auto create_worker = []() {
@@ -962,7 +962,7 @@ UCXX::UCXX(std::unique_ptr<InitializedRank> ucxx_initialized_rank)
     return shared_resources_->rank();
 }
 
-[[nodiscard]] int UCXX::nranks() const {
+[[nodiscard]] Rank UCXX::nranks() const {
     return shared_resources_->nranks();
 }
 
@@ -974,7 +974,7 @@ constexpr ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
     // `rapidsmp::ucxx::shuffler::Shuffler::get_new_cid()`), we are essentially using
     // 58-bits for the tags and the remaining 6-bits may be used in the future,
     // such as to identify groups.
-    return ::ucxx::Tag(static_cast<uint64_t>(rank) << 32 | tag);
+    return ::ucxx::Tag(static_cast<uint64_t>(rank) << 32 | static_cast<uint64_t>(tag));
 }
 
 constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<uint32_t>::max()};
@@ -1058,22 +1058,18 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
-    std::unique_ptr<std::vector<uint8_t>> msg,
-    Rank rank,
-    Tag tag,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
+    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
 ) {
     auto req = get_endpoint(rank)->tagSend(
         msg->data(),
         msg->size(),
         tag_with_rank(shared_resources_->rank(), static_cast<int>(tag))
     );
-    return std::make_unique<Future>(req, br->move(std::move(msg), stream));
+    return std::make_unique<Future>(req, br->move(std::move(msg)));
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
-    std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
+    std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
     auto req = get_endpoint(rank)->tagSend(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
@@ -1082,7 +1078,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv(
-    Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
+    Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
     auto req = get_endpoint(rank)->tagRecv(
         recv_buffer->data(),
