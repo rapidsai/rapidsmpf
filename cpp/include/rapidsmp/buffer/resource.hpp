@@ -234,23 +234,17 @@ class BufferResource {
      * @brief Move host vector data into a Buffer.
      *
      * @param data A unique pointer to the vector containing host data.
-     * @param stream CUDA stream for any necessary operations.
      * @return A unique pointer to the resulting Buffer.
      */
-    std::unique_ptr<Buffer> move(
-        std::unique_ptr<std::vector<uint8_t>> data, rmm::cuda_stream_view stream
-    );
+    std::unique_ptr<Buffer> move(std::unique_ptr<std::vector<uint8_t>> data);
 
     /**
      * @brief Move device buffer data into a Buffer.
      *
      * @param data A unique pointer to the device buffer.
-     * @param stream CUDA stream for any necessary operations.
      * @return A unique pointer to the resulting Buffer.
      */
-    std::unique_ptr<Buffer> move(
-        std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
-    );
+    std::unique_ptr<Buffer> move(std::unique_ptr<rmm::device_buffer> data);
 
     /**
      * @brief Move a Buffer to the specified memory type.

@@ -393,9 +393,9 @@ void Shuffler::run_event_loop_iteration(
         log.trace("send metadata to ", dst, ": ", chunk);
         RAPIDSMP_EXPECTS(dst != self.comm_->rank(), "sending chunk to ourselves");
 
-        fire_and_forget.push_back(self.comm_->send(
-            chunk.to_metadata_message(), dst, metadata_tag, self.stream_, self.br_
-        ));
+        fire_and_forget.push_back(
+            self.comm_->send(chunk.to_metadata_message(), dst, metadata_tag, self.br_)
+        );
         if (chunk.gpu_data_size > 0) {
             RAPIDSMP_EXPECTS(
                 outgoing_chunks.insert({chunk.cid, std::move(chunk)}).second,
@@ -443,8 +443,7 @@ void Shuffler::run_event_loop_iteration(
             }
 
             // Setup to receive the chunk into `in_transit_*`.
-            auto future =
-                self.comm_->recv(src, gpu_data_tag, std::move(recv_buffer), self.stream_);
+            auto future = self.comm_->recv(src, gpu_data_tag, std::move(recv_buffer));
             RAPIDSMP_EXPECTS(
                 in_transit_futures.insert({chunk.cid, std::move(future)}).second,
                 "in transit future already exist"
@@ -459,7 +458,6 @@ void Shuffler::run_event_loop_iteration(
                 ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
                 src,
                 ready_for_data_tag,
-                self.stream_,
                 self.br_
             ));
         } else {
@@ -487,9 +485,9 @@ void Shuffler::run_event_loop_iteration(
             self.statistics_->add_bytes_stat(
                 "shuffle-payload-send", chunk.gpu_data->size
             );
-            fire_and_forget.push_back(self.comm_->send(
-                std::move(chunk.gpu_data), src, gpu_data_tag, self.stream_
-            ));
+            fire_and_forget.push_back(
+                self.comm_->send(std::move(chunk.gpu_data), src, gpu_data_tag)
+            );
         } else {
             break;
         }

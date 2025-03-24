@@ -410,16 +410,11 @@ class Communicator {
      * @param msg Unique pointer to the message data (host memory).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
-     * @param stream CUDA stream used for device memory operations.
      * @param br Buffer resource used to allocate the received message.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg,
-        Rank rank,
-        Tag tag,
-        rmm::cuda_stream_view stream,
-        BufferResource* br
+        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
     ) = 0;
 
 
@@ -429,11 +424,10 @@ class Communicator {
      * @param msg Unique pointer to the message data (Buffer).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
-     * @param stream CUDA stream used for device memory operations.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
-        std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
+        std::unique_ptr<Buffer> msg, Rank rank, Tag tag
     ) = 0;
 
     /**
@@ -442,14 +436,10 @@ class Communicator {
      * @param rank The source rank.
      * @param tag Message tag for identification.
      * @param recv_buffer The receive buffer.
-     * @param stream CUDA stream used for device memory operations.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> recv(
-        Rank rank,
-        Tag tag,
-        std::unique_ptr<Buffer> recv_buffer,
-        rmm::cuda_stream_view stream
+        Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
     ) = 0;
 
     /**

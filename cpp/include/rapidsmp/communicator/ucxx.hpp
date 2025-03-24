@@ -150,30 +150,23 @@ class UCXX final : public Communicator {
      * @copydoc Communicator::send
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg,
-        Rank rank,
-        Tag tag,
-        rmm::cuda_stream_view stream,
-        BufferResource* br
+        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
     ) override;
 
     // clang-format off
     /**
-     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream)
+     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, Rank rank, Tag tag)
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
+        std::unique_ptr<Buffer> msg, Rank rank, Tag tag
     ) override;
 
     /**
      * @copydoc Communicator::recv
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> recv(
-        Rank rank,
-        Tag tag,
-        std::unique_ptr<Buffer> recv_buffer,
-        rmm::cuda_stream_view stream
+        Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
     ) override;
 
     /**

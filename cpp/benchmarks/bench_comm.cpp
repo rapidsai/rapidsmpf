@@ -174,7 +174,7 @@ Duration run(
             ));
             if (rank != comm->rank()) {
                 statistics->add_bytes_stat("all-to-all-recv", buf->size);
-                futures.push_back(comm->recv(rank, tag, std::move(buf), stream));
+                futures.push_back(comm->recv(rank, tag, std::move(buf)));
             }
         }
         for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
@@ -184,7 +184,7 @@ Duration run(
             ));
             if (rank != comm->rank()) {
                 statistics->add_bytes_stat("all-to-all-send", buf->size);
-                futures.push_back(comm->send(std::move(buf), rank, tag, stream));
+                futures.push_back(comm->send(std::move(buf), rank, tag));
             }
         }
     }

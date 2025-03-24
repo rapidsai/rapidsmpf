@@ -100,11 +100,7 @@ MPI::MPI(MPI_Comm comm) : comm_{comm}, logger_{this} {
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<std::vector<uint8_t>> msg,
-    Rank rank,
-    Tag tag,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
+    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
 ) {
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
     RAPIDSMP_EXPECTS(
@@ -114,11 +110,11 @@ std::unique_ptr<Communicator::Future> MPI::send(
     MPI_Request req;
     RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
     );
-    return std::make_unique<Future>(req, br->move(std::move(msg), stream));
+    return std::make_unique<Future>(req, br->move(std::move(msg)));
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view /* stream */
+    std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
     RAPIDSMP_EXPECTS(
         msg->size <= std::numeric_limits<int>::max(),
@@ -130,10 +126,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
-    Rank rank,
-    Tag tag,
-    std::unique_ptr<Buffer> recv_buffer,
-    rmm::cuda_stream_view /* stream */
+    Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
     RAPIDSMP_EXPECTS(
         recv_buffer->size <= std::numeric_limits<int>::max(),
