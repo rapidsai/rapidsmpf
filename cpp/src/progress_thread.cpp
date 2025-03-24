@@ -27,7 +27,7 @@ namespace rapidsmp {
 ProgressThread::FunctionState::FunctionState(Function&& function)
     : function(std::move(function)) {}
 
-void ProgressThread::FunctionState::operator()(std::mutex& mutex) {
+void ProgressThread::FunctionState::operator()() {
     // Only call `function()` if it isn't done yet.
     if (!is_done.load() && function() == ProgressState::Done)
         is_done.store(true);
@@ -94,8 +94,9 @@ void ProgressThread::remove_function(FunctionID function_id) {
     std::lock_guard const lock(mutex_);
     functions_.erase(function_id.function_index);
 
-    if (functions_.empty())
+    if (functions_.empty()) {
         thread_.pause();
+    }
 }
 
 void ProgressThread::event_loop() {
@@ -107,7 +108,7 @@ void ProgressThread::event_loop() {
     {
         std::shared_lock<std::shared_mutex> lock(mutex_);
         for (auto& [id, function] : functions_) {
-            function(state_mutex_);
+            function();
         }
     }
     // Notify all waiting functions that we've completed an iteration

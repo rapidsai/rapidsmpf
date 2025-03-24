@@ -100,9 +100,9 @@ class ProgressThread {
         /**
          * @brief Execute the function.
          *
-         * @param mutex The mutex to use for synchronization.
+         * @note Calling this from multiple threads is not allowed.
          */
-        void operator()(std::mutex& mutex);
+        void operator()();
 
         /**
          * @brief Wait for the function to complete.
