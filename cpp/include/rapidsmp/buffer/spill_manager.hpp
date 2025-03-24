@@ -101,7 +101,9 @@ class SpillManager {
      * function priorities until the required headroom is reached or no more spilling is
      * possible.
      *
-     * @param headroom The target amount of headroom (in bytes). Allowed to be negative.
+     * @param headroom The target amount of headroom (in bytes). A negative headroom is
+     * allowed and can be used to only trigger spilling when the available memory becomes
+     * negative (as reported by the memory resource).
      * @return The actual amount of memory spilled (in bytes), which may be less than
      * requested if there is insufficient spillable data, but may also be more
      * or equal to requested depending on the sizes of spillable data buffers.

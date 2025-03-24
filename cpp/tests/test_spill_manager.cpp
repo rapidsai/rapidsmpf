@@ -83,4 +83,8 @@ TEST(SpillManager, SpillFunction) {
     // If the headroom isn't there, we should spill to get the headroom.
     EXPECT_EQ(br.spill_manager().spill_to_make_headroom(100_KiB), 60_KiB);
     EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 100_KiB);
+
+    // A negative headroom is allowed.
+    EXPECT_EQ(br.spill_manager().spill_to_make_headroom(-100_KiB), 0);
+    EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 100_KiB);
 }
