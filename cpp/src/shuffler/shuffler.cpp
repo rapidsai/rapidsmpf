@@ -243,7 +243,8 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
     RAPIDSMP_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
 
-    spill();  // Spill if current device memory usage is too high.
+    // Spill if current available device memory is negative.
+    br_->spill_manager().spill_to_make_headroom(0);
 
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_columns] : chunks) {
@@ -522,8 +523,6 @@ void Shuffler::run_event_loop_iteration(
     stats.add_duration_stat(
         "event-loop-check-future-finish", Clock::now() - t0_check_future_finish
     );
-
-    self.spill();  // Spill if current device memory usage is too high.
 }
 
 /**

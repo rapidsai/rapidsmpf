@@ -4,7 +4,6 @@
  */
 
 #include <limits>
-#include <utility>
 
 #include <rapidsmp/buffer/resource.hpp>
 
@@ -19,9 +18,12 @@ MemoryReservation::~MemoryReservation() noexcept {
 
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
-    std::unordered_map<MemoryType, MemoryAvailable> memory_available
+    std::unordered_map<MemoryType, MemoryAvailable> memory_available,
+    std::optional<std::chrono::microseconds> periodic_spill_check
 )
-    : device_mr_{device_mr}, memory_available_{std::move(memory_available)} {
+    : device_mr_{device_mr},
+      memory_available_{std::move(memory_available)},
+      spill_manager_{this, periodic_spill_check} {
     for (MemoryType mem_type : MEMORY_TYPES) {
         // Add missing memory availability functions.
         memory_available_.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);
@@ -153,4 +155,7 @@ std::unique_ptr<Buffer> BufferResource::copy(
     return ret;
 }
 
+SpillManager& BufferResource::spill_manager() {
+    return spill_manager_;
+}
 }  // namespace rapidsmp

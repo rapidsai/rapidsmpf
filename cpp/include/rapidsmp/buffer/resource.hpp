@@ -7,11 +7,14 @@
 
 #include <array>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
+#include <utility>
 
 #include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
 #include <rapidsmp/buffer/buffer.hpp>
+#include <rapidsmp/buffer/spill_manager.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/utils.hpp>
 
@@ -118,12 +121,17 @@ class BufferResource {
      *
      * @param device_mr Reference to the RMM device memory resource used for device
      * allocations.
-     * @param memory_available Optional memory availability functions. Memory types
-     * without availability functions are unlimited.
+     * @param memory_available Optional memory availability functions mapping memory types
+     * to available memory checkers. Memory types without availability functions are
+     * assumed to have unlimited memory.
+     * @param periodic_spill_check Optional time interval for periodic spill checks. If
+     * `std::nullopt`, no periodic spill check is performed.
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
-        std::unordered_map<MemoryType, MemoryAvailable> memory_available = {}
+        std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
+        std::optional<std::chrono::microseconds> periodic_spill_check =
+            std::chrono::microseconds{1000}
     );
 
     ~BufferResource() noexcept = default;
@@ -336,12 +344,20 @@ class BufferResource {
         MemoryReservation& reservation
     );
 
+    /**
+     * @brief Gets a reference to the spill manager used.
+     *
+     * @return Reference to the SpillManager instance.
+     */
+    SpillManager& spill_manager();
+
   private:
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
+    SpillManager spill_manager_;
 };
 
 /**
