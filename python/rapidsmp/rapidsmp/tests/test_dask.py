@@ -142,6 +142,7 @@ def test_boostrap_single_node_cluster_no_deadlock() -> None:
         bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
 
 
+@pytest.mark.skipif(get_n_gpus() < 2, reason="Need at least 2 GPUs")
 def test_bootstrap_dask_cluster_late_worker() -> None:
     with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
         workers = set(client.scheduler_info()["workers"])
