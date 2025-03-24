@@ -37,21 +37,21 @@ class BulkRayShufflerActor(BaseShufflingActor):
 
     Parameters
     ----------
-    nranks : int
+    nranks
         Number of ranks in the communication group.
-    total_nparts : int
+    total_nparts
         Total number of partitions to shuffle.
-    shuffle_on : list[str]
+    shuffle_on
         List of column names to shuffle on.
-    batchsize : int, default=1
+    batchsize
         Number of files to process in a batch.
-    output_path : str, default="./"
+    output_path
         Path to write output files.
-    rmm_pool_size : int, default=1024*1024*1024
+    rmm_pool_size
         Size of the RMM memory pool in bytes.
-    spill_device : int or None, default=None
+    spill_device
         Device memory limit for spilling to host.
-    enable_statistics : bool, default=False
+    enable_statistics
         Whether to collect statistics.
     """
 
