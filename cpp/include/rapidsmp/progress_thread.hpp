@@ -123,11 +123,9 @@ class ProgressThread {
     ~ProgressThread();
 
     /**
-     * @brief Shutdown the thread, blocking until all functions are done.
-     *
-     * @throw std::logic_error If the thread is already inactive.
+     * @brief Stop the thread, blocking until all functions are done.
      */
-    void shutdown();
+    void stop();
 
     /**
      * @brief Insert a function to process as part of the event loop.
@@ -165,13 +163,10 @@ class ProgressThread {
     detail::PausableThreadLoop thread_;
     Communicator::Logger& logger_;
     std::shared_ptr<Statistics> statistics_;
-    std::atomic<bool> active_{true};
     bool is_thread_initialized_{false};
     std::mutex mutex_;
     std::condition_variable cv_;
-    FunctionIndex next_function_id_{0
-    };  ///< Counter for generating unique function indices
-    std::atomic<bool> event_loop_thread_run_{true};
+    FunctionIndex next_function_id_{0};
     std::unordered_map<FunctionIndex, FunctionState> functions_;
 };
 

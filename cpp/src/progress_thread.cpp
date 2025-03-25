@@ -50,18 +50,13 @@ ProgressThread::ProgressThread(
       statistics_(std::move(statistics)) {}
 
 ProgressThread::~ProgressThread() {
-    if (active_.load()) {
-        shutdown();
-    }
+    stop();
 }
 
-void ProgressThread::shutdown() {
-    RAPIDSMP_EXPECTS(active_.load(), "ProgressThread is inactive");
-    logger_.debug("ProgressThread.shutdown() - initiate");
-    event_loop_thread_run_.store(false);
+void ProgressThread::stop() {
+    logger_.debug("ProgressThread.stop() - initiate");
     thread_.stop();
-    logger_.debug("ProgressThread.shutdown() - done");
-    active_.store(false);
+    logger_.debug("ProgressThread.stop() - done");
 }
 
 ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
@@ -107,10 +102,6 @@ void ProgressThread::remove_function(FunctionID function_id) {
 
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
-    if (!event_loop_thread_run_.load()) {
-        return;
-    }
-
     {
         std::lock_guard<std::mutex> lock(mutex_);
         for (auto& [id, function] : functions_) {

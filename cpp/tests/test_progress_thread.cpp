@@ -26,13 +26,6 @@
 
 using rapidsmp::ProgressThread;
 
-TEST(ProgressThread, Shutdown) {
-    ProgressThread progress_thread(GlobalEnvironment->comm_->logger());
-
-    progress_thread.shutdown();
-    EXPECT_THROW(progress_thread.shutdown(), std::logic_error);
-}
-
 class ProgressThreadEvents
     : public cudf::test::BaseFixtureWithParam<std::tuple<int, int, bool>> {};
 
@@ -95,7 +88,7 @@ TEST_P(ProgressThreadEvents, events) {
             EXPECT_EQ(test_function->counter, expected_count(thread, function));
         }
 
-        progress_threads[thread]->shutdown();
+        progress_threads[thread]->stop();
     }
 
     if (statistics->enabled() && num_functions > 0) {
