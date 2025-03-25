@@ -192,6 +192,13 @@ Shuffler::Shuffler(
     RAPIDSMP_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMP_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
     RAPIDSMP_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+
+    // Register a spill function that spill buffers in this shuffler.
+    // Note, the spill function can use `this` because a Shuffler isn't movable.
+    br->spill_manager().add_spill_function(
+        [this](std::size_t amount) -> std::size_t { return spill(amount); },
+        /* priority = */ 0
+    );
 }
 
 Shuffler::~Shuffler() {

@@ -379,14 +379,42 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     // Let's force spilling.
     device_memory_available = -1000;
 
-    // Now extract triggers spilling of the partition not being extracted.
-    std::vector<cudf::packed_columns> output_chunks = shuffler.extract(0);
-    EXPECT_EQ(mr.get_allocations_counter().value, 1);
+    {
+        // Now extract triggers spilling of the partition not being extracted.
+        std::vector<cudf::packed_columns> output_chunks = shuffler.extract(0);
+        EXPECT_EQ(mr.get_allocations_counter().value, 1);
 
-    // And insert also triggers spilling. We end up with zero device allocations.
-    std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> chunk;
-    chunk.emplace(0, std::move(output_chunks.at(0)));
-    shuffler.insert(std::move(chunk));
+        // And insert also triggers spilling. We end up with zero device allocations.
+        std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> chunk;
+        chunk.emplace(0, std::move(output_chunks.at(0)));
+        shuffler.insert(std::move(chunk));
+        EXPECT_EQ(mr.get_allocations_counter().value, 0);
+    }
+
+    // Extract and unspill both partitions.
+    std::vector<cudf::packed_columns> out0 = shuffler.extract(0);
+    EXPECT_EQ(mr.get_allocations_counter().value, 1);
+    std::vector<cudf::packed_columns> out1 = shuffler.extract(1);
+    EXPECT_EQ(mr.get_allocations_counter().value, 2);
+
+    // Disable spilling and insert the first partition.
+    device_memory_available = 1000;
+    {
+        std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> chunk;
+        chunk.emplace(0, std::move(out0.at(0)));
+        shuffler.insert(std::move(chunk));
+    }
+    EXPECT_EQ(mr.get_allocations_counter().value, 2);
+
+    // Enable spilling and insert the second partition, which should trigger spilling
+    // of both the first partition already in the shuffler and the second partition
+    // that are being inserted.
+    device_memory_available = -1000;
+    {
+        std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> chunk;
+        chunk.emplace(1, std::move(out1.at(0)));
+        shuffler.insert(std::move(chunk));
+    }
     EXPECT_EQ(mr.get_allocations_counter().value, 0);
 
     shuffler.shutdown();
