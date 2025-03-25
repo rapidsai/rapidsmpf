@@ -4,17 +4,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 import weakref
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast, runtime_checkable
 
-import dask.utils
 import ucxx._lib.libucxx as ucx_api
-from distributed import get_client, get_worker
-from distributed.diagnostics.plugin import SchedulerPlugin, WorkerPlugin
-from distributed.utils import Deadline
+from distributed import get_client, get_worker, wait
+from distributed.diagnostics.plugin import SchedulerPlugin
 
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
@@ -425,6 +422,59 @@ def rapidsmp_shuffle_graph(
     return graph
 
 
+async def rapidsmp_ucxx_rank_setup_root(n_ranks: int) -> bytes:
+    """
+    Set up the UCXX comm for the root worker.
+
+    Parameters
+    ----------
+    n_ranks
+        Number of ranks in the cluster / UCXX comm.
+
+    Returns
+    -------
+    bytes
+        The UCXX address of the root node.
+    """
+    dask_worker = get_worker()
+
+    comm = new_communicator(n_ranks, None, None)
+    comm.logger.trace(f"Rank {comm.rank} created")
+    dask_worker._rapidsmp_comm = comm
+    return get_root_ucxx_address(comm)
+
+
+async def rapidsmp_ucxx_rank_setup_node(
+    n_ranks: int, root_address_bytes: bytes
+) -> None:
+    """
+    Set up the UCXX comms for a Dask worker.
+
+    Parameters
+    ----------
+    n_ranks
+        Number of ranks in the cluster / UCXX comm.
+    root_address_bytes
+        The UCXX address of the root node.
+    """
+    dask_worker = get_worker()
+
+    if hasattr(dask_worker, "_rapidsmp_comm"):
+        assert isinstance(dask_worker._rapidsmp_comm, Communicator)
+        comm = dask_worker._rapidsmp_comm
+    else:
+        root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
+        comm = new_communicator(n_ranks, None, root_address)
+
+        comm.logger.trace(f"Rank {comm.rank} created")
+        dask_worker._rapidsmp_comm = comm
+
+    comm.logger.trace(f"Rank {comm.rank} setup barrier")
+    barrier(comm)
+    comm.logger.trace(f"Rank {comm.rank} setup barrier passed")
+    return None
+
+
 def rmp_worker_setup(
     dask_worker: Worker,
     *,
@@ -550,14 +600,39 @@ def bootstrap_dask_cluster(
     scheduler_plugin = RMPSchedulerPlugin()
     client.register_plugin(scheduler_plugin)
 
-    # Worker stuff
-    worker_plugin = RMPWorkerPlugin(
-        worker_addresses=sorted(client.scheduler_info()["workers"]),
+    workers = sorted(client.scheduler_info()["workers"])
+    n_ranks = len(workers)
+
+    # Set up the comms for the root worker
+    root_address_bytes = client.submit(
+        rapidsmp_ucxx_rank_setup_root,
+        n_ranks=len(workers),
+        workers=workers[0],
+        pure=False,
+    ).result()
+
+    # Set up the entire ucxx cluster
+    ucxx_setup_futures = [
+        client.submit(
+            rapidsmp_ucxx_rank_setup_node,
+            n_ranks=n_ranks,
+            root_address_bytes=root_address_bytes,
+            workers=worker,
+            pure=False,
+        )
+        for worker in workers
+    ]
+    wait(ucxx_setup_futures)
+
+    # Finally, prepare the rapidsmp resources on top of the UCXX comms
+    client.run(
+        rmp_worker_setup,
         pool_size=pool_size,
         spill_device=spill_device,
         enable_statistics=enable_statistics,
     )
-    client.register_plugin(worker_plugin)
+
+    # Only run the above steps once
     _initialized_clusters.add(client.id)
 
 
@@ -620,274 +695,6 @@ class RMPSchedulerPlugin(SchedulerPlugin):
                 if key in self._rmp_restricted_tasks:
                     worker = self._rmp_restricted_tasks.pop(key)
                     self.scheduler.set_restrictions({ts.key: {worker}})
-
-
-class RMPWorkerPlugin(WorkerPlugin):
-    """
-    RAPIDS-MP Worker Plugin.
-
-    This plugin ensures that the cluster is ready to shuffle data by
-    establishing a UCXX communicator between all workers.
-
-    Parameters
-    ----------
-    worker_addresses
-        The addresses of each worker in the cluster. Use
-        :meth:`distributed.Client.scheduler_info()["workers"]` to get this list.
-    pool_size
-        The desired RMM pool size.
-    spill_device
-        GPU memory limit for shuffling.
-    enable_statistics
-        Whether to track shuffler statistics.
-    ready_timeout
-        Timeout for a worker to become ready. For the root worker, this includes
-        the time to create its own UCXX communicator and wait for all other
-        nodes to check in. For non-root workers, this includes the time for it
-        to get the UCXX address of the root worker. Can be a
-        float (interpreted as seconds) or a string with a unit parsed by
-        `dask.utils.parse_timedelta`.
-
-        This defaults to ``distributed.comm.timeouts.connect`` from the
-        Dask configuration.
-    """
-
-    idempotent: bool = True
-
-    def __init__(
-        self,
-        *,
-        worker_addresses: Sequence[str],
-        pool_size: float = 0.75,
-        spill_device: float = 0.50,
-        enable_statistics: bool = True,
-        ready_timeout: float | str | None = None,
-    ) -> None:
-        self.worker_addresses = worker_addresses
-        self.pool_size = pool_size
-        self.spill_device = spill_device
-        self.enable_statistics = enable_statistics
-        self.ready_timeout = dask.utils.parse_timedelta(
-            ready_timeout or dask.config.get("distributed.comm.timeouts.connect", 30)
-        )
-        self.worker = None
-        self._heard_from: set[str] = set()
-        self._ready = asyncio.Event()
-        if len(self.worker_addresses) == 1:
-            # Avoid a deadlock later on. The root node will wait for some
-            # other node to call its ``_root_ucxx_address`` handler. If there
-            # are no other nodes, nobody calls, and we wait forever.
-            self._ready.set()
-
-    @property
-    def _is_root(self) -> bool:
-        """
-        Whether this worker is the root node (first in the list).
-
-        Returns
-        -------
-        bool
-            True when this worker is the root node.
-        """
-        assert self.worker is not None
-        return self.worker.address == self.worker_addresses[0]
-
-    async def setup(self, worker: Worker) -> None:
-        """
-        Set up the worker for rapidsmp shuffling.
-
-        This will set up the rapidsmp resources on the worker, including
-
-        - A UCXX communicator between all workers in the Dask cluster, with the
-          first worker being the root node.
-        - Various buffer resources for shuffling and spilling.
-        - A Statistics object for tracking shuffle performance.
-
-        Parameters
-        ----------
-        worker
-            The Dask worker this setup is being called on. This will be supplied
-            by the distributed runtime.
-        """
-        # Bootstrapping algorithm:
-        #
-        # We need to stand up a UCXX communicator between all workers. The only
-        # real trick is figuring out the **UCXX** address of the root node. We
-        # don't know that address before we get here (because we haven't set up
-        # UCXX yet), so we need to figure that out as we go. Two facts let us
-        # figure that out:
-        #
-        # 1. The Dask comms system is already up and running
-        # 2. We know the **Dask** addresses of each node in the cluster
-        #
-        # So we can go through the normal dance of checking if we're the root
-        # node (i.e. we're the first worker in the list). If we are, we'll
-        # create the UCXX comm, which gets set on the Dask Worker object.
-        #
-        # Non-root nodes will need to ask the root node for it's UCXX address.
-        # It knows the Dask address of the root node (again, first one in the
-        # list) and can use that to make a Dask RPC call to the root node. The
-        # root node replies with it's UCXX address, and then the worker can go
-        # on its way.
-        #
-        # There's a couple of wrinkles here that make the implementation more
-        # complicated. This whole things ends with a UCXX barrier. We don't want
-        # to return flow to the user until that barrier has been passed. But if
-        # the root node waits at that barrier the cluster will deadlock, because
-        # no one is there to answer the RPC call (apparently these happen on the
-        # same thread?). So we use a little asyncio.Event to track whether the
-        # root node has heard from the workers before advancing to the barrier.
-        #
-        # The upshot of all this complexity is that we don't have to do a
-        # two-stage bootstrapping, and we don't have to mess with our futures
-        # showing up in the user's Dask dashboard.
-        self.worker = worker
-
-        if hasattr(worker, "_rapidsmp_comm"):
-            # We've already been called.
-            return
-
-        if worker.address not in self.worker_addresses:
-            # This is maybe a worker who showed up late, or a worker who
-            # crashed and restarted. Eitehr way, it can't really join
-            # in the UCXX comm, so we'll just ignore it.
-            _dask_logger.info(
-                "Dask worker started but not included in the shuffle. address=%s",
-                worker.address,
-            )
-            return
-
-        worker.handlers["_root_ucxx_address"] = self._root_ucxx_address
-        nranks = len(self.worker_addresses)
-        root_dask_address = self.worker_addresses[0]
-        _dask_logger.info("RMPWorkerPlugin setup. address=%s", worker.address)
-
-        if self._is_root:
-            _dask_logger.debug(
-                "RMPWorkerPlugin setup. address=%s stage=create-communicator-start",
-                worker.address,
-            )
-            comm = new_communicator(nranks, None, None)
-            _dask_logger.debug(
-                "RMPWorkerPlugin setup. address=%s rank=%d stage=create-communicator-done",
-                worker.address,
-                comm.rank,
-            )
-            worker._rapidsmp_comm = comm
-            comm.logger.trace(f"Rank {comm.rank} created")
-            # We're ready once we've heard from every other node. The handler
-            # will take care of setting the event once it's heard from everyone.
-            try:
-                await asyncio.wait_for(self._ready.wait(), timeout=self.ready_timeout)
-            except asyncio.TimeoutError as e:
-                missing = set(self.worker_addresses) - self._heard_from
-                missing.discard(worker.address)
-                msg = f"Timeout waiting for workers to bootstrap. Root = {worker.address}, missing = {sorted(missing)}"
-                raise RuntimeError(msg) from e
-
-        else:
-            # Non-root nodes ask the root node for its ucxx address.
-            root_ucxx_address = None
-            attempt = 0
-            deadline = Deadline.after(self.ready_timeout)
-
-            while not deadline.expired:
-                _dask_logger.debug(
-                    "RMPWorkerPlugin setup. address=%s stage=get-root-ucxx-address",
-                    worker.address,
-                )
-                root_ucxx_address = await worker.rpc(
-                    self.worker_addresses[0]
-                )._root_ucxx_address(caller=worker.address)
-                if root_ucxx_address is not None:
-                    _dask_logger.debug(
-                        "RMPWorkerPlugin setup. address=%s rank=%d stage=got-root-ucxx-address",
-                        worker.address,
-                        root_dask_address,
-                    )
-                    break
-                else:
-                    _dask_logger.debug(
-                        "RMPWorkerPlugin setup. address=%s attempt=%d stage=get-root-ucxx-address-retry",
-                        worker.address,
-                        attempt,
-                    )
-                    await asyncio.sleep(_exponential_backoff(attempt))
-                    attempt += 1
-
-            if root_ucxx_address is None:
-                _dask_logger.warning(
-                    "RMPWorkerPlugin setup. address=%s stage=get-root-ucxx-address-failed",
-                    worker.address,
-                )
-                raise RuntimeError(
-                    f"Worker {worker.address} failed to get root ucxx address from {self.worker_addresses[0]}"
-                )
-
-            root_address = ucx_api.UCXAddress.create_from_buffer(root_ucxx_address)
-            comm = new_communicator(nranks, None, root_address)
-            worker._rapidsmp_comm = comm
-
-            comm.logger.trace(f"Rank {comm.rank} created")
-
-        # Now we wait for everyone else to be ready.
-        _dask_logger.debug(
-            "RMPWorkerPlugin setup. address=%s stage=barrier-wait", worker.address
-        )
-        comm.logger.trace(f"Rank {comm.rank} setup barrier")
-        barrier(comm)
-        comm.logger.trace(f"Rank {comm.rank} setup barrier passed")
-        _dask_logger.debug(
-            "RMPWorkerPlugin setup. address=%s stage=barrier-passed", worker.address
-        )
-
-        await asyncio.to_thread(
-            rmp_worker_setup,
-            worker,
-            pool_size=self.pool_size,
-            spill_device=self.spill_device,
-            enable_statistics=self.enable_statistics,
-        )
-        _dask_logger.debug(
-            "RMPWorkerPlugin setup. address=%s stage=finished", worker.address
-        )
-
-        return None
-
-    def _root_ucxx_address(self, *, caller: str) -> bytes | None:
-        """
-        Get the UCXX address of the root worker.
-
-        This is registered as a handler on the Dask Workers. Each non-root
-        worker is expected to call the root worker using this handler.
-
-        Parameters
-        ----------
-        caller
-            The Dask address of the caller. This is used by handler to track
-            which workers have made it to this point.
-
-        Returns
-        -------
-        bytes, optional
-            The UCXX address of the root worker.
-
-        Notes
-        -----
-        The root worker uses the ``caller`` addresses along with the
-        `asyncio.Event` on the plugin class to know when it's safe to proceed to
-        the barrier (which blocks).
-        """
-        rapidsmp_comm = getattr(self.worker, "_rapidsmp_comm", None)
-        if self._is_root and rapidsmp_comm is not None:
-            address = get_root_ucxx_address(rapidsmp_comm)
-            self._heard_from.add(caller)
-            if len(self._heard_from) == len(self.worker_addresses) - 1:
-                # -1, because we don't count ourselves
-                self._ready.set()
-            return address
-
-        return None
 
 
 def get_dask_client() -> Client:
