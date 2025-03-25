@@ -104,18 +104,9 @@ class ProgressThread {
          */
         void operator()();
 
-        /**
-         * @brief Wait for the function to complete.
-         *
-         * This function blocks until the function's state changes to Done.
-         *
-         * @param mutex The mutex to use for synchronization.
-         * @param cv The condition variable to use for synchronization.
-         */
-        void wait_for_completion(std::mutex& mutex, std::condition_variable& cv);
-
         Function function;  ///< The function to execute.
-        bool is_done{false};  ///< Whether the function has completed
+        std::shared_ptr<bool> is_done{std::make_shared<bool>(false)
+        };  ///< Whether the function has completed
     };
 
     /**
@@ -153,7 +144,7 @@ class ProgressThread {
     /**
      * @brief Remove a function and stop processing it as part of the event loop.
      *
-     * This function blocks until the function is done (returning `ProgressState::Done`). 
+     * This function blocks until the function is done (returning `ProgressState::Done`).
      *
      * @param function_id The unique function ID returned by `add_function`.
      *

@@ -29,16 +29,9 @@ ProgressThread::FunctionState::FunctionState(Function&& function)
 
 void ProgressThread::FunctionState::operator()() {
     // Only call `function()` if it isn't done yet.
-    if (!is_done && function() == ProgressState::Done) {
-        is_done = true;
+    if (!*is_done && function() == ProgressState::Done) {
+        *is_done = true;
     }
-}
-
-void ProgressThread::FunctionState::wait_for_completion(
-    std::mutex& mutex, std::condition_variable& cv
-) {
-    std::unique_lock<std::mutex> lock(mutex);
-    cv.wait(lock, [this]() { return is_done; });
 }
 
 ProgressThread::ProgressThread(
@@ -73,7 +66,8 @@ void ProgressThread::shutdown() {
 
 ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
     std::unique_lock<std::mutex> lock(mutex_);
-    // We can use `this` as the thread address only because `ProgressThread` isn't moveable or copyable. 
+    // We can use `this` as the thread address only because `ProgressThread` isn't
+    // moveable or copyable.
     auto id =
         FunctionID(reinterpret_cast<ProgressThreadAddress>(this), next_function_id_++);
     functions_.emplace(id.function_index, std::move(function));
@@ -87,18 +81,21 @@ void ProgressThread::remove_function(FunctionID function_id) {
         "Function was not registered with this ProgressThread"
     );
 
-    FunctionState* state = nullptr;
+    std::shared_ptr<bool> is_done{nullptr};
     {
         std::lock_guard const lock(mutex_);
         auto it = functions_.find(function_id.function_index);
         RAPIDSMP_EXPECTS(
             it != functions_.end(), "Function not registered or already removed"
         );
-        state = &it->second;
+        is_done = it->second.is_done;
     }
 
-    // Wait for the function to complete
-    state->wait_for_completion(mutex_, cv_);
+    {
+        // Wait for the function to complete
+        std::unique_lock<std::mutex> lock(mutex_);
+        cv_.wait(lock, [is_done]() { return *is_done; });
+    }
 
     std::lock_guard const lock(mutex_);
     functions_.erase(function_id.function_index);
