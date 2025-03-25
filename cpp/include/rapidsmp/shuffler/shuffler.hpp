@@ -9,7 +9,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <thread>
 #include <vector>
 
 #include <cudf/contiguous_split.hpp>
@@ -271,8 +270,6 @@ class Shuffler {
     std::shared_ptr<ProgressThread> progress_thread_;
     ProgressThread::FunctionID function_id_;
     OpID const op_id_;
-    std::thread event_loop_thread_;
-    std::atomic<bool> event_loop_thread_run_{true};
 
     detail::FinishCounter finish_counter_;
     std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;
