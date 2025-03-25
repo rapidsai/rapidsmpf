@@ -115,7 +115,7 @@ class ProgressThread {
         void wait_for_completion(std::mutex& mutex, std::condition_variable& cv);
 
         Function function;  ///< The function to execute.
-        std::atomic<bool> is_done{false};  ///< Whether the function has completed
+        bool is_done{false};  ///< Whether the function has completed
     };
 
     /**
@@ -174,9 +174,8 @@ class ProgressThread {
     std::shared_ptr<Statistics> statistics_;
     std::atomic<bool> active_{true};
     bool is_thread_initialized_{false};
-    std::shared_mutex mutex_;  ///< Shared mutex for thread-safe access to functions_
-    std::mutex state_mutex_;  ///< Mutex for synchronizing function states
-    std::condition_variable state_cv_;  ///< Condition variable for function state changes
+    std::mutex mutex_;  ///< Shared mutex for thread-safe access to functions_
+    std::condition_variable cv_;  ///< Condition variable for function state changes
     FunctionIndex next_function_id_{0
     };  ///< Counter for generating unique function indices
     std::atomic<bool> event_loop_thread_run_{true};

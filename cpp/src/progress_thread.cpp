@@ -29,15 +29,15 @@ ProgressThread::FunctionState::FunctionState(Function&& function)
 
 void ProgressThread::FunctionState::operator()() {
     // Only call `function()` if it isn't done yet.
-    if (!is_done.load() && function() == ProgressState::Done)
-        is_done.store(true);
+    if (!is_done && function() == ProgressState::Done)
+        is_done = true;
 }
 
 void ProgressThread::FunctionState::wait_for_completion(
     std::mutex& mutex, std::condition_variable& cv
 ) {
     std::unique_lock<std::mutex> lock(mutex);
-    cv.wait(lock, [this]() { return is_done.load(); });
+    cv.wait(lock, [this]() { return is_done; });
 }
 
 ProgressThread::ProgressThread(
@@ -71,7 +71,7 @@ void ProgressThread::shutdown() {
 }
 
 ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
-    std::unique_lock<std::shared_mutex> lock(mutex_);
+    std::unique_lock<std::mutex> lock(mutex_);
     auto id =
         FunctionID(reinterpret_cast<ProgressThreadAddress>(this), next_function_id_++);
     functions_.emplace(id.function_index, std::move(function));
@@ -96,7 +96,7 @@ void ProgressThread::remove_function(FunctionID function_id) {
     }
 
     // Wait for the function to complete
-    state->wait_for_completion(state_mutex_, state_cv_);
+    state->wait_for_completion(mutex_, cv_);
 
     std::lock_guard const lock(mutex_);
     functions_.erase(function_id.function_index);
@@ -113,15 +113,13 @@ void ProgressThread::event_loop() {
     }
 
     {
-        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(mutex_);
         for (auto& [id, function] : functions_) {
             function();
         }
-    }
-    // Notify all waiting functions that we've completed an iteration
-    {
-        std::lock_guard const lock(state_mutex_);
-        state_cv_.notify_all();
+
+        // Notify all waiting functions that we've completed an iteration
+        cv_.notify_all();
     }
 
     statistics_->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
