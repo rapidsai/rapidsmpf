@@ -29,8 +29,9 @@ ProgressThread::FunctionState::FunctionState(Function&& function)
 
 void ProgressThread::FunctionState::operator()() {
     // Only call `function()` if it isn't done yet.
-    if (!is_done && function() == ProgressState::Done)
+    if (!is_done && function() == ProgressState::Done) {
         is_done = true;
+    }
 }
 
 void ProgressThread::FunctionState::wait_for_completion(
@@ -72,6 +73,7 @@ void ProgressThread::shutdown() {
 
 ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
     std::unique_lock<std::mutex> lock(mutex_);
+    // We can use `this` as the thread address only because `ProgressThread` isn't moveable or copyable. 
     auto id =
         FunctionID(reinterpret_cast<ProgressThreadAddress>(this), next_function_id_++);
     functions_.emplace(id.function_index, std::move(function));

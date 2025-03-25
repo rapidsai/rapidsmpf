@@ -141,7 +141,7 @@ class ProgressThread {
     /**
      * @brief Insert a function to process as part of the event loop.
      *
-     * @note This function does not need to bethread-safe if not used in
+     * @note This function does not need to be thread-safe if not used in
      * multiple progress threads.
      *
      * @param function The function to register.
@@ -152,6 +152,8 @@ class ProgressThread {
 
     /**
      * @brief Remove a function and stop processing it as part of the event loop.
+     *
+     * This function blocks until the function is done (returning `ProgressState::Done`). 
      *
      * @param function_id The unique function ID returned by `add_function`.
      *
@@ -174,8 +176,8 @@ class ProgressThread {
     std::shared_ptr<Statistics> statistics_;
     std::atomic<bool> active_{true};
     bool is_thread_initialized_{false};
-    std::mutex mutex_;  ///< Shared mutex for thread-safe access to functions_
-    std::condition_variable cv_;  ///< Condition variable for function state changes
+    std::mutex mutex_;
+    std::condition_variable cv_;
     FunctionIndex next_function_id_{0
     };  ///< Counter for generating unique function indices
     std::atomic<bool> event_loop_thread_run_{true};
