@@ -117,10 +117,10 @@ void ProgressThread::event_loop() {
         for (auto& [id, function] : functions_) {
             function();
         }
-
-        // Notify all waiting functions that we've completed an iteration
-        cv_.notify_all();
     }
+
+    // Notify all waiting functions that we've completed an iteration
+    cv_.notify_all();
 
     statistics_->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 }
