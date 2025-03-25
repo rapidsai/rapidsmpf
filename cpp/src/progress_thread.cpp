@@ -29,8 +29,10 @@ ProgressThread::FunctionState::FunctionState(Function&& function)
 
 void ProgressThread::FunctionState::operator()() {
     // Only call `function()` if it isn't done yet.
-    if (!*is_done && function() == ProgressState::Done) {
-        *is_done = true;
+    // Note: ProgressThread::mutex_ is currently locked by the progress thread. So, we can
+    // safely update is_done bool.
+    if (!is_done && function() == ProgressState::Done) {
+        is_done = true;
     }
 }
 
@@ -60,7 +62,7 @@ void ProgressThread::stop() {
 }
 
 ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::lock_guard lock(mutex_);
     // We can use `this` as the thread address only because `ProgressThread` isn't
     // moveable or copyable.
     auto id =
@@ -76,23 +78,18 @@ void ProgressThread::remove_function(FunctionID function_id) {
         "Function was not registered with this ProgressThread"
     );
 
-    std::shared_ptr<bool> is_done{nullptr};
-    {
-        std::lock_guard const lock(mutex_);
-        auto it = functions_.find(function_id.function_index);
-        RAPIDSMP_EXPECTS(
-            it != functions_.end(), "Function not registered or already removed"
-        );
-        is_done = it->second.is_done;
-    }
+    std::unique_lock lock(mutex_);
+    auto it = functions_.find(function_id.function_index);
+    RAPIDSMP_EXPECTS(
+        it != functions_.end(), "Function not registered or already removed"
+    );
 
-    {
-        // Wait for the function to complete
-        std::unique_lock<std::mutex> lock(mutex_);
-        cv_.wait(lock, [is_done]() { return *is_done; });
-    }
+    // Wait for the function to complete.
+    // iterator it can get invalidated, if some other thread erases a function. So, query
+    // functions_ instead
+    cv_.wait(lock, [&, f_idx = it->first]() { return functions_.at(f_idx).is_done; });
 
-    std::lock_guard const lock(mutex_);
+    // Waiting done. Now, mutex_ is locked again
     functions_.erase(function_id.function_index);
 
     if (functions_.empty()) {

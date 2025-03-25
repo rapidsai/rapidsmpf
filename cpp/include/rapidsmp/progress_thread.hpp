@@ -105,8 +105,7 @@ class ProgressThread {
         void operator()();
 
         Function function;  ///< The function to execute.
-        std::shared_ptr<bool> is_done{std::make_shared<bool>(false)
-        };  ///< Whether the function has completed
+        bool is_done{false};  ///< Whether the function has completed
     };
 
     /**
