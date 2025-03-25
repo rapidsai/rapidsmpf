@@ -835,27 +835,3 @@ def _stage_shuffler(
         partition_count=partition_count,
         dask_worker=dask_worker,
     )
-
-
-def _exponential_backoff(attempt: int) -> float:
-    """
-    Calculate the duration of an exponential backoff.
-
-    Parameters
-    ----------
-    attempt
-        The attempt number. Increment this between attempts.
-
-    Returns
-    -------
-    float
-        The duration of the exponential backoff.
-    """
-    max_interval = 10
-
-    try:
-        interval = 0.5**attempt
-    except OverflowError:
-        return max_interval
-
-    return min(max_interval, interval)
