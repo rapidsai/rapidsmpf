@@ -44,11 +44,30 @@ void FinishCounter::add_finished_chunk(PartID pid) {
     }
 }
 
-PartID FinishCounter::wait_any() {
-    std::unique_lock<std::mutex> lock(mutex_);
+template <typename Pred>
+void wait_for_if_timeout_else_wait(
+    std::unique_lock<std::mutex>& lock,
+    std::condition_variable& cv,
+    std::optional<std::chrono::milliseconds>& timeout,
+    Pred&& pred
+) {
+    if (timeout.has_value()) {
+        // if the timeout is set, and pred() is not true, throw
+        RAPIDSMP_EXPECTS(
+            cv.wait_for(lock, *timeout, std::move(pred)),
+            "wait timeout reached",
+            std::runtime_error
+        );
+    } else {
+        cv.wait(lock, std::move(pred));
+    }
+}
+
+PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout) {
     PartID finished_key{std::numeric_limits<PartID>::max()};
 
-    cv_.wait(lock, [&]() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&] {
         return partitions_ready_to_wait_on_.empty()
                || std::any_of(
                    partitions_ready_to_wait_on_.cbegin(),
@@ -73,8 +92,11 @@ PartID FinishCounter::wait_any() {
     return extract_key(partitions_ready_to_wait_on_, finished_key);
 }
 
-void FinishCounter::wait_on(PartID pid) {
-    auto predicate = [&]() {
+void FinishCounter::wait_on(
+    PartID pid, std::optional<std::chrono::milliseconds> timeout
+) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&]() {
         auto it = partitions_ready_to_wait_on_.find(pid);
         RAPIDSMP_EXPECTS(
             it != partitions_ready_to_wait_on_.end(),
@@ -82,28 +104,28 @@ void FinishCounter::wait_on(PartID pid) {
             std::out_of_range
         );
         return it->second;
-    };
-    std::unique_lock<std::mutex> lock(mutex_);
-    if (!predicate()) {
-        cv_.wait(lock, predicate);
-    }
+    });
     partitions_ready_to_wait_on_.erase(pid);
 }
 
-std::vector<PartID> FinishCounter::wait_some() {
+std::vector<PartID> FinishCounter::wait_some(
+    std::optional<std::chrono::milliseconds> timeout
+) {
     std::unique_lock<std::mutex> lock(mutex_);
     RAPIDSMP_EXPECTS(
         !partitions_ready_to_wait_on_.empty(),
         "no more partitions to wait on",
         std::out_of_range
     );
-    cv_.wait(lock, [&]() {
+
+    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&]() {
         return std::any_of(
             partitions_ready_to_wait_on_.begin(),
             partitions_ready_to_wait_on_.end(),
             [](auto const& item) { return item.second; }
         );
     });
+
     std::vector<PartID> result{};
     // TODO: hand-writing iteration rather than range-for to avoid
     // needing to rehash the key during extract_key. Needs

@@ -118,6 +118,8 @@ void test_shuffler(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
+    std::chrono::milliseconds const wait_timeout(20 * 1000);  // 20s wait timeout
+
     // Every rank creates the full input table and all the expected partitions (also
     // partitions this rank might not get after the shuffle).
     cudf::table full_input_table = random_table_with_index(seed, total_num_rows, 0, 10);
@@ -169,7 +171,7 @@ void test_shuffler(
     }
 
     while (!shuffler.finished()) {
-        auto finished_partition = shuffler.wait_any();
+        auto finished_partition = shuffler.wait_any(wait_timeout);
         auto packed_chunks = shuffler.extract(finished_partition);
         auto result =
             rapidsmp::shuffler::unpack_and_concat(std::move(packed_chunks), stream, mr);
@@ -390,4 +392,79 @@ TEST(Shuffler, SpillOnExtraction) {
 
     shuffler.shutdown();
     RAPIDSMP_MPI(MPI_Comm_free(&mpi_comm));
+}
+
+using namespace rapidsmp;
+
+// Runs the wait test by first calling wait_fn lambda with no partitions finished,
+// and then with one partition finished. Former case, should timeout, while the latter
+// should pass. Since each wait function (wait, wait_on, wait_some) has different output
+// types, extract_pid_fn lambda is used to extract the pid from the output.
+template <typename WaitFn, typename ExctractPidFn>
+void run_wait_test(WaitFn&& wait_fn, ExctractPidFn&& extract_pid_fn) {
+    shuffler::PartID out_nparts = 20;
+    auto comm = GlobalEnvironment->comm_;
+
+    if (comm->rank() != 0) {
+        GTEST_SKIP() << "Test only runs on rank 0";
+    }
+
+    auto local_partitions = shuffler::Shuffler::local_partitions(
+        comm, out_nparts, shuffler::Shuffler::round_robin
+    );
+
+    shuffler::detail::FinishCounter finish_counter(comm->nranks(), local_partitions);
+
+
+    // pick some local partition to test
+    auto p_id = local_partitions[0];
+
+    // none of the partitions are finished now. So, wait_fn should timeout
+    EXPECT_THROW(wait_fn(finish_counter, p_id), std::runtime_error);
+
+    // move goalpost by 1 for the finished chunk msg
+    finish_counter.move_goalpost(p_id, 1);
+    for (auto i = 0; i < comm->nranks() - 1; i++) {
+        // mark that no more chunks from other ranks by setting n_chunks=0
+        finish_counter.move_goalpost(p_id, 0);
+    }
+    // add the finished chunk for partition p_id
+    finish_counter.add_finished_chunk(p_id);
+
+    // pass the wait_fn result to extract_pid_fn. It should return p_id
+    EXPECT_EQ(p_id, extract_pid_fn(wait_fn(finish_counter, p_id)));
+}
+
+TEST(FinishCounterTests, wait_with_timeout) {
+    ASSERT_NO_FATAL_FAILURE(run_wait_test(
+        [](shuffler::detail::FinishCounter& finish_counter,
+           shuffler::PartID const& /* exp_pid */) {
+            return finish_counter.wait_any(std::chrono::milliseconds(10));
+        },
+        [](shuffler::PartID const p_id) { return p_id; }  // pass through
+    ));
+}
+
+TEST(FinishCounterTests, wait_on_with_timeout) {
+    ASSERT_NO_FATAL_FAILURE(run_wait_test(
+        [&](shuffler::detail::FinishCounter& finish_counter,
+            shuffler::PartID const& exp_pid) {
+            finish_counter.wait_on(exp_pid, std::chrono::milliseconds(10));
+            return exp_pid;  // return expected PID as wait_on return void
+        },
+        [&](shuffler::PartID const p_id) { return p_id; }  // pass through
+    ));
+}
+
+TEST(FinishCounterTests, wait_some_with_timeout) {
+    ASSERT_NO_FATAL_FAILURE(run_wait_test(
+        [&](shuffler::detail::FinishCounter& finish_counter,
+            shuffler::PartID const& /* exp_pid */) {
+            return finish_counter.wait_some(std::chrono::milliseconds(10));
+        },
+        [&](std::vector<shuffler::PartID> const p_ids) {
+            // extract the first element, as there will be only one finished partition
+            return p_ids[0];
+        }
+    ));
 }
