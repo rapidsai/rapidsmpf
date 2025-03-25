@@ -101,9 +101,8 @@ TEST(SpillManager, PeriodicSpillCheck) {
 
     // Spill function that increases `mem` for each call.
     std::int64_t num_calls = 0;
-    SpillManager::SpillFunction func = [&num_calls](std::size_t amount) -> std::size_t {
-        return ++num_calls;
-    };
+    SpillManager::SpillFunction func =
+        [&num_calls](std::size_t /* amount */) -> std::size_t { return ++num_calls; };
     br.spill_manager().add_spill_function(func, 0);
 
     std::this_thread::sleep_for(period * 100);
