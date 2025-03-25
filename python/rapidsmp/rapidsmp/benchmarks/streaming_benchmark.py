@@ -80,7 +80,8 @@ def consume_finished_partitions(
         assert partition_id % comm.nranks == comm.rank
 
         splits = shuffler.extract(partition_id)
-        del splits  # discard the extracted partition splits
+        # discard the extracted partition splits
+        del splits
         finished.add(partition_id)
 
     # all gather len(finished) to determine if all partitions have finished
