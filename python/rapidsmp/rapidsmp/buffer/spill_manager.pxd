@@ -1,0 +1,21 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.
+
+
+from libcpp.memory cimport shared_ptr
+
+
+cdef extern from "<rapidsmp/buffer/spill_manager.hpp>" nogil:
+    cdef cppclass cpp_SpillFunction "rapidsmp::SpillManager::SpillFunction":
+        pass
+
+    cdef cppclass cpp_SpillManager "rapidsmp::SpillManager":
+        size_t add_spill_function(
+            cpp_SpillFunction spill_function, int priority
+        ) except +
+        size_t spill(size_t amount) except +
+
+
+cdef class SpillManager:
+    cdef cpp_SpillManager *_handle
+    cdef object _owner
+    cdef dict _spill_functions

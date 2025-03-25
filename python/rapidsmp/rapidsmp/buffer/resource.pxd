@@ -8,6 +8,7 @@ from libcpp cimport bool
 from libcpp.memory cimport shared_ptr
 from libcpp.unordered_map cimport unordered_map
 from rapidsmp.buffer.buffer cimport MemoryType
+from rapidsmp.buffer.spill_manager cimport SpillManager, cpp_SpillManager
 from rmm.librmm.memory_resource cimport (device_memory_resource,
                                          statistics_resource_adaptor)
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
@@ -31,10 +32,12 @@ cdef extern from "<rapidsmp/buffer/resource.hpp>" nogil:
         size_t cpp_memory_reserved "memory_reserved"(
             MemoryType mem_type
         ) except +
+        cpp_SpillManager &cpp_spill_manager "spill_manager"() except +
 
 
 cdef class BufferResource:
     cdef shared_ptr[cpp_BufferResource] _handle
+    cdef SpillManager _spill_manager
     cdef cpp_BufferResource* ptr(self)
 
 
