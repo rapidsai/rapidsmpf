@@ -192,6 +192,13 @@ Shuffler::Shuffler(
     RAPIDSMP_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMP_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
     RAPIDSMP_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+
+    // Register a spill function that spill buffers in this shuffler.
+    // Note, the spill function can use `this` because a Shuffler isn't movable.
+    br->spill_manager().add_spill_function(
+        [this](std::size_t amount) -> std::size_t { return spill(amount); },
+        /* priority = */ 0
+    );
 }
 
 Shuffler::~Shuffler() {
@@ -242,9 +249,6 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
     RAPIDSMP_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
 
-    // Spill if current available device memory is negative.
-    br_->spill_manager().spill_to_make_headroom(0);
-
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_columns] : chunks) {
         // Check if we should spill the chunk before inserting into the inbox.
@@ -284,6 +288,9 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
             ));
         }
     }
+
+    // Spill if current available device memory is still negative.
+    br_->spill_manager().spill_to_make_headroom(0);
 }
 
 void Shuffler::insert_finished(PartID pid) {
