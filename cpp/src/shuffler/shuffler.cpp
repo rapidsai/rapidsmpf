@@ -242,9 +242,6 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
     RAPIDSMP_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
 
-    // Spill if current available device memory is negative.
-    br_->spill_manager().spill_to_make_headroom(0);
-
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_columns] : chunks) {
         // Check if we should spill the chunk before inserting into the inbox.
@@ -284,6 +281,9 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
             ));
         }
     }
+
+    // Spill if current available device memory is still negative.
+    br_->spill_manager().spill_to_make_headroom(0);
 }
 
 void Shuffler::insert_finished(PartID pid) {

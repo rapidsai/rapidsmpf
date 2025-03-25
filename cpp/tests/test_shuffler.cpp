@@ -322,7 +322,7 @@ TEST_P(ConcurrentShuffleTest, round_trip) {
     }
 }
 
-TEST(Shuffler, SpillOnExtraction) {
+TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmp::shuffler::PartID const total_num_partitions = 2;
     std::int64_t const seed = 42;
     cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
@@ -340,7 +340,8 @@ TEST(Shuffler, SpillOnExtraction) {
         mr,
         {{rapidsmp::MemoryType::DEVICE,
           [&device_memory_available]() -> std::int64_t { return device_memory_available; }
-        }}
+        }},
+        std::nullopt  // disable periodic spill check
     };
     EXPECT_EQ(
         br.memory_available(rapidsmp::MemoryType::DEVICE)(), device_memory_available
