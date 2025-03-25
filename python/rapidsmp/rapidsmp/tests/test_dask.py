@@ -24,7 +24,6 @@ from mpi4py import MPI  # noqa: E402
 
 from rapidsmp.integrations.dask import (  # noqa: E402
     bootstrap_dask_cluster,
-    bootstrap_dask_cluster_async,
 )
 
 if TYPE_CHECKING:
@@ -58,25 +57,6 @@ async def test_dask_ucxx_cluster_sync() -> None:
             return cast(int, dask_worker._rapidsmp_comm.rank)
 
         result = client.run(get_rank)
-        assert set(result.values()) == set(range(len(cluster.workers)))
-
-
-@gen_test(timeout=30)
-async def test_dask_ucxx_cluster_async() -> None:
-    async with (
-        LocalCUDACluster(
-            scheduler_port=0, asynchronous=True, device_memory_limit=1
-        ) as cluster,
-        Client(cluster, asynchronous=True) as client,
-    ):
-        assert len(cluster.workers) == get_n_gpus()
-        await bootstrap_dask_cluster_async(client, pool_size=0.25, spill_device=0.1)
-
-        def get_rank(dask_worker: Worker) -> int:
-            # TODO: maybe move the cast into rapidsmp_comm?
-            return cast(int, dask_worker._rapidsmp_comm.rank)
-
-        result = await client.run(get_rank)
         assert set(result.values()) == set(range(len(cluster.workers)))
 
 
@@ -120,20 +100,6 @@ def test_bootstrap_dask_cluster_idempotent() -> None:
 
         bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
         after = client.run(lambda dask_worker: id(dask_worker._rapidsmp_comm))
-        assert before == after
-
-
-@gen_test(timeout=30)
-async def test_bootstrap_dask_cluster_async_idempotent() -> None:
-    async with (
-        LocalCUDACluster(asynchronous=True) as cluster,
-        Client(cluster, asynchronous=True) as client,
-    ):
-        await bootstrap_dask_cluster_async(client, pool_size=0.25, spill_device=0.1)
-        before = await client.run(lambda dask_worker: id(dask_worker._rapidsmp_comm))
-
-        await bootstrap_dask_cluster_async(client, pool_size=0.25, spill_device=0.1)
-        after = await client.run(lambda dask_worker: id(dask_worker._rapidsmp_comm))
         assert before == after
 
 

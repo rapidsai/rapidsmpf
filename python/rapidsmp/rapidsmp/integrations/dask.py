@@ -500,67 +500,6 @@ def rmp_worker_setup(
         dask_worker._rmp_buffer_resource = BufferResource(mr, memory_available)
 
 
-async def bootstrap_dask_cluster_async(
-    client: Client,
-    *,
-    pool_size: float = 0.75,
-    spill_device: float = 0.50,
-    enable_statistics: bool = True,
-) -> None:
-    """
-    Setup an asynchronous Dask cluster for rapidsmp shuffling.
-
-    Parameters
-    ----------
-    client
-        The current Dask client.
-    pool_size
-        The desired RMM pool size.
-    spill_device
-        GPU memory limit for shuffling.
-    enable_statistics
-        Whether to track shuffler statistics.
-
-    See Also
-    --------
-    bootstrap_dask_cluster
-        Setup a synchronous Dask cluster for rapidsmp shuffling.
-
-    Notes
-    -----
-    This utility must be executed before rapidsmp shuffling can be used within a
-    Dask cluster. This function is called automatically by
-    `rapidsmp.integrations.dask.rapids_shuffle_graph`, but may be called
-    manually to set things up before the first shuffle.
-
-    Subsequent shuffles on the same cluster will reuse the resources established
-    on the cluster by this function.
-
-    All the workers reported by :meth:`distributed.Client.scheduler_info` will
-    be used. Note that rapidsmp does not currently support adding or removing
-    workers from the cluster.
-    """
-    if not client.asynchronous:
-        raise ValueError("Client must be asynchronous")
-
-    if client.id in _initialized_clusters:
-        return
-
-    # Bootstrap the scheduler.
-    scheduler_plugin = RMPSchedulerPlugin()
-    await client.register_plugin(scheduler_plugin)
-
-    # Bootstrap the workers.
-    worker_plugin = RMPWorkerPlugin(
-        worker_addresses=sorted(client.scheduler_info()["workers"]),
-        pool_size=pool_size,
-        spill_device=spill_device,
-        enable_statistics=enable_statistics,
-    )
-    await client.register_plugin(worker_plugin)
-    _initialized_clusters.add(client.id)
-
-
 def bootstrap_dask_cluster(
     client: Client,
     *,
