@@ -162,6 +162,7 @@ def streaming_shuffle(
         )
         for p in range(n_parts_local):
             # generate chunks for a single local partition by deep copying the dummy table as packed columns
+            # NOTE: This would require part_size amount of GPU memory.
             chunks: dict[int, PackedColumns] = {}
             for i in range(output_nparts):
                 chunks[i] = pack(dummy_table)
