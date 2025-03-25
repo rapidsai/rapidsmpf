@@ -4,14 +4,12 @@
 
 from __future__ import annotations
 
-import asyncio
+import logging
 import threading
 import weakref
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast, runtime_checkable
 
 import ucxx._lib.libucxx as ucx_api
-from dask import config
-from dask_cuda import LocalCUDACluster
 from distributed import get_client, get_worker, wait
 from distributed.diagnostics.plugin import SchedulerPlugin
 
@@ -32,6 +30,7 @@ if TYPE_CHECKING:
     from distributed.scheduler import Scheduler, TaskState
 
 
+_dask_logger = logging.getLogger("distributed.worker")
 DataFrameT = TypeVar("DataFrameT")
 
 
@@ -39,101 +38,6 @@ DataFrameT = TypeVar("DataFrameT")
 _worker_thread_lock: threading.RLock = threading.RLock()
 _initialized_clusters: set[str] = set()
 _shuffle_counter: int = 0
-
-
-async def rapidsmp_ucxx_rank_setup(
-    nranks: int, root_address_bytes: bytes | None = None
-) -> bytes | None:
-    """
-    Setup UCXX-based communicator on single rank.
-
-    This function should run in each Dask worker that is to be part of the RAPIDSMP cluster.
-
-    First, this must run on the elected root rank and will then return the UCXX address
-    of the root as a string.
-
-    With the root rank already setup, this should run again with the valid root address
-    specified via ``root_address_bytes`` in all workers, including the root rank. Non-root
-    ranks will connect to the root and all ranks, including the root, will then run a
-    barrier, the barrier is important to ensure the underlying UCXX worker is progressed,
-    thus why it is necessary to run again on root.
-
-    Parameters
-    ----------
-    nranks
-        The total number of ranks requested for the cluster.
-    root_address_bytes
-        The address of the root rank if it has been already setup, ``None`` if this is
-        setting up the root rank. Note that this function must run twice on the root rank
-        one to initialize it, and again to ensure synchronization with other ranks. See
-        the function extended description for details.
-
-    Returns
-    -------
-    root_address
-        Returns the root rank address as a bytes string if this function was called to setup
-        the root, otherwise returns `None`.
-    """
-    dask_worker = get_worker()
-
-    comm: Communicator
-    if root_address_bytes is None:
-        comm = new_communicator(nranks, None, None)
-        comm.logger.trace(f"Rank {comm.rank} created")
-        dask_worker._rapidsmp_comm = comm
-        return get_root_ucxx_address(comm)
-    else:
-        if hasattr(dask_worker, "_rapidsmp_comm"):
-            assert isinstance(dask_worker._rapidsmp_comm, Communicator)
-            comm = dask_worker._rapidsmp_comm
-        else:
-            root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-            comm = new_communicator(nranks, None, root_address)
-
-            comm.logger.trace(f"Rank {comm.rank} created")
-            dask_worker._rapidsmp_comm = comm
-
-        comm.logger.trace(f"Rank {comm.rank} setup barrier")
-        barrier(comm)
-        comm.logger.trace(f"Rank {comm.rank} setup barrier passed")
-        return None
-
-
-async def rapidsmp_ucxx_comm_setup(client: Client) -> None:
-    """
-    Setup UCXX-based communicator across the Distributed cluster.
-
-    Keeps the communicator alive via state stored in the Distributed workers.
-
-    Parameters
-    ----------
-    client
-        Distributed client connected to a Distributed cluster from which to setup the
-        cluster.
-    """
-    workers = list(client.scheduler_info()["workers"])
-
-    root_rank = [workers[0]]
-
-    root_address_bytes = await client.submit(
-        rapidsmp_ucxx_rank_setup,
-        nranks=len(workers),
-        root_address_bytes=None,
-        workers=root_rank,
-        pure=False,
-    ).result()
-
-    futures = [
-        client.submit(
-            rapidsmp_ucxx_rank_setup,
-            nranks=len(workers),
-            root_address_bytes=root_address_bytes,
-            workers=[w],
-            pure=False,
-        )
-        for w in workers
-    ]
-    await asyncio.gather(*futures)
 
 
 def get_shuffle_id() -> int:
@@ -518,6 +422,59 @@ def rapidsmp_shuffle_graph(
     return graph
 
 
+async def rapidsmp_ucxx_rank_setup_root(n_ranks: int) -> bytes:
+    """
+    Set up the UCXX comm for the root worker.
+
+    Parameters
+    ----------
+    n_ranks
+        Number of ranks in the cluster / UCXX comm.
+
+    Returns
+    -------
+    bytes
+        The UCXX address of the root node.
+    """
+    dask_worker = get_worker()
+
+    comm = new_communicator(n_ranks, None, None)
+    comm.logger.trace(f"Rank {comm.rank} created")
+    dask_worker._rapidsmp_comm = comm
+    return get_root_ucxx_address(comm)
+
+
+async def rapidsmp_ucxx_rank_setup_node(
+    n_ranks: int, root_address_bytes: bytes
+) -> None:
+    """
+    Set up the UCXX comms for a Dask worker.
+
+    Parameters
+    ----------
+    n_ranks
+        Number of ranks in the cluster / UCXX comm.
+    root_address_bytes
+        The UCXX address of the root node.
+    """
+    dask_worker = get_worker()
+
+    if hasattr(dask_worker, "_rapidsmp_comm"):
+        assert isinstance(dask_worker._rapidsmp_comm, Communicator)
+        comm = dask_worker._rapidsmp_comm
+    else:
+        root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
+        comm = new_communicator(n_ranks, None, root_address)
+
+        comm.logger.trace(f"Rank {comm.rank} created")
+        dask_worker._rapidsmp_comm = comm
+
+    comm.logger.trace(f"Rank {comm.rank} setup barrier")
+    barrier(comm)
+    comm.logger.trace(f"Rank {comm.rank} setup barrier passed")
+    return None
+
+
 def rmp_worker_setup(
     dask_worker: Worker,
     *,
@@ -616,79 +573,67 @@ def bootstrap_dask_cluster(
 
     See Also
     --------
-    LocalRMPCluster
-        Local rapidsmp-specific Dask cluster.
+    bootstrap_dask_cluster_async
+        Setup an asynchronous Dask cluster for rapidsmp shuffling.
 
     Notes
     -----
-    This utility must be executed before rapidsmp shuffling
-    can be used within a Dask cluster. This function is called
-    automatically by `get_dask_client`.
+    This utility must be executed before rapidsmp shuffling can be used within a
+    Dask cluster. This function is called automatically by
+    `rapidsmp.integrations.dask.rapids_shuffle_graph`, but may be called
+    manually to set things up before the first shuffle.
 
-    The `LocalRMPCluster` API is strongly recommended for
-    local Dask-cluster generation, because it will automatically
-    load the required `RMPSchedulerPlugin` (which must be loaded
-    at cluster-initialization time).
+    Subsequent shuffles on the same cluster will reuse the resources established
+    on the cluster by this function.
+
+    All the workers reported by :meth:`distributed.Client.scheduler_info` will
+    be used. Note that rapidsmp does not currently support adding or removing
+    workers from the cluster.
     """
+    if client.asynchronous:
+        raise ValueError("Client must be synchronous")
 
-    def rmp_plugin_not_registered(dask_scheduler: Scheduler | None = None) -> bool:
-        """
-        Check if a RMPSchedulerPlugin is registered.
+    if client.id in _initialized_clusters:
+        return
 
-        Parameters
-        ----------
-        dask_scheduler
-            Dask scheduler object.
+    # Scheduler stuff
+    scheduler_plugin = RMPSchedulerPlugin()
+    client.register_plugin(scheduler_plugin)
 
-        Returns
-        -------
-        Whether a RMPSchedulerPlugin is registered.
-        """
-        assert dask_scheduler is not None
-        for plugin in dask_scheduler.plugins:
-            if "RMPSchedulerPlugin" in plugin:
-                return False
-        return True
+    workers = sorted(client.scheduler_info()["workers"])
+    n_ranks = len(workers)
 
-    if client.id not in _initialized_clusters:
-        # Check that RMPSchedulerPlugin is registered
-        if client.run_on_scheduler(rmp_plugin_not_registered):
-            raise ValueError("RMPSchedulerPlugin was not found on the scheduler.")
+    # Set up the comms for the root worker
+    root_address_bytes = client.submit(
+        rapidsmp_ucxx_rank_setup_root,
+        n_ranks=len(workers),
+        workers=workers[0],
+        pure=False,
+    ).result()
 
-        # Setup "root" ucxx-comm rank
-        workers = list(client.scheduler_info()["workers"])
-        root_rank = [workers[0]]
-        root_address_bytes = client.submit(
-            rapidsmp_ucxx_rank_setup,
-            nranks=len(workers),
-            root_address_bytes=None,
-            workers=root_rank,
+    # Set up the entire ucxx cluster
+    ucxx_setup_futures = [
+        client.submit(
+            rapidsmp_ucxx_rank_setup_node,
+            n_ranks=n_ranks,
+            root_address_bytes=root_address_bytes,
+            workers=worker,
             pure=False,
-        ).result()
-
-        # Setup other ucxx ranks
-        futures = [
-            client.submit(
-                rapidsmp_ucxx_rank_setup,
-                nranks=len(workers),
-                root_address_bytes=root_address_bytes,
-                workers=[w],
-                pure=False,
-            )
-            for w in workers
-        ]
-        wait(futures)
-
-        # Setup the rapidsmp worker
-        client.run(
-            rmp_worker_setup,
-            pool_size=pool_size,
-            spill_device=spill_device,
-            enable_statistics=enable_statistics,
         )
+        for worker in workers
+    ]
+    wait(ucxx_setup_futures)
 
-        # Only run the above steps once
-        _initialized_clusters.add(client.id)
+    # Finally, prepare the rapidsmp resources on top of the UCXX comms
+    client.run(
+        rmp_worker_setup,
+        pool_size=pool_size,
+        spill_device=spill_device,
+        enable_statistics=enable_statistics,
+    )
+
+    # Only run the above steps once
+    _initialized_clusters.add(client.id)
 
 
 class RMPSchedulerPlugin(SchedulerPlugin):
@@ -699,28 +644,22 @@ class RMPSchedulerPlugin(SchedulerPlugin):
     shuffle service by making it possible for the client
     to inform the scheduler of tasks that must be
     constrained to specific workers.
-
-    Parameters
-    ----------
-    scheduler
-        The current Dask scheduler object.
-
-    See Also
-    --------
-    LocalRMPCluster
-        Local rapidsmp-specific Dask cluster.
     """
 
     scheduler: Scheduler
     _rmp_restricted_tasks: dict[str, str]
 
-    def __init__(self, scheduler: Scheduler) -> None:
+    def __init__(self) -> None:
+        self._rmp_restricted_tasks = {}
+        self.scheduler = None
+
+    async def start(  # noqa: D102
+        self, scheduler: Scheduler
+    ) -> None:  # numpydoc ignore=GL08
         self.scheduler = scheduler
         self.scheduler.stream_handlers.update(
             {"rmp_add_restricted_tasks": self.rmp_add_restricted_tasks}
         )
-        self.scheduler.add_plugin(self, name="rampidsmp_manger")
-        self._rmp_restricted_tasks = {}
 
     def rmp_add_restricted_tasks(self, *args: Any, **kwargs: Any) -> None:
         """
@@ -896,50 +835,3 @@ def _stage_shuffler(
         partition_count=partition_count,
         dask_worker=dask_worker,
     )
-
-
-class LocalRMPCluster(LocalCUDACluster):
-    """
-    Local rapidsmp Dask cluster.
-
-    Parameters
-    ----------
-    **kwargs
-        Key-word arguments to be passed through to
-        `dask_cuda.LocalCUDACluster`.
-
-    Methods
-    -------
-    __init__
-
-    Notes
-    -----
-    This class wraps `dask_cuda.LocalCUDACluster`, and
-    automatically registers an `RMPSchedulerPlugin` at
-    initialization time. This plugin allows a distributed
-    client to inform the scheduler of specific worker
-    restrictions at graph-construction time. This feature
-    is currently needed for dask + rapidsmp integration.
-    """
-
-    # We need __init__ to avoid warnings during doc builds.
-
-    def __init__(self, **kwargs: Any):
-        self._rmp_shuffle_counter = 0
-        preloads = config.get("distributed.scheduler.preload")
-        preloads.append("rapidsmp.integrations.dask")
-        config.set({"distributed.scheduler.preload": preloads})
-        super().__init__(**kwargs)
-
-
-def dask_setup(scheduler: Scheduler) -> None:
-    """
-    Setup dask cluster.
-
-    Parameters
-    ----------
-    scheduler
-        Dask scheduler object.
-    """
-    plugin = RMPSchedulerPlugin(scheduler)
-    scheduler.add_plugin(plugin)
