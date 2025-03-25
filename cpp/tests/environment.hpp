@@ -8,6 +8,7 @@
 #include <mpi.h>
 
 #include <rapidsmp/communicator/communicator.hpp>
+#include <rapidsmp/progress_thread.hpp>
 
 class Environment : public ::testing::Environment {
   public:
@@ -20,6 +21,7 @@ class Environment : public ::testing::Environment {
     void barrier();
 
     std::shared_ptr<rapidsmp::Communicator> comm_;
+    std::shared_ptr<rapidsmp::ProgressThread> progress_thread_;
 
   private:
     int argc_;

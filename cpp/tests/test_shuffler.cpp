@@ -183,6 +183,7 @@ void test_shuffler(
         );
     }
 
+    GlobalEnvironment->barrier();
     shuffler.shutdown();
 }
 
@@ -224,6 +225,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
 
     rapidsmp::shuffler::Shuffler shuffler(
         GlobalEnvironment->comm_,
+        GlobalEnvironment->progress_thread_,
         0,  // op_id
         total_num_partitions,
         stream,
@@ -268,6 +270,7 @@ class ConcurrentShuffleTest
     void RunTest(int t_id) {
         rapidsmp::shuffler::Shuffler shuffler(
             GlobalEnvironment->comm_,
+            GlobalEnvironment->progress_thread_,
             t_id,  // op_id, use t_id as a proxy
             total_num_partitions,
             stream,
@@ -354,11 +357,14 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     RAPIDSMP_MPI(MPI_Comm_split(MPI_COMM_WORLD, rank, 0, &mpi_comm));
     std::shared_ptr<rapidsmp::Communicator> comm =
         std::make_shared<rapidsmp::MPI>(mpi_comm);
+    std::shared_ptr<rapidsmp::ProgressThread> progress_thread =
+        std::make_shared<rapidsmp::ProgressThread>(comm->logger());
     EXPECT_EQ(comm->nranks(), 1);
 
     // Create a shuffler and input chunks.
     rapidsmp::shuffler::Shuffler shuffler(
         comm,
+        progress_thread,
         0,  // op_id
         total_num_partitions,
         stream,

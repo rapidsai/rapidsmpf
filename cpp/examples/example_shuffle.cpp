@@ -28,6 +28,14 @@ int main(int argc, char** argv) {
     std::shared_ptr<rapidsmp::Communicator> comm =
         std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
 
+    // Create a statistics instance for the shuffler that tracks useful information.
+    auto stats = std::make_shared<rapidsmp::Statistics>();
+
+    // Then a progress thread where the shuffler event loop executes is created. A single
+    // progress thread may be used by multiple shufflers simultaneously.
+    std::shared_ptr<rapidsmp::ProgressThread> progress_thread =
+        std::make_shared<rapidsmp::ProgressThread>(comm->logger(), stats);
+
     // The Communicator provides a logger.
     auto& log = comm->logger();
 
@@ -35,9 +43,6 @@ int main(int argc, char** argv) {
     rmm::cuda_stream_view stream = cudf::get_default_stream();
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
     rapidsmp::BufferResource br{mr};
-
-    // Create a statistics instance for the shuffler that tracks useful information.
-    auto stats = std::make_shared<rapidsmp::Statistics>();
 
     // As input data, we use a helper function from the benchmark suite. It creates a
     // random cudf table with 2 columns and 100 rows. In this example, each MPI rank
@@ -55,6 +60,7 @@ int main(int argc, char** argv) {
     // function, in this example we use the included round-robin owner function.
     rapidsmp::shuffler::Shuffler shuffler(
         comm,
+        progress_thread,
         0,  // op_id
         total_num_partitions,
         stream,

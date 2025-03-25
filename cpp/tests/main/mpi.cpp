@@ -20,6 +20,7 @@ void Environment::SetUp() {
     RAPIDSMP_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm_));
 
     comm_ = std::make_shared<rapidsmp::MPI>(mpi_comm_);
+    progress_thread_ = std::make_shared<rapidsmp::ProgressThread>(comm_->logger());
 }
 
 void Environment::TearDown() {
