@@ -44,6 +44,20 @@ void FinishCounter::add_finished_chunk(PartID pid) {
     }
 }
 
+/**
+ * @brief A utility function to wait on a predicate with a timeout and throw if
+ * the timeout is reached. If the timeout is not set, wait for the predicate
+ * to be true.
+ *
+ * @tparam Pred The type of the predicate.
+ *
+ * @param lock The lock to use for the wait.
+ * @param cv The condition variable to use for the wait.
+ * @param timeout The timeout to use for the wait.
+ * @param pred The predicate to wait on.
+ *
+ * @throws std::runtime_error if the timeout is reached.
+ */
 template <typename Pred>
 void wait_for_if_timeout_else_wait(
     std::unique_lock<std::mutex>& lock,
