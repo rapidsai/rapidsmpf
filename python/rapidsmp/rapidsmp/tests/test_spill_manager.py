@@ -52,7 +52,7 @@ def test_spill_function(
     assert track_spilled[0] == 10
 
     def spill_not_needed(amount: int) -> int:
-        assert False, "shouldn't be needed"
+        raise ValueError("shouldn't be needed")
 
     f2 = br.spill_manager.add_spill_function(spill_not_needed, priority=-1)
     assert br.spill_manager.spill(10) == 10
@@ -64,3 +64,15 @@ def test_spill_function(
     f3 = br.spill_manager.add_spill_function(spill_limited, priority=1)
     assert br.spill_manager.spill(10) == 10
     assert track_spilled[0] == 25
+
+    br.spill_manager.remove_spill_function(f3)
+    assert br.spill_manager.spill(10) == 10
+    assert track_spilled[0] == 35
+
+    br.spill_manager.remove_spill_function(f1)
+    with pytest.raises(ValueError, match="shouldn't be needed"):
+        br.spill_manager.spill(10)
+
+    br.spill_manager.remove_spill_function(f2)
+    assert br.spill_manager.spill(10) == 0
+    assert track_spilled[0] == 35

@@ -125,5 +125,8 @@ cdef class SpillManager:
         self._spill_functions[func_id] = func
         return func_id
 
+    def remove_spill_function(self, int function_id):
+        deref(self._handle).remove_spill_function(function_id)
+
     def spill(self, size_t amount):
         return deref(self._handle).spill(amount)
