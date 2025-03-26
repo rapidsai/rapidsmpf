@@ -116,6 +116,23 @@ cdef class SpillManager:
         return ret
 
     def add_spill_function(self, func, int priority):
+        """
+        Adds a spill function with a given priority to the spill manager.
+
+        The spill function is prioritized according to the specified priority value.
+
+        Parameters
+        ----------
+        spill_function
+            The spill function to be added.
+        priority
+            The priority level of the spill function (higher values indicate higher
+            priority).
+
+        Returns
+        -------
+        The ID assigned to the newly added spill function.
+        """
         cdef size_t func_id = deref(self._handle).add_spill_function(
             cython_to_cpp_closure_lambda(
                 cython_invoke_python_spill_function, <void *>func
@@ -126,7 +143,37 @@ cdef class SpillManager:
         return func_id
 
     def remove_spill_function(self, int function_id):
+        """
+        Removes a spill function from the spill manager.
+
+        This method unregisters the spill function associated with the given ID and
+        removes it from the priority list. If no more spill functions remain, the
+        periodic spill thread is paused.
+
+        Parameters
+        ----------
+        fid
+            The ID of the spill function to be removed.
+        """
         deref(self._handle).remove_spill_function(function_id)
 
     def spill(self, size_t amount):
+        """
+        Initiates spilling to free up a specified amount of memory.
+
+        This method iterates through registered spill functions in priority order,
+        invoking them until at least the requested amount of memory has been spilled
+        or no more spilling is possible.
+
+        Parameters
+        ----------
+        amount
+            The amount of memory (in bytes) to spill.
+
+        Returns
+        -------
+        int
+            The actual amount of memory spilled (in bytes), which may be more, less,
+            or equal to the requested amount.
+        """
         return deref(self._handle).spill(amount)
