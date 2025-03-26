@@ -31,6 +31,14 @@ void Environment::barrier() {
     RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
 }
 
+std::shared_ptr<rapidsmp::Communicator> Environment::split_comm() {
+    int rank;
+    RAPIDSMP_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+    MPI_Comm mpi_comm;
+    RAPIDSMP_MPI(MPI_Comm_split(MPI_COMM_WORLD, rank, 0, &mpi_comm));
+    return std::make_shared<rapidsmp::MPI>(mpi_comm);
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     GlobalEnvironment = new Environment(argc, argv);

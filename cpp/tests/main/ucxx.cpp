@@ -43,6 +43,10 @@ void Environment::barrier() {
     std::dynamic_pointer_cast<rapidsmp::ucxx::UCXX>(comm_)->barrier();
 }
 
+std::shared_ptr<rapidsmp::Communicator> Environment::split_comm() {
+    return nullptr;
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     GlobalEnvironment = new Environment(argc, argv);
