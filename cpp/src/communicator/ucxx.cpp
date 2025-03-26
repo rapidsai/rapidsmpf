@@ -1195,30 +1195,26 @@ std::shared_ptr<UCXX> UCXX::split() {
     Logger& log = logger();
     log.trace("Splitting communicator on rank ", shared_resources_->rank());
 
-    // Create a new worker
-    auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
-    auto worker = context->createWorker(false);
-    worker->setProgressThreadStartCallback(create_cuda_context_callback, nullptr);
-    worker->startProgressThread(true);
+    // Reuse the existing worker and listener
+    auto worker = shared_resources_->get_worker();
+    auto listener = shared_resources_->get_listener();
 
     // Create new shared resources with nranks=1
     auto shared_resources = std::make_shared<SharedResources>(worker, true, 1);
 
-    // Create listener
-    shared_resources->register_listener(
-        worker->createListener(0, listener_callback, shared_resources.get())
-    );
+    // Register the existing listener with the new shared resources
+    shared_resources->register_listener(listener);
 
-    // Set up control callback
-    auto control_callback = ::ucxx::AmReceiverCallbackType(
-        [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
-            control_unpack(req->getRecvBuffer(), ep, shared_resources);
-        }
-    );
+    // // Set up control callback
+    // auto control_callback = ::ucxx::AmReceiverCallbackType(
+    //     [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
+    //         control_unpack(req->getRecvBuffer(), ep, shared_resources);
+    //     }
+    // );
 
-    worker->registerAmReceiverCallback(
-        shared_resources->get_control_callback_info(), control_callback
-    );
+    // worker->registerAmReceiverCallback(
+    //     shared_resources->get_control_callback_info(), control_callback
+    // );
 
     // Create and return new UCXX instance
     auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
