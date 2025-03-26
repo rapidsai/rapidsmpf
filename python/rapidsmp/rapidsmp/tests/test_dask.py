@@ -20,7 +20,9 @@ from distributed.utils_test import (  # noqa: E402, F401
 )
 from mpi4py import MPI  # noqa: E402
 
-from rapidsmp.integrations.dask import rapidsmp_ucxx_comm_setup  # noqa: E402
+from rapidsmp.integrations.dask import (  # noqa: E402
+    bootstrap_dask_cluster,
+)
 
 if TYPE_CHECKING:
     from distributed.worker import Worker
@@ -40,22 +42,19 @@ pytestmark = pytest.mark.skipif(
 
 
 @gen_test(timeout=30)
-async def test_dask_ucxx_cluster() -> None:
-    async with (
-        LocalCUDACluster(
-            scheduler_port=0, asynchronous=True, device_memory_limit=1
-        ) as cluster,
-        Client(cluster, asynchronous=True) as client,
+async def test_dask_ucxx_cluster_sync() -> None:
+    with (
+        LocalCUDACluster(scheduler_port=0, device_memory_limit=1) as cluster,
+        Client(cluster) as client,
     ):
         assert len(cluster.workers) == get_n_gpus()
-
-        await rapidsmp_ucxx_comm_setup(client)
+        bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
 
         def get_rank(dask_worker: Worker) -> int:
             # TODO: maybe move the cast into rapidsmp_comm?
             return cast(int, dask_worker._rapidsmp_comm.rank)
 
-        result = await client.run(get_rank)
+        result = client.run(get_rank)
         assert set(result.values()) == set(range(len(cluster.workers)))
 
 
@@ -67,11 +66,10 @@ def test_dask_cudf_integration(loop: pytest.FixtureDef, partition_count: int) ->
     import dask.dataframe as dd
 
     from rapidsmp.examples.dask import dask_cudf_shuffle
-    from rapidsmp.integrations.dask import LocalRMPCluster, bootstrap_dask_cluster
 
-    with LocalRMPCluster(loop=loop) as cluster:  # noqa: SIM117
+    with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
-            bootstrap_dask_cluster(client)
+            bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
             df = (
                 dask.datasets.timeseries(
                     freq="3600s",
@@ -91,3 +89,18 @@ def test_dask_cudf_integration(loop: pytest.FixtureDef, partition_count: int) ->
             got = shuffled.compute().sort_values(["x", "y"])
 
             dd.assert_eq(expect, got, check_index=False)
+
+
+def test_bootstrap_dask_cluster_idempotent() -> None:
+    with LocalCUDACluster() as cluster, Client(cluster) as client:
+        bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
+        before = client.run(lambda dask_worker: id(dask_worker._rapidsmp_comm))
+
+        bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
+        after = client.run(lambda dask_worker: id(dask_worker._rapidsmp_comm))
+        assert before == after
+
+
+def test_boostrap_single_node_cluster_no_deadlock() -> None:
+    with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
+        bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
