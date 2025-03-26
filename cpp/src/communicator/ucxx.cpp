@@ -1191,6 +1191,40 @@ ListenerAddress UCXX::listener_address() {
     return shared_resources_->get_listener_address(shared_resources_->rank());
 }
 
+std::shared_ptr<UCXX> UCXX::split() {
+    Logger& log = logger();
+    log.trace("Splitting communicator on rank ", shared_resources_->rank());
+
+    // Create a new worker
+    auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
+    auto worker = context->createWorker(false);
+    worker->setProgressThreadStartCallback(create_cuda_context_callback, nullptr);
+    worker->startProgressThread(true);
+
+    // Create new shared resources with nranks=1
+    auto shared_resources = std::make_shared<SharedResources>(worker, true, 1);
+
+    // Create listener
+    shared_resources->register_listener(
+        worker->createListener(0, listener_callback, shared_resources.get())
+    );
+
+    // Set up control callback
+    auto control_callback = ::ucxx::AmReceiverCallbackType(
+        [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
+            control_unpack(req->getRecvBuffer(), ep, shared_resources);
+        }
+    );
+
+    worker->registerAmReceiverCallback(
+        shared_resources->get_control_callback_info(), control_callback
+    );
+
+    // Create and return new UCXX instance
+    auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
+    return std::make_shared<UCXX>(std::move(initialized_rank));
+}
+
 }  // namespace ucxx
 
 }  // namespace rapidsmp

@@ -44,7 +44,7 @@ void Environment::barrier() {
 }
 
 std::shared_ptr<rapidsmp::Communicator> Environment::split_comm() {
-    return nullptr;
+    return std::dynamic_pointer_cast<rapidsmp::ucxx::UCXX>(comm_)->split();
 }
 
 int main(int argc, char** argv) {
