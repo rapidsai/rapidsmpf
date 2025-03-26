@@ -3,76 +3,38 @@
 
 from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
-from libcpp.pair cimport pair
-from libcpp.string cimport string
 from rapidsmp.buffer.resource cimport BufferResource
+from rapidsmp.exception_handling cimport (CppExcept, throw_py_as_cpp_exception,
+                                          translate_py_to_cpp_exception)
 
-# Transparent handle of a C++ exception
-ctypedef pair[int, string] CppExcept
-
-cdef CppExcept translate_py_to_cpp_exception(py_exception) noexcept:
-    """Translate a Python exception into a C++ exception handle (`CppExcept`).
-
-    The returned exception handle can then be thrown by `throw_py_as_cpp_exception()`,
-    which MUST be done without holding the GIL.
-
-    This is useful when C++ calls a Python function and needs to catch or
-    propagate exceptions.
-    """
-
-    # We map errors to an index, which must match the order of the C++ switch
-    # implementing `throw_py_as_cpp_exception()`.
-    errors = [
-        MemoryError,
-        TypeError,
-        ValueError,
-        IOError,
-        IndexError,
-        OverflowError,
-        ArithmeticError,
-    ]
-    for i, error in enumerate(errors):
-        if isinstance(py_exception, error):
-            return CppExcept(i, str.encode(str(py_exception)))
-    # Defaults to `RuntimeError`.
-    return CppExcept(-1, str.encode(str(py_exception)))
-
-# Implementation of `throw_py_as_cpp_exception()`, which throws a given `CppExcept`.
-# This function MUST be called without the GIL otherwise the thrown C++ exception
-# are translated back into a Python exception.
-cdef extern from *:
-    """
-    #include <ios>
-    void throw_py_as_cpp_exception(std::pair<int, std::string> const &res) {
-        switch(res.first) {
-            case 0:
-                throw rmm::out_of_memory(res.second);
-            case 1:
-                throw std::bad_cast();
-            case 2:
-                throw std::invalid_argument(res.second);
-            case 3:
-                throw std::ios_base::failure(res.second);
-            case 4:
-                throw std::out_of_range(res.second);
-            case 5:
-                throw std::overflow_error(res.second);
-            case 6:
-                throw std::range_error(res.second);
-            default:
-                throw std::runtime_error(res.second);
-        }
-    }
-    """
-    void throw_py_as_cpp_exception(CppExcept) nogil
 
 cdef size_t cython_invoke_python_spill_function(
     void* py_spill_function, size_t amount
 ) noexcept nogil:
     """
-    # Note that this function is designed to rethrow Python exceptions as
-    # C++ exceptions when called as a callback from C++, so it is noexcept
-    # from Cython's perspective.
+    Invokes a Python spill function from C++ in a Cython-safe manner.
+
+    This function calls a Python spill function while ensuring proper exception
+    handling. If a Python exception occurs, it is translated into a corresponding
+    C++ exception.
+
+    Notice, we use the `noexcept` keyword to make sure Cython doesn't translate the
+    C++ function back into a Python function.
+
+    Parameters
+    ----------
+    py_spill_function
+        A pointer to a Python callable that implements a spill function.
+    amount
+        The amount of memory (in bytes) to be spilled.
+
+    Returns
+    -------
+    The amount of memory actually spilled, as returned by the Python function.
+
+    Raises
+    ------
+    Converts Python exceptions to C++ exceptions using `throw_py_as_cpp_exception`.
     """
     cdef CppExcept err
     with gil:
