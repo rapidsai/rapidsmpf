@@ -28,7 +28,7 @@ void Environment::TearDown() {
 }
 
 void Environment::barrier() {
-    RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
+    RAPIDSMP_MPI(MPI_Barrier(mpi_comm_));
 }
 
 std::shared_ptr<rapidsmp::Communicator> Environment::split_comm() {
