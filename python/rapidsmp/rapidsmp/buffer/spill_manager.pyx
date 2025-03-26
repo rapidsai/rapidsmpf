@@ -1,4 +1,5 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
@@ -109,6 +110,20 @@ cdef class SpillManager:
 
     @classmethod
     def _create(cls, BufferResource br):
+        """Construct a SpillManager associated the specified buffer resource.
+
+        This shouldn't be used directly instead use `BufferResource.spill_manager()`
+        to get a spill manager.
+
+        Parameters
+        ----------
+        br
+            The associated buffer resource.
+
+        Returns
+        -------
+        The new spill manager instance.
+        """
         cdef SpillManager ret = cls.__new__(cls)
         ret._handle = &(deref(br._handle).cpp_spill_manager())
         ret._owner = br
@@ -152,8 +167,7 @@ cdef class SpillManager:
 
         Parameters
         ----------
-        fid
-            The ID of the spill function to be removed.
+        The ID of the spill function to be removed.
         """
         deref(self._handle).remove_spill_function(function_id)
 
@@ -172,8 +186,7 @@ cdef class SpillManager:
 
         Returns
         -------
-        int
-            The actual amount of memory spilled (in bytes), which may be more, less,
-            or equal to the requested amount.
+        The actual amount of memory spilled (in bytes), which may be more, less,
+        or equal to the requested amount.
         """
         return deref(self._handle).spill(amount)

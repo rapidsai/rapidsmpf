@@ -122,8 +122,8 @@ cdef class LimitAvailableMemory:
 
     Notes
     -----
-    - The ``statistics_mr`` resource must not be destroyed while this object is
-      still in use.
+    The ``statistics_mr`` resource must not be destroyed while this object is
+    still in use.
 
     Examples
     --------
