@@ -1209,11 +1209,6 @@ std::shared_ptr<UCXX> UCXX::split() {
     Logger& log = logger();
     log.trace("Splitting communicator on rank ", shared_resources_->rank());
 
-    // Return cached split communicator if it exists
-    if (split_comm_ != nullptr) {
-        return split_comm_;
-    }
-
     // Get the context from shared resources
     auto context = shared_resources_->get_context();
 
@@ -1241,10 +1236,9 @@ std::shared_ptr<UCXX> UCXX::split() {
         shared_resources->get_control_callback_info(), control_callback
     );
 
-    // Create and cache the new UCXX instance
+    // Create the new UCXX instance
     auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
-    split_comm_ = std::make_shared<UCXX>(std::move(initialized_rank));
-    return split_comm_;
+    return std::make_shared<UCXX>(std::move(initialized_rank));
 }
 
 }  // namespace ucxx

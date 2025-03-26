@@ -27,6 +27,7 @@ class Environment : public ::testing::Environment {
     int argc_;
     char** argv_;
     MPI_Comm mpi_comm_;
+    std::shared_ptr<rapidsmp::Communicator> split_comm_{nullptr};
 };
 
 extern Environment* GlobalEnvironment;
