@@ -25,7 +25,7 @@ if TYPE_CHECKING:
         RuntimeError,
     ],
 )
-def test_error_handle(
+def test_error_handling(
     device_mr: rmm.mr.CudaMemoryResource, error: type[Exception]
 ) -> None:
     def spill(amount: int) -> int:
@@ -35,3 +35,32 @@ def test_error_handle(
     br.spill_manager.add_spill_function(spill, 0)
     with pytest.raises(error):
         br.spill_manager.spill(10)
+
+
+def test_spill_function(
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    br = BufferResource(device_mr)
+    track_spilled = [0]
+
+    def spill_unlimited(amount: int) -> int:
+        track_spilled[0] += amount
+        return amount
+
+    f1 = br.spill_manager.add_spill_function(spill_unlimited, priority=0)
+    assert br.spill_manager.spill(10) == 10
+    assert track_spilled[0] == 10
+
+    def spill_not_needed(amount: int) -> int:
+        assert False, "shouldn't be needed"
+
+    f2 = br.spill_manager.add_spill_function(spill_not_needed, priority=-1)
+    assert br.spill_manager.spill(10) == 10
+    assert track_spilled[0] == 20
+
+    def spill_limited(amount: int) -> int:
+        return 5
+
+    f3 = br.spill_manager.add_spill_function(spill_limited, priority=1)
+    assert br.spill_manager.spill(10) == 10
+    assert track_spilled[0] == 25

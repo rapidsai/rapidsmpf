@@ -6,7 +6,7 @@ from libcpp.pair cimport pair
 from libcpp.string cimport string
 from rapidsmp.buffer.resource cimport BufferResource
 
-# Transparent handle of a C++ exception (see )
+# Transparent handle of a C++ exception
 ctypedef pair[int, string] CppExcept
 
 cdef CppExcept translate_py_to_cpp_exception(py_exception) noexcept:
