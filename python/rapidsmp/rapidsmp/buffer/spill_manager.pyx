@@ -44,6 +44,8 @@ cdef size_t cython_invoke_python_spill_function(
             err = translate_py_to_cpp_exception(e)
     throw_py_as_cpp_exception(err)
 
+# To run a Python function with its closure, we use a C++ function that takes
+# `cython_invoke_python_spill_function` and runs the Python function.
 cdef extern from *:
     """
     template<typename T1, typename T2>
