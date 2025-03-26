@@ -44,8 +44,9 @@ cdef size_t cython_invoke_python_spill_function(
             err = translate_py_to_cpp_exception(e)
     throw_py_as_cpp_exception(err)
 
-# To run a Python function with its closure, we use a C++ function that takes
-# `cython_invoke_python_spill_function` and runs the Python function.
+# To run a Python spill function in C++ with catchable exceptions, we use this function
+# to create a lambda function that uses `cython_invoke_python_spill_function` to run
+# the Python. The returned lambda function can then be given to the C++ SpillManager.
 cdef extern from *:
     """
     template<typename T1, typename T2>
@@ -76,8 +77,7 @@ cdef class SpillManager:
     def _create(cls, BufferResource br):
         """Construct a SpillManager associated the specified buffer resource.
 
-        This shouldn't be used directly instead use `BufferResource.spill_manager()`
-        to get a spill manager.
+        This shouldn't be used directly instead use `BufferResource.spill_manager()`.
 
         Parameters
         ----------
@@ -134,6 +134,7 @@ cdef class SpillManager:
         The ID of the spill function to be removed.
         """
         deref(self._handle).remove_spill_function(function_id)
+        del self._spill_functions[function_id]
 
     def spill(self, size_t amount):
         """

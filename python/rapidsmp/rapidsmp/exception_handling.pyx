@@ -64,7 +64,7 @@ cdef extern from *:
     """
     void cpp_throw_py_as_cpp_exception(CppExcept) nogil
 
-cdef void throw_py_as_cpp_exception(CppExcept err) nogil:
+cdef void throw_py_as_cpp_exception(CppExcept err) noexcept nogil:
     """Throws the exception specified by `CppExcept` as a C++ exception.
 
     This function MUST be called without the GIL otherwise the thrown C++ exception
