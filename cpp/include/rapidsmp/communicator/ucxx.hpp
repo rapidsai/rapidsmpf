@@ -241,6 +241,7 @@ class UCXX final : public Communicator {
   private:
     std::shared_ptr<SharedResources> shared_resources_;
     Logger logger_;
+    std::shared_ptr<UCXX> split_comm_{nullptr};  ///< Cached split communicator
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
     void progress_worker();
