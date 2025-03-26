@@ -234,6 +234,8 @@ class UCXX final : public Communicator {
      * similar to MPI_Comm_split when color is the rank of the current process and key is
      * 0.
      *
+     * @note This method is generally used for testing.
+     *
      * @return A new UCXX communicator with a single rank.
      */
     std::shared_ptr<UCXX> split();
