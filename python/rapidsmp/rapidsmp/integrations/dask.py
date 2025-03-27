@@ -478,7 +478,6 @@ async def rapidsmp_ucxx_rank_setup_node(
 def rmp_worker_setup(
     dask_worker: Worker,
     *,
-    pool_size: float = 0.75,
     spill_device: float = 0.50,
     enable_statistics: bool = True,
 ) -> None:
@@ -489,8 +488,6 @@ def rmp_worker_setup(
     ----------
     dask_worker
         The current Dask worker.
-    pool_size
-        The desired RMM pool size.
     spill_device
         GPU memory limit for shuffling.
     enable_statistics
@@ -529,22 +526,14 @@ def rmp_worker_setup(
         else:
             dask_worker._rmp_statistics = None
 
-        # Setup a buffer_resource
-        # Create a RMM stack with both a device pool and statistics.
-        available_memory = rmm.mr.available_device_memory()[1]
-        rmm_pool_size = int(available_memory * pool_size)
-        rmm_pool_size = (rmm_pool_size // 256) * 256
-        mr = rmm.mr.StatisticsResourceAdaptor(
-            rmm.mr.PoolMemoryResource(
-                rmm.mr.CudaMemoryResource(),
-                initial_pool_size=rmm_pool_size,
-                maximum_pool_size=rmm_pool_size,
-            )
-        )
+        # Setup a buffer_resource.
+        # Wrap the current RMM resource in statistics adaptor.
+        mr = rmm.mr.StatisticsResourceAdaptor(rmm.mr.get_current_device_resource())
         rmm.mr.set_current_device_resource(mr)
+        total_memory = rmm.mr.available_device_memory()[1]
         memory_available = {
             MemoryType.DEVICE: LimitAvailableMemory(
-                mr, limit=int(available_memory * spill_device)
+                mr, limit=int(total_memory * spill_device)
             )
         }
         dask_worker._rmp_buffer_resource = BufferResource(mr, memory_available)
@@ -553,7 +542,6 @@ def rmp_worker_setup(
 def bootstrap_dask_cluster(
     client: Client,
     *,
-    pool_size: float = 0.75,
     spill_device: float = 0.50,
     enable_statistics: bool = True,
 ) -> None:
@@ -564,17 +552,10 @@ def bootstrap_dask_cluster(
     ----------
     client
         The current Dask client.
-    pool_size
-        The desired RMM pool size.
     spill_device
         GPU memory limit for shuffling.
     enable_statistics
         Whether to track shuffler statistics.
-
-    See Also
-    --------
-    bootstrap_dask_cluster_async
-        Setup an asynchronous Dask cluster for rapidsmp shuffling.
 
     Notes
     -----
@@ -627,7 +608,6 @@ def bootstrap_dask_cluster(
     # Finally, prepare the rapidsmp resources on top of the UCXX comms
     client.run(
         rmp_worker_setup,
-        pool_size=pool_size,
         spill_device=spill_device,
         enable_statistics=enable_statistics,
     )
