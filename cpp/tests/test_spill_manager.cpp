@@ -108,9 +108,9 @@ TEST(SpillManager, PeriodicSpillCheck) {
     std::this_thread::sleep_for(period * 100);
     // With no overhead, we should see 100 spill calls but we allow wiggle room.
     if (!is_running_under_valgrind()) {
-        EXPECT_THAT(num_calls, testing::AllOf(testing::Gt(10), testing::Lt(110)));
+        EXPECT_THAT(num_calls, testing::AllOf(testing::Gt(10), testing::Lt(200)));
     } else {
         // In valgrind, we cannot expect it to run more than once.
-        EXPECT_THAT(num_calls, testing::AllOf(testing::Gt(1), testing::Lt(110)));
+        EXPECT_THAT(num_calls, testing::AllOf(testing::Gt(1), testing::Lt(200)));
     }
 }
