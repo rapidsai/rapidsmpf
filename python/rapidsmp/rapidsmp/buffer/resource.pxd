@@ -38,7 +38,7 @@ cdef extern from "<rapidsmp/buffer/resource.hpp>" nogil:
 cdef class BufferResource:
     cdef object __weakref__
     cdef shared_ptr[cpp_BufferResource] _handle
-    cdef SpillManager _spill_manager
+    cdef readonly SpillManager spill_manager
     cdef cpp_BufferResource* ptr(self)
 
 

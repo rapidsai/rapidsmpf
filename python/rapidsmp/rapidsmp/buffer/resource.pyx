@@ -62,7 +62,7 @@ cdef class BufferResource:
         self._handle = make_shared[cpp_BufferResource](
             device_mr.get_mr(), move(_mem_available)
         )
-        self._spill_manager = SpillManager._create(self)
+        self.spill_manager = SpillManager._create(self)
 
     cdef cpp_BufferResource* ptr(self):
         """
@@ -88,19 +88,6 @@ cdef class BufferResource:
         The memory reserved, in bytes.
         """
         return deref(self._handle).cpp_memory_reserved(mem_type)
-
-    @property
-    def spill_manager(self):
-        """
-        Get the spill manager associated with this buffer resource.
-
-        This buffer resource must outlive the returned spill manager.
-
-        Returns
-        -------
-        The spill manager.
-        """
-        return self._spill_manager
 
 
 # Alias of a `rmm::mr::statistics_resource_adaptor` pointer.
