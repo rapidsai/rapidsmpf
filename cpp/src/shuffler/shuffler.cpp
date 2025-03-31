@@ -379,6 +379,7 @@ detail::ChunkID Shuffler::get_new_cid() {
 
 ProgressThread::ProgressState Shuffler::progress() {
     auto const t0_event_loop = Clock::now();
+    bool work_processed = false;  // Track if any work was processed in this iteration
 
     // Tags for each stage of the shuffle
     Tag const ready_for_data_tag{op_id_, 1};
@@ -391,6 +392,7 @@ ProgressThread::ProgressState Shuffler::progress() {
     // Check for new chunks in the inbox and send off their metadata.
     auto const t0_send_metadata = Clock::now();
     for (auto&& chunk : inbox_.extract_all()) {
+        work_processed = true;
         auto dst = partition_owner(comm_, chunk.pid);
         log.trace("send metadata to ", dst, ": ", chunk);
         RAPIDSMP_EXPECTS(dst != comm_->rank(), "sending chunk to ourselves");
@@ -413,6 +415,7 @@ ProgressThread::ProgressState Shuffler::progress() {
     while (true) {
         auto const [msg, src] = comm_->recv_any(metadata_tag);
         if (msg) {
+            work_processed = true;
             auto chunk = Chunk::from_metadata_message(msg);
             log.trace("recv_any from ", src, ": ", chunk);
             RAPIDSMP_EXPECTS(
@@ -431,6 +434,7 @@ ProgressThread::ProgressState Shuffler::progress() {
     for (auto first_chunk = incoming_chunks_.begin();
          first_chunk != incoming_chunks_.end();)
     {
+        work_processed = true;
         // Note, extract_item invalidates the iterator, so must increment here.
         auto [src, chunk] = extract_item(incoming_chunks_, first_chunk++);
         log.trace("picked incoming chunk data from ", src, ": ", chunk);
@@ -478,6 +482,7 @@ ProgressThread::ProgressState Shuffler::progress() {
     while (true) {
         auto const [msg, src] = comm_->recv_any(ready_for_data_tag);
         if (msg) {
+            work_processed = true;
             auto ready_for_data_msg = ReadyForDataMessage::unpack(msg);
             auto chunk = extract_value(outgoing_chunks_, ready_for_data_msg.cid);
             log.trace(
@@ -500,6 +505,7 @@ ProgressThread::ProgressState Shuffler::progress() {
     if (!in_transit_futures_.empty()) {
         std::vector<ChunkID> finished = comm_->test_some(in_transit_futures_);
         for (auto cid : finished) {
+            work_processed = true;
             auto chunk = extract_value(in_transit_chunks_, cid);
             auto future = extract_value(in_transit_futures_, cid);
             chunk.gpu_data = comm_->get_gpu_data(std::move(future));
@@ -510,13 +516,16 @@ ProgressThread::ProgressState Shuffler::progress() {
     // Check if we can free some of the outstanding futures.
     if (!fire_and_forget_.empty()) {
         std::vector<std::size_t> finished = comm_->test_some(fire_and_forget_);
-        // Sort the indexes into `fire_and_forget` in descending order.
-        std::sort(finished.begin(), finished.end(), std::greater<>());
-        // And erase from the right.
-        for (auto i : finished) {
-            fire_and_forget_.erase(
-                fire_and_forget_.begin() + static_cast<std::ptrdiff_t>(i)
-            );
+        if (!finished.empty()) {
+            work_processed = true;
+            // Sort the indexes into `fire_and_forget` in descending order.
+            std::sort(finished.begin(), finished.end(), std::greater<>());
+            // And erase from the right.
+            for (auto i : finished) {
+                fire_and_forget_.erase(
+                    fire_and_forget_.begin() + static_cast<std::ptrdiff_t>(i)
+                );
+            }
         }
     }
     stats.add_duration_stat(
@@ -525,9 +534,12 @@ ProgressThread::ProgressState Shuffler::progress() {
 
     stats.add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 
-    return fire_and_forget_.empty() && incoming_chunks_.empty()
-                   && outgoing_chunks_.empty() && in_transit_chunks_.empty()
-                   && in_transit_futures_.empty() && inbox_.empty()
+    // Only return Done if  all containers are empty and at least some work was
+    // processed in this iteration, the latter ensures that the progress thread
+    // does not terminate before any work is processed.
+    return (fire_and_forget_.empty() && incoming_chunks_.empty()
+            && outgoing_chunks_.empty() && in_transit_chunks_.empty()
+            && in_transit_futures_.empty() && inbox_.empty() && work_processed)
                ? ProgressThread::ProgressState::Done
                : ProgressThread::ProgressState::InProgress;
 }
