@@ -41,7 +41,7 @@ cdef size_t cython_invoke_python_spill_function(
     cdef CppExcept err
     with gil:
         try:
-            return (<object>py_spill_function)(amount)
+            return (<object?>py_spill_function)(amount)
         except BaseException as e:
             err = translate_py_to_cpp_exception(e)
     throw_py_as_cpp_exception(err)
