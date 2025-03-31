@@ -20,5 +20,5 @@ cdef extern from "<rapidsmp/buffer/spill_manager.hpp>" nogil:
 
 cdef class SpillManager:
     cdef cpp_SpillManager *_handle
-    cdef object _owner
+    cdef object _br
     cdef dict _spill_functions

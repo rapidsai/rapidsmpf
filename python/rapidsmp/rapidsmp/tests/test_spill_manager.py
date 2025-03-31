@@ -79,3 +79,15 @@ def test_spill_function(
     br.spill_manager.remove_spill_function(f2)
     assert br.spill_manager.spill(10) == 0
     assert track_spilled[0] == 10
+
+
+def test_spill_function_outlive_buffer_resource(
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    spill_manager = BufferResource(device_mr).spill_manager
+    with pytest.raises(ValueError):
+        spill_manager.add_spill_function(lambda x: x, 0)
+    with pytest.raises(ValueError):
+        spill_manager.remove_spill_function(0)
+    with pytest.raises(ValueError):
+        spill_manager.spill(10)

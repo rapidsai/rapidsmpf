@@ -7,6 +7,8 @@ from rapidsmp.buffer.resource cimport BufferResource
 from rapidsmp.exception_handling cimport (CppExcept, throw_py_as_cpp_exception,
                                           translate_py_to_cpp_exception)
 
+import weakref
+
 
 cdef size_t cython_invoke_python_spill_function(
     void* py_spill_function, size_t amount
@@ -90,9 +92,14 @@ cdef class SpillManager:
         """
         cdef SpillManager ret = cls.__new__(cls)
         ret._handle = &(deref(br._handle).cpp_spill_manager())
-        ret._owner = br
+        ret._br = weakref.ref(br)
         ret._spill_functions = {}
         return ret
+
+    def _valid_buffer_resource(self):
+        """Raise if the buffer resource has been deleted."""
+        if self._br() is None:
+            raise ValueError("The BufferResource must outlive the spill manager")
 
     def add_spill_function(self, func, int priority):
         """
@@ -112,6 +119,7 @@ cdef class SpillManager:
         -------
         The ID assigned to the newly added spill function.
         """
+        self._valid_buffer_resource()
         cdef size_t func_id = deref(self._handle).add_spill_function(
             cython_to_cpp_closure_lambda(
                 cython_invoke_python_spill_function, <void *>func
@@ -133,6 +141,7 @@ cdef class SpillManager:
         ----------
         The ID of the spill function to be removed.
         """
+        self._valid_buffer_resource()
         deref(self._handle).remove_spill_function(function_id)
         del self._spill_functions[function_id]
 
@@ -154,4 +163,5 @@ cdef class SpillManager:
         The actual amount of memory spilled (in bytes), which may be more, less,
         or equal to the requested amount.
         """
+        self._valid_buffer_resource()
         return deref(self._handle).spill(amount)
