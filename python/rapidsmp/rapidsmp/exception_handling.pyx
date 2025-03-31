@@ -15,14 +15,14 @@ cdef extern from *:
     };
     """
     cdef enum class ExceptionType:
-        RuntimeError = -1
-        MemoryError = 0
-        TypeError = 1
-        ValueError = 2
-        IOError = 3
-        IndexError = 4
-        OverflowError = 5
-        ArithmeticError = 6
+        RuntimeError
+        MemoryError
+        TypeError
+        ValueError
+        IOError
+        IndexError
+        OverflowError
+        ArithmeticError
 
 # Define mapping between Python exceptions and ExceptionType values
 cdef dict exception_map = {
