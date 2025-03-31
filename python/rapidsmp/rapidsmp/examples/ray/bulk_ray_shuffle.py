@@ -40,7 +40,7 @@ class BulkRayShufflerActor(BaseShufflingActor):
     nranks
         Number of ranks in the communication group.
     total_nparts
-        Total number of partitions to shuffle.
+        Total number of output partitions.
     shuffle_on
         List of column names to shuffle on.
     batchsize
@@ -50,7 +50,7 @@ class BulkRayShufflerActor(BaseShufflingActor):
     rmm_pool_size
         Size of the RMM memory pool in bytes.
     spill_device
-        Device memory limit for spilling to host.
+        Device memory limit for spilling to host in bytes.
     enable_statistics
         Whether to collect statistics.
     """
@@ -333,10 +333,15 @@ def dir_path(path: str) -> Path:
     -------
     Path
         A Path object representing the directory.
+
+    Raises
+    ------
+    ValueError
+        If the path is not a directory.
     """
     ret = Path(path)
     if not ret.is_dir():
-        raise ValueError()
+        raise ValueError(f"{path} path is not a directory")
     return ret
 
 

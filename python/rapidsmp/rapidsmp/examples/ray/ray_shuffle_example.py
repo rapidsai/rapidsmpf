@@ -38,7 +38,7 @@ class ShufflingActor(BaseShufflingActor):
     batch_size
         Batch size (rows) of the input. The input dataframe will be split into batches of this size.
     total_nparts
-        Total number of partitions to which the input dataframe will be partitioned.
+        Total number of partitions into which the input dataframe will be partitioned.
     """
 
     def __init__(
