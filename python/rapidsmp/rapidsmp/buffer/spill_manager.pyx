@@ -79,7 +79,7 @@ cdef class SpillManager:
     def _create(cls, BufferResource br):
         """Construct a SpillManager associated the specified buffer resource.
 
-        This shouldn't be used directly instead use `BufferResource.spill_manager()`.
+        This shouldn't be used directly instead use `BufferResource.spill_manage)`.
 
         Parameters
         ----------
