@@ -41,7 +41,7 @@ def generate_partition(size_bytes: int) -> cudf.DataFrame:
 
     Parameters
     ----------
-    size_bytes : int
+    size_bytes
         size of the dataframe in bytes
 
     Returns
@@ -79,9 +79,9 @@ def consume_finished_partitions(
         partition_id = shuffler.wait_any()
         assert partition_id % comm.nranks == comm.rank
 
-        splits = shuffler.extract(partition_id)
         # discard the extracted partition splits
-        del splits
+        shuffler.extract(partition_id)
+
         finished.add(partition_id)
 
     # all gather len(finished) to determine if all partitions have finished
