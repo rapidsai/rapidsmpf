@@ -4,8 +4,10 @@
  */
 #pragma once
 
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -87,42 +89,58 @@ class FinishCounter {
 
     /**
      * @brief Returns the partition ID of a finished partition that hasn't been waited on
-     * (blocking).
+     * (blocking). Optionally a timeout (in ms) can be provided.
      *
-     * This function blocks until a partition is finished and ready to be processed.
+     * This function blocks until a partition is finished and ready to be processed. If
+     * the timeout is set and a partition is not available by the time, a
+     * std::runtime_error will be thrown.
+     *
+     * @param timeout Optional timeout (ms) to wait.
      *
      * @return The partition ID of a finished partition.
      *
      * @throw std::out_of_range If all partitions have already been waited on.
+     * std::runtime_error If timeout was set and no partitions have been finished by the
+     * expiration.
      */
-    PartID wait_any();
+    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
-     * @brief Wait for a specific partition to be finished (blocking).
+     * @brief Wait for a specific partition to be finished (blocking). Optionally a
+     * timeout (in ms) can be provided.
      *
      * This function blocks until the desired partition is finished and ready
-     * to be processed.
+     * to be processed. If the timeout is set and the requested partition is not available
+     * by the time, a std::runtime_error will be thrown.
      *
      * @param pid The desired partition ID.
+     * @param timeout Optional timeout (ms) to wait.
      *
      * @throw std::out_of_range If the desired partition is unavailable.
+     * std::runtime_error If timeout was set and requested partition has been finished by
+     * the expiration.
      */
-    void wait_on(PartID pid);
+    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Returns a vector of partition ids that are finished and haven't been waited
-     * on (blocking).
+     * on (blocking). Optionally a timeout (in ms) can be provided.
      *
      * This function blocks until at least one partition is finished and ready to be
-     * processed.
+     * processed. If the timeout is set and no partition is available by the time, a
+     * std::runtime_error will be thrown.
+     *
+     * @param timeout Optional timeout (ms) to wait.
      *
      * @note It is the caller's responsibility to process all returned partition IDs.
      *
      * @return vector of finished partitions.
      *
      * @throw std::out_of_range If all partitions have been waited on.
+     * std::runtime_error If timeout was set and no partitions have been finished by the
+     * expiration.
      */
-    std::vector<PartID> wait_some();
+    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Returns a description of this instance.
