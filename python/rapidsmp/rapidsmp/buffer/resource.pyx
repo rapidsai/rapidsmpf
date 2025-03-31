@@ -92,9 +92,9 @@ cdef class BufferResource:
     @property
     def spill_manager(self):
         """
-        Get the spill manager associated with the buffer resource.
+        Get the spill manager associated with this buffer resource.
 
-        Must outlive the buffer resource.
+        This buffer resource must outlive the returned spill manager.
 
         Returns
         -------
