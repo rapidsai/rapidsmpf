@@ -227,6 +227,19 @@ class UCXX final : public Communicator {
      */
     ListenerAddress listener_address();
 
+    /**
+     * @brief Creates a new communicator with a single rank.
+     *
+     * This method creates a new communicator that acts as if it was a single rank,
+     * similar to MPI_Comm_split when color is the rank of the current process and key is
+     * 0.
+     *
+     * @note This method is generally used for testing.
+     *
+     * @return A new UCXX communicator with a single rank.
+     */
+    std::shared_ptr<UCXX> split();
+
   private:
     std::shared_ptr<SharedResources> shared_resources_;
     Logger logger_;
