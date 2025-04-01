@@ -19,12 +19,15 @@ class Environment : public ::testing::Environment {
 
     void barrier();
 
+    std::shared_ptr<rapidsmp::Communicator> split_comm();
+
     std::shared_ptr<rapidsmp::Communicator> comm_;
 
   private:
     int argc_;
     char** argv_;
     MPI_Comm mpi_comm_;
+    std::shared_ptr<rapidsmp::Communicator> split_comm_{nullptr};
 };
 
 extern Environment* GlobalEnvironment;
