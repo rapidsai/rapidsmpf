@@ -171,6 +171,7 @@ void test_shuffler(
     for (rapidsmp::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
         shuffler.insert_finished(i);
     }
+    GlobalEnvironment->barrier();
 
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any(wait_timeout);
@@ -355,15 +356,11 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     );
 
     // Create a communicator of size 1, such that each shuffler will run locally.
-    int rank;
-    RAPIDSMP_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-    MPI_Comm mpi_comm;
-    RAPIDSMP_MPI(MPI_Comm_split(MPI_COMM_WORLD, rank, 0, &mpi_comm));
-    std::shared_ptr<rapidsmp::Communicator> comm =
-        std::make_shared<rapidsmp::MPI>(mpi_comm);
+    auto comm = GlobalEnvironment->split_comm();
+    EXPECT_EQ(comm->nranks(), 1);
+
     std::shared_ptr<rapidsmp::ProgressThread> progress_thread =
         std::make_shared<rapidsmp::ProgressThread>(comm->logger());
-    EXPECT_EQ(comm->nranks(), 1);
 
     // Create a shuffler and input chunks.
     rapidsmp::shuffler::Shuffler shuffler(
@@ -428,7 +425,6 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     EXPECT_EQ(mr.get_allocations_counter().value, 0);
 
     shuffler.shutdown();
-    RAPIDSMP_MPI(MPI_Comm_free(&mpi_comm));
 }
 
 /**
