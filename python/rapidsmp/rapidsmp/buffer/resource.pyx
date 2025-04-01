@@ -62,6 +62,7 @@ cdef class BufferResource:
         self._handle = make_shared[cpp_BufferResource](
             device_mr.get_mr(), move(_mem_available)
         )
+        self.spill_manager = SpillManager._create(self)
 
     cdef cpp_BufferResource* ptr(self):
         """
@@ -87,6 +88,7 @@ cdef class BufferResource:
         The memory reserved, in bytes.
         """
         return deref(self._handle).cpp_memory_reserved(mem_type)
+
 
 # Alias of a `rmm::mr::statistics_resource_adaptor` pointer.
 ctypedef statistics_resource_adaptor[device_memory_resource]* stats_mr_ptr
@@ -116,8 +118,8 @@ cdef class LimitAvailableMemory:
 
     Notes
     -----
-    - The ``statistics_mr`` resource must not be destroyed while this object is
-      still in use.
+    The ``statistics_mr`` resource must not be destroyed while this object is
+    still in use.
 
     Examples
     --------
