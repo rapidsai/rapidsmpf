@@ -20,6 +20,7 @@ from rapidsmp.buffer.buffer import MemoryType
 from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmp.communicator.communicator import Communicator
 from rapidsmp.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
+from rapidsmp.progress_thread import ProgressThread
 from rapidsmp.shuffler import Shuffler
 from rapidsmp.statistics import Statistics
 
@@ -468,11 +469,9 @@ async def rapidsmp_ucxx_rank_setup_node(
 
         comm.logger.trace(f"Rank {comm.rank} created")
         dask_worker._rapidsmp_comm = comm
-
     comm.logger.trace(f"Rank {comm.rank} setup barrier")
     barrier(comm)
     comm.logger.trace(f"Rank {comm.rank} setup barrier passed")
-    return None
 
 
 def rmp_worker_setup(
@@ -525,6 +524,10 @@ def rmp_worker_setup(
             )
         else:
             dask_worker._rmp_statistics = None
+
+        dask_worker._rapidsmp_progress_thread = ProgressThread(
+            dask_worker._rapidsmp_comm, dask_worker._rmp_statistics
+        )
 
         # Setup a buffer_resource.
         # Wrap the current RMM resource in statistics adaptor.
@@ -717,6 +720,30 @@ def get_comm(dask_worker: Worker | None = None) -> Communicator:
     return dask_worker._rapidsmp_comm
 
 
+def get_progress_thread(dask_worker: Worker | None = None) -> ProgressThread:
+    """
+    Get the RAPIDS-MP progress thread for a Dask worker.
+
+    Parameters
+    ----------
+    dask_worker
+        Local Dask worker.
+
+    Returns
+    -------
+    Current rapidsmp progress thread.
+
+    Notes
+    -----
+    This function is expected to run on a Dask worker.
+    """
+    dask_worker = dask_worker or get_worker()
+    assert isinstance(dask_worker._rapidsmp_progress_thread, ProgressThread), (
+        f"Expected ProgressThread, got {dask_worker._rapidsmp_progress_thread}"
+    )
+    return dask_worker._rapidsmp_progress_thread
+
+
 def get_worker_rank(dask_worker: Worker | None = None) -> int:
     """
     Get the UCXX-comm rank for a Dask worker.
@@ -779,6 +806,7 @@ def get_shuffler(
                 )
             dask_worker._rmp_shufflers[shuffle_id] = Shuffler(
                 get_comm(dask_worker),
+                get_progress_thread(dask_worker),
                 op_id=shuffle_id,
                 total_num_partitions=partition_count,
                 stream=DEFAULT_STREAM,
