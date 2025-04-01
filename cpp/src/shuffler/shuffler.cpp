@@ -184,7 +184,6 @@ Shuffler::Shuffler(
       br_{br},
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
-      function_id_{progress_thread_->add_function([this]() { return progress(); })},
       op_id_{op_id},
       finish_counter_{
           static_cast<Rank>(comm_->nranks()),
@@ -201,6 +200,11 @@ Shuffler::Shuffler(
         [this](std::size_t amount) -> std::size_t { return spill(amount); },
         /* priority = */ 0
     );
+
+    // We need to register the progress function with the progress thread, but
+    // that cannot be done in the constructor list because the Shuffler isn't
+    // fully constructed yet.
+    function_id_ = progress_thread_->add_function([this]() { return progress(); });
 }
 
 Shuffler::~Shuffler() {
@@ -212,7 +216,7 @@ void Shuffler::shutdown() {
         auto& log = comm_->logger();
         log.debug("Shuffler.shutdown() - initiate");
         active_.store(false);
-        progress_thread_->remove_function(function_id_);
+        progress_thread_->remove_function(*function_id_);
         log.debug("Shuffler.shutdown() - done");
     }
 }
