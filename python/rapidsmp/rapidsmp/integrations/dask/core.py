@@ -20,6 +20,7 @@ from rapidsmp.buffer.buffer import MemoryType
 from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmp.communicator.communicator import Communicator
 from rapidsmp.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
+from rapidsmp.integrations.dask.shuffler import get_shuffle_id
 from rapidsmp.shuffler import Shuffler
 from rapidsmp.statistics import Statistics
 
@@ -38,20 +39,6 @@ DataFrameT = TypeVar("DataFrameT")
 _worker_thread_lock: threading.RLock = threading.RLock()
 _initialized_clusters: set[str] = set()
 _shuffle_counter: int = 0
-
-
-def get_shuffle_id() -> int:
-    """
-    Return the unique id for a new shuffle.
-
-    Returns
-    -------
-    The enumerated integer id for the current shuffle.
-    """
-    global _shuffle_counter  # noqa: PLW0603
-
-    _shuffle_counter += 1
-    return _shuffle_counter
 
 
 def global_rmp_barrier(dependencies: Sequence[None]) -> None:
