@@ -12,7 +12,7 @@ from dask.tokenize import tokenize
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-from rapidsmp.integrations.dask.core import rapidsmp_shuffle_graph
+from rapidsmp.integrations.dask.shuffler import rapidsmp_shuffle_graph
 from rapidsmp.shuffler import partition_and_pack, unpack_and_concat
 from rapidsmp.testing import pylibcudf_to_cudf_dataframe
 
