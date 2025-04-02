@@ -4,14 +4,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from distributed import get_worker
 
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmp.integrations.dask.core import (
-    DaskIntegration,
     DataFrameT,
     get_comm,
     get_dask_client,
@@ -26,7 +25,6 @@ if TYPE_CHECKING:
 
     from distributed import Worker
 
-    from rapidsmp.integrations.dask.core import DataFrameT
 
 _shuffle_counter: int = 0
 
@@ -93,6 +91,61 @@ def get_shuffler(
                 statistics=dask_worker._rmp_statistics,
             )
     return cast(Shuffler, dask_worker._rmp_shufflers[shuffle_id])
+
+
+@runtime_checkable
+class DaskIntegration(Protocol[DataFrameT]):
+    """
+    dask-integration protocol.
+
+    This protocol can be used to implement a rapidsmp-shuffle
+    operation using a Dask task graph.
+    """
+
+    @staticmethod
+    def insert_partition(
+        df: DataFrameT,
+        on: Sequence[str],
+        partition_count: int,
+        shuffler: Shuffler,
+    ) -> None:
+        """
+        Add a partition to a rapidsmp Shuffler.
+
+        Parameters
+        ----------
+        df
+            DataFrame partition to add to a rapidsmp shuffler.
+        on
+            Sequence of column names to shuffle on.
+        partition_count
+            Number of output partitions for the current shuffle.
+        shuffler
+            The rapidsmp Shuffler object to extract from.
+        """
+
+    @staticmethod
+    def extract_partition(
+        partition_id: int,
+        column_names: list[str],
+        shuffler: Shuffler,
+    ) -> DataFrameT:
+        """
+        Extract a DataFrame partition from a rapidsmp Shuffler.
+
+        Parameters
+        ----------
+        partition_id
+            Partition id to extract.
+        column_names
+            Sequence of output column names.
+        shuffler
+            The rapidsmp Shuffler object to extract from.
+
+        Returns
+        -------
+        A shuffled DataFrame partition.
+        """
 
 
 def _worker_rmp_barrier(

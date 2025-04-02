@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import threading
 import weakref
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import ucxx._lib.libucxx as ucx_api
 from distributed import get_client, get_worker, wait
@@ -26,8 +26,6 @@ if TYPE_CHECKING:
 
     from distributed import Client, Worker
     from distributed.scheduler import Scheduler, TaskState
-
-    from rapidsmp.shuffler import Shuffler
 
 
 _dask_logger = logging.getLogger("distributed.worker")
@@ -87,61 +85,6 @@ def global_rmp_barrier(dependencies: Sequence[None]) -> None:
 
     This function is meant to be a no-op.
     """
-
-
-@runtime_checkable
-class DaskIntegration(Protocol[DataFrameT]):
-    """
-    dask-integration protocol.
-
-    This protocol can be used to implement a rapidsmp-shuffle
-    operation using a Dask task graph.
-    """
-
-    @staticmethod
-    def insert_partition(
-        df: DataFrameT,
-        on: Sequence[str],
-        partition_count: int,
-        shuffler: Shuffler,
-    ) -> None:
-        """
-        Add a partition to a rapidsmp Shuffler.
-
-        Parameters
-        ----------
-        df
-            DataFrame partition to add to a rapidsmp shuffler.
-        on
-            Sequence of column names to shuffle on.
-        partition_count
-            Number of output partitions for the current shuffle.
-        shuffler
-            The rapidsmp Shuffler object to extract from.
-        """
-
-    @staticmethod
-    def extract_partition(
-        partition_id: int,
-        column_names: list[str],
-        shuffler: Shuffler,
-    ) -> DataFrameT:
-        """
-        Extract a DataFrame partition from a rapidsmp Shuffler.
-
-        Parameters
-        ----------
-        partition_id
-            Partition id to extract.
-        column_names
-            Sequence of output column names.
-        shuffler
-            The rapidsmp Shuffler object to extract from.
-
-        Returns
-        -------
-        A shuffled DataFrame partition.
-        """
 
 
 async def rapidsmp_ucxx_rank_setup_root(n_ranks: int) -> bytes:

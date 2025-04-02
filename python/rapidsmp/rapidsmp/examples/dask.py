@@ -35,7 +35,7 @@ class DaskCudfIntegration:
 
     See Also
     --------
-    rapidsmp.integrations.dask.core.DaskIntegration
+    rapidsmp.integrations.dask.shuffler.DaskIntegration
         Base Dask-integration protocol definition.
     """
 
