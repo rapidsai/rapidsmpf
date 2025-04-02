@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from rapidsmp.buffer.buffer import MemoryType
-from rapidsmp.buffer.spill_collection import SpillCollection
+from rapidsmp.buffer.spill_collection import SpillCollection, Spillable
 
 
 class MySpillableObject:
@@ -26,6 +26,7 @@ def test_spill_collection() -> None:
     collection = SpillCollection()
 
     obj1 = MySpillableObject(100)
+    assert isinstance(obj1, Spillable)
     collection.add_spillable(obj1)
     assert collection.spill(100) == 100
     assert collection.spill(100) == 0

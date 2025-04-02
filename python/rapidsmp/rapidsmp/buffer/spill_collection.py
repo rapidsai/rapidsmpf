@@ -5,12 +5,13 @@
 from __future__ import annotations
 
 import threading
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 from weakref import WeakValueDictionary
 
 from rapidsmp.buffer.buffer import MemoryType
 
 
+@runtime_checkable
 class Spillable(Protocol):
     """An interface for spillable objects."""
 
