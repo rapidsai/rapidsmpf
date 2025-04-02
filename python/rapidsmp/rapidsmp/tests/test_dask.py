@@ -20,7 +20,7 @@ from distributed.utils_test import (  # noqa: E402, F401
 )
 from mpi4py import MPI  # noqa: E402
 
-from rapidsmp.integrations.dask import (  # noqa: E402
+from rapidsmp.integrations.dask.core import (  # noqa: E402
     bootstrap_dask_cluster,
 )
 
