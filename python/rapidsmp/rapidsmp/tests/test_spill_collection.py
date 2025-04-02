@@ -24,8 +24,16 @@ class MySpillableObject:
 
 def test_spill_collection() -> None:
     collection = SpillCollection()
-    obj = MySpillableObject(100)
 
-    collection.add_spillable(obj)
+    obj1 = MySpillableObject(100)
+    collection.add_spillable(obj1)
     assert collection.spill(100) == 100
     assert collection.spill(100) == 0
+    assert obj1.mem_type() == MemoryType.HOST
+
+    obj2 = MySpillableObject(10)
+    obj3 = MySpillableObject(10)
+    collection.add_spillable(obj2)
+    collection.add_spillable(obj3)
+    # Eventhough we ask for 100 bytes, only 20 bytes can be spilled.
+    assert collection.spill(100) == 20
