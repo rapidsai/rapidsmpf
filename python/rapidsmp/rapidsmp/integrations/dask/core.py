@@ -37,7 +37,7 @@ DataFrameT = TypeVar("DataFrameT")
 _worker_thread_lock: threading.RLock = threading.RLock()
 
 
-def get_work_thread_lock() -> threading.RLock:
+def get_worker_thread_lock() -> threading.RLock:
     """
     Return the worker thread lock.
 
@@ -229,7 +229,7 @@ def rmp_worker_setup(
     -----
     This function is expected to run on a Dask worker.
     """
-    with get_work_thread_lock():
+    with get_worker_thread_lock():
         if hasattr(dask_worker, "_rmp_shufflers"):
             return  # Worker already initialized
 

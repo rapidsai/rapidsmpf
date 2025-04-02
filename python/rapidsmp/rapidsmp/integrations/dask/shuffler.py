@@ -15,8 +15,8 @@ from rapidsmp.integrations.dask.core import (
     DataFrameT,
     get_comm,
     get_dask_client,
-    get_work_thread_lock,
     get_worker_rank,
+    get_worker_thread_lock,
     global_rmp_barrier,
 )
 from rapidsmp.shuffler import Shuffler
@@ -76,7 +76,7 @@ def get_shuffler(
     This function is expected to run on a Dask worker.
     """
     dask_worker = dask_worker or get_worker()
-    with get_work_thread_lock():
+    with get_worker_thread_lock():
         if shuffle_id not in dask_worker._rmp_shufflers:
             if partition_count is None:
                 raise ValueError(
