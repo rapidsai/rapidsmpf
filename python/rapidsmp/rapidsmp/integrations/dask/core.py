@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
-"""Integration for Dask Distributed clusters."""
+"""Shuffler integration for Dask Distributed clusters."""
 
 from __future__ import annotations
 
@@ -561,7 +561,7 @@ def bootstrap_dask_cluster(
     -----
     This utility must be executed before rapidsmp shuffling can be used within a
     Dask cluster. This function is called automatically by
-    `rapidsmp.integrations.dask.rapids_shuffle_graph`, but may be called
+    `rapidsmp.integrations.dask.core.rapids_shuffle_graph`, but may be called
     manually to set things up before the first shuffle.
 
     Subsequent shuffles on the same cluster will reuse the resources established
