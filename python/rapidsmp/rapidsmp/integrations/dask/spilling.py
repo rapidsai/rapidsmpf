@@ -8,7 +8,14 @@ from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 import dask.sizeof
 from distributed import get_worker
+from distributed.protocol.cuda import (
+    cuda_deserialize,
+    cuda_dumps,
+    cuda_loads,
+    cuda_serialize,
+)
 from distributed.protocol.serialize import dask_dumps, dask_loads
+from distributed.utils import log_errors
 
 from rapidsmp.buffer.buffer import MemoryType
 
@@ -43,7 +50,8 @@ class SpillableWrapper(Generic[WrappedType]):
         The object currently stored on the device. Must be serializable by
         Dask Distributed.
     on_host
-        The serialized representation of the object stored in host memory.
+        The serialized representation of the object stored in host memory. If
+        on_host is provided, it will never become None (not even when unspilled).
     """
 
     def __init__(
@@ -133,3 +141,39 @@ class SpillableWrapper(Generic[WrappedType]):
         assert self._on_host is not None
         self._on_device = cast(WrappedType, dask_loads(*self._on_host))
         return self._on_device
+
+
+def register_dask_serialize() -> None:
+    """
+    Register dask serialization routines for DataFrames.
+
+    This need to called before Dask can serialize SpillableWrapper objects.
+    """
+
+    @cuda_serialize.register(SpillableWrapper)
+    def _(x: SpillableWrapper) -> tuple[dict, Iterable[memoryview | gpumemoryview]]:
+        with log_errors():
+            on_device = x._on_device
+            is_on_device = on_device is not None
+            if is_on_device:
+                sub_header, frames = cuda_dumps(on_device)
+            else:
+                assert x._on_host is not None
+                sub_header, frames = x._on_host
+            header = {
+                "is_on_device": is_on_device,
+                "sub_header": sub_header,
+            }
+            return header, list(frames)
+
+    @cuda_deserialize.register(SpillableWrapper)
+    def _(
+        header: dict, frames: Iterable[memoryview | gpumemoryview]
+    ) -> SpillableWrapper:
+        with log_errors():
+            if header["is_on_device"]:
+                return SpillableWrapper(
+                    on_device=cuda_loads(header["sub_header"], frames)
+                )
+            else:
+                return SpillableWrapper(on_host=(header["sub_header"], frames))
