@@ -23,6 +23,7 @@ Chunk::Chunk(
     : pid{pid},
       cid{cid},
       expected_num_chunks{expected_num_chunks},
+      metadata_size{metadata ? metadata->size() : 0},
       gpu_data_size{gpu_data_size},
       metadata{std::move(metadata)},
       gpu_data{std::move(gpu_data)} {}
@@ -31,23 +32,30 @@ Chunk::Chunk(PartID pid, ChunkID cid, std::size_t expected_num_chunks)
     : Chunk{pid, cid, expected_num_chunks, 0, nullptr, nullptr} {}
 
 std::unique_ptr<std::vector<uint8_t>> Chunk::to_metadata_message() const {
-    auto metadata_size = metadata ? metadata->size() : 0;
     auto msg = std::make_unique<std::vector<uint8_t>>(
         metadata_size + sizeof(MetadataMessageHeader)
     );
+    to_metadata_message(*msg, 0);
+    return msg;
+}
+
+void Chunk::to_metadata_message(std::vector<uint8_t>& msg, size_t offset) const {
+    // We need at least (sizeof(MetadataMessageHeader) + metadata_size) amount of space
+    // from the offset
+    msg.resize(offset + sizeof(MetadataMessageHeader) + metadata_size);
     // Write the header in the first part of `msg`.
-    *reinterpret_cast<MetadataMessageHeader*>(msg->data()
-    ) = {pid, cid, expected_num_chunks, gpu_data_size};
+    *reinterpret_cast<MetadataMessageHeader*>(msg.data() + offset) = {
+        pid, cid, expected_num_chunks, metadata_size, gpu_data_size
+    };
     // Then place the metadata afterwards.
     if (metadata_size > 0) {
         std::copy(
             metadata->begin(),
             metadata->end(),
-            msg->begin() + sizeof(MetadataMessageHeader)
+            msg.begin() + offset + sizeof(MetadataMessageHeader)
         );
         metadata->clear();
     }
-    return msg;
 }
 
 Chunk Chunk::from_metadata_message(std::unique_ptr<std::vector<uint8_t>> const& msg) {

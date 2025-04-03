@@ -33,6 +33,9 @@ class Chunk {
     /// sending rank. Ignored when it is zero.
     std::size_t const expected_num_chunks;
 
+    /// If known, the size of the metadata buffer (in bytes).
+    std::size_t const metadata_size;
+
     /// If known, the size of the GPU data buffer (in bytes).
     std::size_t const gpu_data_size;
 
@@ -65,7 +68,8 @@ class Chunk {
     );
 
     /**
-     * @brief Construct a new chunk of a partition.
+     * @brief Construct a new chunk to indicate the number of chunks that was sent for
+     * a particular partition.
      *
      * @param pid The ID of the partition this chunk is part of.
      * @param cid The ID of the chunk.
@@ -84,6 +88,8 @@ class Chunk {
         /// sending rank. Ignored when it is zero.
         std::size_t expected_num_chunks;
         /// If known, the size of the gpu data buffer (in bytes).
+        std::size_t metadata_size;
+        /// If known, the size of the gpu data buffer (in bytes).
         std::size_t gpu_data_size;
     };
 
@@ -93,6 +99,13 @@ class Chunk {
      * @returns The metadata message as a serialized byte vector.
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> to_metadata_message() const;
+
+    /**
+     * @brief Serializes this chunk into a given metadata message buffer.
+     *
+     * @param msg The metadata message as a serialized byte vector.
+     */
+    [[nodiscard]] void to_metadata_message(std::vector<uint8_t>& msg, size_t offset) const;
 
     /**
      * @brief Construct a new chunk from a metadata message.
