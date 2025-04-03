@@ -171,7 +171,6 @@ void test_shuffler(
     for (rapidsmp::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
         shuffler.insert_finished(i);
     }
-    GlobalEnvironment->barrier();
 
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any(wait_timeout);
@@ -188,7 +187,6 @@ void test_shuffler(
         );
     }
 
-    GlobalEnvironment->barrier();
     shuffler.shutdown();
 }
 
