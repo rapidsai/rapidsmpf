@@ -78,6 +78,10 @@ class SpillCollection:
         """
         Spill memory from device to host until the requested amount is reached.
 
+        This method iterates through spillables and spill them until at least
+        the requested amount of memory has been spilled or no more spilling is
+        possible.
+
         Parameters
         ----------
         amount
