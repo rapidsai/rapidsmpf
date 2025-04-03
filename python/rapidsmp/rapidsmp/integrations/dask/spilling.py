@@ -133,7 +133,7 @@ class SpillableWrapper(Generic[WrappedType]):
 
         Returns
         -------
-        The object that was unspilled back to the device.
+        The unspilled object now in device memory.
         """
         on_device = self._on_device
         if on_device is not None:

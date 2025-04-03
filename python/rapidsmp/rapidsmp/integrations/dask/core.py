@@ -204,7 +204,7 @@ def rmp_worker_setup(
         }
         dask_worker._rmp_buffer_resource = BufferResource(mr, memory_available)
 
-        # Add a new spill collection to enable spilling of DataFrames. Use a
+        # Add a new spill collection to enable spilling of DataFrames. We use a
         # negative priority (-10) such that spilling within shufflers have
         # higher priority than spilling of DataFrames.
         dask_worker._rmp_spill_collection = SpillCollection()
