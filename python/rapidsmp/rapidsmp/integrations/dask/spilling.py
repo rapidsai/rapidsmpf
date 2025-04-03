@@ -35,8 +35,8 @@ class SpillableWrapper(Generic[WrappedType]):
 
     Implements the `rapidsmp.buffer.spill_collection.Spillable` protocol.
 
-    Note
-    ----
+    Notes
+    -----
     The wrapper is lockfree, which is possible because of two properties:
      1) We only move data from the unspilled state (device memory) to lower
         states (e.g. host memory). On unspill, data is copied (not moved)
@@ -107,11 +107,11 @@ class SpillableWrapper(Generic[WrappedType]):
         Parameters
         ----------
         amount
-            The amount of memory (in bytes) requested to be spilled.
+            The amount of memory in bytes requested to be spilled.
 
         Returns
         -------
-        The actual amount of memory spilled (in bytes), which may be more, less,
+        The actual amount of memory spilled in bytes, which may be more, less,
         or equal to the requested amount.
         """
         if amount > 0:

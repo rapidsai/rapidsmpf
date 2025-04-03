@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
-"""Collection of object to spill."""
+"""Collection of objects to spill."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class Spillable(Protocol):
 
     def approx_spillable_amount(self) -> int:
         """
-        Get the approx. size of the spillable amount.
+        Get the approximate size of the spillable amount.
 
         Returns
         -------
@@ -40,11 +40,11 @@ class Spillable(Protocol):
         Parameters
         ----------
         amount
-            The amount of memory (in bytes) to spill.
+            The amount of memory to spill in bytes.
 
         Returns
         -------
-        The actual amount of memory spilled (in bytes), which may be more, less,
+        The actual amount of memory spilled in bytes, which may be more, less,
         or equal to the requested amount.
         """
 
