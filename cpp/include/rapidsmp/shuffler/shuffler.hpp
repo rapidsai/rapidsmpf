@@ -226,11 +226,12 @@ class Shuffler {
      * processing.
      *
 +     * It makes use of the following members:
-+     * - `fire_and_forget`: Ongoing "fire-and-forget" operations (non-blocking sends).
-+     * - `incoming_chunks`: Chunks ready to be received.
-+     * - `outgoing_chunks`: Chunks ready to be sent.
-+     * - `in_transit_chunks`: Chunks currently in transit.
-+     * - `in_transit_futures`: Futures corresponding to in-transit chunks.
++     * - `fire_and_forget_`: Ongoing "fire-and-forget" operations (non-blocking sends).
++     * - `incoming_chunks_`: Chunks ready to be received.
++     * - `outgoing_chunks_`: Chunks ready to be sent.
++     * - `in_transit_chunks_`: Chunks currently in transit.
++     * - `in_transit_futures_`: Futures corresponding to in-transit chunks.
++     * - `inbox_`: Incoming chunks.
      */
     ProgressThread::ProgressState progress();
 
