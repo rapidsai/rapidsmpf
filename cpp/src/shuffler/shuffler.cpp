@@ -530,8 +530,8 @@ ProgressThread::ProgressState Shuffler::progress() {
 
     stats.add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 
-    // Only return Done if the shuffler is still active (shutdown() was not called)
-    // and all containers are empty.
+    // Return Done only if the shuffler is inactive (shutdown was called) _and_
+    // all containers are empty (all work is done).
     return (active_.load()
             || !(
                 fire_and_forget_.empty() && incoming_chunks_.empty()
