@@ -37,9 +37,19 @@ class Buffer {
     friend class BufferResource;
 
   public:
-    using StorageT = std::variant<
-        std::unique_ptr<rmm::device_buffer>,
-        std::unique_ptr<std::vector<uint8_t>>>;
+    /// @brief  Storage type for the device buffer.
+    using DeviceStorageT = std::unique_ptr<rmm::device_buffer>;
+
+    /// @brief  Storage type for the host buffer.
+    using HostStorageT = std::unique_ptr<std::vector<uint8_t>>;
+
+    /**
+     * @brief  Storage type in Buffer, which could be either host or device memory.
+     *
+     * Note: std::monostate avoids issues if std::unique_ptr<rmm::device_buffer> is not
+     * default-constructible.
+     */
+    using StorageT = std::variant<std::monostate, DeviceStorageT, HostStorageT>;
 
     /**
      * @brief Check if the buffer has been moved and is now uninitialized.
@@ -56,9 +66,8 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage host memory.
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> const& host() const {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::HOST, "buffer is not host memory");
         RAPIDSMP_EXPECTS(!is_moved(), "pointer is null, has the buffer been moved?");
-        return std::get<1>(storage_);
+        return std::get<HostStorageT>(storage_);
     }
 
     /**
@@ -69,9 +78,8 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage device memory.
      */
     [[nodiscard]] std::unique_ptr<rmm::device_buffer> const& device() const {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::DEVICE, "buffer not in device memory");
         RAPIDSMP_EXPECTS(!is_moved(), "pointer is null, has the buffer been moved?");
-        return std::get<0>(storage_);
+        return std::get<DeviceStorageT>(storage_);
     }
 
     /**
@@ -91,6 +99,30 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage any memory.
      */
     [[nodiscard]] void const* data() const;
+
+    /**
+     * @brief Get the memory type of the buffer.
+     *
+     * @return The memory type of the buffer.
+     *
+     * @throws std::logic_error if the buffer is not initialized.
+     */
+    MemoryType constexpr mem_type() const {
+        return std::visit(
+            [](auto&& storage) -> MemoryType {
+                using T = std::decay_t<decltype(storage)>;
+                if constexpr (std::is_same_v<T, HostStorageT>) {
+                    return MemoryType::HOST;
+                } else if constexpr (std::is_same_v<T, DeviceStorageT>) {
+                    return MemoryType::DEVICE;
+                } else {
+                    RAPIDSMP_FAIL("MemoryType: unknown");
+                    return {};
+                }
+            },
+            storage_
+        );
+    }
 
     /// @brief Buffer has a move ctor but no copy or assign operator.
     Buffer(Buffer&&) = default;
@@ -129,9 +161,8 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage host memory.
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>>& host() {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::HOST, "buffer is not host memory");
         RAPIDSMP_EXPECTS(!is_moved(), "pointer is null, has the buffer been moved?");
-        return std::get<1>(storage_);
+        return std::get<HostStorageT>(storage_);
     }
 
     /**
@@ -142,9 +173,8 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage device memory.
      */
     [[nodiscard]] std::unique_ptr<rmm::device_buffer>& device() {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::DEVICE, "buffer not in device memory");
         RAPIDSMP_EXPECTS(!is_moved(), "pointer is null, has the buffer been moved?");
-        return std::get<0>(storage_);
+        return std::get<DeviceStorageT>(storage_);
     }
 
     /**
@@ -167,7 +197,6 @@ class Buffer {
     ) const;
 
   public:
-    MemoryType const mem_type;  ///< Memory type.
     BufferResource* const br;  ///< The buffer resource used.
     std::size_t const size;  ///< The size of the buffer in bytes.
 
