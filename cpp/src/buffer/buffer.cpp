@@ -19,29 +19,31 @@ template <typename T>
 }  // namespace
 
 Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br)
-    : host_buffer_{std::move(host_buffer)},
-      mem_type{MemoryType::HOST},
+    : mem_type{MemoryType::HOST},
       br{br},
-      size{host_buffer_ ? host_buffer_->size() : 0} {
-    RAPIDSMP_EXPECTS(host_buffer_ != nullptr, "the host_buffer cannot be NULL");
+      size{host_buffer ? host_buffer->size() : 0},
+      storage_{std::move(host_buffer)} {
+    RAPIDSMP_EXPECTS(std::get<1>(storage_) != nullptr, "the host_buffer cannot be NULL");
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 
 Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource* br)
-    : device_buffer_{check_null(std::move(device_buffer))},
-      mem_type{MemoryType::DEVICE},
+    : mem_type{MemoryType::DEVICE},
       br{br},
-      size{device_buffer_->size()} {
-    RAPIDSMP_EXPECTS(device_buffer_ != nullptr, "the device buffer cannot be NULL");
+      size{device_buffer->size()},
+      storage_{std::move(device_buffer)} {
+    RAPIDSMP_EXPECTS(
+        std::get<0>(storage_) != nullptr, "the device buffer cannot be NULL"
+    );
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 
 bool Buffer::is_moved() const noexcept {
     switch (mem_type) {
     case MemoryType::HOST:
-        return host_buffer_ == nullptr;
+        return std::get<0>(storage_) == nullptr;
     case MemoryType::DEVICE:
-        return device_buffer_ == nullptr;
+        return std::get<1>(storage_) == nullptr;
     }
     // This cannot happen, `mem_type` is always a member of `MemoryType`.
     return true;

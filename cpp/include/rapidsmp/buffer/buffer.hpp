@@ -6,6 +6,7 @@
 
 #include <array>
 #include <memory>
+#include <variant>
 #include <vector>
 
 #include <rmm/device_buffer.hpp>
@@ -36,6 +37,10 @@ class Buffer {
     friend class BufferResource;
 
   public:
+    using StorageT = std::variant<
+        std::unique_ptr<rmm::device_buffer>,
+        std::unique_ptr<std::vector<uint8_t>>>;
+
     /**
      * @brief Check if the buffer has been moved and is now uninitialized.
      *
@@ -52,8 +57,8 @@ class Buffer {
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> const& host() const {
         RAPIDSMP_EXPECTS(mem_type == MemoryType::HOST, "buffer is not host memory");
-        RAPIDSMP_EXPECTS(host_buffer_, "pointer is null, has the buffer been moved?");
-        return host_buffer_;
+        RAPIDSMP_EXPECTS(!is_moved(), "pointer is null, has the buffer been moved?");
+        return std::get<1>(storage_);
     }
 
     /**
@@ -65,8 +70,8 @@ class Buffer {
      */
     [[nodiscard]] std::unique_ptr<rmm::device_buffer> const& device() const {
         RAPIDSMP_EXPECTS(mem_type == MemoryType::DEVICE, "buffer not in device memory");
-        RAPIDSMP_EXPECTS(device_buffer_, "pointer is null, has the buffer been moved?");
-        return device_buffer_;
+        RAPIDSMP_EXPECTS(!is_moved(), "pointer is null, has the buffer been moved?");
+        return std::get<0>(storage_);
     }
 
     /**
@@ -125,8 +130,8 @@ class Buffer {
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>>& host() {
         RAPIDSMP_EXPECTS(mem_type == MemoryType::HOST, "buffer is not host memory");
-        RAPIDSMP_EXPECTS(host_buffer_, "pointer is null, has the buffer been moved?");
-        return host_buffer_;
+        RAPIDSMP_EXPECTS(!is_moved(), "pointer is null, has the buffer been moved?");
+        return std::get<1>(storage_);
     }
 
     /**
@@ -138,8 +143,8 @@ class Buffer {
      */
     [[nodiscard]] std::unique_ptr<rmm::device_buffer>& device() {
         RAPIDSMP_EXPECTS(mem_type == MemoryType::DEVICE, "buffer not in device memory");
-        RAPIDSMP_EXPECTS(device_buffer_, "pointer is null, has the buffer been moved?");
-        return device_buffer_;
+        RAPIDSMP_EXPECTS(!is_moved(), "pointer is null, has the buffer been moved?");
+        return std::get<0>(storage_);
     }
 
     /**
@@ -161,16 +166,15 @@ class Buffer {
         MemoryType target, rmm::cuda_stream_view stream
     ) const;
 
-  private:
-    /// @brief The underlying host memory buffer (if applicable).
-    std::unique_ptr<std::vector<uint8_t>> host_buffer_;
-    /// @brief The underlying device memory buffer (if applicable).
-    std::unique_ptr<rmm::device_buffer> device_buffer_;
-
   public:
     MemoryType const mem_type;  ///< Memory type.
     BufferResource* const br;  ///< The buffer resource used.
     std::size_t const size;  ///< The size of the buffer in bytes.
+
+  private:
+    /// @brief The underlying storage host memory or device memory buffer (where
+    /// applicable).
+    StorageT storage_;
 };
 
 }  // namespace rapidsmp
