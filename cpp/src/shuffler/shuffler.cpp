@@ -22,6 +22,18 @@ namespace rapidsmp::shuffler {
 
 using namespace detail;
 
+struct Shuffler::ProgressData {
+    std::vector<std::unique_ptr<Communicator::Future>>
+        fire_and_forget;  ///< Ongoing "fire-and-forget" operations (non-blocking sends).
+    std::multimap<Rank, detail::Chunk> incoming_chunks;  ///< Chunks ready to be received.
+    std::unordered_map<detail::ChunkID, detail::Chunk>
+        outgoing_chunks;  ///< Chunks ready to be sent.
+    std::unordered_map<detail::ChunkID, detail::Chunk>
+        in_transit_chunks;  ///< Chunks currently in transit.
+    std::unordered_map<detail::ChunkID, std::unique_ptr<Communicator::Future>>
+        in_transit_futures;  ///< Futures corresponding to in-transit chunks.
+};
+
 namespace {
 
 /**
@@ -189,6 +201,7 @@ Shuffler::Shuffler(
           static_cast<Rank>(comm_->nranks()),
           local_partitions(comm_, total_num_partitions, partition_owner)
       },
+      progress_data_{std::make_unique<ProgressData>()},
       statistics_{std::move(statistics)} {
     RAPIDSMP_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMP_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
@@ -398,12 +411,13 @@ ProgressThread::ProgressState Shuffler::progress() {
         log.trace("send metadata to ", dst, ": ", chunk);
         RAPIDSMP_EXPECTS(dst != comm_->rank(), "sending chunk to ourselves");
 
-        fire_and_forget_.push_back(
+        progress_data_->fire_and_forget.push_back(
             comm_->send(chunk.to_metadata_message(), dst, metadata_tag, br_)
         );
         if (chunk.gpu_data_size > 0) {
             RAPIDSMP_EXPECTS(
-                outgoing_chunks_.insert({chunk.cid, std::move(chunk)}).second,
+                progress_data_->outgoing_chunks.insert({chunk.cid, std::move(chunk)})
+                    .second,
                 "outgoing chunk already exist"
             );
         }
@@ -422,7 +436,7 @@ ProgressThread::ProgressState Shuffler::progress() {
                 partition_owner(comm_, chunk.pid) == comm_->rank(),
                 "receiving chunk not owned by us"
             );
-            incoming_chunks_.insert({src, std::move(chunk)});
+            progress_data_->incoming_chunks.insert({src, std::move(chunk)});
         } else {
             break;
         }
@@ -431,11 +445,11 @@ ProgressThread::ProgressState Shuffler::progress() {
 
     // Post receives for incoming chunks
     auto const t0_post_incoming_chunk_recv = Clock::now();
-    for (auto first_chunk = incoming_chunks_.begin();
-         first_chunk != incoming_chunks_.end();)
+    for (auto first_chunk = progress_data_->incoming_chunks.begin();
+         first_chunk != progress_data_->incoming_chunks.end();)
     {
         // Note, extract_item invalidates the iterator, so must increment here.
-        auto [src, chunk] = extract_item(incoming_chunks_, first_chunk++);
+        auto [src, chunk] = extract_item(progress_data_->incoming_chunks, first_chunk++);
         log.trace("picked incoming chunk data from ", src, ": ", chunk);
         // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
         // directly to the outbox.
@@ -449,16 +463,18 @@ ProgressThread::ProgressState Shuffler::progress() {
             // Setup to receive the chunk into `in_transit_*`.
             auto future = comm_->recv(src, gpu_data_tag, std::move(recv_buffer));
             RAPIDSMP_EXPECTS(
-                in_transit_futures_.insert({chunk.cid, std::move(future)}).second,
+                progress_data_->in_transit_futures.insert({chunk.cid, std::move(future)})
+                    .second,
                 "in transit future already exist"
             );
             RAPIDSMP_EXPECTS(
-                in_transit_chunks_.insert({chunk.cid, std::move(chunk)}).second,
+                progress_data_->in_transit_chunks.insert({chunk.cid, std::move(chunk)})
+                    .second,
                 "in transit chunk already exist"
             );
             statistics_->add_bytes_stat("shuffle-payload-recv", chunk.gpu_data_size);
             // Tell the source of the chunk that we are ready to receive it.
-            fire_and_forget_.push_back(comm_->send(
+            progress_data_->fire_and_forget.push_back(comm_->send(
                 ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
                 src,
                 ready_for_data_tag,
@@ -482,12 +498,13 @@ ProgressThread::ProgressState Shuffler::progress() {
         auto const [msg, src] = comm_->recv_any(ready_for_data_tag);
         if (msg) {
             auto ready_for_data_msg = ReadyForDataMessage::unpack(msg);
-            auto chunk = extract_value(outgoing_chunks_, ready_for_data_msg.cid);
+            auto chunk =
+                extract_value(progress_data_->outgoing_chunks, ready_for_data_msg.cid);
             log.trace(
                 "recv_any from ", src, ": ", ready_for_data_msg, ", sending: ", chunk
             );
             statistics_->add_bytes_stat("shuffle-payload-send", chunk.gpu_data->size);
-            fire_and_forget_.push_back(
+            progress_data_->fire_and_forget.push_back(
                 comm_->send(std::move(chunk.gpu_data), src, gpu_data_tag)
             );
         } else {
@@ -500,26 +517,29 @@ ProgressThread::ProgressState Shuffler::progress() {
 
     // Check if any data in transit is finished.
     auto const t0_check_future_finish = Clock::now();
-    if (!in_transit_futures_.empty()) {
-        std::vector<ChunkID> finished = comm_->test_some(in_transit_futures_);
+    if (!progress_data_->in_transit_futures.empty()) {
+        std::vector<ChunkID> finished =
+            comm_->test_some(progress_data_->in_transit_futures);
         for (auto cid : finished) {
-            auto chunk = extract_value(in_transit_chunks_, cid);
-            auto future = extract_value(in_transit_futures_, cid);
+            auto chunk = extract_value(progress_data_->in_transit_chunks, cid);
+            auto future = extract_value(progress_data_->in_transit_futures, cid);
             chunk.gpu_data = comm_->get_gpu_data(std::move(future));
             insert_into_outbox(std::move(chunk));
         }
     }
 
     // Check if we can free some of the outstanding futures.
-    if (!fire_and_forget_.empty()) {
-        std::vector<std::size_t> finished = comm_->test_some(fire_and_forget_);
+    if (!progress_data_->fire_and_forget.empty()) {
+        std::vector<std::size_t> finished =
+            comm_->test_some(progress_data_->fire_and_forget);
         if (!finished.empty()) {
             // Sort the indexes into `fire_and_forget` in descending order.
             std::sort(finished.begin(), finished.end(), std::greater<>());
             // And erase from the right.
             for (auto i : finished) {
-                fire_and_forget_.erase(
-                    fire_and_forget_.begin() + static_cast<std::ptrdiff_t>(i)
+                progress_data_->fire_and_forget.erase(
+                    progress_data_->fire_and_forget.begin()
+                    + static_cast<std::ptrdiff_t>(i)
                 );
             }
         }
@@ -534,9 +554,11 @@ ProgressThread::ProgressState Shuffler::progress() {
     // all containers are empty (all work is done).
     return (active_.load()
             || !(
-                fire_and_forget_.empty() && incoming_chunks_.empty()
-                && outgoing_chunks_.empty() && in_transit_chunks_.empty()
-                && in_transit_futures_.empty() && inbox_.empty()
+                progress_data_->fire_and_forget.empty()
+                && progress_data_->incoming_chunks.empty()
+                && progress_data_->outgoing_chunks.empty()
+                && progress_data_->in_transit_chunks.empty()
+                && progress_data_->in_transit_futures.empty() && inbox_.empty()
             ))
                ? ProgressThread::ProgressState::InProgress
                : ProgressThread::ProgressState::Done;

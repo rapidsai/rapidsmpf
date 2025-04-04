@@ -225,13 +225,7 @@ class Shuffler {
      * outgoing and incoming, and updates the necessary data structures for further
      * processing.
      *
-+     * It makes use of the following members:
-+     * - `fire_and_forget_`: Ongoing "fire-and-forget" operations (non-blocking sends).
-+     * - `incoming_chunks_`: Chunks ready to be received.
-+     * - `outgoing_chunks_`: Chunks ready to be sent.
-+     * - `in_transit_chunks_`: Chunks currently in transit.
-+     * - `in_transit_futures_`: Futures corresponding to in-transit chunks.
-+     * - `inbox_`: Incoming chunks.
+     * @return The progress state of the shuffler.
      */
     ProgressThread::ProgressState progress();
 
@@ -288,12 +282,8 @@ class Shuffler {
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
-    std::vector<std::unique_ptr<Communicator::Future>> fire_and_forget_;
-    std::multimap<Rank, detail::Chunk> incoming_chunks_;
-    std::unordered_map<detail::ChunkID, detail::Chunk> outgoing_chunks_;
-    std::unordered_map<detail::ChunkID, detail::Chunk> in_transit_chunks_;
-    std::unordered_map<detail::ChunkID, std::unique_ptr<Communicator::Future>>
-        in_transit_futures_;
+    struct ProgressData;
+    std::unique_ptr<ProgressData> progress_data_;
 
     std::shared_ptr<Statistics> statistics_;
 };
