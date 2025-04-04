@@ -118,8 +118,6 @@ class SpillCollection:
         for obj in to_spill:
             spilled_amount += obj.spill(amount - spilled_amount)
             spilled.append(obj)
-            if spilled_amount >= amount:
-                break
 
         # Add the spilled objects to host memory spillables.
         with self._lock:
