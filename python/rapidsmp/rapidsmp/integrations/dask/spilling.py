@@ -126,7 +126,7 @@ class SpillableWrapper(Generic[WrappedType]):
         """
         if amount > 0:
             on_device = self._on_device
-            if on_device is not None:
+            if on_device is not None and self._on_host is None:
                 ret = self.approx_spillable_amount()
                 self._on_host = dask_dumps(on_device)
                 self._on_device = None
