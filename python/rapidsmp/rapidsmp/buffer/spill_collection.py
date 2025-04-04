@@ -68,8 +68,18 @@ class SpillCollection:
         ----------
         obj
             The spillable object to be added.
+
+        Raises
+        ------
+        ValueError
+            If the object isn't in device memory.
         """
         memtype = obj.mem_type()
+        if memtype != MemoryType.DEVICE:
+            raise ValueError(
+                "For now, only support adding spillables that are located "
+                "in device memory initially."
+            )
         with self._lock:
             self._key_counter += 1
             self._spillables[memtype][self._key_counter] = obj
