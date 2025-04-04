@@ -202,8 +202,10 @@ Shuffler::Shuffler(
     );
 
     // We need to register the progress function with the progress thread, but
-    // that cannot be done in the constructor list because the Shuffler isn't
-    // fully constructed yet.
+    // that cannot be done in the constructor's initializer list because the 
+    // Shuffler isn't fully constructed yet.
+    // NB: this only works because `Shuffler` is not movable, otherwise if moved, 
+    // `this` will become invalid.
     function_id_ = progress_thread_->add_function([this]() { return progress(); });
 }
 
@@ -212,10 +214,10 @@ Shuffler::~Shuffler() {
 }
 
 void Shuffler::shutdown() {
-    if (active_.load()) {
+    if (active_.load(std::memory_order_acquire)) {
         auto& log = comm_->logger();
         log.debug("Shuffler.shutdown() - initiate");
-        active_.store(false);
+        active_.store(false, std::memory_order_release);
         progress_thread_->remove_function(*function_id_);
         log.debug("Shuffler.shutdown() - done");
     }
@@ -532,7 +534,7 @@ ProgressThread::ProgressState Shuffler::progress() {
 
     // Return Done only if the shuffler is inactive (shutdown was called) _and_
     // all containers are empty (all work is done).
-    return (active_.load()
+    return (active_.load(std::memory_order_acquire)
             || !(
                 fire_and_forget_.empty() && incoming_chunks_.empty()
                 && outgoing_chunks_.empty() && in_transit_chunks_.empty()
