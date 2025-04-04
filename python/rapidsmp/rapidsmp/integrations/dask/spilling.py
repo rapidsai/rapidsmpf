@@ -31,18 +31,28 @@ WrappedType = TypeVar("WrappedType")
 
 class SpillableWrapper(Generic[WrappedType]):
     """
-    A wrapper that allows objects to be spillable.
+    A lockfree wrapper that allows objects to be spillable.
+
+    The wrapped object is immutable and to allow spilling, no external
+    references should exist to the object. If such references do exist,
+    modifying the object results in undefined behavior.
 
     Implements the `rapidsmp.buffer.spill_collection.Spillable` protocol.
 
     Notes
     -----
-    The wrapper is lockfree, which is possible because of two properties:
-     1) We only move data from the unspilled state (device memory) to lower
-        states (e.g. host memory). On unspill, data is copied (not moved)
-        to device memory and a copy of the data is retained in the spilled
-        state (e.g. host memory).
-     2) No in-place modifications of the wrapped object.
+    The following properties are maintained:
+    1. No modifications of the wrapped object are allowed.
+    2. Data transitions only from a higher to a lower state (e.g., device
+       to host memory). During unspill, data is copied (not moved) back to
+       device memory while retaining a copy in the spilled state.
+    3. A copy of the wrapped object (spilled or unspilled) is always retained
+       before deletion from a higher state.
+
+    These properties ensure the wrapper remains lock-free:
+    - Property (1) allows multiple copies without coherency concerns.
+    - Properties (2) and (3) guarantee that a valid copy can always be retrieved
+      by searching lower states, eliminating the need for locking.
 
     Parameters
     ----------

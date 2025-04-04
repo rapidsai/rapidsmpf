@@ -89,7 +89,8 @@ class SpillCollection:
 
         Returns
         -------
-        The total amount of memory successfully spilled.
+        The actual amount of memory spilled (in bytes), which may be more, less
+        or equal to the requested.
 
         Raises
         ------
