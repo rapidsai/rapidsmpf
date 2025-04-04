@@ -38,3 +38,6 @@ def test_spill_collection() -> None:
     collection.add_spillable(obj3)
     # Eventhough we ask for 100 bytes, only 20 bytes can be spilled.
     assert collection.spill(100) == 20
+    assert collection.spill(100) == 0
+    assert obj2.mem_type() == MemoryType.HOST
+    assert obj3.mem_type() == MemoryType.HOST
