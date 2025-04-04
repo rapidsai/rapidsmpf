@@ -103,41 +103,48 @@ std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
 
 std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view stream)
     const {
-    // Implement the copy between each possible memory types (both directions).
-    switch (mem_type()) {
-    case MemoryType::HOST:
-        switch (target) {
-        case MemoryType::HOST:  // host -> host
-            return copy(stream);
-        case MemoryType::DEVICE:  // host -> device
-            return std::make_unique<Buffer>(Buffer{
-                std::make_unique<rmm::device_buffer>(
-                    host()->data(), host()->size(), stream, br->device_mr()
-                ),
-                br
-            });
-        }
-        RAPIDSMP_FAIL("MemoryType: unknown");
-    case MemoryType::DEVICE:
-        switch (target) {
-        case MemoryType::HOST:  // device -> host
-            {
-                auto ret = std::make_unique<std::vector<uint8_t>>(device()->size());
-                RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-                    ret->data(),
-                    device()->data(),
-                    device()->size(),
-                    cudaMemcpyDeviceToHost,
-                    stream
-                ));
-                return std::make_unique<Buffer>(Buffer{std::move(ret), br});
+    return std::visit(
+        [&](auto&& storage) -> std::unique_ptr<Buffer> {
+            using T = std::decay_t<decltype(storage)>;
+            if constexpr (std::is_same_v<T, HostStorageT>) {
+                switch (target) {
+                case MemoryType::HOST:  // host -> host
+                    return copy(stream);
+                case MemoryType::DEVICE:  // host -> device
+                    return std::make_unique<Buffer>(Buffer{
+                        std::make_unique<rmm::device_buffer>(
+                            storage->data(), storage->size(), stream, br->device_mr()
+                        ),
+                        br
+                    });
+                }
+                RAPIDSMP_FAIL("MemoryType: unknown");
+            } else if constexpr (std::is_same_v<T, DeviceStorageT>) {
+                switch (target) {
+                case MemoryType::HOST:  // device -> host
+                    {
+                        auto ret =
+                            std::make_unique<std::vector<uint8_t>>(storage->size());
+                        RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+                            ret->data(),
+                            storage->data(),
+                            storage->size(),
+                            cudaMemcpyDeviceToHost,
+                            stream
+                        ));
+                        return std::make_unique<Buffer>(Buffer{std::move(ret), br});
+                    }
+                case MemoryType::DEVICE:  // device -> device
+                    return copy(stream);
+                }
+                RAPIDSMP_FAIL("MemoryType: unknown");
+            } else {
+                RAPIDSMP_FAIL("Buffer is not initialized");
+                return {};
             }
-        case MemoryType::DEVICE:  // device -> device
-            return copy(stream);
-        }
-        RAPIDSMP_FAIL("MemoryType: unknown");
-    }
-    RAPIDSMP_FAIL("MemoryType: unknown");
+        },
+        storage_
+    );
 }
 
 }  // namespace rapidsmp
