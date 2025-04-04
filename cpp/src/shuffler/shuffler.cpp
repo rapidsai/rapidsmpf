@@ -215,9 +215,9 @@ Shuffler::Shuffler(
     );
 
     // We need to register the progress function with the progress thread, but
-    // that cannot be done in the constructor's initializer list because the 
+    // that cannot be done in the constructor's initializer list because the
     // Shuffler isn't fully constructed yet.
-    // NB: this only works because `Shuffler` is not movable, otherwise if moved, 
+    // NB: this only works because `Shuffler` is not movable, otherwise if moved,
     // `this` will become invalid.
     function_id_ = progress_thread_->add_function([this]() { return progress(); });
 }
