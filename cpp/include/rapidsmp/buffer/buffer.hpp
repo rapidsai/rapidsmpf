@@ -45,11 +45,17 @@ class Buffer {
 
     /**
      * @brief  Storage type in Buffer, which could be either host or device memory.
-     *
-     * Note: std::monostate avoids issues if std::unique_ptr<rmm::device_buffer> is not
-     * default-constructible.
      */
-    using StorageT = std::variant<std::monostate, DeviceStorageT, HostStorageT>;
+    using StorageT = std::variant<DeviceStorageT, HostStorageT>;
+
+    /// @brief Helper for overloaded lambdas for Storage types in StorageT
+    template <class... Ts>
+    struct overloaded : Ts... {
+        using Ts::operator()...;
+    };
+    /// @brief Explicit deduction guide
+    template <class... Ts>
+    overloaded(Ts...) -> overloaded<Ts...>;
 
     /**
      * @brief Check if the buffer has been moved and is now uninitialized.
@@ -109,16 +115,9 @@ class Buffer {
      */
     MemoryType constexpr mem_type() const {
         return std::visit(
-            [](auto&& storage) -> MemoryType {
-                using T = std::decay_t<decltype(storage)>;
-                if constexpr (std::is_same_v<T, HostStorageT>) {
-                    return MemoryType::HOST;
-                } else if constexpr (std::is_same_v<T, DeviceStorageT>) {
-                    return MemoryType::DEVICE;
-                } else {
-                    RAPIDSMP_FAIL("MemoryType: unknown");
-                    return {};
-                }
+            overloaded{
+                [](const HostStorageT&) -> MemoryType { return MemoryType::HOST; },
+                [](const DeviceStorageT&) -> MemoryType { return MemoryType::DEVICE; }
             },
             storage_
         );

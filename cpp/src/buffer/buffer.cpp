@@ -37,64 +37,36 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource
 bool Buffer::is_moved() const noexcept {
     return std::visit(
         [](auto&& storage) {
-            using T = std::decay_t<decltype(storage)>;
-            if constexpr (std::is_same_v<T, std::monostate>) {
-                return true;
-            } else {
-                // check either Storage is null
-                return storage == nullptr;
-            }
+            // check either Storage is null
+            return storage == nullptr;
         },
         storage_
     );
 }
 
 void* Buffer::data() {
-    return std::visit(
-        [](auto&& storage) -> void* {
-            using T = std::decay_t<decltype(storage)>;
-            if constexpr (std::is_same_v<T, std::monostate>) {
-                return nullptr;
-            } else {
-                return storage->data();
-            }
-        },
-        storage_
-    );
+    return std::visit([](auto&& storage) -> void* { return storage->data(); }, storage_);
 }
 
 void const* Buffer::data() const {
-    return std::visit(
-        [](auto&& storage) -> void* {
-            using T = std::decay_t<decltype(storage)>;
-            if constexpr (std::is_same_v<T, std::monostate>) {
-                return nullptr;
-            } else {
-                return storage->data();
-            }
-        },
-        storage_
-    );
+    return std::visit([](auto&& storage) -> void* { return storage->data(); }, storage_);
 }
 
 std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
     return std::visit(
-        [&](auto&& storage) -> std::unique_ptr<Buffer> {
-            using T = std::decay_t<decltype(storage)>;
-            if constexpr (std::is_same_v<T, HostStorageT>) {
+        overloaded{
+            [&](const HostStorageT& storage) -> std::unique_ptr<Buffer> {
                 return std::make_unique<Buffer>(
                     Buffer{std::make_unique<std::vector<uint8_t>>(*storage), br}
                 );
-            } else if constexpr (std::is_same_v<T, DeviceStorageT>) {
+            },
+            [&](const DeviceStorageT& storage) -> std::unique_ptr<Buffer> {
                 return std::make_unique<Buffer>(Buffer{
                     std::make_unique<rmm::device_buffer>(
                         storage->data(), storage->size(), stream, br->device_mr()
                     ),
                     br
                 });
-            } else {
-                RAPIDSMP_FAIL("Buffer is not initialized");
-                return {};
             }
         },
         storage_
@@ -103,44 +75,30 @@ std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
 
 std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view stream)
     const {
+    if (mem_type() == target) {
+        return copy(stream);
+    }
+
     return std::visit(
-        [&](auto&& storage) -> std::unique_ptr<Buffer> {
-            using T = std::decay_t<decltype(storage)>;
-            if constexpr (std::is_same_v<T, HostStorageT>) {
-                switch (target) {
-                case MemoryType::HOST:  // host -> host
-                    return copy(stream);
-                case MemoryType::DEVICE:  // host -> device
-                    return std::make_unique<Buffer>(Buffer{
-                        std::make_unique<rmm::device_buffer>(
-                            storage->data(), storage->size(), stream, br->device_mr()
-                        ),
-                        br
-                    });
-                }
-                RAPIDSMP_FAIL("MemoryType: unknown");
-            } else if constexpr (std::is_same_v<T, DeviceStorageT>) {
-                switch (target) {
-                case MemoryType::HOST:  // device -> host
-                    {
-                        auto ret =
-                            std::make_unique<std::vector<uint8_t>>(storage->size());
-                        RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-                            ret->data(),
-                            storage->data(),
-                            storage->size(),
-                            cudaMemcpyDeviceToHost,
-                            stream
-                        ));
-                        return std::make_unique<Buffer>(Buffer{std::move(ret), br});
-                    }
-                case MemoryType::DEVICE:  // device -> device
-                    return copy(stream);
-                }
-                RAPIDSMP_FAIL("MemoryType: unknown");
-            } else {
-                RAPIDSMP_FAIL("Buffer is not initialized");
-                return {};
+        overloaded{
+            [&](const HostStorageT& storage) -> std::unique_ptr<Buffer> {
+                return std::make_unique<Buffer>(Buffer{
+                    std::make_unique<rmm::device_buffer>(
+                        storage->data(), storage->size(), stream, br->device_mr()
+                    ),
+                    br
+                });
+            },
+            [&](const DeviceStorageT& storage) -> std::unique_ptr<Buffer> {
+                auto ret = std::make_unique<std::vector<uint8_t>>(storage->size());
+                RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+                    ret->data(),
+                    storage->data(),
+                    storage->size(),
+                    cudaMemcpyDeviceToHost,
+                    stream
+                ));
+                return std::make_unique<Buffer>(Buffer{std::move(ret), br});
             }
         },
         storage_
