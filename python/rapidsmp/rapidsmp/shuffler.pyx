@@ -9,12 +9,11 @@ from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
-from pylibcudf.contiguous_split cimport PackedColumns
-from pylibcudf.libcudf.contiguous_split cimport packed_columns
 from pylibcudf.libcudf.table.table cimport table as cpp_table
 from pylibcudf.libcudf.table.table_view cimport table_view
 from pylibcudf.libcudf.types cimport size_type
 from pylibcudf.table cimport Table
+from rapidsmp.buffer.packed_data cimport PackedData, cpp_PackedData
 from rapidsmp.progress_thread cimport ProgressThread
 from rapidsmp.statistics cimport Statistics
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
@@ -27,7 +26,7 @@ cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
     int cpp_HASH_MURMUR3"cudf::hash_id::HASH_MURMUR3"
     uint32_t cpp_DEFAULT_HASH_SEED"cudf::DEFAULT_HASH_SEED",
 
-    cdef unordered_map[uint32_t, packed_columns] cpp_partition_and_pack \
+    cdef unordered_map[uint32_t, cpp_PackedData] cpp_partition_and_pack \
         "rapidsmp::shuffler::partition_and_pack"(
             const table_view& table,
             const vector[size_type] &columns_to_hash,
@@ -78,7 +77,7 @@ cpdef dict partition_and_pack(
     pylibcudf.contiguous_split.pack
     """
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
-    cdef unordered_map[uint32_t, packed_columns] _ret
+    cdef unordered_map[uint32_t, cpp_PackedData] _ret
     cdef table_view tbl = table.view()
     if stream is None:
         raise ValueError("stream cannot be None")
@@ -94,10 +93,10 @@ cpdef dict partition_and_pack(
             device_mr.get_mr()
         )
     ret = {}
-    cdef unordered_map[uint32_t, packed_columns].iterator it = _ret.begin()
+    cdef unordered_map[uint32_t, cpp_PackedData].iterator it = _ret.begin()
     while(it != _ret.end()):
-        ret[deref(it).first] = PackedColumns.from_libcudf(
-            make_unique[packed_columns](move(deref(it).second))
+        ret[deref(it).first] = PackedData.from_librapidsmp(
+            make_unique[cpp_PackedData](move(deref(it).second))
         )
         postincrement(it)
     return ret
@@ -106,7 +105,7 @@ cpdef dict partition_and_pack(
 cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
     cdef unique_ptr[cpp_table] cpp_unpack_and_concat \
         "rapidsmp::shuffler::unpack_and_concat"(
-            vector[packed_columns] partition,
+            vector[cpp_PackedData] partition,
             cuda_stream_view stream,
             device_memory_resource *mr,
         ) except +
@@ -139,11 +138,11 @@ cpdef Table unpack_and_concat(
     cudf.unpack
     cudf.concatenate
     """
-    cdef vector[packed_columns] _partitions
+    cdef vector[cpp_PackedData] _partitions
     for part in partitions:
-        if not (<PackedColumns?>part).c_obj:
-            raise ValueError("PackedColumns was empty")
-        _partitions.push_back(move(deref((<PackedColumns?>part).c_obj)))
+        if not (<PackedData?>part).c_obj:
+            raise ValueError("PackedData was empty")
+        _partitions.push_back(move(deref((<PackedData?>part).c_obj)))
     if stream is None:
         raise ValueError("stream cannot be None")
     cdef cuda_stream_view _stream = Stream(stream).view()
@@ -257,7 +256,7 @@ cdef class Shuffler:
         ----------
         chunks
             A map where keys are partition IDs (``int``) and values are packed
-            chunks (``cudf.packed_columns``).
+            data (``PackedData``).
 
         Notes
         -----
@@ -265,11 +264,11 @@ cdef class Shuffler:
         respective partition IDs.
         """
         # Convert python mapping to an `unordered_map`.
-        cdef unordered_map[uint32_t, packed_columns] _chunks
+        cdef unordered_map[uint32_t, cpp_PackedData] _chunks
         for pid, chunk in chunks.items():
-            if not (<PackedColumns?>chunk).c_obj:
-                raise ValueError("PackedColumns was empty")
-            _chunks[<uint32_t?>pid] = move(deref((<PackedColumns?>chunk).c_obj))
+            if not (<PackedData?>chunk).c_obj:
+                raise ValueError("PackedData was empty")
+            _chunks[<uint32_t?>pid] = move(deref((<PackedData?>chunk).c_obj))
 
         with nogil:
             deref(self._handle).insert(move(_chunks))
@@ -305,18 +304,18 @@ cdef class Shuffler:
 
         Returns
         -------
-        A list of packed columns belonging to the specified partition.
+        A list of packed data belonging to the specified partition.
         """
-        cdef vector[packed_columns] _ret
+        cdef vector[cpp_PackedData] _ret
         with nogil:
             _ret = deref(self._handle).extract(pid)
 
-        # Move the result into a python list of `PackedColumns`.
+        # Move the result into a python list of `PackedData`.
         cdef list ret = []
         for i in range(_ret.size()):
             ret.append(
-                PackedColumns.from_libcudf(
-                    make_unique[packed_columns](
+                PackedData.from_librapidsmp(
+                    make_unique[cpp_PackedData](
                         move(_ret.at(i).metadata), move(_ret.at(i).gpu_data)
                     )
                 )

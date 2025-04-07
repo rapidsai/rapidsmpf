@@ -8,6 +8,7 @@
 #include <mpi.h>
 #include <unistd.h>
 
+#include <rapidsmp/buffer/packed_data.hpp>
 #include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
@@ -51,7 +52,7 @@ int main(int argc, char** argv) {
     cudf::table local_input = random_table(2, 100, 0, 10, stream, mr);
 
     // The total number of inputs equals the number of ranks, in this case.
-    rapidsmp::shuffler::PartID const total_num_partitions =
+    auto const total_num_partitions =
         static_cast<rapidsmp::shuffler::PartID>(comm->nranks());
 
     // We create a new shuffler instance, which represents a single shuffle. It takes
@@ -74,7 +75,7 @@ int main(int argc, char** argv) {
     // does provide a convenience function that hash partition a cudf table and packs
     // each partition. The result is a mapping of `PartID`, globally unique partition
     // identifiers, to their packed partitions.
-    std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> packed_inputs =
+    std::unordered_map<rapidsmp::shuffler::PartID, rapidsmp::PackedData> packed_inputs =
         rapidsmp::shuffler::partition_and_pack(
             local_input,
             {0},  // columns_to_hash

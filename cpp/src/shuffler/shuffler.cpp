@@ -13,6 +13,7 @@
 #include <cudf/concatenate.hpp>
 #include <cudf/detail/contiguous_split.hpp>  // `cudf::detail::pack` (stream ordered version)
 
+#include <rapidsmp/buffer/packed_data.hpp>
 #include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/shuffler/shuffler.hpp>
@@ -466,17 +467,17 @@ void Shuffler::insert(detail::Chunk&& chunk) {
     }
 }
 
-void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks) {
+void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     RAPIDSMP_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
 
     // Insert each chunk into the inbox.
-    for (auto& [pid, packed_columns] : chunks) {
+    for (auto& [pid, packed_data] : chunks) {
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
-        if (headroom < 0 && packed_columns.gpu_data) {
+        if (headroom < 0 && packed_data.gpu_data) {
             auto [host_reservation, host_overbooking] =
-                br_->reserve(MemoryType::HOST, packed_columns.gpu_data->size(), true);
+                br_->reserve(MemoryType::HOST, packed_data.gpu_data->size(), true);
             if (host_overbooking > 0) {
                 log.warn(
                     "Cannot spill to host because of host memory overbooking: ",
@@ -485,9 +486,7 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
                 continue;
             }
             auto chunk = create_chunk(
-                pid,
-                std::move(packed_columns.metadata),
-                std::move(packed_columns.gpu_data)
+                pid, std::move(packed_data.metadata), std::move(packed_data.gpu_data)
             );
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
@@ -503,9 +502,7 @@ void Shuffler::insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks)
             insert(std::move(chunk));
         } else {
             insert(create_chunk(
-                pid,
-                std::move(packed_columns.metadata),
-                std::move(packed_columns.gpu_data)
+                pid, std::move(packed_data.metadata), std::move(packed_data.gpu_data)
             ));
         }
     }
@@ -523,14 +520,14 @@ void Shuffler::insert_finished(PartID pid) {
     insert(detail::Chunk{pid, get_new_cid(), expected_num_chunks + 1});
 }
 
-std::vector<cudf::packed_columns> Shuffler::extract(PartID pid) {
+std::vector<PackedData> Shuffler::extract(PartID pid) {
     RAPIDSMP_NVTX_FUNC_RANGE();
     // Protect the chunk extraction to make sure we don't get a chunk
     // `Shuffler::spill` is in the process of spilling.
     std::unique_lock<std::mutex> lock(outbox_spilling_mutex_);
     auto chunks = outbox_.extract(pid);
     lock.unlock();
-    std::vector<cudf::packed_columns> ret;
+    std::vector<PackedData> ret;
     ret.reserve(chunks.size());
 
     // Sum the total size of all chunks not in device memory already.
@@ -593,7 +590,7 @@ detail::ChunkID Shuffler::get_new_cid() {
     // Place the counter in the first 38 bits (supports 256G chunks).
     std::uint64_t upper = ++chunk_id_counter_ << 26;
     // and place the rank in last 26 bits (supports 64M ranks).
-    std::uint64_t lower = static_cast<std::uint64_t>(comm_->rank());
+    auto lower = static_cast<std::uint64_t>(comm_->rank());
     return upper | lower;
 }
 

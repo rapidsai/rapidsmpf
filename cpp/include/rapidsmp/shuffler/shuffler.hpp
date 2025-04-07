@@ -16,6 +16,7 @@
 #include <cudf/partitioning.hpp>
 #include <cudf/table/table.hpp>
 
+#include <rapidsmp/buffer/packed_data.hpp>
 #include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/error.hpp>
@@ -124,7 +125,7 @@ class Shuffler {
      *
      * @param chunks A map of partition IDs and their packed chunks.
      */
-    void insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks);
+    void insert(std::unordered_map<PartID, PackedData>&& chunks);
 
     /**
      * @brief Insert a finish mark for a partition.
@@ -139,9 +140,9 @@ class Shuffler {
      * @brief Extract all chunks of a specific partition.
      *
      * @param pid The partition ID.
-     * @return A vector of packed columns (chunks) for the partition.
+     * @return A vector of packed data (chunks) for the partition.
      */
-    [[nodiscard]] std::vector<cudf::packed_columns> extract(PartID pid);
+    [[nodiscard]] std::vector<PackedData> extract(PartID pid);
 
     /**
      * @brief Check if all partitions are finished.
