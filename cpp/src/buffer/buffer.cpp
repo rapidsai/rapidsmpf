@@ -22,7 +22,9 @@ Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource
     : br{br},
       size{host_buffer ? host_buffer->size() : 0},
       storage_{std::move(host_buffer)} {
-    RAPIDSMP_EXPECTS(data() != nullptr, "the host_buffer cannot be NULL");
+    RAPIDSMP_EXPECTS(
+        std::get<HostStorageT>(storage_) != nullptr, "the host_buffer cannot be NULL"
+    );
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 
@@ -30,7 +32,9 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource
     : br{br},
       size{device_buffer ? device_buffer->size() : 0},
       storage_{std::move(device_buffer)} {
-    RAPIDSMP_EXPECTS(data() != nullptr, "the device buffer cannot be NULL");
+    RAPIDSMP_EXPECTS(
+        std::get<DeviceStorageT>(storage_) != nullptr, "the device buffer cannot be NULL"
+    );
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 
