@@ -419,9 +419,9 @@ Shuffler::Shuffler(
     // Shuffler isn't fully constructed yet.
     // NB: this only works because `Shuffler` is not movable, otherwise if moved,
     // `this` will become invalid.
-    function_id_ = std::move(progress_thread_->add_function(
+    function_id_ = progress_thread_->add_function(
         [progress = std::make_shared<Progress>(*this)]() { return (*progress)(); }
-    ));
+    );
 }
 
 Shuffler::~Shuffler() {
