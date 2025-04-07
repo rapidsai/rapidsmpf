@@ -89,6 +89,7 @@ class BaseShufflingActor(RapidsMPActor):
 
             stream = DEFAULT_STREAM
 
+        assert self._comm is not None
         progress_thread = ProgressThread(self._comm, statistics)
 
         return Shuffler(
