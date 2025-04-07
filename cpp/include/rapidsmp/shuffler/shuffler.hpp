@@ -45,9 +45,6 @@ namespace rapidsmp::shuffler {
  */
 class Shuffler {
   public:
-    class Progress;
-    friend class Progress;
-
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the
      * `rapidsmp::Rank` of the _owning_ node.
@@ -274,6 +271,8 @@ class Shuffler {
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
     std::shared_ptr<Statistics> statistics_;
+
+    class Progress;
 };
 
 /**
