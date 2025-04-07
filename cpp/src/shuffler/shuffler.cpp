@@ -155,26 +155,13 @@ std::size_t postbox_spilling(
 }  // namespace
 
 class Shuffler::Progress {
-  private:
-    Shuffler& _shuffler;
-    std::vector<std::unique_ptr<Communicator::Future>>
-        fire_and_forget_;  ///< Ongoing "fire-and-forget" operations (non-blocking sends).
-    std::multimap<Rank, detail::Chunk>
-        incoming_chunks_;  ///< Chunks ready to be received.
-    std::unordered_map<detail::ChunkID, detail::Chunk>
-        outgoing_chunks_;  ///< Chunks ready to be sent.
-    std::unordered_map<detail::ChunkID, detail::Chunk>
-        in_transit_chunks_;  ///< Chunks currently in transit.
-    std::unordered_map<detail::ChunkID, std::unique_ptr<Communicator::Future>>
-        in_transit_futures_;  ///< Futures corresponding to in-transit chunks.
-
   public:
     /**
      * @brief Construct a new shuffler progress instance.
      *
      * @param shuffler Reference to the shuffler instance that this will progress.
      */
-    Progress(Shuffler& shuffer) : _shuffler(shuffer) {}
+    Progress(Shuffler& shuffler) : shuffler_(shuffler) {}
 
     /**
      * @brief Executes a single iteration of the shuffler's event loop.
@@ -191,24 +178,24 @@ class Shuffler::Progress {
         auto const t0_event_loop = Clock::now();
 
         // Tags for each stage of the shuffle
-        Tag const ready_for_data_tag{_shuffler.op_id_, 1};
-        Tag const metadata_tag{_shuffler.op_id_, 2};
-        Tag const gpu_data_tag{_shuffler.op_id_, 3};
+        Tag const ready_for_data_tag{shuffler_.op_id_, 1};
+        Tag const metadata_tag{shuffler_.op_id_, 2};
+        Tag const gpu_data_tag{shuffler_.op_id_, 3};
 
-        auto& log = _shuffler.comm_->logger();
-        auto& stats = *_shuffler.statistics_;
+        auto& log = shuffler_.comm_->logger();
+        auto& stats = *shuffler_.statistics_;
 
         // Check for new chunks in the inbox and send off their metadata.
         auto const t0_send_metadata = Clock::now();
-        for (auto&& chunk : _shuffler.inbox_.extract_all()) {
-            auto dst = _shuffler.partition_owner(_shuffler.comm_, chunk.pid);
+        for (auto&& chunk : shuffler_.inbox_.extract_all()) {
+            auto dst = shuffler_.partition_owner(shuffler_.comm_, chunk.pid);
             log.trace("send metadata to ", dst, ": ", chunk);
             RAPIDSMP_EXPECTS(
-                dst != _shuffler.comm_->rank(), "sending chunk to ourselves"
+                dst != shuffler_.comm_->rank(), "sending chunk to ourselves"
             );
 
-            fire_and_forget_.push_back(_shuffler.comm_->send(
-                chunk.to_metadata_message(), dst, metadata_tag, _shuffler.br_
+            fire_and_forget_.push_back(shuffler_.comm_->send(
+                chunk.to_metadata_message(), dst, metadata_tag, shuffler_.br_
             ));
             if (chunk.gpu_data_size > 0) {
                 RAPIDSMP_EXPECTS(
@@ -225,13 +212,13 @@ class Shuffler::Progress {
         // `incoming_chunks_`.
         auto const t0_metadata_recv = Clock::now();
         while (true) {
-            auto const [msg, src] = _shuffler.comm_->recv_any(metadata_tag);
+            auto const [msg, src] = shuffler_.comm_->recv_any(metadata_tag);
             if (msg) {
                 auto chunk = Chunk::from_metadata_message(msg);
                 log.trace("recv_any from ", src, ": ", chunk);
                 RAPIDSMP_EXPECTS(
-                    _shuffler.partition_owner(_shuffler.comm_, chunk.pid)
-                        == _shuffler.comm_->rank(),
+                    shuffler_.partition_owner(shuffler_.comm_, chunk.pid)
+                        == shuffler_.comm_->rank(),
                     "receiving chunk not owned by us"
                 );
                 incoming_chunks_.insert({src, std::move(chunk)});
@@ -256,7 +243,7 @@ class Shuffler::Progress {
             if (chunk.gpu_data_size > 0) {
                 // Create a new buffer and let the buffer resource decide the memory type.
                 auto recv_buffer = allocate_buffer(
-                    chunk.gpu_data_size, _shuffler.stream_, _shuffler.br_
+                    chunk.gpu_data_size, shuffler_.stream_, shuffler_.br_
                 );
                 if (recv_buffer->mem_type == MemoryType::HOST) {
                     stats.add_bytes_stat("spill-bytes-recv-to-host", recv_buffer->size);
@@ -264,7 +251,7 @@ class Shuffler::Progress {
 
                 // Setup to receive the chunk into `in_transit_*`.
                 auto future =
-                    _shuffler.comm_->recv(src, gpu_data_tag, std::move(recv_buffer));
+                    shuffler_.comm_->recv(src, gpu_data_tag, std::move(recv_buffer));
                 RAPIDSMP_EXPECTS(
                     in_transit_futures_.insert({chunk.cid, std::move(future)}).second,
                     "in transit future already exist"
@@ -273,21 +260,21 @@ class Shuffler::Progress {
                     in_transit_chunks_.insert({chunk.cid, std::move(chunk)}).second,
                     "in transit chunk already exist"
                 );
-                _shuffler.statistics_->add_bytes_stat(
+                shuffler_.statistics_->add_bytes_stat(
                     "shuffle-payload-recv", chunk.gpu_data_size
                 );
                 // Tell the source of the chunk that we are ready to receive it.
-                fire_and_forget_.push_back(_shuffler.comm_->send(
+                fire_and_forget_.push_back(shuffler_.comm_->send(
                     ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
                     src,
                     ready_for_data_tag,
-                    _shuffler.br_
+                    shuffler_.br_
                 ));
             } else {
                 if (chunk.gpu_data == nullptr) {
-                    chunk.gpu_data = allocate_buffer(0, _shuffler.stream_, _shuffler.br_);
+                    chunk.gpu_data = allocate_buffer(0, shuffler_.stream_, shuffler_.br_);
                 }
-                _shuffler.insert_into_outbox(std::move(chunk));
+                shuffler_.insert_into_outbox(std::move(chunk));
             }
         }
         stats.add_duration_stat(
@@ -299,18 +286,18 @@ class Shuffler::Progress {
         // requested data.
         auto const t0_init_gpu_data_send = Clock::now();
         while (true) {
-            auto const [msg, src] = _shuffler.comm_->recv_any(ready_for_data_tag);
+            auto const [msg, src] = shuffler_.comm_->recv_any(ready_for_data_tag);
             if (msg) {
                 auto ready_for_data_msg = ReadyForDataMessage::unpack(msg);
                 auto chunk = extract_value(outgoing_chunks_, ready_for_data_msg.cid);
                 log.trace(
                     "recv_any from ", src, ": ", ready_for_data_msg, ", sending: ", chunk
                 );
-                _shuffler.statistics_->add_bytes_stat(
+                shuffler_.statistics_->add_bytes_stat(
                     "shuffle-payload-send", chunk.gpu_data->size
                 );
                 fire_and_forget_.push_back(
-                    _shuffler.comm_->send(std::move(chunk.gpu_data), src, gpu_data_tag)
+                    shuffler_.comm_->send(std::move(chunk.gpu_data), src, gpu_data_tag)
                 );
             } else {
                 break;
@@ -324,19 +311,19 @@ class Shuffler::Progress {
         auto const t0_check_future_finish = Clock::now();
         if (!in_transit_futures_.empty()) {
             std::vector<ChunkID> finished =
-                _shuffler.comm_->test_some(in_transit_futures_);
+                shuffler_.comm_->test_some(in_transit_futures_);
             for (auto cid : finished) {
                 auto chunk = extract_value(in_transit_chunks_, cid);
                 auto future = extract_value(in_transit_futures_, cid);
-                chunk.gpu_data = _shuffler.comm_->get_gpu_data(std::move(future));
-                _shuffler.insert_into_outbox(std::move(chunk));
+                chunk.gpu_data = shuffler_.comm_->get_gpu_data(std::move(future));
+                shuffler_.insert_into_outbox(std::move(chunk));
             }
         }
 
         // Check if we can free some of the outstanding futures.
         if (!fire_and_forget_.empty()) {
             std::vector<std::size_t> finished =
-                _shuffler.comm_->test_some(fire_and_forget_);
+                shuffler_.comm_->test_some(fire_and_forget_);
             if (!finished.empty()) {
                 // Sort the indexes into `fire_and_forget` in descending order.
                 std::sort(finished.begin(), finished.end(), std::greater<>());
@@ -356,15 +343,28 @@ class Shuffler::Progress {
 
         // Return Done only if the shuffler is inactive (shutdown was called) _and_
         // all containers are empty (all work is done).
-        return (_shuffler.active_
+        return (shuffler_.active_
                 || !(
                     fire_and_forget_.empty() && incoming_chunks_.empty()
                     && outgoing_chunks_.empty() && in_transit_chunks_.empty()
-                    && in_transit_futures_.empty() && _shuffler.inbox_.empty()
+                    && in_transit_futures_.empty() && shuffler_.inbox_.empty()
                 ))
                    ? ProgressThread::ProgressState::InProgress
                    : ProgressThread::ProgressState::Done;
     }
+
+  private:
+    Shuffler& shuffler_;
+    std::vector<std::unique_ptr<Communicator::Future>>
+        fire_and_forget_;  ///< Ongoing "fire-and-forget" operations (non-blocking sends).
+    std::multimap<Rank, detail::Chunk>
+        incoming_chunks_;  ///< Chunks ready to be received.
+    std::unordered_map<detail::ChunkID, detail::Chunk>
+        outgoing_chunks_;  ///< Chunks ready to be sent.
+    std::unordered_map<detail::ChunkID, detail::Chunk>
+        in_transit_chunks_;  ///< Chunks currently in transit.
+    std::unordered_map<detail::ChunkID, std::unique_ptr<Communicator::Future>>
+        in_transit_futures_;  ///< Futures corresponding to in-transit chunks.
 };
 
 std::vector<PartID> Shuffler::local_partitions(
@@ -419,9 +419,6 @@ Shuffler::Shuffler(
     // Shuffler isn't fully constructed yet.
     // NB: this only works because `Shuffler` is not movable, otherwise if moved,
     // `this` will become invalid.
-    // auto progress_data = std::make_unique<ProgressData>();
-    // function_id_ = progress_thread_->add_function([this, &progress_data]() { return
-    // progress(progress_data.get()); });
     function_id_ = progress_thread_->add_function(
         [this, progress = std::make_shared<Progress>(*this)]() { return (*progress)(); }
     );
