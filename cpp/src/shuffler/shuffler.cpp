@@ -246,7 +246,7 @@ class Shuffler::Progress {
                 auto recv_buffer = allocate_buffer(
                     chunk.gpu_data_size, shuffler_.stream_, shuffler_.br_
                 );
-                if (recv_buffer->mem_type == MemoryType::HOST) {
+                if (recv_buffer->mem_type() == MemoryType::HOST) {
                     stats.add_bytes_stat("spill-bytes-recv-to-host", recv_buffer->size);
                 }
 
