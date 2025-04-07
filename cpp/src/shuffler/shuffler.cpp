@@ -435,7 +435,7 @@ void Shuffler::shutdown() {
         auto& log = comm_->logger();
         log.debug("Shuffler.shutdown() - initiate");
         active_ = false;
-        progress_thread_->remove_function(*function_id_);
+        progress_thread_->remove_function(function_id_);
         log.debug("Shuffler.shutdown() - done");
     }
 }
