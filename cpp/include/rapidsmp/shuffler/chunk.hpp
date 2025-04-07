@@ -33,9 +33,6 @@ class Chunk {
     /// sending rank. Ignored when it is zero.
     std::size_t const expected_num_chunks;
 
-    /// If known, the size of the metadata buffer (in bytes).
-    std::size_t const metadata_size;
-
     /// If known, the size of the GPU data buffer (in bytes).
     std::size_t const gpu_data_size;
 

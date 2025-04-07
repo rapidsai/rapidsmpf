@@ -14,19 +14,20 @@
 namespace rapidsmp::shuffler::detail {
 
 class ChunkBatch {
+    friend class ChunkBatchMetadataReader;
+
   public:
     struct BatchHeader {
+        uint32_t id;
         Rank dest_rank;
         size_t num_chunks;
     };
 
-    Rank destination() const {
-        return reinterpret_cast<BatchHeader const*>(metadata_buffer_->data())->dest_rank;
-    }
+    Rank destination() const;
+    
+    size_t size() const;
 
-    size_t constexpr size() const {
-        return reinterpret_cast<BatchHeader const*>(metadata_buffer_->data())->num_chunks;
-    }
+    uint32_t id() const;
 
     /**
      * @brief Creates a chunk batch.
@@ -34,17 +35,25 @@ class ChunkBatch {
      * @throws std::logic_error if the memory types of each chunk gpu data is not the same
      */
     static ChunkBatch create(
+      uint32_t id,
         Rank dest_rank,
         std::vector<Chunk>&& chunks,
         BufferResource* br,
         rmm::cuda_stream_view stream
     );
 
+    static ChunkBatch create(
+      std::unique_ptr<std::vector<uint8_t>> metadata,
+      std::unique_ptr<Buffer> payload_data
+    );
+
   private:
     ChunkBatch() = default;
 
-    // Rank const dest_rank_;  // destination rank
-    // size_t const num_chunks_;  // number of chunks in the batch
+    ChunkBatch(
+      std::unique_ptr<std::vector<uint8_t>> metadata,
+      std::unique_ptr<Buffer> payload_data
+    );
 
     /// A buffer containing the BatchHeader, and metadata header and metadata of each
     /// chunk.
@@ -52,16 +61,16 @@ class ChunkBatch {
     std::unique_ptr<std::vector<uint8_t>> metadata_buffer_;
 
     /// GPU data buffer of the packed `cudf::table` associated with this chunk.
-    std::unique_ptr<Buffer> payload_data;
+    std::unique_ptr<Buffer> payload_data_;
 };
 
-class ChunkBatchReader {
-    ChunkBatchReader(ChunkBatch&& batch);
+class ChunkBatchMetadataReader {
+    ChunkBatchMetadataReader(ChunkBatch const& batch);
     bool has_next() const;
     Chunk next();
 
   private:
-    ChunkBatch batch_;
+    const ChunkBatch& batch_;
     size_t current_idx_ = 0;
     size_t metadata_offset_ = sizeof(ChunkBatch::BatchHeader);
 };
