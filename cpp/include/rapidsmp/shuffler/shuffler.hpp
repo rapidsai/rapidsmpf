@@ -44,6 +44,9 @@ namespace rapidsmp::shuffler {
  */
 class Shuffler {
   public:
+    class Progress;
+    friend class Progress;
+
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the
      * `rapidsmp::Rank` of the _owning_ node.
@@ -216,19 +219,6 @@ class Shuffler {
      */
     void insert_into_outbox(detail::Chunk&& chunk);
 
-    /**
-     * @brief Executes a single iteration of the shuffler's event loop.
-     *
-     * This function manages the movement of data chunks between ranks in the distributed
-     * system, handling tasks such as sending and receiving metadata, GPU data, and
-     * readiness messages. It also manages the processing of chunks in transit, both
-     * outgoing and incoming, and updates the necessary data structures for further
-     * processing.
-     *
-     * @return The progress state of the shuffler.
-     */
-    ProgressThread::ProgressState progress();
-
     /// @brief Get an new unique chunk ID.
     [[nodiscard]] detail::ChunkID get_new_cid();
 
@@ -281,9 +271,6 @@ class Shuffler {
     mutable std::mutex outbox_spilling_mutex_;
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
-
-    struct ProgressData;
-    std::unique_ptr<ProgressData> progress_data_;
 
     std::shared_ptr<Statistics> statistics_;
 };
