@@ -11,6 +11,7 @@ from pylibcudf.table cimport Table
 from rapidsmp.buffer.packed_data cimport cpp_PackedData
 from rapidsmp.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmp.communicator.communicator cimport Communicator, cpp_Communicator
+from rapidsmp.progress_thread cimport cpp_ProgressThread
 from rapidsmp.statistics cimport cpp_Statistics
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
@@ -35,6 +36,7 @@ cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
     cdef cppclass cpp_Shuffler "rapidsmp::shuffler::Shuffler":
         cpp_Shuffler(
             shared_ptr[cpp_Communicator] comm,
+            shared_ptr[cpp_ProgressThread] comm,
             uint16_t op_id,
             uint32_t total_num_partitions,
             cuda_stream_view stream,

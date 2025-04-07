@@ -14,6 +14,7 @@ from rapidsmp.integrations.dask.core import (
     DataFrameT,
     get_comm,
     get_dask_client,
+    get_progress_thread,
     get_worker_rank,
     get_worker_thread_lock,
     global_rmp_barrier,
@@ -84,6 +85,7 @@ def get_shuffler(
                 )
             dask_worker._rmp_shufflers[shuffle_id] = Shuffler(
                 get_comm(dask_worker),
+                get_progress_thread(dask_worker),
                 op_id=shuffle_id,
                 total_num_partitions=partition_count,
                 stream=DEFAULT_STREAM,

@@ -14,6 +14,7 @@ from pylibcudf.libcudf.table.table_view cimport table_view
 from pylibcudf.libcudf.types cimport size_type
 from pylibcudf.table cimport Table
 from rapidsmp.buffer.packed_data cimport PackedData, cpp_PackedData
+from rapidsmp.progress_thread cimport ProgressThread
 from rapidsmp.statistics cimport Statistics
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.librmm.memory_resource cimport device_memory_resource
@@ -168,6 +169,10 @@ cdef class Shuffler:
     ----------
     comm
         The communicator to use for data exchange between ranks.
+    progress_thread
+        The progress thread to use for tracking progress.
+    op_id
+        The operation ID of the shuffle.
     total_num_partitions
         Total number of partitions in the shuffle.
     stream
@@ -186,6 +191,7 @@ cdef class Shuffler:
     def __init__(
         self,
         Communicator comm,
+        ProgressThread progress_thread,
         uint16_t op_id,
         uint32_t total_num_partitions,
         stream,
@@ -202,6 +208,7 @@ cdef class Shuffler:
 
         self._handle = make_unique[cpp_Shuffler](
             comm._handle,
+            progress_thread._handle,
             op_id,
             total_num_partitions,
             self._stream.view(),
