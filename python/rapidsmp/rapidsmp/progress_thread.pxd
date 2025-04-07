@@ -17,7 +17,6 @@ cdef extern from "<rapidsmp/progress_thread.hpp>" nogil:
             cpp_Logger& logger,
             shared_ptr[cpp_Statistics] statistics,
         ) except +
-        void stop()
 
 
 cdef class ProgressThread:

@@ -42,9 +42,3 @@ cdef class ProgressThread:
             deref(comm._handle).logger(),
             statistics._handle,
         )
-
-    def stop(self):
-        """
-        Stop the thread, blocking until all functions are done.
-        """
-        deref(self._handle).stop()
