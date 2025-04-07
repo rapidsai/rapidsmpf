@@ -17,6 +17,7 @@ import rmm.mr
 
 from rapidsmp.buffer.buffer import MemoryType
 from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
+from rapidsmp.buffer.spill_collection import SpillCollection
 from rapidsmp.communicator.communicator import Communicator
 from rapidsmp.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
 from rapidsmp.statistics import Statistics
@@ -202,6 +203,14 @@ def rmp_worker_setup(
             )
         }
         dask_worker._rmp_buffer_resource = BufferResource(mr, memory_available)
+
+        # Add a new spill collection to enable spilling of DataFrames. We use a
+        # negative priority (-10) such that spilling within shufflers have
+        # higher priority than spilling of DataFrames.
+        dask_worker._rmp_spill_collection = SpillCollection()
+        dask_worker._rmp_buffer_resource.spill_manager.add_spill_function(
+            func=dask_worker._rmp_spill_collection.spill, priority=-10
+        )
 
 
 _initialized_clusters: set[str] = set()

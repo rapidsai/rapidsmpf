@@ -11,6 +11,8 @@
 #include <cudf/partitioning.hpp>
 #include <cudf/table/table.hpp>
 
+#include <rapidsmp/buffer/packed_data.hpp>
+
 namespace rapidsmp::shuffler {
 
 
@@ -72,7 +74,7 @@ partition_and_split(
  * @see cudf::hash_partition
  * @see cudf::pack
  */
-[[nodiscard]] std::unordered_map<PartID, cudf::packed_columns> partition_and_pack(
+[[nodiscard]] std::unordered_map<PartID, PackedData> partition_and_pack(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& columns_to_hash,
     int num_partitions,
@@ -98,7 +100,7 @@ partition_and_split(
  * @see cudf::concatenate
  */
 [[nodiscard]] std::unique_ptr<cudf::table> unpack_and_concat(
-    std::vector<cudf::packed_columns>&& partitions,
+    std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 );
