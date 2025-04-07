@@ -25,6 +25,7 @@ from rapidsmp.communicator.ucxx import (
     get_root_ucxx_address,
     new_communicator,
 )
+from rapidsmp.progress_thread import ProgressThread
 from rapidsmp.shuffler import Shuffler
 from rapidsmp.statistics import Statistics
 from rapidsmp.utils.string import format_bytes, parse_bytes
@@ -92,6 +93,7 @@ def consume_finished_partitions(
 
 def streaming_shuffle(
     comm: Communicator,
+    progress_thread: ProgressThread,
     br: BufferResource,
     stats: Statistics,
     output_nparts: int,
@@ -110,6 +112,8 @@ def streaming_shuffle(
     ----------
     comm
         The communicator to use.
+    progress_thread
+        The progress thread to use.
     br
         The buffer resource to use.
     stats
@@ -135,6 +139,7 @@ def streaming_shuffle(
     # create a shuffler instance
     shuffler = Shuffler(
         comm,
+        progress_thread,
         op_id=0,
         total_num_partitions=output_nparts,
         stream=DEFAULT_STREAM,
@@ -222,6 +227,10 @@ def setup_and_run(args: argparse.Namespace) -> None:
     elif args.comm == "ucxx":
         comm = ucxx_mpi_setup()
 
+    stats = Statistics(args.statistics)
+
+    progress_thread = ProgressThread(comm, stats)
+
     # Create a RMM stack with both a device pool and statistics.
     mr = rmm.mr.StatisticsResourceAdaptor(
         rmm.mr.PoolMemoryResource(
@@ -241,8 +250,6 @@ def setup_and_run(args: argparse.Namespace) -> None:
     )
     br = BufferResource(mr, memory_available)
 
-    stats = Statistics(args.statistics)
-
     args.out_nparts = args.out_nparts if args.out_nparts is not None else comm.nranks
     args.part_size = args.part_size if args.part_size is not None else args.local_size
 
@@ -253,6 +260,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     start_time = MPI.Wtime()
     streaming_shuffle(
         comm,
+        progress_thread,
         br,
         stats,
         args.out_nparts,

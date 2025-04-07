@@ -20,6 +20,7 @@ from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmp.buffer.spill_collection import SpillCollection
 from rapidsmp.communicator.communicator import Communicator
 from rapidsmp.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
+from rapidsmp.progress_thread import ProgressThread
 from rapidsmp.statistics import Statistics
 
 if TYPE_CHECKING:
@@ -191,6 +192,10 @@ def rmp_worker_setup(
             )
         else:
             dask_worker._rmp_statistics = None
+
+        dask_worker._rapidsmp_progress_thread = ProgressThread(
+            dask_worker._rapidsmp_comm, dask_worker._rmp_statistics
+        )
 
         # Setup a buffer_resource.
         # Wrap the current RMM resource in statistics adaptor.
@@ -389,3 +394,27 @@ def get_comm(dask_worker: Worker | None = None) -> Communicator:
         f"Expected Communicator, got {dask_worker._rapidsmp_comm}"
     )
     return dask_worker._rapidsmp_comm
+
+
+def get_progress_thread(dask_worker: Worker | None = None) -> ProgressThread:
+    """
+    Get the RAPIDS-MP progress thread for a Dask worker.
+
+    Parameters
+    ----------
+    dask_worker
+        Local Dask worker.
+
+    Returns
+    -------
+    Current rapidsmp progress thread.
+
+    Notes
+    -----
+    This function is expected to run on a Dask worker.
+    """
+    dask_worker = dask_worker or get_worker()
+    assert isinstance(dask_worker._rapidsmp_progress_thread, ProgressThread), (
+        f"Expected ProgressThread, got {dask_worker._rapidsmp_progress_thread}"
+    )
+    return dask_worker._rapidsmp_progress_thread

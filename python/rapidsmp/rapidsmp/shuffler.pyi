@@ -11,6 +11,7 @@ from rmm.pylibrmm.stream import Stream
 from rapidsmp.buffer.packed_data import PackedData
 from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.communicator.communicator import Communicator
+from rapidsmp.progress_thread import ProgressThread
 from rapidsmp.statistics import Statistics
 
 def partition_and_pack(
@@ -30,6 +31,7 @@ class Shuffler:
     def __init__(
         self,
         comm: Communicator,
+        progress_thread: ProgressThread,
         op_id: int,
         total_num_partitions: int,
         stream: Stream,

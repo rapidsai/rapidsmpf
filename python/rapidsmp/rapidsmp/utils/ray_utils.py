@@ -11,6 +11,7 @@ import rmm.pylibrmm.stream
 
 from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.integrations.ray import RapidsMPActor
+from rapidsmp.progress_thread import ProgressThread
 from rapidsmp.shuffler import Shuffler
 
 if TYPE_CHECKING:
@@ -88,8 +89,12 @@ class BaseShufflingActor(RapidsMPActor):
 
             stream = DEFAULT_STREAM
 
+        assert self._comm is not None
+        progress_thread = ProgressThread(self._comm, statistics)
+
         return Shuffler(
             self.comm,
+            progress_thread,
             op_id,
             total_num_partitions if total_num_partitions is not None else self.nranks(),
             stream,
