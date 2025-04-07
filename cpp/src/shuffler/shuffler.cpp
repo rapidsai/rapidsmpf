@@ -227,10 +227,10 @@ Shuffler::~Shuffler() {
 }
 
 void Shuffler::shutdown() {
-    if (active_.load(std::memory_order_acquire)) {
+    if (active_) {
         auto& log = comm_->logger();
         log.debug("Shuffler.shutdown() - initiate");
-        active_.store(false, std::memory_order_release);
+        active_ = false;
         progress_thread_->remove_function(*function_id_);
         log.debug("Shuffler.shutdown() - done");
     }
@@ -554,7 +554,7 @@ ProgressThread::ProgressState Shuffler::progress() {
 
     // Return Done only if the shuffler is inactive (shutdown was called) _and_
     // all containers are empty (all work is done).
-    return (active_.load(std::memory_order_acquire)
+    return (active_
             || !(
                 progress_data_->fire_and_forget.empty()
                 && progress_data_->incoming_chunks.empty()

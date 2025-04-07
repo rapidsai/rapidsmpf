@@ -263,7 +263,7 @@ class Shuffler {
   private:
     rmm::cuda_stream_view stream_;
     BufferResource* br_;
-    std::atomic<bool> active_{true};
+    bool active_{true};
     detail::PostBox inbox_;
     detail::PostBox outbox_;
 
