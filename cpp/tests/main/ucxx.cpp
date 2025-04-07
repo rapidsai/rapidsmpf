@@ -35,7 +35,7 @@ void Environment::TearDown() {
     // Ensure UCXX cleanup before MPI. If this is not done failures related to
     // accessing the CUDA context may be thrown during shutdown.
     comm_ = nullptr;
-
+    split_comm_ = nullptr;
     RAPIDSMP_MPI(MPI_Finalize());
 }
 
