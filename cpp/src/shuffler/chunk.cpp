@@ -4,6 +4,7 @@
  */
 
 #include <rapidsmp/buffer/buffer.hpp>
+#include <rapidsmp/buffer/packed_data.hpp>
 #include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/shuffler/chunk.hpp>
@@ -90,7 +91,7 @@ std::unique_ptr<cudf::table> Chunk::unpack(rmm::cuda_stream_view stream) const {
         br->copy(MemoryType::DEVICE, gpu_data, stream, reservation), stream, reservation
     );
 
-    std::vector<cudf::packed_columns> packed_vec;
+    std::vector<PackedData> packed_vec;
     packed_vec.emplace_back(std::move(meta), std::move(gpu));
     return unpack_and_concat(std::move(packed_vec), stream, br->device_mr());
 }

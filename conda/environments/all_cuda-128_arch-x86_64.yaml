@@ -28,6 +28,7 @@ dependencies:
 - myst-parser
 - ninja
 - numpydoc
+- nvidia-ml-py
 - openmpi
 - pre-commit
 - pydata-sphinx-theme

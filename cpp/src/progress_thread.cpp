@@ -73,6 +73,7 @@ ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
 }
 
 void ProgressThread::remove_function(FunctionID function_id) {
+    RAPIDSMP_EXPECTS(function_id.is_valid(), "FunctionID is not valid");
     RAPIDSMP_EXPECTS(
         function_id.thread_address == reinterpret_cast<ProgressThreadAddress>(this),
         "Function was not registered with this ProgressThread"

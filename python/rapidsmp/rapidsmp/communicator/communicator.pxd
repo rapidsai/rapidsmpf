@@ -12,14 +12,10 @@ cdef class Logger:
 cdef extern from "<rapidsmp/communicator/communicator.hpp>" namespace "rapidsmp" nogil:
     ctypedef int32_t Rank
 
-cdef extern from "<rapidsmp/communicator/communicator.hpp>" nogil:
-    cdef cppclass cpp_Communicator "rapidsmp::Communicator":
-        Rank rank() except +
-        Rank nranks() except +
-        string str() except +
-
 cdef extern from "<rapidsmp/communicator/communicator.hpp>" namespace \
   "rapidsmp::Communicator::Logger" nogil:
+    cdef cppclass cpp_Logger:
+        pass
     cpdef enum class LOG_LEVEL(int):
         NONE
         PRINT
@@ -27,6 +23,13 @@ cdef extern from "<rapidsmp/communicator/communicator.hpp>" namespace \
         INFO
         DEBUG
         TRACE
+
+cdef extern from "<rapidsmp/communicator/communicator.hpp>" nogil:
+    cdef cppclass cpp_Communicator "rapidsmp::Communicator":
+        Rank rank() except +
+        Rank nranks() except +
+        string str() except +
+        cpp_Logger logger()
 
 cdef class Communicator:
     cdef shared_ptr[cpp_Communicator] _handle
