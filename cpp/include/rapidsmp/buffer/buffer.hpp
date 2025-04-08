@@ -58,22 +58,18 @@ class Buffer {
     overloaded(Ts...) -> overloaded<Ts...>;
 
     /**
-     * @brief Check if the buffer has been moved and is now uninitialized.
-     *
-     * @return Returns true iff the buffer has been moved and should not be accessed.
-     */
-    [[nodiscard]] bool is_moved() const noexcept;
-
-    /**
      * @brief Access the underlying host memory buffer (const).
      *
      * @return A reference to the unique pointer managing the host memory.
      *
      * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> const& host() const {
-        RAPIDSMP_EXPECTS(!is_moved(), "pointer is null, has the buffer been moved?");
-        return std::get<HostStorageT>(storage_);
+    [[nodiscard]] constexpr std::unique_ptr<std::vector<uint8_t>> const& host() const {
+        if (const auto* ref = std::get_if<HostStorageT>(&storage_)) {
+            return *ref;
+        } else {
+            RAPIDSMP_FAIL("Buffer is not host memory");
+        }
     }
 
     /**
@@ -83,9 +79,12 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] std::unique_ptr<rmm::device_buffer> const& device() const {
-        RAPIDSMP_EXPECTS(!is_moved(), "pointer is null, has the buffer been moved?");
-        return std::get<DeviceStorageT>(storage_);
+    [[nodiscard]] constexpr std::unique_ptr<rmm::device_buffer> const& device() const {
+        if (const auto* ref = std::get_if<DeviceStorageT>(&storage_)) {
+            return *ref;
+        } else {
+            RAPIDSMP_FAIL("Buffer is not device memory");
+        }
     }
 
     /**
@@ -160,8 +159,11 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage host memory.
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>>& host() {
-        RAPIDSMP_EXPECTS(!is_moved(), "pointer is null, has the buffer been moved?");
-        return std::get<HostStorageT>(storage_);
+        if (auto ref = std::get_if<HostStorageT>(&storage_)) {
+            return *ref;
+        } else {
+            RAPIDSMP_FAIL("Buffer is not host memory");
+        }
     }
 
     /**
@@ -172,8 +174,11 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage device memory.
      */
     [[nodiscard]] std::unique_ptr<rmm::device_buffer>& device() {
-        RAPIDSMP_EXPECTS(!is_moved(), "pointer is null, has the buffer been moved?");
-        return std::get<DeviceStorageT>(storage_);
+        if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
+            return *ref;
+        } else {
+            RAPIDSMP_FAIL("Buffer is not host memory");
+        }
     }
 
     /**

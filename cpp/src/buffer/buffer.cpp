@@ -38,16 +38,6 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource
     RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 
-bool Buffer::is_moved() const noexcept {
-    return std::visit(
-        [](auto&& storage) {
-            // check either Storage is null
-            return storage == nullptr;
-        },
-        storage_
-    );
-}
-
 void* Buffer::data() {
     return std::visit([](auto&& storage) -> void* { return storage->data(); }, storage_);
 }
@@ -60,12 +50,12 @@ std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
     return std::visit(
         overloaded{
             [&](const HostStorageT& storage) -> std::unique_ptr<Buffer> {
-                return std::make_unique<Buffer>(
-                    Buffer{std::make_unique<std::vector<uint8_t>>(*storage), br}
+                return std::unique_ptr<Buffer>(
+                    new Buffer{std::make_unique<std::vector<uint8_t>>(*storage), br}
                 );
             },
             [&](const DeviceStorageT& storage) -> std::unique_ptr<Buffer> {
-                return std::make_unique<Buffer>(Buffer{
+                return std::unique_ptr<Buffer>(new Buffer{
                     std::make_unique<rmm::device_buffer>(
                         storage->data(), storage->size(), stream, br->device_mr()
                     ),
@@ -86,7 +76,7 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
     return std::visit(
         overloaded{
             [&](const HostStorageT& storage) -> std::unique_ptr<Buffer> {
-                return std::make_unique<Buffer>(Buffer{
+                return std::unique_ptr<Buffer>(new Buffer{
                     std::make_unique<rmm::device_buffer>(
                         storage->data(), storage->size(), stream, br->device_mr()
                     ),
@@ -102,7 +92,7 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
                     cudaMemcpyDeviceToHost,
                     stream
                 ));
-                return std::make_unique<Buffer>(Buffer{std::move(ret), br});
+                return std::unique_ptr<Buffer>(new Buffer{std::move(ret), br});
             }
         },
         storage_
