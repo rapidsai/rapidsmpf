@@ -29,19 +29,8 @@ ChunkBatch ChunkBatch::create(
     size_t batch_metadata_size =
         batch_header_size + chunk_metadata_header_size * chunks.size();
     size_t batch_payload_size = 0;
-    MemoryType mem_type = chunks[0].gpu_data->mem_type;
-    for (auto& chunk : chunks) {
-        batch_metadata_size += chunk.metadata->size();
-        batch_payload_size += chunk.gpu_data->size;
 
-        // TODO: add a policy to handle multiple types in the vector 
-        RAPIDSMP_EXPECTS(
-            mem_type == chunk.gpu_data->mem_type,
-            "All chunks in a batch should be of the same memory type"
-        );
-    }
-
-    // create metadata buffer
+    // create the initial metadata buffer
     auto metadata_buffer = std::make_unique<std::vector<uint8_t>>(batch_metadata_size);
 
     // inject header information to the metadata buffer
@@ -50,9 +39,24 @@ ChunkBatch ChunkBatch::create(
     header->dest_rank = dest_rank;
     header->num_chunks = chunks.size();
 
-    if (chunks.empty()) {
+    if (chunks.empty()) {  // preemptively return if there are no chunks
         return {std::move(metadata_buffer), nullptr};
     }
+
+    MemoryType mem_type = chunks[0].gpu_data->mem_type;
+    for (auto& chunk : chunks) {
+        batch_metadata_size += chunk.metadata->size();
+        batch_payload_size += chunk.gpu_data->size;
+
+        // TODO: add a policy to handle multiple types in the vector
+        RAPIDSMP_EXPECTS(
+            mem_type == chunk.gpu_data->mem_type,
+            "All chunks in a batch should be of the same memory type"
+        );
+    }
+
+    // resize the metadata buffer to the actual size
+    metadata_buffer->resize(batch_metadata_size);
 
     // create payload data buffer
     auto [reservation, _] = br->reserve(mem_type, batch_payload_size, false);

@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <vector>
 
 #include <rapidsmp/buffer/buffer.hpp>
@@ -21,7 +22,7 @@ class ChunkBatch {
 
   public:
     /// @brief The size of the chunk metadata header in bytes.
-    static constexpr size_t chunk_metadata_header_size =
+    static constexpr std::ptrdiff_t chunk_metadata_header_size =
         sizeof(Chunk::MetadataMessageHeader);
 
     /// @brief The structure of the batch header.
@@ -33,7 +34,7 @@ class ChunkBatch {
     };
 
     /// @brief The size of the batch header in bytes.
-    static constexpr size_t batch_header_size = sizeof(BatchHeader);
+    static constexpr std::ptrdiff_t batch_header_size = sizeof(BatchHeader);
 
     /// @brief  Access the BatchHeader of the chunk batch.
     /// @return BatchHeader const* A pointer to the batch header.
@@ -101,9 +102,9 @@ class ChunkBatch {
      * signature:
      * void(Chunk::MetadataMessageHeader const* chunk_header,
      *      std::vector<uint8_t> const& metadata_buf,
-     *      size_t metadata_offset,
+     *      std::ptrdiff_t metadata_offset,
      *      Buffer const& payload_buf,
-     *      size_t payload_offset)
+     *      std::ptrdiff_t payload_offset)
      * @param visitor visitor function
      */
     template <typename VisitorFn>
@@ -111,8 +112,8 @@ class ChunkBatch {
         assert(metadata_buffer_);
         assert(metadata_buffer_->size() >= batch_header_size);
 
-        size_t metadata_offset = batch_header_size;
-        size_t payload_offset = 0;
+        std::ptrdiff_t metadata_offset = batch_header_size;
+        std::ptrdiff_t payload_offset = 0;
 
         for (size_t i = 0; i < header()->num_chunks; ++i) {
             assert(
@@ -157,17 +158,14 @@ class ChunkBatch {
     void visit_chunks(rmm::cuda_stream_view stream, VisitorFn visitor) const {
         visit_chunk_data([&](Chunk::MetadataMessageHeader const* chunk_header,
                              std::vector<uint8_t> const& metadata_buf,
-                             size_t metadata_offset,
+                             std::ptrdiff_t metadata_offset,
                              Buffer const& payload_buf,
-                             size_t payload_offset) {
+                             std::ptrdiff_t payload_offset) {
             std::unique_ptr<std::vector<uint8_t>> chunk_metadata;
             if (chunk_header->metadata_size > 0) {
                 chunk_metadata = std::make_unique<std::vector<uint8_t>>(
-                    metadata_buf.begin() + static_cast<ssize_t>(metadata_offset),
-                    metadata_buf.begin()
-                        + static_cast<ssize_t>(
-                            metadata_offset + chunk_header->metadata_size
-                        )
+                    metadata_buf.begin() + metadata_offset,
+                    metadata_buf.begin() + metadata_offset + chunk_header->metadata_size
                 );
             }
 
@@ -178,14 +176,16 @@ class ChunkBatch {
                 );
             }
 
-            visitor(Chunk{
-                chunk_header->pid,
-                chunk_header->cid,
-                chunk_header->expected_num_chunks,
-                chunk_header->gpu_data_size,
-                std::move(chunk_metadata),
-                std::move(chunk_payload),
-            });
+            visitor(
+                Chunk{
+                    chunk_header->pid,
+                    chunk_header->cid,
+                    chunk_header->expected_num_chunks,
+                    chunk_header->gpu_data_size,
+                    std::move(chunk_metadata),
+                    std::move(chunk_payload),
+                }
+            );
         });
     }
 

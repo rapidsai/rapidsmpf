@@ -44,7 +44,10 @@ size_t Chunk::to_metadata_message(std::vector<uint8_t>& msg, size_t offset) cons
     size_t metadata_size = metadata ? metadata->size() : 0;
     // We need at least (sizeof(MetadataMessageHeader) + metadata_size) amount of space
     // from the offset
-    msg.resize(offset + sizeof(MetadataMessageHeader) + metadata_size);
+    RAPIDSMP_EXPECTS(
+        offset + sizeof(MetadataMessageHeader) + metadata_size <= msg.size(),
+        "insufficient space in the buffer to copy metadata"
+    );
     // Write the header in the first part of `msg`.
     *reinterpret_cast<MetadataMessageHeader*>(msg.data() + offset) = {
         pid, cid, expected_num_chunks, metadata_size, gpu_data_size

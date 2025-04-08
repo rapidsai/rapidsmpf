@@ -65,7 +65,7 @@ class Chunk {
     );
 
     /**
-     * @brief Construct a new chunk to indicate the number of chunks that was sent for
+     * @brief Construct a new chunk to indicate the number of chunks that were sent for
      * a particular partition.
      *
      * @param pid The ID of the partition this chunk is part of.

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <vector>
 
@@ -96,7 +97,7 @@ class Buffer {
      * @returns A new buffer containing the copied slice.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        rmm::cuda_stream_view stream, size_t offset, size_t length
+        rmm::cuda_stream_view stream, std::ptrdiff_t offset, std::ptrdiff_t length
     ) const;
 
     /**
@@ -108,7 +109,10 @@ class Buffer {
      * @returns A new buffer containing the copied slice.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        MemoryType target, rmm::cuda_stream_view stream, size_t offset, size_t length
+        MemoryType target,
+        rmm::cuda_stream_view stream,
+        std::ptrdiff_t offset,
+        std::ptrdiff_t length
     ) const;
 
     /**
@@ -120,7 +124,7 @@ class Buffer {
      * @throws std::logic_error if copy violates the bounds of the destination buffer.
      */
     [[nodiscard]] size_t copy_to(
-        Buffer& dest, size_t offset, rmm::cuda_stream_view stream
+        Buffer& dest, std::ptrdiff_t offset, rmm::cuda_stream_view stream
     ) const;
 
     /// @brief Buffer has a move ctor but no copy or assign operator.
