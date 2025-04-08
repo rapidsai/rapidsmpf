@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <variant>
 #include <vector>
 
 #include <rmm/device_buffer.hpp>
@@ -38,12 +39,25 @@ class Buffer {
     friend class BufferResource;
 
   public:
+    /// @brief  Storage type for the device buffer.
+    using DeviceStorageT = std::unique_ptr<rmm::device_buffer>;
+
+    /// @brief  Storage type for the host buffer.
+    using HostStorageT = std::unique_ptr<std::vector<uint8_t>>;
+
     /**
-     * @brief Check if the buffer has been moved and is now uninitialized.
-     *
-     * @return Returns true iff the buffer has been moved and should not be accessed.
+     * @brief  Storage type in Buffer, which could be either host or device memory.
      */
-    [[nodiscard]] bool is_moved() const noexcept;
+    using StorageT = std::variant<DeviceStorageT, HostStorageT>;
+
+    /// @brief Helper for overloaded lambdas for Storage types in StorageT
+    template <class... Ts>
+    struct overloaded : Ts... {
+        using Ts::operator()...;
+    };
+    /// @brief Explicit deduction guide
+    template <class... Ts>
+    overloaded(Ts...) -> overloaded<Ts...>;
 
     /**
      * @brief Access the underlying host memory buffer (const).
@@ -52,10 +66,12 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> const& host() const {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::HOST, "buffer is not host memory");
-        RAPIDSMP_EXPECTS(host_buffer_, "pointer is null, has the buffer been moved?");
-        return host_buffer_;
+    [[nodiscard]] constexpr std::unique_ptr<std::vector<uint8_t>> const& host() const {
+        if (const auto* ref = std::get_if<HostStorageT>(&storage_)) {
+            return *ref;
+        } else {
+            RAPIDSMP_FAIL("Buffer is not host memory");
+        }
     }
 
     /**
@@ -65,10 +81,12 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] std::unique_ptr<rmm::device_buffer> const& device() const {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::DEVICE, "buffer not in device memory");
-        RAPIDSMP_EXPECTS(device_buffer_, "pointer is null, has the buffer been moved?");
-        return device_buffer_;
+    [[nodiscard]] constexpr std::unique_ptr<rmm::device_buffer> const& device() const {
+        if (const auto* ref = std::get_if<DeviceStorageT>(&storage_)) {
+            return *ref;
+        } else {
+            RAPIDSMP_FAIL("Buffer is not device memory");
+        }
     }
 
     /**
@@ -90,29 +108,46 @@ class Buffer {
     [[nodiscard]] void const* data() const;
 
     /**
+     * @brief Get the memory type of the buffer.
+     *
+     * @return The memory type of the buffer.
+     *
+     * @throws std::logic_error if the buffer is not initialized.
+     */
+    MemoryType constexpr mem_type() const {
+        return std::visit(
+            overloaded{
+                [](const HostStorageT&) -> MemoryType { return MemoryType::HOST; },
+                [](const DeviceStorageT&) -> MemoryType { return MemoryType::DEVICE; }
+            },
+            storage_
+        );
+    }
+
+    /**
      * @brief Copy a slice of the buffer to a new buffer.
-     * @param stream CUDA stream to use for the copy.
      * @param offset Offset in bytes from the start of the buffer.
      * @param length Length in bytes of the slice.
+     * @param stream CUDA stream to use for the copy.
      * @returns A new buffer containing the copied slice.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        rmm::cuda_stream_view stream, std::ptrdiff_t offset, std::ptrdiff_t length
+        std::ptrdiff_t offset, std::ptrdiff_t length, rmm::cuda_stream_view stream
     ) const;
 
     /**
      * @brief Copy a slice of the buffer to a new buffer.
      * @param target Memory type of the new buffer.
-     * @param stream CUDA stream to use for the copy.
      * @param offset Offset in bytes from the start of the buffer.
      * @param length Length in bytes of the slice.
+     * @param stream CUDA stream to use for the copy.
      * @returns A new buffer containing the copied slice.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
         MemoryType target,
-        rmm::cuda_stream_view stream,
         std::ptrdiff_t offset,
-        std::ptrdiff_t length
+        std::ptrdiff_t length,
+        rmm::cuda_stream_view stream
     ) const;
 
     /**
@@ -164,9 +199,11 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage host memory.
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>>& host() {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::HOST, "buffer is not host memory");
-        RAPIDSMP_EXPECTS(host_buffer_, "pointer is null, has the buffer been moved?");
-        return host_buffer_;
+        if (auto ref = std::get_if<HostStorageT>(&storage_)) {
+            return *ref;
+        } else {
+            RAPIDSMP_FAIL("Buffer is not host memory");
+        }
     }
 
     /**
@@ -177,9 +214,11 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage device memory.
      */
     [[nodiscard]] std::unique_ptr<rmm::device_buffer>& device() {
-        RAPIDSMP_EXPECTS(mem_type == MemoryType::DEVICE, "buffer not in device memory");
-        RAPIDSMP_EXPECTS(device_buffer_, "pointer is null, has the buffer been moved?");
-        return device_buffer_;
+        if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
+            return *ref;
+        } else {
+            RAPIDSMP_FAIL("Buffer is not host memory");
+        }
     }
 
     /**
@@ -201,16 +240,14 @@ class Buffer {
         MemoryType target, rmm::cuda_stream_view stream
     ) const;
 
-  private:
-    /// @brief The underlying host memory buffer (if applicable).
-    std::unique_ptr<std::vector<uint8_t>> host_buffer_;
-    /// @brief The underlying device memory buffer (if applicable).
-    std::unique_ptr<rmm::device_buffer> device_buffer_;
-
   public:
-    MemoryType const mem_type;  ///< Memory type.
     BufferResource* const br;  ///< The buffer resource used.
     std::size_t const size;  ///< The size of the buffer in bytes.
+
+  private:
+    /// @brief The underlying storage host memory or device memory buffer (where
+    /// applicable).
+    StorageT storage_;
 };
 
 }  // namespace rapidsmp

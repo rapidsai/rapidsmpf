@@ -246,7 +246,7 @@ class Shuffler::Progress {
                 auto recv_buffer = allocate_buffer(
                     chunk.gpu_data_size, shuffler_.stream_, shuffler_.br_
                 );
-                if (recv_buffer->mem_type == MemoryType::HOST) {
+                if (recv_buffer->mem_type() == MemoryType::HOST) {
                     stats.add_bytes_stat("spill-bytes-recv-to-host", recv_buffer->size);
                 }
 
@@ -534,7 +534,7 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     // Sum the total size of all chunks not in device memory already.
     std::size_t non_device_size{0};
     for (auto& [_, chunk] : chunks) {
-        if (chunk.gpu_data->mem_type != MemoryType::DEVICE) {
+        if (chunk.gpu_data->mem_type() != MemoryType::DEVICE) {
             non_device_size += chunk.gpu_data->size;
         }
     }
@@ -551,7 +551,7 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     auto const t0_unspill = Clock::now();
     std::uint64_t total_unspilled{0};
     for (auto& [_, chunk] : chunks) {
-        if (chunk.gpu_data->mem_type != MemoryType::DEVICE) {
+        if (chunk.gpu_data->mem_type() != MemoryType::DEVICE) {
             total_unspilled += chunk.gpu_data->size;
         }
         ret.emplace_back(

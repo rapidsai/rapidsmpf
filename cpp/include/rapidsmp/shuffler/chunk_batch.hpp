@@ -155,7 +155,7 @@ class ChunkBatch {
      * @param visitor visitor function
      */
     template <typename VisitorFn>
-    void visit_chunks(rmm::cuda_stream_view stream, VisitorFn visitor) const {
+    void visit_chunks(VisitorFn visitor, rmm::cuda_stream_view stream) const {
         visit_chunk_data([&](Chunk::MetadataMessageHeader const* chunk_header,
                              std::vector<uint8_t> const& metadata_buf,
                              std::ptrdiff_t metadata_offset,
@@ -172,20 +172,18 @@ class ChunkBatch {
             std::unique_ptr<Buffer> chunk_payload;
             if (chunk_header->gpu_data_size > 0) {
                 chunk_payload = payload_buf.copy_slice(
-                    stream, payload_offset, chunk_header->gpu_data_size
+                    payload_offset, chunk_header->gpu_data_size, stream
                 );
             }
 
-            visitor(
-                Chunk{
-                    chunk_header->pid,
-                    chunk_header->cid,
-                    chunk_header->expected_num_chunks,
-                    chunk_header->gpu_data_size,
-                    std::move(chunk_metadata),
-                    std::move(chunk_payload),
-                }
-            );
+            visitor(Chunk{
+                chunk_header->pid,
+                chunk_header->cid,
+                chunk_header->expected_num_chunks,
+                chunk_header->gpu_data_size,
+                std::move(chunk_metadata),
+                std::move(chunk_payload),
+            });
         });
     }
 
@@ -197,9 +195,9 @@ class ChunkBatch {
     std::vector<Chunk> get_chunks(rmm::cuda_stream_view stream) const {
         std::vector<Chunk> chunks;
         chunks.reserve(header()->num_chunks);
-        visit_chunks(stream, [&](Chunk&& chunk) {
-            chunks.emplace_back(std::move(chunk));
-        });
+        visit_chunks(
+            [&](Chunk&& chunk) { chunks.emplace_back(std::move(chunk)); }, stream
+        );
         return chunks;
     }
 

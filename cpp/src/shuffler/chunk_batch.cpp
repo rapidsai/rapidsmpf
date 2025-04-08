@@ -43,14 +43,14 @@ ChunkBatch ChunkBatch::create(
         return {std::move(metadata_buffer), nullptr};
     }
 
-    MemoryType mem_type = chunks[0].gpu_data->mem_type;
+    MemoryType mem_type = chunks[0].gpu_data->mem_type();
     for (auto& chunk : chunks) {
         batch_metadata_size += chunk.metadata->size();
         batch_payload_size += chunk.gpu_data->size;
 
         // TODO: add a policy to handle multiple types in the vector
         RAPIDSMP_EXPECTS(
-            mem_type == chunk.gpu_data->mem_type,
+            mem_type == chunk.gpu_data->mem_type(),
             "All chunks in a batch should be of the same memory type"
         );
     }

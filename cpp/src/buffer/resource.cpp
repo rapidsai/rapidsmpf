@@ -115,7 +115,7 @@ std::unique_ptr<Buffer> BufferResource::move(
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
-    if (target != buffer->mem_type) {
+    if (target != buffer->mem_type()) {
         auto ret = buffer->copy(target, stream);
         release(reservation, target, ret->size);
         return ret;
