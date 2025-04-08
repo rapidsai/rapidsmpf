@@ -16,6 +16,7 @@ namespace rapidsmp {
 
 class BufferResource;
 
+
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
     DEVICE = 0,  ///< Device memory
@@ -87,23 +88,46 @@ class Buffer {
      */
     [[nodiscard]] void const* data() const;
 
+    /**
+     * @brief Copy a slice of the buffer to a new buffer.
+     * @param stream CUDA stream to use for the copy.
+     * @param offset Offset in bytes from the start of the buffer.
+     * @param length Length in bytes of the slice.
+     * @returns A new buffer containing the copied slice.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
+        rmm::cuda_stream_view stream, size_t offset, size_t length
+    ) const;
+
+    /**
+     * @brief Copy a slice of the buffer to a new buffer.
+     * @param target Memory type of the new buffer.
+     * @param stream CUDA stream to use for the copy.
+     * @param offset Offset in bytes from the start of the buffer.
+     * @param length Length in bytes of the slice.
+     * @returns A new buffer containing the copied slice.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
+        MemoryType target, rmm::cuda_stream_view stream, size_t offset, size_t length
+    ) const;
+
+    /**
+     * @brief Copy the buffer to a destination buffer with a given offset.
+     * @param dest Destination buffer.
+     * @param offset Offset of the destination buffer.
+     * @param stream CUDA stream to use for the copy.
+     * @returns Number of bytes written to the destination buffer.
+     * @throws std::logic_error if copy violates the bounds of the destination buffer.
+     */
+    [[nodiscard]] size_t copy_to(
+        Buffer& dest, size_t offset, rmm::cuda_stream_view stream
+    ) const;
+
     /// @brief Buffer has a move ctor but no copy or assign operator.
     Buffer(Buffer&&) = default;
     Buffer(Buffer const&) = delete;
     Buffer& operator=(Buffer& o) = delete;
     Buffer& operator=(Buffer&& o) = delete;
-
-    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        rmm::cuda_stream_view stream, size_t offset, size_t length
-    ) const;
-
-    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        MemoryType target, rmm::cuda_stream_view stream, size_t offset, size_t length
-    ) const;
-
-    [[nodiscard]] size_t copy_to(
-        Buffer& target, size_t offset, rmm::cuda_stream_view stream
-    ) const;
 
   private:
     /**

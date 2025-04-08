@@ -13,6 +13,9 @@
 
 namespace rapidsmp::shuffler::detail {
 
+/**
+ * @brief A class representing a batch of chunks.
+ */
 class ChunkBatch {
     friend class ChunkBatchMetadataReader;
 
@@ -21,32 +24,38 @@ class ChunkBatch {
     static constexpr size_t chunk_metadata_header_size =
         sizeof(Chunk::MetadataMessageHeader);
 
+    /// @brief The structure of the batch header.
+    /// @note This is allocated at the front of the the metadata buffer.
     struct BatchHeader {
-        uint32_t id;
-        Rank dest_rank;
-        size_t num_chunks;
+        uint32_t id;  ///< The id of the batch.
+        Rank dest_rank;  ///< The destination rank of the batch.
+        size_t num_chunks;  ///< The number of chunks in the batch.
     };
 
     /// @brief The size of the batch header in bytes.
     static constexpr size_t batch_header_size = sizeof(BatchHeader);
 
     /// @brief  Access the BatchHeader of the chunk batch.
+    /// @return BatchHeader const* A pointer to the batch header.
     BatchHeader const* header() const {
         // Maybe converted to constexpr in C++20
         return reinterpret_cast<BatchHeader const*>(metadata_buffer_->data());
     }
 
     /// @brief Access the destination rank of the chunk batch.
+    /// @return Rank The destination rank of the chunk batch.
     Rank destination() const {
         return header()->dest_rank;
     }
 
     /// @brief Access the number of chunks in the chunk batch.
+    /// @return The number of chunks in the chunk batch.
     size_t size() const {
         return header()->num_chunks;
     }
 
     /// @brief Access the id of the chunk batch.
+    /// @return The id of the chunk batch.
     uint32_t id() const {
         return header()->id;
     }
@@ -98,7 +107,7 @@ class ChunkBatch {
      * @param visitor visitor function
      */
     template <typename VisitorFn>
-    void visit_chunk_data(VisitorFn visitor) {
+    void visit_chunk_data(VisitorFn visitor) const {
         assert(metadata_buffer_);
         assert(metadata_buffer_->size() >= batch_header_size);
 

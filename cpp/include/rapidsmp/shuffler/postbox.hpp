@@ -11,8 +11,8 @@
 #include <vector>
 
 #include <rapidsmp/error.hpp>
-#include <rapidsmp/shuffler/chunk.hpp>
 #include <rapidsmp/progress_thread.hpp>
+#include <rapidsmp/shuffler/chunk.hpp>
 
 namespace rapidsmp::shuffler::detail {
 
@@ -106,14 +106,5 @@ inline std::ostream& operator<<(std::ostream& os, PostBox const& obj) {
     os << obj.str();
     return os;
 }
-
-class BatchingPostBox {
-
-  private:
-  std::mutex batching_mutex_;
-  std::shared_ptr<ProgressThread> thread_; // TODO: should this be a thread pool?
-  
-  PostBox post_box_;
-};
 
 }  // namespace rapidsmp::shuffler::detail

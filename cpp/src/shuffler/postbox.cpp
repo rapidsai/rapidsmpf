@@ -33,7 +33,7 @@ std::vector<Chunk> PostBox::extract_all() {
     std::vector<Chunk> ret;
 
     for (auto& [_, chunks] : pigeonhole_) {
-        // reserve for the chunks size 
+        // reserve for the chunks size
         ret.reserve(ret.size() + chunks.size());
         for (auto& [_, chunk] : chunks) {
             ret.push_back(std::move(chunk));
