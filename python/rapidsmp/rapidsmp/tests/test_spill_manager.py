@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import time
 
 import pytest
 
-from rapidsmp.buffer.resource import BufferResource
+import rmm.mr
 
-if TYPE_CHECKING:
-    import rmm.mr
+from rapidsmp.buffer.buffer import MemoryType
+from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
 
 
 @pytest.mark.parametrize(
@@ -31,7 +31,7 @@ def test_error_handling(
     def spill(amount: int) -> int:
         raise error
 
-    br = BufferResource(device_mr)
+    br = BufferResource(device_mr, periodic_spill_check=None)
     br.spill_manager.add_spill_function(spill, 0)
     with pytest.raises(error):
         br.spill_manager.spill(10)
@@ -40,7 +40,7 @@ def test_error_handling(
 def test_spill_function(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
-    br = BufferResource(device_mr)
+    br = BufferResource(device_mr, periodic_spill_check=None)
     track_spilled = [0]
 
     def spill_unlimited(amount: int) -> int:
@@ -84,10 +84,36 @@ def test_spill_function(
 def test_spill_function_outlive_buffer_resource(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
-    spill_manager = BufferResource(device_mr).spill_manager
+    spill_manager = BufferResource(device_mr, periodic_spill_check=None).spill_manager
     with pytest.raises(ValueError):
         spill_manager.add_spill_function(lambda x: x, 0)
     with pytest.raises(ValueError):
         spill_manager.remove_spill_function(0)
     with pytest.raises(ValueError):
         spill_manager.spill(10)
+
+
+def test_periodic_spill_check(
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    # Create a buffer resource with a negative limit to trigger spilling and
+    # a periodic spill check enabled.
+    mr = rmm.mr.StatisticsResourceAdaptor(device_mr)
+    mem_available = LimitAvailableMemory(mr, limit=-100)
+    br = BufferResource(
+        mr,
+        memory_available={MemoryType.DEVICE: mem_available},
+        periodic_spill_check=0.001,
+    )
+
+    track_spilled = [0]
+
+    def spill(amount: int) -> int:
+        track_spilled[0] += amount
+        return amount
+
+    f1 = br.spill_manager.add_spill_function(spill, priority=0)
+    # After a short sleep, we expect many calls to `spill()` by the periodic check.
+    time.sleep(0.1)
+    assert track_spilled[0] > 0
+    del f1
