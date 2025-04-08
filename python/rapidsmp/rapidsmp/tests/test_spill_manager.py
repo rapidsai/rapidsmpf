@@ -117,3 +117,30 @@ def test_periodic_spill_check(
     time.sleep(0.1)
     assert track_spilled[0] > 0
     del f1
+
+
+def test_spill_to_make_headroom(
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    # Create a buffer resource with a fixed limit of 100 bytes.
+    mr = rmm.mr.StatisticsResourceAdaptor(device_mr)
+    mem_available = LimitAvailableMemory(mr, limit=100)
+    br = BufferResource(
+        mr,
+        memory_available={MemoryType.DEVICE: mem_available},
+        periodic_spill_check=None,
+    )
+
+    track_spilled = [0]
+
+    def spill(amount: int) -> int:
+        track_spilled[0] += amount
+        return amount
+
+    f1 = br.spill_manager.add_spill_function(spill, priority=0)
+    # We expect to spill on the amount over 100 bytes (the fixed limit).
+    assert br.spill_manager.spill_to_make_headroom(10) == 0
+    assert br.spill_manager.spill_to_make_headroom(100) == 0
+    assert br.spill_manager.spill_to_make_headroom(101) == 1
+    assert br.spill_manager.spill_to_make_headroom(110) == 10
+    del f1
