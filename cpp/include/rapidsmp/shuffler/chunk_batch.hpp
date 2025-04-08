@@ -37,26 +37,26 @@ class ChunkBatch {
 
     /// @brief  Access the BatchHeader of the chunk batch.
     /// @return BatchHeader const* A pointer to the batch header.
-    BatchHeader const* header() const {
+    [[nodiscard]] BatchHeader const* header() const {
         // Maybe converted to constexpr in C++20
         return reinterpret_cast<BatchHeader const*>(metadata_buffer_->data());
     }
 
     /// @brief Access the destination rank of the chunk batch.
     /// @return Rank The destination rank of the chunk batch.
-    Rank destination() const {
+    [[nodiscard]] Rank destination() const {
         return header()->dest_rank;
     }
 
     /// @brief Access the number of chunks in the chunk batch.
     /// @return The number of chunks in the chunk batch.
-    size_t size() const {
+    [[nodiscard]] size_t size() const {
         return header()->num_chunks;
     }
 
     /// @brief Access the id of the chunk batch.
     /// @return The id of the chunk batch.
-    uint32_t id() const {
+    [[nodiscard]] uint32_t id() const {
         return header()->id;
     }
 
@@ -72,7 +72,7 @@ class ChunkBatch {
      *
      * @throws std::logic_error if the memory types of each chunk gpu data is not the same
      */
-    static ChunkBatch create(
+    [[nodiscard]] static ChunkBatch create(
         uint32_t id,
         Rank dest_rank,
         std::vector<Chunk>&& chunks,
@@ -90,7 +90,7 @@ class ChunkBatch {
      * @throws std::logic_error if the provided buffers violate the format of a chunk
      * batch.
      */
-    static ChunkBatch create(
+    [[nodiscard]] static ChunkBatch create(
         std::unique_ptr<std::vector<uint8_t>> metadata,
         std::unique_ptr<Buffer> payload_data
     );
@@ -143,6 +143,64 @@ class ChunkBatch {
             metadata_offset += chunk_header->metadata_size;
             payload_offset += chunk_header->gpu_data_size;
         }
+    }
+
+    /**
+     * @brief Visits the chunks in the batch (by copy).
+     * @tparam VisitorFn Visitor function type. Must be callable with the following
+     * signature:
+     * void(Chunk&& chunk)
+     * @param stream The stream to use for copying the chunk data.
+     * @param visitor visitor function
+     */
+    template <typename VisitorFn>
+    void visit_chunks(rmm::cuda_stream_view stream, VisitorFn visitor) const {
+        visit_chunk_data([&](Chunk::MetadataMessageHeader const* chunk_header,
+                             std::vector<uint8_t> const& metadata_buf,
+                             size_t metadata_offset,
+                             Buffer const& payload_buf,
+                             size_t payload_offset) {
+            std::unique_ptr<std::vector<uint8_t>> chunk_metadata;
+            if (chunk_header->metadata_size > 0) {
+                chunk_metadata = std::make_unique<std::vector<uint8_t>>(
+                    metadata_buf.begin() + static_cast<ssize_t>(metadata_offset),
+                    metadata_buf.begin()
+                        + static_cast<ssize_t>(
+                            metadata_offset + chunk_header->metadata_size
+                        )
+                );
+            }
+
+            std::unique_ptr<Buffer> chunk_payload;
+            if (chunk_header->gpu_data_size > 0) {
+                chunk_payload = payload_buf.copy_slice(
+                    stream, payload_offset, chunk_header->gpu_data_size
+                );
+            }
+
+            visitor(Chunk{
+                chunk_header->pid,
+                chunk_header->cid,
+                chunk_header->expected_num_chunks,
+                chunk_header->gpu_data_size,
+                std::move(chunk_metadata),
+                std::move(chunk_payload),
+            });
+        });
+    }
+
+    /**
+     * @brief Get all chunks in the batch.
+     * @param stream The stream to use for copying the chunk data.
+     * @return std::vector<Chunk> A vector of chunks.
+     */
+    std::vector<Chunk> get_chunks(rmm::cuda_stream_view stream) const {
+        std::vector<Chunk> chunks;
+        chunks.reserve(header()->num_chunks);
+        visit_chunks(stream, [&](Chunk&& chunk) {
+            chunks.emplace_back(std::move(chunk));
+        });
+        return chunks;
     }
 
   private:

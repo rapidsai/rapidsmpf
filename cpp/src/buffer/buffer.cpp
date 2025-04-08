@@ -202,7 +202,6 @@ size_t Buffer::copy_to(Buffer& target, size_t offset, rmm::cuda_stream_view stre
         RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
             target.data(), device()->data(), size, cudaMemcpyDeviceToDevice, stream
         ));
-
         return size;
     }
     RAPIDSMP_FAIL("MemoryType: unknown");
