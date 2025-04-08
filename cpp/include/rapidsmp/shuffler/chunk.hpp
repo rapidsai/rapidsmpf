@@ -101,8 +101,12 @@ class Chunk {
      * @brief Serializes this chunk into a given metadata message buffer.
      *
      * @param msg The metadata message as a serialized byte vector.
+     * @param offset The offset in the message buffer to start writing.
+     * @returns The number of bytes written to the message buffer.
      */
-    [[nodiscard]] void to_metadata_message(std::vector<uint8_t>& msg, size_t offset) const;
+    [[nodiscard]] size_t to_metadata_message(
+        std::vector<uint8_t>& msg, size_t offset
+    ) const;
 
     /**
      * @brief Construct a new chunk from a metadata message.

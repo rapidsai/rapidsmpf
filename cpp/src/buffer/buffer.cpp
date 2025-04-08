@@ -67,6 +67,92 @@ void const* Buffer::data() const {
     RAPIDSMP_FAIL("MemoryType: unknown");
 }
 
+std::unique_ptr<Buffer> Buffer::copy_slice(
+    rmm::cuda_stream_view stream, size_t offset, size_t length
+) const {
+    RAPIDSMP_EXPECTS(offset <= size, "offset can't be more than  size");
+    RAPIDSMP_EXPECTS(offset + length <= size, "offset + length cant be more than size");
+    switch (mem_type) {
+    case MemoryType::HOST:
+        return std::make_unique<Buffer>(Buffer{
+            std::make_unique<std::vector<uint8_t>>(
+                *host()->begin() + offset, *host()->begin() + offset + length
+            ),
+            br
+        });
+    case MemoryType::DEVICE:
+        return std::make_unique<Buffer>(Buffer{
+            std::make_unique<rmm::device_buffer>(
+                static_cast<cuda::std::byte const*>(device()->data()) + offset,
+                length,
+                stream,
+                br->device_mr()
+            ),
+            br
+        });
+    }
+    RAPIDSMP_FAIL("MemoryType: unknown");
+}
+
+std::unique_ptr<Buffer> Buffer::copy_slice(
+    MemoryType target, rmm::cuda_stream_view stream, size_t offset, size_t length
+) const {
+    RAPIDSMP_EXPECTS(offset <= size, "offset can't be more than  size");
+    RAPIDSMP_EXPECTS(offset + length <= size, "offset + length cant be more than size");
+
+    if (mem_type == target) {
+        return copy_slice(stream, offset, length);
+    }
+
+    // Implement the copy between each possible memory types (both directions).
+    switch (mem_type) {
+    case MemoryType::HOST:
+        // host -> device
+        return std::make_unique<Buffer>(Buffer{
+            std::make_unique<rmm::device_buffer>(
+                static_cast<uint8_t const*>(host()->data()) + offset,
+                length,
+                stream,
+                br->device_mr()
+            ),
+            br
+        });
+    case MemoryType::DEVICE:
+        // device -> host
+        {
+            auto ret = std::make_unique<std::vector<uint8_t>>(length);
+            RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+                ret->data(),
+                static_cast<cuda::std::byte const*>(device()->data()) + offset,
+                length,
+                cudaMemcpyDeviceToHost,
+                stream
+            ));
+            return std::make_unique<Buffer>(Buffer{std::move(ret), br});
+        }
+    }
+
+    RAPIDSMP_FAIL("MemoryType: unknown");
+}
+
+size_t Buffer::copy_to(
+    Buffer& target, size_t offset, rmm::cuda_stream_view stream
+) const {
+    RAPIDSMP_EXPECTS(target.size >= (offset + size), "offset can't be more than  size");
+    switch (mem_type) {
+    case MemoryType::HOST:
+        std::memcpy(target.host()->data(), host()->data(), size);
+        return size;
+    case MemoryType::DEVICE:
+        RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+            target.data(), device()->data(), size, cudaMemcpyDeviceToDevice, stream
+        ));
+
+        return size;
+    }
+    RAPIDSMP_FAIL("MemoryType: unknown");
+}
+
 std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
     switch (mem_type) {
     case MemoryType::HOST:
@@ -84,8 +170,9 @@ std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
     RAPIDSMP_FAIL("MemoryType: unknown");
 }
 
-std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view stream)
-    const {
+std::unique_ptr<Buffer> Buffer::copy(
+    MemoryType target, rmm::cuda_stream_view stream
+) const {
     // Implement the copy between each possible memory types (both directions).
     switch (mem_type) {
     case MemoryType::HOST:

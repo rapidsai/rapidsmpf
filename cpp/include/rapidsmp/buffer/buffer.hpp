@@ -93,6 +93,18 @@ class Buffer {
     Buffer& operator=(Buffer& o) = delete;
     Buffer& operator=(Buffer&& o) = delete;
 
+    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
+        rmm::cuda_stream_view stream, size_t offset, size_t length
+    ) const;
+
+    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
+        MemoryType target, rmm::cuda_stream_view stream, size_t offset, size_t length
+    ) const;
+
+    [[nodiscard]] size_t copy_to(
+        Buffer& target, size_t offset, rmm::cuda_stream_view stream
+    ) const;
+
   private:
     /**
      * @brief Construct a Buffer from host memory.

@@ -36,11 +36,11 @@ std::unique_ptr<std::vector<uint8_t>> Chunk::to_metadata_message() const {
     auto msg = std::make_unique<std::vector<uint8_t>>(
         metadata_size + sizeof(MetadataMessageHeader)
     );
-    to_metadata_message(*msg, 0);
+    std::ignore = to_metadata_message(*msg, 0);
     return msg;
 }
 
-void Chunk::to_metadata_message(std::vector<uint8_t>& msg, size_t offset) const {
+size_t Chunk::to_metadata_message(std::vector<uint8_t>& msg, size_t offset) const {
     size_t metadata_size = metadata ? metadata->size() : 0;
     // We need at least (sizeof(MetadataMessageHeader) + metadata_size) amount of space
     // from the offset
@@ -58,6 +58,7 @@ void Chunk::to_metadata_message(std::vector<uint8_t>& msg, size_t offset) const 
         );
         metadata->clear();
     }
+    return sizeof(MetadataMessageHeader) + metadata_size;
 }
 
 Chunk Chunk::from_metadata_message(std::unique_ptr<std::vector<uint8_t>> const& msg) {
