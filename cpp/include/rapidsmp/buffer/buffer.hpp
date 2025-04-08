@@ -158,7 +158,7 @@ class Buffer {
      * @returns Number of bytes written to the destination buffer.
      * @throws std::logic_error if copy violates the bounds of the destination buffer.
      */
-    [[nodiscard]] size_t copy_to(
+    [[nodiscard]] std::ptrdiff_t copy_to(
         Buffer& dest, std::ptrdiff_t offset, rmm::cuda_stream_view stream
     ) const;
 

@@ -39,6 +39,7 @@ class ChunkBatch {
     /// @brief  Access the BatchHeader of the chunk batch.
     /// @return BatchHeader const* A pointer to the batch header.
     [[nodiscard]] BatchHeader const* header() const {
+        RAPIDSMP_EXPECTS(metadata_buffer_, "metadata buffer is null");
         // Maybe converted to constexpr in C++20
         return reinterpret_cast<BatchHeader const*>(metadata_buffer_->data());
     }
@@ -59,6 +60,24 @@ class ChunkBatch {
     /// @return The id of the chunk batch.
     [[nodiscard]] uint32_t id() const {
         return header()->id;
+    }
+
+    /**
+     * @brief Releases the metadata buffer of the chunk batch.
+     *
+     * @return The released metadata buffer.
+     */
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> release_metadata() {
+        return std::move(metadata_buffer_);
+    }
+
+    /**
+     * @brief Releases the payload buffer of the chunk batch.
+     *
+     * @return The released payload buffer.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> release_payload() {
+        return std::move(payload_data_);
     }
 
     /**
@@ -117,7 +136,8 @@ class ChunkBatch {
 
         for (size_t i = 0; i < header()->num_chunks; ++i) {
             assert(
-                metadata_buffer_->size() >= metadata_offset + chunk_metadata_header_size
+                std::ptrdiff_t(metadata_buffer_->size())
+                >= metadata_offset + chunk_metadata_header_size
             );
 
             auto const* chunk_header =
@@ -127,11 +147,15 @@ class ChunkBatch {
             metadata_offset += chunk_metadata_header_size;
 
             assert(
-                metadata_buffer_->size() >= metadata_offset + chunk_header->metadata_size
+                metadata_buffer_->size()
+                >= size_t(metadata_offset) + chunk_header->metadata_size
             );
 
             assert(payload_data_);
-            assert(payload_data_->size >= payload_offset + chunk_header->payload_size);
+            assert(
+                payload_data_->size
+                >= size_t(payload_offset) + chunk_header->gpu_data_size
+            );
 
             visitor(
                 chunk_header,
@@ -141,8 +165,8 @@ class ChunkBatch {
                 payload_offset
             );
 
-            metadata_offset += chunk_header->metadata_size;
-            payload_offset += chunk_header->gpu_data_size;
+            metadata_offset += std::ptrdiff_t(chunk_header->metadata_size);
+            payload_offset += std::ptrdiff_t(chunk_header->gpu_data_size);
         }
     }
 
@@ -165,14 +189,15 @@ class ChunkBatch {
             if (chunk_header->metadata_size > 0) {
                 chunk_metadata = std::make_unique<std::vector<uint8_t>>(
                     metadata_buf.begin() + metadata_offset,
-                    metadata_buf.begin() + metadata_offset + chunk_header->metadata_size
+                    metadata_buf.begin() + metadata_offset
+                        + std::ptrdiff_t(chunk_header->metadata_size)
                 );
             }
 
             std::unique_ptr<Buffer> chunk_payload;
             if (chunk_header->gpu_data_size > 0) {
                 chunk_payload = payload_buf.copy_slice(
-                    payload_offset, chunk_header->gpu_data_size, stream
+                    payload_offset, std::ptrdiff_t(chunk_header->gpu_data_size), stream
                 );
             }
 

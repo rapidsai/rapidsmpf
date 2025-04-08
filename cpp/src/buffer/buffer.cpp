@@ -181,8 +181,9 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
     );
 }
 
-size_t Buffer::copy_to(Buffer& dest, std::ptrdiff_t offset, rmm::cuda_stream_view stream)
-    const {
+std::ptrdiff_t Buffer::copy_to(
+    Buffer& dest, std::ptrdiff_t offset, rmm::cuda_stream_view stream
+) const {
     RAPIDSMP_EXPECTS(
         dest.size >= (size_t(offset) + size), "offset can't be more than size"
     );
@@ -190,13 +191,13 @@ size_t Buffer::copy_to(Buffer& dest, std::ptrdiff_t offset, rmm::cuda_stream_vie
         overloaded{
             [&](const HostStorageT& storage) {
                 std::memcpy(dest.host()->data(), storage->data(), size);
-                return size;
+                return std::ptrdiff_t(size);
             },
             [&](DeviceStorageT const& storage) {
                 RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
                     dest.data(), storage->data(), size, cudaMemcpyDeviceToDevice, stream
                 ));
-                return size;
+                return std::ptrdiff_t(size);
             }
         },
         storage_

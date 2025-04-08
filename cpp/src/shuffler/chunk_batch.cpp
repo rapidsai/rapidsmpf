@@ -66,8 +66,8 @@ ChunkBatch ChunkBatch::create(
     auto payload_data = br->allocate(mem_type, batch_payload_size, stream, reservation);
     RAPIDSMP_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
 
-    size_t metadata_offset = sizeof(BatchHeader);  // skip the header
-    size_t payload_offset = 0;
+    std::ptrdiff_t metadata_offset = sizeof(BatchHeader);  // skip the header
+    std::ptrdiff_t payload_offset = 0;
     for (auto&& chunk : chunks) {
         // copy metadata
         metadata_offset += chunk.to_metadata_message(*metadata_buffer, metadata_offset);
@@ -95,9 +95,9 @@ ChunkBatch ChunkBatch::create(
     size_t visited_payload_size = 0;
     batch.visit_chunk_data([&](Chunk::MetadataMessageHeader const* chunk_header,
                                std::vector<uint8_t> const& /* metadata_buf */,
-                               size_t /* metadata_offset */,
+                               std::ptrdiff_t /* metadata_offset */,
                                Buffer const& /* payload_buf */,
-                               size_t /* payload_offset */) {
+                               std::ptrdiff_t /* payload_offset */) {
         visited_metadata_size += chunk_header->metadata_size;
         visited_payload_size += chunk_header->gpu_data_size;
     });

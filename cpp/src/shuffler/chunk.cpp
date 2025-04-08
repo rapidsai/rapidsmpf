@@ -40,12 +40,14 @@ std::unique_ptr<std::vector<uint8_t>> Chunk::to_metadata_message() const {
     return msg;
 }
 
-size_t Chunk::to_metadata_message(std::vector<uint8_t>& msg, size_t offset) const {
+std::ptrdiff_t Chunk::to_metadata_message(
+    std::vector<uint8_t>& msg, std::ptrdiff_t offset
+) const {
     size_t metadata_size = metadata ? metadata->size() : 0;
     // We need at least (sizeof(MetadataMessageHeader) + metadata_size) amount of space
     // from the offset
     RAPIDSMP_EXPECTS(
-        offset + sizeof(MetadataMessageHeader) + metadata_size <= msg.size(),
+        size_t(offset) + sizeof(MetadataMessageHeader) + metadata_size <= msg.size(),
         "insufficient space in the buffer to copy metadata"
     );
     // Write the header in the first part of `msg`.
@@ -61,7 +63,7 @@ size_t Chunk::to_metadata_message(std::vector<uint8_t>& msg, size_t offset) cons
         );
         metadata->clear();
     }
-    return sizeof(MetadataMessageHeader) + metadata_size;
+    return std::ptrdiff_t(sizeof(MetadataMessageHeader) + metadata_size);
 }
 
 Chunk Chunk::from_metadata_message(std::unique_ptr<std::vector<uint8_t>> const& msg) {
