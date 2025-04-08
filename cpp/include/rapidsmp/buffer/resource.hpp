@@ -124,8 +124,10 @@ class BufferResource {
      * @param memory_available Optional memory availability functions mapping memory types
      * to available memory checkers. Memory types without availability functions are
      * assumed to have unlimited memory.
-     * @param periodic_spill_check Optional time interval for periodic spill checks. If
-     * `std::nullopt`, no periodic spill check is performed.
+     * @param periodic_spill_check Enable periodic spill checks. A dedicated thread
+     * continuously checks and perform spilling based on the memory availability
+     * functions. The value of `periodic_spill_check` is used as the pause between checks.
+     * If `std::nullopt`, no periodic spill check is performed.
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
