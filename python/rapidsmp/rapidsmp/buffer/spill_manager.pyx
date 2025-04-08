@@ -63,7 +63,7 @@ cdef extern from *:
     cpp_SpillFunction cython_to_cpp_closure_lambda(
          size_t (*wrapper)(void *, size_t),
          void *py_spill_function
-    ) nogil except +
+    ) except + nogil
 
 cdef class SpillManager:
     """
