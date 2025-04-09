@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+from numbers import Number
+
 class Statistics:
     def __init__(
         self,
@@ -10,3 +12,5 @@ class Statistics:
     @property
     def enabled(self) -> bool: ...
     def report(self) -> str: ...
+    def add_stat(self, name: str, value: float) -> float: ...
+    def get_stat(self, name: str) -> dict[str, Number]: ...
