@@ -11,8 +11,6 @@ from rmm.librmm.memory_resource cimport (device_memory_resource,
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
                                            StatisticsResourceAdaptor)
 
-import math
-
 
 # Converter from `shared_ptr[cpp_LimitAvailableMemory]` to `cpp_MemoryAvailable`
 cdef extern from *:
@@ -51,14 +49,14 @@ cdef class BufferResource:
     periodic_spill_check
         Enable periodic spill checks. A dedicated thread continuously checks and
         perform spilling based on the memory availability functions. The value of
-        `periodic_spill_check` is used as the pause between checks (in seconds).
+        `periodic_spill_check` is used as the pause between checks (in microseconds).
         If None, no periodic spill check is performed.
     """
     def __cinit__(
         self,
         DeviceMemoryResource device_mr,
         memory_available = None,
-        periodic_spill_check = 0.001
+        periodic_spill_check = 1000
     ):
         cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
         if memory_available is not None:
@@ -73,7 +71,7 @@ cdef class BufferResource:
                 )
         cdef optional[cpp_microseconds] period
         if periodic_spill_check is not None:
-            period = cpp_microseconds(math.ceil(periodic_spill_check * 1e6))
+            period = cpp_microseconds(<size_t?>periodic_spill_check)
 
         self._handle = make_shared[cpp_BufferResource](
             device_mr.get_mr(),
