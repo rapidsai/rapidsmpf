@@ -13,7 +13,7 @@ class BufferResource:
         self,
         device_mr: DeviceMemoryResource,
         memory_available: Mapping[MemoryType, Callable[[], int]] | None = None,
-        periodic_spill_check: int | None = ...,
+        periodic_spill_check: int | None = 1000,  # 1 millisecond
     ) -> None: ...
     def memory_reserved(self, mem_type: MemoryType) -> int: ...
     @property
