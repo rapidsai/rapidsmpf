@@ -18,11 +18,4 @@ else()
   )
 endif()
 
-if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/RAPIDSMP_RAPIDS-${RAPIDS_VERSION_MAJOR_MINOR}.cmake")
-  file(
-    DOWNLOAD
-    "https://raw.githubusercontent.com/rapidsai/rapids-cmake/branch-${RAPIDS_VERSION_MAJOR_MINOR}/RAPIDS.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/RAPIDSMP_RAPIDS-${RAPIDS_VERSION_MAJOR_MINOR}.cmake"
-  )
-endif()
-include("${CMAKE_CURRENT_BINARY_DIR}/RAPIDSMP_RAPIDS-${RAPIDS_VERSION_MAJOR_MINOR}.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/RAPIDS.cmake")
