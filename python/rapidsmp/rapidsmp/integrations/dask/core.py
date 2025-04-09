@@ -146,7 +146,7 @@ def rmp_worker_setup(
     dask_worker: Worker,
     *,
     spill_device: float,
-    periodic_spill_check: int,
+    periodic_spill_check: float,
     enable_statistics: bool,
 ) -> None:
     """
@@ -162,8 +162,8 @@ def rmp_worker_setup(
         Enable periodic spill checks. A dedicated thread continuously checks
         and perform spilling based on the current available memory as reported
         by the buffer resource. The value of `periodic_spill_check` is used as
-        the pause between checks (in microseconds). If None, no periodic spill
-        check is performed.
+        the pause between checks (in seconds). If None, no periodic spill check
+        is performed.
     enable_statistics
         Whether to track shuffler statistics.
 
@@ -236,7 +236,7 @@ def bootstrap_dask_cluster(
     client: Client,
     *,
     spill_device: float = 0.50,
-    periodic_spill_check: int | None = 1000,
+    periodic_spill_check: float | None = 0.001,
     enable_statistics: bool = True,
 ) -> None:
     """
@@ -252,7 +252,7 @@ def bootstrap_dask_cluster(
         Enable periodic spill checks. A dedicated thread continuously checks
         and perform spilling based on the current available memory as reported
         by the buffer resource. The value of `periodic_spill_check` is used as
-        the pause between checks (in microseconds). If None, no periodic spill
+        the pause between checks (in seconds). If None, no periodic spill
         check is performed.
     enable_statistics
         Whether to track shuffler statistics.
