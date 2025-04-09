@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import time
 
 import pytest
 
-from rapidsmp.buffer.resource import BufferResource
+import rmm.mr
 
-if TYPE_CHECKING:
-    import rmm.mr
+from rapidsmp.buffer.buffer import MemoryType
+from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
 
 
 @pytest.mark.parametrize(
@@ -31,7 +31,7 @@ def test_error_handling(
     def spill(amount: int) -> int:
         raise error
 
-    br = BufferResource(device_mr)
+    br = BufferResource(device_mr, periodic_spill_check=None)
     br.spill_manager.add_spill_function(spill, 0)
     with pytest.raises(error):
         br.spill_manager.spill(10)
@@ -40,7 +40,7 @@ def test_error_handling(
 def test_spill_function(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
-    br = BufferResource(device_mr)
+    br = BufferResource(device_mr, periodic_spill_check=None)
     track_spilled = [0]
 
     def spill_unlimited(amount: int) -> int:
@@ -84,10 +84,61 @@ def test_spill_function(
 def test_spill_function_outlive_buffer_resource(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
-    spill_manager = BufferResource(device_mr).spill_manager
+    spill_manager = BufferResource(device_mr, periodic_spill_check=None).spill_manager
     with pytest.raises(ValueError):
         spill_manager.add_spill_function(lambda x: x, 0)
     with pytest.raises(ValueError):
         spill_manager.remove_spill_function(0)
     with pytest.raises(ValueError):
         spill_manager.spill(10)
+
+
+def test_periodic_spill_check(
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    # Create a buffer resource with a negative limit to trigger spilling and
+    # a periodic spill check enabled.
+    mr = rmm.mr.StatisticsResourceAdaptor(device_mr)
+    mem_available = LimitAvailableMemory(mr, limit=-100)
+    br = BufferResource(
+        mr,
+        memory_available={MemoryType.DEVICE: mem_available},
+        periodic_spill_check=1e-3,
+    )
+
+    track_spilled = [0]
+
+    def spill(amount: int) -> int:
+        track_spilled[0] += amount
+        return amount
+
+    br.spill_manager.add_spill_function(spill, priority=0)
+    # After a short sleep, we expect many calls to `spill()` by the periodic check.
+    time.sleep(0.1)
+    assert track_spilled[0] > 1
+
+
+def test_spill_to_make_headroom(
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    # Create a buffer resource with a fixed limit of 100 bytes.
+    mr = rmm.mr.StatisticsResourceAdaptor(device_mr)
+    mem_available = LimitAvailableMemory(mr, limit=100)
+    br = BufferResource(
+        mr,
+        memory_available={MemoryType.DEVICE: mem_available},
+        periodic_spill_check=None,
+    )
+
+    track_spilled = [0]
+
+    def spill(amount: int) -> int:
+        track_spilled[0] += amount
+        return amount
+
+    br.spill_manager.add_spill_function(spill, priority=0)
+    # We expect to spill on the amount over 100 bytes (the fixed limit).
+    assert br.spill_manager.spill_to_make_headroom(10) == 0
+    assert br.spill_manager.spill_to_make_headroom(100) == 0
+    assert br.spill_manager.spill_to_make_headroom(101) == 1
+    assert br.spill_manager.spill_to_make_headroom(110) == 10
