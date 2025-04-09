@@ -90,7 +90,8 @@ class Statistics {
     /**
      * @brief Represents an individual statistic entry.
      */
-    struct Stat {
+    class Stat {
+      public:
         /**
          * @brief Constructs a statistic with specified formatter.
          *
@@ -105,7 +106,7 @@ class Statistics {
          * @return True if equal, otherwise false.
          */
         bool operator==(Stat const& o) const noexcept {
-            return count_ == o.count_ && value_ == o.value_;
+            return count_ == o.count() && value_ == o.value();
         }
 
         /**
@@ -119,9 +120,37 @@ class Statistics {
             return value_ += value;
         }
 
-        std::size_t count_{0};  ///< Number of times the statistic was updated.
-        double value_{0};  ///< Accumulated value.
-        Formatter formatter_;  ///< Formatter function.
+        /**
+         * @brief Returns the number of times the statistic was updated.
+         *
+         * @return The update count.
+         */
+        [[nodiscard]] std::size_t count() const noexcept {
+            return count_;
+        }
+
+        /**
+         * @brief Returns the current accumulated value of the statistic.
+         *
+         * @return The accumulated value.
+         */
+        [[nodiscard]] double value() const noexcept {
+            return value_;
+        }
+
+        /**
+         * @brief Returns the formatter function associated with this statistic.
+         *
+         * @return Reference to the formatter function.
+         */
+        [[nodiscard]] Formatter const& formatter() const noexcept {
+            return formatter_;
+        }
+
+      private:
+        std::size_t count_{0};
+        double value_{0};
+        Formatter formatter_;
     };
 
     /**
