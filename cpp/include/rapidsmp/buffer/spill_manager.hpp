@@ -47,7 +47,7 @@ class SpillManager {
      */
     SpillManager(
         BufferResource* br,
-        std::optional<std::chrono::microseconds> periodic_spill_check = std::nullopt
+        std::optional<std::chrono::duration<double>> periodic_spill_check = std::nullopt
     );
 
     /**
