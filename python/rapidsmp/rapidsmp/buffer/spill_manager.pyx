@@ -63,7 +63,7 @@ cdef extern from *:
     cpp_SpillFunction cython_to_cpp_closure_lambda(
          size_t (*wrapper)(void *, size_t),
          void *py_spill_function
-    ) nogil except +
+    ) except + nogil
 
 cdef class SpillManager:
     """
@@ -165,3 +165,28 @@ cdef class SpillManager:
         """
         self._valid_buffer_resource()
         return deref(self._handle).spill(amount)
+
+    def spill_to_make_headroom(self, int64_t headroom = 0):
+        """
+        Attempts to free memory by spilling until the requested headroom is available.
+
+        This method checks the currently available memory and, if insufficient,
+        triggers spilling mechanisms to free up space. Spilling is performed in
+        order of the function priorities until the required headroom is reached
+        or no more spilling is possible.
+
+        Parameters
+        ----------
+        headroom
+            The target amount of headroom (in bytes). A negative headroom is
+            allowed and can be used to only trigger spilling when the available
+            memory becomes negative (as reported by the memory resource).
+
+        Returns
+        -------
+        The actual amount of memory spilled (in bytes), which may be less than
+        requested if there is insufficient spillable data, but may also be more
+        or equal to requested depending on the sizes of spillable data buffers.
+        """
+        self._valid_buffer_resource()
+        return deref(self._handle).spill_to_make_headroom(headroom)

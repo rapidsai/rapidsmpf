@@ -39,7 +39,7 @@ class PausableThreadLoop {
      */
     PausableThreadLoop(
         std::function<void()> func,
-        std::chrono::microseconds sleep = std::chrono::microseconds(0)
+        std::chrono::duration<double> sleep = std::chrono::seconds{0}
     );
     ~PausableThreadLoop();
 

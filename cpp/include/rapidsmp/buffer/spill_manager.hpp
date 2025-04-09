@@ -40,12 +40,14 @@ class SpillManager {
      * @brief Constructs a SpillManager instance.
      *
      * @param br Buffer resource used to retrieve current available memory.
-     * @param periodic_spill_check Optional time interval for periodic spill checks. If
-     * `std::nullopt`, no periodic spill check is performed.
+     * @param periodic_spill_check Enable periodic spill checks. A dedicated thread
+     * continuously checks and perform spilling based on the current available memory as
+     * reported by the buffer resource. The value of `periodic_spill_check` is used as the
+     * pause between checks. If `std::nullopt`, no periodic spill check is performed.
      */
     SpillManager(
         BufferResource* br,
-        std::optional<std::chrono::microseconds> periodic_spill_check = std::nullopt
+        std::optional<std::chrono::duration<double>> periodic_spill_check = std::nullopt
     );
 
     /**
