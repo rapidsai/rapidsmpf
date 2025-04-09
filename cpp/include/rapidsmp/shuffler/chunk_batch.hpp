@@ -16,6 +16,17 @@ namespace rapidsmp::shuffler::detail {
 
 /**
  * @brief A class representing a batch of chunks.
+ *
+ * It serializes each chunk data into a metadata buffer and a payload buffer. Additional
+ * information such as chunk batch ID, etc are also injected at the front of the metadata
+ * buffer.
+ *
+ * Metadata buffer format:
+ * | BatchHeader | [[MetadataMessageHeader, Metadata], ...] |
+ *
+ * Payload buffer format:
+ * | [[Data, ...] |
+ *
  */
 class ChunkBatch {
     friend class ChunkBatchMetadataReader;
