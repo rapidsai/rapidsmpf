@@ -115,7 +115,7 @@ def test_periodic_spill_check(
     br.spill_manager.add_spill_function(spill, priority=0)
     # After a short sleep, we expect many calls to `spill()` by the periodic check.
     time.sleep(0.1)
-    assert track_spilled[0] > 0
+    assert track_spilled[0] > 1
 
 
 def test_spill_to_make_headroom(

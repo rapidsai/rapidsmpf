@@ -162,7 +162,8 @@ def rmp_worker_setup(
         Enable periodic spill checks. A dedicated thread continuously checks
         and perform spilling based on the current available memory as reported
         by the buffer resource. The value of `periodic_spill_check` is used as
-        the pause between checks. If None, no periodic spill check is performed.
+        the pause between checks (in seconds). If None, no periodic spill check
+        is performed.
     enable_statistics
         Whether to track shuffler statistics.
 
