@@ -92,7 +92,7 @@ TEST(SpillManager, SpillFunction) {
 TEST(SpillManager, PeriodicSpillCheck) {
     // Create a buffer resource that always trigger spilling (always reports
     // negative available memory).
-    std::chrono::milliseconds period{1000};
+    std::chrono::milliseconds period{1};
     BufferResource br{
         cudf::get_current_device_resource_ref(),
         {{MemoryType::DEVICE, []() -> std::int64_t { return -100_KiB; }}},
