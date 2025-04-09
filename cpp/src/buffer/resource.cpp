@@ -19,15 +19,18 @@ MemoryReservation::~MemoryReservation() noexcept {
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
-    std::optional<std::chrono::duration<double>> periodic_spill_check
+    std::optional<std::chrono::duration<double>> periodic_spill_check,
+    std::shared_ptr<Statistics> statistics
 )
     : device_mr_{device_mr},
       memory_available_{std::move(memory_available)},
-      spill_manager_{this, periodic_spill_check} {
+      spill_manager_{this, periodic_spill_check},
+      statistics_{std::move(statistics)} {
     for (MemoryType mem_type : MEMORY_TYPES) {
         // Add missing memory availability functions.
         memory_available_.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);
     }
+    RAPIDSMP_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
@@ -156,5 +159,9 @@ std::unique_ptr<Buffer> BufferResource::copy(
 
 SpillManager& BufferResource::spill_manager() {
     return spill_manager_;
+}
+
+std::shared_ptr<Statistics> BufferResource::statistics() {
+    return statistics_;
 }
 }  // namespace rapidsmp
