@@ -184,18 +184,25 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
 std::ptrdiff_t Buffer::copy_to(
     Buffer& dest, std::ptrdiff_t offset, rmm::cuda_stream_view stream
 ) const {
+    RAPIDSMP_EXPECTS(mem_type() == dest.mem_type(), "buffer mem type mismatch");
     RAPIDSMP_EXPECTS(
         dest.size >= (size_t(offset) + size), "offset can't be more than size"
     );
     return std::visit(
         overloaded{
             [&](const HostStorageT& storage) {
-                std::memcpy(dest.host()->data(), storage->data(), size);
+                std::memcpy(
+                    static_cast<uint8_t*>(dest.data()) + offset, storage->data(), size
+                );
                 return std::ptrdiff_t(size);
             },
             [&](DeviceStorageT const& storage) {
                 RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-                    dest.data(), storage->data(), size, cudaMemcpyDeviceToDevice, stream
+                    static_cast<cuda::std::byte*>(dest.data()) + offset,
+                    storage->data(),
+                    size,
+                    cudaMemcpyDeviceToDevice,
+                    stream
                 ));
                 return std::ptrdiff_t(size);
             }

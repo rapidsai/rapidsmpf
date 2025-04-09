@@ -66,7 +66,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] constexpr std::unique_ptr<std::vector<uint8_t>> const& host() const {
+    [[nodiscard]] constexpr HostStorageT const& host() const {
         if (const auto* ref = std::get_if<HostStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -81,7 +81,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] constexpr std::unique_ptr<rmm::device_buffer> const& device() const {
+    [[nodiscard]] constexpr DeviceStorageT const& device() const {
         if (const auto* ref = std::get_if<DeviceStorageT>(&storage_)) {
             return *ref;
         } else {

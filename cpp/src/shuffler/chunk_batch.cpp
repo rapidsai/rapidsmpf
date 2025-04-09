@@ -43,27 +43,39 @@ ChunkBatch ChunkBatch::create(
         return {std::move(metadata_buffer), nullptr};
     }
 
-    MemoryType mem_type = chunks[0].gpu_data->mem_type();
-    for (auto& chunk : chunks) {
-        batch_metadata_size += chunk.metadata->size();
-        batch_payload_size += chunk.gpu_data->size;
+    // first traverse the chunks to calculate the metadata and payload sizes, and the
+    // memory type of data buffers
+    std::optional<MemoryType> mem_type;
+    for (const auto& chunk : chunks) {
+        if (chunk.metadata) {
+            batch_metadata_size += chunk.metadata->size();
+        }
 
-        // TODO: add a policy to handle multiple types in the vector
-        RAPIDSMP_EXPECTS(
-            mem_type == chunk.gpu_data->mem_type(),
-            "All chunks in a batch should be of the same memory type"
-        );
+        if (chunk.gpu_data) {
+            batch_payload_size += chunk.gpu_data->size;
+
+            if (!mem_type) {
+                mem_type = chunk.gpu_data->mem_type();
+            } else {
+                // TODO: add a policy to handle multiple types in the vector
+                RAPIDSMP_EXPECTS(
+                    *mem_type == chunk.gpu_data->mem_type(),
+                    "All chunks in a batch should be of the same memory type"
+                );
+            }
+        }
     }
+    RAPIDSMP_EXPECTS(mem_type.has_value(), "None of the chunks contained a data buffer");
 
     // resize the metadata buffer to the actual size
     metadata_buffer->resize(batch_metadata_size);
 
     // create payload data buffer
-    auto [reservation, _] = br->reserve(mem_type, batch_payload_size, false);
+    auto [reservation, _] = br->reserve(*mem_type, batch_payload_size, false);
     RAPIDSMP_EXPECTS(
         reservation.size() == batch_payload_size, "unable to reserve gpu memory for batch"
     );
-    auto payload_data = br->allocate(mem_type, batch_payload_size, stream, reservation);
+    auto payload_data = br->allocate(*mem_type, batch_payload_size, stream, reservation);
     RAPIDSMP_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
 
     std::ptrdiff_t metadata_offset = sizeof(BatchHeader);  // skip the header
@@ -73,7 +85,10 @@ ChunkBatch ChunkBatch::create(
         metadata_offset += chunk.to_metadata_message(*metadata_buffer, metadata_offset);
 
         // copy payload data
-        payload_offset += chunk.gpu_data->copy_to(*payload_data, payload_offset, stream);
+        if (chunk.gpu_data) {
+            payload_offset +=
+                chunk.gpu_data->copy_to(*payload_data, payload_offset, stream);
+        }
     }
 
     return {std::move(metadata_buffer), std::move(payload_data)};
@@ -83,7 +98,6 @@ ChunkBatch ChunkBatch::create(
     std::unique_ptr<std::vector<uint8_t>> metadata, std::unique_ptr<Buffer> payload_data
 ) {
     RAPIDSMP_EXPECTS(metadata, "metadata buffer is null");
-    RAPIDSMP_EXPECTS(payload_data, "payload buffer is null");
     RAPIDSMP_EXPECTS(
         metadata->size() >= sizeof(BatchHeader),
         "metadata buffer size is less than the header size"
@@ -98,17 +112,20 @@ ChunkBatch ChunkBatch::create(
                                std::ptrdiff_t /* metadata_offset */,
                                Buffer const& /* payload_buf */,
                                std::ptrdiff_t /* payload_offset */) {
-        visited_metadata_size += chunk_header->metadata_size;
+        visited_metadata_size +=
+            (chunk_metadata_header_size + chunk_header->metadata_size);
         visited_payload_size += chunk_header->gpu_data_size;
     });
     RAPIDSMP_EXPECTS(
         visited_metadata_size == batch.metadata_buffer_->size(),
         "visited metadata size doesn't match the metadata buffer size"
     );
-    RAPIDSMP_EXPECTS(
-        visited_payload_size == batch.payload_data_->size,
-        "visited payload size doesn't match the payload buffer size"
-    );
+    if (batch.payload_data_) {
+        RAPIDSMP_EXPECTS(
+            visited_payload_size == batch.payload_data_->size,
+            "visited payload size doesn't match the payload buffer size"
+        );
+    }
     return batch;
 }
 
