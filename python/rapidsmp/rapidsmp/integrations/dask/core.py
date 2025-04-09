@@ -236,7 +236,7 @@ def bootstrap_dask_cluster(
     client: Client,
     *,
     spill_device: float = 0.50,
-    periodic_spill_check: float | None = 0.001,
+    periodic_spill_check: float | None = 1e-3,
     enable_statistics: bool = True,
 ) -> None:
     """

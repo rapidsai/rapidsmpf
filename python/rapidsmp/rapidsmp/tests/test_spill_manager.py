@@ -103,7 +103,7 @@ def test_periodic_spill_check(
     br = BufferResource(
         mr,
         memory_available={MemoryType.DEVICE: mem_available},
-        periodic_spill_check=0.001,
+        periodic_spill_check=1e-3,
     )
 
     track_spilled = [0]

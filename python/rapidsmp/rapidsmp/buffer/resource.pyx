@@ -58,7 +58,7 @@ cdef class BufferResource:
         self,
         DeviceMemoryResource device_mr,
         memory_available = None,
-        periodic_spill_check = 0.001
+        periodic_spill_check = 1e-3
     ):
         cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
         if memory_available is not None:
