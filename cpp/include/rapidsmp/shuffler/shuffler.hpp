@@ -260,6 +260,8 @@ class Shuffler {
     ProgressThread::FunctionID progress_thread_function_id_;
     OpID const op_id_;
 
+    SpillManager::SpillFunctionID spill_function_id_;
+
     detail::FinishCounter finish_counter_;
     std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;
     mutable std::mutex outbound_chunk_counter_mutex_;

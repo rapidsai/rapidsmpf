@@ -408,13 +408,6 @@ Shuffler::Shuffler(
     RAPIDSMP_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
     RAPIDSMP_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 
-    // Register a spill function that spill buffers in this shuffler.
-    // Note, the spill function can use `this` because a Shuffler isn't movable.
-    br->spill_manager().add_spill_function(
-        [this](std::size_t amount) -> std::size_t { return spill(amount); },
-        /* priority = */ 0
-    );
-
     // We need to register the progress function with the progress thread, but
     // that cannot be done in the constructor's initializer list because the
     // Shuffler isn't fully constructed yet.
@@ -424,6 +417,13 @@ Shuffler::Shuffler(
         progress_thread_->add_function([progress = std::make_shared<Progress>(*this)]() {
             return (*progress)();
         });
+
+    // Register a spill function that spill buffers in this shuffler.
+    // Note, the spill function can use `this` because a Shuffler isn't movable.
+    spill_function_id_ = br_->spill_manager().add_spill_function(
+        [this](std::size_t amount) -> std::size_t { return spill(amount); },
+        /* priority = */ 0
+    );
 }
 
 Shuffler::~Shuffler() {
@@ -436,6 +436,7 @@ void Shuffler::shutdown() {
         log.debug("Shuffler.shutdown() - initiate");
         active_ = false;
         progress_thread_->remove_function(progress_thread_function_id_);
+        br_->spill_manager().remove_spill_function(spill_function_id_);
         log.debug("Shuffler.shutdown() - done");
     }
 }
