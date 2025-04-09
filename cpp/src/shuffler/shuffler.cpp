@@ -496,10 +496,10 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
             );
             statistics_->add_duration_stat(
-                "spill-time-host-to-device", Clock::now() - t0_elapsed
+                "spill-time-device-to-host", Clock::now() - t0_elapsed
             );
             statistics_->add_bytes_stat(
-                "spill-bytes-host-to-device", chunk.gpu_data->size
+                "spill-bytes-device-to-host", chunk.gpu_data->size
             );
             insert(std::move(chunk));
         } else {
