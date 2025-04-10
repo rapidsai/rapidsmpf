@@ -4,6 +4,7 @@
 from cython.operator cimport dereference as deref
 from libcpp cimport bool
 from libcpp.memory cimport make_shared
+from libcpp.string cimport string
 
 
 # Since `Statistics::Stat` doesn't have a default ctor, we use the following
@@ -60,7 +61,10 @@ cdef class Statistics:
         -------
         A string representing the formatted statistics report.
         """
-        return deref(self._handle).report().decode('UTF-8')
+        cdef string ret
+        with nogil:
+            ret = deref(self._handle).report()
+        return ret.decode('UTF-8')
 
     def add_stat(self, name, double value):
         """
@@ -77,7 +81,11 @@ cdef class Statistics:
         -------
         Updated total value.
         """
-        return deref(self._handle).add_stat(str.encode(name), value)
+        cdef string name_ = str.encode(name)
+        cdef double ret
+        with nogil:
+            ret = deref(self._handle).add_stat(name_, value)
+        return ret
 
     def get_stat(self, name):
         """
@@ -97,7 +105,10 @@ cdef class Statistics:
         KeyError
             If the statistic with the specified name does not exist.
         """
-        return {
-            "count": cpp_get_statistic_count(deref(self._handle), str.encode(name)),
-            "value": cpp_get_statistic_value(deref(self._handle), str.encode(name)),
-        }
+        cdef string name_ = str.encode(name)
+        cdef size_t count
+        cdef double value
+        with nogil:
+            count = cpp_get_statistic_count(deref(self._handle), name_)
+            value = cpp_get_statistic_value(deref(self._handle), name_)
+        return {"count": count, "value": value}
