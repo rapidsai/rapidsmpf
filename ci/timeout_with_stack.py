@@ -26,12 +26,18 @@ import subprocess
 import sys
 import time
 from contextlib import suppress
+from enum import IntEnum
 from typing import TYPE_CHECKING
 
 import psutil
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+
+class StackType(IntEnum):
+    C = 0
+    Python = 1
 
 
 def get_child_pids(pid: int) -> list[int]:
@@ -70,7 +76,7 @@ def get_child_pids(pid: int) -> list[int]:
         return []
 
 
-def capture_stack_trace(pid: int) -> None:
+def capture_stack_trace(pid: int, stack_type = StackType.C) -> None:
     """
     Capture stack trace for a given process.
 
@@ -82,6 +88,8 @@ def capture_stack_trace(pid: int) -> None:
     ----------
     pid : int
         The process ID of the process to capture stack trace for.
+    stack_type : StackType
+        The stack type to extract, either C or Python.
 
     See Also
     --------
@@ -92,8 +100,12 @@ def capture_stack_trace(pid: int) -> None:
     >>> from rapidsmp.utils.timeout_with_stack import capture_stack_trace
     >>> capture_stack_trace(1234)
     """
-    print(f"\nCapturing stack trace for process {pid}:")
-    # Try gdb first
+    if stack_type is StackType.C:
+        bt_command = "thread apply all bt"
+        print(f"\nCapturing C stack trace for process {pid}:")
+    else:
+        bt_command = "thread apply all py-bt"
+        print(f"\nCapturing Python stack trace for process {pid}:")
     proc = subprocess.run(
         [
             "gdb",
@@ -105,7 +117,7 @@ def capture_stack_trace(pid: int) -> None:
             "-ex",
             "set confirm off",
             "-ex",
-            "thread apply all bt",
+            bt_command,
             "-ex",
             "quit",
         ],
@@ -140,12 +152,14 @@ def capture_all_stacks(pid: int) -> None:
     >>> capture_all_stacks(1234)
     """
     # Capture parent process stack
-    capture_stack_trace(pid)
+    capture_stack_trace(pid, stack_type=StackType.Python)
+    capture_stack_trace(pid, stack_type=StackType.C)
 
     # Get and capture all child processes
     child_pids = get_child_pids(pid)
     for child_pid in child_pids:
-        capture_stack_trace(child_pid)
+        capture_stack_trace(child_pid, stack_type=StackType.Python)
+        capture_stack_trace(child_pid, stack_type=StackType.C)
 
 
 def terminate_process_tree(pid: int) -> None:
