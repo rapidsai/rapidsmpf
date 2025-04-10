@@ -46,8 +46,7 @@ class SpillManager {
      * pause between checks. If `std::nullopt`, no periodic spill check is performed.
      */
     SpillManager(
-        BufferResource* br,
-        std::optional<std::chrono::duration<double>> periodic_spill_check = std::nullopt
+        BufferResource* br, std::optional<Duration> periodic_spill_check = std::nullopt
     );
 
     /**
