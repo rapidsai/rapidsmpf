@@ -10,6 +10,7 @@ from libcpp.optional cimport optional
 from libcpp.unordered_map cimport unordered_map
 from rapidsmp.buffer.buffer cimport MemoryType
 from rapidsmp.buffer.spill_manager cimport SpillManager, cpp_SpillManager
+from rapidsmp.utils.time cimport cpp_Duration
 from rmm.librmm.memory_resource cimport (device_memory_resource,
                                          statistics_resource_adaptor)
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
@@ -20,17 +21,12 @@ cdef extern from "<functional>" nogil:
     cdef cppclass cpp_MemoryAvailable "std::function<std::int64_t()>":
         pass
 
-cdef extern from  "<chrono>" nogil:
-    cdef cppclass cpp_microseconds "std::chrono::microseconds":
-        cpp_microseconds() except +
-        cpp_microseconds(int64_t) except +
-
 cdef extern from "<rapidsmp/buffer/resource.hpp>" nogil:
     cdef cppclass cpp_BufferResource "rapidsmp::BufferResource":
         cpp_BufferResource(
             device_memory_resource *device_mr,
             unordered_map[MemoryType, cpp_MemoryAvailable] memory_available,
-            optional[cpp_microseconds] periodic_spill_check,
+            optional[cpp_Duration] periodic_spill_check,
         ) except +
         size_t cpp_memory_reserved "memory_reserved"(
             MemoryType mem_type
