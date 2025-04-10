@@ -52,13 +52,11 @@ TEST_F(Foo, temp1) {
     ASSERT_EQ(const_cast<Buffer const&>(*data_buf).device()->ssize(), len);
 
     Buffer const& data_buf1 = *data_buf;
-    EXPECT_TRUE(
-        thrust::equal(
-            static_cast<cuda::std::byte const*>(data_buf1.device()->data()),
-            static_cast<cuda::std::byte const*>(data_buf1.device()->data()) + len,
-            static_cast<cuda::std::byte const*>(data_buf1.device()->data())
-        )
-    );
+    EXPECT_TRUE(thrust::equal(
+        static_cast<cuda::std::byte const*>(data_buf1.device()->data()),
+        static_cast<cuda::std::byte const*>(data_buf1.device()->data()) + len,
+        static_cast<cuda::std::byte const*>(data_buf1.device()->data())
+    ));
 }
 
 TEST_F(Foo, temp2) {
@@ -67,13 +65,11 @@ TEST_F(Foo, temp2) {
 
     Buffer const& data_buf1 = *data_buf;
 
-    EXPECT_TRUE(
-        thrust::equal(
-            static_cast<cuda::std::byte const*>(data_buf1.data()),
-            static_cast<cuda::std::byte const*>(data_buf1.data()) + len,
-            static_cast<cuda::std::byte const*>(data_buf1.data())
-        )
-    );
+    EXPECT_TRUE(thrust::equal(
+        static_cast<cuda::std::byte const*>(data_buf1.data()),
+        static_cast<cuda::std::byte const*>(data_buf1.data()) + len,
+        static_cast<cuda::std::byte const*>(data_buf1.data())
+    ));
 }
 
 
