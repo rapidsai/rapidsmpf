@@ -38,7 +38,8 @@ cdef class ProgressThread:
         if statistics is None:
             statistics = Statistics(enable=False)  # Disables statistics.
 
-        self._handle = make_shared[cpp_ProgressThread](
-            deref(comm._handle).logger(),
-            statistics._handle,
-        )
+        with nogil:
+            self._handle = make_shared[cpp_ProgressThread](
+                deref(comm._handle).logger(),
+                statistics._handle,
+            )

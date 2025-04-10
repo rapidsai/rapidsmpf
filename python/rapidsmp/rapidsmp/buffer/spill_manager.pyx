@@ -63,7 +63,7 @@ cdef extern from *:
     cpp_SpillFunction cython_to_cpp_closure_lambda(
          size_t (*wrapper)(void *, size_t),
          void *py_spill_function
-    ) nogil except +
+    ) except + nogil
 
 cdef class SpillManager:
     """
@@ -120,12 +120,14 @@ cdef class SpillManager:
         The ID assigned to the newly added spill function.
         """
         self._valid_buffer_resource()
-        cdef size_t func_id = deref(self._handle).add_spill_function(
-            cython_to_cpp_closure_lambda(
-                cython_invoke_python_spill_function, <void *>func
-            ),
-            priority
-        )
+        cdef size_t func_id
+        with nogil:
+            func_id = deref(self._handle).add_spill_function(
+                cython_to_cpp_closure_lambda(
+                    cython_invoke_python_spill_function, <void *>func
+                ),
+                priority
+            )
         self._spill_functions[func_id] = func
         return func_id
 
@@ -142,7 +144,8 @@ cdef class SpillManager:
         The ID of the spill function to be removed.
         """
         self._valid_buffer_resource()
-        deref(self._handle).remove_spill_function(function_id)
+        with nogil:
+            deref(self._handle).remove_spill_function(function_id)
         del self._spill_functions[function_id]
 
     def spill(self, size_t amount):
@@ -164,4 +167,35 @@ cdef class SpillManager:
         or equal to the requested amount.
         """
         self._valid_buffer_resource()
-        return deref(self._handle).spill(amount)
+        cdef size_t ret
+        with nogil:
+            ret = deref(self._handle).spill(amount)
+        return ret
+
+    def spill_to_make_headroom(self, int64_t headroom = 0):
+        """
+        Attempts to free memory by spilling until the requested headroom is available.
+
+        This method checks the currently available memory and, if insufficient,
+        triggers spilling mechanisms to free up space. Spilling is performed in
+        order of the function priorities until the required headroom is reached
+        or no more spilling is possible.
+
+        Parameters
+        ----------
+        headroom
+            The target amount of headroom (in bytes). A negative headroom is
+            allowed and can be used to only trigger spilling when the available
+            memory becomes negative (as reported by the memory resource).
+
+        Returns
+        -------
+        The actual amount of memory spilled (in bytes), which may be less than
+        requested if there is insufficient spillable data, but may also be more
+        or equal to requested depending on the sizes of spillable data buffers.
+        """
+        self._valid_buffer_resource()
+        cdef size_t ret
+        with nogil:
+            ret = deref(self._handle).spill_to_make_headroom(headroom)
+        return ret

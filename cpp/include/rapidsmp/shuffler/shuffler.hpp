@@ -257,8 +257,10 @@ class Shuffler {
 
     std::shared_ptr<Communicator> comm_;
     std::shared_ptr<ProgressThread> progress_thread_;
-    ProgressThread::FunctionID function_id_;
+    ProgressThread::FunctionID progress_thread_function_id_;
     OpID const op_id_;
+
+    SpillManager::SpillFunctionID spill_function_id_;
 
     detail::FinishCounter finish_counter_;
     std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;

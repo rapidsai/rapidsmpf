@@ -11,6 +11,8 @@ from rmm.librmm.memory_resource cimport (device_memory_resource,
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
                                            StatisticsResourceAdaptor)
 
+import math
+
 
 # Converter from `shared_ptr[cpp_LimitAvailableMemory]` to `cpp_MemoryAvailable`
 cdef extern from *:
@@ -46,8 +48,18 @@ cdef class BufferResource:
         Warning: calling any `BufferResource` instance methods within the function
         might result in a deadlock. This is because the buffer resource is locked
         when the function is called.
+    periodic_spill_check
+        Enable periodic spill checks. A dedicated thread continuously checks and
+        perform spilling based on the memory availability functions. The value of
+        `periodic_spill_check` is used as the pause between checks (in seconds).
+        If None, no periodic spill check is performed.
     """
-    def __cinit__(self, DeviceMemoryResource device_mr, memory_available = None):
+    def __cinit__(
+        self,
+        DeviceMemoryResource device_mr,
+        memory_available = None,
+        periodic_spill_check = 1e-3
+    ):
         cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
         if memory_available is not None:
             for mem_type, func in memory_available.items():
@@ -59,9 +71,16 @@ cdef class BufferResource:
                 _mem_available[<MemoryType?>mem_type] = to_MemoryAvailable(
                     (<LimitAvailableMemory?>func)._handle
                 )
-        self._handle = make_shared[cpp_BufferResource](
-            device_mr.get_mr(), move(_mem_available)
-        )
+        cdef optional[cpp_microseconds] period
+        if periodic_spill_check is not None:
+            period = cpp_microseconds(math.ceil(periodic_spill_check * 1e6))
+
+        with nogil:
+            self._handle = make_shared[cpp_BufferResource](
+                device_mr.get_mr(),
+                move(_mem_available),
+                period,
+            )
         self.spill_manager = SpillManager._create(self)
 
     cdef cpp_BufferResource* ptr(self):
@@ -87,7 +106,10 @@ cdef class BufferResource:
         -------
         The memory reserved, in bytes.
         """
-        return deref(self._handle).cpp_memory_reserved(mem_type)
+        cdef size_t ret
+        with nogil:
+            ret = deref(self._handle).cpp_memory_reserved(mem_type)
+        return ret
 
 
 # Alias of a `rmm::mr::statistics_resource_adaptor` pointer.
@@ -131,7 +153,8 @@ cdef class LimitAvailableMemory:
         self._statistics_mr = statistics_mr  # Keep the mr alive.
         cdef stats_mr_ptr mr = dynamic_cast[stats_mr_ptr](statistics_mr.get_mr())
         assert mr  # The dynamic cast should always succeed.
-        self._handle = make_shared[cpp_LimitAvailableMemory](mr, limit)
+        with nogil:
+            self._handle = make_shared[cpp_LimitAvailableMemory](mr, limit)
 
     def __call__(self):
         """

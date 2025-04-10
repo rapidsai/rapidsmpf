@@ -8,7 +8,7 @@
 namespace rapidsmp::detail {
 
 PausableThreadLoop::PausableThreadLoop(
-    std::function<void()> func, std::chrono::microseconds sleep
+    std::function<void()> func, std::chrono::duration<double> sleep
 ) {
     thread_ = std::thread([this, f = std::move(func), sleep]() {
         while (true) {
@@ -20,7 +20,7 @@ PausableThreadLoop::PausableThreadLoop(
                 }
             }
             f();
-            if (sleep > std::chrono::microseconds(0)) {
+            if (sleep > std::chrono::seconds{0}) {
                 std::this_thread::sleep_for(sleep);
             } else {
                 std::this_thread::yield();
