@@ -169,18 +169,13 @@ class ChunkBatchTest
                 case MemoryType::DEVICE:
                     {
                         SCOPED_TRACE("chunk data device" + std::to_string(i));
-                        EXPECT_TRUE(
-                            thrust::equal(
-                                rmm::exec_policy(stream, br.device_mr()),
-                                static_cast<cuda::std::byte*>(
-                                    exp_chunks[i].gpu_data->data()
-                                ),
-                                static_cast<cuda::std::byte*>(
-                                    exp_chunks[i].gpu_data->data()
-                                ) + len,
-                                static_cast<cuda::std::byte*>(chunks[i].gpu_data->data())
-                            )
-                        );
+                        EXPECT_TRUE(thrust::equal(
+                            rmm::exec_policy(stream, br.device_mr()),
+                            static_cast<cuda::std::byte*>(exp_chunks[i].gpu_data->data()),
+                            static_cast<cuda::std::byte*>(exp_chunks[i].gpu_data->data())
+                                + len,
+                            static_cast<cuda::std::byte*>(chunks[i].gpu_data->data())
+                        ));
                         break;
                     }
                 case MemoryType::HOST:
