@@ -25,6 +25,7 @@ import signal
 import subprocess
 import sys
 import time
+import argparse
 from contextlib import suppress
 from enum import IntEnum
 from typing import TYPE_CHECKING
@@ -128,7 +129,7 @@ def capture_stack_trace(pid: int, stack_type = StackType.C) -> None:
     print(proc.stdout)
 
 
-def capture_all_stacks(pid: int) -> None:
+def capture_all_stacks(pid: int, enable_python: bool = False) -> None:
     """
     Capture stack traces for parent and all child processes.
 
@@ -140,6 +141,8 @@ def capture_all_stacks(pid: int) -> None:
     ----------
     pid : int
         The process ID of the parent process.
+    enable_python : bool, optional
+        Whether to capture Python stack traces.
 
     See Also
     --------
@@ -149,16 +152,18 @@ def capture_all_stacks(pid: int) -> None:
     Examples
     --------
     >>> from rapidsmp.utils.timeout_with_stack import capture_all_stacks
-    >>> capture_all_stacks(1234)
+    >>> capture_all_stacks(1234, enable_python=True)
     """
     # Capture parent process stack
-    capture_stack_trace(pid, stack_type=StackType.Python)
+    if enable_python:
+        capture_stack_trace(pid, stack_type=StackType.Python)
     capture_stack_trace(pid, stack_type=StackType.C)
 
     # Get and capture all child processes
     child_pids = get_child_pids(pid)
     for child_pid in child_pids:
-        capture_stack_trace(child_pid, stack_type=StackType.Python)
+        if enable_python:
+            capture_stack_trace(child_pid, stack_type=StackType.Python)
         capture_stack_trace(child_pid, stack_type=StackType.C)
 
 
@@ -218,7 +223,7 @@ def terminate_process_tree(pid: int) -> None:
         pass
 
 
-def run_with_timeout(cmd: Sequence[str], timeout: float) -> int:
+def run_with_timeout(cmd: Sequence[str], timeout: float, enable_python: bool = False) -> int:
     """
     Run a command with a timeout and capture stack traces if it exceeds the timeout.
 
@@ -232,6 +237,8 @@ def run_with_timeout(cmd: Sequence[str], timeout: float) -> int:
         The command and its arguments to run.
     timeout : float
         Maximum time in seconds to allow the command to run.
+    enable_python : bool, optional
+        Whether to capture Python stack traces.
 
     Returns
     -------
@@ -247,7 +254,7 @@ def run_with_timeout(cmd: Sequence[str], timeout: float) -> int:
     Examples
     --------
     >>> from rapidsmp.utils.timeout_with_stack import run_with_timeout
-    >>> exit_code = run_with_timeout(["sleep", "10"], timeout=5)
+    >>> exit_code = run_with_timeout(["sleep", "10"], timeout=5, enable_python=True)
     >>> print(f"Process exited with code: {exit_code}")
     """
     # Start the process with a new process group
@@ -269,7 +276,7 @@ def run_with_timeout(cmd: Sequence[str], timeout: float) -> int:
         print("Capturing stack traces for all processes...")
 
         # Capture stacks for parent and all children
-        capture_all_stacks(process.pid)
+        capture_all_stacks(process.pid, enable_python=enable_python)
 
         # Terminate the entire process tree
         print("\nTerminating process tree...")
@@ -283,12 +290,15 @@ def run_with_timeout(cmd: Sequence[str], timeout: float) -> int:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print(f"Usage: python {sys.argv[0]} <timeout_seconds> <command> [args...]")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Run a command with timeout and capture stack traces")
+    parser.add_argument("timeout", type=float, help="Timeout in seconds")
+    parser.add_argument("--enable-python", action="store_true", help="Enable Python stack trace capture")
+    parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to run")
 
-    timeout = float(sys.argv[1])
-    cmd = sys.argv[2:]
+    args = parser.parse_args()
 
-    exit_code = run_with_timeout(cmd, timeout)
+    if not args.command:
+        parser.error("No command specified")
+
+    exit_code = run_with_timeout(args.command, args.timeout, enable_python=args.enable_python)
     sys.exit(exit_code)
