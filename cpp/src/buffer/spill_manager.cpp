@@ -12,7 +12,7 @@ namespace rapidsmp {
 
 
 SpillManager::SpillManager(
-    BufferResource* br, std::optional<std::chrono::microseconds> periodic_spill_check
+    BufferResource* br, std::optional<Duration> periodic_spill_check
 )
     : br_{br} {
     if (periodic_spill_check.has_value()) {

@@ -13,6 +13,7 @@
 #include <cudf_test/debug_utilities.hpp>
 #include <cudf_test/table_utilities.hpp>
 
+#include <rapidsmp/buffer/packed_data.hpp>
 #include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/communicator/ucxx.hpp>
@@ -52,7 +53,7 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     );
 
     // Convert to a vector
-    std::vector<cudf::packed_columns> chunks_vector;
+    std::vector<rapidsmp::PackedData> chunks_vector;
     for (auto& [_, chunk] : chunks) {
         chunks_vector.push_back(std::move(chunk));
     }
@@ -228,6 +229,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
 
     rapidsmp::shuffler::Shuffler shuffler(
         GlobalEnvironment->comm_,
+        GlobalEnvironment->progress_thread_,
         0,  // op_id
         total_num_partitions,
         stream,
@@ -272,6 +274,7 @@ class ConcurrentShuffleTest
     void RunTest(int t_id) {
         rapidsmp::shuffler::Shuffler shuffler(
             GlobalEnvironment->comm_,
+            GlobalEnvironment->progress_thread_,
             t_id,  // op_id, use t_id as a proxy
             total_num_partitions,
             stream,
@@ -352,17 +355,16 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     );
 
     // Create a communicator of size 1, such that each shuffler will run locally.
-    int rank;
-    RAPIDSMP_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-    MPI_Comm mpi_comm;
-    RAPIDSMP_MPI(MPI_Comm_split(MPI_COMM_WORLD, rank, 0, &mpi_comm));
-    std::shared_ptr<rapidsmp::Communicator> comm =
-        std::make_shared<rapidsmp::MPI>(mpi_comm);
+    auto comm = GlobalEnvironment->split_comm();
     EXPECT_EQ(comm->nranks(), 1);
+
+    std::shared_ptr<rapidsmp::ProgressThread> progress_thread =
+        std::make_shared<rapidsmp::ProgressThread>(comm->logger());
 
     // Create a shuffler and input chunks.
     rapidsmp::shuffler::Shuffler shuffler(
         comm,
+        progress_thread,
         0,  // op_id
         total_num_partitions,
         stream,
@@ -385,26 +387,26 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 
     {
         // Now extract triggers spilling of the partition not being extracted.
-        std::vector<cudf::packed_columns> output_chunks = shuffler.extract(0);
+        std::vector<rapidsmp::PackedData> output_chunks = shuffler.extract(0);
         EXPECT_EQ(mr.get_allocations_counter().value, 1);
 
         // And insert also triggers spilling. We end up with zero device allocations.
-        std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> chunk;
+        std::unordered_map<rapidsmp::shuffler::PartID, rapidsmp::PackedData> chunk;
         chunk.emplace(0, std::move(output_chunks.at(0)));
         shuffler.insert(std::move(chunk));
         EXPECT_EQ(mr.get_allocations_counter().value, 0);
     }
 
     // Extract and unspill both partitions.
-    std::vector<cudf::packed_columns> out0 = shuffler.extract(0);
+    std::vector<rapidsmp::PackedData> out0 = shuffler.extract(0);
     EXPECT_EQ(mr.get_allocations_counter().value, 1);
-    std::vector<cudf::packed_columns> out1 = shuffler.extract(1);
+    std::vector<rapidsmp::PackedData> out1 = shuffler.extract(1);
     EXPECT_EQ(mr.get_allocations_counter().value, 2);
 
     // Disable spilling and insert the first partition.
     device_memory_available = 1000;
     {
-        std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> chunk;
+        std::unordered_map<rapidsmp::shuffler::PartID, rapidsmp::PackedData> chunk;
         chunk.emplace(0, std::move(out0.at(0)));
         shuffler.insert(std::move(chunk));
     }
@@ -415,14 +417,13 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     // that are being inserted.
     device_memory_available = -1000;
     {
-        std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> chunk;
+        std::unordered_map<rapidsmp::shuffler::PartID, rapidsmp::PackedData> chunk;
         chunk.emplace(1, std::move(out1.at(0)));
         shuffler.insert(std::move(chunk));
     }
     EXPECT_EQ(mr.get_allocations_counter().value, 0);
 
     shuffler.shutdown();
-    RAPIDSMP_MPI(MPI_Comm_free(&mpi_comm));
 }
 
 /**

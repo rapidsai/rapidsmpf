@@ -70,7 +70,7 @@ void random_fill(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
-    switch (buffer.mem_type) {
+    switch (buffer.mem_type()) {
     case rapidsmp::MemoryType::DEVICE:
         {
             auto vec = random_device_vector(

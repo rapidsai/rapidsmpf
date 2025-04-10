@@ -63,13 +63,13 @@ cdef Communicator cpp_new_communicator(
     shared_ptr[Address] root_address,
 ):
     cdef unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
-
-    if root_address == <shared_ptr[Address]>nullptr:
-        ucxx_initialized_rank = init(worker, nranks, nullopt)
-    else:
-        ucxx_initialized_rank = init(worker, nranks, root_address)
     cdef Communicator ret = Communicator.__new__(Communicator)
-    ret._handle = make_shared[cpp_UCXX_Communicator](move(ucxx_initialized_rank))
+    with nogil:
+        if root_address == <shared_ptr[Address]>nullptr:
+            ucxx_initialized_rank = init(worker, nranks, nullopt)
+        else:
+            ucxx_initialized_rank = init(worker, nranks, root_address)
+        ret._handle = make_shared[cpp_UCXX_Communicator](move(ucxx_initialized_rank))
     return ret
 
 
@@ -138,7 +138,9 @@ def get_root_ucxx_address(Communicator comm):
             comm._handle
         )
     )
-    cdef cpp_UCXX_ListenerAddress listener_address = deref(ucxx_comm).listener_address()
+    cdef cpp_UCXX_ListenerAddress listener_address
+    with nogil:
+        listener_address = deref(ucxx_comm).listener_address()
 
     cdef shared_ptr[Address]* address
     cdef HostPortPair* host_port_pair
@@ -169,4 +171,5 @@ def barrier(Communicator comm):
             comm._handle
         )
     )
-    deref(ucxx_comm).barrier()
+    with nogil:
+        deref(ucxx_comm).barrier()

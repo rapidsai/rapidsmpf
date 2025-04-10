@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import ray
 import ucxx._lib.libucxx as ucx_api
@@ -30,7 +30,7 @@ class RapidsMPActor:
     >>> @ray.remote(num_cpus=1)
     ... class DummyActor(RapidsMPActor): ...
     >>> actors = setup_ray_ucx_cluster(DummyActor, 2)
-    >>> ray.get([actor.status_check.remote() for actor in actors])
+    >>> ray.get([actor.status_check.remote() for actor in actors]
     """
 
     def __init__(self, nranks: int):
@@ -89,11 +89,11 @@ class RapidsMPActor:
 
         Returns
         -------
-            A string representation of the actor
+        A string representation of the actor
 
         Raises
         ------
-            RuntimeError if the communicator is not initialized
+        RuntimeError if the communicator is not initialized
         """
         if self._comm:
             return f"RapidsMPActor(rank:{self._rank}, nranks:{self._nranks}, \
@@ -107,8 +107,7 @@ class RapidsMPActor:
 
         Returns
         -------
-        bool
-            True if the communicator is initialized, False otherwise.
+        True if the communicator is initialized, False otherwise.
         """
         return self._comm is not None and self._rank != -1
 
@@ -118,8 +117,7 @@ class RapidsMPActor:
 
         Returns
         -------
-        int
-            The rank of the current worker.
+        The rank of the worker
         """
         return self._rank
 
@@ -129,30 +127,37 @@ class RapidsMPActor:
 
         Returns
         -------
-        int
-            The total number of ranks in the communicator.
+        The number of ranks in the UCXX communicator
         """
         return self._nranks
 
     @property
-    def comm(self) -> Communicator | None:
+    def comm(self) -> Communicator:
         """
         The UCXX communicator object.
 
-        Note: This property is not meant to be called remotely from the client.
+        Returns
+        -------
+        The UCXX communicator object if initialized, otherwise None
+
+        Raises
+        ------
+        RuntimeError if the communicator is not initialized
+
+        Notes
+        -----
+        This property is not meant to be called remotely from the client.
         Then Ray will attempt to serialize the Communicator object, which will fail.
         Instead, the subclasses can use the `comm` property to access the communicator.
         For example, to create a Shuffle operation
-
-        Returns
-        -------
-            The UCXX communicator object if initialized, otherwise None
         """
+        if self._comm is None:
+            raise RuntimeError("Communicator not initialized")
         return self._comm
 
 
 def setup_ray_ucxx_cluster(
-    actor_cls: ray.actor.ActorClass, num_workers: int
+    actor_cls: ray.actor.ActorClass, num_workers: int, *args: Any, **kwargs: Any
 ) -> list[ray.actor.ActorHandle]:
     """
     A utility method to setup the UCXX communication using RapidsMPActor actor objects.
@@ -163,6 +168,10 @@ def setup_ray_ucxx_cluster(
         The actor class to be instantiated in the cluster.
     num_workers
         The number of workers in the cluster.
+    *args
+        Additional arguments to be passed to the actor class.
+    **kwargs
+        Additional keyword arguments to be passed to the actor class.
 
     Returns
     -------
@@ -179,7 +188,9 @@ def setup_ray_ucxx_cluster(
         )
 
     # initialize the actors remotely in the cluster
-    gpu_actors = [actor_cls.remote(num_workers) for _ in range(num_workers)]
+    gpu_actors = [
+        actor_cls.remote(num_workers, *args, **kwargs) for _ in range(num_workers)
+    ]
 
     # initialize the first actor as the root remotely in the cluster
     _, root_address_bytes = ray.get(gpu_actors[0].setup_root.remote())

@@ -20,7 +20,7 @@ from distributed.utils_test import (  # noqa: E402, F401
 )
 from mpi4py import MPI  # noqa: E402
 
-from rapidsmp.integrations.dask import (  # noqa: E402
+from rapidsmp.integrations.dask.core import (  # noqa: E402
     bootstrap_dask_cluster,
 )
 
@@ -48,7 +48,7 @@ async def test_dask_ucxx_cluster_sync() -> None:
         Client(cluster) as client,
     ):
         assert len(cluster.workers) == get_n_gpus()
-        bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
+        bootstrap_dask_cluster(client, spill_device=0.1)
 
         def get_rank(dask_worker: Worker) -> int:
             # TODO: maybe move the cast into rapidsmp_comm?
@@ -69,7 +69,7 @@ def test_dask_cudf_integration(loop: pytest.FixtureDef, partition_count: int) ->
 
     with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
-            bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
+            bootstrap_dask_cluster(client, spill_device=0.1)
             df = (
                 dask.datasets.timeseries(
                     freq="3600s",
@@ -93,14 +93,14 @@ def test_dask_cudf_integration(loop: pytest.FixtureDef, partition_count: int) ->
 
 def test_bootstrap_dask_cluster_idempotent() -> None:
     with LocalCUDACluster() as cluster, Client(cluster) as client:
-        bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
+        bootstrap_dask_cluster(client, spill_device=0.1)
         before = client.run(lambda dask_worker: id(dask_worker._rapidsmp_comm))
 
-        bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
+        bootstrap_dask_cluster(client, spill_device=0.1)
         after = client.run(lambda dask_worker: id(dask_worker._rapidsmp_comm))
         assert before == after
 
 
 def test_boostrap_single_node_cluster_no_deadlock() -> None:
     with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
-        bootstrap_dask_cluster(client, pool_size=0.25, spill_device=0.1)
+        bootstrap_dask_cluster(client, spill_device=0.1)

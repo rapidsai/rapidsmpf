@@ -38,8 +38,7 @@ class PausableThreadLoop {
      * thread yields execution instead of sleeping.
      */
     PausableThreadLoop(
-        std::function<void()> func,
-        std::chrono::microseconds sleep = std::chrono::microseconds(0)
+        std::function<void()> func, Duration sleep = std::chrono::seconds{0}
     );
     ~PausableThreadLoop();
 
