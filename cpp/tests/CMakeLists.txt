@@ -40,7 +40,7 @@ function(rapidsmp_mpirun_test_add)
   endforeach(np)
 endfunction(rapidsmp_mpirun_test_add)
 
-file(GLOB SOURCES "main/mpi.cpp" "*.cpp")
+file(GLOB SOURCES "main/mpi.cpp" "*.cpp" "*.cu*")
 add_executable(mpi_tests ${SOURCES})
 set_target_properties(
   mpi_tests
