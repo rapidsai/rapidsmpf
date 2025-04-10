@@ -350,7 +350,8 @@ class BufferResource {
     SpillManager& spill_manager();
 
     /**
-     * @brief Gets a shared pointer to the statistics associated with this buffer resource.
+     * @brief Gets a shared pointer to the statistics associated with this buffer
+     * resource.
      *
      * @return Shared pointer the Statistics instance.
      */
