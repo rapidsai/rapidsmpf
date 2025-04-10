@@ -11,8 +11,6 @@ from rmm.librmm.memory_resource cimport (device_memory_resource,
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
                                            StatisticsResourceAdaptor)
 
-import math
-
 
 # Converter from `shared_ptr[cpp_LimitAvailableMemory]` to `cpp_MemoryAvailable`
 cdef extern from *:
@@ -71,9 +69,9 @@ cdef class BufferResource:
                 _mem_available[<MemoryType?>mem_type] = to_MemoryAvailable(
                     (<LimitAvailableMemory?>func)._handle
                 )
-        cdef optional[cpp_microseconds] period
+        cdef optional[cpp_Duration] period
         if periodic_spill_check is not None:
-            period = cpp_microseconds(math.ceil(periodic_spill_check * 1e6))
+            period = cpp_Duration(periodic_spill_check)
 
         with nogil:
             self._handle = make_shared[cpp_BufferResource](
