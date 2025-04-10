@@ -4,8 +4,6 @@
 
 set -xeuo pipefail
 
-TIMEOUT_TOOL_PATH="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/timeout_with_stack.py
-
 # Support customizing the ctests' install location
 cd "${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/tests/librapidsmp/"
 
@@ -23,7 +21,7 @@ timeout_secs=$((5*60)) # 5m timeout
 # Run tests using mpirun with multiple nranks. Test cases and nranks are defined in the cpp/tests/CMakeLists.txt
 
 # mpi_test cases
-python $TIMEOUT_TOOL_PATH $timeout_secs ctest --verbose --no-tests=error --output-on-failure -R "mpi_tests_*" $EXTRA_ARGS
+ctest --verbose --no-tests=error --output-on-failure --timeout $timeout_secs -R "mpi_tests_*" $EXTRA_ARGS
 
 # ucxx_test cases
-python $TIMEOUT_TOOL_PATH $timeout_secs ctest --verbose --no-tests=error --output-on-failure -R "ucxx_tests_*" $EXTRA_ARGS
+ctest --verbose --no-tests=error --output-on-failure --timeout $timeout_secs -R "ucxx_tests_*" $EXTRA_ARGS

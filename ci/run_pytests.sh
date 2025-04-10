@@ -7,6 +7,8 @@ set -xeuo pipefail
 # Support invoking run_pytests.sh outside the script directory
 cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/../python/rapidsmp/rapidsmp
 
+TIMEOUT_TOOL_PATH="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/timeout_with_stack.py
+
 # OpenMPI specific options
 export OMPI_ALLOW_RUN_AS_ROOT=1  # CI runs as root
 export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
@@ -17,7 +19,7 @@ run_mpirun_test() {
     local timeout="$1" # Timeout
     local nrank="$2"   # Number of ranks
     echo "Running pytest with $nrank ranks"
-    timeout -v "$timeout" mpirun --map-by node --bind-to none -np "$nrank" \
+    python ${TIMEOUT_TOOL_PATH} "$timeout" mpirun --map-by node --bind-to none -np "$nrank" \
         python -m pytest --cache-clear --verbose $EXTRA_ARGS tests
 }
 
