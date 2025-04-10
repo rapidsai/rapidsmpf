@@ -183,7 +183,7 @@ class Statistics {
      *
      * @param name Name of the statistic.
      * @param nbytes Number of bytes.
-     * @return Updated total value.
+     * @return Updated total number of bytes.
      */
     std::size_t add_bytes_stat(std::string const& name, std::size_t nbytes);
 
