@@ -41,11 +41,13 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource
 }
 
 void* Buffer::data() {
-    return std::visit([](auto&& storage) -> void* { return storage->data(); }, storage_);
+    return std::visit([](auto& storage) -> void* { return storage->data(); }, storage_);
 }
 
 void const* Buffer::data() const {
-    return std::visit([](auto&& storage) -> void* { return storage->data(); }, storage_);
+    return std::visit(
+        [](const auto& storage) -> void* { return storage->data(); }, storage_
+    );
 }
 
 std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
@@ -119,9 +121,9 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
                 });
             },
             [&](DeviceStorageT const& storage) {
-                return std::make_unique<Buffer>(Buffer{
+                return std::unique_ptr<Buffer>(new Buffer{
                     std::make_unique<rmm::device_buffer>(
-                        static_cast<cuda::std::byte const*>(storage->data()) + offset,
+                        static_cast<cuda::std::byte*>(storage->data()) + offset,
                         length,
                         stream,
                         br->device_mr()

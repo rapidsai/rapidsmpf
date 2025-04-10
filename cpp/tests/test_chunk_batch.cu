@@ -4,8 +4,13 @@
  */
 
 #include <gtest/gtest.h>
+#include <thrust/equal.h>
+
+#include <rmm/exec_policy.hpp>
 
 #include <rapidsmp/shuffler/chunk_batch.hpp>
+
+// NOTE: this test is in a .cu file, because it uses thrust::equal which requires nvcc.
 
 namespace rapidsmp::shuffler::detail {
 
@@ -54,7 +59,8 @@ TEST(ChunkBatch, Empty) {
 
     // create chunk batch with in invalid metadata buffer -> should throw
     EXPECT_THROW(
-        ChunkBatch::create(std::make_unique<std::vector<uint8_t>>(), {}), std::logic_error
+        std::ignore = ChunkBatch::create(std::make_unique<std::vector<uint8_t>>(), {}),
+        std::logic_error
     );
 }
 
@@ -67,8 +73,9 @@ TEST(ChunkBatch, Empty) {
  *    b. Host data
  */
 
-// Parametarized test for MemoryType
-class ChunkBatchTest : public ::testing::TestWithParam<MemoryType> {
+// Parametarized test for MemoryType and types of chunks
+class ChunkBatchTest
+    : public ::testing::TestWithParam<std::tuple<MemoryType, std::string>> {
   public:
     // dummy data for buffers
     static constexpr std::initializer_list<uint8_t> dummy_data{1, 2, 3, 4, 5, 6, 7, 8, 9};
@@ -87,22 +94,26 @@ class ChunkBatchTest : public ::testing::TestWithParam<MemoryType> {
                                                                  }}}};
 
     ChunkBatchTest() {
-        data_buf = allocate_buffer(GetParam(), dummy_data.size(), br, stream);
+        data_buf = allocate_buffer(get_memory_type(), len, br, stream);
         // copy dummy data to the buffer
-        switch (GetParam()) {
+        switch (get_memory_type()) {
         case MemoryType::DEVICE:
             RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
                 data_buf->data(),
                 std::data(dummy_data),
-                dummy_data.size(),
+                len,
                 cudaMemcpyHostToDevice,
                 stream
             ));
             break;
         case MemoryType::HOST:
-            std::memcpy(data_buf->data(), std::data(dummy_data), dummy_data.size());
+            std::memcpy(data_buf->data(), std::data(dummy_data), len);
             break;
         }
+    }
+
+    MemoryType get_memory_type() const {
+        return std::get<0>(GetParam());
     }
 
     auto copy_metadata() const {
@@ -113,22 +124,23 @@ class ChunkBatchTest : public ::testing::TestWithParam<MemoryType> {
         return data_buf->copy_slice(0, len, stream);
     }
 
-    auto make_mixed_chunks() const {
-        std::vector<Chunk> chunks{};
-        chunks.emplace_back(1, 1, 0, len, copy_metadata(), copy_data());
-        chunks.emplace_back(2, 2, 0, len, copy_metadata(), copy_data());
-        chunks.emplace_back(3, 3, 100);
-        chunks.emplace_back(4, 4, 0, len, copy_metadata(), copy_data());
-        chunks.emplace_back(5, 5, 101);
-        chunks.emplace_back(6, 6, 0, len, copy_metadata(), copy_data());
+    auto gen_chunks() const {
+        std::vector<Chunk> chunks;
 
-        return chunks;
-    }
+        auto const& chunks_type = std::get<1>(GetParam());
+        if (chunks_type == "mixed") {
+            chunks.emplace_back(1, 1, 0, len, copy_metadata(), copy_data());
+            chunks.emplace_back(2, 2, 0, len, copy_metadata(), copy_data());
+            chunks.emplace_back(3, 3, 100);
+            chunks.emplace_back(4, 4, 0, len, copy_metadata(), copy_data());
+            chunks.emplace_back(5, 5, 101);
+            chunks.emplace_back(6, 6, 0, len, copy_metadata(), copy_data());
+        } else if (chunks_type == "no_data") {
+            chunks.emplace_back(3, 3, 100);
+            chunks.emplace_back(5, 5, 101);
+        }
+        // else -> empty chunks
 
-    auto make_no_data_chunks() const {
-        std::vector<Chunk> chunks{};
-        chunks.emplace_back(3, 3, 100);
-        chunks.emplace_back(5, 5, 101);
         return chunks;
     }
 
@@ -153,16 +165,21 @@ class ChunkBatchTest : public ::testing::TestWithParam<MemoryType> {
             }
 
             if (exp_chunks[i].gpu_data) {
-                switch (GetParam()) {
+                switch (get_memory_type()) {
                 case MemoryType::DEVICE:
                     {
                         SCOPED_TRACE("chunk data device" + std::to_string(i));
-                        auto host_copy = chunks[i].gpu_data->copy_slice(
-                            MemoryType::HOST, 0, len, stream
-                        );
-                        cudaStreamSynchronize(stream);
-                        EXPECT_EQ(
-                            0, std::memcmp(std::data(dummy_data), host_copy->data(), len)
+                        EXPECT_TRUE(
+                            thrust::equal(
+                                rmm::exec_policy(stream, br.device_mr()),
+                                static_cast<cuda::std::byte*>(
+                                    exp_chunks[i].gpu_data->data()
+                                ),
+                                static_cast<cuda::std::byte*>(
+                                    exp_chunks[i].gpu_data->data()
+                                ) + len,
+                                static_cast<cuda::std::byte*>(chunks[i].gpu_data->data())
+                            )
                         );
                         break;
                     }
@@ -184,31 +201,26 @@ class ChunkBatchTest : public ::testing::TestWithParam<MemoryType> {
 INSTANTIATE_TEST_SUITE_P(
     ChunkBatchTestP,
     ChunkBatchTest,
-    ::testing::Values(MemoryType::DEVICE, MemoryType::HOST),
+    ::testing::Combine(
+        ::testing::Values(MemoryType::DEVICE, MemoryType::HOST),
+        ::testing::Values("mixed", "no_data", "empty")
+    ),
     [](const ::testing::TestParamInfo<ChunkBatchTest::ParamType>& info) {
-        return info.param == MemoryType::HOST ? "host" : "device";
+        return std::string(
+                   std::get<0>(info.param) == MemoryType::HOST ? "host" : "device"
+               )
+               + "__" + std::get<1>(info.param);
     }
 );
 
-TEST_P(ChunkBatchTest, MixedDataChunks) {
-    std::vector<Chunk> exp_chunks = make_mixed_chunks();
+TEST_P(ChunkBatchTest, Run) {
+    auto exp_chunks = gen_chunks();
 
-    auto batch1 = ChunkBatch::create(id, rank, make_mixed_chunks(), &br, stream);
-    test_batch(exp_chunks, batch1);
-
-    auto batch2 = ChunkBatch::create(batch1.release_metadata(), batch1.release_payload());
-    test_batch(exp_chunks, batch2);
-}
-
-TEST_P(ChunkBatchTest, NoDataChunks) {
-    std::vector<Chunk> exp_chunks = make_no_data_chunks();
-
-    auto batch1 = ChunkBatch::create(id, rank, make_no_data_chunks(), &br, stream);
-    test_batch(exp_chunks, batch1);
+    auto batch1 = ChunkBatch::create(id, rank, gen_chunks(), &br, stream);
+    EXPECT_NO_FATAL_FAILURE(test_batch(exp_chunks, batch1));
 
     auto batch2 = ChunkBatch::create(batch1.release_metadata(), batch1.release_payload());
-    test_batch(exp_chunks, batch2);
+    EXPECT_NO_FATAL_FAILURE(test_batch(exp_chunks, batch2));
 }
-
 
 }  // namespace rapidsmp::shuffler::detail
