@@ -25,14 +25,12 @@ TEST(AFoo, use_rmm_device_only) {
         dev_buf.data(), std::data(dummy_data), len, cudaMemcpyHostToDevice, stream
     ));
 
-    EXPECT_TRUE(
-        thrust::equal(
-            rmm::exec_policy(rmm::cuda_stream_default),
-            static_cast<cuda::std::byte const*>(dev_buf.data()),
-            static_cast<cuda::std::byte const*>(dev_buf.data()) + 8,
-            static_cast<cuda::std::byte const*>(dev_buf.data())
-        )
-    );
+    EXPECT_TRUE(thrust::equal(
+        rmm::exec_policy(rmm::cuda_stream_default),
+        static_cast<cuda::std::byte const*>(dev_buf.data()),
+        static_cast<cuda::std::byte const*>(dev_buf.data()) + 8,
+        static_cast<cuda::std::byte const*>(dev_buf.data())
+    ));
 }
 
 constexpr std::size_t operator""_KiB(unsigned long long n) {
@@ -75,14 +73,12 @@ TEST_F(Foo, temp1) {
 
     Buffer const& data_buf1 = *data_buf;
 
-    EXPECT_TRUE(
-        thrust::equal(
-            rmm::exec_policy(rmm::cuda_stream_default),
-            static_cast<cuda::std::byte const*>(data_buf1.device()->data()),
-            static_cast<cuda::std::byte const*>(data_buf1.device()->data()) + len,
-            static_cast<cuda::std::byte const*>(data_buf1.device()->data())
-        )
-    );
+    EXPECT_TRUE(thrust::equal(
+        rmm::exec_policy(rmm::cuda_stream_default),
+        static_cast<cuda::std::byte const*>(data_buf1.device()->data()),
+        static_cast<cuda::std::byte const*>(data_buf1.device()->data()) + len,
+        static_cast<cuda::std::byte const*>(data_buf1.device()->data())
+    ));
 }
 
 TEST_F(Foo, temp2) {
@@ -91,14 +87,12 @@ TEST_F(Foo, temp2) {
 
     Buffer const& data_buf1 = *data_buf;
 
-    EXPECT_TRUE(
-        thrust::equal(
-            rmm::exec_policy(rmm::cuda_stream_default),
-            const_cast<char*>(static_cast<const char*>(data_buf1.data())),
-            const_cast<char*>(static_cast<const char*>(data_buf1.data())) + len,
-            const_cast<char*>(static_cast<const char*>(data_buf1.data()))
-        )
-    );
+    EXPECT_TRUE(thrust::equal(
+        rmm::exec_policy(rmm::cuda_stream_default),
+        const_cast<char*>(static_cast<const char*>(data_buf1.data())),
+        const_cast<char*>(static_cast<const char*>(data_buf1.data())) + len,
+        const_cast<char*>(static_cast<const char*>(data_buf1.data()))
+    ));
 }
 
 }  // namespace rapidsmp

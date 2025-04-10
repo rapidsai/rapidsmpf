@@ -43,7 +43,9 @@ void* Buffer::data() {
 }
 
 void const* Buffer::data() const {
-    return std::visit([](const auto& storage) -> void* { return storage->data(); }, storage_);
+    return std::visit(
+        [](const auto& storage) -> void* { return storage->data(); }, storage_
+    );
 }
 
 std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
