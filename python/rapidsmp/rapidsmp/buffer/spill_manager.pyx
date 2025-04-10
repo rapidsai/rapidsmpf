@@ -120,12 +120,14 @@ cdef class SpillManager:
         The ID assigned to the newly added spill function.
         """
         self._valid_buffer_resource()
-        cdef size_t func_id = deref(self._handle).add_spill_function(
-            cython_to_cpp_closure_lambda(
-                cython_invoke_python_spill_function, <void *>func
-            ),
-            priority
-        )
+        cdef size_t func_id
+        with nogil:
+            func_id = deref(self._handle).add_spill_function(
+                cython_to_cpp_closure_lambda(
+                    cython_invoke_python_spill_function, <void *>func
+                ),
+                priority
+            )
         self._spill_functions[func_id] = func
         return func_id
 
@@ -142,7 +144,8 @@ cdef class SpillManager:
         The ID of the spill function to be removed.
         """
         self._valid_buffer_resource()
-        deref(self._handle).remove_spill_function(function_id)
+        with nogil:
+            deref(self._handle).remove_spill_function(function_id)
         del self._spill_functions[function_id]
 
     def spill(self, size_t amount):
@@ -164,7 +167,10 @@ cdef class SpillManager:
         or equal to the requested amount.
         """
         self._valid_buffer_resource()
-        return deref(self._handle).spill(amount)
+        cdef size_t ret
+        with nogil:
+            ret = deref(self._handle).spill(amount)
+        return ret
 
     def spill_to_make_headroom(self, int64_t headroom = 0):
         """
@@ -189,4 +195,7 @@ cdef class SpillManager:
         or equal to requested depending on the sizes of spillable data buffers.
         """
         self._valid_buffer_resource()
-        return deref(self._handle).spill_to_make_headroom(headroom)
+        cdef size_t ret
+        with nogil:
+            ret = deref(self._handle).spill_to_make_headroom(headroom)
+        return ret

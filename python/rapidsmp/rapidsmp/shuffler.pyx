@@ -203,18 +203,19 @@ cdef class Shuffler:
         self._stream = Stream(stream)
         self._comm = comm
         self._br = br
+        cdef cpp_BufferResource* br_ = br.ptr()
         if statistics is None:
             statistics = Statistics(enable=False)  # Disables statistics.
-
-        self._handle = make_unique[cpp_Shuffler](
-            comm._handle,
-            progress_thread._handle,
-            op_id,
-            total_num_partitions,
-            self._stream.view(),
-            br.ptr(),
-            statistics._handle,
-        )
+        with nogil:
+            self._handle = make_unique[cpp_Shuffler](
+                comm._handle,
+                progress_thread._handle,
+                op_id,
+                total_num_partitions,
+                self._stream.view(),
+                br_,
+                statistics._handle,
+            )
 
     def shutdown(self):
         """
