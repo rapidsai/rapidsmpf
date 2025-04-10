@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 
-from pylibcudf.contiguous_split import PackedColumns
 from pylibcudf.table import Table
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
 from rmm.pylibrmm.stream import Stream
 
+from rapidsmp.buffer.packed_data import PackedData
 from rapidsmp.buffer.resource import BufferResource
 from rapidsmp.communicator.communicator import Communicator
+from rapidsmp.progress_thread import ProgressThread
 from rapidsmp.statistics import Statistics
 
 def partition_and_pack(
@@ -19,9 +20,9 @@ def partition_and_pack(
     num_partitions: int,
     stream: Stream,
     device_mr: DeviceMemoryResource,
-) -> dict[int, PackedColumns]: ...
+) -> dict[int, PackedData]: ...
 def unpack_and_concat(
-    partitions: Iterable[PackedColumns],
+    partitions: Iterable[PackedData],
     stream: Stream,
     device_mr: DeviceMemoryResource,
 ) -> Table: ...
@@ -30,6 +31,7 @@ class Shuffler:
     def __init__(
         self,
         comm: Communicator,
+        progress_thread: ProgressThread,
         op_id: int,
         total_num_partitions: int,
         stream: Stream,
@@ -40,9 +42,9 @@ class Shuffler:
     def __str__(self) -> str: ...
     @property
     def comm(self) -> Communicator: ...
-    def insert_chunks(self, chunks: Mapping[int, PackedColumns]) -> None: ...
+    def insert_chunks(self, chunks: Mapping[int, PackedData]) -> None: ...
     def insert_finished(self, pid: int) -> None: ...
-    def extract(self, pid: int) -> list[PackedColumns]: ...
+    def extract(self, pid: int) -> list[PackedData]: ...
     def finished(self) -> bool: ...
     def wait_any(self) -> int: ...
     def wait_on(self, pid: int) -> None: ...

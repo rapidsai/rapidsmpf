@@ -16,7 +16,8 @@ cdef class Statistics:
         Whether statistics tracking is enabled.
     """
     def __cinit__(self, bool enable):
-        self._handle = make_shared[cpp_Statistics](enable)
+        with nogil:
+            self._handle = make_shared[cpp_Statistics](enable)
 
     @property
     def enabled(self):

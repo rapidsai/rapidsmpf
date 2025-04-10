@@ -8,6 +8,7 @@
 #include <mpi.h>
 #include <unistd.h>
 
+#include <rapidsmp/buffer/packed_data.hpp>
 #include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
@@ -28,6 +29,14 @@ int main(int argc, char** argv) {
     std::shared_ptr<rapidsmp::Communicator> comm =
         std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
 
+    // Create a statistics instance for the shuffler that tracks useful information.
+    auto stats = std::make_shared<rapidsmp::Statistics>();
+
+    // Then a progress thread where the shuffler event loop executes is created. A single
+    // progress thread may be used by multiple shufflers simultaneously.
+    std::shared_ptr<rapidsmp::ProgressThread> progress_thread =
+        std::make_shared<rapidsmp::ProgressThread>(comm->logger(), stats);
+
     // The Communicator provides a logger.
     auto& log = comm->logger();
 
@@ -36,9 +45,6 @@ int main(int argc, char** argv) {
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
     rapidsmp::BufferResource br{mr};
 
-    // Create a statistics instance for the shuffler that tracks useful information.
-    auto stats = std::make_shared<rapidsmp::Statistics>();
-
     // As input data, we use a helper function from the benchmark suite. It creates a
     // random cudf table with 2 columns and 100 rows. In this example, each MPI rank
     // creates its own local input and we only have one input per rank but each rank
@@ -46,7 +52,7 @@ int main(int argc, char** argv) {
     cudf::table local_input = random_table(2, 100, 0, 10, stream, mr);
 
     // The total number of inputs equals the number of ranks, in this case.
-    rapidsmp::shuffler::PartID const total_num_partitions =
+    auto const total_num_partitions =
         static_cast<rapidsmp::shuffler::PartID>(comm->nranks());
 
     // We create a new shuffler instance, which represents a single shuffle. It takes
@@ -55,6 +61,7 @@ int main(int argc, char** argv) {
     // function, in this example we use the included round-robin owner function.
     rapidsmp::shuffler::Shuffler shuffler(
         comm,
+        progress_thread,
         0,  // op_id
         total_num_partitions,
         stream,
@@ -68,7 +75,7 @@ int main(int argc, char** argv) {
     // does provide a convenience function that hash partition a cudf table and packs
     // each partition. The result is a mapping of `PartID`, globally unique partition
     // identifiers, to their packed partitions.
-    std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> packed_inputs =
+    std::unordered_map<rapidsmp::shuffler::PartID, rapidsmp::PackedData> packed_inputs =
         rapidsmp::shuffler::partition_and_pack(
             local_input,
             {0},  // columns_to_hash

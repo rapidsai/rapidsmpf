@@ -29,18 +29,30 @@ void Environment::SetUp() {
         "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
     );
     comm_ = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
+    progress_thread_ = std::make_shared<rapidsmp::ProgressThread>(comm_->logger());
 }
 
 void Environment::TearDown() {
     // Ensure UCXX cleanup before MPI. If this is not done failures related to
     // accessing the CUDA context may be thrown during shutdown.
     comm_ = nullptr;
-
+    split_comm_ = nullptr;
     RAPIDSMP_MPI(MPI_Finalize());
 }
 
 void Environment::barrier() {
     std::dynamic_pointer_cast<rapidsmp::ucxx::UCXX>(comm_)->barrier();
+}
+
+std::shared_ptr<rapidsmp::Communicator> Environment::split_comm() {
+    // Return cached split communicator if it exists
+    if (split_comm_ != nullptr) {
+        return split_comm_;
+    }
+
+    // Create and cache the new split communicator
+    split_comm_ = std::dynamic_pointer_cast<rapidsmp::ucxx::UCXX>(comm_)->split();
+    return split_comm_;
 }
 
 int main(int argc, char** argv) {

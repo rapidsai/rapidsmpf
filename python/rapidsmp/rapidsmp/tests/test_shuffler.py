@@ -12,6 +12,7 @@ import cudf
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmp.buffer.resource import BufferResource
+from rapidsmp.progress_thread import ProgressThread
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
 from rapidsmp.testing import assert_eq
 from rapidsmp.utils.cudf import (
@@ -59,8 +60,11 @@ def test_shuffler_single_nonempty_partition(
 ) -> None:
     br = BufferResource(device_mr)
 
+    progress_thread = ProgressThread(comm)
+
     shuffler = Shuffler(
         comm,
+        progress_thread,
         op_id=0,
         total_num_partitions=total_num_partitions,
         stream=DEFAULT_STREAM,
@@ -156,9 +160,12 @@ def test_shuffler_uniform(
         ).items()
     }
 
+    progress_thread = ProgressThread(comm)
+
     # Create shuffler
     shuffler = Shuffler(
         comm,
+        progress_thread,
         op_id=0,
         total_num_partitions=total_num_partitions,
         stream=DEFAULT_STREAM,

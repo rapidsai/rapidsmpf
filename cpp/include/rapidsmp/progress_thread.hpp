@@ -64,9 +64,19 @@ class ProgressThread {
      * Composed of the ProgressThread address and a sequential function index.
      */
     struct FunctionID {
-        ProgressThreadAddress
-            thread_address;  ///< The address of the ProgressThread instance
-        FunctionIndex function_index;  ///< The sequential index of the function
+        ProgressThreadAddress thread_address{ProgressThreadAddress(nullptr)
+        };  ///< The address of the ProgressThread instance
+        FunctionIndex function_index{0};  ///< The sequential index of the function
+
+        /**
+         * @brief Construct a FunctionID with an invalid address.
+         *
+         * For a valid object the constructor that takes `thread_addr` and `index`
+         * must be used.
+         *
+         * @note This is the default constructor.
+         */
+        FunctionID() = default;
 
         /**
          * @brief Construct a new FunctionID
@@ -76,6 +86,15 @@ class ProgressThread {
          */
         constexpr FunctionID(ProgressThreadAddress thread_addr, FunctionIndex index)
             : thread_address(thread_addr), function_index(index) {}
+
+        /**
+         * @brief Check if the FunctionID is valid.
+         *
+         * @return True if the FunctionID is valid, false otherwise.
+         */
+        [[nodiscard]] constexpr bool is_valid() const {
+            return thread_address != ProgressThreadAddress(nullptr);
+        }
     };
 
     /**

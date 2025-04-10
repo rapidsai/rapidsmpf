@@ -10,17 +10,18 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <thread>
 #include <vector>
 
 #include <cudf/contiguous_split.hpp>
 #include <cudf/partitioning.hpp>
 #include <cudf/table/table.hpp>
 
+#include <rapidsmp/buffer/packed_data.hpp>
 #include <rapidsmp/buffer/resource.hpp>
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/nvtx.hpp>
+#include <rapidsmp/progress_thread.hpp>
 #include <rapidsmp/shuffler/chunk.hpp>
 #include <rapidsmp/shuffler/finish_counter.hpp>
 #include <rapidsmp/shuffler/postbox.hpp>
@@ -79,6 +80,7 @@ class Shuffler {
      * @brief Construct a new shuffler for a single shuffle.
      *
      * @param comm The communicator to use.
+     * @param progress_thread The progress thread to use.
      * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
      * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
@@ -89,6 +91,7 @@ class Shuffler {
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
+        std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         PartID total_num_partitions,
         rmm::cuda_stream_view stream,
@@ -119,7 +122,7 @@ class Shuffler {
      *
      * @param chunks A map of partition IDs and their packed chunks.
      */
-    void insert(std::unordered_map<PartID, cudf::packed_columns>&& chunks);
+    void insert(std::unordered_map<PartID, PackedData>&& chunks);
 
     /**
      * @brief Insert a finish mark for a partition.
@@ -134,9 +137,9 @@ class Shuffler {
      * @brief Extract all chunks of a specific partition.
      *
      * @param pid The partition ID.
-     * @return A vector of packed columns (chunks) for the partition.
+     * @return A vector of packed data (chunks) for the partition.
      */
-    [[nodiscard]] std::vector<cudf::packed_columns> extract(PartID pid);
+    [[nodiscard]] std::vector<PackedData> extract(PartID pid);
 
     /**
      * @brief Check if all partitions are finished.
@@ -214,39 +217,6 @@ class Shuffler {
      */
     void insert_into_outbox(detail::Chunk&& chunk);
 
-    /**
-     * @brief The event loop running by the shuffler's worker thread.
-     *
-     * @param self The shuffler instance.
-     */
-    static void event_loop(Shuffler* self);
-
-    /**
-     * @brief Executes a single iteration of the shuffler's event loop.
-     *
-     * This function manages the movement of data chunks between ranks in the distributed
-     * system, handling tasks such as sending and receiving metadata, GPU data, and
-     * readiness messages. It also manages the processing of chunks in transit, both
-     * outgoing and incoming, and updates the necessary data structures for further
-     * processing.
-     *
-     * @param self The `Shuffler` instance that owns the event loop.
-     * @param fire_and_forget Ongoing "fire-and-forget" operations (non-blocking sends).
-     * @param incoming_chunks Chunks ready to be received.
-     * @param outgoing_chunks Chunks ready to be sent.
-     * @param in_transit_chunks Chunks currently in transit.
-     * @param in_transit_futures Futures corresponding to in-transit chunks.
-     */
-    static void run_event_loop_iteration(
-        Shuffler& self,
-        std::vector<std::unique_ptr<Communicator::Future>>& fire_and_forget,
-        std::multimap<Rank, detail::Chunk>& incoming_chunks,
-        std::unordered_map<detail::ChunkID, detail::Chunk>& outgoing_chunks,
-        std::unordered_map<detail::ChunkID, detail::Chunk>& in_transit_chunks,
-        std::unordered_map<detail::ChunkID, std::unique_ptr<Communicator::Future>>&
-            in_transit_futures
-    );
-
     /// @brief Get an new unique chunk ID.
     [[nodiscard]] detail::ChunkID get_new_cid();
 
@@ -286,9 +256,11 @@ class Shuffler {
     detail::PostBox outbox_;
 
     std::shared_ptr<Communicator> comm_;
+    std::shared_ptr<ProgressThread> progress_thread_;
+    ProgressThread::FunctionID progress_thread_function_id_;
     OpID const op_id_;
-    std::thread event_loop_thread_;
-    std::atomic<bool> event_loop_thread_run_{true};
+
+    SpillManager::SpillFunctionID spill_function_id_;
 
     detail::FinishCounter finish_counter_;
     std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;
@@ -301,6 +273,8 @@ class Shuffler {
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
     std::shared_ptr<Statistics> statistics_;
+
+    class Progress;
 };
 
 /**

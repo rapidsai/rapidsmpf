@@ -19,7 +19,7 @@ MemoryReservation::~MemoryReservation() noexcept {
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
-    std::optional<std::chrono::microseconds> periodic_spill_check
+    std::optional<Duration> periodic_spill_check
 )
     : device_mr_{device_mr},
       memory_available_{std::move(memory_available)},
@@ -115,7 +115,7 @@ std::unique_ptr<Buffer> BufferResource::move(
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
-    if (target != buffer->mem_type) {
+    if (target != buffer->mem_type()) {
         auto ret = buffer->copy(target, stream);
         release(reservation, target, ret->size);
         return ret;

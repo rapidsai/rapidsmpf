@@ -19,6 +19,7 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 import rapidsmp.communicator.mpi
 from rapidsmp.buffer.buffer import MemoryType
 from rapidsmp.buffer.resource import BufferResource, LimitAvailableMemory
+from rapidsmp.progress_thread import ProgressThread
 from rapidsmp.shuffler import Shuffler, partition_and_pack, unpack_and_concat
 from rapidsmp.statistics import Statistics
 from rapidsmp.testing import pylibcudf_to_cudf_dataframe
@@ -159,8 +160,11 @@ def bulk_mpi_shuffle(
                 columns,
             )
     else:
+        progress_thread = ProgressThread(comm)
+
         shuffler = Shuffler(
             comm,
+            progress_thread,
             op_id=0,
             total_num_partitions=total_num_partitions,
             stream=DEFAULT_STREAM,
