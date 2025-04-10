@@ -136,8 +136,7 @@ class BufferResource {
     BufferResource(
         rmm::device_async_resource_ref device_mr,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
-        std::optional<std::chrono::duration<double>> periodic_spill_check =
-            std::chrono::milliseconds{1},
+        std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false)
     );
 

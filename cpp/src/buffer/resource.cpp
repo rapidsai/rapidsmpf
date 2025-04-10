@@ -19,7 +19,7 @@ MemoryReservation::~MemoryReservation() noexcept {
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
-    std::optional<std::chrono::duration<double>> periodic_spill_check,
+    std::optional<Duration> periodic_spill_check,
     std::shared_ptr<Statistics> statistics
 )
     : device_mr_{device_mr},
