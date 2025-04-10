@@ -27,5 +27,6 @@ cpdef Communicator new_communicator(Intracomm comm):
         A new rapidsmp-mpi communicator.
     """
     cdef Communicator ret = Communicator.__new__(Communicator)
-    ret._handle = make_shared[cpp_MPI_Communicator](comm.ob_mpi)
+    with nogil:
+        ret._handle = make_shared[cpp_MPI_Communicator](comm.ob_mpi)
     return ret
