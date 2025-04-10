@@ -66,27 +66,6 @@ cdef class Statistics:
             ret = deref(self._handle).report()
         return ret.decode('UTF-8')
 
-    def add_stat(self, name, double value):
-        """
-        Adds a value to a statistic.
-
-        Parameters
-        ----------
-        name
-            Name of the statistic.
-        value
-            Value to add.
-
-        Returns
-        -------
-        Updated total value.
-        """
-        cdef string name_ = str.encode(name)
-        cdef double ret
-        with nogil:
-            ret = deref(self._handle).add_stat(name_, value)
-        return ret
-
     def get_stat(self, name):
         """
         Retrieves a statistic by name.
@@ -112,3 +91,24 @@ cdef class Statistics:
             count = cpp_get_statistic_count(deref(self._handle), name_)
             value = cpp_get_statistic_value(deref(self._handle), name_)
         return {"count": count, "value": value}
+
+    def add_stat(self, name, double value):
+        """
+        Adds a value to a statistic.
+
+        Parameters
+        ----------
+        name
+            Name of the statistic.
+        value
+            Value to add.
+
+        Returns
+        -------
+        Updated total value.
+        """
+        cdef string name_ = str.encode(name)
+        cdef double ret
+        with nogil:
+            ret = deref(self._handle).add_stat(name_, value)
+        return ret
