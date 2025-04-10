@@ -7,9 +7,7 @@
 
 namespace rapidsmp::detail {
 
-PausableThreadLoop::PausableThreadLoop(
-    std::function<void()> func, std::chrono::duration<double> sleep
-) {
+PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration sleep) {
     thread_ = std::thread([this, f = std::move(func), sleep]() {
         while (true) {
             {
