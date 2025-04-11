@@ -14,7 +14,7 @@
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 /// Alias for high-resolution clock from the chrono library.
 using Clock = std::chrono::high_resolution_clock;
@@ -283,4 +283,4 @@ std::string to_lower(std::string str);
  */
 std::string to_upper(std::string str);
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

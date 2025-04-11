@@ -18,7 +18,7 @@
 #include <rapidsmp/shuffler/partition.hpp>
 #include <rapidsmp/utils.hpp>
 
-namespace rapidsmp::shuffler {
+namespace rapidsmpf::shuffler {
 
 std::pair<std::vector<cudf::table_view>, std::unique_ptr<cudf::table>>
 partition_and_split(
@@ -105,4 +105,4 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 }
 
 
-}  // namespace rapidsmp::shuffler
+}  // namespace rapidsmpf::shuffler

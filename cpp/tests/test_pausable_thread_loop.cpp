@@ -12,7 +12,7 @@
 
 #include <rapidsmp/pausable_thread_loop.hpp>
 
-using rapidsmp::detail::PausableThreadLoop;
+using rapidsmpf::detail::PausableThreadLoop;
 
 TEST(PausableThreadLoop, ResumeAndPause) {
     int counter{0};

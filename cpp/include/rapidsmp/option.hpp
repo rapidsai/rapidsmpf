@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 /**
  * @brief Retrieves the value of an environment variable and converts it to a specified
@@ -65,4 +65,4 @@ T getenv_or(std::string const& env_var_name, T default_val) {
 template <>
 bool getenv_or(std::string const& env_var_name, bool default_val);
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

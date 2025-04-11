@@ -27,7 +27,7 @@
 #include <rapidsmp/pausable_thread_loop.hpp>
 #include <rapidsmp/statistics.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 /**
  * @brief A progress thread that can execute arbitrary functions.
@@ -188,4 +188,4 @@ class ProgressThread {
     std::unordered_map<FunctionIndex, FunctionState> functions_;
 };
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

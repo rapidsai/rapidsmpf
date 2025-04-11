@@ -17,10 +17,10 @@
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/error.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 /**
- * @namespace rapidsmp::mpi
+ * @namespace rapidsmpf::mpi
  * @brief Collection of helpful [MPI](https://www.mpi-forum.org/docs/) functions.
  */
 namespace mpi {
@@ -49,7 +49,7 @@ bool is_initialized();
  * @param call The MPI call to be checked for errors.
  */
 #define RAPIDSMP_MPI(call) \
-    rapidsmp::mpi::detail::check_mpi_error((call), __FILE__, __LINE__)
+    rapidsmpf::mpi::detail::check_mpi_error((call), __FILE__, __LINE__)
 
 namespace detail {
 /**
@@ -195,4 +195,4 @@ class MPI final : public Communicator {
 };
 
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

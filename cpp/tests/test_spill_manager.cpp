@@ -32,7 +32,7 @@
 #include <rapidsmp/utils.hpp>
 
 
-using namespace rapidsmp;
+using namespace rapidsmpf;
 
 constexpr std::size_t operator"" _KiB(unsigned long long n) {
     return n * (1 << 10);

@@ -22,7 +22,7 @@
 
 #include "rapidsmp/communicator/communicator.hpp"
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 ProgressThread::FunctionState::FunctionState(Function&& function)
     : function(std::move(function)) {}
@@ -115,4 +115,4 @@ void ProgressThread::event_loop() {
     statistics_->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 }
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

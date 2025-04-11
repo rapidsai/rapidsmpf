@@ -13,7 +13,7 @@
 
 #include <rapidsmp/error.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 class BufferResource;
 
@@ -210,4 +210,4 @@ class Buffer {
     StorageT storage_;
 };
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

@@ -57,7 +57,7 @@ TEST(ErrorMacrosTest, CudaTryNoThrow) {
 
 // Test RAPIDSMP_CUDA_TRY macro with failed CUDA call (should throw)
 TEST(ErrorMacrosTest, CudaTryThrow) {
-    EXPECT_THROW(RAPIDSMP_CUDA_TRY(cudaErrorInvalidValue), rapidsmp::cuda_error);
+    EXPECT_THROW(RAPIDSMP_CUDA_TRY(cudaErrorInvalidValue), rapidsmpf::cuda_error);
     EXPECT_THROW(
         RAPIDSMP_CUDA_TRY(cudaErrorInvalidValue, std::runtime_error), std::runtime_error
     );
@@ -95,7 +95,7 @@ TEST(ErrorMacrosTest, ErrorMessages) {
     try {
         RAPIDSMP_CUDA_TRY(cudaErrorInvalidValue);
         FAIL() << "Expected RAPIDSMP_CUDA_TRY to throw an exception";
-    } catch (const rapidsmp::cuda_error& e) {
+    } catch (const rapidsmpf::cuda_error& e) {
         std::string error_message = e.what();
         EXPECT_TRUE(error_message.find("CUDA error at:") != std::string::npos);
         EXPECT_TRUE(error_message.find("invalid argument") != std::string::npos);
@@ -115,7 +115,7 @@ TEST(ErrorMacrosTest, ErrorMessages) {
     try {
         RAPIDSMP_CUDA_TRY_ALLOC(cudaErrorInvalidValue, 1024);
         FAIL() << "Expected RAPIDSMP_CUDA_TRY_ALLOC to throw an exception";
-    } catch (const rapidsmp::bad_alloc& e) {
+    } catch (const rapidsmpf::bad_alloc& e) {
         std::string error_message = e.what();
         EXPECT_TRUE(
             error_message.find("CUDA error (failed to allocate 1024 bytes)")
@@ -128,7 +128,7 @@ TEST(ErrorMacrosTest, ErrorMessages) {
     try {
         RAPIDSMP_CUDA_TRY_ALLOC(cudaErrorMemoryAllocation, 2048);
         FAIL() << "Expected RAPIDSMP_CUDA_TRY_ALLOC to throw an exception";
-    } catch (const rapidsmp::out_of_memory& e) {
+    } catch (const rapidsmpf::out_of_memory& e) {
         std::string error_message = e.what();
         EXPECT_TRUE(error_message.find("out_of_memory") != std::string::npos);
         EXPECT_TRUE(

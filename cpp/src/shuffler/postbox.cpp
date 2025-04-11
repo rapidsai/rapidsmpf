@@ -9,7 +9,7 @@
 #include <rapidsmp/shuffler/postbox.hpp>
 #include <rapidsmp/utils.hpp>
 
-namespace rapidsmp::shuffler::detail {
+namespace rapidsmpf::shuffler::detail {
 
 
 void PostBox::insert(Chunk&& chunk) {
@@ -81,4 +81,4 @@ std::string PostBox::str() const {
 }
 
 
-}  // namespace rapidsmp::shuffler::detail
+}  // namespace rapidsmpf::shuffler::detail

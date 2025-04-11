@@ -58,7 +58,7 @@ target_compile_options(
                     "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMP_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  mpi_tests PRIVATE rapidsmp::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
+  mpi_tests PRIVATE rapidsmpf::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
                     GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 disable_sign_conversion_warning(mpi_tests)
@@ -83,7 +83,7 @@ target_compile_options(
                      "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMP_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  ucxx_tests PRIVATE rapidsmp::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
+  ucxx_tests PRIVATE rapidsmpf::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
                      GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 disable_sign_conversion_warning(ucxx_tests)

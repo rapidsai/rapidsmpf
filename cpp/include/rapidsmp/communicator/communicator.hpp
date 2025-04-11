@@ -21,10 +21,10 @@
 #include <rapidsmp/option.hpp>
 
 /**
- * @namespace rapidsmp
+ * @namespace rapidsmpf
  * @brief RAPIDS Multi-Processor interfaces.
  */
-namespace rapidsmp {
+namespace rapidsmpf {
 
 /**
  * @typedef Rank
@@ -513,4 +513,4 @@ inline std::ostream& operator<<(std::ostream& os, Communicator const& obj) {
     return os;
 }
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

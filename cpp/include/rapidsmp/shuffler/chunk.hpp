@@ -14,7 +14,7 @@
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/shuffler/partition.hpp>
 
-namespace rapidsmp::shuffler::detail {
+namespace rapidsmpf::shuffler::detail {
 
 /**
  * @brief The globally unique ID of a chunk.
@@ -199,4 +199,4 @@ inline std::ostream& operator<<(std::ostream& os, ReadyForDataMessage const& obj
     return os;
 }
 
-}  // namespace rapidsmp::shuffler::detail
+}  // namespace rapidsmpf::shuffler::detail

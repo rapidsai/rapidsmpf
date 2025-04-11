@@ -29,12 +29,12 @@
 #include <rapidsmp/utils.hpp>
 
 /**
- * @namespace rapidsmp::shuffler
+ * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
  *
  * A shuffle service for cuDF tables. Use `Shuffler` to perform a single shuffle.
  */
-namespace rapidsmp::shuffler {
+namespace rapidsmpf::shuffler {
 
 /**
  * @brief Shuffle service for cuDF tables.
@@ -47,7 +47,7 @@ class Shuffler {
   public:
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the
-     * `rapidsmp::Rank` of the _owning_ node.
+     * `rapidsmpf::Rank` of the _owning_ node.
      */
     using PartitionOwner = std::function<Rank(std::shared_ptr<Communicator>, PartID)>;
 
@@ -291,4 +291,4 @@ inline std::ostream& operator<<(std::ostream& os, Shuffler const& obj) {
     return os;
 }
 
-}  // namespace rapidsmp::shuffler
+}  // namespace rapidsmpf::shuffler

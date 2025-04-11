@@ -18,7 +18,7 @@
 #include <rapidsmp/shuffler/shuffler.hpp>
 #include <rapidsmp/utils.hpp>
 
-namespace rapidsmp::shuffler {
+namespace rapidsmpf::shuffler {
 
 using namespace detail;
 
@@ -608,4 +608,4 @@ std::string detail::FinishCounter::str() const {
     return ss.str();
 }
 
-}  // namespace rapidsmp::shuffler
+}  // namespace rapidsmpf::shuffler

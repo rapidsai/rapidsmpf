@@ -8,7 +8,7 @@
 
 #include <rapidsmp/statistics.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 void Statistics::FormatterDefault(std::ostream& os, std::size_t count, double val) {
     os << val;
@@ -81,4 +81,4 @@ std::string Statistics::report(std::string const& header) const {
 }
 
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

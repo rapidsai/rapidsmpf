@@ -17,7 +17,7 @@
 #include <rapidsmp/communicator/communicator.hpp>
 #include <rapidsmp/error.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 namespace ucxx {
 
@@ -81,7 +81,7 @@ class InitializedRank {
  *
  * @throws std::logic_error if the `remote_address` is an invalid object.
  */
-std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
+std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
     Rank nranks,
     std::optional<RemoteAddress> remote_address = std::nullopt
@@ -250,4 +250,4 @@ class UCXX final : public Communicator {
 
 }  // namespace ucxx
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

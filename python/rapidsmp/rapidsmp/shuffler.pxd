@@ -33,7 +33,7 @@ cpdef Table unpack_and_concat(
 )
 
 cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
-    cdef cppclass cpp_Shuffler "rapidsmp::shuffler::Shuffler":
+    cdef cppclass cpp_Shuffler "rapidsmpf::shuffler::Shuffler":
         cpp_Shuffler(
             shared_ptr[cpp_Communicator] comm,
             shared_ptr[cpp_ProgressThread] comm,

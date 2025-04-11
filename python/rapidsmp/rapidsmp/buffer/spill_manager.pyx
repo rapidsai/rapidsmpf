@@ -52,7 +52,7 @@ cdef size_t cython_invoke_python_spill_function(
 cdef extern from *:
     """
     template<typename T1, typename T2>
-    rapidsmp::SpillManager::SpillFunction cython_to_cpp_closure_lambda(
+    rapidsmpf::SpillManager::SpillFunction cython_to_cpp_closure_lambda(
         T1 wrapper, T2 py_spill_function
     ) {
         return [wrapper, py_spill_function](std::size_t amount) -> std::size_t {

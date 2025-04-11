@@ -3,6 +3,6 @@
 
 
 cdef extern from "<rapidsmp/utils.hpp>" nogil:
-    cdef cppclass cpp_Duration "rapidsmp::Duration":
+    cdef cppclass cpp_Duration "rapidsmpf::Duration":
         cpp_Duration() except +
         cpp_Duration(double) except +

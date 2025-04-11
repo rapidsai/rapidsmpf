@@ -11,7 +11,7 @@
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/communicator/communicator.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 
 /**
@@ -204,4 +204,4 @@ class Statistics {
     bool enabled_;
     std::map<std::string, Stat> stats_;
 };
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

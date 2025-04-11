@@ -7,10 +7,10 @@ from libcpp.memory cimport shared_ptr
 
 
 cdef extern from "<rapidsmp/buffer/spill_manager.hpp>" nogil:
-    cdef cppclass cpp_SpillFunction "rapidsmp::SpillManager::SpillFunction":
+    cdef cppclass cpp_SpillFunction "rapidsmpf::SpillManager::SpillFunction":
         pass
 
-    cdef cppclass cpp_SpillManager "rapidsmp::SpillManager":
+    cdef cppclass cpp_SpillManager "rapidsmpf::SpillManager":
         size_t add_spill_function(
             cpp_SpillFunction spill_function, int priority
         ) except +

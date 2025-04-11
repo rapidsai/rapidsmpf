@@ -19,7 +19,7 @@
 #include <rapidsmp/statistics.hpp>
 #include <rapidsmp/utils.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 class Statistics;
 
@@ -380,7 +380,7 @@ class BufferResource {
  * By enforcing a limit, this functor can be used to simulate constrained memory
  * environments or to prevent memory allocation beyond a specific threshold.
  *
- * @see rapidsmp::BufferResource::MemoryAvailable
+ * @see rapidsmpf::BufferResource::MemoryAvailable
  */
 class LimitAvailableMemory {
   public:
@@ -420,4 +420,4 @@ class LimitAvailableMemory {
 };
 
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

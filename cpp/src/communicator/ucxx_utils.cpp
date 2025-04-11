@@ -9,7 +9,7 @@
 #include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/communicator/ucxx_utils.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 namespace ucxx {
 
@@ -40,7 +40,7 @@ void broadcast_listener_address(MPI_Comm mpi_comm, std::string& root_worker_addr
 }  // namespace
 
 std::shared_ptr<UCXX> init_using_mpi(MPI_Comm mpi_comm) {
-    RAPIDSMP_EXPECTS(::rapidsmp::mpi::is_initialized(), "MPI not initialized");
+    RAPIDSMP_EXPECTS(::rapidsmpf::mpi::is_initialized(), "MPI not initialized");
 
     // Ensure CUDA context is created before UCX is initialized.
     cudaFree(nullptr);
@@ -76,4 +76,4 @@ std::shared_ptr<UCXX> init_using_mpi(MPI_Comm mpi_comm) {
 }
 
 }  // namespace ucxx
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

@@ -8,7 +8,7 @@
 #include <rapidsmp/communicator/mpi.hpp>
 #include <rapidsmp/error.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 namespace mpi {
 void init(int* argc, char*** argv) {
@@ -262,4 +262,4 @@ std::string MPI::str() const {
        << "." << subversion << ")";
     return ss.str();
 }
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

@@ -10,7 +10,7 @@
 #include <rapidsmp/error.hpp>
 #include <rapidsmp/utils.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 namespace {
 struct str_cudf_column_scalar_fn {
@@ -117,4 +117,4 @@ std::string to_upper(std::string str) {
     return str;
 }
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

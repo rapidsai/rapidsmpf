@@ -12,7 +12,7 @@ from rapidsmp.statistics cimport cpp_Statistics
 
 
 cdef extern from "<rapidsmp/progress_thread.hpp>" nogil:
-    cdef cppclass cpp_ProgressThread "rapidsmp::ProgressThread":
+    cdef cppclass cpp_ProgressThread "rapidsmpf::ProgressThread":
         cpp_ProgressThread(
             cpp_Logger& logger,
             shared_ptr[cpp_Statistics] statistics,
