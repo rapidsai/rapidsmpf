@@ -49,7 +49,9 @@ ProgressThread::ProgressThread(
           return event_loop();
       }),
       logger_(logger),
-      statistics_(std::move(statistics)) {}
+      statistics_(std::move(statistics)) {
+    RAPIDSMP_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+}
 
 ProgressThread::~ProgressThread() {
     stop();

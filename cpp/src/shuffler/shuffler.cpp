@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <chrono>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -107,13 +106,11 @@ std::unique_ptr<Buffer> allocate_buffer(
 std::size_t postbox_spilling(
     BufferResource* br,
     Communicator::Logger& log,
-    Statistics& statistics,
     rmm::cuda_stream_view stream,
     PostBox& postbox,
     std::size_t amount
 ) {
     RAPIDSMP_NVTX_FUNC_RANGE();
-    auto const t0_elapsed = Clock::now();
     // Let's look for chunks to spill in the outbox.
     auto const chunk_info = postbox.search(MemoryType::DEVICE);
     std::size_t total_spilled{0};
@@ -138,18 +135,6 @@ std::size_t postbox_spilling(
         if ((total_spilled += size) >= amount) {
             break;
         }
-    }
-    statistics.add_duration_stat("spill-time-device-to-host", Clock::now() - t0_elapsed);
-    statistics.add_bytes_stat("spill-bytes-device-to-host", total_spilled);
-    if (total_spilled < amount) {
-        // TODO: use a "max" statistic when it is available, for now we use the average.
-        statistics.add_stat(
-            "spill-breach-device-limit",
-            amount - total_spilled,
-            [](std::ostream& os, std::size_t count, double val) {
-                os << "avg " << format_nbytes(val / count);
-            }
-        );
     }
     return total_spilled;
 }
@@ -496,10 +481,10 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
             );
             statistics_->add_duration_stat(
-                "spill-time-host-to-device", Clock::now() - t0_elapsed
+                "spill-time-device-to-host", Clock::now() - t0_elapsed
             );
             statistics_->add_bytes_stat(
-                "spill-bytes-host-to-device", chunk.gpu_data->size
+                "spill-bytes-device-to-host", chunk.gpu_data->size
             );
             insert(std::move(chunk));
         } else {
@@ -545,7 +530,7 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
 
     // Check overbooking, do we need to spill to host memory?
     if (overbooking > 0) {
-        spill(overbooking);
+        br_->spill_manager().spill(overbooking);
     }
 
     // Move the gpu_data to device memory (copy if necessary).
@@ -581,9 +566,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         std::lock_guard<std::mutex> lock(outbox_spilling_mutex_);
-        spilled = postbox_spilling(
-            br_, comm_->logger(), *statistics_, stream_, outbox_, spill_need
-        );
+        spilled = postbox_spilling(br_, comm_->logger(), stream_, outbox_, spill_need);
     }
     return spilled;
 }

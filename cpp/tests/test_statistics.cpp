@@ -34,8 +34,8 @@ TEST(Statistics, Communication) {
 
     EXPECT_EQ(stats.add_stat("custom-formatter", 10, custom_formatter), 10);
     EXPECT_EQ(stats.add_stat("custom-formatter", 1, custom_formatter), 11);
-    EXPECT_EQ(stats.get_stat("custom-formatter").count_, 2);
-    EXPECT_EQ(stats.get_stat("custom-formatter").value_, 11);
+    EXPECT_EQ(stats.get_stat("custom-formatter").count(), 2);
+    EXPECT_EQ(stats.get_stat("custom-formatter").value(), 11);
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("custom-formatter"));
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("11 by custom formatter"));
 
