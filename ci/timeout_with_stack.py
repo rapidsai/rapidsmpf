@@ -50,14 +50,13 @@ def get_child_pids(pid: int) -> list[int]:
 
     Parameters
     ----------
-    pid : int
+    pid
         The process ID of the parent process.
 
     Returns
     -------
-    list[int]
-        A list of child process IDs. Returns an empty list if the parent process
-        does not exist.
+    A list of child process IDs. Returns an empty list if the parent process
+    does not exist.
 
     See Also
     --------
@@ -87,9 +86,9 @@ def capture_stack_trace(pid: int, stack_type = StackType.C) -> None:
 
     Parameters
     ----------
-    pid : int
+    pid
         The process ID of the process to capture stack trace for.
-    stack_type : StackType
+    stack_type
         The stack type to extract, either C or Python.
 
     See Also
@@ -139,9 +138,9 @@ def capture_all_stacks(pid: int, enable_python: bool = False) -> None:
 
     Parameters
     ----------
-    pid : int
+    pid
         The process ID of the parent process.
-    enable_python : bool, optional
+    enable_python
         Whether to capture Python stack traces.
 
     See Also
@@ -177,7 +176,7 @@ def terminate_process_tree(pid: int) -> None:
 
     Parameters
     ----------
-    pid : int
+    pid
         The process ID of the parent process to terminate.
 
     See Also
@@ -233,18 +232,17 @@ def run_with_timeout(cmd: Sequence[str], timeout: float, enable_python: bool = F
 
     Parameters
     ----------
-    cmd : Sequence[str]
+    cmd
         The command and its arguments to run.
-    timeout : float
+    timeout
         Maximum time in seconds to allow the command to run.
-    enable_python : bool, optional
+    enable_python
         Whether to capture Python stack traces.
 
     Returns
     -------
-    int
-        Return code of the command, or 124 if timeout occurred, or signal.SIGINT
-        if interrupted by keyboard.
+    Return code of the command, or 124 if timeout occurred, or signal.SIGINT
+    if interrupted by keyboard.
 
     See Also
     --------
