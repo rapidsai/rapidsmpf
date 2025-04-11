@@ -68,6 +68,9 @@ for FILE in conda/recipes/*/conda_build_config.yaml; do
   sed_runner "/^ucxx_version:$/ {n;s/.*/  - \"${NEXT_UCXX_SHORT_TAG_PEP440}.*\"/}" "${FILE}"
 done
 
+# rapids-cmake version
+sed_runner 's/'"set(rapids-cmake-version.*"'/'"set(rapids-cmake-version ${NEXT_RAPIDS_SHORT_TAG})"'/g' cmake/RAPIDS.cmake
+
 # CI files
 for FILE in .github/workflows/*.yaml; do
   sed_runner "/shared-workflows/ s/@.*/@branch-${NEXT_SHORT_TAG}/g" "${FILE}"
