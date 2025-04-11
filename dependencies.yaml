@@ -169,8 +169,6 @@ dependencies:
           - valgrind
           - cuda-sanitizer-api
           - click >=8.1
-          - gdb
-          - psutil
   test_rapidsmp:
     common:
       - output_types: conda
@@ -183,6 +181,8 @@ dependencies:
           - cudf==25.6.*,>=0.0.0a0
           - dask-cuda==25.6.*,>=0.0.0a0
           - dask-cudf==25.6.*,>=0.0.0a0
+          - gdb
+          - psutil
           - pytest
           - ucxx==0.44.*,>=0.0.0a0
           - nvidia-ml-py
