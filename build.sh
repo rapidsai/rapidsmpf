@@ -32,9 +32,9 @@ HELP="$0 [clean] [librapidsmp] [rapidsmp] [-v] [-g] [-n] [--cmake-args=\"<args>\
    -h                          - print this text
    default action (no args) is to build and install the 'librapidsmp' then 'rapidsmp' targets
 "
-LIBRAPIDSMP_BUILD_DIR=${LIBRAPIDSMP_BUILD_DIR:=${REPODIR}/cpp/build}
-PYRAPIDSMP_=${REPODIR}/python/rapidsmp/build
-BUILD_DIRS="${LIBRAPIDSMP_BUILD_DIR} ${PYRAPIDSMP_}"
+LIBRAPIDSMPF_BUILD_DIR=${LIBRAPIDSMPF_BUILD_DIR:=${REPODIR}/cpp/build}
+PYRAPIDSMPF_=${REPODIR}/python/rapidsmp/build
+BUILD_DIRS="${LIBRAPIDSMPF_BUILD_DIR} ${PYRAPIDSMPF_}"
 
 # Set defaults for vars modified by flags to this script
 VERBOSE_FLAG=""
@@ -45,8 +45,8 @@ PYTHON_ARGS_FOR_INSTALL="-m pip install --no-build-isolation --no-deps --config-
 
 # Set defaults for vars that may not have been defined externally
 # If INSTALL_PREFIX is not set, check PREFIX, then check
-# CONDA_PREFIX, then fall back to install inside of $LIBRAPIDSMP_BUILD_DIR
-INSTALL_PREFIX=${INSTALL_PREFIX:=${PREFIX:=${CONDA_PREFIX:=$LIBRAPIDSMP_BUILD_DIR/install}}}
+# CONDA_PREFIX, then fall back to install inside of $LIBRAPIDSMPF_BUILD_DIR
+INSTALL_PREFIX=${INSTALL_PREFIX:=${PREFIX:=${CONDA_PREFIX:=$LIBRAPIDSMPF_BUILD_DIR/install}}}
 export PARALLEL_LEVEL=${PARALLEL_LEVEL:-4}
 
 function hasArg {
@@ -77,13 +77,13 @@ function cmakeArgs {
 
 
 # Runs cmake if it has not been run already for build directory
-# LIBRAPIDSMP_BUILD_DIR
+# LIBRAPIDSMPF_BUILD_DIR
 function ensureCMakeRan {
-    mkdir -p "${LIBRAPIDSMP_BUILD_DIR}"
+    mkdir -p "${LIBRAPIDSMPF_BUILD_DIR}"
     cd ${REPODIR}/cpp
     if (( RAN_CMAKE == 0 )); then
         echo "Executing cmake for librapidsmp..."
-        cmake -B "${LIBRAPIDSMP_BUILD_DIR}" -S . \
+        cmake -B "${LIBRAPIDSMPF_BUILD_DIR}" -S . \
               -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
               -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
               ${EXTRA_CMAKE_ARGS}
@@ -143,10 +143,10 @@ fi
 if (( NUMARGS == 0 )) || hasArg librapidsmp; then
     ensureCMakeRan
     echo "building librapidsmp..."
-    cmake --build "${LIBRAPIDSMP_BUILD_DIR}" -j${PARALLEL_LEVEL} ${VERBOSE_FLAG}
+    cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" -j${PARALLEL_LEVEL} ${VERBOSE_FLAG}
     if [[ ${INSTALL_TARGET} != "" ]]; then
         echo "installing librapidsmp..."
-        cmake --build "${LIBRAPIDSMP_BUILD_DIR}" --target install ${VERBOSE_FLAG}
+        cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" --target install ${VERBOSE_FLAG}
     fi
 fi
 
@@ -154,6 +154,6 @@ fi
 if (( NUMARGS == 0 )) || hasArg rapidsmp; then
     echo "building rapidsmp..."
     cd ${REPODIR}/python/rapidsmp
-    SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBRAPIDSMP_BUILD_DIR};${EXTRA_CMAKE_ARGS}" \
+    SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBRAPIDSMPF_BUILD_DIR};${EXTRA_CMAKE_ARGS}" \
         python ${PYTHON_ARGS_FOR_INSTALL} ${VERBOSE_FLAG} .
 fi
