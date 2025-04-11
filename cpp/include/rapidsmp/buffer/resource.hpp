@@ -16,9 +16,12 @@
 #include <rapidsmp/buffer/buffer.hpp>
 #include <rapidsmp/buffer/spill_manager.hpp>
 #include <rapidsmp/error.hpp>
+#include <rapidsmp/statistics.hpp>
 #include <rapidsmp/utils.hpp>
 
 namespace rapidsmp {
+
+class Statistics;
 
 /**
  * @brief Represents a reservation for future memory allocation.
@@ -128,11 +131,13 @@ class BufferResource {
      * continuously checks and perform spilling based on the memory availability
      * functions. The value of `periodic_spill_check` is used as the pause between checks.
      * If `std::nullopt`, no periodic spill check is performed.
+     * @param statistics The statistics instance to use (disabled by default).
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
-        std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1}
+        std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
+        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false)
     );
 
     ~BufferResource() noexcept = default;
@@ -344,6 +349,14 @@ class BufferResource {
      */
     SpillManager& spill_manager();
 
+    /**
+     * @brief Gets a shared pointer to the statistics associated with this buffer
+     * resource.
+     *
+     * @return Shared pointer the Statistics instance.
+     */
+    std::shared_ptr<Statistics> statistics();
+
   private:
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
@@ -351,6 +364,7 @@ class BufferResource {
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
     SpillManager spill_manager_;
+    std::shared_ptr<Statistics> statistics_;
 };
 
 /**
