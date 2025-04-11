@@ -8,10 +8,10 @@
 
 #include <mpi.h>
 
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/communicator/ucxx_utils.hpp>
-#include <rapidsmp/statistics.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"

@@ -7,8 +7,8 @@
 #include <mpi.h>
 #include <ucxx/listener.h>
 
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx_utils.hpp>
 
 #include "../environment.hpp"
 

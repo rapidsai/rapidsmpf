@@ -8,7 +8,7 @@
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 
-#include <rapidsmp/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
 
 
 /**

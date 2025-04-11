@@ -8,12 +8,12 @@
 #include <mpi.h>
 #include <unistd.h>
 
-#include <rapidsmp/buffer/packed_data.hpp>
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/shuffler/partition.hpp>
-#include <rapidsmp/shuffler/shuffler.hpp>
-#include <rapidsmp/statistics.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/shuffler/partition.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "../benchmarks/utils/random_data.hpp"
 

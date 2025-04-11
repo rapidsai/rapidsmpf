@@ -5,9 +5,9 @@
 
 #include <sstream>
 
-#include <rapidsmp/shuffler/chunk.hpp>
-#include <rapidsmp/shuffler/postbox.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/shuffler/chunk.hpp>
+#include <rapidsmpf/shuffler/postbox.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf::shuffler::detail {
 

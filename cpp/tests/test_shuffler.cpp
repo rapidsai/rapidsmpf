@@ -13,12 +13,12 @@
 #include <cudf_test/debug_utilities.hpp>
 #include <cudf_test/table_utilities.hpp>
 
-#include <rapidsmp/buffer/packed_data.hpp>
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/communicator/ucxx.hpp>
-#include <rapidsmp/shuffler/shuffler.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/utils.hpp>
 
 #include "environment.hpp"
 #include "utils.hpp"

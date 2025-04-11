@@ -14,8 +14,8 @@
 #include <cudf/utilities/memory_resource.hpp>
 #include <rmm/device_buffer.hpp>
 
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/error.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf {
 

@@ -7,8 +7,8 @@
 
 #include <cudf/copying.hpp>
 
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
 

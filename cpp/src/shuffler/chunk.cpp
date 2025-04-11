@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <rapidsmp/buffer/buffer.hpp>
-#include <rapidsmp/buffer/packed_data.hpp>
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/shuffler/chunk.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/shuffler/chunk.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf::shuffler::detail {
 

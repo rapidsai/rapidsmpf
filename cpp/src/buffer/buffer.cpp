@@ -4,8 +4,8 @@
  */
 #include <stdexcept>
 
-#include <rapidsmp/buffer/buffer.hpp>
-#include <rapidsmp/buffer/resource.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
 
 namespace rapidsmpf {
 

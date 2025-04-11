@@ -11,7 +11,7 @@
 
 #include <rmm/device_buffer.hpp>
 
-#include <rapidsmp/error.hpp>
+#include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf {
 

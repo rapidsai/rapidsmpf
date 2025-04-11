@@ -10,7 +10,7 @@
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
-#include <rapidsmp/error.hpp>
+#include <rapidsmpf/error.hpp>
 
 /*
  * This file contains tests for the RAPIDSMP error macros.

@@ -11,7 +11,7 @@ from rapidsmp.communicator.communicator cimport cpp_Logger
 from rapidsmp.statistics cimport cpp_Statistics
 
 
-cdef extern from "<rapidsmp/progress_thread.hpp>" nogil:
+cdef extern from "<rapidsmpf/progress_thread.hpp>" nogil:
     cdef cppclass cpp_ProgressThread "rapidsmpf::ProgressThread":
         cpp_ProgressThread(
             cpp_Logger& logger,

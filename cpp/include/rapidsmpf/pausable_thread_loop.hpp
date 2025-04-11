@@ -10,7 +10,7 @@
 #include <mutex>
 #include <thread>
 
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf::detail {
 /**

@@ -32,7 +32,7 @@ cpdef Table unpack_and_concat(
     DeviceMemoryResource device_mr,
 )
 
-cdef extern from "<rapidsmp/shuffler/shuffler.hpp>" nogil:
+cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
     cdef cppclass cpp_Shuffler "rapidsmpf::shuffler::Shuffler":
         cpp_Shuffler(
             shared_ptr[cpp_Communicator] comm,

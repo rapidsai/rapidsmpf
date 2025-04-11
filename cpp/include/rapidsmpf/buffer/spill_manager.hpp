@@ -8,8 +8,8 @@
 #include <mutex>
 #include <optional>
 
-#include <rapidsmp/pausable_thread_loop.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/pausable_thread_loop.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
 

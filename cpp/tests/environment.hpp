@@ -7,8 +7,8 @@
 #include <gtest/gtest.h>
 #include <mpi.h>
 
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/progress_thread.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 class Environment : public ::testing::Environment {
   public:

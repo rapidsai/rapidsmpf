@@ -10,8 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/shuffler/chunk.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/shuffler/chunk.hpp>
 
 namespace rapidsmpf::shuffler::detail {
 

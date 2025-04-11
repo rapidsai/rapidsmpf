@@ -131,7 +131,7 @@ endif()
 
 rapids_cuda_set_runtime(rapidsmp USE_STATIC ${CUDA_STATIC_RUNTIME})
 
-add_library(rapidsmpf::rapidsmp ALIAS rapidsmp)
+add_library(rapidsmp::rapidsmp ALIAS rapidsmp)
 
 # ##################################################################################################
 # * linter configuration ---------------------------------------------------------------------------
@@ -222,7 +222,7 @@ install(
   DESTINATION ${lib_dir}
   EXPORT rapidsmp-exports
 )
-install(DIRECTORY include/rapidsmp/ DESTINATION include/rapidsmp)
+install(DIRECTORY include/rapidsmpf/ DESTINATION include/rapidsmpf)
 
 set(doc_string
     [=[
@@ -234,7 +234,7 @@ rapids_export(
   INSTALL rapidsmp
   EXPORT_SET rapidsmp-exports
   GLOBAL_TARGETS rapidsmp
-  NAMESPACE rapidsmpf::
+  NAMESPACE rapidsmp::
   DOCUMENTATION doc_string
 )
 
@@ -245,6 +245,6 @@ rapids_export(
   BUILD rapidsmp
   EXPORT_SET rapidsmp-exports
   GLOBAL_TARGETS rapidsmp
-  NAMESPACE rapidsmpf::
+  NAMESPACE rapidsmp::
   DOCUMENTATION doc_string
 )

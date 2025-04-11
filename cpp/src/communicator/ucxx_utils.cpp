@@ -6,8 +6,8 @@
 #include <cuda_device_runtime_api.h>
 #include <ucxx/listener.h>
 
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx_utils.hpp>
 
 namespace rapidsmpf {
 

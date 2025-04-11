@@ -5,7 +5,7 @@
 
 #include <limits>
 
-#include <rapidsmp/buffer/resource.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
 
 namespace rapidsmpf {
 

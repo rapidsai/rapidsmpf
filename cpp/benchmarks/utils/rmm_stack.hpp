@@ -14,7 +14,7 @@
 #include <rmm/mr/device/pool_memory_resource.hpp>
 #include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
-#include <rapidsmp/error.hpp>
+#include <rapidsmpf/error.hpp>
 
 /**
  * @brief Create and set a RMM stack as the current device memory resource.

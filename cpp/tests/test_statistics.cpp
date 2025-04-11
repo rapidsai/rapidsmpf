@@ -7,8 +7,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/statistics.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 using namespace rapidsmpf;
 

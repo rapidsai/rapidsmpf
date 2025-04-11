@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <rapidsmp/option.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/option.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
 

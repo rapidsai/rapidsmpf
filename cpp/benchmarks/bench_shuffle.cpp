@@ -9,14 +9,14 @@
 #include <mpi.h>
 #include <unistd.h>
 
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/communicator/ucxx_utils.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/nvtx.hpp>
-#include <rapidsmp/shuffler/partition.hpp>
-#include <rapidsmp/shuffler/shuffler.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/shuffler/partition.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/utils.hpp>
 
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"

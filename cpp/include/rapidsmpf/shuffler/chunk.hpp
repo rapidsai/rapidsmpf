@@ -11,8 +11,8 @@
 #include <cudf/contiguous_split.hpp>
 #include <cudf/table/table.hpp>
 
-#include <rapidsmp/buffer/buffer.hpp>
-#include <rapidsmp/shuffler/partition.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/shuffler/partition.hpp>
 
 namespace rapidsmpf::shuffler::detail {
 

@@ -16,11 +16,11 @@
 
 #include <utility>
 
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/progress_thread.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/utils.hpp>
 
-#include "rapidsmp/communicator/communicator.hpp"
+#include "rapidsmpf/communicator/communicator.hpp"
 
 namespace rapidsmpf {
 

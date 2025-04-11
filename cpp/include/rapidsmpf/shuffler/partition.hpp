@@ -11,7 +11,7 @@
 #include <cudf/partitioning.hpp>
 #include <cudf/table/table.hpp>
 
-#include <rapidsmp/buffer/packed_data.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
 
 namespace rapidsmpf::shuffler {
 

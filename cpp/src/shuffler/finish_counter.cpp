@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/shuffler/finish_counter.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/shuffler/finish_counter.hpp>
 
 namespace rapidsmpf::shuffler::detail {
 

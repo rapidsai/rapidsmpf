@@ -5,9 +5,9 @@
 
 #include <utility>
 
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/buffer/spill_manager.hpp>
-#include <rapidsmp/nvtx.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/buffer/spill_manager.hpp>
+#include <rapidsmpf/nvtx.hpp>
 
 namespace rapidsmpf {
 

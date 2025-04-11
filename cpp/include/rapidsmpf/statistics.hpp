@@ -8,8 +8,8 @@
 #include <string>
 #include <utility>
 
-#include <rapidsmp/buffer/buffer.hpp>
-#include <rapidsmp/communicator/communicator.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
 
 namespace rapidsmpf {
 

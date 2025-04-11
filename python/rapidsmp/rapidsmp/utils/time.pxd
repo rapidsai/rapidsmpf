@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-cdef extern from "<rapidsmp/utils.hpp>" nogil:
+cdef extern from "<rapidsmpf/utils.hpp>" nogil:
     cdef cppclass cpp_Duration "rapidsmpf::Duration":
         cpp_Duration() except +
         cpp_Duration(double) except +

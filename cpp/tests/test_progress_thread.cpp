@@ -19,10 +19,10 @@
 
 #include <cudf_test/base_fixture.hpp>
 
-#include <rapidsmp/progress_thread.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 #include "environment.hpp"
-#include "rapidsmp/statistics.hpp"
+#include "rapidsmpf/statistics.hpp"
 
 using rapidsmpf::ProgressThread;
 

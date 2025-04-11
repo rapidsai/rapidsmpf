@@ -6,7 +6,7 @@
 #include <gtest/gtest.h>
 #include <mpi.h>
 
-#include <rapidsmp/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
 
 #include "../environment.hpp"
 

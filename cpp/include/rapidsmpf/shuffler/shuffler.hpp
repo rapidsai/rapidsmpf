@@ -16,17 +16,17 @@
 #include <cudf/partitioning.hpp>
 #include <cudf/table/table.hpp>
 
-#include <rapidsmp/buffer/packed_data.hpp>
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/nvtx.hpp>
-#include <rapidsmp/progress_thread.hpp>
-#include <rapidsmp/shuffler/chunk.hpp>
-#include <rapidsmp/shuffler/finish_counter.hpp>
-#include <rapidsmp/shuffler/postbox.hpp>
-#include <rapidsmp/statistics.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/shuffler/chunk.hpp>
+#include <rapidsmpf/shuffler/finish_counter.hpp>
+#include <rapidsmpf/shuffler/postbox.hpp>
+#include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/utils.hpp>
 
 /**
  * @namespace rapidsmpf::shuffler

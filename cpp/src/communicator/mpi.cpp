@@ -5,8 +5,8 @@
 
 #include <array>
 
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/error.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf {
 

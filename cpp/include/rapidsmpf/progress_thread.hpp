@@ -24,8 +24,8 @@
 #include <thread>
 #include <unordered_map>
 
-#include <rapidsmp/pausable_thread_loop.hpp>
-#include <rapidsmp/statistics.hpp>
+#include <rapidsmpf/pausable_thread_loop.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf {
 

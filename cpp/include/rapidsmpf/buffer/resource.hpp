@@ -13,11 +13,11 @@
 
 #include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
-#include <rapidsmp/buffer/buffer.hpp>
-#include <rapidsmp/buffer/spill_manager.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/statistics.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/spill_manager.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
 

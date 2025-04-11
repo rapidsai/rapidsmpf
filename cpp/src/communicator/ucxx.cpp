@@ -8,8 +8,8 @@
 #include <mutex>
 #include <utility>
 
-#include <rapidsmp/communicator/ucxx.hpp>
-#include <rapidsmp/error.hpp>
+#include <rapidsmpf/communicator/ucxx.hpp>
+#include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf {
 

@@ -24,7 +24,7 @@ cdef extern from "<variant>" namespace "std" nogil:
     cdef T* get_if[T](...)
 
 
-cdef extern from "<rapidsmp/communicator/ucxx.hpp>" namespace "rapidsmpf::ucxx" nogil:
+cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace "rapidsmpf::ucxx" nogil:
     ctypedef pair[string, uint16_t] HostPortPair
 
     ctypedef variant RemoteAddress

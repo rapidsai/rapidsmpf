@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <rapidsmp/pausable_thread_loop.hpp>
+#include <rapidsmpf/pausable_thread_loop.hpp>
 
 namespace rapidsmpf::detail {
 

@@ -5,7 +5,7 @@
 
 #include <mpi.h>
 
-#include <rapidsmp/communicator/ucxx.hpp>
+#include <rapidsmpf/communicator/ucxx.hpp>
 
 namespace rapidsmpf {
 
