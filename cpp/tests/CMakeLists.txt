@@ -65,7 +65,7 @@ disable_sign_conversion_warning(mpi_tests)
 
 rapidsmp_mpirun_test_add(TEST_TARGET mpi_tests)
 
-file(GLOB SOURCES "main/ucxx.cpp" "*.cpp")
+file(GLOB SOURCES "main/ucxx.cpp" "*.cpp" "*.cu")
 add_executable(ucxx_tests ${SOURCES})
 set_target_properties(
   ucxx_tests

@@ -43,8 +43,8 @@ TEST(ChunkBatch, Empty) {
         EXPECT_EQ(rank, batch.destination());
         EXPECT_EQ(0, batch.size());
 
-        auto chunks = batch.get_chunks(stream);
-        EXPECT_EQ(0, chunks.size());
+        // iterators won't advance
+        EXPECT_EQ(batch.end(stream), batch.begin(stream));
     };
 
     auto batch1 = ChunkBatch::create(id, rank, {}, &br, stream);
@@ -149,19 +149,20 @@ class ChunkBatchTest
         EXPECT_EQ(rank, batch.destination());
         EXPECT_EQ(exp_chunks.size(), batch.size());
 
-        std::vector<Chunk> const chunks = batch.get_chunks(stream);
-        EXPECT_EQ(exp_chunks.size(), chunks.size());
+        // std::vector<Chunk> const chunks = batch.get_chunks(stream);
+        // EXPECT_EQ(exp_chunks.size(), chunks.size());
 
-        for (size_t i = 0; i < exp_chunks.size(); i++) {
+        auto chunk = batch.begin(stream);
+        for (size_t i = 0; i < exp_chunks.size(); i++, chunk++) {
             SCOPED_TRACE("chunk " + std::to_string(i));
-            EXPECT_EQ(exp_chunks[i].pid, chunks[i].pid);
-            EXPECT_EQ(exp_chunks[i].cid, chunks[i].cid);
-            EXPECT_EQ(exp_chunks[i].expected_num_chunks, chunks[i].expected_num_chunks);
-            EXPECT_EQ(exp_chunks[i].gpu_data_size, chunks[i].gpu_data_size);
+            EXPECT_EQ(exp_chunks[i].pid, chunk->pid);
+            EXPECT_EQ(exp_chunks[i].cid, chunk->cid);
+            EXPECT_EQ(exp_chunks[i].expected_num_chunks, chunk->expected_num_chunks);
+            EXPECT_EQ(exp_chunks[i].gpu_data_size, chunk->gpu_data_size);
 
             if (exp_chunks[i].metadata) {
                 SCOPED_TRACE("chunk metadata" + std::to_string(i));
-                EXPECT_EQ(*exp_chunks[i].metadata, *chunks[i].metadata);
+                EXPECT_EQ(*exp_chunks[i].metadata, *chunk->metadata);
             }
 
             if (exp_chunks[i].gpu_data) {
@@ -174,7 +175,7 @@ class ChunkBatchTest
                             static_cast<cuda::std::byte*>(exp_chunks[i].gpu_data->data()),
                             static_cast<cuda::std::byte*>(exp_chunks[i].gpu_data->data())
                                 + len,
-                            static_cast<cuda::std::byte*>(chunks[i].gpu_data->data())
+                            static_cast<cuda::std::byte*>(chunk->gpu_data->data())
                         ));
                         break;
                     }
@@ -183,13 +184,14 @@ class ChunkBatchTest
                         SCOPED_TRACE("chunk data host" + std::to_string(i));
                         EXPECT_EQ(
                             *(const_cast<Buffer const&>(*exp_chunks[i].gpu_data).host()),
-                            *(const_cast<Buffer const&>(*chunks[i].gpu_data).host())
+                            *(const_cast<Buffer const&>(*chunk->gpu_data).host())
                         );
                         break;
                     }
                 }
             }
         }
+        EXPECT_EQ(batch.end(stream), chunk);  // check if the iterator has reached the end
     };
 };
 
@@ -214,6 +216,7 @@ TEST_P(ChunkBatchTest, Run) {
     auto batch1 = ChunkBatch::create(id, rank, gen_chunks(), &br, stream);
     EXPECT_NO_FATAL_FAILURE(test_batch(exp_chunks, batch1));
 
+    // reacreate a new batch using the first batch
     auto batch2 = ChunkBatch::create(batch1.release_metadata(), batch1.release_payload());
     EXPECT_NO_FATAL_FAILURE(test_batch(exp_chunks, batch2));
 }

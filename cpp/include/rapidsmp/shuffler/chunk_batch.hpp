@@ -14,6 +14,8 @@
 
 namespace rapidsmp::shuffler::detail {
 
+class ChunkForwardIterator;
+
 /**
  * @brief A class representing a batch of chunks.
  *
@@ -29,9 +31,11 @@ namespace rapidsmp::shuffler::detail {
  *
  */
 class ChunkBatch {
-    friend class ChunkBatchMetadataReader;
+    friend class ChunkForwardIterator;
 
   public:
+    using iterator = ChunkForwardIterator;  ///< Chunk iterator type
+
     /// @brief The size of the chunk metadata header in bytes.
     static constexpr std::ptrdiff_t chunk_metadata_header_size =
         sizeof(Chunk::MetadataMessageHeader);
@@ -162,11 +166,13 @@ class ChunkBatch {
                 >= size_t(metadata_offset) + chunk_header->metadata_size
             );
 
-            assert(payload_data_);
-            assert(
-                payload_data_->size
-                >= size_t(payload_offset) + chunk_header->gpu_data_size
-            );
+            if (chunk_header->gpu_data_size > 0) {
+                assert(payload_data_);
+                assert(
+                    payload_data_->size
+                    >= size_t(payload_offset) + chunk_header->gpu_data_size
+                );
+            }
 
             visitor(
                 chunk_header,
@@ -181,61 +187,15 @@ class ChunkBatch {
         }
     }
 
-    /**
-     * @brief Visits the chunks in the batch (by copy).
-     * @tparam VisitorFn Visitor function type. Must be callable with the following
-     * signature:
-     * void(Chunk&& chunk)
-     * @param stream The stream to use for copying the chunk data.
-     * @param visitor visitor function
-     */
-    template <typename VisitorFn>
-    void visit_chunks(VisitorFn visitor, rmm::cuda_stream_view stream) const {
-        visit_chunk_data([&](Chunk::MetadataMessageHeader const* chunk_header,
-                             std::vector<uint8_t> const& metadata_buf,
-                             std::ptrdiff_t metadata_offset,
-                             Buffer const& payload_buf,
-                             std::ptrdiff_t payload_offset) {
-            std::unique_ptr<std::vector<uint8_t>> chunk_metadata;
-            if (chunk_header->metadata_size > 0) {
-                chunk_metadata = std::make_unique<std::vector<uint8_t>>(
-                    metadata_buf.begin() + metadata_offset,
-                    metadata_buf.begin() + metadata_offset
-                        + std::ptrdiff_t(chunk_header->metadata_size)
-                );
-            }
+    /// @brief Iterator to the beginning of the Chunk batch
+    /// @param stream The stream to use for any memory allocations.
+    /// @return Forward iterator to the beginning
+    iterator begin(rmm::cuda_stream_view stream) const;
 
-            std::unique_ptr<Buffer> chunk_payload;
-            if (chunk_header->gpu_data_size > 0) {
-                chunk_payload = payload_buf.copy_slice(
-                    payload_offset, std::ptrdiff_t(chunk_header->gpu_data_size), stream
-                );
-            }
-
-            visitor(Chunk{
-                chunk_header->pid,
-                chunk_header->cid,
-                chunk_header->expected_num_chunks,
-                chunk_header->gpu_data_size,
-                std::move(chunk_metadata),
-                std::move(chunk_payload),
-            });
-        });
-    }
-
-    /**
-     * @brief Get all chunks in the batch.
-     * @param stream The stream to use for copying the chunk data.
-     * @return std::vector<Chunk> A vector of chunks.
-     */
-    std::vector<Chunk> get_chunks(rmm::cuda_stream_view stream) const {
-        std::vector<Chunk> chunks;
-        chunks.reserve(header()->num_chunks);
-        visit_chunks(
-            [&](Chunk&& chunk) { chunks.emplace_back(std::move(chunk)); }, stream
-        );
-        return chunks;
-    }
+    /// @brief Iterator to the end of the Chunk batch
+    /// @param stream The stream to use for any memory allocations.
+    /// @return Forward iterator to the end
+    iterator end(rmm::cuda_stream_view stream) const;
 
   private:
     ChunkBatch(
@@ -254,27 +214,122 @@ class ChunkBatch {
 
     /// GPU data buffer of the packed `cudf::table` associated with this chunk.
     std::unique_ptr<Buffer> payload_data_;
+
+    /// cached begin iterator, as creating an iterator object is relatively expensive.
+    /// This allows calling `begin()` trivially multiple times.
+    mutable std::unique_ptr<iterator> cached_begin_iter_;
 };
 
-// class ChunkBatchMetadataReader {
-//     /// @brief
-//     /// @param batch
-//     /// @param stream
-//     ChunkBatchMetadataReader(ChunkBatch const& batch, rmm::cuda_stream_view stream);
+/**
+ * @brief Forward iterator of chunks in the chunk batch
+ */
+class ChunkForwardIterator {
+    friend ChunkBatch;
 
-//     /// @brief
-//     /// @return
-//     bool has_next() const;
+  public:
+    using iterator_category = std::forward_iterator_tag;  ///< iterator category def
+    using value_type = Chunk;  ///< value type def
+    using difference_type = std::ptrdiff_t;  ///< difference type def
+    using pointer = Chunk*;  ///< pointer type def
+    using reference = Chunk&;  ///< rederence type def
 
-//     /// @brief
-//     /// @return
-//     Chunk next();
+    /// @brief Return the reference to the chunk in the iterator.
+    /// @return chunk ref
+    reference operator*() const {
+        return *chunk_;
+    }
 
-//   private:
-//     const ChunkBatch& batch_;
-//     rmm::cuda_stream_view stream_;
-//     size_t metadata_offset_ = sizeof(ChunkBatch::BatchHeader);
-//     size_t payload_offset_ = 0;
-// };
+    /// @brief Return the pointer to the chunk in the iterator.
+    /// @return chunk ptr
+    pointer operator->() const {
+        return chunk_.get();
+    }
+
+    /// @brief Prefix increment of the iterator.
+    /// @return incremented iterator reference.
+    ChunkForwardIterator& operator++();
+
+    /// @brief Postfix increment of the iterator.
+    /// @return iterator reference before increment.
+    ChunkForwardIterator operator++(int);
+
+    /// @brief Check equality.
+    /// @param other other iterator
+    /// @return True if equal, false otherwise.
+    constexpr bool operator==(const ChunkForwardIterator& other) const {
+        // Only check the metadata buffer, as it has sufficient information to check
+        // equality
+        if (&batch_ == &other.batch_ && metadata_offset_ == other.metadata_offset_) {
+            // if equal, make sure pointer offsets also match.
+            assert(payload_offset_ == other.payload_offset_);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// @brief Check ineuqlity.
+    /// @param other other iterator.
+    /// @return False if iterators are not equal, True otherwise.
+    constexpr bool operator!=(const ChunkForwardIterator& other) const {
+        return !(*this == other);
+    }
+
+    /// @brief copy constructor.
+    /// @param other other iterator
+    ChunkForwardIterator(const ChunkForwardIterator& other) = default;
+
+    /// @brief Assignment operator.
+    /// @param other other iterator
+    /// @return current reference.
+    ChunkForwardIterator& operator=(const ChunkForwardIterator& other) = default;
+
+  private:
+    /// @brief Private constructor. Use ChunkBatch to access the begin and end iterators.
+    ChunkForwardIterator(
+        ChunkBatch const& batch,
+        std::ptrdiff_t metadata_offset,
+        std::ptrdiff_t payload_offset,
+        rmm::cuda_stream_view stream
+    );
+
+
+    /// @brief Advance class members to the next chunk
+    void advance_chunk();
+
+    /// @brief Unwrap the current chunk header.
+    /// @return Chunk header ptr.
+    inline Chunk::MetadataMessageHeader const* chunk_header() const {
+        return reinterpret_cast<Chunk::MetadataMessageHeader const*>(
+            batch_.metadata_buffer_->data() + metadata_offset_
+        );
+    }
+
+    /// @brief  Check if current position contains a chunks.
+    /// @return True, if metadata offset points to a valid chunk.
+    inline bool has_chunk() const {
+        return batch_.size() > 0
+               && (size_t(metadata_offset_) < batch_.metadata_buffer_->size());
+    }
+
+    /// @brief Make a chunk.
+    /// @return Chunk wrapped in a shared ptr
+    static std::shared_ptr<Chunk> make_chunk(
+        ChunkBatch const& batch,
+        std::ptrdiff_t metadata_offset,
+        std::ptrdiff_t payload_offset,
+        rmm::cuda_stream_view stream
+    );
+
+    ChunkBatch const& batch_;
+    std::ptrdiff_t metadata_offset_;  ///< metadata offset to the chunk boundary. It
+                                      ///< points to the chunk header
+    std::ptrdiff_t payload_offset_;  ///< payload offset to the chunk gpu data.
+    rmm::cuda_stream_view stream_;
+
+    /// Chunk is held on a shared_ptr, so that the iterator object can be trivially
+    /// copied. If there were no chunks in the batch, this will be null.
+    std::shared_ptr<Chunk> chunk_;
+};
 
 }  // namespace rapidsmp::shuffler::detail

@@ -11,6 +11,7 @@
 
 namespace rapidsmp::shuffler::detail {
 
+
 ChunkBatch::ChunkBatch(
     std::unique_ptr<std::vector<uint8_t>> metadata, std::unique_ptr<Buffer> payload_data
 )
@@ -134,38 +135,106 @@ ChunkBatch ChunkBatch::create(
     return batch;
 }
 
-// bool rapidsmp::shuffler::detail::ChunkBatchMetadataReader::has_next() const {
-//     return current_idx_ < batch_.size();
-// }
+ChunkForwardIterator ChunkBatch::begin(rmm::cuda_stream_view stream) const {
+    if (!cached_begin_iter_) {
+        cached_begin_iter_ = std::unique_ptr<ChunkForwardIterator>(
+            new ChunkForwardIterator(*this, batch_header_size, 0, stream)
+        );
+    }
 
-// Chunk rapidsmp::shuffler::detail::ChunkBatchMetadataReader::next() {
-//     auto chunk_header = reinterpret_cast<Chunk::MetadataMessageHeader const*>(
-//         batch_.metadata_buffer_->data() + metadata_offset_
-//     );
-//     metadata_offset_ += sizeof(Chunk::MetadataMessageHeader);
+    return *cached_begin_iter_;
+}
 
-//     // create a metadata buffer by slicing the parent metadata buffer
-//     auto chunk_metadata = std::make_unique<std::vector<uint8_t>>(
-//         batch_.metadata_buffer_->cbegin() + metadata_offset_,
-//         batch_.metadata_buffer_->cbegin() + metadata_offset_ +
-//         chunk_header->metadata_size
-//     );
-//     metadata_offset_ += chunk_header->metadata_size;
+ChunkForwardIterator ChunkBatch::end(rmm::cuda_stream_view stream) const {
+    // this is a trivial operation because metadata_offset == metadata size() and no
+    // chunk will be allocated inside the iterator.
+    return ChunkForwardIterator(
+        *this,
+        std::ptrdiff_t(metadata_buffer_->size()),
+        payload_data_ ? std::ptrdiff_t(payload_data_->size) : 0,
+        stream
+    );
+}
 
-//     // create a payload buffer by slicing the parent payload buffer
-//     auto chunk_payload = batch_.payload_data_->copy_slice(
-//         stream_, payload_offset_, chunk_header->gpu_data_size
-//     );
-//     payload_offset_ += chunk_header->gpu_data_size;
+ChunkForwardIterator::ChunkForwardIterator(
+    ChunkBatch const& batch,
+    std::ptrdiff_t metadata_offset,
+    std::ptrdiff_t payload_offset,
+    rmm::cuda_stream_view stream
+)
+    : batch_(batch),
+      metadata_offset_(metadata_offset),
+      payload_offset_(payload_offset),
+      stream_(stream) {
+    if (has_chunk()) {
+        chunk_ = make_chunk(batch_, metadata_offset_, payload_offset_, stream_);
+    }
+}
 
-//     return {
-//         chunk_header->pid,
-//         chunk_header->cid,
-//         chunk_header->expected_num_chunks,
-//         chunk_header->gpu_data_size,
-//         std::move(chunk_metadata),
-//         nullptr,  // payload buffer
-//     };
-// }
+ChunkForwardIterator& ChunkForwardIterator::operator++() {
+    advance_chunk();
+    return *this;
+}
+
+ChunkForwardIterator ChunkForwardIterator::operator++(int) {
+    ChunkForwardIterator temp = *this;
+    advance_chunk();
+    return temp;
+}
+
+void ChunkForwardIterator::advance_chunk() {
+    auto const* header = chunk_header();  // get the current header
+    // skip to the next offset boundary
+    metadata_offset_ +=
+        std::ptrdiff_t(ChunkBatch::chunk_metadata_header_size + header->metadata_size);
+    // skip to the next payload boundary
+    payload_offset_ += std::ptrdiff_t(header->gpu_data_size);
+
+    if (has_chunk()) {
+        chunk_ = make_chunk(batch_, metadata_offset_, payload_offset_, stream_);
+    } else {
+        chunk_ = {};
+    }
+}
+
+std::shared_ptr<Chunk> ChunkForwardIterator::make_chunk(
+    ChunkBatch const& batch,
+    std::ptrdiff_t metadata_offset,
+    std::ptrdiff_t payload_offset,
+    rmm::cuda_stream_view stream
+) {
+    auto chunk_header = reinterpret_cast<Chunk::MetadataMessageHeader const*>(
+        batch.metadata_buffer_->data() + metadata_offset
+    );
+    metadata_offset += ChunkBatch::chunk_metadata_header_size;
+
+    auto const& metadata_buf = *batch.metadata_buffer_;
+    auto const& payload_buf = *batch.payload_data_;
+
+    std::unique_ptr<std::vector<uint8_t>> chunk_metadata;
+    if (chunk_header->metadata_size > 0) {  // only allocate if non-zero
+        chunk_metadata = std::make_unique<std::vector<uint8_t>>(
+            metadata_buf.begin() + metadata_offset,
+            metadata_buf.begin() + metadata_offset
+                + std::ptrdiff_t(chunk_header->metadata_size)
+        );
+    }
+
+    std::unique_ptr<Buffer> chunk_payload;
+    if (chunk_header->gpu_data_size > 0) {  // only copy slice if non-zero
+        chunk_payload = payload_buf.copy_slice(
+            payload_offset, std::ptrdiff_t(chunk_header->gpu_data_size), stream
+        );
+    }
+
+    return std::make_shared<Chunk>(
+        chunk_header->pid,
+        chunk_header->cid,
+        chunk_header->expected_num_chunks,
+        chunk_header->gpu_data_size,
+        std::move(chunk_metadata),
+        std::move(chunk_payload)
+    );
+}
 
 }  // namespace rapidsmp::shuffler::detail
