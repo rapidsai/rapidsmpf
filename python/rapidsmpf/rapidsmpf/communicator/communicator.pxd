@@ -9,11 +9,12 @@ from libcpp.string cimport string
 cdef class Logger:
     cdef Communicator _comm
 
-cdef extern from "<rapidsmp/communicator/communicator.hpp>" namespace "rapidsmp" nogil:
+cdef extern from "<rapidsmpf/communicator/communicator.hpp>" namespace \
+  "rapidsmpf" nogil:
     ctypedef int32_t Rank
 
-cdef extern from "<rapidsmp/communicator/communicator.hpp>" namespace \
-  "rapidsmp::Communicator::Logger" nogil:
+cdef extern from "<rapidsmpf/communicator/communicator.hpp>" namespace \
+  "rapidsmpf::Communicator::Logger" nogil:
     cdef cppclass cpp_Logger:
         pass
     cpdef enum class LOG_LEVEL(int):
@@ -24,8 +25,8 @@ cdef extern from "<rapidsmp/communicator/communicator.hpp>" namespace \
         DEBUG
         TRACE
 
-cdef extern from "<rapidsmp/communicator/communicator.hpp>" nogil:
-    cdef cppclass cpp_Communicator "rapidsmp::Communicator":
+cdef extern from "<rapidsmpf/communicator/communicator.hpp>" nogil:
+    cdef cppclass cpp_Communicator "rapidsmpf::Communicator":
         Rank rank() except +
         Rank nranks() except +
         string str() except +

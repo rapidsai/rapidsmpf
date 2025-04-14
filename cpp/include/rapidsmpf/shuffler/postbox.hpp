@@ -10,10 +10,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/shuffler/chunk.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/shuffler/chunk.hpp>
 
-namespace rapidsmp::shuffler::detail {
+namespace rapidsmpf::shuffler::detail {
 
 /**
  * @brief A thread-safe container for managing and retrieving data chunks by partition and
@@ -106,4 +106,4 @@ inline std::ostream& operator<<(std::ostream& os, PostBox const& obj) {
     return os;
 }
 
-}  // namespace rapidsmp::shuffler::detail
+}  // namespace rapidsmpf::shuffler::detail

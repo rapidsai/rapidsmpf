@@ -8,17 +8,17 @@
 
 #include <mpi.h>
 
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/communicator/ucxx_utils.hpp>
-#include <rapidsmp/statistics.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"
 #include "utils/rmm_stack.hpp"
 
 
-using namespace rapidsmp;
+using namespace rapidsmpf;
 
 class ArgumentParser {
   public:
@@ -145,7 +145,7 @@ Duration run(
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<rapidsmp::Statistics> statistics
+    std::shared_ptr<rapidsmpf::Statistics> statistics
 ) {
     // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
@@ -220,7 +220,7 @@ int main(int argc, char** argv) {
         mpi::init(&argc, &argv);
         comm = std::make_shared<MPI>(MPI_COMM_WORLD);
     } else {  // ucxx
-        comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
+        comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD);
     }
 
     auto& log = comm->logger();
@@ -250,7 +250,7 @@ int main(int argc, char** argv) {
     }
 
     // We start with disabled statistics.
-    auto stats = std::make_shared<rapidsmp::Statistics>(/* enable = */ false);
+    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
 
     auto const local_messages_send =
         args.msg_size * args.num_ops * (static_cast<std::uint64_t>(comm->nranks()) - 1);
@@ -260,7 +260,7 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == args.num_warmups + args.num_runs - 1) {
-            stats = std::make_shared<rapidsmp::Statistics>();
+            stats = std::make_shared<rapidsmpf::Statistics>();
         }
         auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;

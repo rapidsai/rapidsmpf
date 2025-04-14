@@ -7,8 +7,8 @@ from libcpp.vector cimport vector
 from rmm.librmm.device_buffer cimport device_buffer
 
 
-cdef extern from "<rapidsmp/buffer/packed_data.hpp>" nogil:
-    cdef cppclass cpp_PackedData "rapidsmp::PackedData":
+cdef extern from "<rapidsmpf/buffer/packed_data.hpp>" nogil:
+    cdef cppclass cpp_PackedData "rapidsmpf::PackedData":
         unique_ptr[vector[uint8_t]] metadata
         unique_ptr[device_buffer] gpu_data
 

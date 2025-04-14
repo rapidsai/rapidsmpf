@@ -14,14 +14,14 @@ cdef extern from *:
     """
     template<typename T>
     void cpp_log(
-        rapidsmp::Communicator::Logger::LOG_LEVEL level,
-        std::shared_ptr<rapidsmp::Communicator> &comm,
+        rapidsmpf::Communicator::Logger::LOG_LEVEL level,
+        std::shared_ptr<rapidsmpf::Communicator> &comm,
         T && msg)
     {
         comm->logger().log(level, msg);
     }
-    rapidsmp::Communicator::Logger::LOG_LEVEL cpp_verbosity_level(
-        std::shared_ptr<rapidsmp::Communicator> comm
+    rapidsmpf::Communicator::Logger::LOG_LEVEL cpp_verbosity_level(
+        std::shared_ptr<rapidsmpf::Communicator> comm
     ) {
         return comm->logger().verbosity_level();
     }

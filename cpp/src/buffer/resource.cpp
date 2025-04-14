@@ -5,9 +5,9 @@
 
 #include <limits>
 
-#include <rapidsmp/buffer/resource.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 
 MemoryReservation::~MemoryReservation() noexcept {
@@ -164,4 +164,4 @@ SpillManager& BufferResource::spill_manager() {
 std::shared_ptr<Statistics> BufferResource::statistics() {
     return statistics_;
 }
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

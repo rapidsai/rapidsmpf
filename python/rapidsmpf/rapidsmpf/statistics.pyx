@@ -12,12 +12,12 @@ from libcpp.string cimport string
 cdef extern from *:
     """
     std::size_t cpp_get_statistic_count(
-        rapidsmp::Statistics const& stats, std::string const& name
+        rapidsmpf::Statistics const& stats, std::string const& name
     ) {
         return stats.get_stat(name).count();
     }
     std::size_t cpp_get_statistic_value(
-        rapidsmp::Statistics const& stats, std::string const& name
+        rapidsmpf::Statistics const& stats, std::string const& name
     ) {
         return stats.get_stat(name).value();
     }

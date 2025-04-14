@@ -13,13 +13,13 @@
 
 #include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
-#include <rapidsmp/buffer/buffer.hpp>
-#include <rapidsmp/buffer/spill_manager.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/statistics.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/spill_manager.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/utils.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 class Statistics;
 
@@ -380,7 +380,7 @@ class BufferResource {
  * By enforcing a limit, this functor can be used to simulate constrained memory
  * environments or to prevent memory allocation beyond a specific threshold.
  *
- * @see rapidsmp::BufferResource::MemoryAvailable
+ * @see rapidsmpf::BufferResource::MemoryAvailable
  */
 class LimitAvailableMemory {
   public:
@@ -420,4 +420,4 @@ class LimitAvailableMemory {
 };
 
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

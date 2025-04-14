@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <rapidsmp/pausable_thread_loop.hpp>
+#include <rapidsmpf/pausable_thread_loop.hpp>
 
-namespace rapidsmp::detail {
+namespace rapidsmpf::detail {
 
 PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration sleep) {
     thread_ = std::thread([this, f = std::move(func), sleep]() {
@@ -65,4 +65,4 @@ void PausableThreadLoop::stop() {
     }
 }
 
-}  // namespace rapidsmp::detail
+}  // namespace rapidsmpf::detail

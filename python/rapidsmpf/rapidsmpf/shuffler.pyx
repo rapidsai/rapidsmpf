@@ -22,12 +22,12 @@ from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 from rmm.pylibrmm.stream cimport Stream
 
 
-cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
+cdef extern from "<rapidsmpf/shuffler/partition.hpp>" nogil:
     int cpp_HASH_MURMUR3"cudf::hash_id::HASH_MURMUR3"
     uint32_t cpp_DEFAULT_HASH_SEED"cudf::DEFAULT_HASH_SEED",
 
     cdef unordered_map[uint32_t, cpp_PackedData] cpp_partition_and_pack \
-        "rapidsmp::shuffler::partition_and_pack"(
+        "rapidsmpf::shuffler::partition_and_pack"(
             const table_view& table,
             const vector[size_type] &columns_to_hash,
             int num_partitions,
@@ -102,9 +102,9 @@ cpdef dict partition_and_pack(
     return ret
 
 
-cdef extern from "<rapidsmp/shuffler/partition.hpp>" nogil:
+cdef extern from "<rapidsmpf/shuffler/partition.hpp>" nogil:
     cdef unique_ptr[cpp_table] cpp_unpack_and_concat \
-        "rapidsmp::shuffler::unpack_and_concat"(
+        "rapidsmpf::shuffler::unpack_and_concat"(
             vector[cpp_PackedData] partition,
             cuda_stream_view stream,
             device_memory_resource *mr,

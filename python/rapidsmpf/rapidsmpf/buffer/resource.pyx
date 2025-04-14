@@ -16,7 +16,7 @@ from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
 cdef extern from *:
     """
     std::function<std::int64_t()> to_MemoryAvailable(
-        std::shared_ptr<rapidsmp::LimitAvailableMemory> functor
+        std::shared_ptr<rapidsmpf::LimitAvailableMemory> functor
     ) {
         return *functor;
     }

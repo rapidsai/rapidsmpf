@@ -5,11 +5,11 @@
 
 #include <utility>
 
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/buffer/spill_manager.hpp>
-#include <rapidsmp/nvtx.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/buffer/spill_manager.hpp>
+#include <rapidsmpf/nvtx.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 
 SpillManager::SpillManager(
@@ -102,4 +102,4 @@ std::size_t SpillManager::spill_to_make_headroom(std::int64_t headroom) {
     return spill(static_cast<std::size_t>(headroom - available));
 }
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

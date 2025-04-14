@@ -7,8 +7,8 @@ from mpi4py.MPI cimport Intracomm
 from rapidsmpf.communicator.communicator cimport Communicator
 
 
-cdef extern from "<rapidsmp/communicator/mpi.hpp>" nogil:
-    cdef cppclass cpp_MPI_Communicator "rapidsmp::MPI":
+cdef extern from "<rapidsmpf/communicator/mpi.hpp>" nogil:
+    cdef cppclass cpp_MPI_Communicator "rapidsmpf::MPI":
         cpp_MPI_Communicator() except +
         cpp_MPI_Communicator(libmpi.MPI_Comm comm) except +
 

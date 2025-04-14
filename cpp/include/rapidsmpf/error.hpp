@@ -7,7 +7,7 @@
 
 #include <stdexcept>  // NOLINT(unused-includes)
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 /**
  * @brief Exception thrown when a CUDA error is encountered.
@@ -168,13 +168,13 @@ class out_of_memory : public bad_alloc {
  * `cudaSuccess`, invokes cudaGetLastError() to clear the error and throws an
  * exception detailing the CUDA error that occurred
  *
- * Defaults to throwing rapidsmp::cuda_error, but a custom exception may also be
+ * Defaults to throwing rapidsmpf::cuda_error, but a custom exception may also be
  * specified.
  *
  * Example:
  * ```c++
  *
- * // Throws rapidsmp::cuda_error if `cudaMalloc` fails
+ * // Throws rapidsmpf::cuda_error if `cudaMalloc` fails
  * RAPIDSMP_CUDA_TRY(cudaMalloc(&p, 100));
  *
  * // Throws std::runtime_error if `cudaMalloc` fails
@@ -199,7 +199,7 @@ class out_of_memory : public bad_alloc {
             };                                                                        \
         }                                                                             \
     } while (0)
-#define RAPIDSMP_CUDA_TRY_1(_call) RAPIDSMP_CUDA_TRY_2(_call, rapidsmp::cuda_error)
+#define RAPIDSMP_CUDA_TRY_1(_call) RAPIDSMP_CUDA_TRY_2(_call, rapidsmpf::cuda_error)
 
 /**
  * @brief Error checking macro for CUDA memory allocation calls.
@@ -208,8 +208,8 @@ class out_of_memory : public bad_alloc {
  * `cudaSuccess`, invokes cudaGetLastError() to clear the error and throws an
  * exception detailing the CUDA error that occurred
  *
- * Defaults to throwing rapidsmp::bad_alloc, but when `cudaErrorMemoryAllocation` is
- * returned, rapidsmp::out_of_memory is thrown instead.
+ * Defaults to throwing rapidsmpf::bad_alloc, but when `cudaErrorMemoryAllocation` is
+ * returned, rapidsmpf::out_of_memory is thrown instead.
  *
  * Can be called with either 1 or 2 arguments:
  * - RAPIDSMP_CUDA_TRY_ALLOC(cuda_call): Performs error checking without specifying bytes
@@ -234,9 +234,9 @@ class out_of_memory : public bad_alloc {
                              + cudaGetErrorName(error) + " "                         \
                              + cudaGetErrorString(error);                            \
             if (cudaErrorMemoryAllocation == error) {                                \
-                throw rapidsmp::out_of_memory{msg};                                  \
+                throw rapidsmpf::out_of_memory{msg};                                 \
             }                                                                        \
-            throw rapidsmp::bad_alloc{msg};                                          \
+            throw rapidsmpf::bad_alloc{msg};                                         \
         }                                                                            \
     } while (0)
 
@@ -250,10 +250,10 @@ class out_of_memory : public bad_alloc {
                              + cudaGetErrorName(error) + " "                 \
                              + cudaGetErrorString(error);                    \
             if (cudaErrorMemoryAllocation == error) {                        \
-                throw rapidsmp::out_of_memory{msg};                          \
+                throw rapidsmpf::out_of_memory{msg};                         \
             }                                                                \
-            throw rapidsmp::bad_alloc{msg};                                  \
+            throw rapidsmpf::bad_alloc{msg};                                 \
         }                                                                    \
     } while (0)
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

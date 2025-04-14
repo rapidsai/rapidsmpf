@@ -5,9 +5,9 @@
 
 #include <mpi.h>
 
-#include <rapidsmp/communicator/ucxx.hpp>
+#include <rapidsmpf/communicator/ucxx.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 namespace ucxx {
 
@@ -22,4 +22,4 @@ namespace ucxx {
 std::shared_ptr<UCXX> init_using_mpi(MPI_Comm mpi_comm);
 
 }  // namespace ucxx
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

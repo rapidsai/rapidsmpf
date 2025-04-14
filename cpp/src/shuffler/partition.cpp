@@ -11,14 +11,14 @@
 #include <cudf/detail/contiguous_split.hpp>  // `cudf::detail::pack` (stream ordered version)
 #include <rmm/device_buffer.hpp>
 
-#include <rapidsmp/buffer/packed_data.hpp>
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/nvtx.hpp>
-#include <rapidsmp/shuffler/partition.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/shuffler/partition.hpp>
+#include <rapidsmpf/utils.hpp>
 
-namespace rapidsmp::shuffler {
+namespace rapidsmpf::shuffler {
 
 std::pair<std::vector<cudf::table_view>, std::unique_ptr<cudf::table>>
 partition_and_split(
@@ -105,4 +105,4 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 }
 
 
-}  // namespace rapidsmp::shuffler
+}  // namespace rapidsmpf::shuffler

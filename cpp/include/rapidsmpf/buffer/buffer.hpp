@@ -11,9 +11,9 @@
 
 #include <rmm/device_buffer.hpp>
 
-#include <rapidsmp/error.hpp>
+#include <rapidsmpf/error.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 class BufferResource;
 
@@ -210,4 +210,4 @@ class Buffer {
     StorageT storage_;
 };
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

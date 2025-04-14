@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <rapidsmp/option.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/option.hpp>
+#include <rapidsmpf/utils.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 template <>
 bool getenv_or(std::string const& env_var_name, bool default_val) {
@@ -33,4 +33,4 @@ bool getenv_or(std::string const& env_var_name, bool default_val) {
 }
 
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

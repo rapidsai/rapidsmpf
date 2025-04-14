@@ -15,16 +15,16 @@
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/memory_resource.hpp>
 
-#include <rapidsmp/buffer/buffer.hpp>
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/option.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/option.hpp>
 
 /**
- * @namespace rapidsmp
+ * @namespace rapidsmpf
  * @brief RAPIDS Multi-Processor interfaces.
  */
-namespace rapidsmp {
+namespace rapidsmpf {
 
 /**
  * @typedef Rank
@@ -513,4 +513,4 @@ inline std::ostream& operator<<(std::ostream& os, Communicator const& obj) {
     return os;
 }
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

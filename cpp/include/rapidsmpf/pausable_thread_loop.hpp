@@ -10,9 +10,9 @@
 #include <mutex>
 #include <thread>
 
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/utils.hpp>
 
-namespace rapidsmp::detail {
+namespace rapidsmpf::detail {
 /**
  * @brief A thread loop that can be paused, resumed, and stopped.
  *
@@ -87,4 +87,4 @@ class PausableThreadLoop {
     bool paused_{true};
 };
 
-}  // namespace rapidsmp::detail
+}  // namespace rapidsmpf::detail

@@ -16,25 +16,25 @@
 #include <cudf/partitioning.hpp>
 #include <cudf/table/table.hpp>
 
-#include <rapidsmp/buffer/packed_data.hpp>
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/nvtx.hpp>
-#include <rapidsmp/progress_thread.hpp>
-#include <rapidsmp/shuffler/chunk.hpp>
-#include <rapidsmp/shuffler/finish_counter.hpp>
-#include <rapidsmp/shuffler/postbox.hpp>
-#include <rapidsmp/statistics.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/shuffler/chunk.hpp>
+#include <rapidsmpf/shuffler/finish_counter.hpp>
+#include <rapidsmpf/shuffler/postbox.hpp>
+#include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/utils.hpp>
 
 /**
- * @namespace rapidsmp::shuffler
+ * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
  *
  * A shuffle service for cuDF tables. Use `Shuffler` to perform a single shuffle.
  */
-namespace rapidsmp::shuffler {
+namespace rapidsmpf::shuffler {
 
 /**
  * @brief Shuffle service for cuDF tables.
@@ -47,7 +47,7 @@ class Shuffler {
   public:
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the
-     * `rapidsmp::Rank` of the _owning_ node.
+     * `rapidsmpf::Rank` of the _owning_ node.
      */
     using PartitionOwner = std::function<Rank(std::shared_ptr<Communicator>, PartID)>;
 
@@ -291,4 +291,4 @@ inline std::ostream& operator<<(std::ostream& os, Shuffler const& obj) {
     return os;
 }
 
-}  // namespace rapidsmp::shuffler
+}  // namespace rapidsmpf::shuffler

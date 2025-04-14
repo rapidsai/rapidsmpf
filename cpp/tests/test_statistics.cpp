@@ -7,13 +7,13 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/statistics.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/statistics.hpp>
 
-using namespace rapidsmp;
+using namespace rapidsmpf;
 
 TEST(Statistics, Disabled) {
-    rapidsmp::Statistics stats(false);
+    rapidsmpf::Statistics stats(false);
     EXPECT_FALSE(stats.enabled());
 
     // Disabed statistics is a no-op.
@@ -23,7 +23,7 @@ TEST(Statistics, Disabled) {
 }
 
 TEST(Statistics, Communication) {
-    rapidsmp::Statistics stats;
+    rapidsmpf::Statistics stats;
     EXPECT_TRUE(stats.enabled());
 
     EXPECT_THROW(stats.get_stat("unknown-name"), std::out_of_range);

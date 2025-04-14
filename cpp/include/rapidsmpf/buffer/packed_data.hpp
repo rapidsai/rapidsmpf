@@ -10,7 +10,7 @@
 
 #include <rmm/device_buffer.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 /**
  * @brief Bag of bytes with metadata suitable for sending over the wire.
@@ -49,4 +49,4 @@ struct PackedData {
     PackedData& operator=(PackedData&) = delete;
 };
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

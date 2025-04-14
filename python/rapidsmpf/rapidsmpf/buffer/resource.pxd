@@ -21,8 +21,8 @@ cdef extern from "<functional>" nogil:
     cdef cppclass cpp_MemoryAvailable "std::function<std::int64_t()>":
         pass
 
-cdef extern from "<rapidsmp/buffer/resource.hpp>" nogil:
-    cdef cppclass cpp_BufferResource "rapidsmp::BufferResource":
+cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
+    cdef cppclass cpp_BufferResource "rapidsmpf::BufferResource":
         cpp_BufferResource(
             device_memory_resource *device_mr,
             unordered_map[MemoryType, cpp_MemoryAvailable] memory_available,
@@ -41,8 +41,8 @@ cdef class BufferResource:
     cdef cpp_BufferResource* ptr(self)
 
 
-cdef extern from "<rapidsmp/buffer/resource.hpp>" nogil:
-    cdef cppclass cpp_LimitAvailableMemory "rapidsmp::LimitAvailableMemory":
+cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
+    cdef cppclass cpp_LimitAvailableMemory "rapidsmpf::LimitAvailableMemory":
         cpp_LimitAvailableMemory(
             statistics_resource_adaptor[device_memory_resource] *mr, int64_t limit
         ) except +

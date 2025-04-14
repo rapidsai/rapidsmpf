@@ -11,21 +11,21 @@
 #include <unordered_map>
 #include <vector>
 
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/shuffler/chunk.hpp>
-#include <rapidsmp/shuffler/postbox.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/shuffler/chunk.hpp>
+#include <rapidsmpf/shuffler/postbox.hpp>
+#include <rapidsmpf/utils.hpp>
 
 /**
- * @namespace rapidsmp::shuffler
+ * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
  *
  * A shuffle service for cuDF tables. Use `Shuffler` to perform a single shuffle.
  */
-namespace rapidsmp::shuffler {
+namespace rapidsmpf::shuffler {
 
 /**
- * @namespace rapidsmp::shuffler::detail
+ * @namespace rapidsmpf::shuffler::detail
  * @brief Shuffler private interfaces.
  *
  * This namespace contains private interfaces for internal workings of the shuffler.
@@ -183,4 +183,4 @@ inline std::ostream& operator<<(std::ostream& os, detail::FinishCounter const& o
     return os;
 }
 
-}  // namespace rapidsmp::shuffler
+}  // namespace rapidsmpf::shuffler

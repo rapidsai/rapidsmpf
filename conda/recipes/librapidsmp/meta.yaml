@@ -76,7 +76,7 @@ outputs:
         - ucxx {{ ucxx_version }}
     test:
         commands:
-          - test -f $PREFIX/include/rapidsmp/communicator/communicator.hpp
+          - test -f $PREFIX/include/rapidsmpf/communicator/communicator.hpp
     about:
       home: https://rapids.ai
       license: Apache-2.0

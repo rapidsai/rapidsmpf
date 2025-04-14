@@ -12,13 +12,13 @@
 #include <cudf/concatenate.hpp>
 #include <cudf/detail/contiguous_split.hpp>  // `cudf::detail::pack` (stream ordered version)
 
-#include <rapidsmp/buffer/packed_data.hpp>
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/shuffler/shuffler.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/utils.hpp>
 
-namespace rapidsmp::shuffler {
+namespace rapidsmpf::shuffler {
 
 using namespace detail;
 
@@ -608,4 +608,4 @@ std::string detail::FinishCounter::str() const {
     return ss.str();
 }
 
-}  // namespace rapidsmp::shuffler
+}  // namespace rapidsmpf::shuffler

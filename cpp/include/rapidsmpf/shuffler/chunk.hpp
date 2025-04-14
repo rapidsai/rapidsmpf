@@ -11,10 +11,10 @@
 #include <cudf/contiguous_split.hpp>
 #include <cudf/table/table.hpp>
 
-#include <rapidsmp/buffer/buffer.hpp>
-#include <rapidsmp/shuffler/partition.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/shuffler/partition.hpp>
 
-namespace rapidsmp::shuffler::detail {
+namespace rapidsmpf::shuffler::detail {
 
 /**
  * @brief The globally unique ID of a chunk.
@@ -199,4 +199,4 @@ inline std::ostream& operator<<(std::ostream& os, ReadyForDataMessage const& obj
     return os;
 }
 
-}  // namespace rapidsmp::shuffler::detail
+}  // namespace rapidsmpf::shuffler::detail

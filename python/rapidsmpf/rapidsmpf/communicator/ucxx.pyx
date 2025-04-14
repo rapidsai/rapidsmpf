@@ -24,16 +24,16 @@ cdef extern from "<variant>" namespace "std" nogil:
     cdef T* get_if[T](...)
 
 
-cdef extern from "<rapidsmp/communicator/ucxx.hpp>" namespace "rapidsmp::ucxx" nogil:
+cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace "rapidsmpf::ucxx" nogil:
     ctypedef pair[string, uint16_t] HostPortPair
 
     ctypedef variant RemoteAddress
 
-    cdef cppclass cpp_UCXX_ListenerAddress "rapidsmp::ucxx::ListenerAddress":
+    cdef cppclass cpp_UCXX_ListenerAddress "rapidsmpf::ucxx::ListenerAddress":
         RemoteAddress address
         Rank rank
 
-    cdef cppclass cpp_UCXX_InitializedRank "rapidsmp::ucxx::InitializedRank":
+    cdef cppclass cpp_UCXX_InitializedRank "rapidsmpf::ucxx::InitializedRank":
         pass
 
     unique_ptr[cpp_UCXX_InitializedRank] init(
@@ -48,7 +48,7 @@ cdef extern from "<rapidsmp/communicator/ucxx.hpp>" namespace "rapidsmp::ucxx" n
         nullopt_t remote_address
     )
 
-    cdef cppclass cpp_UCXX_Communicator "rapidsmp::ucxx::UCXX":
+    cdef cppclass cpp_UCXX_Communicator "rapidsmpf::ucxx::UCXX":
         cpp_UCXX_Communicator() except +
         cpp_UCXX_Communicator(
             unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
