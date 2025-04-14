@@ -6,7 +6,7 @@
 #include <gtest/gtest.h>
 #include <mpi.h>
 
-#include <rapidsmp/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
 
 #include "../environment.hpp"
 
@@ -15,12 +15,12 @@ Environment* GlobalEnvironment = nullptr;
 Environment::Environment(int argc, char** argv) : argc_(argc), argv_(argv) {}
 
 void Environment::SetUp() {
-    rapidsmp::mpi::init(&argc_, &argv_);
+    rapidsmpf::mpi::init(&argc_, &argv_);
 
     RAPIDSMP_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm_));
 
-    comm_ = std::make_shared<rapidsmp::MPI>(mpi_comm_);
-    progress_thread_ = std::make_shared<rapidsmp::ProgressThread>(comm_->logger());
+    comm_ = std::make_shared<rapidsmpf::MPI>(mpi_comm_);
+    progress_thread_ = std::make_shared<rapidsmpf::ProgressThread>(comm_->logger());
 }
 
 void Environment::TearDown() {
@@ -34,7 +34,7 @@ void Environment::barrier() {
     RAPIDSMP_MPI(MPI_Barrier(mpi_comm_));
 }
 
-std::shared_ptr<rapidsmp::Communicator> Environment::split_comm() {
+std::shared_ptr<rapidsmpf::Communicator> Environment::split_comm() {
     // Return cached split communicator if it exists
     if (split_comm_ != nullptr) {
         return split_comm_;
@@ -45,10 +45,10 @@ std::shared_ptr<rapidsmp::Communicator> Environment::split_comm() {
     RAPIDSMP_MPI(MPI_Comm_rank(mpi_comm_, &rank));
     MPI_Comm split_comm = MPI_COMM_NULL;
     RAPIDSMP_MPI(MPI_Comm_split(mpi_comm_, rank, 0, &split_comm));
-    return std::shared_ptr<rapidsmp::MPI>(
-        new rapidsmp::MPI(split_comm),
+    return std::shared_ptr<rapidsmpf::MPI>(
+        new rapidsmpf::MPI(split_comm),
         // Don't leak the split handle.
-        [comm = split_comm](rapidsmp::MPI* x) mutable {
+        [comm = split_comm](rapidsmpf::MPI* x) mutable {
             delete x;
             MPI_Comm_free(&comm);
         }

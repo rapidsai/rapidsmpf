@@ -222,7 +222,7 @@ install(
   DESTINATION ${lib_dir}
   EXPORT rapidsmp-exports
 )
-install(DIRECTORY include/rapidsmp/ DESTINATION include/rapidsmp)
+install(DIRECTORY include/rapidsmpf/ DESTINATION include/rapidsmpf)
 
 set(doc_string
     [=[

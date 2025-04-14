@@ -4,10 +4,10 @@
  */
 #include <stdexcept>
 
-#include <rapidsmp/buffer/buffer.hpp>
-#include <rapidsmp/buffer/resource.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 namespace {
 // Check that `ptr` isn't null.
@@ -99,4 +99,4 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
     );
 }
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

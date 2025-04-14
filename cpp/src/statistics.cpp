@@ -6,9 +6,9 @@
 #include <iomanip>
 #include <sstream>
 
-#include <rapidsmp/statistics.hpp>
+#include <rapidsmpf/statistics.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 void Statistics::FormatterDefault(std::ostream& os, std::size_t count, double val) {
     os << val;
@@ -74,11 +74,11 @@ std::string Statistics::report(std::string const& header) const {
     ss << "\n";
     for (auto const& [name, stat] : stats_) {
         ss << " - " << std::setw(max_length + 3) << std::left << name + ": ";
-        stat.formatter_(ss, stat.count_, stat.value_);
+        stat.formatter()(ss, stat.count(), stat.value());
         ss << "\n";
     }
     return ss.str();
 }
 
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

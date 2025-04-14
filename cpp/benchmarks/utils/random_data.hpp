@@ -8,7 +8,7 @@
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
 
-#include <rapidsmp/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
 
 
 /**
@@ -92,7 +92,7 @@ cudf::table random_table(
  * @throws std::invalid_argument if the memory type of `buffer` isn't supported.
  */
 void random_fill(
-    rapidsmp::Buffer& buffer,
+    rapidsmpf::Buffer& buffer,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 );

@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/shuffler/finish_counter.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/shuffler/finish_counter.hpp>
 
-namespace rapidsmp::shuffler::detail {
+namespace rapidsmpf::shuffler::detail {
 
 FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions)
     : nranks_{nranks} {
@@ -157,4 +157,4 @@ std::vector<PartID> FinishCounter::wait_some(
 }
 
 
-}  // namespace rapidsmp::shuffler::detail
+}  // namespace rapidsmpf::shuffler::detail

@@ -8,10 +8,10 @@
 #include <mutex>
 #include <utility>
 
-#include <rapidsmp/communicator/ucxx.hpp>
-#include <rapidsmp/error.hpp>
+#include <rapidsmpf/communicator/ucxx.hpp>
+#include <rapidsmpf/error.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 namespace ucxx {
 
@@ -44,10 +44,10 @@ enum class ListenerAddressType {
     Undefined
 };
 
-using Rank = rapidsmp::Rank;
-using HostPortPair = rapidsmp::ucxx::HostPortPair;
-using RemoteAddress = rapidsmp::ucxx::RemoteAddress;
-using ListenerAddress = rapidsmp::ucxx::ListenerAddress;
+using Rank = rapidsmpf::Rank;
+using HostPortPair = rapidsmpf::ucxx::HostPortPair;
+using RemoteAddress = rapidsmpf::ucxx::RemoteAddress;
+using ListenerAddress = rapidsmpf::ucxx::ListenerAddress;
 using ControlData = std::variant<Rank, ListenerAddress>;
 using EndpointsMap = std::unordered_map<ucp_ep_h, std::shared_ptr<::ucxx::Endpoint>>;
 using RankToEndpointMap = std::unordered_map<Rank, std::shared_ptr<::ucxx::Endpoint>>;
@@ -636,7 +636,7 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
 void control_unpack(
     std::shared_ptr<::ucxx::Buffer> buffer,
     ucp_ep_h ep,
-    std::shared_ptr<rapidsmp::ucxx::SharedResources> shared_resources
+    std::shared_ptr<rapidsmpf::ucxx::SharedResources> shared_resources
 ) {
     size_t offset{0};
 
@@ -749,7 +749,7 @@ void control_unpack(
  * associated with the new endpoint.
  */
 void listener_callback(ucp_conn_request_h conn_request, void* arg) {
-    auto shared_resources = reinterpret_cast<rapidsmp::ucxx::SharedResources*>(arg);
+    auto shared_resources = reinterpret_cast<rapidsmpf::ucxx::SharedResources*>(arg);
 
     ucp_conn_request_attr_t attr{};
     attr.field_mask = UCP_CONN_REQUEST_ATTR_FIELD_CLIENT_ADDR;
@@ -809,11 +809,11 @@ void create_cuda_context_callback(void* /* callbackArg */) {
 }  // namespace
 
 InitializedRank::InitializedRank(
-    std::shared_ptr<rapidsmp::ucxx::SharedResources> shared_resources
+    std::shared_ptr<rapidsmpf::ucxx::SharedResources> shared_resources
 )
     : shared_resources_(std::move(shared_resources)) {}
 
-std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
+std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
     Rank nranks,
     std::optional<RemoteAddress> remote_address
@@ -832,7 +832,7 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
             worker = create_worker();
         }
         auto shared_resources =
-            std::make_shared<rapidsmp::ucxx::SharedResources>(worker, false, nranks);
+            std::make_shared<rapidsmpf::ucxx::SharedResources>(worker, false, nranks);
 
         // Create listener
         shared_resources->register_listener(
@@ -934,13 +934,13 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
             while (!req->isCompleted())
                 shared_resources->progress_worker();
         }
-        return std::make_unique<rapidsmp::ucxx::InitializedRank>(shared_resources);
+        return std::make_unique<rapidsmpf::ucxx::InitializedRank>(shared_resources);
     } else {
         if (worker == nullptr) {
             worker = create_worker();
         }
         auto shared_resources =
-            std::make_shared<rapidsmp::ucxx::SharedResources>(worker, true, nranks);
+            std::make_shared<rapidsmpf::ucxx::SharedResources>(worker, true, nranks);
 
         // Create listener
         shared_resources->register_listener(
@@ -963,7 +963,7 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
             shared_resources->get_control_callback_info(), control_callback
         );
 
-        return std::make_unique<rapidsmp::ucxx::InitializedRank>(shared_resources);
+        return std::make_unique<rapidsmpf::ucxx::InitializedRank>(shared_resources);
     }
 }
 
@@ -981,11 +981,11 @@ UCXX::UCXX(std::unique_ptr<InitializedRank> ucxx_initialized_rank)
 }
 
 constexpr ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
-    // The rapidsmp::ucxx::Communicator API uses 32-bit `int` for user tags to match
+    // The rapidsmpf::ucxx::Communicator API uses 32-bit `int` for user tags to match
     // MPI's standard. We can thus pack the rank in the higher 32-bit of UCX's
     // 64-bit tags as aid in identifying the sender of a message. Since we're
     // currently limited to 26-bits for ranks (see
-    // `rapidsmp::ucxx::shuffler::Shuffler::get_new_cid()`), we are essentially using
+    // `rapidsmpf::ucxx::shuffler::Shuffler::get_new_cid()`), we are essentially using
     // 58-bits for the tags and the remaining 6-bits may be used in the future,
     // such as to identify groups.
     return ::ucxx::Tag(static_cast<uint64_t>(rank) << 32 | static_cast<uint64_t>(tag));
@@ -1243,4 +1243,4 @@ std::shared_ptr<UCXX> UCXX::split() {
 
 }  // namespace ucxx
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

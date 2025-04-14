@@ -14,14 +14,14 @@
 #include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
-#include <rapidsmp/buffer/buffer.hpp>
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/shuffler/shuffler.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/utils.hpp>
 
 
-using namespace rapidsmp;
+using namespace rapidsmpf;
 
 constexpr std::size_t operator"" _KiB(unsigned long long n) {
     return n * (1 << 10);

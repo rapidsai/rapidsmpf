@@ -22,7 +22,7 @@ sccache --zero-stats
 
 RAPIDS_PACKAGE_VERSION=$(rapids-generate-version) rapids-conda-retry build \
   --channel "${CPP_CHANNEL}" \
-  conda/recipes/rapidsmp
+  conda/recipes/rapidsmpf
 
 sccache --show-adv-stats
 

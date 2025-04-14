@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include <rapidsmp/error.hpp>
+#include <rapidsmpf/error.hpp>
 
 /**
  * @brief Computes the harmonic mean of a set of values.

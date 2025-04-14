@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <rapidsmp/buffer/buffer.hpp>
-#include <rapidsmp/buffer/packed_data.hpp>
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/shuffler/chunk.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/shuffler/chunk.hpp>
+#include <rapidsmpf/utils.hpp>
 
-namespace rapidsmp::shuffler::detail {
+namespace rapidsmpf::shuffler::detail {
 
 
 Chunk::Chunk(
@@ -94,7 +94,7 @@ std::string Chunk::str(std::size_t max_nbytes, rmm::cuda_stream_view stream) con
     ss << ", expected_num_chunks=" << expected_num_chunks;
     ss << ", gpu_data_size=" << gpu_data_size;
     if (metadata && gpu_data && gpu_data->size < max_nbytes) {
-        ss << ", " << rapidsmp::str(unpack(stream)->view());
+        ss << ", " << rapidsmpf::str(unpack(stream)->view());
     } else {
         ss << ", metadata=";
         if (metadata) {
@@ -112,4 +112,4 @@ std::string Chunk::str(std::size_t max_nbytes, rmm::cuda_stream_view stream) con
     ss << ")";
     return ss.str();
 }
-}  // namespace rapidsmp::shuffler::detail
+}  // namespace rapidsmpf::shuffler::detail

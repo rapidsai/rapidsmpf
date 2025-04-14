@@ -16,13 +16,13 @@
 
 #include <utility>
 
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/progress_thread.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/utils.hpp>
 
-#include "rapidsmp/communicator/communicator.hpp"
+#include "rapidsmpf/communicator/communicator.hpp"
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 ProgressThread::FunctionState::FunctionState(Function&& function)
     : function(std::move(function)) {}
@@ -49,7 +49,9 @@ ProgressThread::ProgressThread(
           return event_loop();
       }),
       logger_(logger),
-      statistics_(std::move(statistics)) {}
+      statistics_(std::move(statistics)) {
+    RAPIDSMP_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+}
 
 ProgressThread::~ProgressThread() {
     stop();
@@ -113,4 +115,4 @@ void ProgressThread::event_loop() {
     statistics_->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 }
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

@@ -66,12 +66,12 @@ cudf::table random_table(
 }
 
 void random_fill(
-    rapidsmp::Buffer& buffer,
+    rapidsmpf::Buffer& buffer,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
     switch (buffer.mem_type()) {
-    case rapidsmp::MemoryType::DEVICE:
+    case rapidsmpf::MemoryType::DEVICE:
         {
             auto vec = random_device_vector(
                 buffer.size / sizeof(std::int32_t) + sizeof(std::int32_t),
