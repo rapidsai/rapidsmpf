@@ -18,7 +18,7 @@ project(
   LANGUAGES CXX CUDA
 )
 
-find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
+find_package(rapidsmp REQUIRED "${RAPIDS_VERSION}")
 
 find_package(CUDAToolkit REQUIRED)
 
