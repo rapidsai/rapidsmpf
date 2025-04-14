@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
 import pynvml
 import toolz
@@ -13,6 +14,9 @@ os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = "1"
 import pytest
 
 ray = pytest.importorskip("ray")
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 from rapidsmpf.examples.ray.ray_shuffle_example import (  # noqa: E402
     ShufflingActor,
@@ -44,8 +48,13 @@ pytestmark = pytest.mark.skipif(
     reason="Ray tests should not run with more than one MPI process",
 )
 
-# initialize ray with 4 cpu processes
-ray.init(num_cpus=4)
+
+@pytest.fixture(scope="module")
+def ray_cluster() -> Generator[None, None, None]:
+    """Initialize Ray cluster for all tests in this module."""
+    ray.init(num_cpus=4)
+    yield
+    ray.shutdown()
 
 
 @ray.remote(num_cpus=1)
@@ -60,7 +69,7 @@ class DummyActor(RapidsMPFActor):
 
 
 @pytest.mark.parametrize("num_workers", [1, 2, 4])
-def test_ray_ucxx_cluster(num_workers: int) -> None:
+def test_ray_ucxx_cluster(ray_cluster: None, num_workers: int) -> None:
     # setup the UCXX cluster using DummyActors
     gpu_actors = setup_ray_ucxx_cluster(DummyActor, num_workers)
 
@@ -79,7 +88,7 @@ def test_ray_ucxx_cluster(num_workers: int) -> None:
 
 
 @pytest.mark.parametrize("num_workers", [1, 2, 4])
-def test_ray_ucxx_cluster_not_initialized(num_workers: int) -> None:
+def test_ray_ucxx_cluster_not_initialized(ray_cluster: None, num_workers: int) -> None:
     # setup the UCXX cluster using DummyActors
     # there's some fancy monkeypatching in ray making `DummyActor.remote` available
     gpu_actors = [DummyActor.remote(num_workers) for _ in range(num_workers)]  # type: ignore[attr-defined]
@@ -97,7 +106,7 @@ def test_ray_ucxx_cluster_not_initialized(num_workers: int) -> None:
             ray.kill(actor)
 
 
-def test_disallowed_classes() -> None:
+def test_disallowed_classes(ray_cluster: None) -> None:
     # class that doesnt extend RapidsMPFActor or ray actor
     class NonActor: ...
 
@@ -130,7 +139,7 @@ def get_gpu_count() -> int:
 @pytest.mark.parametrize("batch_size", [-1, 10])
 @pytest.mark.parametrize("total_num_partitions", [1, 10])
 def test_ray_shuffle_actor(
-    num_workers: int, batch_size: int, total_num_partitions: int
+    ray_cluster: None, num_workers: int, batch_size: int, total_num_partitions: int
 ) -> None:
     gpu_count = get_gpu_count()
 
