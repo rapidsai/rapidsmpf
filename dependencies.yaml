@@ -28,7 +28,7 @@ files:
       - cuda_version
       - py_version
       - test_python
-      - test_rapidsmp
+      - test_rapidsmpf
   checks:
     output: none
     includes:
@@ -41,7 +41,7 @@ files:
       - cuda_version
       - docs
       - py_version
-      - test_rapidsmp
+      - test_rapidsmpf
 channels:
   - rapidsai
   - rapidsai-nightly
@@ -169,11 +169,11 @@ dependencies:
           - valgrind
           - cuda-sanitizer-api
           - click >=8.1
-  test_rapidsmp:
+  test_rapidsmpf:
     common:
       - output_types: conda
         packages:
-          - rapidsmp==25.6.*,>=0.0.0a0
+          - rapidsmpf==25.6.*,>=0.0.0a0
   test_python:
     common:
       - output_types: [conda, pyproject]

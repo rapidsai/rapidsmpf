@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-# rapidsmp build script
+# rapidsmpf build script
 
 # This script is used to build the component(s) in this repo from
 # source, and can be called with various options to customize the
@@ -19,21 +19,21 @@ ARGS=$*
 # script, and that this script resides in the repo dir!
 REPODIR=$(cd $(dirname $0); pwd)
 
-VALIDARGS="clean librapidsmp rapidsmp -v -g -n --pydevelop -h"
-HELP="$0 [clean] [librapidsmp] [rapidsmp] [-v] [-g] [-n] [--cmake-args=\"<args>\"] [-h]
+VALIDARGS="clean librapidsmp rapidsmpf -v -g -n --pydevelop -h"
+HELP="$0 [clean] [librapidsmp] [rapidsmpf] [-v] [-g] [-n] [--cmake-args=\"<args>\"] [-h]
    clean                       - remove all existing build artifacts and configuration (start over)
    librapidsmp                 - build and install the librapidsmp C++ code
-   rapidsmp                    - build the rapidsmp Python package
+   rapidsmpf                   - build the rapidsmpf Python package
    -v                          - verbose build mode
    -g                          - build for debug
    -n                          - no install step
    --pydevelop                 - Install Python packages in editable mode
    --cmake-args=\\\"<args>\\\" - pass arbitrary list of CMake configuration options (escape all quotes in argument)
    -h                          - print this text
-   default action (no args) is to build and install the 'librapidsmp' then 'rapidsmp' targets
+   default action (no args) is to build and install the 'librapidsmp' then 'rapidsmpf' targets
 "
 LIBRAPIDSMP_BUILD_DIR=${LIBRAPIDSMP_BUILD_DIR:=${REPODIR}/cpp/build}
-PYRAPIDSMP_=${REPODIR}/python/rapidsmp/build
+PYRAPIDSMP_=${REPODIR}/python/rapidsmpf/build
 BUILD_DIRS="${LIBRAPIDSMP_BUILD_DIR} ${PYRAPIDSMP_}"
 
 # Set defaults for vars modified by flags to this script
@@ -150,10 +150,10 @@ if (( NUMARGS == 0 )) || hasArg librapidsmp; then
     fi
 fi
 
-# Build and install the rapidsmp Python package
-if (( NUMARGS == 0 )) || hasArg rapidsmp; then
-    echo "building rapidsmp..."
-    cd ${REPODIR}/python/rapidsmp
+# Build and install the rapidsmpf Python package
+if (( NUMARGS == 0 )) || hasArg rapidsmpf; then
+    echo "building rapidsmpf..."
+    cd ${REPODIR}/python/rapidsmpf
     SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBRAPIDSMP_BUILD_DIR};${EXTRA_CMAKE_ARGS}" \
         python ${PYTHON_ARGS_FOR_INSTALL} ${VERBOSE_FLAG} .
 fi
