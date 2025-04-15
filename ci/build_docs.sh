@@ -43,15 +43,15 @@ aws s3 cp s3://rapidsai-docs/libcudf/html/"${RAPIDS_VERSION_MAJOR_MINOR}"/libcud
 
 doxygen Doxyfile
 
-mkdir -p "${RAPIDS_DOCS_DIR}/librapidsmpf/html"
-mv html/* "${RAPIDS_DOCS_DIR}/librapidsmpf/html"
+mkdir -p "${RAPIDS_DOCS_DIR}/librapidsmp/html"
+mv html/* "${RAPIDS_DOCS_DIR}/librapidsmp/html"
 popd
 
-rapids-logger "Build rapidsmpf Sphinx docs"
+rapids-logger "Build rapidsmp Sphinx docs"
 pushd docs/
 make dirhtml
-mkdir -p "${RAPIDS_DOCS_DIR}/rapidsmpf/html"
-mv build/dirhtml/* "${RAPIDS_DOCS_DIR}/rapidsmpf/html"
+mkdir -p "${RAPIDS_DOCS_DIR}/rapidsmp/html"
+mv build/dirhtml/* "${RAPIDS_DOCS_DIR}/rapidsmp/html"
 popd
 
 RAPIDS_VERSION_NUMBER="${RAPIDS_VERSION_MAJOR_MINOR}" rapids-upload-docs
