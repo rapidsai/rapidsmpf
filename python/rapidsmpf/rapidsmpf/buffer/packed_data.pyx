@@ -8,7 +8,7 @@ from rapidsmpf.buffer.packed_data cimport cpp_PackedData
 
 cdef class PackedData:
     @staticmethod
-    cdef from_librapidsmp(unique_ptr[cpp_PackedData] obj):
+    cdef from_librapidsmpf(unique_ptr[cpp_PackedData] obj):
         cdef PackedData self = PackedData.__new__(PackedData)
         self.c_obj = move(obj)
         return self

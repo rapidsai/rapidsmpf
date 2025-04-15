@@ -17,4 +17,4 @@ cdef class PackedData:
     cdef unique_ptr[cpp_PackedData] c_obj
 
     @staticmethod
-    cdef from_librapidsmp(unique_ptr[cpp_PackedData] obj)
+    cdef from_librapidsmpf(unique_ptr[cpp_PackedData] obj)

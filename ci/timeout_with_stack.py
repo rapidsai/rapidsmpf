@@ -13,7 +13,7 @@ psutil.Process : For process management and information.
 
 Examples
 --------
->>> from rapidsmp.utils.timeout_with_stack import run_with_timeout
+>>> from timeout_with_stack import run_with_timeout
 >>> exit_code = run_with_timeout(["sleep", "10"], timeout=5)
 >>> print(f"Process exited with code: {exit_code}")
 """
@@ -64,7 +64,7 @@ def get_child_pids(pid: int) -> list[int]:
 
     Examples
     --------
-    >>> from rapidsmp.utils.timeout_with_stack import get_child_pids
+    >>> from timeout_with_stack import get_child_pids
     >>> child_pids = get_child_pids(1234)
     >>> print(f"Child PIDs: {child_pids}")
     """
@@ -97,7 +97,7 @@ def capture_stack_trace(pid: int, stack_type = StackType.C) -> None:
 
     Examples
     --------
-    >>> from rapidsmp.utils.timeout_with_stack import capture_stack_trace
+    >>> from timeout_with_stack import capture_stack_trace
     >>> capture_stack_trace(1234)
     """
     if stack_type is StackType.C:
@@ -150,7 +150,7 @@ def capture_all_stacks(pid: int, enable_python: bool = False) -> None:
 
     Examples
     --------
-    >>> from rapidsmp.utils.timeout_with_stack import capture_all_stacks
+    >>> from timeout_with_stack import capture_all_stacks
     >>> capture_all_stacks(1234, enable_python=True)
     """
     # Capture parent process stack
@@ -186,7 +186,7 @@ def terminate_process_tree(pid: int) -> None:
 
     Examples
     --------
-    >>> from rapidsmp.utils.timeout_with_stack import terminate_process_tree
+    >>> from timeout_with_stack import terminate_process_tree
     >>> terminate_process_tree(1234)
     """
     try:
@@ -251,7 +251,7 @@ def run_with_timeout(cmd: Sequence[str], timeout: float, enable_python: bool = F
 
     Examples
     --------
-    >>> from rapidsmp.utils.timeout_with_stack import run_with_timeout
+    >>> from timeout_with_stack import run_with_timeout
     >>> exit_code = run_with_timeout(["sleep", "10"], timeout=5, enable_python=True)
     >>> print(f"Process exited with code: {exit_code}")
     """
