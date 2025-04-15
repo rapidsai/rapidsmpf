@@ -100,7 +100,7 @@ cdef class SpillManager:
         with nogil:
             ret._handle = &(deref(br._handle).cpp_spill_manager())
             ret._br = weakref.ref(br)
-            ret._spill_functions = {}
+        ret._spill_functions = {}
         return ret
 
     def _valid_buffer_resource(self):
