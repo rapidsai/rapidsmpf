@@ -199,9 +199,9 @@ class Communicator {
         }
 
         /**
-         * @brief Get the verbosity level from the environment variable `RAPIDSMP_LOG`.
+         * @brief Get the verbosity level from the environment variable `RAPIDSMPF_LOG`.
          *
-         * This function reads the `RAPIDSMP_LOG` environment variable, trims whitespace,
+         * This function reads the `RAPIDSMPF_LOG` environment variable, trims whitespace,
          * converts the value to uppercase, and attempts to match it against known logging
          * level names. If the environment variable is not set, the default value `"WARN"`
          * is used.
@@ -212,7 +212,7 @@ class Communicator {
          * value.
          */
         static LOG_LEVEL level_from_env() {
-            auto env = to_upper(trim(getenv_or<std::string>("RAPIDSMP_LOG", "WARN")));
+            auto env = to_upper(trim(getenv_or<std::string>("RAPIDSMPF_LOG", "WARN")));
             for (std::uint32_t i = 0; i < LOG_LEVEL_NAMES.size(); ++i) {
                 auto level = static_cast<LOG_LEVEL>(i);
                 if (env == level_name(level)) {
@@ -220,7 +220,7 @@ class Communicator {
                 }
             }
             std::stringstream ss;
-            ss << "RAPIDSMP_LOG - unknown value: \"" << env << "\", valid choices: { ";
+            ss << "RAPIDSMPF_LOG - unknown value: \"" << env << "\", valid choices: { ";
             for (auto const& name : LOG_LEVEL_NAMES) {
                 ss << name << " ";
             }
@@ -231,7 +231,7 @@ class Communicator {
         /**
          * @brief Construct a new logger.
          *
-         * To control the verbosity level, set the environment variable `RAPIDSMP_LOG`:
+         * To control the verbosity level, set the environment variable `RAPIDSMPF_LOG`:
          *  - NONE:  No logging.
          *  - PRINT: General print messages.
          *  - WARN:  Warning messages (default)

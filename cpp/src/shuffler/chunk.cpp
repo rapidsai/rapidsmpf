@@ -70,7 +70,7 @@ Chunk Chunk::from_metadata_message(std::unique_ptr<std::vector<uint8_t>> const& 
 }
 
 std::unique_ptr<cudf::table> Chunk::unpack(rmm::cuda_stream_view stream) const {
-    RAPIDSMP_EXPECTS(metadata && gpu_data, "both meta and gpu data must be non-null");
+    RAPIDSMPF_EXPECTS(metadata && gpu_data, "both meta and gpu data must be non-null");
     auto br = gpu_data->br;
 
     // Since we cannot spill, we allow and ignore overbooking.

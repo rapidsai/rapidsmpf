@@ -127,7 +127,7 @@ int main(int argc, char** argv) {
     // Shutdown the Shuffler explicitly or let it go out of scope for cleanup.
     shuffler.shutdown();
 
-    // Finalize the execution, `RAPIDSMP_MPI` is a convenience macro that
+    // Finalize the execution, `RAPIDSMPF_MPI` is a convenience macro that
     // checks for MPI errors.
-    RAPIDSMP_MPI(MPI_Finalize());
+    RAPIDSMPF_MPI(MPI_Finalize());
 }

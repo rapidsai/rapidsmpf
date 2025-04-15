@@ -27,12 +27,12 @@ namespace {
 void broadcast_listener_address(MPI_Comm mpi_comm, std::string& root_worker_address_str) {
     size_t address_size{root_worker_address_str.size()};
 
-    RAPIDSMP_MPI(MPI_Bcast(&address_size, sizeof(address_size), MPI_UINT8_T, 0, mpi_comm)
+    RAPIDSMPF_MPI(MPI_Bcast(&address_size, sizeof(address_size), MPI_UINT8_T, 0, mpi_comm)
     );
 
     root_worker_address_str.resize(address_size);
 
-    RAPIDSMP_MPI(
+    RAPIDSMPF_MPI(
         MPI_Bcast(root_worker_address_str.data(), address_size, MPI_UINT8_T, 0, mpi_comm)
     );
 }
@@ -40,14 +40,14 @@ void broadcast_listener_address(MPI_Comm mpi_comm, std::string& root_worker_addr
 }  // namespace
 
 std::shared_ptr<UCXX> init_using_mpi(MPI_Comm mpi_comm) {
-    RAPIDSMP_EXPECTS(::rapidsmpf::mpi::is_initialized(), "MPI not initialized");
+    RAPIDSMPF_EXPECTS(::rapidsmpf::mpi::is_initialized(), "MPI not initialized");
 
     // Ensure CUDA context is created before UCX is initialized.
     cudaFree(nullptr);
 
     int rank, nranks;
-    RAPIDSMP_MPI(MPI_Comm_rank(mpi_comm, &rank));
-    RAPIDSMP_MPI(MPI_Comm_size(mpi_comm, &nranks));
+    RAPIDSMPF_MPI(MPI_Comm_rank(mpi_comm, &rank));
+    RAPIDSMPF_MPI(MPI_Comm_size(mpi_comm, &nranks));
 
     auto root_listener_address = ListenerAddress{.rank = 0};
     std::string root_worker_address_str{};
