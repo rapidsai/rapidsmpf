@@ -95,7 +95,7 @@ cpdef dict partition_and_pack(
     ret = {}
     cdef unordered_map[uint32_t, cpp_PackedData].iterator it = _ret.begin()
     while(it != _ret.end()):
-        ret[deref(it).first] = PackedData.from_librapidsmp(
+        ret[deref(it).first] = PackedData.from_librapidsmpf(
             make_unique[cpp_PackedData](move(deref(it).second))
         )
         postincrement(it)
@@ -315,7 +315,7 @@ cdef class Shuffler:
         cdef list ret = []
         for i in range(_ret.size()):
             ret.append(
-                PackedData.from_librapidsmp(
+                PackedData.from_librapidsmpf(
                     make_unique[cpp_PackedData](
                         move(_ret.at(i).metadata), move(_ret.at(i).gpu_data)
                     )

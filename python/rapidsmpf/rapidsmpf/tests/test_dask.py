@@ -19,6 +19,7 @@ from distributed.utils_test import (  # noqa: E402, F401
     loop_in_thread,
 )
 from mpi4py import MPI  # noqa: E402
+
 from rapidsmpf.integrations.dask.core import (  # noqa: E402
     bootstrap_dask_cluster,
 )
@@ -63,6 +64,7 @@ def test_dask_cudf_integration(loop: pytest.FixtureDef, partition_count: int) ->
     pytest.importorskip("dask_cudf")
 
     import dask.dataframe as dd
+
     from rapidsmpf.examples.dask import dask_cudf_shuffle
 
     with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117

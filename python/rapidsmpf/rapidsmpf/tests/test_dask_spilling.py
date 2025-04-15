@@ -12,15 +12,16 @@ from typing import TYPE_CHECKING
 import pytest
 from dask_cudf.backends import sizeof_dispatch as sizeof
 from distributed.protocol.cuda import cuda_dumps, cuda_loads
+
+import cudf
+import rmm
+from pylibcudf import gpumemoryview
+
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.integrations.dask.spilling import (
     SpillableWrapper,
     register_dask_serialize,
 )
-
-import cudf
-import rmm
-from pylibcudf import gpumemoryview
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

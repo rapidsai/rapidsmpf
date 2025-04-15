@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from rapidsmpf.utils.string import format_bytes, parse_bytes
 
 

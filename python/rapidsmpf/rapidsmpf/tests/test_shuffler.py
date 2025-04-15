@@ -7,6 +7,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+
+import cudf
+from rmm.pylibrmm.stream import DEFAULT_STREAM
+
 from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.shuffler import Shuffler, partition_and_pack, unpack_and_concat
@@ -16,13 +20,10 @@ from rapidsmpf.utils.cudf import (
     pylibcudf_to_cudf_dataframe,
 )
 
-import cudf
-from rmm.pylibrmm.stream import DEFAULT_STREAM
-
 if TYPE_CHECKING:
-    from rapidsmpf.communicator.communicator import Communicator
-
     import rmm.mr
+
+    from rapidsmpf.communicator.communicator import Communicator
 
 
 @pytest.mark.parametrize("df", [{"0": [1, 2, 3], "1": [2, 2, 1]}, {"0": [], "1": []}])
