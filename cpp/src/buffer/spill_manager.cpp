@@ -34,7 +34,7 @@ SpillManager::SpillFunctionID SpillManager::add_spill_function(
 ) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto const id = spill_function_id_counter_++;
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         spill_functions_.insert({id, std::move(spill_function)}).second,
         "corrupted id counter"
     );
@@ -65,7 +65,7 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
 }
 
 std::size_t SpillManager::spill(std::size_t amount) {
-    RAPIDSMP_NVTX_FUNC_RANGE();
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     std::size_t spilled{0};
     std::unique_lock<std::mutex> lock(mutex_);
     auto const t0_elapsed = Clock::now();

@@ -98,7 +98,7 @@ class SharedResources {
     RankToListenerAddressMap rank_to_listener_address_{
     };  ///< Map of rank to listener addresses
     const ::ucxx::AmReceiverCallbackInfo control_callback_info_{
-        "rapidsmp", 0
+        "rapidsmpf", 0
     };  ///< UCXX callback info for control messages
     std::vector<std::unique_ptr<HostFuture>> futures_{
     };  ///< Futures to incomplete requests.
@@ -174,7 +174,7 @@ class SharedResources {
      * @throws std::logic_error If called by rank other than 0.
      */
     [[nodiscard]] Rank get_next_worker_rank() {
-        RAPIDSMP_EXPECTS(rank_ == 0, "This method can only be called by rank 0");
+        RAPIDSMPF_EXPECTS(rank_ == 0, "This method can only be called by rank 0");
         return next_rank_++;
     }
 
@@ -199,7 +199,7 @@ class SharedResources {
      */
     [[nodiscard]] std::shared_ptr<::ucxx::Context> get_context() {
         auto context = std::dynamic_pointer_cast<::ucxx::Context>(worker_->getParent());
-        RAPIDSMP_EXPECTS(context != nullptr, "Failed to get UCXX context from worker");
+        RAPIDSMPF_EXPECTS(context != nullptr, "Failed to get UCXX context from worker");
         return context;
     }
 
@@ -503,7 +503,7 @@ std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
                 encode_(&listener_address.rank, sizeof(listener_address.rank));
                 return packed;
             } else {
-                RAPIDSMP_EXPECTS(false, "Unknown argument type");
+                RAPIDSMPF_EXPECTS(false, "Unknown argument type");
             }
         },
         listener_address.address
@@ -555,7 +555,7 @@ ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> pa
 
         return ListenerAddress{std::make_pair(host, port), rank};
     } else {
-        RAPIDSMP_EXPECTS(false, "Wrong type");
+        RAPIDSMPF_EXPECTS(false, "Wrong type");
     }
 }
 
@@ -608,7 +608,7 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
 
         return packed;
     } else {
-        RAPIDSMP_EXPECTS(false, "Invalid control type");
+        RAPIDSMPF_EXPECTS(false, "Invalid control type");
     }
 };
 
@@ -898,7 +898,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 
                     return root_endpoint;
                 } else {
-                    RAPIDSMP_EXPECTS(false, "Unknown argument type");
+                    RAPIDSMPF_EXPECTS(false, "Unknown argument type");
                 }
             },
             *remote_address
@@ -916,7 +916,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         if (const HostPortPair* host_port_pair =
                 std::get_if<HostPortPair>(&*remote_address))
         {
-            RAPIDSMP_EXPECTS(host_port_pair != nullptr, "Invalid pointer");
+            RAPIDSMPF_EXPECTS(host_port_pair != nullptr, "Invalid pointer");
 
             // Inform listener address
             ListenerAddress listener_address = ListenerAddress{
@@ -1044,7 +1044,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
                             remote_address, shared_resources_->endpoint_error_handling()
                         );
                 } else {
-                    RAPIDSMP_EXPECTS(false, "Unknown argument type");
+                    RAPIDSMPF_EXPECTS(false, "Unknown argument type");
                 }
             },
             listener_address.address
@@ -1141,7 +1141,7 @@ std::vector<std::size_t> UCXX::test_some(
     std::vector<size_t> completed;
     for (size_t i = 0; i < future_vector.size(); i++) {
         auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
-        RAPIDSMP_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
             completed.push_back(i);
         }
@@ -1157,7 +1157,7 @@ std::vector<std::size_t> UCXX::test_some(
     std::vector<size_t> completed;
     for (auto const& [key, future] : future_map) {
         auto ucxx_future = dynamic_cast<Future const*>(future.get());
-        RAPIDSMP_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
             completed.push_back(key);
         }
@@ -1174,8 +1174,8 @@ void UCXX::barrier() {
 
 std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
-    RAPIDSMP_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-    RAPIDSMP_EXPECTS(ucxx_future->data_ != nullptr, "future has no data");
+    RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    RAPIDSMPF_EXPECTS(ucxx_future->data_ != nullptr, "future has no data");
     return std::move(ucxx_future->data_);
 }
 

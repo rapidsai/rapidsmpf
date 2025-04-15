@@ -80,12 +80,12 @@ void random_fill(
                 stream,
                 mr
             );
-            RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+            RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
                 buffer.data(), vec.data(), buffer.size, cudaMemcpyDeviceToDevice, stream
             ));
             break;
         }
     default:
-        RAPIDSMP_FAIL("unsupported memory type", std::invalid_argument);
+        RAPIDSMPF_FAIL("unsupported memory type", std::invalid_argument);
     }
 }

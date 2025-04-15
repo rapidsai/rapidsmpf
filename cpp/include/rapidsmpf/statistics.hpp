@@ -16,7 +16,7 @@ namespace rapidsmpf {
 
 /**
  * @class Statistics
- * @brief Track statistics across rapidsmp operations.
+ * @brief Track statistics across rapidsmpf operations.
  */
 class Statistics {
   public:

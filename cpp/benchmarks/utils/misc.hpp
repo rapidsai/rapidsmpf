@@ -66,10 +66,12 @@ void parse_integer(
     try {
         val = std::stoll(str);
     } catch (std::invalid_argument const&) {
-        RAPIDSMP_FAIL("cannot parse \"" + str + "\"", std::invalid_argument);
+        RAPIDSMPF_FAIL("cannot parse \"" + str + "\"", std::invalid_argument);
     } catch (std::out_of_range const&) {
-        RAPIDSMP_FAIL("\"" + str + "\" is out of range", std::out_of_range);
+        RAPIDSMPF_FAIL("\"" + str + "\" is out of range", std::out_of_range);
     }
-    RAPIDSMP_EXPECTS(min_val <= val && val <= max_val, "\"" + str + "\" is out of range");
+    RAPIDSMPF_EXPECTS(
+        min_val <= val && val <= max_val, "\"" + str + "\" is out of range"
+    );
     output = static_cast<T>(val);
 }

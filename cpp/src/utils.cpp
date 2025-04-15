@@ -34,7 +34,7 @@ struct str_cudf_column_scalar_fn {
         rmm::cuda_stream_view /* stream */,
         rmm::device_async_resource_ref /* mr */
     ) {
-        RAPIDSMP_FAIL("not implemented");
+        RAPIDSMPF_FAIL("not implemented");
     }
 };
 }  // namespace

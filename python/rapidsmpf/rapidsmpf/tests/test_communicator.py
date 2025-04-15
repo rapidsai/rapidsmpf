@@ -14,7 +14,7 @@ from rapidsmpf.communicator.testing import initialize_ucxx, ucxx_mpi_setup
 )
 def test_log_level(capfd: pytest.CaptureFixture[str], level: LOG_LEVEL) -> None:
     with pytest.MonkeyPatch.context() as monkeypatch:
-        monkeypatch.setenv("RAPIDSMP_LOG", level.name)
+        monkeypatch.setenv("RAPIDSMPF_LOG", level.name)
 
         comm = new_communicator(MPI.COMM_WORLD)
         assert comm.logger.verbosity_level is level
