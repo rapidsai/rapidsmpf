@@ -76,6 +76,11 @@ cdef class SpillManager:
     def __init__(self):
         raise TypeError("Please get a `SpillManager` from a buffer resource instance")
 
+    def __dealloc__(self):
+        with nogil:
+            self._br.reset()
+            self._handle.reset()
+
     @classmethod
     def _create(cls, BufferResource br):
         """Construct a SpillManager associated the specified buffer resource.
@@ -92,9 +97,10 @@ cdef class SpillManager:
         The new spill manager instance.
         """
         cdef SpillManager ret = cls.__new__(cls)
-        ret._handle = &(deref(br._handle).cpp_spill_manager())
-        ret._br = weakref.ref(br)
-        ret._spill_functions = {}
+        with nogil:
+            ret._handle = &(deref(br._handle).cpp_spill_manager())
+            ret._br = weakref.ref(br)
+            ret._spill_functions = {}
         return ret
 
     def _valid_buffer_resource(self):
