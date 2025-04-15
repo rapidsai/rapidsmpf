@@ -98,7 +98,7 @@ class SharedResources {
     RankToListenerAddressMap rank_to_listener_address_{
     };  ///< Map of rank to listener addresses
     const ::ucxx::AmReceiverCallbackInfo control_callback_info_{
-        "rapidsmp", 0
+        "rapidsmpf", 0
     };  ///< UCXX callback info for control messages
     std::vector<std::unique_ptr<HostFuture>> futures_{
     };  ///< Futures to incomplete requests.

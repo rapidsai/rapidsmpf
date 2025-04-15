@@ -83,7 +83,7 @@ cudf::table random_table(
 );
 
 /**
- * @brief Fill a rapidsmp buffer with random data (std::int32_t).
+ * @brief Fill a rapidsmpf buffer with random data (std::int32_t).
  *
  * @param buffer The buffer to fill.
  * @param stream CUDA stream to use for memory and kernel operations.

@@ -13,9 +13,9 @@
 #include <rapidsmpf/error.hpp>
 
 /*
- * This file contains tests for the RAPIDSMP error macros.
+ * This file contains tests for the RAPIDSMPF error macros.
  *
- * RAPIDSMP macros are not public API and should not be used externally, but we
+ * RAPIDSMPF macros are not public API and should not be used externally, but we
  * test them to avoid regressions anyway.
  *
  * The macros are tested for:
@@ -77,7 +77,7 @@ TEST(ErrorMacrosTest, ErrorMessages) {
         FAIL() << "Expected RAPIDSMPF_EXPECTS to throw an exception";
     } catch (const std::logic_error& e) {
         std::string error_message = e.what();
-        EXPECT_TRUE(error_message.find("RAPIDSMP failure at:") != std::string::npos);
+        EXPECT_TRUE(error_message.find("RAPIDSMPF failure at:") != std::string::npos);
         EXPECT_TRUE(error_message.find("Test message") != std::string::npos);
     }
 
@@ -87,7 +87,7 @@ TEST(ErrorMacrosTest, ErrorMessages) {
         FAIL() << "Expected RAPIDSMPF_FAIL to throw an exception";
     } catch (const std::logic_error& e) {
         std::string error_message = e.what();
-        EXPECT_TRUE(error_message.find("RAPIDSMP failure at:") != std::string::npos);
+        EXPECT_TRUE(error_message.find("RAPIDSMPF failure at:") != std::string::npos);
         EXPECT_TRUE(error_message.find("Test failure message") != std::string::npos);
     }
 

@@ -19,7 +19,7 @@
 
 // An example of how to use the shuffler.
 int main(int argc, char** argv) {
-    // In this example we use the MPI backed. For convenience, rapidsmp provides an
+    // In this example we use the MPI backed. For convenience, rapidsmpf provides an
     // optional MPI-init function that initialize MPI with thread support.
     rapidsmpf::mpi::init(&argc, &argv);
 
