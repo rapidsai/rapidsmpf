@@ -10,7 +10,7 @@
 
 project = 'rapidsmpf'
 copyright = '2025, NVIDA Corporation'
-author = 'NVIDA Corporation'
+author = 'NVIDIA Corporation'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
