@@ -1,18 +1,18 @@
-# RAPIDSMP
+# RapidsMPF
 
 Collection of multi-gpu, distributed memory algorithms.
 
 ## Getting started
 
-Currently, there is no conda or pip packages for rapidsmp thus we have to build from source.
+Currently, there is no conda or pip packages for rapidsmpf thus we have to build from source.
 
-Clone rapidsmp and install the dependencies in a conda environment:
+Clone rapidsmpf and install the dependencies in a conda environment:
 ```bash
 git clone https://github.com/rapidsai/rapids-multi-gpu.git
 cd rapids-multi-gpu
 
 # Choose a environment file that match your system.
-mamba env create --name rapidsmp-dev --file conda/environments/all_cuda-128_arch-x86_64.yaml
+mamba env create --name rapidsmpf-dev --file conda/environments/all_cuda-128_arch-x86_64.yaml
 
 # Build
 ./build.sh
@@ -57,17 +57,17 @@ Example of a MPI program that uses the shuffler:
 #include <mpi.h>
 #include <unistd.h>
 
-#include <rapidsmp/buffer/packed_data.hpp>
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/shuffler/partition.hpp>
-#include <rapidsmp/shuffler/shuffler.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/shuffler/partition.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
 
 #include "../benchmarks/utils/random_data.hpp"
 
 // An example of how to use the shuffler.
 int main(int argc, char** argv) {
-    // In this example we use the MPI backed. For convenience, rapidsmp provides an
+    // In this example we use the MPI backed. For convenience, rapidsmpf provides an
     // optional MPI-init function that initialize MPI with thread support.
     rapidsmpf::mpi::init(&argc, &argv);
 
@@ -155,9 +155,9 @@ int main(int argc, char** argv) {
     // Shutdown the Shuffler explicitly or let it go out of scope for cleanup.
     shuffler.shutdown();
 
-    // Finalize the execution, `RAPIDSMP_MPI` is a convenience macro that
+    // Finalize the execution, `RAPIDSMPF_MPI` is a convenience macro that
     // checks for MPI errors.
-    RAPIDSMP_MPI(MPI_Finalize());
+    RAPIDSMPF_MPI(MPI_Finalize());
 }
 ```
 
