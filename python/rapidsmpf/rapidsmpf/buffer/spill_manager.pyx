@@ -92,7 +92,8 @@ cdef class SpillManager:
         The new spill manager instance.
         """
         cdef SpillManager ret = cls.__new__(cls)
-        ret._handle = &(deref(br._handle).cpp_spill_manager())
+        with nogil:
+            ret._handle = &(deref(br._handle).cpp_spill_manager())
         ret._br = weakref.ref(br)
         ret._spill_functions = {}
         return ret
