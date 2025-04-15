@@ -48,7 +48,7 @@ bool is_initialized();
  *
  * @param call The MPI call to be checked for errors.
  */
-#define RAPIDSMP_MPI(call) \
+#define RAPIDSMPF_MPI(call) \
     rapidsmpf::mpi::detail::check_mpi_error((call), __FILE__, __LINE__)
 
 namespace detail {

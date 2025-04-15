@@ -158,7 +158,7 @@ class Shuffler {
      * @return The partition ID of the next finished partition.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {}) {
-        RAPIDSMP_NVTX_FUNC_RANGE();
+        RAPIDSMPF_NVTX_FUNC_RANGE();
         return finish_counter_.wait_any(std::move(timeout));
     }
 
@@ -169,7 +169,7 @@ class Shuffler {
      * @param timeout Optional timeout (ms) to wait.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {}) {
-        RAPIDSMP_NVTX_FUNC_RANGE();
+        RAPIDSMPF_NVTX_FUNC_RANGE();
         finish_counter_.wait_on(pid, std::move(timeout));
     }
 
@@ -181,7 +181,7 @@ class Shuffler {
      * @return The partition IDs of all finished partitions.
      */
     std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {}) {
-        RAPIDSMP_NVTX_FUNC_RANGE();
+        RAPIDSMPF_NVTX_FUNC_RANGE();
         return finish_counter_.wait_some(std::move(timeout));
     }
 

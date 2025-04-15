@@ -25,13 +25,13 @@
 class ArgumentParser {
   public:
     ArgumentParser(int argc, char* const* argv) {
-        RAPIDSMP_EXPECTS(
+        RAPIDSMPF_EXPECTS(
             rapidsmpf::mpi::is_initialized() == true, "MPI is not initialized"
         );
 
         int rank, nranks;
-        RAPIDSMP_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-        RAPIDSMP_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
+        RAPIDSMPF_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+        RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
         try {
             int option;
             while ((option = getopt(argc, argv, "hC:r:w:c:n:p:m:l:x")) != -1) {
@@ -59,7 +59,7 @@ class ArgumentParser {
                         if (rank == 0) {
                             std::cerr << ss.str();
                         }
-                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
+                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
                     }
                     break;
                 case 'C':
@@ -69,7 +69,7 @@ class ArgumentParser {
                             std::cerr << "-C (Communicator) must be one of {mpi, ucxx}"
                                       << std::endl;
                         }
-                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     }
                     break;
                 case 'r':
@@ -97,7 +97,7 @@ class ArgumentParser {
                                          "{cuda, pool, async, managed}"
                                       << std::endl;
                         }
-                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     }
                     break;
                 case 'l':
@@ -107,20 +107,20 @@ class ArgumentParser {
                     enable_memory_profiler = true;
                     break;
                 case '?':
-                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     break;
                 default:
-                    RAPIDSMP_FAIL("unknown option", std::invalid_argument);
+                    RAPIDSMPF_FAIL("unknown option", std::invalid_argument);
                 }
             }
             if (optind < argc) {
-                RAPIDSMP_FAIL("unknown option", std::invalid_argument);
+                RAPIDSMPF_FAIL("unknown option", std::invalid_argument);
             }
         } catch (std::exception const& e) {
             if (rank == 0) {
                 std::cerr << "Error parsing arguments: " << e.what() << std::endl;
             }
-            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+            RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
 
         local_nbytes =
@@ -199,12 +199,12 @@ rapidsmpf::Duration run(
         ));
     }
     stream.synchronize();
-    RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
+    RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
     std::vector<cudf::table> output_partitions;
     auto const t0_elapsed = rapidsmpf::Clock::now();
     {
-        RAPIDSMP_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
+        RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
             progress_thread,
@@ -258,7 +258,7 @@ rapidsmpf::Duration run(
                 stream,
                 br->device_mr()
             );
-            RAPIDSMP_EXPECTS(
+            RAPIDSMPF_EXPECTS(
                 std::count_if(
                     parts.begin(),
                     parts.end(),
@@ -275,9 +275,9 @@ int main(int argc, char** argv) {
     // Explicitly initialize MPI with thread support, as this is needed for both mpi and
     // ucxx communicators.
     int provided;
-    RAPIDSMP_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
+    RAPIDSMPF_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
 
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         provided == MPI_THREAD_MULTIPLE,
         "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
     );
@@ -362,7 +362,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
+    RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
     {
         auto const elapsed_mean = harmonic_mean(elapsed_vec);
         std::stringstream ss;
@@ -384,6 +384,6 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
     log.print(stats->report("Statistics (of the last run):"));
-    RAPIDSMP_MPI(MPI_Finalize());
+    RAPIDSMPF_MPI(MPI_Finalize());
     return 0;
 }

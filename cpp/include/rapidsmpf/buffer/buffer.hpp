@@ -68,7 +68,7 @@ class Buffer {
         if (const auto* ref = std::get_if<HostStorageT>(&storage_)) {
             return *ref;
         } else {
-            RAPIDSMP_FAIL("Buffer is not host memory");
+            RAPIDSMPF_FAIL("Buffer is not host memory");
         }
     }
 
@@ -83,7 +83,7 @@ class Buffer {
         if (const auto* ref = std::get_if<DeviceStorageT>(&storage_)) {
             return *ref;
         } else {
-            RAPIDSMP_FAIL("Buffer is not device memory");
+            RAPIDSMPF_FAIL("Buffer is not device memory");
         }
     }
 
@@ -162,7 +162,7 @@ class Buffer {
         if (auto ref = std::get_if<HostStorageT>(&storage_)) {
             return *ref;
         } else {
-            RAPIDSMP_FAIL("Buffer is not host memory");
+            RAPIDSMPF_FAIL("Buffer is not host memory");
         }
     }
 
@@ -177,7 +177,7 @@ class Buffer {
         if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
             return *ref;
         } else {
-            RAPIDSMP_FAIL("Buffer is not host memory");
+            RAPIDSMPF_FAIL("Buffer is not host memory");
         }
     }
 
