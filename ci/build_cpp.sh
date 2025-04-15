@@ -19,7 +19,7 @@ rapids-logger "Begin cpp build"
 sccache --zero-stats
 
 RAPIDS_PACKAGE_VERSION=$(rapids-generate-version) rapids-conda-retry build \
-    conda/recipes/librapidsmp
+    conda/recipes/librapidsmpf
 
 sccache --show-adv-stats
 

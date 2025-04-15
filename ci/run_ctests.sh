@@ -5,7 +5,7 @@
 set -xeuo pipefail
 
 # Support customizing the ctests' install location
-cd "${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/tests/librapidsmp/"
+cd "${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/tests/librapidsmpf/"
 
 # OpenMPI specific options
 export OMPI_ALLOW_RUN_AS_ROOT=1  # CI runs as root

@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-# rapidsmp build script
+# rapidsmpf build script
 
 # This script is used to build the component(s) in this repo from
 # source, and can be called with various options to customize the
@@ -19,10 +19,10 @@ ARGS=$*
 # script, and that this script resides in the repo dir!
 REPODIR=$(cd $(dirname $0); pwd)
 
-VALIDARGS="clean librapidsmp rapidsmpf -v -g -n --pydevelop -h"
-HELP="$0 [clean] [librapidsmp] [rapidsmpf] [-v] [-g] [-n] [--cmake-args=\"<args>\"] [-h]
+VALIDARGS="clean librapidsmpf rapidsmpf -v -g -n --pydevelop -h"
+HELP="$0 [clean] [librapidsmpf] [rapidsmpf] [-v] [-g] [-n] [--cmake-args=\"<args>\"] [-h]
    clean                       - remove all existing build artifacts and configuration (start over)
-   librapidsmp                 - build and install the librapidsmp C++ code
+   librapidsmpf                - build and install the librapidsmpf C++ code
    rapidsmpf                   - build the rapidsmpf Python package
    -v                          - verbose build mode
    -g                          - build for debug
@@ -30,7 +30,7 @@ HELP="$0 [clean] [librapidsmp] [rapidsmpf] [-v] [-g] [-n] [--cmake-args=\"<args>
    --pydevelop                 - Install Python packages in editable mode
    --cmake-args=\\\"<args>\\\" - pass arbitrary list of CMake configuration options (escape all quotes in argument)
    -h                          - print this text
-   default action (no args) is to build and install the 'librapidsmp' then 'rapidsmpf' targets
+   default action (no args) is to build and install the 'librapidsmpf' then 'rapidsmpf' targets
 "
 LIBRAPIDSMPF_BUILD_DIR=${LIBRAPIDSMPF_BUILD_DIR:=${REPODIR}/cpp/build}
 PYRAPIDSMPF_=${REPODIR}/python/rapidsmpf/build
@@ -82,7 +82,7 @@ function ensureCMakeRan {
     mkdir -p "${LIBRAPIDSMPF_BUILD_DIR}"
     cd ${REPODIR}/cpp
     if (( RAN_CMAKE == 0 )); then
-        echo "Executing cmake for librapidsmp..."
+        echo "Executing cmake for librapidsmpf..."
         cmake -B "${LIBRAPIDSMPF_BUILD_DIR}" -S . \
               -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
               -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
@@ -139,13 +139,13 @@ if hasArg clean; then
 fi
 
 ################################################################################
-# Configure, build, and install librapidsmp
-if (( NUMARGS == 0 )) || hasArg librapidsmp; then
+# Configure, build, and install librapidsmpf
+if (( NUMARGS == 0 )) || hasArg librapidsmpf; then
     ensureCMakeRan
-    echo "building librapidsmp..."
+    echo "building librapidsmpf..."
     cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" -j${PARALLEL_LEVEL} ${VERBOSE_FLAG}
     if [[ ${INSTALL_TARGET} != "" ]]; then
-        echo "installing librapidsmp..."
+        echo "installing librapidsmpf..."
         cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" --target install ${VERBOSE_FLAG}
     fi
 fi

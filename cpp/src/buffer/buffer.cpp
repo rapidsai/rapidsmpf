@@ -13,7 +13,7 @@ namespace {
 // Check that `ptr` isn't null.
 template <typename T>
 [[nodiscard]] std::unique_ptr<T> check_null(std::unique_ptr<T> ptr) {
-    RAPIDSMP_EXPECTS(ptr, "unique pointer cannot be null", std::invalid_argument);
+    RAPIDSMPF_EXPECTS(ptr, "unique pointer cannot be null", std::invalid_argument);
     return ptr;
 }
 }  // namespace
@@ -22,20 +22,20 @@ Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource
     : br{br},
       size{host_buffer ? host_buffer->size() : 0},
       storage_{std::move(host_buffer)} {
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         std::get<HostStorageT>(storage_) != nullptr, "the host_buffer cannot be NULL"
     );
-    RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
+    RAPIDSMPF_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 
 Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource* br)
     : br{br},
       size{device_buffer ? device_buffer->size() : 0},
       storage_{std::move(device_buffer)} {
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         std::get<DeviceStorageT>(storage_) != nullptr, "the device buffer cannot be NULL"
     );
-    RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
+    RAPIDSMPF_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 
 void* Buffer::data() {
@@ -85,7 +85,7 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
             },
             [&](const DeviceStorageT& storage) -> std::unique_ptr<Buffer> {
                 auto ret = std::make_unique<std::vector<uint8_t>>(storage->size());
-                RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+                RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
                     ret->data(),
                     storage->data(),
                     storage->size(),

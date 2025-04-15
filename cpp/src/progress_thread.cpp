@@ -43,14 +43,14 @@ ProgressThread::ProgressThread(
           if (!is_thread_initialized_) {
               // This thread needs to have a cuda context associated with it.
               // For now, do so by calling cudaFree to initialise the driver.
-              RAPIDSMP_CUDA_TRY(cudaFree(nullptr));
+              RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
               is_thread_initialized_ = true;
           }
           return event_loop();
       }),
       logger_(logger),
       statistics_(std::move(statistics)) {
-    RAPIDSMP_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+    RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
 ProgressThread::~ProgressThread() {
@@ -75,15 +75,15 @@ ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
 }
 
 void ProgressThread::remove_function(FunctionID function_id) {
-    RAPIDSMP_EXPECTS(function_id.is_valid(), "FunctionID is not valid");
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(function_id.is_valid(), "FunctionID is not valid");
+    RAPIDSMPF_EXPECTS(
         function_id.thread_address == reinterpret_cast<ProgressThreadAddress>(this),
         "Function was not registered with this ProgressThread"
     );
 
     std::unique_lock lock(mutex_);
     auto it = functions_.find(function_id.function_index);
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         it != functions_.end(), "Function not registered or already removed"
     );
 

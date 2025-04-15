@@ -23,8 +23,8 @@ void Environment::SetUp() {
     // Explicitly initialize MPI. We can not use rapidsmpf::mpi::init as it checks some
     // rapidsmpf::MPI communicator specific conditions
     int provided;
-    RAPIDSMP_MPI(MPI_Init_thread(&argc_, &argv_, MPI_THREAD_MULTIPLE, &provided));
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_MPI(MPI_Init_thread(&argc_, &argv_, MPI_THREAD_MULTIPLE, &provided));
+    RAPIDSMPF_EXPECTS(
         provided == MPI_THREAD_MULTIPLE,
         "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
     );
@@ -37,7 +37,7 @@ void Environment::TearDown() {
     // accessing the CUDA context may be thrown during shutdown.
     comm_ = nullptr;
     split_comm_ = nullptr;
-    RAPIDSMP_MPI(MPI_Finalize());
+    RAPIDSMPF_MPI(MPI_Finalize());
 }
 
 void Environment::barrier() {

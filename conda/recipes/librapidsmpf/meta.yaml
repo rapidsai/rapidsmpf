@@ -8,7 +8,7 @@
 {% set date_string = environ['RAPIDS_DATE_STRING'] %}
 
 package:
-  name: librapidsmp-split
+  name: librapidsmpf-split
 
 source:
   git_url: ../../..
@@ -27,8 +27,8 @@ build:
     - SCCACHE_BUCKET
     - SCCACHE_IDLE_TIMEOUT
     - SCCACHE_REGION
-    - SCCACHE_S3_KEY_PREFIX=librapidsmp-aarch64 # [aarch64]
-    - SCCACHE_S3_KEY_PREFIX=librapidsmp-linux64 # [linux64]
+    - SCCACHE_S3_KEY_PREFIX=librapidsmpf-aarch64 # [aarch64]
+    - SCCACHE_S3_KEY_PREFIX=librapidsmpf-linux64 # [linux64]
     - SCCACHE_S3_USE_SSL
     - SCCACHE_S3_NO_CREDENTIALS
 
@@ -50,14 +50,14 @@ requirements:
     - ucxx {{ ucxx_version }}
 
 outputs:
-  - name: librapidsmp
+  - name: librapidsmpf
     version: {{ version }}
-    script: install_librapidsmp.sh
+    script: install_librapidsmpf.sh
     build:
       number: {{ GIT_DESCRIBE_NUMBER }}
       string: cuda{{ cuda_major }}_{{ date_string }}_{{ GIT_DESCRIBE_HASH }}_{{ GIT_DESCRIBE_NUMBER }}
       run_exports:
-        - {{ pin_subpackage("librapidsmp", max_pin="x.x") }}
+        - {{ pin_subpackage("librapidsmpf", max_pin="x.x") }}
       ignore_run_exports_from:
         - {{ compiler('cuda') }}
         - cuda-cudart-dev
@@ -82,10 +82,10 @@ outputs:
       license: Apache-2.0
       license_family: Apache
       license_file: LICENSE
-      summary: librapidsmp library
-  - name: librapidsmp-tests
+      summary: librapidsmpf library
+  - name: librapidsmpf-tests
     version: {{ version }}
-    script: install_librapidsmp_tests.sh
+    script: install_librapidsmpf_tests.sh
     build:
       number: {{ GIT_DESCRIBE_NUMBER }}
       string: cuda{{ cuda_major }}_{{ date_string }}_{{ GIT_DESCRIBE_HASH }}_{{ GIT_DESCRIBE_NUMBER }}
@@ -110,4 +110,4 @@ outputs:
       license: Apache-2.0
       license_family: Apache
       license_file: LICENSE
-      summary: librapidsmp tests
+      summary: librapidsmpf tests
