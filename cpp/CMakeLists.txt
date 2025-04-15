@@ -13,10 +13,10 @@ include(${rapids-cmake-dir}/cuda/set_runtime.cmake)
 include(rapids-export)
 include(rapids-find)
 
-rapids_cuda_init_architectures(RAPIDSMP)
+rapids_cuda_init_architectures(RAPIDSMPF)
 
 project(
-  RAPIDSMP
+  RAPIDSMPF
   VERSION "${RAPIDS_VERSION}"
   LANGUAGES C CXX CUDA
 )
@@ -39,11 +39,11 @@ option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
 option(BUILD_SHARED_LIBS "Build rapidsmp shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
-option(RAPIDSMP_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
+option(RAPIDSMPF_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
 
-set(RAPIDSMP_BUILD_TESTS ${BUILD_TESTS})
-set(RAPIDSMP_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
-set(RAPIDSMP_BUILD_EXAMPLES ${BUILD_EXAMPLES})
+set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
+set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
+set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
 
 # ##################################################################################################
 # * conda environment -----------------------------------------------------------------------------
@@ -86,7 +86,7 @@ rapids_find_package(
   BUILD_EXPORT_SET rapidsmp-exports
   INSTALL_EXPORT_SET rapidsmp-exports
 )
-if(RAPIDSMP_BUILD_TESTS)
+if(RAPIDSMPF_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
 endif()
 
@@ -112,8 +112,8 @@ set_target_properties(
 )
 
 target_compile_options(
-  rapidsmp PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMP_CXX_FLAGS}>"
-                   "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMP_CUDA_FLAGS}>"
+  rapidsmp PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                   "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 
 target_include_directories(
@@ -135,7 +135,7 @@ add_library(rapidsmp::rapidsmp ALIAS rapidsmp)
 
 # ##################################################################################################
 # * linter configuration ---------------------------------------------------------------------------
-if(RAPIDSMP_STATIC_LINTERS)
+if(RAPIDSMPF_STATIC_LINTERS)
   if(CMAKE_EXPORT_COMPILE_COMMANDS)
     set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
   endif()
@@ -180,7 +180,7 @@ endif()
 
 # ##################################################################################################
 # * add tests -------------------------------------------------------------------------------------
-if(RAPIDSMP_BUILD_TESTS)
+if(RAPIDSMPF_BUILD_TESTS)
   # include CTest module -- automatically calls enable_testing()
   include(CTest)
 
@@ -198,14 +198,14 @@ endif()
 # ##################################################################################################
 # * add benchmarks
 # -------------------------------------------------------------------------------------
-if(RAPIDSMP_BUILD_BENCHMARKS)
+if(RAPIDSMPF_BUILD_BENCHMARKS)
   add_subdirectory(benchmarks)
 endif()
 
 # ##################################################################################################
 # * add examples
 # -------------------------------------------------------------------------------------
-if(RAPIDSMP_BUILD_BENCHMARKS)
+if(RAPIDSMPF_BUILD_BENCHMARKS)
   add_subdirectory(examples)
 endif()
 
@@ -226,7 +226,7 @@ install(DIRECTORY include/rapidsmpf/ DESTINATION include/rapidsmpf)
 
 set(doc_string
     [=[
-RAPIDSMP.
+RAPIDSMPF.
     ]=]
 )
 
