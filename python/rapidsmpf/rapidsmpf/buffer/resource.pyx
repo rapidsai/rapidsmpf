@@ -86,7 +86,7 @@ cdef class BufferResource:
         Deallocate resource without holding the GIL.
 
         This is important to ensure owned resources, like the underlying C++
-        `SpillManager` object can destroyed, ensuring any threads can be
+        `SpillManager` object is destroyed, ensuring any threads can be
         joined without risk of deadlocks if both thread compete for the GIL.
         """
         with nogil:
