@@ -46,7 +46,7 @@ std::ptrdiff_t Chunk::to_metadata_message(
     size_t metadata_size = metadata ? metadata->size() : 0;
     // We need at least (sizeof(MetadataMessageHeader) + metadata_size) amount of space
     // from the offset
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         size_t(offset) + sizeof(MetadataMessageHeader) + metadata_size <= msg.size(),
         "insufficient space in the buffer to copy metadata"
     );

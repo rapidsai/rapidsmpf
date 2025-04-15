@@ -98,7 +98,7 @@ class ChunkBatchTest
         // copy dummy data to the buffer
         switch (get_memory_type()) {
         case MemoryType::DEVICE:
-            RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+            RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
                 data_buf->data(),
                 std::data(dummy_data),
                 len,

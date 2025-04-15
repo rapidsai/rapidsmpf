@@ -54,7 +54,7 @@ class ChunkBatch {
     /// @brief  Access the BatchHeader of the chunk batch.
     /// @return BatchHeader const* A pointer to the batch header.
     [[nodiscard]] BatchHeader const* header() const {
-        RAPIDSMP_EXPECTS(metadata_buffer_, "metadata buffer is null");
+        RAPIDSMPF_EXPECTS(metadata_buffer_, "metadata buffer is null");
         // Maybe converted to constexpr in C++20
         return reinterpret_cast<BatchHeader const*>(metadata_buffer_->data());
     }
