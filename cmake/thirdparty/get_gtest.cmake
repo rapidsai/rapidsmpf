@@ -9,7 +9,7 @@ function(find_and_configure_gtest)
 
   # Find or install GoogleTest
   rapids_cpm_gtest(
-    BUILD_EXPORT_SET rapidsmp-testing-exports INSTALL_EXPORT_SET rapidsmp-testing-exports
+    BUILD_EXPORT_SET rapidsmpf-testing-exports INSTALL_EXPORT_SET rapidsmpf-testing-exports
   )
 
   if(GTest_ADDED)
@@ -23,7 +23,7 @@ function(find_and_configure_gtest)
 
     include("${rapids-cmake-dir}/export/find_package_root.cmake")
     rapids_export_find_package_root(
-      BUILD GTest [=[${CMAKE_CURRENT_LIST_DIR}]=] EXPORT_SET rapidsmp-testing-exports
+      BUILD GTest [=[${CMAKE_CURRENT_LIST_DIR}]=] EXPORT_SET rapidsmpf-testing-exports
     )
   endif()
 

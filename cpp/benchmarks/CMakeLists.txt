@@ -20,13 +20,13 @@ target_compile_options(
                         "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  bench_shuffle PRIVATE rapidsmp::rapidsmp MPI::MPI_C ucxx::ucxx ucx::ucp
+  bench_shuffle PRIVATE rapidsmpf::rapidsmpf MPI::MPI_C ucxx::ucxx ucx::ucp
                         $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 install(
   TARGETS bench_shuffle
   COMPONENT testing
-  DESTINATION bin/benchmarks/librapidsmp
+  DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL
 )
 
@@ -46,12 +46,12 @@ target_compile_options(
                      "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  bench_comm PRIVATE rapidsmp::rapidsmp MPI::MPI_C ucxx::ucxx ucx::ucp
+  bench_comm PRIVATE rapidsmpf::rapidsmpf MPI::MPI_C ucxx::ucxx ucx::ucp
                      $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 install(
   TARGETS bench_comm
   COMPONENT testing
-  DESTINATION bin/benchmarks/librapidsmp
+  DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL
 )

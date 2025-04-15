@@ -25,7 +25,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/")
 
 # Write the version header
-rapids_cmake_write_version_file(include/rapidsmp/version_config.hpp)
+rapids_cmake_write_version_file(include/rapidsmpf/version_config.hpp)
 
 # Set a default build type if none was specified
 rapids_cmake_build_type(Release)
@@ -36,7 +36,7 @@ rapids_cmake_build_type(Release)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
-option(BUILD_SHARED_LIBS "Build rapidsmp shared library" ON)
+option(BUILD_SHARED_LIBS "Build rapidsmpf shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
@@ -53,8 +53,8 @@ rapids_cmake_support_conda_env(conda_env MODIFY_PREFIX_PATH)
 # * compiler options ------------------------------------------------------------------------------
 rapids_find_package(
   CUDAToolkit REQUIRED
-  BUILD_EXPORT_SET rapidsmp-exports
-  INSTALL_EXPORT_SET rapidsmp-exports
+  BUILD_EXPORT_SET rapidsmpf-exports
+  INSTALL_EXPORT_SET rapidsmpf-exports
 )
 include(../cmake/Modules/ConfigureCUDA.cmake) # set other CUDA compilation flags
 
@@ -64,8 +64,8 @@ rapids_cpm_init()
 
 rapids_find_package(
   Threads REQUIRED
-  BUILD_EXPORT_SET rapidsmp-exports
-  INSTALL_EXPORT_SET rapidsmp-exports
+  BUILD_EXPORT_SET rapidsmpf-exports
+  INSTALL_EXPORT_SET rapidsmpf-exports
 )
 
 include(../cmake/thirdparty/get_nvtx.cmake)
@@ -73,18 +73,18 @@ include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 rapids_find_package(
   MPI REQUIRED
-  BUILD_EXPORT_SET rapidsmp-exports
-  INSTALL_EXPORT_SET rapidsmp-exports
+  BUILD_EXPORT_SET rapidsmpf-exports
+  INSTALL_EXPORT_SET rapidsmpf-exports
 )
 rapids_find_package(
   UCX REQUIRED
-  BUILD_EXPORT_SET rapidsmp-exports
-  INSTALL_EXPORT_SET rapidsmp-exports
+  BUILD_EXPORT_SET rapidsmpf-exports
+  INSTALL_EXPORT_SET rapidsmpf-exports
 )
 rapids_find_package(
   ucxx REQUIRED
-  BUILD_EXPORT_SET rapidsmp-exports
-  INSTALL_EXPORT_SET rapidsmp-exports
+  BUILD_EXPORT_SET rapidsmpf-exports
+  INSTALL_EXPORT_SET rapidsmpf-exports
 )
 if(RAPIDSMPF_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
@@ -94,10 +94,10 @@ endif()
 # * library targets --------------------------------------------------------------------------------
 
 file(GLOB SOURCES "src/*.cpp" "src/shuffler/*.cpp" "src/communicator/*.cpp" "src/buffer/*.cpp")
-add_library(rapidsmp ${SOURCES})
+add_library(rapidsmpf ${SOURCES})
 
 set_target_properties(
-  rapidsmp
+  rapidsmpf
   PROPERTIES BUILD_RPATH "\$ORIGIN"
              INSTALL_RPATH "\$ORIGIN"
              # set target compile options
@@ -112,26 +112,26 @@ set_target_properties(
 )
 
 target_compile_options(
-  rapidsmp PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+  rapidsmpf PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
                    "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 
 target_include_directories(
-  rapidsmp
+  rapidsmpf
   PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   INTERFACE "$<INSTALL_INTERFACE:include>"
 )
 
-target_link_libraries(rapidsmp PUBLIC rmm::rmm cudf::cudf ucxx::ucxx)
+target_link_libraries(rapidsmpf PUBLIC rmm::rmm cudf::cudf ucxx::ucxx)
 
 # Add Conda library, and include paths if specified
 if(TARGET conda_env)
-  target_link_libraries(rapidsmp PRIVATE conda_env)
+  target_link_libraries(rapidsmpf PRIVATE conda_env)
 endif()
 
-rapids_cuda_set_runtime(rapidsmp USE_STATIC ${CUDA_STATIC_RUNTIME})
+rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
 
-add_library(rapidsmp::rapidsmp ALIAS rapidsmp)
+add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
 
 # ##################################################################################################
 # * linter configuration ---------------------------------------------------------------------------
@@ -172,7 +172,7 @@ if(RAPIDSMPF_STATIC_LINTERS)
   # clang will complain about unused link libraries on the compile line unless we specify
   # -Qunused-arguments.
   set_target_properties(
-    rapidsmp
+    rapidsmpf
     PROPERTIES CXX_CLANG_TIDY
                "clang-tidy;-header-filter=^${CMAKE_SOURCE_DIR}/.*;--extra-arg=-Qunused-arguments"
   )
@@ -215,12 +215,12 @@ rapids_cmake_install_lib_dir(lib_dir)
 include(CPack)
 include(GNUInstallDirs)
 
-set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME rapidsmp)
+set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME rapidsmpf)
 
 install(
-  TARGETS rapidsmp
+  TARGETS rapidsmpf
   DESTINATION ${lib_dir}
-  EXPORT rapidsmp-exports
+  EXPORT rapidsmpf-exports
 )
 install(DIRECTORY include/rapidsmpf/ DESTINATION include/rapidsmpf)
 
@@ -231,10 +231,10 @@ RAPIDSMPF.
 )
 
 rapids_export(
-  INSTALL rapidsmp
-  EXPORT_SET rapidsmp-exports
-  GLOBAL_TARGETS rapidsmp
-  NAMESPACE rapidsmp::
+  INSTALL rapidsmpf
+  EXPORT_SET rapidsmpf-exports
+  GLOBAL_TARGETS rapidsmpf
+  NAMESPACE rapidsmpf::
   DOCUMENTATION doc_string
 )
 
@@ -242,9 +242,9 @@ rapids_export(
 # * build export -------------------------------------------------------------------------------
 
 rapids_export(
-  BUILD rapidsmp
-  EXPORT_SET rapidsmp-exports
-  GLOBAL_TARGETS rapidsmp
-  NAMESPACE rapidsmp::
+  BUILD rapidsmpf
+  EXPORT_SET rapidsmpf-exports
+  GLOBAL_TARGETS rapidsmpf
+  NAMESPACE rapidsmpf::
   DOCUMENTATION doc_string
 )
