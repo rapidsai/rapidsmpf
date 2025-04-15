@@ -5,10 +5,11 @@ from __future__ import annotations
 import time
 
 import pytest
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 
 import rmm.mr
+
+from rapidsmpf.buffer.buffer import MemoryType
+from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 
 
 @pytest.mark.parametrize(

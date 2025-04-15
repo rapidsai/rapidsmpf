@@ -6,10 +6,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 from mpi4py import MPI
-from rapidsmpf.communicator.mpi import new_communicator
-from rapidsmpf.communicator.testing import ucxx_mpi_setup
 
 import rmm.mr
+
+from rapidsmpf.communicator.mpi import new_communicator
+from rapidsmpf.communicator.testing import ucxx_mpi_setup
 
 if TYPE_CHECKING:
     from collections.abc import Generator
