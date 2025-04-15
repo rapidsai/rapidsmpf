@@ -99,7 +99,7 @@ class MemoryReservation {
  * @brief Class managing buffer resources.
  *
  * This class handles memory allocation and transfers between different memory types
- * (e.g., host and device). All memory operations in rapidsmp, such as those performed
+ * (e.g., host and device). All memory operations in rapidsmpf, such as those performed
  * by the Shuffler, rely on a buffer resource for memory management.
  *
  * @note Similar to RMM's memory resource, the `BufferResource` instance must outlive all

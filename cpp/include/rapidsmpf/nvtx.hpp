@@ -35,10 +35,10 @@ template <typename T, std::enable_if_t<std::is_floating_point_v<T>>* = nullptr>
 }
 
 /**
- * @brief Tag type for rapidsmp's NVTX domain.
+ * @brief Tag type for rapidsmpf's NVTX domain.
  */
-struct rapidsmp_domain {
-    static constexpr char const* name{"rapidsmp"};  ///< nvtx domain name
+struct rapidsmpf_domain {
+    static constexpr char const* name{"rapidsmpf"};  ///< nvtx domain name
 };
 
 // Macro to concatenate two tokens x and y.
@@ -47,33 +47,33 @@ struct rapidsmp_domain {
 
 // Macro to create a static, registered string that will not have a name conflict with any
 // registered string defined in the same scope.
-#define RAPIDSMPF_REGISTER_STRING(msg)                                        \
-    [](const char* a_msg) -> auto& {                                          \
-        static nvtx3::registered_string_in<rapidsmp_domain> a_reg_str{a_msg}; \
-        return a_reg_str;                                                     \
+#define RAPIDSMPF_REGISTER_STRING(msg)                                         \
+    [](const char* a_msg) -> auto& {                                           \
+        static nvtx3::registered_string_in<rapidsmpf_domain> a_reg_str{a_msg}; \
+        return a_reg_str;                                                      \
     }(msg)
 
 // Macro overloads of RAPIDSMPF_NVTX_FUNC_RANGE
-#define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL() NVTX3_FUNC_RANGE_IN(rapidsmp_domain)
+#define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL() NVTX3_FUNC_RANGE_IN(rapidsmpf_domain)
 
-#define RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL(msg, val)            \
-    nvtx3::scoped_range_in<rapidsmp_domain> RAPIDSMPF_CONCAT( \
-        _rapidsmp_nvtx_range, __LINE__                        \
-    ) {                                                       \
-        nvtx3::event_attributes {                             \
-            RAPIDSMPF_REGISTER_STRING(msg), nvtx3::payload {  \
-                convert_to_64bit(val)                         \
-            }                                                 \
-        }                                                     \
+#define RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL(msg, val)             \
+    nvtx3::scoped_range_in<rapidsmpf_domain> RAPIDSMPF_CONCAT( \
+        _rapidsmpf_nvtx_range, __LINE__                        \
+    ) {                                                        \
+        nvtx3::event_attributes {                              \
+            RAPIDSMPF_REGISTER_STRING(msg), nvtx3::payload {   \
+                convert_to_64bit(val)                          \
+            }                                                  \
+        }                                                      \
     }
 
 #define RAPIDSMPF_NVTX_MARKER_IMPL(msg, val)                                  \
-    nvtx3::mark_in<rapidsmp_domain>(nvtx3::event_attributes{                  \
+    nvtx3::mark_in<rapidsmpf_domain>(nvtx3::event_attributes{                 \
         RAPIDSMPF_REGISTER_STRING(msg), nvtx3::payload{convert_to_64bit(val)} \
     })
 
 /**
- * @brief Convenience macro for generating an NVTX range in the `rapidsmp` domain
+ * @brief Convenience macro for generating an NVTX range in the `rapidsmpf` domain
  * from the lifetime of a function.
  *
  * Takes no argument. The name of the immediately enclosing function returned by
@@ -90,7 +90,7 @@ struct rapidsmp_domain {
 #define RAPIDSMPF_NVTX_FUNC_RANGE() RAPIDSMPF_NVTX_FUNC_RANGE_IMPL()
 
 /**
- * @brief Convenience macro for generating an NVTX scoped range in the `rapidsmp` domain
+ * @brief Convenience macro for generating an NVTX scoped range in the `rapidsmpf` domain
  * to annotate a time duration.
  *
  * Takes two arguments (message, payload).
@@ -106,7 +106,7 @@ struct rapidsmp_domain {
 #define RAPIDSMPF_NVTX_SCOPED_RANGE(msg, val) RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL(msg, val)
 
 /**
- * @brief Convenience macro for generating an NVTX marker in the `rapidsmp` domain to
+ * @brief Convenience macro for generating an NVTX marker in the `rapidsmpf` domain to
  * annotate a certain time point.
  *
  * Takes two arguments (message, payload). Use this macro to annotate asynchronous

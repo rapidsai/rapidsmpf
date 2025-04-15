@@ -215,7 +215,7 @@ class UCXX final : public Communicator {
      * @brief Barrier to synchronize all ranks
      *
      * The barrier is not intended to be performant and therefore should not be
-     * used as part of regular rapidsmp logic, it is designed as a mechanism to
+     * used as part of regular rapidsmpf logic, it is designed as a mechanism to
      * wait for the cluster to bootstrap and to wait for completion of all tasks.
      */
     void barrier();

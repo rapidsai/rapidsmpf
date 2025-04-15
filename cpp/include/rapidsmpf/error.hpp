@@ -20,7 +20,7 @@ struct cuda_error : public std::runtime_error {
 };
 
 /**
- * @brief Exception thrown when an RAPIDSMP allocation fails
+ * @brief Exception thrown when an RapidsMPF allocation fails
  *
  * @ingroup errors
  *
@@ -56,7 +56,7 @@ class bad_alloc : public std::bad_alloc {
 };
 
 /**
- * @brief Exception thrown when RAPIDSMP runs out of memory
+ * @brief Exception thrown when RapidsMPF runs out of memory
  *
  * @ingroup errors
  *
@@ -119,7 +119,7 @@ class out_of_memory : public bad_alloc {
         static_assert(std::is_base_of_v<std::exception, _exception_type>);          \
         (_condition) ? static_cast<void>(0)                                         \
                      : throw _exception_type /*NOLINT(bugprone-macro-parentheses)*/ \
-            {"RAPIDSMP failure at: " __FILE__                                       \
+            {"RAPIDSMPF failure at: " __FILE__                                      \
              ":" RAPIDSMPF_STRINGIFY(__LINE__) ": " _reason};                       \
     } while (0)
 
@@ -153,10 +153,10 @@ class out_of_memory : public bad_alloc {
 
 #define GET_RAPIDSMPF_FAIL_MACRO(_1, _2, NAME, ...) NAME
 
-#define RAPIDSMPF_FAIL_2(_what, _exception_type)                                     \
-    /*NOLINTNEXTLINE(bugprone-macro-parentheses)*/                                   \
-    throw _exception_type {                                                          \
-        "RAPIDSMP failure at:" __FILE__ ":" RAPIDSMPF_STRINGIFY(__LINE__) ": " _what \
+#define RAPIDSMPF_FAIL_2(_what, _exception_type)                                      \
+    /*NOLINTNEXTLINE(bugprone-macro-parentheses)*/                                    \
+    throw _exception_type {                                                           \
+        "RAPIDSMPF failure at:" __FILE__ ":" RAPIDSMPF_STRINGIFY(__LINE__) ": " _what \
     }
 
 #define RAPIDSMPF_FAIL_1(_what) RAPIDSMPF_FAIL_2(_what, std::logic_error)
