@@ -8,5 +8,5 @@ set(cython_modules communicator.pyx mpi.pyx ucxx.pyx)
 rapids_cython_create_modules(
   CXX
   SOURCE_FILES "${cython_modules}"
-  LINKED_LIBRARIES rapidsmp::rapidsmp MPI::MPI_CXX ucxx::ucxx ucx::ucp
+  LINKED_LIBRARIES rapidsmpf::rapidsmpf MPI::MPI_CXX ucxx::ucxx ucx::ucp
 )

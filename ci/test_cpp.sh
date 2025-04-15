@@ -17,9 +17,9 @@ rapids-dependency-file-generator \
   --prepend-channel "${CPP_CHANNEL}" \
   | tee env.yaml
 
-# Insert the two librapidsmp packages previously built by CI.
-sed -i "/dependencies:/a \- librapidsmp=${RAPIDS_VERSION}" env.yaml
-sed -i "/dependencies:/a \- librapidsmp-tests=${RAPIDS_VERSION}" env.yaml
+# Insert the two librapidsmpf packages previously built by CI.
+sed -i "/dependencies:/a \- librapidsmpf=${RAPIDS_VERSION}" env.yaml
+sed -i "/dependencies:/a \- librapidsmpf-tests=${RAPIDS_VERSION}" env.yaml
 # And create the conda environment.
 rapids-mamba-retry env create -qy -f env.yaml -n test
 
@@ -44,7 +44,7 @@ EXITCODE=0
 trap "EXITCODE=1" ERR
 set +e
 
-rapids-logger "Run librapidsmp gtests"
+rapids-logger "Run librapidsmpf gtests"
 ./run_ctests.sh
 
 # Ensure that examples are runnable

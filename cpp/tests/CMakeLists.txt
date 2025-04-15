@@ -15,14 +15,14 @@ set(nranks_to_run 1 2 3 4 5 8)
 # TEST_TARGET is the name of the test target (required). This will add len(n_ranks_to_run) test
 # cases identified by <TEST_TARGET>_<n_ranks>. NOTE: When running ctest, the TEST_TARGET executable
 # should be located in the ./gtests/ directory relative to the PWD.
-function(rapidsmp_mpirun_test_add)
+function(rapidsmpf_mpirun_test_add)
   set(options) # no options
   set(one_value TEST_TARGET)
   set(multi_value) # no multi_value args
   cmake_parse_arguments(_MPIRUN_TEST "${options}" "${one_value}" "${multi_value}" ${ARGN})
 
   if(NOT DEFINED _MPIRUN_TEST_TEST_TARGET)
-    message(FATAL_ERROR "rapidsmp_mpirun_test_add called without a test prefix")
+    message(FATAL_ERROR "rapidsmpf_mpirun_test_add called without a test prefix")
   endif()
 
   # test targets are located in ${RAPIDSMPF_BINARY_DIR}/gtests, but ctest working directory would be
@@ -38,7 +38,7 @@ function(rapidsmp_mpirun_test_add)
       COMMAND mpirun --map-by=node --bind-to=none -np=${np} "gtests/${_MPIRUN_TEST_TEST_TARGET}"
     )
   endforeach(np)
-endfunction(rapidsmp_mpirun_test_add)
+endfunction(rapidsmpf_mpirun_test_add)
 
 file(GLOB SOURCES "main/mpi.cpp" "*.cpp")
 add_executable(mpi_tests ${SOURCES})
@@ -58,12 +58,12 @@ target_compile_options(
                     "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  mpi_tests PRIVATE rapidsmp::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
+  mpi_tests PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
                     GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 disable_sign_conversion_warning(mpi_tests)
 
-rapidsmp_mpirun_test_add(TEST_TARGET mpi_tests)
+rapidsmpf_mpirun_test_add(TEST_TARGET mpi_tests)
 
 file(GLOB SOURCES "main/ucxx.cpp" "*.cpp")
 add_executable(ucxx_tests ${SOURCES})
@@ -83,30 +83,30 @@ target_compile_options(
                      "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  ucxx_tests PRIVATE rapidsmp::rapidsmp cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
+  ucxx_tests PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
                      GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 disable_sign_conversion_warning(ucxx_tests)
 
-rapidsmp_mpirun_test_add(TEST_TARGET ucxx_tests)
+rapidsmpf_mpirun_test_add(TEST_TARGET ucxx_tests)
 
 # Create a list of targets that contains property KEY:VALUE.
-function(rapidsmp_targets_with_property)
+function(rapidsmpf_targets_with_property)
   set(options)
   set(one_value KEY VALUE OUTPUT)
   set(multi_value COMMAND)
   cmake_parse_arguments(_RAPIDSMPF_TEST "${options}" "${one_value}" "${multi_value}" ${ARGN})
 
   if(NOT DEFINED _RAPIDSMPF_TEST_KEY)
-    message(FATAL_ERROR "rapidsmp_targets_with_property called without a KEY")
+    message(FATAL_ERROR "rapidsmpf_targets_with_property called without a KEY")
   endif()
 
   if(NOT DEFINED _RAPIDSMPF_TEST_VALUE)
-    message(FATAL_ERROR "rapidsmp_targets_with_property called without a VALUE")
+    message(FATAL_ERROR "rapidsmpf_targets_with_property called without a VALUE")
   endif()
 
   if(NOT DEFINED _RAPIDSMPF_TEST_OUTPUT)
-    message(FATAL_ERROR "rapidsmp_targets_with_property called without a OUTPUT")
+    message(FATAL_ERROR "rapidsmpf_targets_with_property called without a OUTPUT")
   endif()
 
   # get all targets
@@ -128,21 +128,21 @@ function(rapidsmp_targets_with_property)
       ${targets_with_property}
       PARENT_SCOPE
   )
-endfunction(rapidsmp_targets_with_property)
+endfunction(rapidsmpf_targets_with_property)
 
 # Search for all targets that has COMPONENT:testing property
-rapidsmp_targets_with_property(KEY COMPONENT VALUE testing OUTPUT testing_targets)
+rapidsmpf_targets_with_property(KEY COMPONENT VALUE testing OUTPUT testing_targets)
 
-# Install testing targets to bin/tests/librapidsmp/gtests
+# Install testing targets to bin/tests/librapidsmpf/gtests
 install(
   TARGETS ${testing_targets}
-  DESTINATION bin/tests/librapidsmp/gtests
+  DESTINATION bin/tests/librapidsmpf/gtests
   COMPONENT testing
 )
 
-# Install the CTestTestfile.cmake to bin/tests/librapidsmp
+# Install the CTestTestfile.cmake to bin/tests/librapidsmpf
 install(
   FILES "${RAPIDSMPF_BINARY_DIR}/tests/CTestTestfile.cmake"
-  DESTINATION bin/tests/librapidsmp
+  DESTINATION bin/tests/librapidsmpf
   COMPONENT testing
 )
