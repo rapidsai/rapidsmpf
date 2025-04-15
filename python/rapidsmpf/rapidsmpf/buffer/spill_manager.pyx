@@ -78,8 +78,7 @@ cdef class SpillManager:
 
     def __dealloc__(self):
         with nogil:
-            self._br.reset()
-            self._handle.reset()
+            self._handle = NULL
 
     @classmethod
     def _create(cls, BufferResource br):
