@@ -81,6 +81,17 @@ cdef class BufferResource:
             )
         self.spill_manager = SpillManager._create(self)
 
+    def __dealloc__(self):
+        """
+        Deallocate resource without holding the GIL.
+
+        This is important to ensure owned resources, like the underlying C++
+        `SpillManager` object can destroyed, ensuring any threads can be
+        joined without risk of deadlocks if both thread compete for the GIL.
+        """
+        with nogil:
+            self._handle.reset()
+
     cdef cpp_BufferResource* ptr(self):
         """
         A raw pointer to the underlying C++ `BufferResource`.

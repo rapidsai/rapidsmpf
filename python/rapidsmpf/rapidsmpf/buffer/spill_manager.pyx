@@ -76,10 +76,6 @@ cdef class SpillManager:
     def __init__(self):
         raise TypeError("Please get a `SpillManager` from a buffer resource instance")
 
-    def __dealloc__(self):
-        with nogil:
-            self._handle = NULL
-
     @classmethod
     def _create(cls, BufferResource br):
         """Construct a SpillManager associated the specified buffer resource.
