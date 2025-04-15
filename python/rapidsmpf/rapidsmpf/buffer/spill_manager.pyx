@@ -99,7 +99,7 @@ cdef class SpillManager:
         cdef SpillManager ret = cls.__new__(cls)
         with nogil:
             ret._handle = &(deref(br._handle).cpp_spill_manager())
-            ret._br = weakref.ref(br)
+        ret._br = weakref.ref(br)
         ret._spill_functions = {}
         return ret
 
