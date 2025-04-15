@@ -5,17 +5,17 @@
 
 #include <sstream>
 
-#include <rapidsmp/shuffler/chunk.hpp>
-#include <rapidsmp/shuffler/postbox.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/shuffler/chunk.hpp>
+#include <rapidsmpf/shuffler/postbox.hpp>
+#include <rapidsmpf/utils.hpp>
 
-namespace rapidsmp::shuffler::detail {
+namespace rapidsmpf::shuffler::detail {
 
 
 void PostBox::insert(Chunk&& chunk) {
     std::lock_guard const lock(mutex_);
     auto [_, inserted] = pigeonhole_[chunk.pid].insert({chunk.cid, std::move(chunk)});
-    RAPIDSMP_EXPECTS(inserted, "PostBox.insert(): chunk already exist");
+    RAPIDSMPF_EXPECTS(inserted, "PostBox.insert(): chunk already exist");
 }
 
 Chunk PostBox::extract(PartID pid, ChunkID cid) {
@@ -84,4 +84,4 @@ std::string PostBox::str() const {
 }
 
 
-}  // namespace rapidsmp::shuffler::detail
+}  // namespace rapidsmpf::shuffler::detail

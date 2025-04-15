@@ -8,9 +8,9 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'rapidsmp'
-copyright = '2025, NVIDA Corporation'
-author = 'NVIDA Corporation'
+project = 'rapidsmpf'
+copyright = '2025, NVIDIA Corporation'
+author = 'NVIDIA Corporation'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -39,7 +39,7 @@ html_theme_options = {
     "external_links": [],
     # https://github.com/pydata/pydata-sphinx-theme/issues/1220
     "icon_links": [],
-    "github_url": "https://github.com/rapidsai/rapidsmp",
+    "github_url": "https://github.com/rapidsai/rapidsmpf",
     "twitter_url": "https://twitter.com/rapidsai",
     "show_toc_level": 2,
     "navbar_align": "right",

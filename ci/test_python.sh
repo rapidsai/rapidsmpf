@@ -36,7 +36,7 @@ nvidia-smi
 # Support invoking test_python.sh outside the script directory
 cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/../
 
-rapids-logger "pytest rapidsmp"
+rapids-logger "pytest rapidsmpf"
 ./ci/run_pytests.sh && EXITCODE=$? || EXITCODE=$?;
 
 rapids-logger "Test script exiting with value: $EXITCODE"

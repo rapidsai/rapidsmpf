@@ -7,8 +7,8 @@
 #include <mpi.h>
 #include <ucxx/listener.h>
 
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx_utils.hpp>
 
 #include "../environment.hpp"
 
@@ -20,16 +20,16 @@ void Environment::SetUp() {
     // Ensure CUDA context is created before UCX is initialized.
     cudaFree(nullptr);
 
-    // Explicitly initialize MPI. We can not use rapidsmp::mpi::init as it checks some
-    // rapidsmp::MPI communicator specific conditions
+    // Explicitly initialize MPI. We can not use rapidsmpf::mpi::init as it checks some
+    // rapidsmpf::MPI communicator specific conditions
     int provided;
-    RAPIDSMP_MPI(MPI_Init_thread(&argc_, &argv_, MPI_THREAD_MULTIPLE, &provided));
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_MPI(MPI_Init_thread(&argc_, &argv_, MPI_THREAD_MULTIPLE, &provided));
+    RAPIDSMPF_EXPECTS(
         provided == MPI_THREAD_MULTIPLE,
         "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
     );
-    comm_ = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
-    progress_thread_ = std::make_shared<rapidsmp::ProgressThread>(comm_->logger());
+    comm_ = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD);
+    progress_thread_ = std::make_shared<rapidsmpf::ProgressThread>(comm_->logger());
 }
 
 void Environment::TearDown() {
@@ -37,21 +37,21 @@ void Environment::TearDown() {
     // accessing the CUDA context may be thrown during shutdown.
     comm_ = nullptr;
     split_comm_ = nullptr;
-    RAPIDSMP_MPI(MPI_Finalize());
+    RAPIDSMPF_MPI(MPI_Finalize());
 }
 
 void Environment::barrier() {
-    std::dynamic_pointer_cast<rapidsmp::ucxx::UCXX>(comm_)->barrier();
+    std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm_)->barrier();
 }
 
-std::shared_ptr<rapidsmp::Communicator> Environment::split_comm() {
+std::shared_ptr<rapidsmpf::Communicator> Environment::split_comm() {
     // Return cached split communicator if it exists
     if (split_comm_ != nullptr) {
         return split_comm_;
     }
 
     // Create and cache the new split communicator
-    split_comm_ = std::dynamic_pointer_cast<rapidsmp::ucxx::UCXX>(comm_)->split();
+    split_comm_ = std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm_)->split();
     return split_comm_;
 }
 

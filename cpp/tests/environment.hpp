@@ -7,8 +7,8 @@
 #include <gtest/gtest.h>
 #include <mpi.h>
 
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/progress_thread.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 class Environment : public ::testing::Environment {
   public:
@@ -20,16 +20,16 @@ class Environment : public ::testing::Environment {
 
     void barrier();
 
-    std::shared_ptr<rapidsmp::Communicator> split_comm();
+    std::shared_ptr<rapidsmpf::Communicator> split_comm();
 
-    std::shared_ptr<rapidsmp::Communicator> comm_;
-    std::shared_ptr<rapidsmp::ProgressThread> progress_thread_;
+    std::shared_ptr<rapidsmpf::Communicator> comm_;
+    std::shared_ptr<rapidsmpf::ProgressThread> progress_thread_;
 
   private:
     int argc_;
     char** argv_;
     MPI_Comm mpi_comm_;
-    std::shared_ptr<rapidsmp::Communicator> split_comm_{nullptr};
+    std::shared_ptr<rapidsmpf::Communicator> split_comm_{nullptr};
 };
 
 extern Environment* GlobalEnvironment;

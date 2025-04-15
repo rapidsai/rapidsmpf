@@ -5,10 +5,10 @@
 
 #include <array>
 
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/error.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/error.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 namespace mpi {
 void init(int* argc, char*** argv) {
@@ -16,9 +16,9 @@ void init(int* argc, char*** argv) {
         int provided;
 
         // Initialize MPI with the desired level of thread support
-        RAPIDSMP_MPI(MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided));
+        RAPIDSMPF_MPI(MPI_Init_thread(argc, argv, MPI_THREAD_MULTIPLE, &provided));
 
-        RAPIDSMP_EXPECTS(
+        RAPIDSMPF_EXPECTS(
             provided == MPI_THREAD_MULTIPLE,
             "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
         );
@@ -28,9 +28,9 @@ void init(int* argc, char*** argv) {
     int flag;
     int32_t* max_tag;
     MPI_Comm_get_attr(MPI_COMM_WORLD, MPI_TAG_UB, &max_tag, &flag);
-    RAPIDSMP_EXPECTS(flag, "Unable to get the MPI_TAG_UB attr");
+    RAPIDSMPF_EXPECTS(flag, "Unable to get the MPI_TAG_UB attr");
 
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         (*max_tag) >= Tag::max_value(),
         "MPI_TAG_UB(" + std::to_string(*max_tag)
             + ") is unable to accommodate the required max tag("
@@ -40,7 +40,7 @@ void init(int* argc, char*** argv) {
 
 bool is_initialized() {
     int flag;
-    RAPIDSMP_MPI(MPI_Initialized(&flag));
+    RAPIDSMPF_MPI(MPI_Initialized(&flag));
     return flag;
 }
 
@@ -62,7 +62,7 @@ void detail::check_mpi_error(int error_code, const char* file, int line) {
 namespace {
 void check_mpi_thread_support() {
     int level;
-    RAPIDSMP_MPI(MPI_Query_thread(&level));
+    RAPIDSMPF_MPI(MPI_Query_thread(&level));
 
     std::string level_str;
     switch (level) {
@@ -81,7 +81,7 @@ void check_mpi_thread_support() {
     default:
         throw std::logic_error("MPI_Query_thread(): unknown thread level support");
     }
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         level == MPI_THREAD_MULTIPLE,
         "MPI thread level support " + level_str
             + " isn't sufficient, need MPI_THREAD_MULTIPLE"
@@ -92,8 +92,8 @@ void check_mpi_thread_support() {
 MPI::MPI(MPI_Comm comm) : comm_{comm}, logger_{this} {
     int rank;
     int nranks;
-    RAPIDSMP_MPI(MPI_Comm_rank(comm_, &rank));
-    RAPIDSMP_MPI(MPI_Comm_size(comm_, &nranks));
+    RAPIDSMPF_MPI(MPI_Comm_rank(comm_, &rank));
+    RAPIDSMPF_MPI(MPI_Comm_size(comm_, &nranks));
     rank_ = rank;
     nranks_ = nranks;
     check_mpi_thread_support();
@@ -102,13 +102,13 @@ MPI::MPI(MPI_Comm comm) : comm_{comm}, logger_{this} {
 std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
 ) {
-    RAPIDSMP_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
+    RAPIDSMPF_EXPECTS(
         msg->size() <= std::numeric_limits<int>::max(),
         "send buffer size exceeds MPI max count"
     );
     MPI_Request req;
-    RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
+    RAPIDSMPF_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
     );
     return std::make_unique<Future>(req, br->move(std::move(msg)));
 }
@@ -116,24 +116,24 @@ std::unique_ptr<Communicator::Future> MPI::send(
 std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         msg->size <= std::numeric_limits<int>::max(),
         "send buffer size exceeds MPI max count"
     );
     MPI_Request req;
-    RAPIDSMP_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
+    RAPIDSMPF_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
     return std::make_unique<Future>(req, std::move(msg));
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         recv_buffer->size <= std::numeric_limits<int>::max(),
         "recv buffer size exceeds MPI max count"
     );
     MPI_Request req;
-    RAPIDSMP_MPI(MPI_Irecv(
+    RAPIDSMPF_MPI(MPI_Irecv(
         recv_buffer->data(), recv_buffer->size, MPI_UINT8_T, rank, tag, comm_, &req
     ));
     return std::make_unique<Future>(req, std::move(recv_buffer));
@@ -143,22 +143,22 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     Logger& log = logger();
     int msg_available;
     MPI_Status probe_status;
-    RAPIDSMP_MPI(MPI_Iprobe(MPI_ANY_SOURCE, tag, comm_, &msg_available, &probe_status));
+    RAPIDSMPF_MPI(MPI_Iprobe(MPI_ANY_SOURCE, tag, comm_, &msg_available, &probe_status));
     if (!msg_available) {
         return {nullptr, 0};
     }
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         tag == probe_status.MPI_TAG || tag == MPI_ANY_TAG, "corrupt mpi tag"
     );
     MPI_Count size;
-    RAPIDSMP_MPI(MPI_Get_elements_x(&probe_status, MPI_UINT8_T, &size));
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_MPI(MPI_Get_elements_x(&probe_status, MPI_UINT8_T, &size));
+    RAPIDSMPF_EXPECTS(
         size <= std::numeric_limits<int>::max(), "recv buffer size exceeds MPI max count"
     );
     auto msg = std::make_unique<std::vector<uint8_t>>(size);  // TODO: uninitialize
 
     MPI_Status msg_status;
-    RAPIDSMP_MPI(MPI_Recv(
+    RAPIDSMPF_MPI(MPI_Recv(
         msg->data(),
         msg->size(),
         MPI_UINT8_T,
@@ -167,8 +167,8 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
         comm_,
         &msg_status
     ));
-    RAPIDSMP_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
+    RAPIDSMPF_EXPECTS(
         static_cast<std::size_t>(size) == msg->size(),
         "incorrect size of the MPI_Recv message"
     );
@@ -189,7 +189,7 @@ std::vector<std::size_t> MPI::test_some(
     std::vector<MPI_Request> reqs;
     for (auto const& future : future_vector) {
         auto mpi_future = dynamic_cast<Future const*>(future.get());
-        RAPIDSMP_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
+        RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
         reqs.push_back(mpi_future->req_);
     }
 
@@ -197,7 +197,7 @@ std::vector<std::size_t> MPI::test_some(
     std::vector<int> completed(reqs.size());
     {
         int num_completed{0};
-        RAPIDSMP_MPI(MPI_Testsome(
+        RAPIDSMPF_MPI(MPI_Testsome(
             reqs.size(),
             reqs.data(),
             &num_completed,
@@ -219,7 +219,7 @@ std::vector<std::size_t> MPI::test_some(
     key_reqs.reserve(future_map.size());
     for (auto const& [key, future] : future_map) {
         auto mpi_future = dynamic_cast<Future const*>(future.get());
-        RAPIDSMP_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
+        RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
         reqs.push_back(mpi_future->req_);
         key_reqs.push_back(key);
     }
@@ -228,7 +228,7 @@ std::vector<std::size_t> MPI::test_some(
     std::vector<int> completed(reqs.size());
     {
         int num_completed{0};
-        RAPIDSMP_MPI(MPI_Testsome(
+        RAPIDSMPF_MPI(MPI_Testsome(
             reqs.size(),
             reqs.data(),
             &num_completed,
@@ -248,18 +248,18 @@ std::vector<std::size_t> MPI::test_some(
 
 std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
-    RAPIDSMP_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-    RAPIDSMP_EXPECTS(mpi_future->data_ != nullptr, "future has no data");
+    RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
+    RAPIDSMPF_EXPECTS(mpi_future->data_ != nullptr, "future has no data");
     return std::move(mpi_future->data_);
 }
 
 std::string MPI::str() const {
     int version, subversion;
-    RAPIDSMP_MPI(MPI_Get_version(&version, &subversion));
+    RAPIDSMPF_MPI(MPI_Get_version(&version, &subversion));
 
     std::stringstream ss;
     ss << "MPI(rank=" << rank_ << ", nranks: " << nranks_ << ", mpi-version=" << version
        << "." << subversion << ")";
     return ss.str();
 }
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

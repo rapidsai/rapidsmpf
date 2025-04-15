@@ -8,26 +8,26 @@
 
 #include <mpi.h>
 
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/communicator/ucxx_utils.hpp>
-#include <rapidsmp/statistics.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/statistics.hpp>
 
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"
 #include "utils/rmm_stack.hpp"
 
 
-using namespace rapidsmp;
+using namespace rapidsmpf;
 
 class ArgumentParser {
   public:
     ArgumentParser(int argc, char* const* argv) {
-        RAPIDSMP_EXPECTS(mpi::is_initialized() == true, "MPI is not initialized");
+        RAPIDSMPF_EXPECTS(mpi::is_initialized() == true, "MPI is not initialized");
 
         int rank, nranks;
-        RAPIDSMP_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-        RAPIDSMP_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
+        RAPIDSMPF_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+        RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
 
         try {
             int option;
@@ -53,7 +53,7 @@ class ArgumentParser {
                         if (rank == 0) {
                             std::cerr << ss.str();
                         }
-                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
+                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
                     }
                     break;
                 case 'C':
@@ -63,7 +63,7 @@ class ArgumentParser {
                             std::cerr << "-C (Communicator) must be one of {mpi, ucxx}"
                                       << std::endl;
                         }
-                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     }
                     break;
                 case 'O':
@@ -98,20 +98,20 @@ class ArgumentParser {
                     parse_integer(num_warmups, optarg);
                     break;
                 case '?':
-                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     break;
                 default:
-                    RAPIDSMP_FAIL("unknown option", std::invalid_argument);
+                    RAPIDSMPF_FAIL("unknown option", std::invalid_argument);
                 }
             }
             if (optind < argc) {
-                RAPIDSMP_FAIL("unknown option", std::invalid_argument);
+                RAPIDSMPF_FAIL("unknown option", std::invalid_argument);
             }
         } catch (std::exception const& e) {
             if (rank == 0) {
                 std::cerr << "Error parsing arguments: " << e.what() << std::endl;
             }
-            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+            RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
     }
 
@@ -145,7 +145,7 @@ Duration run(
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<rapidsmp::Statistics> statistics
+    std::shared_ptr<rapidsmpf::Statistics> statistics
 ) {
     // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
@@ -206,9 +206,9 @@ int main(int argc, char** argv) {
     // Explicitly initialize MPI with thread support, as this is needed for both mpi and
     // ucxx communicators.
     int provided;
-    RAPIDSMP_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
+    RAPIDSMPF_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
 
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         provided == MPI_THREAD_MULTIPLE,
         "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
     );
@@ -220,7 +220,7 @@ int main(int argc, char** argv) {
         mpi::init(&argc, &argv);
         comm = std::make_shared<MPI>(MPI_COMM_WORLD);
     } else {  // ucxx
-        comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
+        comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD);
     }
 
     auto& log = comm->logger();
@@ -250,7 +250,7 @@ int main(int argc, char** argv) {
     }
 
     // We start with disabled statistics.
-    auto stats = std::make_shared<rapidsmp::Statistics>(/* enable = */ false);
+    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
 
     auto const local_messages_send =
         args.msg_size * args.num_ops * (static_cast<std::uint64_t>(comm->nranks()) - 1);
@@ -260,7 +260,7 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == args.num_warmups + args.num_runs - 1) {
-            stats = std::make_shared<rapidsmp::Statistics>();
+            stats = std::make_shared<rapidsmpf::Statistics>();
         }
         auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;
@@ -281,6 +281,6 @@ int main(int argc, char** argv) {
         }
     }
     log.print(stats->report("Statistics (of the last run):"));
-    RAPIDSMP_MPI(MPI_Finalize());
+    RAPIDSMPF_MPI(MPI_Finalize());
     return 0;
 }

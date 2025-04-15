@@ -1,30 +1,30 @@
 # API Reference
 
-This page contains the API reference for `rapidsmp`.
+This page contains the API reference for `rapidsmpf`.
 
 ## Integrations
 
-{mod}`rapidsmp.integrations` contains integration with other libraries.
+{mod}`rapidsmpf.integrations` contains integration with other libraries.
 
 (api-integration-dask)=
 ### Dask
 
 ```{eval-rst}
-.. automodule:: rapidsmp.integrations.dask
+.. automodule:: rapidsmpf.integrations.dask
    :members:
 ```
 
 ### Ray
 
 ```{eval-rst}
-.. automodule:: rapidsmp.integrations.ray
+.. automodule:: rapidsmpf.integrations.ray
    :members:
 ```
 
 ## Shuffler
 
 ```{eval-rst}
-.. automodule:: rapidsmp.shuffler
+.. automodule:: rapidsmpf.shuffler
    :members:
 ```
 
@@ -32,36 +32,36 @@ This page contains the API reference for `rapidsmp`.
 ## Communicator
 
 ```{eval-rst}
-.. automodule:: rapidsmp.communicator
+.. automodule:: rapidsmpf.communicator
    :members:
 
-.. automodule:: rapidsmp.communicator.communicator
+.. automodule:: rapidsmpf.communicator.communicator
    :members:
 ```
 
 ### MPI Communicator
 
 ```{eval-rst}
-.. automodule:: rapidsmp.communicator.mpi
+.. automodule:: rapidsmpf.communicator.mpi
    :members:
 ```
 
 ### UCXX Communicator
 
 ```{eval-rst}
-.. automodule:: rapidsmp.communicator.ucxx
+.. automodule:: rapidsmpf.communicator.ucxx
    :members:
 ```
 
 ## Buffer
 
 ```{eval-rst}
-.. automodule:: rapidsmp.buffer
+.. automodule:: rapidsmpf.buffer
    :members:
 
-.. automodule:: rapidsmp.buffer.buffer
+.. automodule:: rapidsmpf.buffer.buffer
    :members:
 
-.. automodule:: rapidsmp.buffer.resource
+.. automodule:: rapidsmpf.buffer.resource
    :members:
 ```

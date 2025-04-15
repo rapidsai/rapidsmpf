@@ -19,12 +19,12 @@
 
 #include <cudf_test/base_fixture.hpp>
 
-#include <rapidsmp/progress_thread.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 
 #include "environment.hpp"
-#include "rapidsmp/statistics.hpp"
+#include "rapidsmpf/statistics.hpp"
 
-using rapidsmp::ProgressThread;
+using rapidsmpf::ProgressThread;
 
 class ProgressThreadEvents
     : public cudf::test::BaseFixtureWithParam<std::tuple<int, int, bool>> {};
@@ -51,7 +51,7 @@ TEST_P(ProgressThreadEvents, events) {
     bool const enable_statistics = std::get<2>(GetParam());
 
     auto& logger = GlobalEnvironment->comm_->logger();
-    auto statistics = std::make_shared<rapidsmp::Statistics>(enable_statistics);
+    auto statistics = std::make_shared<rapidsmpf::Statistics>(enable_statistics);
     std::vector<std::unique_ptr<ProgressThread>> progress_threads;
     std::vector<std::vector<std::shared_ptr<TestFunction>>> test_functions(num_threads);
 

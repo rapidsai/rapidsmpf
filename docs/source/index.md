@@ -1,8 +1,8 @@
-# RAPIDSMP documentation
+# RapidsMPF documentation
 
-`rapidsmp` provides a collection of multi-GPU, distributed memory algorithms.
+`rapidsmpf` provides a collection of multi-GPU, distributed memory algorithms.
 
-Follow the RAPIDS [installation guide] to install `rapidsmp` and the necessary dependencies.
+Follow the RAPIDS [installation guide] to install `rapidsmpf` and the necessary dependencies.
 
 ```{toctree}
 ---

@@ -6,10 +6,10 @@
 #include <algorithm>
 #include <cstring>
 
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/shuffler/chunk_batch.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/shuffler/chunk_batch.hpp>
 
-namespace rapidsmp::shuffler::detail {
+namespace rapidsmpf::shuffler::detail {
 
 
 ChunkBatch::ChunkBatch(
@@ -59,7 +59,7 @@ ChunkBatch ChunkBatch::create(
                 mem_type = chunk.gpu_data->mem_type();
             } else {
                 // TODO: add a policy to handle multiple types in the vector
-                RAPIDSMP_EXPECTS(
+                RAPIDSMPF_EXPECTS(
                     *mem_type == chunk.gpu_data->mem_type(),
                     "All chunks in a batch should be of the same memory type"
                 );
@@ -74,12 +74,12 @@ ChunkBatch ChunkBatch::create(
     std::unique_ptr<Buffer> payload_data;
     if (batch_payload_size > 0) {
         auto [reservation, _] = br->reserve(*mem_type, batch_payload_size, false);
-        RAPIDSMP_EXPECTS(
+        RAPIDSMPF_EXPECTS(
             reservation.size() == batch_payload_size,
             "unable to reserve gpu memory for batch"
         );
         payload_data = br->allocate(*mem_type, batch_payload_size, stream, reservation);
-        RAPIDSMP_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
+        RAPIDSMPF_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
     }
 
     // Now, traverse the chunks again, and copy data into buffers
@@ -102,8 +102,8 @@ ChunkBatch ChunkBatch::create(
 ChunkBatch ChunkBatch::create(
     std::unique_ptr<std::vector<uint8_t>> metadata, std::unique_ptr<Buffer> payload_data
 ) {
-    RAPIDSMP_EXPECTS(metadata, "metadata buffer is null");
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(metadata, "metadata buffer is null");
+    RAPIDSMPF_EXPECTS(
         metadata->size() >= batch_header_size,
         "metadata buffer size is less than the header size"
     );
@@ -122,12 +122,12 @@ ChunkBatch ChunkBatch::create(
             (chunk_metadata_header_size + chunk_header->metadata_size);
         visited_payload_size += chunk_header->gpu_data_size;
     });
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         visited_metadata_size == batch.metadata_buffer_->size(),
         "visited metadata size doesn't match the metadata buffer size"
     );
     if (batch.payload_data_) {
-        RAPIDSMP_EXPECTS(
+        RAPIDSMPF_EXPECTS(
             visited_payload_size == batch.payload_data_->size,
             "visited payload size doesn't match the payload buffer size"
         );
@@ -237,4 +237,4 @@ std::shared_ptr<Chunk> ChunkForwardIterator::make_chunk(
     );
 }
 
-}  // namespace rapidsmp::shuffler::detail
+}  // namespace rapidsmpf::shuffler::detail

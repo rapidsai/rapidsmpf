@@ -5,9 +5,9 @@
 
 #include <limits>
 
-#include <rapidsmp/buffer/resource.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 
 MemoryReservation::~MemoryReservation() noexcept {
@@ -19,15 +19,18 @@ MemoryReservation::~MemoryReservation() noexcept {
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
-    std::optional<Duration> periodic_spill_check
+    std::optional<Duration> periodic_spill_check,
+    std::shared_ptr<Statistics> statistics
 )
     : device_mr_{device_mr},
       memory_available_{std::move(memory_available)},
-      spill_manager_{this, periodic_spill_check} {
+      spill_manager_{this, periodic_spill_check},
+      statistics_{std::move(statistics)} {
     for (MemoryType mem_type : MEMORY_TYPES) {
         // Add missing memory availability functions.
         memory_available_.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);
     }
+    RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
@@ -56,20 +59,20 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 std::size_t BufferResource::release(
     MemoryReservation& reservation, MemoryType target, std::size_t size
 ) {
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         reservation.mem_type_ == target,
         "the memory type of MemoryReservation doesn't match",
         std::invalid_argument
     );
     std::lock_guard const lock(mutex_);
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         size <= reservation.size_,
         "MemoryReservation(" + format_nbytes(reservation.size_) + ") isn't big enough ("
             + format_nbytes(size) + ")",
         std::overflow_error
     );
     std::size_t& reserved = memory_reserved(target);
-    RAPIDSMP_EXPECTS(reserved >= size, "corrupted reservation stat");
+    RAPIDSMPF_EXPECTS(reserved >= size, "corrupted reservation stat");
     reserved -= size;
     return reservation.size_ -= size;
 }
@@ -95,7 +98,7 @@ std::unique_ptr<Buffer> BufferResource::allocate(
         );
         break;
     default:
-        RAPIDSMP_FAIL("MemoryType: unknown");
+        RAPIDSMPF_FAIL("MemoryType: unknown");
     }
     release(reservation, mem_type, size);
     return ret;
@@ -157,4 +160,8 @@ std::unique_ptr<Buffer> BufferResource::copy(
 SpillManager& BufferResource::spill_manager() {
     return spill_manager_;
 }
-}  // namespace rapidsmp
+
+std::shared_ptr<Statistics> BufferResource::statistics() {
+    return statistics_;
+}
+}  // namespace rapidsmpf

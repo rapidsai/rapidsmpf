@@ -65,7 +65,7 @@ repos:
     hooks:
       - id: mypy
         args: ["--config-file=pyproject.toml",
-               "python/rapidsmp/"]
+               "python/rapidsmpf/"]
         pass_filenames: false
   - repo: https://github.com/PyCQA/isort
     rev: 5.13.2

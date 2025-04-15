@@ -11,14 +11,14 @@
 #include <cudf/detail/contiguous_split.hpp>  // `cudf::detail::pack` (stream ordered version)
 #include <rmm/device_buffer.hpp>
 
-#include <rapidsmp/buffer/packed_data.hpp>
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/nvtx.hpp>
-#include <rapidsmp/shuffler/partition.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/shuffler/partition.hpp>
+#include <rapidsmpf/utils.hpp>
 
-namespace rapidsmp::shuffler {
+namespace rapidsmpf::shuffler {
 
 std::pair<std::vector<cudf::table_view>, std::unique_ptr<cudf::table>>
 partition_and_split(
@@ -67,7 +67,7 @@ std::unordered_map<PartID, PackedData> partition_and_pack(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
-    RAPIDSMP_NVTX_FUNC_RANGE();
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     auto [tables, owner] = partition_and_split(
         table, columns_to_hash, num_partitions, hash_function, seed, stream, mr
     );
@@ -84,13 +84,13 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
-    RAPIDSMP_NVTX_FUNC_RANGE();
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     std::vector<cudf::table_view> unpacked;
     std::vector<cudf::packed_columns> references;
     unpacked.reserve(partitions.size());
     references.reserve(partitions.size());
     for (auto& packed_data : partitions) {
-        RAPIDSMP_EXPECTS(
+        RAPIDSMPF_EXPECTS(
             (!packed_data.metadata) == (!packed_data.gpu_data),
             "the metadata and gpu_data pointers cannot be null and non-null",
             std::invalid_argument
@@ -105,4 +105,4 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 }
 
 
-}  // namespace rapidsmp::shuffler
+}  // namespace rapidsmpf::shuffler

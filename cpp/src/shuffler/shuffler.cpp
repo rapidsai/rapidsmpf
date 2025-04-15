@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <chrono>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -13,13 +12,13 @@
 #include <cudf/concatenate.hpp>
 #include <cudf/detail/contiguous_split.hpp>  // `cudf::detail::pack` (stream ordered version)
 
-#include <rapidsmp/buffer/packed_data.hpp>
-#include <rapidsmp/buffer/resource.hpp>
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/shuffler/shuffler.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/utils.hpp>
 
-namespace rapidsmp::shuffler {
+namespace rapidsmpf::shuffler {
 
 using namespace detail;
 
@@ -48,7 +47,7 @@ std::unique_ptr<Buffer> allocate_buffer(
         return nullptr;
     }
     auto ret = br->allocate(mem_type, size, stream, reservation);
-    RAPIDSMP_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
+    RAPIDSMPF_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
     return ret;
 }
 
@@ -76,7 +75,7 @@ std::unique_ptr<Buffer> allocate_buffer(
     }
     // If not enough device memory is available, we try host memory.
     ret = allocate_buffer(MemoryType::HOST, size, stream, br);
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         ret,
         "Cannot reserve " + format_nbytes(size) + " of device or host memory",
         std::overflow_error
@@ -107,13 +106,11 @@ std::unique_ptr<Buffer> allocate_buffer(
 std::size_t postbox_spilling(
     BufferResource* br,
     Communicator::Logger& log,
-    Statistics& statistics,
     rmm::cuda_stream_view stream,
     PostBox& postbox,
     std::size_t amount
 ) {
-    RAPIDSMP_NVTX_FUNC_RANGE();
-    auto const t0_elapsed = Clock::now();
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     // Let's look for chunks to spill in the outbox.
     auto const chunk_info = postbox.search(MemoryType::DEVICE);
     std::size_t total_spilled{0};
@@ -138,18 +135,6 @@ std::size_t postbox_spilling(
         if ((total_spilled += size) >= amount) {
             break;
         }
-    }
-    statistics.add_duration_stat("spill-time-device-to-host", Clock::now() - t0_elapsed);
-    statistics.add_bytes_stat("spill-bytes-device-to-host", total_spilled);
-    if (total_spilled < amount) {
-        // TODO: use a "max" statistic when it is available, for now we use the average.
-        statistics.add_stat(
-            "spill-breach-device-limit",
-            amount - total_spilled,
-            [](std::ostream& os, std::size_t count, double val) {
-                os << "avg " << format_nbytes(val / count);
-            }
-        );
     }
     return total_spilled;
 }
@@ -191,7 +176,7 @@ class Shuffler::Progress {
         for (auto&& chunk : shuffler_.inbox_.extract_all()) {
             auto dst = shuffler_.partition_owner(shuffler_.comm_, chunk.pid);
             log.trace("send metadata to ", dst, ": ", chunk);
-            RAPIDSMP_EXPECTS(
+            RAPIDSMPF_EXPECTS(
                 dst != shuffler_.comm_->rank(), "sending chunk to ourselves"
             );
 
@@ -199,7 +184,7 @@ class Shuffler::Progress {
                 chunk.to_metadata_message(), dst, metadata_tag, shuffler_.br_
             ));
             if (chunk.gpu_data_size > 0) {
-                RAPIDSMP_EXPECTS(
+                RAPIDSMPF_EXPECTS(
                     outgoing_chunks_.insert({chunk.cid, std::move(chunk)}).second,
                     "outgoing chunk already exist"
                 );
@@ -217,7 +202,7 @@ class Shuffler::Progress {
             if (msg) {
                 auto chunk = Chunk::from_metadata_message(msg);
                 log.trace("recv_any from ", src, ": ", chunk);
-                RAPIDSMP_EXPECTS(
+                RAPIDSMPF_EXPECTS(
                     shuffler_.partition_owner(shuffler_.comm_, chunk.pid)
                         == shuffler_.comm_->rank(),
                     "receiving chunk not owned by us"
@@ -253,11 +238,11 @@ class Shuffler::Progress {
                 // Setup to receive the chunk into `in_transit_*`.
                 auto future =
                     shuffler_.comm_->recv(src, gpu_data_tag, std::move(recv_buffer));
-                RAPIDSMP_EXPECTS(
+                RAPIDSMPF_EXPECTS(
                     in_transit_futures_.insert({chunk.cid, std::move(future)}).second,
                     "in transit future already exist"
                 );
-                RAPIDSMP_EXPECTS(
+                RAPIDSMPF_EXPECTS(
                     in_transit_chunks_.insert({chunk.cid, std::move(chunk)}).second,
                     "in transit chunk already exist"
                 );
@@ -404,9 +389,9 @@ Shuffler::Shuffler(
           local_partitions(comm_, total_num_partitions, partition_owner)
       },
       statistics_{std::move(statistics)} {
-    RAPIDSMP_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
-    RAPIDSMP_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
-    RAPIDSMP_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+    RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
+    RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
+    RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 
     // We need to register the progress function with the progress thread, but
     // that cannot be done in the constructor's initializer list because the
@@ -470,7 +455,7 @@ void Shuffler::insert(detail::Chunk&& chunk) {
 }
 
 void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
-    RAPIDSMP_NVTX_FUNC_RANGE();
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
 
     // Insert each chunk into the inbox.
@@ -496,10 +481,10 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 MemoryType::HOST, std::move(chunk.gpu_data), stream_, host_reservation
             );
             statistics_->add_duration_stat(
-                "spill-time-host-to-device", Clock::now() - t0_elapsed
+                "spill-time-device-to-host", Clock::now() - t0_elapsed
             );
             statistics_->add_bytes_stat(
-                "spill-bytes-host-to-device", chunk.gpu_data->size
+                "spill-bytes-device-to-host", chunk.gpu_data->size
             );
             insert(std::move(chunk));
         } else {
@@ -523,7 +508,7 @@ void Shuffler::insert_finished(PartID pid) {
 }
 
 std::vector<PackedData> Shuffler::extract(PartID pid) {
-    RAPIDSMP_NVTX_FUNC_RANGE();
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     // Protect the chunk extraction to make sure we don't get a chunk
     // `Shuffler::spill` is in the process of spilling.
     std::unique_lock<std::mutex> lock(outbox_spilling_mutex_);
@@ -545,7 +530,7 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
 
     // Check overbooking, do we need to spill to host memory?
     if (overbooking > 0) {
-        spill(overbooking);
+        br_->spill_manager().spill(overbooking);
     }
 
     // Move the gpu_data to device memory (copy if necessary).
@@ -568,7 +553,7 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
 }
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
-    RAPIDSMP_NVTX_FUNC_RANGE();
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     std::size_t spill_need{0};
     if (amount.has_value()) {
         spill_need = amount.value();
@@ -581,9 +566,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         std::lock_guard<std::mutex> lock(outbox_spilling_mutex_);
-        spilled = postbox_spilling(
-            br_, comm_->logger(), *statistics_, stream_, outbox_, spill_need
-        );
+        spilled = postbox_spilling(br_, comm_->logger(), stream_, outbox_, spill_need);
     }
     return spilled;
 }
@@ -625,4 +608,4 @@ std::string detail::FinishCounter::str() const {
     return ss.str();
 }
 
-}  // namespace rapidsmp::shuffler
+}  // namespace rapidsmpf::shuffler

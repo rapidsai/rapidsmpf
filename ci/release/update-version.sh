@@ -42,14 +42,14 @@ DEPENDENCIES=(
   dask-cudf
   libcudf
   pylibcudf
-  rapidsmp
+  rapidsmpf
   rmm
 )
 for DEP in "${DEPENDENCIES[@]}"; do
   for FILE in dependencies.yaml conda/environments/*.yaml; do
     sed_runner "/-.* ${DEP}\(-cu[[:digit:]]\{2\}\)\{0,1\}==/ s/==.*/==${NEXT_SHORT_TAG_PEP440}.*,>=0.0.0a0/g" "${FILE}"
   done
-  sed_runner "/\"${DEP}==/ s/==.*\"/==${NEXT_SHORT_TAG_PEP440}.*,>=0.0.0a0\"/g" python/rapidsmp/pyproject.toml
+  sed_runner "/\"${DEP}==/ s/==.*\"/==${NEXT_SHORT_TAG_PEP440}.*,>=0.0.0a0\"/g" python/rapidsmpf/pyproject.toml
 done
 
 UCX_DEPENDENCIES=(
@@ -59,7 +59,7 @@ for DEP in "${UCX_DEPENDENCIES[@]}"; do
   for FILE in dependencies.yaml conda/environments/*.yaml; do
     sed_runner "/-.* ${DEP}\(-cu[[:digit:]]\{2\}\)\{0,1\}==/ s/==.*/==${NEXT_UCXX_SHORT_TAG_PEP440}.*,>=0.0.0a0/g" "${FILE}"
   done
-  sed_runner "/\"${DEP}==/ s/==.*\"/==${NEXT_UCXX_SHORT_TAG_PEP440}.*,>=0.0.0a0\"/g" python/rapidsmp/pyproject.toml
+  sed_runner "/\"${DEP}==/ s/==.*\"/==${NEXT_UCXX_SHORT_TAG_PEP440}.*,>=0.0.0a0\"/g" python/rapidsmpf/pyproject.toml
 done
 
 # RAPIDS UCX version
@@ -67,6 +67,9 @@ for FILE in conda/recipes/*/conda_build_config.yaml; do
   sed_runner "/^ucx_py_version:$/ {n;s/.*/  - \"${NEXT_UCXX_SHORT_TAG_PEP440}.*\"/}" "${FILE}"
   sed_runner "/^ucxx_version:$/ {n;s/.*/  - \"${NEXT_UCXX_SHORT_TAG_PEP440}.*\"/}" "${FILE}"
 done
+
+# rapids-cmake version
+sed_runner 's/'"set(rapids-cmake-version.*"'/'"set(rapids-cmake-version ${NEXT_RAPIDS_SHORT_TAG})"'/g' cmake/RAPIDS.cmake
 
 # CI files
 for FILE in .github/workflows/*.yaml; do

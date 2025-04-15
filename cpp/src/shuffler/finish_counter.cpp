@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/shuffler/finish_counter.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/shuffler/finish_counter.hpp>
 
-namespace rapidsmp::shuffler::detail {
+namespace rapidsmpf::shuffler::detail {
 
 FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions)
     : nranks_{nranks} {
@@ -19,7 +19,7 @@ FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_parti
 void FinishCounter::move_goalpost(PartID pid, ChunkID nchunks) {
     std::unique_lock<std::mutex> lock(mutex_);
     auto& [rank_counter, chunk_goal] = goalposts_[pid];
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         rank_counter++ < nranks_, "the goalpost was moved more than one per rank"
     );
     chunk_goal += nchunks;
@@ -37,7 +37,7 @@ void FinishCounter::add_finished_chunk(PartID pid) {
             partitions_ready_to_wait_on_.at(pid) = true;
             cv_.notify_all();
         } else {
-            RAPIDSMP_EXPECTS(
+            RAPIDSMPF_EXPECTS(
                 finished_chunk < chunk_goal, "finished chunk exceeds the goal"
             );
         }
@@ -67,7 +67,7 @@ void wait_for_if_timeout_else_wait(
 ) {
     if (timeout.has_value()) {
         // if the timeout is set, and pred() is not true, throw
-        RAPIDSMP_EXPECTS(
+        RAPIDSMPF_EXPECTS(
             cv.wait_for(lock, *timeout, std::move(pred)),
             "wait timeout reached",
             std::runtime_error
@@ -96,7 +96,7 @@ PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout)
                );
     });
 
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         finished_key != std::numeric_limits<PartID>::max(),
         "no more partitions to wait on",
         std::out_of_range
@@ -112,7 +112,7 @@ void FinishCounter::wait_on(
     std::unique_lock<std::mutex> lock(mutex_);
     wait_for_if_timeout_else_wait(lock, cv_, timeout, [&]() {
         auto it = partitions_ready_to_wait_on_.find(pid);
-        RAPIDSMP_EXPECTS(
+        RAPIDSMPF_EXPECTS(
             it != partitions_ready_to_wait_on_.end(),
             "PartID has already been extracted",
             std::out_of_range
@@ -126,7 +126,7 @@ std::vector<PartID> FinishCounter::wait_some(
     std::optional<std::chrono::milliseconds> timeout
 ) {
     std::unique_lock<std::mutex> lock(mutex_);
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         !partitions_ready_to_wait_on_.empty(),
         "no more partitions to wait on",
         std::out_of_range
@@ -157,4 +157,4 @@ std::vector<PartID> FinishCounter::wait_some(
 }
 
 
-}  // namespace rapidsmp::shuffler::detail
+}  // namespace rapidsmpf::shuffler::detail

@@ -8,11 +8,11 @@
 
 #include <rmm/exec_policy.hpp>
 
-#include <rapidsmp/shuffler/chunk_batch.hpp>
+#include <rapidsmpf/shuffler/chunk_batch.hpp>
 
 // NOTE: this test is in a .cu file, because it uses thrust::equal which requires nvcc.
 
-namespace rapidsmp::shuffler::detail {
+namespace rapidsmpf::shuffler::detail {
 
 constexpr std::size_t operator""_KiB(unsigned long long n) {
     return n * (1 << 10);
@@ -170,13 +170,18 @@ class ChunkBatchTest
                 case MemoryType::DEVICE:
                     {
                         SCOPED_TRACE("chunk data device" + std::to_string(i));
-                        EXPECT_TRUE(thrust::equal(
-                            rmm::exec_policy(stream, br.device_mr()),
-                            static_cast<cuda::std::byte*>(exp_chunks[i].gpu_data->data()),
-                            static_cast<cuda::std::byte*>(exp_chunks[i].gpu_data->data())
-                                + len,
-                            static_cast<cuda::std::byte*>(chunk->gpu_data->data())
-                        ));
+                        EXPECT_TRUE(
+                            thrust::equal(
+                                rmm::exec_policy(stream, br.device_mr()),
+                                static_cast<cuda::std::byte*>(
+                                    exp_chunks[i].gpu_data->data()
+                                ),
+                                static_cast<cuda::std::byte*>(
+                                    exp_chunks[i].gpu_data->data()
+                                ) + len,
+                                static_cast<cuda::std::byte*>(chunk->gpu_data->data())
+                            )
+                        );
                         break;
                     }
                 case MemoryType::HOST:
@@ -221,4 +226,4 @@ TEST_P(ChunkBatchTest, Run) {
     EXPECT_NO_FATAL_FAILURE(test_batch(exp_chunks, batch2));
 }
 
-}  // namespace rapidsmp::shuffler::detail
+}  // namespace rapidsmpf::shuffler::detail
