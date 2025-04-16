@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 
 import rmm.mr
+
+from rapidsmpf.buffer.buffer import MemoryType
+from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 
 
 def KiB(x: int) -> int:

@@ -8,17 +8,19 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 from mpi4py import MPI
+
+import cudf
+
 from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.examples.bulk_mpi_shuffle import bulk_mpi_shuffle
 from rapidsmpf.testing import assert_eq
 
-import cudf
-
 if TYPE_CHECKING:
     import py.path
-    from rapidsmpf.communicator.communicator import Communicator
 
     import rmm.mr
+
+    from rapidsmpf.communicator.communicator import Communicator
 
 
 @pytest.mark.parametrize("batchsize", [1, 2, 3])

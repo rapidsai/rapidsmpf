@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from mpi4py import MPI
+
 from rapidsmpf.communicator.communicator import LOG_LEVEL
 from rapidsmpf.communicator.mpi import new_communicator
 from rapidsmpf.communicator.testing import initialize_ucxx, ucxx_mpi_setup
