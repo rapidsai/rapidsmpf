@@ -53,11 +53,13 @@ TEST(ChunkBatch, Empty) {
     // release the metadata buffer
     auto metadata = batch1.release_metadata();
     EXPECT_EQ(ChunkBatch::batch_header_size, metadata->size());
+    // calling release_metadata() again should throw
+    EXPECT_THROW(std::ignore = batch1.release_metadata(), std::logic_error);
 
     auto batch2 = ChunkBatch::create(std::move(metadata), {});
     test_empty_batch(batch2);
 
-    // create chunk batch with in invalid metadata buffer -> should throw
+    // create chunk batch with an invalid metadata buffer -> should throw
     EXPECT_THROW(
         std::ignore = ChunkBatch::create(std::make_unique<std::vector<uint8_t>>(), {}),
         std::logic_error
@@ -112,7 +114,7 @@ class ChunkBatchTest
         }
     }
 
-    MemoryType get_memory_type() const {
+    [[nodiscard]] MemoryType get_memory_type() const {
         return std::get<0>(GetParam());
     }
 
@@ -176,7 +178,7 @@ class ChunkBatchTest
             EXPECT_EQ(exp_chunks[i].gpu_data_size, chunk->gpu_data_size);
 
             if (exp_chunks[i].metadata) {
-                SCOPED_TRACE("chunk metadata" + std::to_string(i));
+                SCOPED_TRACE("chunk metadata " + std::to_string(i));
                 EXPECT_EQ(*exp_chunks[i].metadata, *chunk->metadata);
             }
 
@@ -184,7 +186,7 @@ class ChunkBatchTest
                 switch (get_memory_type()) {
                 case MemoryType::DEVICE:
                     {
-                        SCOPED_TRACE("chunk data device" + std::to_string(i));
+                        SCOPED_TRACE("chunk data device " + std::to_string(i));
                         EXPECT_TRUE(thrust::equal(
                             rmm::exec_policy(stream, br.device_mr()),
                             static_cast<cuda::std::byte*>(exp_chunks[i].gpu_data->data()),
@@ -196,7 +198,7 @@ class ChunkBatchTest
                     }
                 case MemoryType::HOST:
                     {
-                        SCOPED_TRACE("chunk data host" + std::to_string(i));
+                        SCOPED_TRACE("chunk data host " + std::to_string(i));
                         EXPECT_EQ(
                             *(const_cast<Buffer const&>(*exp_chunks[i].gpu_data).host()),
                             *(const_cast<Buffer const&>(*chunk->gpu_data).host())
@@ -242,6 +244,11 @@ TEST_P(ChunkBatchTest, Run) {
     // reacreate a new batch using the first batch
     auto batch2 = ChunkBatch::create(batch1.release_metadata(), batch1.release_payload());
     EXPECT_NO_FATAL_FAILURE(test_batch(exp_chunks, batch2));
+
+    // since metadata was released, the release_metadata() should throw
+    EXPECT_THROW(std::ignore = batch1.release_metadata(), std::logic_error);
+    // since payload was released, the release_payload() should return nullptr
+    EXPECT_FALSE(batch1.release_payload());
 }
 
 }  // namespace rapidsmpf::shuffler::detail

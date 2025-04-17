@@ -36,60 +36,79 @@ class ChunkBatch {
   public:
     using iterator = ChunkForwardIterator;  ///< Chunk iterator type
 
-    /// @brief The size of the chunk metadata header in bytes.
+    /**
+     * @brief The size of the chunk metadata header in bytes.
+     */
     static constexpr std::ptrdiff_t chunk_metadata_header_size =
         sizeof(Chunk::MetadataMessageHeader);
 
-    /// @brief The structure of the batch header.
-    /// @note This is allocated at the front of the the metadata buffer.
+    /**
+     * @brief The structure of the batch header.
+     * @note This is allocated at the front of the the metadata buffer.
+     */
     struct BatchHeader {
         uint32_t id;  ///< The id of the batch.
         Rank dest_rank;  ///< The destination rank of the batch.
         size_t num_chunks;  ///< The number of chunks in the batch.
     };
 
-    /// @brief The size of the batch header in bytes.
+    /** @brief The size of the batch header in bytes. */
     static constexpr std::ptrdiff_t batch_header_size = sizeof(BatchHeader);
 
-    /// @brief  Access the BatchHeader of the chunk batch.
-    /// @return BatchHeader const* A pointer to the batch header.
+    /**
+     * @brief Access the BatchHeader of the chunk batch.
+     * @return A pointer to the batch header.
+     */
     [[nodiscard]] BatchHeader const* header() const {
         RAPIDSMPF_EXPECTS(metadata_buffer_, "metadata buffer is null");
         // Maybe converted to constexpr in C++20
         return reinterpret_cast<BatchHeader const*>(metadata_buffer_->data());
     }
 
-    /// @brief Access the destination rank of the chunk batch.
-    /// @return Rank The destination rank of the chunk batch.
+    /**
+     * @brief Access the destination rank of the chunk batch.
+     * @return The destination rank of the chunk batch.
+     */
     [[nodiscard]] Rank destination() const {
         return header()->dest_rank;
     }
 
-    /// @brief Access the number of chunks in the chunk batch.
-    /// @return The number of chunks in the chunk batch.
+    /**
+     * @brief Access the number of chunks in the chunk batch.
+     * @return The number of chunks in the chunk batch.
+     */
     [[nodiscard]] size_t size() const {
         return header()->num_chunks;
     }
 
-    /// @brief Access the id of the chunk batch.
-    /// @return The id of the chunk batch.
+    /**
+     * @brief Access the id of the chunk batch.
+     * @return The id of the chunk batch.
+     */
     [[nodiscard]] uint32_t id() const {
         return header()->id;
     }
 
     /**
-     * @brief Releases the metadata buffer of the chunk batch.
+     * @brief Releases the ownership of the metadata buffer of the chunk batch.
      *
      * @return The released metadata buffer.
+     *
+     * @throws std::logic_error if the metadata buffer is null.
+     *
+     * @note This method should be called only once.
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> release_metadata() {
+        RAPIDSMPF_EXPECTS(metadata_buffer_, "metadata buffer is null");
         return std::move(metadata_buffer_);
     }
 
     /**
-     * @brief Releases the payload buffer of the chunk batch.
+     * @brief Releases the ownership of the payload buffer of the chunk batch.
      *
-     * @return The released payload buffer.
+     * @return The released payload buffer. If there was no payload, returns nullptr.
+     *
+     * @note Unlike metadata buffer, payload buffer could be null.
      */
     [[nodiscard]] std::unique_ptr<Buffer> release_payload() {
         return std::move(payload_data_);
@@ -103,9 +122,10 @@ class ChunkBatch {
      * @param chunks The chunks to be included in the batch.
      * @param br The buffer resource to use for allocating the metadata buffer.
      * @param stream The stream to use for allocating the metadata buffer.
-     * @return ChunkBatch The created chunk batch.
+     * @return New chunk batch.
      *
-     * @throws std::logic_error if the memory types of each chunk gpu data is not the same
+     * @throws std::logic_error if the payload buffer memory types of the chunks are not
+     * the same. Chunk data is expected to be of the same memory type.
      */
     [[nodiscard]] static ChunkBatch create(
         uint32_t id,
@@ -120,7 +140,7 @@ class ChunkBatch {
      *
      * @param metadata The metadata buffer.
      * @param payload_data The payload buffer.
-     * @return ChunkBatch The created chunk batch.
+     * @return New chunk batch.
      *
      * @throws std::logic_error if the provided buffers violate the format of a chunk
      * batch.
@@ -187,14 +207,18 @@ class ChunkBatch {
         }
     }
 
-    /// @brief Iterator to the beginning of the Chunk batch
-    /// @param stream The stream to use for any memory allocations.
-    /// @return Forward iterator to the beginning
+    /**
+     * @brief Iterator to the beginning of the Chunk batch
+     * @param stream The stream to use for any memory allocations.
+     * @return Forward iterator to the beginning
+     */
     iterator begin(rmm::cuda_stream_view stream) const;
 
-    /// @brief Iterator to the end of the Chunk batch
-    /// @param stream The stream to use for any memory allocations.
-    /// @return Forward iterator to the end
+    /**
+     * @brief Iterator to the end of the Chunk batch
+     * @param stream The stream to use for any memory allocations.
+     * @return Forward iterator to the end
+     */
     iterator end(rmm::cuda_stream_view stream) const;
 
   private:
@@ -204,7 +228,7 @@ class ChunkBatch {
     );
 
     /// A buffer containing the BatchHeader, and metadata header and metadata of each
-    /// chunk.
+    /// chunk. This buffer will not be null.
     /// |BatchHeader|[[MetadataMessageHeader, Metadata], ...]|
     ///
     /// TODO: change the format to have thhe MetadataMessageHeaders at the front (after
@@ -212,16 +236,17 @@ class ChunkBatch {
     /// traversal pattern.
     std::unique_ptr<std::vector<uint8_t>> metadata_buffer_;
 
-    /// GPU data buffer of the packed `cudf::table` associated with this chunk.
+    /// GPU data buffer of the packed `cudf::table` associated with this chunk. This
+    /// buffer could be null if there were no chunks with payload.
     std::unique_ptr<Buffer> payload_data_;
 
-    /// cached begin iterator, as creating an iterator object is relatively expensive.
-    /// This allows calling `begin()` trivially multiple times.
+    /// cached begin iterator, as creating an iterator object is relatively
+    /// expensive. This allows calling `begin()` trivially multiple times.
     mutable std::unique_ptr<iterator> cached_begin_iter_;
 };
 
 /**
- * @brief Forward iterator of chunks in the chunk batch
+ * @brief Forward iterator of chunks in the chunk batch.
  */
 class ChunkForwardIterator {
     friend ChunkBatch;
@@ -233,30 +258,40 @@ class ChunkForwardIterator {
     using pointer = Chunk*;  ///< pointer type def
     using reference = Chunk&;  ///< rederence type def
 
-    /// @brief Return the reference to the chunk in the iterator.
-    /// @return chunk ref
+    /**
+     * @brief Return the reference to the chunk in the iterator.
+     * @return chunk ref
+     */
     reference operator*() const {
         return *chunk_;
     }
 
-    /// @brief Return the pointer to the chunk in the iterator.
-    /// @return chunk ptr
+    /**
+     * @brief Return the pointer to the chunk in the iterator.
+     * @return chunk ptr
+     */
     pointer operator->() const {
         return chunk_.get();
     }
 
-    /// @brief Prefix increment of the iterator.
-    /// @return incremented iterator reference.
+    /**
+     * @brief Prefix increment of the iterator.
+     * @return Reference to the incremented iterator
+     */
     ChunkForwardIterator& operator++();
 
-    /// @brief Postfix increment of the iterator.
-    /// @return iterator reference before increment.
+    /**
+     * @brief Postfix increment of the iterator.
+     * @return Copy of the iterator before increment
+     */
     ChunkForwardIterator operator++(int);
 
-    /// @brief Check equality.
-    /// @param other other iterator
-    /// @return True if equal, false otherwise.
-    constexpr bool operator==(const ChunkForwardIterator& other) const {
+    /**
+     * @brief Equality comparison of iterators.
+     * @param other The other iterator to compare with
+     * @return true if the iterators are equal, false otherwise
+     */
+    bool operator==(ChunkForwardIterator const& other) const {
         // Only check the metadata buffer, as it has sufficient information to check
         // equality
         if (&batch_ == &other.batch_ && metadata_offset_ == other.metadata_offset_) {
@@ -268,24 +303,35 @@ class ChunkForwardIterator {
         return false;
     }
 
-    /// @brief Check ineuqlity.
-    /// @param other other iterator.
-    /// @return False if iterators are not equal, True otherwise.
-    constexpr bool operator!=(const ChunkForwardIterator& other) const {
-        return !(*this == other);
-    }
+    /**
+     * @brief Inequality comparison of iterators.
+     * @param other The other iterator to compare with
+     * @return true if the iterators are not equal, false otherwise
+     */
+    bool operator!=(ChunkForwardIterator const& other) const;
 
-    /// @brief copy constructor.
-    /// @param other other iterator
+    /**
+     * @brief Copy constructor.
+     * @param other The other iterator to copy from.
+     */
     ChunkForwardIterator(const ChunkForwardIterator& other) = default;
 
-    /// @brief Assignment operator.
-    /// @param other other iterator
-    /// @return current reference.
+    /**
+     * @brief Copy assignment operator.
+     * @param other The other iterator to copy from.
+     * @return Reference to the assigned iterator.
+     */
     ChunkForwardIterator& operator=(const ChunkForwardIterator& other) = default;
 
   private:
-    /// @brief Private constructor. Use ChunkBatch to access the begin and end iterators.
+    /**
+     * @brief Private constructor. Use ChunkBatch to access the begin and end iterators.
+     *
+     * @param batch The chunk batch.
+     * @param metadata_offset The current metadata offset to the chunk boundary.
+     * @param payload_offset The current payload offset to the chunk gpu data.
+     * @param stream The stream to use for any memory allocations.
+     */
     ChunkForwardIterator(
         ChunkBatch const& batch,
         std::ptrdiff_t metadata_offset,
@@ -294,42 +340,50 @@ class ChunkForwardIterator {
     );
 
 
-    /// @brief Advance class members to the next chunk
+    /**
+     * @brief Advance class members to the next chunk
+     */
     void advance_chunk();
 
-    /// @brief Unwrap the current chunk header.
-    /// @return Chunk header ptr.
+    /**
+     * @brief Unwrap the current chunk header.
+     * @return Chunk header ptr.
+     */
     inline Chunk::MetadataMessageHeader const* chunk_header() const {
         return reinterpret_cast<Chunk::MetadataMessageHeader const*>(
             batch_.metadata_buffer_->data() + metadata_offset_
         );
     }
 
-    /// @brief  Check if current position contains a chunks.
-    /// @return True, if metadata offset points to a valid chunk.
+    /**
+     * @brief Check if current position contains a chunks.
+     * @return True, if metadata offset points to a valid chunk.
+     */
     inline bool has_chunk() const {
         return batch_.size() > 0
                && (size_t(metadata_offset_) < batch_.metadata_buffer_->size());
     }
 
-    /// @brief Make a chunk.
-    /// @return Chunk wrapped in a shared ptr
+    /**
+     * @brief Make a chunk.
+     * @return Chunk wrapped in a shared ptr
+     */
     static std::shared_ptr<Chunk> make_chunk(
         ChunkBatch const& batch,
         std::ptrdiff_t metadata_offset,
         std::ptrdiff_t payload_offset,
         rmm::cuda_stream_view stream
     );
-
-    ChunkBatch const& batch_;
-    std::ptrdiff_t metadata_offset_;  ///< metadata offset to the chunk boundary. It
-                                      ///< points to the chunk header
+    ChunkBatch const& batch_;  ///< Reference to the chunk batch being iterated
+    std::ptrdiff_t
+        metadata_offset_;  ///< metadata offset to the chunk boundary. It points to the
+                           ///< beginning of the chunk metadata header.
     std::ptrdiff_t payload_offset_;  ///< payload offset to the chunk gpu data.
-    rmm::cuda_stream_view stream_;
+    rmm::cuda_stream_view stream_;  ///< Stream for memory operations
 
     /// Chunk is held on a shared_ptr, so that the iterator object can be trivially
     /// copied. If there were no chunks in the batch, this will be null.
-    std::shared_ptr<Chunk> chunk_;
+    std::shared_ptr<Chunk> chunk_;  ///< Current chunk being pointed to
 };
 
 }  // namespace rapidsmpf::shuffler::detail

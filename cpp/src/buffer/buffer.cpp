@@ -106,9 +106,12 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
 std::unique_ptr<Buffer> Buffer::copy_slice(
     std::ptrdiff_t offset, std::ptrdiff_t length, rmm::cuda_stream_view stream
 ) const {
-    RAPIDSMPF_EXPECTS(offset <= std::ptrdiff_t(size), "offset can't be more than size");
     RAPIDSMPF_EXPECTS(
-        offset + length <= std::ptrdiff_t(size), "offset + length can't be more than size"
+        offset <= std::ptrdiff_t(size), "offset can't be greater than size"
+    );
+    RAPIDSMPF_EXPECTS(
+        offset + length <= std::ptrdiff_t(size),
+        "offset + length can't be greater than size"
     );
     return std::visit(
         overloaded{
@@ -142,9 +145,12 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
     std::ptrdiff_t length,
     rmm::cuda_stream_view stream
 ) const {
-    RAPIDSMPF_EXPECTS(offset <= std::ptrdiff_t(size), "offset can't be more than size");
     RAPIDSMPF_EXPECTS(
-        offset + length <= std::ptrdiff_t(size), "offset + length can't be more than size"
+        offset <= std::ptrdiff_t(size), "offset can't be greater than size"
+    );
+    RAPIDSMPF_EXPECTS(
+        offset + length <= std::ptrdiff_t(size),
+        "offset + length can't be greater than size"
     );
 
     if (mem_type() == target) {
@@ -188,7 +194,7 @@ std::ptrdiff_t Buffer::copy_to(
 ) const {
     RAPIDSMPF_EXPECTS(mem_type() == dest.mem_type(), "buffer mem type mismatch");
     RAPIDSMPF_EXPECTS(
-        dest.size >= (size_t(offset) + size), "offset can't be more than size"
+        dest.size >= (size_t(offset) + size), "offset can't be greater than size"
     );
     return std::visit(
         overloaded{

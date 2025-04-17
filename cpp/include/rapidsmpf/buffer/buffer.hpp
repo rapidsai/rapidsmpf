@@ -126,6 +126,7 @@ class Buffer {
 
     /**
      * @brief Copy a slice of the buffer to a new buffer.
+     *
      * @param offset Offset in bytes from the start of the buffer.
      * @param length Length in bytes of the slice.
      * @param stream CUDA stream to use for the copy.
@@ -137,6 +138,7 @@ class Buffer {
 
     /**
      * @brief Copy a slice of the buffer to a new buffer.
+     *
      * @param target Memory type of the new buffer.
      * @param offset Offset in bytes from the start of the buffer.
      * @param length Length in bytes of the slice.
@@ -152,10 +154,12 @@ class Buffer {
 
     /**
      * @brief Copy the buffer to a destination buffer with a given offset.
+     *
      * @param dest Destination buffer.
      * @param offset Offset of the destination buffer.
      * @param stream CUDA stream to use for the copy.
      * @returns Number of bytes written to the destination buffer.
+     *
      * @throws std::logic_error if copy violates the bounds of the destination buffer.
      */
     [[nodiscard]] std::ptrdiff_t copy_to(

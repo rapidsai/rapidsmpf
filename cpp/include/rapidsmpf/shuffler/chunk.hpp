@@ -65,8 +65,10 @@ class Chunk {
     );
 
     /**
-     * @brief Construct a new chunk to indicate the number of chunks that were sent for
-     * a particular partition.
+     * @brief Construct a new chunk with no data.
+     *
+     * This is used to indicate the number of chunks that were sent for a particular
+     * partition.
      *
      * @param pid The ID of the partition this chunk is part of.
      * @param cid The ID of the chunk.
@@ -84,7 +86,7 @@ class Chunk {
         /// If not zero, the number of chunks of the partition expected to get from the
         /// sending rank. Ignored when it is zero.
         std::size_t expected_num_chunks;
-        /// If known, the size of the gpu data buffer (in bytes).
+        /// If known, the size of the metadata buffer (in bytes).
         std::size_t metadata_size;
         /// If known, the size of the gpu data buffer (in bytes).
         std::size_t gpu_data_size;

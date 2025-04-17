@@ -46,7 +46,7 @@ ChunkBatch ChunkBatch::create(
 
     // first traverse the chunks to calculate the metadata and payload sizes, and the
     // memory type of data buffers
-    MemoryType mem_type;
+    MemoryType mem_type = MemoryType::HOST;  // Initialize with default value
     int num_payload_chunks = 0;
     for (const auto& chunk : chunks) {
         if (chunk.metadata) {
@@ -203,7 +203,7 @@ void ChunkForwardIterator::advance_chunk() {
     if (has_chunk()) {
         chunk_ = make_chunk(batch_, metadata_offset_, payload_offset_, stream_);
     } else {
-        chunk_ = {};
+        chunk_ = nullptr;
     }
 }
 
