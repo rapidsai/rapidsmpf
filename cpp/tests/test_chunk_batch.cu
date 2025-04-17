@@ -138,8 +138,23 @@ class ChunkBatchTest
         } else if (chunks_type == "no_data") {
             chunks.emplace_back(3, 3, 100);
             chunks.emplace_back(5, 5, 101);
+        } else if (chunks_type == "single_data") {
+            chunks.emplace_back(4, 4, 0, len, copy_metadata(), copy_data());
+        } else if (chunks_type == "single_data_begin") {
+            chunks.emplace_back(4, 4, 0, len, copy_metadata(), copy_data());
+            chunks.emplace_back(3, 3, 100);
+            chunks.emplace_back(5, 5, 101);
+        } else if (chunks_type == "single_data_middle") {
+            chunks.emplace_back(3, 3, 100);
+            chunks.emplace_back(4, 4, 0, len, copy_metadata(), copy_data());
+            chunks.emplace_back(5, 5, 101);
+        } else if (chunks_type == "single_data_end") {
+            chunks.emplace_back(3, 3, 100);
+            chunks.emplace_back(5, 5, 101);
+            chunks.emplace_back(4, 4, 0, len, copy_metadata(), copy_data());
+        } else {
+            RAPIDSMPF_EXPECTS(chunks_type == "empty", "unkown chunk type " + chunks_type);
         }
-        // else -> empty chunks
 
         return chunks;
     }
@@ -200,7 +215,15 @@ INSTANTIATE_TEST_SUITE_P(
     ChunkBatchTest,
     ::testing::Combine(
         ::testing::Values(MemoryType::DEVICE, MemoryType::HOST),
-        ::testing::Values("mixed", "no_data", "empty")
+        ::testing::Values(
+            "mixed",
+            "no_data",
+            "single_data",
+            "single_data_begin",
+            "single_data_middle",
+            "single_data_end",
+            "empty"
+        )
     ),
     [](const ::testing::TestParamInfo<ChunkBatchTest::ParamType>& info) {
         return std::string(

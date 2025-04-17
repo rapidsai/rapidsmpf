@@ -46,7 +46,8 @@ ChunkBatch ChunkBatch::create(
 
     // first traverse the chunks to calculate the metadata and payload sizes, and the
     // memory type of data buffers
-    std::optional<MemoryType> mem_type;
+    MemoryType mem_type;
+    int num_payload_chunks = 0;
     for (const auto& chunk : chunks) {
         if (chunk.metadata) {
             batch_metadata_size += chunk.metadata->size();
@@ -55,12 +56,13 @@ ChunkBatch ChunkBatch::create(
         if (chunk.gpu_data) {
             batch_payload_size += chunk.gpu_data->size;
 
-            if (!mem_type) {
+            if (++num_payload_chunks == 1) {
+                // if this was the first chunk with payloads, set mem type
                 mem_type = chunk.gpu_data->mem_type();
-            } else {
+            } else {  // num_payload_chunks > 1
                 // TODO: add a policy to handle multiple types in the vector
                 RAPIDSMPF_EXPECTS(
-                    *mem_type == chunk.gpu_data->mem_type(),
+                    mem_type == chunk.gpu_data->mem_type(),
                     "All chunks in a batch should be of the same memory type"
                 );
             }
@@ -72,13 +74,14 @@ ChunkBatch ChunkBatch::create(
 
     // create payload data buffer
     std::unique_ptr<Buffer> payload_data;
-    if (batch_payload_size > 0) {
-        auto [reservation, _] = br->reserve(*mem_type, batch_payload_size, false);
+    // allocate a separate data buffer, if there are >1 payloads
+    if (batch_payload_size > 0 and num_payload_chunks > 1) {
+        auto [reservation, _] = br->reserve(mem_type, batch_payload_size, false);
         RAPIDSMPF_EXPECTS(
             reservation.size() == batch_payload_size,
             "unable to reserve gpu memory for batch"
         );
-        payload_data = br->allocate(*mem_type, batch_payload_size, stream, reservation);
+        payload_data = br->allocate(mem_type, batch_payload_size, stream, reservation);
         RAPIDSMPF_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
     }
 
@@ -86,13 +89,20 @@ ChunkBatch ChunkBatch::create(
     std::ptrdiff_t metadata_offset = batch_header_size;  // skip the header
     std::ptrdiff_t payload_offset = 0;
     for (auto&& chunk : chunks) {
+        auto moved_chunk = std::move(chunk);  // move the chunk
         // copy metadata
-        metadata_offset += chunk.to_metadata_message(*metadata_buffer, metadata_offset);
+        metadata_offset +=
+            moved_chunk.to_metadata_message(*metadata_buffer, metadata_offset);
 
         // copy payload data
-        if (chunk.gpu_data) {
-            payload_offset +=
-                chunk.gpu_data->copy_to(*payload_data, payload_offset, stream);
+        if (moved_chunk.gpu_data) {
+            if (num_payload_chunks == 1) {
+                // this is the only chunk with payload, so move the data buffer
+                payload_data = std::move(moved_chunk.gpu_data);
+            } else {  // several payload chunks, so copy data to the payload buffer
+                payload_offset +=
+                    moved_chunk.gpu_data->copy_to(*payload_data, payload_offset, stream);
+            }
         }
     }
 
