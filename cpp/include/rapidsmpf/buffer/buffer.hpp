@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <variant>
 #include <vector>
@@ -16,6 +17,7 @@
 namespace rapidsmpf {
 
 class BufferResource;
+
 
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
@@ -64,7 +66,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] constexpr std::unique_ptr<std::vector<uint8_t>> const& host() const {
+    [[nodiscard]] constexpr HostStorageT const& host() const {
         if (const auto* ref = std::get_if<HostStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -79,7 +81,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] constexpr std::unique_ptr<rmm::device_buffer> const& device() const {
+    [[nodiscard]] constexpr DeviceStorageT const& device() const {
         if (const auto* ref = std::get_if<DeviceStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -121,6 +123,48 @@ class Buffer {
             storage_
         );
     }
+
+    /**
+     * @brief Copy a slice of the buffer to a new buffer.
+     *
+     * @param offset Offset in bytes from the start of the buffer.
+     * @param length Length in bytes of the slice.
+     * @param stream CUDA stream to use for the copy.
+     * @returns A new buffer containing the copied slice.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
+        std::ptrdiff_t offset, std::ptrdiff_t length, rmm::cuda_stream_view stream
+    ) const;
+
+    /**
+     * @brief Copy a slice of the buffer to a new buffer.
+     *
+     * @param target Memory type of the new buffer.
+     * @param offset Offset in bytes from the start of the buffer.
+     * @param length Length in bytes of the slice.
+     * @param stream CUDA stream to use for the copy.
+     * @returns A new buffer containing the copied slice.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
+        MemoryType target,
+        std::ptrdiff_t offset,
+        std::ptrdiff_t length,
+        rmm::cuda_stream_view stream
+    ) const;
+
+    /**
+     * @brief Copy the buffer to a destination buffer with a given offset.
+     *
+     * @param dest Destination buffer.
+     * @param offset Offset of the destination buffer.
+     * @param stream CUDA stream to use for the copy.
+     * @returns Number of bytes written to the destination buffer.
+     *
+     * @throws std::logic_error if copy violates the bounds of the destination buffer.
+     */
+    [[nodiscard]] std::ptrdiff_t copy_to(
+        Buffer& dest, std::ptrdiff_t offset, rmm::cuda_stream_view stream
+    ) const;
 
     /// @brief Buffer has a move ctor but no copy or assign operator.
     Buffer(Buffer&&) = default;
