@@ -110,7 +110,7 @@ class SharedResources {
     bool endpoint_error_handling_{false
     };  ///< Whether to request UCX endpoint error handling. This is currently disabled
         ///< as it impacts performance very negatively.
-        ///< See https://github.com/rapidsai/rapids-multi-gpu/issues/140.
+        ///< See https://github.com/rapidsai/rapidsmpf/issues/140.
 
   public:
     UCXX::Logger* logger{nullptr};  ///< UCXX Listener
@@ -853,7 +853,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 
         // Connect to root
         // TODO: Enable when Logger can be created before the UCXX communicator object.
-        // See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
+        // See https://github.com/rapidsai/rapidsmpf/issues/65 .
         //
         // log.debug(
         //     "Connecting to root node at ",
@@ -910,7 +910,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
             shared_resources->progress_worker();
         }
         // TODO: Enable when Logger can be created before the UCXX communicator object.
-        // See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
+        // See https://github.com/rapidsai/rapidsmpf/issues/65 .
         // log.debug("Assigned rank: ", shared_resources->rank());
 
         if (const HostPortPair* host_port_pair =
@@ -949,7 +949,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         auto listener = shared_resources->get_listener();
 
         // TODO: Enable when Logger can be created before the UCXX communicator object.
-        // See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
+        // See https://github.com/rapidsai/rapidsmpf/issues/65 .
         // log.info("Root running at address ", listener->getIp(), ":",
         // listener->getPort());
 
