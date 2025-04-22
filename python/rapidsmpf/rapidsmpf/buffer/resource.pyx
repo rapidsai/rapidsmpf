@@ -49,7 +49,7 @@ cdef class BufferResource:
     periodic_spill_check
         Enable periodic spill checks. A dedicated thread continuously checks and
         perform spilling based on the memory availability functions. The value of
-        `periodic_spill_check` is used as the pause between checks (in seconds).
+        ``periodic_spill_check`` is used as the pause between checks (in seconds).
         If None, no periodic spill check is performed.
     """
     def __cinit__(

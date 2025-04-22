@@ -161,7 +161,7 @@ def rmp_worker_setup(
     periodic_spill_check
         Enable periodic spill checks. A dedicated thread continuously checks
         and perform spilling based on the current available memory as reported
-        by the buffer resource. The value of `periodic_spill_check` is used as
+        by the buffer resource. The value of ``periodic_spill_check`` is used as
         the pause between checks (in seconds). If None, no periodic spill check
         is performed.
     enable_statistics
@@ -261,7 +261,7 @@ def bootstrap_dask_cluster(
     -----
     This utility must be executed before RapidsMPF shuffling can be used within a
     Dask cluster. This function is called automatically by
-    `rapidsmpf.integrations.dask.core.rapids_shuffle_graph`, but may be called
+    `rapidsmpf.integrations.dask.core.rapidsmpf_shuffle_graph`, but may be called
     manually to set things up before the first shuffle.
 
     Subsequent shuffles on the same cluster will reuse the resources established
