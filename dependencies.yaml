@@ -62,7 +62,7 @@ dependencies:
           - &rmm_unsuffixed rmm==25.6.*,>=0.0.0a0
           - libcudf==25.6.*,>=0.0.0a0
           - libucxx==0.44.*,>=0.0.0a0
-          - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
+          - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - spdlog
     specific:
       - output_types: conda
@@ -103,7 +103,7 @@ dependencies:
           - cython>=3.0.3
           - *rmm_unsuffixed
           - pylibcudf==25.6.*,>=0.0.0a0
-          - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
+          - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - mpi4py
   checks:
     common:
@@ -165,7 +165,7 @@ dependencies:
       - output_types: conda
         packages:
           - *cmake_ver
-          - openmpi  # See <https://github.com/rapidsai/rapids-multi-gpu/issues/17>
+          - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - valgrind
           - cuda-sanitizer-api
           - click >=8.1
