@@ -91,7 +91,7 @@ repos:
         args: [--fix, --main-branch=main]
       - id: verify-alpha-spec
       - id: verify-codeowners
-        args: [--fix, --project-prefix=rapids-multi-gpu]
+        args: [--fix, --project-prefix=rapidsmpf]
   - repo: https://github.com/rapidsai/dependency-file-generator
     rev: v1.16.0
     hooks:
