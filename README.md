@@ -8,8 +8,8 @@ Currently, there is no conda or pip packages for rapidsmpf thus we have to build
 
 Clone rapidsmpf and install the dependencies in a conda environment:
 ```bash
-git clone https://github.com/rapidsai/rapids-multi-gpu.git
-cd rapids-multi-gpu
+git clone https://github.com/rapidsai/rapidsmpf.git
+cd rapidsmpf
 
 # Choose a environment file that match your system.
 mamba env create --name rapidsmpf-dev --file conda/environments/all_cuda-128_arch-x86_64.yaml
