@@ -136,8 +136,6 @@ cpdef Table unpack_and_concat(
     See Also
     --------
     rapidsmpf.shuffler.partition_and_pack
-    cudf.unpack
-    cudf.concatenate
     """
     cdef vector[cpp_PackedData] _partitions
     for part in partitions:

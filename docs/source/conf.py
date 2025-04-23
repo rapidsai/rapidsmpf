@@ -66,4 +66,19 @@ intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "dask-cuda": ("https://docs.rapids.ai/api/dask-cuda/stable/", None),
     "cudf": ("https://docs.rapids.ai/api/cudf/stable/", None),
+    "dask": ("https://docs.dask.org/en/stable/", None),
+    "distributed": ("https://distributed.dask.org/en/stable/", None),
+    "ray": ("https://docs.ray.io/en/latest/", None),
 }
+
+
+nitpick_ignore = [
+    # Ignore WARNING: py:class reference target not found: Table [ref.class] in unpack_and_concat
+    ('py:class', 'Table'),
+    # Ignore TypeVars being assumed to be classes
+    # https://github.com/sphinx-doc/sphinx/issues/10974
+    ("py:class", "DataFrameT"),
+    ("py:class", "rapidsmpf.integrations.dask.core.DataFrameT"),
+    # Unclear why this was causing a warning
+    ("py:obj", "rapidsmpf.buffer.resource.LimitAvailableMemory.__call__")
+]

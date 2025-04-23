@@ -169,13 +169,14 @@ cdef class LimitAvailableMemory:
         """
         Returns the remaining available memory within the defined limit.
 
-        This method queries the `rmm_statistics_resource` to determine the memory
+        This method queries the ``rmm_statistics_resource`` to determine the memory
         currently in use and calculates the remaining memory as:
-        `limit - used_memory`.
+        ``limit - used_memory``.
 
         Returns
         -------
-        The remaining memory in bytes.
+        int
+            The remaining memory in bytes.
         """
         cdef int64_t ret
         with nogil:

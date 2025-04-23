@@ -4,7 +4,8 @@ This page contains the API reference for `rapidsmpf`.
 
 ## Integrations
 
-{mod}`rapidsmpf.integrations` contains integration with other libraries.
+The subpackages under `rapidsmpf.integrations` contain integrations with other
+libraries.
 
 (api-integration-dask)=
 ### Dask
