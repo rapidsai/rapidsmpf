@@ -282,9 +282,18 @@ class Shuffler::Progress {
                 shuffler_.statistics_->add_bytes_stat(
                     "shuffle-payload-send", chunk.gpu_data->size
                 );
-                fire_and_forget_.push_back(
-                    shuffler_.comm_->send(std::move(chunk.gpu_data), src, gpu_data_tag)
-                );
+                try {
+                    fire_and_forget_.push_back(shuffler_.comm_->send(
+                        std::move(chunk.gpu_data), src, gpu_data_tag
+                    ));
+                } catch (std::logic_error& e) {
+                    RAPIDSMPF_EXPECTS(
+                        outgoing_chunks_
+                            .insert({ready_for_data_msg.cid, std::move(chunk)})
+                            .second,
+                        "outgoing chunk already exist"
+                    );
+                }
             } else {
                 break;
             }
