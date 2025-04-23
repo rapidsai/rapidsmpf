@@ -426,6 +426,8 @@ class Communicator {
      * @param rank The destination rank.
      * @param tag Message tag for identification.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
+     *
+     * @throw std::logic_error if the buffer copy is not complete yet.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag

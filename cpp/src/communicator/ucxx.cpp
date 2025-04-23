@@ -1074,7 +1074,6 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
 ) {
-    RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
     auto req = get_endpoint(rank)->tagSend(
         msg->data(),
         msg->size(),
@@ -1086,7 +1085,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
-    RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
+    RAPIDSMPF_EXPECTS(msg->is_copy_complete(), "buffer copy has not completed yet");
     auto req = get_endpoint(rank)->tagSend(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
     );
@@ -1148,9 +1147,6 @@ std::vector<std::size_t> UCXX::test_some(
             completed.push_back(i);
         }
     }
-    if (completed.size() > 0) {
-        RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
-    }
     return completed;
 }
 
@@ -1166,9 +1162,6 @@ std::vector<std::size_t> UCXX::test_some(
         if (ucxx_future->req_->isCompleted()) {
             completed.push_back(key);
         }
-    }
-    if (completed.size() > 0) {
-        RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
     }
     return completed;
 }
