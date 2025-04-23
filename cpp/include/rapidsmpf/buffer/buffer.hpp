@@ -9,6 +9,8 @@
 #include <variant>
 #include <vector>
 
+#include <cuda_runtime.h>
+
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -122,11 +124,26 @@ class Buffer {
         );
     }
 
+    /**
+     * @brief Check if the last copy operation has completed.
+     *
+     * @return true if the copy operation has completed or no copy operation
+     * was performed, false if it is still in progress.
+     */
+    [[nodiscard]] bool is_copy_complete() const;
+
     /// @brief Buffer has a move ctor but no copy or assign operator.
     Buffer(Buffer&&) = default;
     Buffer(Buffer const&) = delete;
     Buffer& operator=(Buffer& o) = delete;
     Buffer& operator=(Buffer&& o) = delete;
+
+    /**
+     * @brief Destructor for Buffer.
+     *
+     * Cleans up any allocated resources.
+     */
+    ~Buffer();
 
   private:
     /**
@@ -208,6 +225,8 @@ class Buffer {
     /// @brief The underlying storage host memory or device memory buffer (where
     /// applicable).
     StorageT storage_;
+    /// @brief CUDA event used to track copy operations
+    cudaEvent_t cuda_event_;
 };
 
 }  // namespace rapidsmpf
