@@ -1085,7 +1085,6 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
-    RAPIDSMPF_EXPECTS(msg->is_copy_complete(), "buffer copy has not completed yet");
     auto req = get_endpoint(rank)->tagSend(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
     );

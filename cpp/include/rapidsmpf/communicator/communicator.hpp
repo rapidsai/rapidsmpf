@@ -427,7 +427,11 @@ class Communicator {
      * @param tag Message tag for identification.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      *
-     * @throw std::logic_error if the buffer copy is not complete yet.
+     * @warning The caller is responsible to ensure the underlying `Buffer` allocation
+     * and data are already valid before calling, for example, when a CUDA allocation
+     * and/or copy are done asynchronously. Specifically if `Buffer` was created with
+     * `Buffer::copy`, the `Buffer::is_copy_complete()` must be checked before calling
+     * this function.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
