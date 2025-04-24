@@ -26,7 +26,7 @@ from rapidsmpf.statistics import Statistics
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from distributed import Client, Worker
+    import distributed
     from distributed.scheduler import Scheduler, TaskState
 
 
@@ -50,7 +50,7 @@ def get_worker_thread_lock() -> threading.RLock:
     return _worker_thread_lock
 
 
-def get_worker_rank(dask_worker: Worker | None = None) -> int:
+def get_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
     """
     Get the UCXX-comm rank for a Dask worker.
 
@@ -143,7 +143,7 @@ async def rapidsmpf_ucxx_rank_setup_node(
 
 
 def rmp_worker_setup(
-    dask_worker: Worker,
+    dask_worker: distributed.Worker,
     *,
     spill_device: float,
     periodic_spill_check: float,
@@ -161,7 +161,7 @@ def rmp_worker_setup(
     periodic_spill_check
         Enable periodic spill checks. A dedicated thread continuously checks
         and perform spilling based on the current available memory as reported
-        by the buffer resource. The value of `periodic_spill_check` is used as
+        by the buffer resource. The value of ``periodic_spill_check`` is used as
         the pause between checks (in seconds). If None, no periodic spill check
         is performed.
     enable_statistics
@@ -233,7 +233,7 @@ _initialized_clusters: set[str] = set()
 
 
 def bootstrap_dask_cluster(
-    client: Client,
+    client: distributed.Client,
     *,
     spill_device: float = 0.50,
     periodic_spill_check: float | None = 1e-3,
@@ -251,7 +251,7 @@ def bootstrap_dask_cluster(
     periodic_spill_check
         Enable periodic spill checks. A dedicated thread continuously checks
         and perform spilling based on the current available memory as reported
-        by the buffer resource. The value of `periodic_spill_check` is used as
+        by the buffer resource. The value of ``periodic_spill_check`` is used as
         the pause between checks (in seconds). If None, no periodic spill
         check is performed.
     enable_statistics
@@ -261,7 +261,7 @@ def bootstrap_dask_cluster(
     -----
     This utility must be executed before RapidsMPF shuffling can be used within a
     Dask cluster. This function is called automatically by
-    `rapidsmpf.integrations.dask.core.rapids_shuffle_graph`, but may be called
+    `rapidsmpf.integrations.dask.rapidsmpf_shuffle_graph`, but may be called
     manually to set things up before the first shuffle.
 
     Subsequent shuffles on the same cluster will reuse the resources established
@@ -378,7 +378,7 @@ class RMPSchedulerPlugin(SchedulerPlugin):
                     self.scheduler.set_restrictions({ts.key: {worker}})
 
 
-def get_dask_client() -> Client:
+def get_dask_client() -> distributed.Client:
     """
     Get the current Dask client.
 
@@ -391,7 +391,7 @@ def get_dask_client() -> Client:
     return client
 
 
-def get_comm(dask_worker: Worker | None = None) -> Communicator:
+def get_comm(dask_worker: distributed.Worker | None = None) -> Communicator:
     """
     Get the RAPIDS-MP UCXX comm for a Dask worker.
 
@@ -415,7 +415,9 @@ def get_comm(dask_worker: Worker | None = None) -> Communicator:
     return dask_worker._rapidsmpf_comm
 
 
-def get_progress_thread(dask_worker: Worker | None = None) -> ProgressThread:
+def get_progress_thread(
+    dask_worker: distributed.Worker | None = None,
+) -> ProgressThread:
     """
     Get the RAPIDS-MP progress thread for a Dask worker.
 

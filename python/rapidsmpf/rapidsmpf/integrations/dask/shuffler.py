@@ -326,13 +326,13 @@ def rapidsmpf_shuffle_graph(
     A RapidsMPF shuffle operation comprises four general phases:
 
     **Staging phase**
-    A new :class:`Shuffler` object must be staged on every worker
+    A new :class:`rapidsmpf.shuffler.Shuffler` object must be staged on every worker
     in the current Dask cluster.
 
     **Insertion phase**
     Each input partition is split into a dictionary of chunks,
-    and that dictionary is passed to the appropriate :class:`Shuffler`
-    object (using `Shuffler.insert_chunks`).
+    and that dictionary is passed to the appropriate :class:`rapidsmpf.shuffler.Shuffler`
+    object (using `rapidsmpf.shuffler.Shuffler.insert_chunks`).
 
     The insertion phase will include a single task for each of
     the ``partition_count_in`` partitions in the input DataFrame.
@@ -343,7 +343,7 @@ def rapidsmpf_shuffle_graph(
     These tasks may run anywhere in the cluster.
 
     **Barrier phase**
-    All :class:`Shuffler` objects must be 'informed' that the insertion
+    All :class:`rapidsmpf.shuffler.Shuffler` objects must be 'informed' that the insertion
     phase is complete (on all workers) before the subsequent
     extraction phase begins. We call this synchronization step
     the 'barrier phase'.
@@ -352,13 +352,13 @@ def rapidsmpf_shuffle_graph(
 
     1. First global barrier - A single barrier task is used to
     signal that all input partitions have been submitted to
-    a :class:`Shuffler` object on one of the workers. This task may
+    a :class:`rapidsmpf.shuffler.Shuffler` object on one of the workers. This task may
     also run anywhere on the cluster, but it must depend on
     ALL insertion tasks.
 
     2. Worker barrier(s) - Each worker must execute a single
     worker-barrier task. This task will call `insert_finished`
-    for every output partition on the local :class:`Shuffler`. These
+    for every output partition on the local :class:`rapidsmpf.shuffler.Shuffler`. These
     tasks must be restricted to specific workers, and they
     must all depend on the first global barrier.
 
@@ -369,7 +369,7 @@ def rapidsmpf_shuffle_graph(
 
     **Extraction phase**
     Each output partition is extracted from the local
-    :class:`Shuffler` object on the worker (using `Shuffler.wait_on`
+    :class:`rapidsmpf.shuffler.Shuffler` object on the worker (using `rapidsmpf.shuffler.Shuffler.wait_on`
     and `rapidsmpf.shuffler.unpack_and_concat`).
 
     The extraction phase will include a single task for each of

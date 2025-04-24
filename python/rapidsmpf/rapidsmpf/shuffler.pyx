@@ -13,13 +13,14 @@ from pylibcudf.libcudf.table.table cimport table as cpp_table
 from pylibcudf.libcudf.table.table_view cimport table_view
 from pylibcudf.libcudf.types cimport size_type
 from pylibcudf.table cimport Table
-from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
-from rapidsmpf.progress_thread cimport ProgressThread
-from rapidsmpf.statistics cimport Statistics
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.librmm.memory_resource cimport device_memory_resource
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 from rmm.pylibrmm.stream cimport Stream
+
+from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
+from rapidsmpf.progress_thread cimport ProgressThread
+from rapidsmpf.statistics cimport Statistics
 
 
 cdef extern from "<rapidsmpf/shuffler/partition.hpp>" nogil:
@@ -135,8 +136,6 @@ cpdef Table unpack_and_concat(
     See Also
     --------
     rapidsmpf.shuffler.partition_and_pack
-    cudf.unpack
-    cudf.concatenate
     """
     cdef vector[cpp_PackedData] _partitions
     for part in partitions:
