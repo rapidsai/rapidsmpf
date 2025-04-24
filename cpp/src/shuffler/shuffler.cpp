@@ -24,6 +24,34 @@ using namespace detail;
 
 namespace {
 
+struct BufferWithEvent {
+    std::unique_ptr<Buffer> buffer;
+    cudaEvent_t event{nullptr};
+
+    BufferWithEvent(
+        std::unique_ptr<Buffer> buffer, MemoryType mem_type, rmm::cuda_stream_view stream
+    )
+        : buffer{std::move(buffer)} {
+        if (mem_type == MemoryType::DEVICE) {
+            RAPIDSMPF_CUDA_TRY_ALLOC(cudaEventCreate(&event));
+            RAPIDSMPF_CUDA_TRY_ALLOC(cudaEventRecord(event, stream));
+        }
+    }
+
+    ~BufferWithEvent() {
+        if (event) {
+            cudaEventDestroy(event);
+        }
+    }
+
+    bool is_event_ready() const {
+        if (!event) {
+            return true;
+        }
+        return cudaEventQuery(event) == cudaSuccess;
+    }
+};
+
 /**
  * @brief Help function to reserve and allocate a new buffer.
  *
@@ -36,7 +64,7 @@ namespace {
  * @param br Buffer resource used for the reservation and allocation.
  * @returns A new buffer or nullptr.
  */
-std::unique_ptr<Buffer> allocate_buffer(
+std::unique_ptr<BufferWithEvent> allocate_buffer(
     MemoryType mem_type,
     std::size_t size,
     rmm::cuda_stream_view stream,
@@ -46,9 +74,9 @@ std::unique_ptr<Buffer> allocate_buffer(
     if (reservation.size() != size) {
         return nullptr;
     }
-    auto ret = br->allocate(mem_type, size, stream, reservation);
+    auto buffer = br->allocate(mem_type, size, stream, reservation);
     RAPIDSMPF_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
-    return ret;
+    return std::make_unique<BufferWithEvent>(std::move(buffer), mem_type, stream);
 }
 
 /**
@@ -66,10 +94,11 @@ std::unique_ptr<Buffer> allocate_buffer(
  * @throws std::overflow_error if both the reservation of device and host memory
  * failed.
  */
-std::unique_ptr<Buffer> allocate_buffer(
+std::unique_ptr<BufferWithEvent> allocate_buffer(
     std::size_t size, rmm::cuda_stream_view stream, BufferResource* br
 ) {
-    std::unique_ptr<Buffer> ret = allocate_buffer(MemoryType::DEVICE, size, stream, br);
+    std::unique_ptr<BufferWithEvent> ret =
+        allocate_buffer(MemoryType::DEVICE, size, stream, br);
     if (ret) {
         return ret;
     }
@@ -227,29 +256,33 @@ class Shuffler::Progress {
             // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
             // directly to the outbox.
             if (incoming.chunk.gpu_data_size > 0) {
-                if (!incoming.buffer) {
+                if (!incoming.buffer_with_event) {
                     // Create a new buffer and let the buffer resource decide the memory
                     // type.
-                    incoming.buffer = allocate_buffer(
+                    incoming.buffer_with_event = allocate_buffer(
                         incoming.chunk.gpu_data_size, shuffler_.stream_, shuffler_.br_
                     );
-                    if (incoming.buffer->mem_type() == MemoryType::HOST) {
+                    if (incoming.buffer_with_event->buffer->mem_type()
+                        == MemoryType::HOST)
+                    {
                         stats.add_bytes_stat(
-                            "spill-bytes-recv-to-host", incoming.buffer->size
+                            "spill-bytes-recv-to-host",
+                            incoming.buffer_with_event->buffer->size
                         );
                     }
                 }
 
                 // Check if the buffer is ready to be used
-                if (!incoming.buffer->is_copy_complete()) {
+                if (!incoming.buffer_with_event->is_event_ready()) {
                     // Buffer is not ready yet, reinsert the chunk and buffer
                     incoming_chunks_.insert({src, std::move(incoming)});
                     continue;
                 }
 
                 // Setup to receive the chunk into `in_transit_*`.
-                auto future =
-                    shuffler_.comm_->recv(src, gpu_data_tag, std::move(incoming.buffer));
+                auto future = shuffler_.comm_->recv(
+                    src, gpu_data_tag, std::move(incoming.buffer_with_event->buffer)
+                );
                 RAPIDSMPF_EXPECTS(
                     in_transit_futures_.insert({incoming.chunk.cid, std::move(future)})
                         .second,
@@ -273,8 +306,9 @@ class Shuffler::Progress {
                 ));
             } else {
                 if (incoming.chunk.gpu_data == nullptr) {
-                    incoming.chunk.gpu_data =
-                        allocate_buffer(0, shuffler_.stream_, shuffler_.br_);
+                    incoming.chunk.gpu_data = std::move(
+                        allocate_buffer(0, shuffler_.stream_, shuffler_.br_)->buffer
+                    );
                 }
                 shuffler_.insert_into_outbox(std::move(incoming.chunk));
             }
@@ -370,7 +404,7 @@ class Shuffler::Progress {
      */
     struct IncomingChunk {
         detail::Chunk chunk;
-        std::unique_ptr<Buffer> buffer;
+        std::unique_ptr<BufferWithEvent> buffer_with_event;
     };
 
     Shuffler& shuffler_;
