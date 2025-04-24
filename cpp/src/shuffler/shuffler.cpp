@@ -207,7 +207,7 @@ class Shuffler::Progress {
                         == shuffler_.comm_->rank(),
                     "receiving chunk not owned by us"
                 );
-                incoming_chunks_.insert({src, std::move(chunk)});
+                incoming_chunks_.insert({src, IncomingChunk{std::move(chunk), nullptr}});
             } else {
                 break;
             }
@@ -222,45 +222,61 @@ class Shuffler::Progress {
              first_chunk != incoming_chunks_.end();)
         {
             // Note, extract_item invalidates the iterator, so must increment here.
-            auto [src, chunk] = extract_item(incoming_chunks_, first_chunk++);
-            log.trace("picked incoming chunk data from ", src, ": ", chunk);
+            auto [src, incoming] = extract_item(incoming_chunks_, first_chunk++);
+            log.trace("picked incoming chunk data from ", src, ": ", incoming.chunk);
             // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
             // directly to the outbox.
-            if (chunk.gpu_data_size > 0) {
-                // Create a new buffer and let the buffer resource decide the memory type.
-                auto recv_buffer = allocate_buffer(
-                    chunk.gpu_data_size, shuffler_.stream_, shuffler_.br_
-                );
-                if (recv_buffer->mem_type() == MemoryType::HOST) {
-                    stats.add_bytes_stat("spill-bytes-recv-to-host", recv_buffer->size);
+            if (incoming.chunk.gpu_data_size > 0) {
+                if (!incoming.buffer) {
+                    // Create a new buffer and let the buffer resource decide the memory
+                    // type.
+                    incoming.buffer = allocate_buffer(
+                        incoming.chunk.gpu_data_size, shuffler_.stream_, shuffler_.br_
+                    );
+                    if (incoming.buffer->mem_type() == MemoryType::HOST) {
+                        stats.add_bytes_stat(
+                            "spill-bytes-recv-to-host", incoming.buffer->size
+                        );
+                    }
+                }
+
+                // Check if the buffer is ready to be used
+                if (!incoming.buffer->is_copy_complete()) {
+                    // Buffer is not ready yet, reinsert the chunk and buffer
+                    incoming_chunks_.insert({src, std::move(incoming)});
+                    continue;
                 }
 
                 // Setup to receive the chunk into `in_transit_*`.
                 auto future =
-                    shuffler_.comm_->recv(src, gpu_data_tag, std::move(recv_buffer));
+                    shuffler_.comm_->recv(src, gpu_data_tag, std::move(incoming.buffer));
                 RAPIDSMPF_EXPECTS(
-                    in_transit_futures_.insert({chunk.cid, std::move(future)}).second,
+                    in_transit_futures_.insert({incoming.chunk.cid, std::move(future)})
+                        .second,
                     "in transit future already exist"
                 );
                 RAPIDSMPF_EXPECTS(
-                    in_transit_chunks_.insert({chunk.cid, std::move(chunk)}).second,
+                    in_transit_chunks_
+                        .insert({incoming.chunk.cid, std::move(incoming.chunk)})
+                        .second,
                     "in transit chunk already exist"
                 );
                 shuffler_.statistics_->add_bytes_stat(
-                    "shuffle-payload-recv", chunk.gpu_data_size
+                    "shuffle-payload-recv", incoming.chunk.gpu_data_size
                 );
                 // Tell the source of the chunk that we are ready to receive it.
                 fire_and_forget_.push_back(shuffler_.comm_->send(
-                    ReadyForDataMessage{chunk.pid, chunk.cid}.pack(),
+                    ReadyForDataMessage{incoming.chunk.pid, incoming.chunk.cid}.pack(),
                     src,
                     ready_for_data_tag,
                     shuffler_.br_
                 ));
             } else {
-                if (chunk.gpu_data == nullptr) {
-                    chunk.gpu_data = allocate_buffer(0, shuffler_.stream_, shuffler_.br_);
+                if (incoming.chunk.gpu_data == nullptr) {
+                    incoming.chunk.gpu_data =
+                        allocate_buffer(0, shuffler_.stream_, shuffler_.br_);
                 }
-                shuffler_.insert_into_outbox(std::move(chunk));
+                shuffler_.insert_into_outbox(std::move(incoming.chunk));
             }
         }
         stats.add_duration_stat(
@@ -349,10 +365,18 @@ class Shuffler::Progress {
     }
 
   private:
+    /**
+     * @brief Structure to hold an incoming chunk and its associated buffer.
+     */
+    struct IncomingChunk {
+        detail::Chunk chunk;
+        std::unique_ptr<Buffer> buffer;
+    };
+
     Shuffler& shuffler_;
     std::vector<std::unique_ptr<Communicator::Future>>
         fire_and_forget_;  ///< Ongoing "fire-and-forget" operations (non-blocking sends).
-    std::multimap<Rank, detail::Chunk>
+    std::multimap<Rank, IncomingChunk>
         incoming_chunks_;  ///< Chunks ready to be received.
     std::unordered_map<detail::ChunkID, detail::Chunk>
         outgoing_chunks_;  ///< Chunks ready to be sent.
