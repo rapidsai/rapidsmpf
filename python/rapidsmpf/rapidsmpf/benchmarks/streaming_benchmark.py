@@ -19,6 +19,7 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 import rapidsmpf.communicator.mpi
 from rapidsmpf.buffer.buffer import MemoryType
+from rapidsmpf.buffer.packed_data import PackedData
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.communicator.ucxx import (
     barrier,
@@ -31,8 +32,6 @@ from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.string import format_bytes, parse_bytes
 
 if TYPE_CHECKING:
-    from pylibcudf.contiguous_split import PackedColumns
-
     from rapidsmpf.communicator.communicator import Communicator
 
 
@@ -169,9 +168,9 @@ def streaming_shuffle(
         for p in range(n_parts_local):
             # generate chunks for a single local partition by deep copying the dummy table as packed columns
             # NOTE: This would require part_size amount of GPU memory.
-            chunks: dict[int, PackedColumns] = {}
+            chunks: dict[int, PackedData] = {}
             for i in range(output_nparts):
-                chunks[i] = pack(dummy_table)
+                chunks[i] = PackedData(pack(dummy_table))
 
             if p > 0 and insert_delay_ms > 0:
                 time.sleep(insert_delay_ms / 1000)
