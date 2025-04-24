@@ -21,7 +21,7 @@ template <typename T>
 
 // Helper to create and record a CUDA event
 void create_and_record_event(cudaEvent_t& event, rmm::cuda_stream_view stream) {
-    RAPIDSMPF_CUDA_TRY(cudaEventCreate(&event));
+    RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
     RAPIDSMPF_CUDA_TRY(cudaEventRecord(event, stream));
 }
 }  // namespace

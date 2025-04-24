@@ -55,7 +55,7 @@ class BufferWithEvent {
     )
         : buffer_{std::move(buffer)}, log_{log}, enable_event_{enable_event} {
         if (mem_type == MemoryType::DEVICE && enable_event_) {
-            RAPIDSMPF_CUDA_TRY(cudaEventCreate(&event_));
+            RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event_, cudaEventDisableTiming));
             RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream));
         }
     }
