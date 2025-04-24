@@ -72,7 +72,7 @@ intersphinx_mapping = {
 }
 
 
-nitpick_ignore = [
+nitpick_ignore_regex = [
     # Ignore WARNING: py:class reference target not found: Table [ref.class] in unpack_and_concat
     ('py:class', 'Table'),
     # Ignore TypeVars being assumed to be classes
@@ -80,5 +80,11 @@ nitpick_ignore = [
     ("py:class", "DataFrameT"),
     ("py:class", "rapidsmpf.integrations.dask.core.DataFrameT"),
     # Unclear why this was causing a warning
-    ("py:obj", "rapidsmpf.buffer.resource.LimitAvailableMemory.__call__")
+    ("py:obj", "rapidsmpf.buffer.resource.LimitAvailableMemory.__call__"),
+    # autodoc fails to generate references for integer methods (real, image, etc.)
+    # for IntEnums coming from Cython.
+    ("py:obj", "rapidsmpf.communicator.communicator.LOG_LEVEL.*"),
+    ("py:obj", "rapidsmpf.buffer.buffer.MemoryType.*"),
+    ("py:obj", "(denominator|imag|numerator|real)"),
+
 ]
