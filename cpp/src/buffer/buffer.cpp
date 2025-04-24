@@ -21,8 +21,8 @@ template <typename T>
 
 // Helper to create and record a CUDA event
 void create_and_record_event(cudaEvent_t& event, rmm::cuda_stream_view stream) {
-    RAPIDSMPF_CUDA_TRY_ALLOC(cudaEventCreate(&event));
-    RAPIDSMPF_CUDA_TRY_ALLOC(cudaEventRecord(event, stream));
+    RAPIDSMPF_CUDA_TRY(cudaEventCreate(&event));
+    RAPIDSMPF_CUDA_TRY(cudaEventRecord(event, stream));
 }
 }  // namespace
 
@@ -131,7 +131,7 @@ bool Buffer::is_copy_complete() const {
     } else if (status == cudaErrorNotReady) {
         return false;
     } else {
-        RAPIDSMPF_CUDA_TRY_ALLOC(status);
+        RAPIDSMPF_CUDA_TRY(status);
         return false;  // This line is unreachable due to the throw above
     }
 }
