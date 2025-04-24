@@ -82,7 +82,7 @@ class BufferWithEvent {
      * (host allocation), false if the operation is still in progress.
      */
     [[nodiscard]] bool is_event_ready() const {
-        return !event_ ||  cudaEventQuery(event_) == cudaSuccess;
+        return !event_ || cudaEventQuery(event_) == cudaSuccess;
     }
 
     /**
