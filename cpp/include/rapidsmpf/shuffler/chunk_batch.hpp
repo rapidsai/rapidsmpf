@@ -36,11 +36,9 @@ class ChunkBatch {
   public:
     using iterator = ChunkForwardIterator;  ///< Chunk iterator type
 
-    /**
-     * @brief The size of the chunk metadata header in bytes.
-     */
     static constexpr std::ptrdiff_t chunk_metadata_header_size =
-        sizeof(Chunk::MetadataMessageHeader);
+        sizeof(Chunk::MetadataMessageHeader
+        );  ///< The size of the chunk metadata header in bytes.
 
     /**
      * @brief The structure of the batch header.
@@ -52,8 +50,8 @@ class ChunkBatch {
         size_t num_chunks;  ///< The number of chunks in the batch.
     };
 
-    /** @brief The size of the batch header in bytes. */
-    static constexpr std::ptrdiff_t batch_header_size = sizeof(BatchHeader);
+    static constexpr std::ptrdiff_t batch_header_size =
+        sizeof(BatchHeader);  ///< The size of the batch header in bytes.
 
     /**
      * @brief Access the BatchHeader of the chunk batch.
@@ -152,6 +150,7 @@ class ChunkBatch {
 
     /**
      * @brief Visits the chunk data in the batch.
+     *
      * @tparam VisitorFn Visitor function type. Must be callable with the following
      * signature:
      * void(Chunk::MetadataMessageHeader const* chunk_header,
@@ -209,17 +208,19 @@ class ChunkBatch {
 
     /**
      * @brief Iterator to the beginning of the Chunk batch
+     *
      * @param stream The stream to use for any memory allocations.
      * @return Forward iterator to the beginning
      */
-    iterator begin(rmm::cuda_stream_view stream) const;
+    [[nodiscard]] iterator begin(rmm::cuda_stream_view stream) const;
 
     /**
      * @brief Iterator to the end of the Chunk batch
+     *
      * @param stream The stream to use for any memory allocations.
      * @return Forward iterator to the end
      */
-    iterator end(rmm::cuda_stream_view stream) const;
+    [[nodiscard]] iterator end(rmm::cuda_stream_view stream) const;
 
   private:
     ChunkBatch(
@@ -231,18 +232,19 @@ class ChunkBatch {
     /// chunk. This buffer will not be null.
     /// |BatchHeader|[[MetadataMessageHeader, Metadata], ...]|
     ///
-    /// TODO: change the format to have thhe MetadataMessageHeaders at the front (after
+    /// TODO: change the format to have the MetadataMessageHeaders at the front (after
     /// BatchHeader), followed by the metadata. This will be a more cache efficient
     /// traversal pattern.
     std::unique_ptr<std::vector<uint8_t>> metadata_buffer_;
 
-    /// GPU data buffer of the packed `cudf::table` associated with this chunk. This
-    /// buffer could be null if there were no chunks with payload.
-    std::unique_ptr<Buffer> payload_data_;
+    std::unique_ptr<Buffer>
+        payload_data_;  ///<  GPU data buffer associated with this batch of chunks. This
+                        ///<  buffer could be null if there were no chunks with payloads.
 
-    /// cached begin iterator, as creating an iterator object is relatively
-    /// expensive. This allows calling `begin()` trivially multiple times.
-    mutable std::unique_ptr<iterator> cached_begin_iter_;
+    mutable std::unique_ptr<iterator>
+        cached_begin_iter_;  ///< cached begin iterator, as creating an iterator object is
+                             ///< relatively expensive. This allows calling `begin()`
+                             ///< trivially multiple times.
 };
 
 /**
@@ -260,6 +262,7 @@ class ChunkForwardIterator {
 
     /**
      * @brief Return the reference to the chunk in the iterator.
+     *
      * @return chunk ref
      */
     reference operator*() const {
@@ -268,6 +271,7 @@ class ChunkForwardIterator {
 
     /**
      * @brief Return the pointer to the chunk in the iterator.
+     *
      * @return chunk ptr
      */
     pointer operator->() const {
@@ -276,35 +280,29 @@ class ChunkForwardIterator {
 
     /**
      * @brief Prefix increment of the iterator.
+     *
      * @return Reference to the incremented iterator
      */
     ChunkForwardIterator& operator++();
 
     /**
      * @brief Postfix increment of the iterator.
+     *
      * @return Copy of the iterator before increment
      */
     ChunkForwardIterator operator++(int);
 
     /**
      * @brief Equality comparison of iterators.
+     *
      * @param other The other iterator to compare with
      * @return true if the iterators are equal, false otherwise
      */
-    bool operator==(ChunkForwardIterator const& other) const {
-        // Only check the metadata buffer, as it has sufficient information to check
-        // equality
-        if (&batch_ == &other.batch_ && metadata_offset_ == other.metadata_offset_) {
-            // if equal, make sure pointer offsets also match.
-            assert(payload_offset_ == other.payload_offset_);
-            return true;
-        }
-
-        return false;
-    }
+    bool operator==(ChunkForwardIterator const& other) const;
 
     /**
      * @brief Inequality comparison of iterators.
+     *
      * @param other The other iterator to compare with
      * @return true if the iterators are not equal, false otherwise
      */
@@ -312,12 +310,14 @@ class ChunkForwardIterator {
 
     /**
      * @brief Copy constructor.
+     *
      * @param other The other iterator to copy from.
      */
     ChunkForwardIterator(const ChunkForwardIterator& other) = default;
 
     /**
      * @brief Copy assignment operator.
+     *
      * @param other The other iterator to copy from.
      * @return Reference to the assigned iterator.
      */
@@ -349,7 +349,7 @@ class ChunkForwardIterator {
      * @brief Unwrap the current chunk header.
      * @return Chunk header ptr.
      */
-    inline Chunk::MetadataMessageHeader const* chunk_header() const {
+    [[nodiscard]] inline Chunk::MetadataMessageHeader const* chunk_header() const {
         return reinterpret_cast<Chunk::MetadataMessageHeader const*>(
             batch_.metadata_buffer_->data() + metadata_offset_
         );
@@ -359,7 +359,7 @@ class ChunkForwardIterator {
      * @brief Check if current position contains a chunks.
      * @return True, if metadata offset points to a valid chunk.
      */
-    inline bool has_chunk() const {
+    [[nodiscard]] inline bool has_chunk() const {
         return batch_.size() > 0
                && (size_t(metadata_offset_) < batch_.metadata_buffer_->size());
     }
@@ -374,6 +374,7 @@ class ChunkForwardIterator {
         std::ptrdiff_t payload_offset,
         rmm::cuda_stream_view stream
     );
+
     ChunkBatch const& batch_;  ///< Reference to the chunk batch being iterated
     std::ptrdiff_t
         metadata_offset_;  ///< metadata offset to the chunk boundary. It points to the

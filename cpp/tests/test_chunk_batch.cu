@@ -166,9 +166,6 @@ class ChunkBatchTest
         EXPECT_EQ(rank, batch.destination());
         EXPECT_EQ(exp_chunks.size(), batch.size());
 
-        // std::vector<Chunk> const chunks = batch.get_chunks(stream);
-        // EXPECT_EQ(exp_chunks.size(), chunks.size());
-
         auto chunk = batch.begin(stream);
         for (size_t i = 0; i < exp_chunks.size(); i++, chunk++) {
             SCOPED_TRACE("chunk " + std::to_string(i));

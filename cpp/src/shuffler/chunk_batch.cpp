@@ -192,6 +192,18 @@ ChunkForwardIterator ChunkForwardIterator::operator++(int) {
     return temp;
 }
 
+bool ChunkForwardIterator::operator==(ChunkForwardIterator const& other) const {
+    // Only check the metadata buffer, as it has sufficient information to check
+    // equality
+    if (&batch_ == &other.batch_ && metadata_offset_ == other.metadata_offset_) {
+        // if equal, make sure pointer offsets also match.
+        assert(payload_offset_ == other.payload_offset_);
+        return true;
+    }
+
+    return false;
+}
+
 void ChunkForwardIterator::advance_chunk() {
     auto const* header = chunk_header();  // get the current header
     // skip to the next offset boundary
