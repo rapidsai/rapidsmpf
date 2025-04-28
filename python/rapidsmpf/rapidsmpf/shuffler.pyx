@@ -13,14 +13,13 @@ from pylibcudf.libcudf.table.table cimport table as cpp_table
 from pylibcudf.libcudf.table.table_view cimport table_view
 from pylibcudf.libcudf.types cimport size_type
 from pylibcudf.table cimport Table
+from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
+from rapidsmpf.progress_thread cimport ProgressThread
+from rapidsmpf.statistics cimport Statistics
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.librmm.memory_resource cimport device_memory_resource
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 from rmm.pylibrmm.stream cimport Stream
-
-from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
-from rapidsmpf.progress_thread cimport ProgressThread
-from rapidsmpf.statistics cimport Statistics
 
 
 cdef extern from "<rapidsmpf/shuffler/partition.hpp>" nogil:
@@ -258,17 +257,28 @@ cdef class Shuffler:
             A map where keys are partition IDs (``int``) and values are packed
             data (``PackedData``).
 
-        Notes
-        -----
-        This method adds the given chunks to the shuffle, associating them with their
-        respective partition IDs.
+        Raises
+        ------
+        TypeError
+            If any value in chunks is not a PackedData object.
+        ValueError
+            If any PackedData object is empty.
         """
         # Convert python mapping to an `unordered_map`.
         cdef unordered_map[uint32_t, cpp_PackedData] _chunks
+        cdef PackedData _chunk
+        cdef uint32_t _pid
+
         for pid, chunk in chunks.items():
-            if not (<PackedData?>chunk).c_obj:
+            if not isinstance(pid, int):
+                raise TypeError(f"Expected int, got {type(pid)}")
+            if not isinstance(chunk, PackedData):
+                raise TypeError(f"Expected PackedData object, got {type(chunk)}")
+            _pid = <uint32_t>pid
+            _chunk = <PackedData> chunk
+            if not _chunk.c_obj:
                 raise ValueError("PackedData was empty")
-            _chunks[<uint32_t?>pid] = move(deref((<PackedData?>chunk).c_obj))
+            _chunks[_pid] = move(deref(_chunk.c_obj))
 
         with nogil:
             deref(self._handle).insert(move(_chunks))
