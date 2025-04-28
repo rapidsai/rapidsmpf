@@ -5,7 +5,6 @@ from cython.operator cimport dereference as deref
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 from pylibcudf.contiguous_split cimport PackedColumns
-
 from rapidsmpf.buffer.packed_data cimport cpp_PackedData
 
 
@@ -16,7 +15,8 @@ cdef class PackedData:
         self.c_obj = move(obj)
         return self
 
-    def __init__(self, PackedColumns packed_columns) -> None:
+    @staticmethod
+    def from_cudf_packed_columns(PackedColumns packed_columns) -> PackedData:
         """
         Constructs a PackedData from cudf PackedColumns by taking the ownership of the
         data.
@@ -25,8 +25,28 @@ cdef class PackedData:
         ----------
         packed_columns
             Packed data what contains metadata and GPU data buffers
+
+        Returns
+        -------
+        PackedData
+            A new PackedData instance containing the packed columns data
+
+        Raises
+        ------
+        ValueError
+            If the PackedColumns object is empty
         """
+        cdef PackedData self = PackedData.__new__(PackedData)
         with nogil:
+            if not (deref(packed_columns.c_obj).metadata and
+                    deref(packed_columns.c_obj).gpu_data):
+                raise ValueError("Cannot release empty PackedColumns")
+
             self.c_obj = make_unique[cpp_PackedData](
                 move(deref(packed_columns.c_obj).metadata),
                 move(deref(packed_columns.c_obj).gpu_data))
+        return self
+
+    def __init__(self):
+        """Initialize an empty PackedData instance."""
+        pass
