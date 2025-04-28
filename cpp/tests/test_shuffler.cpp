@@ -71,7 +71,7 @@ TEST(MetadataMessage, round_trip) {
     auto metadata = iota_vector<uint8_t>(100);
 
     rapidsmpf::shuffler::detail::Chunk expect(
-        1, 2, true, 0, std::make_unique<std::vector<uint8_t>>(metadata), nullptr
+        1, 2, true, 0, std::make_unique<std::vector<uint8_t>>(metadata), nullptr, nullptr
     );
 
     // Extract the metadata from then chunk.

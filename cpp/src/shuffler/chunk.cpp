@@ -12,6 +12,24 @@
 
 namespace rapidsmpf::shuffler::detail {
 
+Chunk::Event::Event(rmm::cuda_stream_view stream, Communicator::Logger& log) : log_(log) {
+    RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event_, cudaEventDisableTiming));
+    RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream));
+}
+
+Chunk::Event::~Event() {
+    if (!is_done()) {
+        log_.warn("Event destroyed before CUDA event completed");
+    }
+    cudaEventDestroy(event_);
+}
+
+[[nodiscard]] bool Chunk::Event::is_done() {
+    if (!done_) {
+        done_ = cudaEventQuery(event_) == cudaSuccess;
+    }
+    return done_;
+}
 
 Chunk::Chunk(
     PartID pid,
@@ -19,17 +37,19 @@ Chunk::Chunk(
     std::size_t expected_num_chunks,
     std::size_t gpu_data_size,
     std::unique_ptr<std::vector<uint8_t>> metadata,
-    std::unique_ptr<Buffer> gpu_data
+    std::unique_ptr<Buffer> gpu_data,
+    std::shared_ptr<Event> event
 )
     : pid{pid},
       cid{cid},
       expected_num_chunks{expected_num_chunks},
       gpu_data_size{gpu_data_size},
       metadata{std::move(metadata)},
-      gpu_data{std::move(gpu_data)} {}
+      gpu_data{std::move(gpu_data)},
+      event{std::move(event)} {}
 
 Chunk::Chunk(PartID pid, ChunkID cid, std::size_t expected_num_chunks)
-    : Chunk{pid, cid, expected_num_chunks, 0, nullptr, nullptr} {}
+    : Chunk{pid, cid, expected_num_chunks, 0, nullptr, nullptr, nullptr} {}
 
 std::unique_ptr<std::vector<uint8_t>> Chunk::to_metadata_message() const {
     auto metadata_size = metadata ? metadata->size() : 0;
@@ -65,6 +85,7 @@ Chunk Chunk::from_metadata_message(std::unique_ptr<std::vector<uint8_t>> const& 
         header->expected_num_chunks,
         header->gpu_data_size,
         std::move(metadata),
+        nullptr,
         nullptr
     };
 }

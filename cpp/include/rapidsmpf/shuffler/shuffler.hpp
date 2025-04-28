@@ -232,7 +232,8 @@ class Shuffler {
     [[nodiscard]] detail::Chunk create_chunk(
         PartID pid,
         std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<rmm::device_buffer> gpu_data
+        std::unique_ptr<rmm::device_buffer> gpu_data,
+        std::shared_ptr<detail::Chunk::Event> event
     ) {
         return detail::Chunk{
             pid,
@@ -240,7 +241,8 @@ class Shuffler {
             0,  // expected_num_chunks
             gpu_data ? gpu_data->size() : 0,  // gpu_data_size
             std::move(metadata),
-            br_->move(std::move(gpu_data))
+            br_->move(std::move(gpu_data)),
+            std::move(event)
         };
     }
 
