@@ -337,74 +337,84 @@ class Shuffler::Progress {
 
         // Post receives for incoming chunks
         auto const t0_post_incoming_chunk_recv = Clock::now();
-        for (auto first_chunk = incoming_chunks_.begin();
-             first_chunk != incoming_chunks_.end();)
-        {
-            // Note, extract_item invalidates the iterator, so must increment here.
-            auto [src, incoming] = extract_item(incoming_chunks_, first_chunk++);
-            log.trace("picked incoming chunk data from ", src, ": ", incoming.chunk);
+        for (auto it = incoming_chunks_.begin(); it != incoming_chunks_.end();) {
+            auto const& [src, incoming] = *it;
+            log.trace("checking incoming chunk data from ", src, ": ", incoming.chunk);
+
             // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
             // directly to the outbox.
             if (incoming.chunk.gpu_data_size > 0) {
                 if (!incoming.buffer_with_event) {
                     // Create a new buffer and let the buffer resource decide the memory
                     // type.
-                    incoming.buffer_with_event = allocate_buffer(
+                    auto buffer = allocate_buffer(
                         incoming.chunk.gpu_data_size,
                         shuffler_.stream_,
                         shuffler_.br_,
                         log
                     );
-                    if (incoming.buffer_with_event->mem_type() == MemoryType::HOST) {
-                        stats.add_bytes_stat(
-                            "spill-bytes-recv-to-host", incoming.buffer_with_event->size()
-                        );
+                    if (buffer->mem_type() == MemoryType::HOST) {
+                        stats.add_bytes_stat("spill-bytes-recv-to-host", buffer->size());
                     }
+                    // Modify the buffer_with_event in place
+                    const_cast<IncomingChunk&>(incoming).buffer_with_event =
+                        std::move(buffer);
                 }
 
                 // Check if the buffer is ready to be used
                 if (!incoming.buffer_with_event->is_event_ready()) {
-                    // Buffer is not ready yet, reinsert the chunk and buffer
-                    incoming_chunks_.insert({src, std::move(incoming)});
+                    // Buffer is not ready yet, skip to next item
+                    ++it;
                     continue;
                 }
 
+                // At this point we know we can process this item, so extract it.
+                // Note: extract_item invalidates the iterator, so must increment here.
+                auto [src_val, incoming_val] = extract_item(incoming_chunks_, it++);
+
                 // Setup to receive the chunk into `in_transit_*`.
                 auto future = shuffler_.comm_->recv(
-                    src, gpu_data_tag, incoming.buffer_with_event->release()
+                    src_val, gpu_data_tag, incoming_val.buffer_with_event->release()
                 );
                 RAPIDSMPF_EXPECTS(
-                    in_transit_futures_.insert({incoming.chunk.cid, std::move(future)})
+                    in_transit_futures_
+                        .insert({incoming_val.chunk.cid, std::move(future)})
                         .second,
                     "in transit future already exist"
                 );
                 RAPIDSMPF_EXPECTS(
                     in_transit_chunks_
-                        .insert({incoming.chunk.cid, std::move(incoming.chunk)})
+                        .insert({incoming_val.chunk.cid, std::move(incoming_val.chunk)})
                         .second,
                     "in transit chunk already exist"
                 );
                 shuffler_.statistics_->add_bytes_stat(
-                    "shuffle-payload-recv", incoming.chunk.gpu_data_size
+                    "shuffle-payload-recv", incoming_val.chunk.gpu_data_size
                 );
                 // Tell the source of the chunk that we are ready to receive it.
                 fire_and_forget_.push_back(shuffler_.comm_->send(
-                    ReadyForDataMessage{incoming.chunk.pid, incoming.chunk.cid}.pack(),
-                    src,
+                    ReadyForDataMessage{incoming_val.chunk.pid, incoming_val.chunk.cid}
+                        .pack(),
+                    src_val,
                     ready_for_data_tag,
                     shuffler_.br_
                 ));
             } else {
-                if (incoming.chunk.gpu_data == nullptr) {
+                // At this point we know we can process this item, so extract it.
+                // Note: extract_item invalidates the iterator, so must increment here.
+                auto [src_val, incoming_val] = extract_item(incoming_chunks_, it++);
+
+                if (incoming_val.chunk.gpu_data == nullptr) {
                     // An empty buffer does not need a CUDA event, so we can disable it.
-                    incoming.chunk.gpu_data = std::move(
+                    incoming_val.chunk.gpu_data = std::move(
                         allocate_buffer(0, shuffler_.stream_, shuffler_.br_, log, false)
                             ->release()
                     );
                 }
-                shuffler_.insert_into_outbox(std::move(incoming.chunk));
+                shuffler_.insert_into_outbox(std::move(incoming_val.chunk));
             }
         }
+
         stats.add_duration_stat(
             "event-loop-post-incoming-chunk-recv",
             Clock::now() - t0_post_incoming_chunk_recv
