@@ -5,11 +5,13 @@
 #pragma once
 
 
+#include <list>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 
@@ -90,6 +92,55 @@ class PostBox {
     mutable std::mutex mutex_;
     std::unordered_map<PartID, std::unordered_map<ChunkID, Chunk>>
         pigeonhole_;  ///< Storage for chunks, organized by partition and chunk ID.
+};
+
+/**
+ * @brief A postbox which holds chunks based on the target rank rather than the partition
+ * ID.
+ */
+class PostBoxByRank {
+  public:
+    /**
+     * @brief Constructor for PostBoxByRank.
+     *
+     * @param num_ranks The number of ranks.
+     */
+    PostBoxByRank(size_t num_ranks);
+
+    /**
+     * @brief Inserts a chunk into the PostBox.
+     *
+     * @param rank The rank to insert the chunk into.
+     * @param chunk The chunk to insert.
+     */
+    void insert(Rank rank, Chunk&& chunk);
+
+    /**
+     * @brief Extracts a chunk from the PostBox.
+     *
+     * @param rank The rank to extract the chunk from.
+     * @return The extracted chunk. If the rank is not found, an empty vector is returned.
+     */
+    [[nodiscard]] ChunkVector extract(Rank rank);
+
+    /**
+     * @brief Extracts all chunks from the PostBox.
+     *
+     * @return A vector of all chunks in the PostBox.
+     */
+    [[nodiscard]] std::vector<ChunkVector> extract_all();
+
+    /**
+     * @brief Checks if the PostBox is empty.
+     *
+     * @return `true` if the PostBox is empty, `false` otherwise.
+     */
+    [[nodiscard]] bool empty() const;
+
+  private:
+    mutable std::mutex mutex_;
+    std::unordered_map<Rank, ChunkVector>
+        pigeonhole_;  ///< Storage for chunks, organized by rank.
 };
 
 /**

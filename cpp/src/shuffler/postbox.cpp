@@ -80,5 +80,42 @@ std::string PostBox::str() const {
     return ss.str();
 }
 
+PostBoxByRank::PostBoxByRank(size_t num_ranks) {
+    // Pre-allocate space for each rank's vector
+    pigeonhole_.reserve(num_ranks);
+}
+
+void PostBoxByRank::insert(Rank rank, Chunk&& chunk) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pigeonhole_[rank].emplace_back(std::move(chunk));
+}
+
+ChunkVector PostBoxByRank::extract(Rank rank) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = pigeonhole_.find(rank);
+    if (it == pigeonhole_.end()) {
+        return ChunkVector{};
+    }
+    ChunkVector chunks = std::move(it->second);
+    pigeonhole_.erase(it);
+    return chunks;
+}
+
+std::vector<ChunkVector> PostBoxByRank::extract_all() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<ChunkVector> all_chunks;
+    all_chunks.reserve(pigeonhole_.size());
+
+    for (auto& [rank, chunks] : pigeonhole_) {
+        all_chunks.emplace_back(std::move(chunks));
+    }
+    pigeonhole_.clear();
+    return all_chunks;
+}
+
+bool PostBoxByRank::empty() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return pigeonhole_.empty();
+}
 
 }  // namespace rapidsmpf::shuffler::detail
