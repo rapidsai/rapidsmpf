@@ -16,8 +16,8 @@ cdef class PackedData:
         self.c_obj = move(obj)
         return self
 
-    @staticmethod
-    def from_cudf_packed_columns(PackedColumns packed_columns) -> PackedData:
+    @classmethod
+    def from_cudf_packed_columns(cls, PackedColumns packed_columns):
         """
         Constructs a PackedData from cudf PackedColumns by taking the ownership of the
         data and releasing `packed_columns`.
@@ -37,16 +37,16 @@ cdef class PackedData:
         ValueError
             If the PackedColumns object is empty
         """
-        cdef PackedData self = PackedData.__new__(PackedData)
+        cdef PackedData ret = cls.__new__(cls)
         with nogil:
             if not (deref(packed_columns.c_obj).metadata and
                     deref(packed_columns.c_obj).gpu_data):
                 raise ValueError("Cannot release empty PackedColumns")
 
-            self.c_obj = make_unique[cpp_PackedData](
+            ret.c_obj = make_unique[cpp_PackedData](
                 move(deref(packed_columns.c_obj).metadata),
                 move(deref(packed_columns.c_obj).gpu_data))
-        return self
+        return ret
 
     def __init__(self):
         """Initialize an empty PackedData instance."""
