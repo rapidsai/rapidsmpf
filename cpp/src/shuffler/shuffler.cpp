@@ -254,6 +254,11 @@ std::size_t postbox_spilling(
 }
 }  // namespace
 
+struct ReadyForData {
+    ReadyForDataMessage msg;
+    Rank src;
+};
+
 class Shuffler::Progress {
   public:
     /**
@@ -408,37 +413,70 @@ class Shuffler::Progress {
         // Receive any incoming ready-for-data messages and start sending the
         // requested data.
         auto const t0_init_gpu_data_send = Clock::now();
-        while (true) {
-            auto const [msg, src] = shuffler_.comm_->recv_any(ready_for_data_tag);
-            if (msg) {
-                auto ready_for_data_msg = ReadyForDataMessage::unpack(msg);
-                auto chunk = extract_value(outgoing_chunks_, ready_for_data_msg.cid);
-                log.trace(
-                    "recv_any from ", src, ": ", ready_for_data_msg, ", sending: ", chunk
-                );
+
+        // Define a helper function to handle both pending and new messages
+        auto handle_ready_for_data = [&](const ReadyForDataMessage& ready_for_data_msg,
+                                         Rank src,
+                                         bool is_new_msg) {
+            auto chunk_it = outgoing_chunks_.find(ready_for_data_msg.cid);
+            if (chunk_it == outgoing_chunks_.end()) {
+                return false;  // Chunk not found, keep in pending if not new
+            }
+
+            auto& chunk = chunk_it->second;
+            if (chunk.event->is_done() && chunk.gpu_data->is_copy_complete()) {
+                // Send immediately if the copy is complete
+                if (!is_new_msg) {
+                    log.trace(
+                        "sending pending chunk to ",
+                        src,
+                        ": ",
+                        ready_for_data_msg,
+                        ", sending: ",
+                        chunk
+                    );
+                } else {
+                    log.trace(
+                        "recv_any from ",
+                        src,
+                        ": ",
+                        ready_for_data_msg,
+                        ", sending: ",
+                        chunk
+                    );
+                }
                 shuffler_.statistics_->add_bytes_stat(
                     "shuffle-payload-send", chunk.gpu_data->size
                 );
-                if (chunk.event->is_done() && chunk.gpu_data->is_copy_complete()) {
-                    log.warn("all done");
-                    // if (chunk.gpu_data->is_copy_complete()) {
-                    // Send immediately if the copy is complete.
-                    fire_and_forget_.push_back(shuffler_.comm_->send(
-                        std::move(chunk.gpu_data), src, gpu_data_tag
-                    ));
-                } else {
-                    log.warn("not done");
-                    // Otherwise, insert the chunk back into the outgoing chunks map.
-                    RAPIDSMPF_EXPECTS(
-                        outgoing_chunks_
-                            .insert({ready_for_data_msg.cid, std::move(chunk)})
-                            .second,
-                        "outgoing chunk already exist"
-                    );
-                }
-            } else {
-                break;
+                fire_and_forget_.push_back(
+                    shuffler_.comm_->send(std::move(chunk.gpu_data), src, gpu_data_tag)
+                );
+                outgoing_chunks_.erase(chunk_it);
+                return true;  // Successfully sent
+            } else if (is_new_msg) {
+                // Store the message for retry
+                ready_for_data_.push_back({ready_for_data_msg, src});
             }
+            return false;  // Not ready to send
+        };
+
+        // First try to process any pending outgoing chunks from previous iterations
+        for (auto it = ready_for_data_.begin(); it != ready_for_data_.end();) {
+            if (handle_ready_for_data(it->msg, it->src, false)) {
+                it = ready_for_data_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        // Then process new outgoing chunks messages
+        while (true) {
+            auto const [msg, src] = shuffler_.comm_->recv_any(ready_for_data_tag);
+            if (!msg)
+                break;
+
+            auto ready_for_data_msg = ReadyForDataMessage::unpack(msg);
+            handle_ready_for_data(ready_for_data_msg, src, true);
         }
         stats.add_duration_stat(
             "event-loop-init-gpu-data-send", Clock::now() - t0_init_gpu_data_send
@@ -510,6 +548,8 @@ class Shuffler::Progress {
         in_transit_chunks_;  ///< Chunks currently in transit.
     std::unordered_map<detail::ChunkID, std::unique_ptr<Communicator::Future>>
         in_transit_futures_;  ///< Futures corresponding to in-transit chunks.
+    std::vector<ReadyForData>
+        ready_for_data_;  ///< Ready for data expecting output chunk to be sent.
 };
 
 std::vector<PartID> Shuffler::local_partitions(
