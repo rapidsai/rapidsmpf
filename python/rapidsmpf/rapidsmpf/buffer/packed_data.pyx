@@ -35,7 +35,7 @@ cdef class PackedData:
         Raises
         ------
         ValueError
-            If the PackedColumns object is empty
+            If the PackedColumns object is empty (has been released already).
         """
         cdef PackedData self = PackedData.__new__(PackedData)
         with nogil:
