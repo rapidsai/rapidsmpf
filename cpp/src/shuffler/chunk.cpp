@@ -114,6 +114,10 @@ std::unique_ptr<cudf::table> Chunk::unpack(rmm::cuda_stream_view stream) const {
     return unpack_and_concat(std::move(packed_vec), stream, br->device_mr());
 }
 
+bool Chunk::is_done() const {
+    return (!event || event->is_done()) && (!gpu_data || gpu_data->is_copy_complete());
+}
+
 std::string Chunk::str(std::size_t max_nbytes, rmm::cuda_stream_view stream) const {
     std::stringstream ss;
     ss << "Chunk(pid=" << pid;

@@ -173,6 +173,18 @@ class Chunk {
         std::size_t max_nbytes = 512,
         rmm::cuda_stream_view stream = cudf::get_default_stream()
     ) const;
+
+    /**
+     * @brief Returns true if the chunk is ready for consumption.
+     *
+     * Checks that the shared CUDA event and the buffer's CUDA event are both done.
+     * The shared CUDA event is used to synchronize the chunk's data across a set of
+     * chunks, while the buffer's CUDA event is used to synchronize the chunk's data
+     * if any spilling is involved.
+     *
+     * @return true if the chunk is ready, false otherwise.
+     */
+    [[nodiscard]] bool is_done() const;
 };
 
 /**
