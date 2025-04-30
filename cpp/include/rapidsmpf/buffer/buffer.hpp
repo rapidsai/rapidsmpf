@@ -132,8 +132,8 @@ class Buffer {
      */
     [[nodiscard]] bool is_ready() const;
 
-    /// @brief Buffer has a move ctor but no copy or assign operator.
-    Buffer(Buffer&&) = default;
+    /// @brief Delete move and copy constructors and assignment operators.
+    Buffer(Buffer&&) = delete;
     Buffer(Buffer const&) = delete;
     Buffer& operator=(Buffer& o) = delete;
     Buffer& operator=(Buffer&& o) = delete;

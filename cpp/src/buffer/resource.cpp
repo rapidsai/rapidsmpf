@@ -88,14 +88,14 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     case MemoryType::HOST:
         // TODO: use pinned memory, maybe use rmm::mr::pinned_memory_resource and
         // std::pmr::vector?
-        ret = std::make_unique<Buffer>(
-            Buffer{std::make_unique<std::vector<uint8_t>>(size), this}
+        ret = std::unique_ptr<Buffer>(
+            new Buffer(std::make_unique<std::vector<uint8_t>>(size), this)
         );
         break;
     case MemoryType::DEVICE:
-        ret = std::make_unique<Buffer>(Buffer{
-            std::make_unique<rmm::device_buffer>(size, stream, device_mr_), this, stream
-        });
+        ret = std::unique_ptr<Buffer>(new Buffer(
+            std::make_unique<rmm::device_buffer>(size, stream, device_mr_), stream, this
+        ));
         break;
     default:
         RAPIDSMPF_FAIL("MemoryType: unknown");
@@ -105,13 +105,13 @@ std::unique_ptr<Buffer> BufferResource::allocate(
 }
 
 std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<std::vector<uint8_t>> data) {
-    return std::make_unique<Buffer>(Buffer{std::move(data), this});
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), this));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
 ) {
-    return std::make_unique<Buffer>(Buffer{std::move(data), this, stream});
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, this));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
