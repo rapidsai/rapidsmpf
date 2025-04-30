@@ -57,7 +57,7 @@ class PostBox {
     /**
      * @brief Extracts all ready chunks from the PostBox.
      *
-     * @return A vector of all readychunks in the PostBox.
+     * @return A vector of all ready chunks in the PostBox.
      */
     std::vector<Chunk> extract_all_ready();
 

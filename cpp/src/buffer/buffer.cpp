@@ -20,9 +20,11 @@ template <typename T>
 }
 
 // Helper to create and record a CUDA event
-void create_and_record_event(cudaEvent_t& event, rmm::cuda_stream_view stream) {
+cudaEvent_t create_and_record_event(rmm::cuda_stream_view stream) {
+    cudaEvent_t event;
     RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
     RAPIDSMPF_CUDA_TRY(cudaEventRecord(event, stream));
+    return event;
 }
 }  // namespace
 
@@ -45,12 +47,11 @@ Buffer::Buffer(
     : br{br},
       size{device_buffer ? device_buffer->size() : 0},
       storage_{std::move(device_buffer)},
-      cuda_event_{nullptr} {
+      cuda_event_{create_and_record_event(stream)} {
     RAPIDSMPF_EXPECTS(
         std::get<DeviceStorageT>(storage_) != nullptr, "the device buffer cannot be NULL"
     );
     RAPIDSMPF_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
-    create_and_record_event(cuda_event_, stream);
 }
 
 Buffer::~Buffer() {
@@ -121,7 +122,7 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
 
                 // The event is created here instead of the constructor because the
                 // memcpy is async, but the buffer is created on the host.
-                create_and_record_event(new_buffer->cuda_event_, stream);
+                new_buffer->cuda_event_ = create_and_record_event(stream);
 
                 return new_buffer;
             }

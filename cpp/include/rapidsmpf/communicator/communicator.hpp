@@ -429,9 +429,8 @@ class Communicator {
      *
      * @warning The caller is responsible to ensure the underlying `Buffer` allocation
      * and data are already valid before calling, for example, when a CUDA allocation
-     * and/or copy are done asynchronously. Specifically if `Buffer` was created with
-     * `Buffer::copy`, the `Buffer::is_copy_complete()` must be checked before calling
-     * this function.
+     * and/or copy are done asynchronously. Specifically, the caller should ensure
+     * `Buffer::is_ready()` returns true before calling this function.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
@@ -444,6 +443,11 @@ class Communicator {
      * @param tag Message tag for identification.
      * @param recv_buffer The receive buffer.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
+     *
+     * @warning The caller is responsible to ensure the underlying `Buffer` allocation
+     * is already valid before calling, for example, when a CUDA allocation
+     * and/or copy are done asynchronously. Specifically, the caller should ensure
+     * `Buffer::is_ready()` returns true before calling this function.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> recv(
         Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
