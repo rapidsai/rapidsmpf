@@ -55,11 +55,11 @@ class PostBox {
     std::unordered_map<ChunkID, Chunk> extract(PartID pid);
 
     /**
-     * @brief Extracts all chunks from the PostBox.
+     * @brief Extracts all ready chunks from the PostBox.
      *
-     * @return A vector of all chunks in the PostBox.
+     * @return A vector of all readychunks in the PostBox.
      */
-    std::vector<Chunk> extract_all();
+    std::vector<Chunk> extract_all_ready();
 
     /**
      * @brief Checks if the PostBox is empty.
