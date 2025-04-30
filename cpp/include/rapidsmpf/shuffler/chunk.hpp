@@ -128,8 +128,6 @@ class Chunk {
     ) const;
 };
 
-using ChunkVector = std::vector<Chunk>;  ///< A vector of chunks.
-
 /**
  * @brief Represents a message indicating readiness to receive data for a specific chunk.
  */
