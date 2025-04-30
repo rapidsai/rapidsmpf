@@ -59,9 +59,9 @@ dependencies:
         packages:
           - c-compiler
           - cxx-compiler
-          - &rmm_unsuffixed rmm==25.6.*,>=0.0.0a0
-          - libcudf==25.6.*,>=0.0.0a0
-          - libucxx==0.44.*,>=0.0.0a0
+          - &rmm_unsuffixed rmm==25.8.*,>=0.0.0a0
+          - libcudf==25.8.*,>=0.0.0a0
+          - libucxx==0.45.*,>=0.0.0a0
           - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - spdlog
     specific:
@@ -102,7 +102,7 @@ dependencies:
         packages:
           - cython>=3.0.3
           - *rmm_unsuffixed
-          - pylibcudf==25.6.*,>=0.0.0a0
+          - pylibcudf==25.8.*,>=0.0.0a0
           - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - mpi4py
   checks:
@@ -173,18 +173,18 @@ dependencies:
     common:
       - output_types: conda
         packages:
-          - rapidsmpf==25.6.*,>=0.0.0a0
+          - rapidsmpf==25.8.*,>=0.0.0a0
   test_python:
     common:
       - output_types: [conda, pyproject]
         packages:
-          - cudf==25.6.*,>=0.0.0a0
-          - dask-cuda==25.6.*,>=0.0.0a0
-          - dask-cudf==25.6.*,>=0.0.0a0
+          - cudf==25.8.*,>=0.0.0a0
+          - dask-cuda==25.8.*,>=0.0.0a0
+          - dask-cudf==25.8.*,>=0.0.0a0
           - gdb
           - psutil
           - pytest
-          - ucxx==0.44.*,>=0.0.0a0
+          - ucxx==0.45.*,>=0.0.0a0
           - nvidia-ml-py
     specific:
       - output_types: conda
@@ -202,7 +202,7 @@ dependencies:
         packages:
           - *doxygen
           - *rmm_unsuffixed
-          - dask-cuda==25.6.*,>=0.0.0a0
+          - dask-cuda==25.8.*,>=0.0.0a0
           - make
           - myst-parser
           - numpydoc
@@ -211,4 +211,4 @@ dependencies:
           - sphinx
           - sphinx-autobuild
           - sphinx-copybutton
-          - ucxx==0.44.*,>=0.0.0a0
+          - ucxx==0.45.*,>=0.0.0a0
