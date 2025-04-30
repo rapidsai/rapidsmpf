@@ -19,7 +19,7 @@ project(
 )
 
 find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
-
+find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
 find_package(CUDAToolkit REQUIRED)
 
 include(rapids-cython-core)
