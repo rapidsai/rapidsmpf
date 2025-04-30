@@ -104,14 +104,16 @@ class PostBox {
   private:
     // TODO: more fine-grained locking e.g. by locking each partition individually.
     mutable std::mutex mutex_;
-    // std::unordered_map<PartID, std::unordered_map<ChunkID, Chunk>>
-    //     pigeonhole_;  ///< Storage for chunks, organized by partition and chunk ID.
-    std::unordered_map<Rank, std::list<Chunk>> pigeonhole_;
 
-    // following two maps are used preserve the current PostBox operations. We may be able
-    // to remove them once we move to a rank-based extraction.
-    std::function<Rank(PartID)> partition_owner_;
-    std::unordered_set<ChunkID> chunk_ids_;
+    // Note: list allows constant time insertion, removals, and concatenations (splice).
+    std::unordered_map<Rank, std::list<Chunk>>
+        pigeonhole_;  ///< Storage for chunks, organized by destination rank.
+
+    // We may be able to remove the following members once we move to a rank-based
+    // extraction.
+    std::function<Rank(PartID)>
+        partition_owner_;  ///< Function to determine partition owner.
+    std::unordered_set<ChunkID> chunk_ids_;  ///< Set of chunk IDs in the PostBox.
 };
 
 /**
