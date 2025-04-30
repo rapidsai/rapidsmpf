@@ -429,23 +429,9 @@ class Shuffler::Progress {
                 shuffler_.statistics_->add_bytes_stat(
                     "shuffle-payload-send", chunk.gpu_data->size
                 );
-                if (chunk.event->is_done() && chunk.gpu_data->is_copy_complete()) {
-                    log.warn("all done");
-                    // if (chunk.gpu_data->is_copy_complete()) {
-                    // Send immediately if the copy is complete.
-                    fire_and_forget_.push_back(shuffler_.comm_->send(
-                        std::move(chunk.gpu_data), src, gpu_data_tag
-                    ));
-                } else {
-                    log.warn("not done");
-                    // Otherwise, insert the chunk back into the outgoing chunks map.
-                    RAPIDSMPF_EXPECTS(
-                        outgoing_chunks_
-                            .insert({ready_for_data_msg.cid, std::move(chunk)})
-                            .second,
-                        "outgoing chunk already exist"
-                    );
-                }
+                fire_and_forget_.push_back(
+                    shuffler_.comm_->send(std::move(chunk.gpu_data), src, gpu_data_tag)
+                );
             } else {
                 break;
             }
