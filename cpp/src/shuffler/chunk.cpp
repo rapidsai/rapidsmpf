@@ -18,13 +18,13 @@ Chunk::Event::Event(rmm::cuda_stream_view stream, Communicator::Logger& log) : l
 }
 
 Chunk::Event::~Event() {
-    if (!is_done()) {
+    if (!is_ready()) {
         log_.warn("Event destroyed before CUDA event completed");
     }
     cudaEventDestroy(event_);
 }
 
-[[nodiscard]] bool Chunk::Event::is_done() {
+[[nodiscard]] bool Chunk::Event::is_ready() {
     if (!done_.load(std::memory_order_acquire)) {
         bool expected = false;
         done_.compare_exchange_strong(
@@ -114,8 +114,8 @@ std::unique_ptr<cudf::table> Chunk::unpack(rmm::cuda_stream_view stream) const {
     return unpack_and_concat(std::move(packed_vec), stream, br->device_mr());
 }
 
-bool Chunk::is_done() const {
-    return (!event || event->is_done()) && (!gpu_data || gpu_data->is_copy_complete());
+bool Chunk::is_ready() const {
+    return (!event || event->is_ready()) && (!gpu_data || gpu_data->is_ready());
 }
 
 std::string Chunk::str(std::size_t max_nbytes, rmm::cuda_stream_view stream) const {

@@ -57,7 +57,7 @@ class Chunk {
          *
          * @return true if the event has been completed, false otherwise.
          */
-        [[nodiscard]] bool is_done();
+        [[nodiscard]] bool is_ready();
 
       private:
         cudaEvent_t event_;  ///< CUDA event used to track device memory allocation
@@ -177,14 +177,14 @@ class Chunk {
     /**
      * @brief Returns true if the chunk is ready for consumption.
      *
-     * Checks that the shared CUDA event and the buffer's CUDA event are both done.
+     * Checks that the shared CUDA event and the buffer's CUDA event are both ready.
      * The shared CUDA event is used to synchronize the chunk's data across a set of
      * chunks, while the buffer's CUDA event is used to synchronize the chunk's data
      * if any spilling is involved.
      *
      * @return true if the chunk is ready, false otherwise.
      */
-    [[nodiscard]] bool is_done() const;
+    [[nodiscard]] bool is_ready() const;
 };
 
 /**

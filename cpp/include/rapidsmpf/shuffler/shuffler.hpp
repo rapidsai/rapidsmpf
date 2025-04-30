@@ -228,11 +228,14 @@ class Shuffler {
      * @param pid The partition ID of the new chunk.
      * @param metadata The metadata of the new chunk, can be null.
      * @param gpu_data The gpu data of the new chunk, can be null.
+     * @param stream The CUDA stream for BufferResource memory operations.
+     * @param event The event to use for the new chunk.
      */
     [[nodiscard]] detail::Chunk create_chunk(
         PartID pid,
         std::unique_ptr<std::vector<uint8_t>> metadata,
         std::unique_ptr<rmm::device_buffer> gpu_data,
+        rmm::cuda_stream_view stream,
         std::shared_ptr<detail::Chunk::Event> event
     ) {
         return detail::Chunk{
@@ -241,7 +244,7 @@ class Shuffler {
             0,  // expected_num_chunks
             gpu_data ? gpu_data->size() : 0,  // gpu_data_size
             std::move(metadata),
-            br_->move(std::move(gpu_data)),
+            br_->move(std::move(gpu_data), stream),
             std::move(event)
         };
     }

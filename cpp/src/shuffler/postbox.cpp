@@ -39,7 +39,7 @@ std::vector<Chunk> PostBox::extract_all_ready() {
         auto& chunks = pid_it->second;
         auto chunk_it = chunks.begin();
         while (chunk_it != chunks.end()) {
-            if (chunk_it->second.is_done()) {
+            if (chunk_it->second.is_ready()) {
                 ret.push_back(std::move(chunk_it->second));
                 chunk_it = chunks.erase(chunk_it);
             } else {

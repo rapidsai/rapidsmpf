@@ -25,107 +25,6 @@ using namespace detail;
 namespace {
 
 /**
- * @brief Combination of a Buffer with associated CUDA event.
- *
- * Combining a CUDA event with a buffer allows us to track the completion of
- * the asynchronous allocation of device memory. It allows disabling the event
- * if it is not needed, for example, when allocating an empty buffer or if it
- * is known to that the allocation has been completed.
- */
-class BufferWithEvent {
-  public:
-    /**
-     * @brief Construct a BufferWithEvent from a buffer and stream.
-     *
-     * @param buffer The buffer to be managed
-     * @param mem_type The memory type of the buffer
-     * @param stream CUDA stream used for device memory operations
-     * @param log Logger to warn if object is destroyed before event is ready.
-     * @param enable_event Whether to track CUDA events for this buffer.
-     *
-     * @note If the memory type is DEVICE, a CUDA event will be created and recorded
-     *       on the provided stream to track the operation's completion.
-     */
-    BufferWithEvent(
-        std::unique_ptr<Buffer> buffer,
-        MemoryType mem_type,
-        rmm::cuda_stream_view stream,
-        Communicator::Logger& log,
-        bool enable_event = true
-    )
-        : buffer_{std::move(buffer)}, log_{log}, enable_event_{enable_event} {
-        if (mem_type == MemoryType::DEVICE && enable_event_) {
-            RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event_, cudaEventDisableTiming));
-            RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream));
-        }
-    }
-
-    /**
-     * @brief Destructor for BufferWithEvent.
-     *
-     * Cleans up the CUDA event if one was created. If the event is not ready,
-     * it will log a warning.
-     */
-    ~BufferWithEvent() {
-        if (event_) {
-            if (!is_event_ready()) {
-                log_.warn("BufferWithEvent destroyed before CUDA event completed");
-            }
-            cudaEventDestroy(event_);
-        }
-    }
-
-    /**
-     * @brief Check if the tracked CUDA allocation has completed.
-     *
-     * @return true if the operation has completed or no event was created
-     * (host allocation), false if the operation is still in progress.
-     */
-    [[nodiscard]] bool is_event_ready() const {
-        return !event_ || cudaEventQuery(event_) == cudaSuccess;
-    }
-
-    /**
-     * @brief Release the buffer.
-     *
-     * @return The buffer.
-     *
-     * @note If the buffer is not ready, a warning is logged.
-     */
-    [[nodiscard]] std::unique_ptr<Buffer> release() {
-        if (!is_event_ready()) {
-            log_.warn("BufferWithEvent released buffer before CUDA event completed");
-        }
-        return std::move(buffer_);
-    }
-
-    /**
-     * @brief Get the memory type of the buffer.
-     *
-     * @return The memory type of the buffer.
-     */
-    [[nodiscard]] MemoryType mem_type() const {
-        return buffer_->mem_type();
-    }
-
-    /**
-     * @brief Get the size of the buffer.
-     *
-     * @return The size of the buffer in bytes.
-     */
-    [[nodiscard]] std::size_t size() const {
-        return buffer_->size;
-    }
-
-  private:
-    std::unique_ptr<Buffer> buffer_;  ///< The underlying buffer being managed
-    cudaEvent_t event_{nullptr};  ///< CUDA event used to track device memory allocation
-    Communicator::Logger&
-        log_;  ///< Logger to warn if object is destroyed before event is ready
-    bool enable_event_{true};  ///< Whether to track CUDA events for this buffer
-};
-
-/**
  * @brief Help function to reserve and allocate a new buffer.
  *
  * First reserve the memory type and then use the reservation to allocate a new
@@ -139,23 +38,19 @@ class BufferWithEvent {
  * @param enable_event Whether to track CUDA events for this buffer.
  * @returns A new buffer or nullptr.
  */
-std::unique_ptr<BufferWithEvent> allocate_buffer(
+std::unique_ptr<Buffer> allocate_buffer(
     MemoryType mem_type,
     std::size_t size,
     rmm::cuda_stream_view stream,
-    BufferResource* br,
-    Communicator::Logger& log,
-    bool enable_event = true
+    BufferResource* br
 ) {
     auto [reservation, _] = br->reserve(mem_type, size, false);
     if (reservation.size() != size) {
         return nullptr;
     }
-    auto buffer = br->allocate(mem_type, size, stream, reservation);
+    auto ret = br->allocate(mem_type, size, stream, reservation);
     RAPIDSMPF_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
-    return std::make_unique<BufferWithEvent>(
-        std::move(buffer), mem_type, stream, log, enable_event
-    );
+    return ret;
 }
 
 /**
@@ -168,27 +63,20 @@ std::unique_ptr<BufferWithEvent> allocate_buffer(
  * @param size The size of the buffer in bytes.
  * @param stream CUDA stream to use for device allocations.
  * @param br Buffer resource used for the reservation and allocation.
- * @param log Logger to warn if object is destroyed before event is ready.
- * @param enable_event Whether to track CUDA events for this buffer.
  * @returns A new buffer.
  *
  * @throws std::overflow_error if both the reservation of device and host memory
  * failed.
  */
-std::unique_ptr<BufferWithEvent> allocate_buffer(
-    std::size_t size,
-    rmm::cuda_stream_view stream,
-    BufferResource* br,
-    Communicator::Logger& log,
-    bool enable_event = true
+std::unique_ptr<Buffer> allocate_buffer(
+    std::size_t size, rmm::cuda_stream_view stream, BufferResource* br
 ) {
-    std::unique_ptr<BufferWithEvent> ret =
-        allocate_buffer(MemoryType::DEVICE, size, stream, br, log, enable_event);
+    std::unique_ptr<Buffer> ret = allocate_buffer(MemoryType::DEVICE, size, stream, br);
     if (ret) {
         return ret;
     }
     // If not enough device memory is available, we try host memory.
-    ret = allocate_buffer(MemoryType::HOST, size, stream, br, log, enable_event);
+    ret = allocate_buffer(MemoryType::HOST, size, stream, br);
     RAPIDSMPF_EXPECTS(
         ret,
         "Cannot reserve " + format_nbytes(size) + " of device or host memory",
@@ -339,25 +227,21 @@ class Shuffler::Progress {
             // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
             // directly to the outbox.
             if (incoming.chunk.gpu_data_size > 0) {
-                if (!incoming.buffer_with_event) {
+                if (!incoming.buffer) {
                     // Create a new buffer and let the buffer resource decide the memory
                     // type.
                     auto buffer = allocate_buffer(
-                        incoming.chunk.gpu_data_size,
-                        shuffler_.stream_,
-                        shuffler_.br_,
-                        log
+                        incoming.chunk.gpu_data_size, shuffler_.stream_, shuffler_.br_
                     );
                     if (buffer->mem_type() == MemoryType::HOST) {
-                        stats.add_bytes_stat("spill-bytes-recv-to-host", buffer->size());
+                        stats.add_bytes_stat("spill-bytes-recv-to-host", buffer->size);
                     }
-                    // Modify the buffer_with_event in place
-                    const_cast<IncomingChunk&>(incoming).buffer_with_event =
-                        std::move(buffer);
+                    // Modify the buffer in place
+                    const_cast<IncomingChunk&>(incoming).buffer = std::move(buffer);
                 }
 
                 // Check if the buffer is ready to be used
-                if (!incoming.buffer_with_event->is_event_ready()) {
+                if (!incoming.buffer->is_ready()) {
                     // Buffer is not ready yet, skip to next item
                     ++it;
                     continue;
@@ -369,7 +253,7 @@ class Shuffler::Progress {
 
                 // Setup to receive the chunk into `in_transit_*`.
                 auto future = shuffler_.comm_->recv(
-                    src_val, gpu_data_tag, incoming_val.buffer_with_event->release()
+                    src_val, gpu_data_tag, std::move(incoming_val.buffer)
                 );
                 RAPIDSMPF_EXPECTS(
                     in_transit_futures_
@@ -401,10 +285,8 @@ class Shuffler::Progress {
 
                 if (incoming_val.chunk.gpu_data == nullptr) {
                     // An empty buffer does not need a CUDA event, so we can disable it.
-                    incoming_val.chunk.gpu_data = std::move(
-                        allocate_buffer(0, shuffler_.stream_, shuffler_.br_, log, false)
-                            ->release()
-                    );
+                    incoming_val.chunk.gpu_data =
+                        std::move(allocate_buffer(0, shuffler_.stream_, shuffler_.br_));
                 }
                 shuffler_.insert_into_outbox(std::move(incoming_val.chunk));
             }
@@ -492,7 +374,7 @@ class Shuffler::Progress {
      */
     struct IncomingChunk {
         detail::Chunk chunk;
-        std::unique_ptr<BufferWithEvent> buffer_with_event;
+        std::unique_ptr<Buffer> buffer;
     };
 
     Shuffler& shuffler_;
@@ -633,6 +515,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 pid,
                 std::move(packed_data.metadata),
                 std::move(packed_data.gpu_data),
+                stream_,
                 event
             );
             // Spill the new chunk before inserting.
@@ -652,6 +535,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 pid,
                 std::move(packed_data.metadata),
                 std::move(packed_data.gpu_data),
+                stream_,
                 event
             ));
         }

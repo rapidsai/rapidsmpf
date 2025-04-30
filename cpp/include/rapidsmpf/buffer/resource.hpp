@@ -256,9 +256,12 @@ class BufferResource {
      * @brief Move device buffer data into a Buffer.
      *
      * @param data A unique pointer to the device buffer.
+     * @param stream CUDA stream for the operation.
      * @return A unique pointer to the resulting Buffer.
      */
-    std::unique_ptr<Buffer> move(std::unique_ptr<rmm::device_buffer> data);
+    std::unique_ptr<Buffer> move(
+        std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+    );
 
     /**
      * @brief Move a Buffer to the specified memory type.

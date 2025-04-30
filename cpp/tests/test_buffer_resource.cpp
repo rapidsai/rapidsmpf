@@ -250,7 +250,7 @@ TEST(BufferResource, CUDAEventTracking) {
         auto host_buf = br.move(std::move(host_data));
         auto [host_reserve, host_overbooking] = br.reserve(MemoryType::HOST, 1024, false);
         auto host_copy = br.copy(MemoryType::HOST, host_buf, stream, host_reserve);
-        EXPECT_TRUE(host_copy->is_copy_complete());  // No event created
+        EXPECT_TRUE(host_copy->is_ready());  // No event created
 
         // Verify the data
         auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(1024);
@@ -282,7 +282,7 @@ TEST(BufferResource, CUDAEventTracking) {
 
         // Wait for copy to complete
         stream.synchronize();
-        EXPECT_TRUE(dev_copy->is_copy_complete());
+        EXPECT_TRUE(dev_copy->is_ready());
 
         // Verify the data
         auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(buffer_size);
@@ -309,7 +309,7 @@ TEST(BufferResource, CUDAEventTracking) {
 
         // Wait for copy to complete
         stream.synchronize();
-        EXPECT_TRUE(dev_copy->is_copy_complete());
+        EXPECT_TRUE(dev_copy->is_ready());
 
         // Verify the data
         auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(buffer_size);
@@ -348,7 +348,7 @@ TEST(BufferResource, CUDAEventTracking) {
 
         // Wait for copy to complete
         stream.synchronize();
-        EXPECT_TRUE(host_copy->is_copy_complete());
+        EXPECT_TRUE(host_copy->is_ready());
 
         // Verify the data
         auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(buffer_size);

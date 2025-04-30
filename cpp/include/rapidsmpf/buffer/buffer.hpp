@@ -125,12 +125,12 @@ class Buffer {
     }
 
     /**
-     * @brief Check if the last copy operation has completed.
+     * @brief Check if the device memory operation has completed.
      *
-     * @return true if the copy operation has completed or no copy operation
-     * was performed, false if it is still in progress.
+     * @return true if the device memory operation has completed or no device
+     * memory operation was performed, false if it is still in progress.
      */
-    [[nodiscard]] bool is_copy_complete() const;
+    [[nodiscard]] bool is_ready() const;
 
     /// @brief Buffer has a move ctor but no copy or assign operator.
     Buffer(Buffer&&) = default;
@@ -160,13 +160,18 @@ class Buffer {
      * @brief Construct a Buffer from device memory.
      *
      * @param device_buffer A unique pointer to a device buffer.
+     * @param stream CUDA stream for the operation.
      * @param br Buffer resource for memory allocation.
      *
      * @throws std::invalid_argument if `device_buffer` is null.
      * @throws std::invalid_argument if `stream` or `br->mr` isn't the same used by
      * `device_buffer`.
      */
-    Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource* br);
+    Buffer(
+        std::unique_ptr<rmm::device_buffer> device_buffer,
+        rmm::cuda_stream_view stream,
+        BufferResource* br
+    );
 
     /**
      * @brief Access the underlying host memory buffer.
