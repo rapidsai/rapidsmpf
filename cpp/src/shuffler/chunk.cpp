@@ -25,10 +25,16 @@ Chunk::Event::~Event() {
 }
 
 [[nodiscard]] bool Chunk::Event::is_done() {
-    if (!done_) {
-        done_ = cudaEventQuery(event_) == cudaSuccess;
+    if (!done_.load(std::memory_order_acquire)) {
+        bool expected = false;
+        done_.compare_exchange_strong(
+            expected,
+            cudaEventQuery(event_) == cudaSuccess,
+            std::memory_order_release,
+            std::memory_order_relaxed
+        );
     }
-    return done_;
+    return done_.load(std::memory_order_acquire);
 }
 
 Chunk::Chunk(

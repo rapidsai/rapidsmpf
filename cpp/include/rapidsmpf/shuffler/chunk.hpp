@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <sstream>
 #include <vector>
@@ -62,7 +63,8 @@ class Chunk {
         cudaEvent_t event_;  ///< CUDA event used to track device memory allocation
         Communicator::Logger&
             log_;  ///< Logger to warn if object is destroyed before event is ready
-        bool done_{false};  ///< Cache of the event status to avoid unnecessary queries.
+        std::atomic<bool> done_{false
+        };  ///< Cache of the event status to avoid unnecessary queries.
     };
 
     PartID const pid;  ///< Partition ID that this chunk belongs to.
