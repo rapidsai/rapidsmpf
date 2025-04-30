@@ -3,10 +3,24 @@
 # SPDX-License-Identifier: Apache-2.0
 # =================================================================================
 
-set(cython_modules communicator.pyx mpi.pyx ucxx.pyx)
+set(modules_only_rapidsmpf communicator.pyx)
+set(modules_need_mpi mpi.pyx)
+set(modules_need_ucxx ucxx.pyx)
 
 rapids_cython_create_modules(
   CXX
-  SOURCE_FILES "${cython_modules}"
-  LINKED_LIBRARIES rapidsmpf::rapidsmpf MPI::MPI_CXX ucxx::ucxx ucx::ucp
+  SOURCE_FILES "${modules_only_rapidsmpf}"
+  LINKED_LIBRARIES rapidsmpf::rapidsmpf
+)
+
+rapids_cython_create_modules(
+  CXX
+  SOURCE_FILES "${modules_need_mpi}"
+  LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE MPI::MPI_CXX
+)
+
+rapids_cython_create_modules(
+  CXX
+  SOURCE_FILES "${modules_need_ucxx}"
+  LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE ucxx::ucxx ucxx::python ucx::ucp
 )
