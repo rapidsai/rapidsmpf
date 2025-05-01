@@ -38,6 +38,7 @@ DataFrameT = TypeVar("DataFrameT")
 @dataclass
 class DaskWorkerContext:
     lock: ClassVar[threading.RLock] = threading.RLock()
+    statistics: Statistics | None = None
 
 
 def get_worker_context(
@@ -188,18 +189,16 @@ def rmpf_worker_setup(
 
         # Print statistics at worker shutdown.
         if enable_statistics:
-            dask_worker._rmpf_statistics = Statistics(enable=True)
+            ctx.statistics = Statistics(enable=True)
             weakref.finalize(
                 dask_worker,
                 lambda name, stats: print(name, stats.report()),
                 name=str(dask_worker),
-                stats=dask_worker._rmpf_statistics,
+                stats=ctx.statistics,
             )
-        else:
-            dask_worker._rmpf_statistics = None
 
         dask_worker._rapidsmpf_progress_thread = ProgressThread(
-            dask_worker._rapidsmpf_comm, dask_worker._rmpf_statistics
+            dask_worker._rapidsmpf_comm, ctx.statistics
         )
 
         # Setup a buffer_resource.

@@ -91,7 +91,7 @@ def get_shuffler(
                 total_num_partitions=partition_count,
                 stream=DEFAULT_STREAM,
                 br=dask_worker._rmpf_buffer_resource,
-                statistics=dask_worker._rmpf_statistics,
+                statistics=ctx.statistics,
             )
     return cast(Shuffler, dask_worker._rmpf_shufflers[shuffle_id])
 
