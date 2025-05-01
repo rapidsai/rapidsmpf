@@ -594,8 +594,8 @@ detail::ChunkID Shuffler::get_new_cid() {
 
 std::string Shuffler::str() const {
     std::stringstream ss;
-    ss << "Shuffler(inbox=" << outgoing_chunks_ << ", outbox=" << received_chunks_ << ", "
-       << finish_counter_;
+    ss << "Shuffler(outgoing=" << outgoing_chunks_ << ", received=" << received_chunks_
+       << ", " << finish_counter_;
     return ss.str();
 }
 

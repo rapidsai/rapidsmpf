@@ -119,7 +119,7 @@ class PostBox {
     std::function<key_type(PartID)>
         key_map_fn_;  ///< Function to map partition IDs to keys.
     std::unordered_map<key_type, std::unordered_map<ChunkID, Chunk>>
-        pigeonhole_;  ///< Storage for chunks, organized by partition and chunk ID.
+        pigeonhole_;  ///< Storage for chunks, organized by a key and chunk ID.
 };
 
 /**
