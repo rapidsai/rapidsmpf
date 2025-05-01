@@ -221,7 +221,7 @@ class Shuffler::Progress {
         // Post receives for incoming chunks
         auto const t0_post_incoming_chunk_recv = Clock::now();
         for (auto it = incoming_chunks_.begin(); it != incoming_chunks_.end();) {
-            auto const& [src, incoming] = *it;
+            auto& [src, incoming] = *it;
             log.trace("checking incoming chunk data from ", src, ": ", incoming.chunk);
 
             // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
@@ -237,7 +237,7 @@ class Shuffler::Progress {
                         stats.add_bytes_stat("spill-bytes-recv-to-host", buffer->size);
                     }
                     // Modify the buffer in place
-                    const_cast<IncomingChunk&>(incoming).buffer = std::move(buffer);
+                    incoming.buffer = std::move(buffer);
                 }
 
                 // Check if the buffer is ready to be used
