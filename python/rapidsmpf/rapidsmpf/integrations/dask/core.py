@@ -7,7 +7,8 @@ from __future__ import annotations
 import logging
 import threading
 import weakref
-from typing import TYPE_CHECKING, Any, TypeVar
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
 
 import ucxx._lib.libucxx as ucx_api
 from distributed import get_client, get_worker, wait
@@ -34,20 +35,19 @@ _dask_logger = logging.getLogger("distributed.worker")
 DataFrameT = TypeVar("DataFrameT")
 
 
-_worker_thread_lock: threading.RLock = threading.RLock()
+@dataclass
+class DaskWorkerContext:
+    lock: ClassVar[threading.RLock] = threading.RLock()
 
 
-def get_worker_thread_lock() -> threading.RLock:
-    """
-    Return the worker thread lock.
-
-    Guard access to a dask worker's `_rmpf_shufflers` attribute.
-
-    Returns
-    -------
-    The work thread lock.
-    """
-    return _worker_thread_lock
+def get_worker_context(
+    dask_worker: distributed.Worker | None = None,
+) -> DaskWorkerContext:
+    with DaskWorkerContext.lock:
+        dask_worker = dask_worker or get_worker()
+        if not hasattr(dask_worker, "_rapidsmpf_worker_context"):
+            dask_worker._rapidsmpf_worker_context = DaskWorkerContext()
+        return cast(DaskWorkerContext, dask_worker._rapidsmpf_worker_context)
 
 
 def get_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
@@ -181,10 +181,8 @@ def rmpf_worker_setup(
     -----
     This function is expected to run on a Dask worker.
     """
-    with get_worker_thread_lock():
-        if hasattr(dask_worker, "_rmpf_shufflers"):
-            return  # Worker already initialized
-
+    ctx = get_worker_context(dask_worker)
+    with ctx.lock:
         # We start with no active shufflers
         dask_worker._rmpf_shufflers = {}
 
