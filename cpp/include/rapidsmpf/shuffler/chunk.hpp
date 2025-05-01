@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <vector>
 
@@ -65,6 +66,9 @@ class Chunk {
             log_;  ///< Logger to warn if object is destroyed before event is ready
         std::atomic<bool> done_{false
         };  ///< Cache of the event status to avoid unnecessary queries.
+        mutable std::mutex mutex_;  ///< Protects access to event_
+        std::atomic<bool> destroying_{false
+        };  ///< Flag to indicate destruction in progress
     };
 
     PartID const pid;  ///< Partition ID that this chunk belongs to.

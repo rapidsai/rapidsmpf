@@ -18,19 +18,39 @@ Chunk::Event::Event(rmm::cuda_stream_view stream, Communicator::Logger& log) : l
 }
 
 Chunk::Event::~Event() {
+    // If the event is not ready, log a warning
     if (!is_ready()) {
         log_.warn("Event destroyed before CUDA event completed");
     }
+
+    // Then mark as destroying - if we fail, another thread is already destroying
+    bool expected = false;
+    if (!destroying_.compare_exchange_strong(expected, true)) {
+        return;
+    }
+
+    // Finally acquire the mutex and destroy the event
+    std::lock_guard<std::mutex> lock(mutex_);
     cudaEventDestroy(event_);
 }
 
 [[nodiscard]] bool Chunk::Event::is_ready() {
-    if (!done_.load(std::memory_order_relaxed)) {
-        bool result = cudaEventQuery(event_) == cudaSuccess;
-        done_.store(result, std::memory_order_relaxed);
-        return result;
+    // Fast path: if done or being destroyed, return immediately
+    if (done_.load(std::memory_order_relaxed)
+        || destroying_.load(std::memory_order_acquire))
+    {
+        return true;
     }
-    return true;
+
+    // Acquire mutex and check destroying_ again, if being destroyed, return the
+    // previous value of done_.
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (destroying_.load(std::memory_order_acquire)) {
+        return done_.load(std::memory_order_relaxed);
+    }
+
+    // If we're not destroying, check if the event is ready
+    return cudaEventQuery(event_) == cudaSuccess;
 }
 
 Chunk::Chunk(
