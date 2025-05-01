@@ -39,6 +39,19 @@ DataFrameT = TypeVar("DataFrameT")
 class DaskWorkerContext:
     lock: ClassVar[threading.RLock] = threading.RLock()
     statistics: Statistics | None = None
+    _br: BufferResource | None = None
+
+    @property
+    def br(self) -> BufferResource:
+        if self._br is None:
+            raise ValueError("Buffer resource has not been initialized")
+        return self._br
+
+    @br.setter
+    def br(self, value: BufferResource) -> None:
+        if value is None:
+            raise ValueError("Cannot set buffer resource to None.")
+        self._br = value
 
 
 def get_worker_context(
@@ -211,7 +224,7 @@ def rmpf_worker_setup(
                 mr, limit=int(total_memory * spill_device)
             )
         }
-        dask_worker._rmpf_buffer_resource = BufferResource(
+        ctx.br = BufferResource(
             mr,
             memory_available=memory_available,
             periodic_spill_check=periodic_spill_check,
@@ -221,7 +234,7 @@ def rmpf_worker_setup(
         # negative priority (-10) such that spilling within shufflers have
         # higher priority than spilling of DataFrames.
         dask_worker._rmpf_spill_collection = SpillCollection()
-        dask_worker._rmpf_buffer_resource.spill_manager.add_spill_function(
+        ctx.br.spill_manager.add_spill_function(
             func=dask_worker._rmpf_spill_collection.spill, priority=-10
         )
 
