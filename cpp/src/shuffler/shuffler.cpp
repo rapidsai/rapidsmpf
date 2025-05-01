@@ -103,11 +103,12 @@ std::unique_ptr<Buffer> allocate_buffer(
  *
  * @return The actual amount of data successfully spilled from the postbox.
  */
+template <typename KeyType>
 std::size_t postbox_spilling(
     BufferResource* br,
     Communicator::Logger& log,
     rmm::cuda_stream_view stream,
-    PostBox& postbox,
+    PostBox<KeyType>& postbox,
     std::size_t amount
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
@@ -138,6 +139,7 @@ std::size_t postbox_spilling(
     }
     return total_spilled;
 }
+
 }  // namespace
 
 class Shuffler::Progress {
@@ -382,12 +384,14 @@ Shuffler::Shuffler(
       stream_{stream},
       br_{br},
       outgoing_chunks_{
-          comm->nranks(),
-          [comm, partition_owner](PartID pid) { return partition_owner(comm, pid); }
+          [this](PartID pid) -> Rank {
+              return this->partition_owner(this->comm_, pid);
+          },  // extract Rank from pid
+          static_cast<std::size_t>(comm->nranks())
       },
       received_chunks_{
-          comm->nranks(),
-          [comm, partition_owner](PartID pid) { return partition_owner(comm, pid); }
+          [](PartID pid) -> PartID { return pid; },  // identity mapping
+          static_cast<std::size_t>(total_num_partitions),
       },
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},

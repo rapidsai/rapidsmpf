@@ -252,8 +252,8 @@ class Shuffler {
     rmm::cuda_stream_view stream_;
     BufferResource* br_;
     bool active_{true};
-    detail::PostBox outgoing_chunks_;
-    detail::PostBox received_chunks_;
+    detail::PostBox<Rank> outgoing_chunks_;
+    detail::PostBox<PartID> received_chunks_;
 
     std::shared_ptr<Communicator> comm_;
     std::shared_ptr<ProgressThread> progress_thread_;

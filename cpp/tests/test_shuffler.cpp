@@ -513,14 +513,16 @@ TEST(FinishCounterTests, wait_some_with_timeout) {
 
 class PostBoxTest : public cudf::test::BaseFixture {
   protected:
+    using PostboxType = rapidsmpf::shuffler::detail::PostBox<rapidsmpf::Rank>;
+
     void SetUp() override {
         GlobalEnvironment->barrier();  // sync the env
 
-        postbox = std::make_unique<rapidsmpf::shuffler::detail::PostBox>(
-            GlobalEnvironment->comm_->nranks(),
+        postbox = std::make_unique<PostboxType>(
             [this](rapidsmpf::shuffler::PartID part_id) {
                 return partition_owner(part_id);
-            }
+            },
+            GlobalEnvironment->comm_->nranks()
         );
     }
 
@@ -534,12 +536,11 @@ class PostBoxTest : public cudf::test::BaseFixture {
         postbox.reset();
     }
 
-    std::unique_ptr<rapidsmpf::shuffler::detail::PostBox> postbox;
+    std::unique_ptr<PostboxType> postbox;
 };
 
 TEST_F(PostBoxTest, EmptyPostbox) {
     EXPECT_TRUE(postbox->empty());
-    EXPECT_TRUE(postbox->extract_for_rank(0).empty());
     EXPECT_TRUE(postbox->extract_all().empty());
 }
 
@@ -564,12 +565,15 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
     EXPECT_FALSE(postbox->empty());
 
     // extract chunks for each rank
-    std::list<rapidsmpf::shuffler::detail::Chunk> extracted_chunks;
+    std::vector<rapidsmpf::shuffler::detail::Chunk> extracted_chunks;
     uint32_t extracted_nchunks = 0;
     for (rapidsmpf::Rank rank = 0; rank < GlobalEnvironment->comm_->nranks(); ++rank) {
-        auto chunks = postbox->extract_for_rank(rank);
+        auto chunks = postbox->extract_by_key(rank);
         extracted_nchunks += chunks.size();
-        extracted_chunks.splice(extracted_chunks.end(), std::move(chunks));
+
+        for (auto& [_, chunk] : chunks) {
+            extracted_chunks.emplace_back(std::move(chunk));
+        }
     }
     EXPECT_EQ(extracted_nchunks, num_chunks);
     EXPECT_TRUE(postbox->empty());
@@ -612,12 +616,12 @@ TEST_F(PostBoxTest, ThreadSafety) {
     }
 
     // Verify all chunks were inserted correctly
-    uint32_t extracte_nchunks = 0;
+    uint32_t extracted_nchunks = 0;
     for (rapidsmpf::Rank rank = 0; rank < GlobalEnvironment->comm_->nranks(); ++rank) {
-        auto chunks = postbox->extract_for_rank(rank);
-        extracte_nchunks += chunks.size();
+        auto chunks = postbox->extract_by_key(rank);
+        extracted_nchunks += chunks.size();
     }
-    EXPECT_EQ(extracte_nchunks, num_threads * chunks_per_thread);
+    EXPECT_EQ(extracted_nchunks, num_threads * chunks_per_thread);
 
     EXPECT_TRUE(postbox->empty());
 }

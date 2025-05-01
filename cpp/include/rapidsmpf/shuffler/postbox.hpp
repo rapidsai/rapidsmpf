@@ -4,15 +4,12 @@
  */
 #pragma once
 
-
-#include <list>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
-#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 
@@ -21,16 +18,31 @@ namespace rapidsmpf::shuffler::detail {
 /**
  * @brief A thread-safe container for managing and retrieving data chunks by partition and
  * chunk ID.
+ *
+ * @tparam KeyType The type of the key used to map chunks.
  */
+template <typename KeyType>
 class PostBox {
   public:
+    using key_type = KeyType;  ///< The type of the key used to map chunks.
+
     /**
-     * @brief Constructor for PostBox.
+     * @brief Construct a new PostBox.
      *
-     * @param nranks The number of ranks in the communicator.
-     * @param partition_owner A function that maps a partition ID to a rank.
+     * @tparam Fn The type of the function that maps a partition ID to a key.
+     * @param key_map_fn A function that maps a partition ID to a key.
+     * @param num_keys_hint The number of keys to reserve space for.
+     *
+     * @note The `key_map_fn` must be convertible to a function that takes a `PartID` and
+     * returns a `KeyType`.
      */
-    PostBox(Rank nranks, std::function<Rank(PartID)>&& partition_owner);
+    template <typename Fn>
+    PostBox(Fn&& key_map_fn, size_t num_keys_hint = 0)
+        : key_map_fn_(std::move(key_map_fn)) {
+        if (num_keys_hint > 0) {
+            pigeonhole_.reserve(num_keys_hint);
+        }
+    }
 
     /**
      * @brief Inserts a chunk into the PostBox.
@@ -61,21 +73,21 @@ class PostBox {
     std::unordered_map<ChunkID, Chunk> extract(PartID pid);
 
     /**
+     * @brief Extracts all chunks associated with a specific key.
+     *
+     * @param key The key.
+     * @return A map of chunk IDs to chunks for the specified key.
+     *
+     * @throws std::out_of_range If the key is not found.
+     */
+    std::unordered_map<ChunkID, Chunk> extract_by_key(KeyType key);
+
+    /**
      * @brief Extracts all chunks from the PostBox.
      *
      * @return A vector of all chunks in the PostBox.
      */
     std::vector<Chunk> extract_all();
-
-    /**
-     * @brief Extracts all chunks from the PostBox for a specific rank.
-     *
-     * @param rank The rank to extract chunks for. If not provided, chunks from the first
-     * available rank are returned.
-     * @return A vector of all chunks in the PostBox for the specified rank. If the
-     * PostBox is empty or the rank is not found, an empty vector is returned.
-     */
-    std::list<Chunk> extract_for_rank(std::optional<Rank> rank = std::nullopt) noexcept;
 
     /**
      * @brief Checks if the PostBox is empty.
@@ -91,7 +103,7 @@ class PostBox {
      * @return A vector of tuples, where each tuple contains: PartID, ChunkID, and the
      * size of the chunk.
      */
-    [[nodiscard]] std::vector<std::tuple<PartID, ChunkID, std::size_t>> search(
+    [[nodiscard]] std::vector<std::tuple<key_type, ChunkID, std::size_t>> search(
         MemoryType mem_type
     ) const;
 
@@ -104,16 +116,10 @@ class PostBox {
   private:
     // TODO: more fine-grained locking e.g. by locking each partition individually.
     mutable std::mutex mutex_;
-
-    // Note: list allows constant time insertion, removals, and concatenations (splice).
-    std::unordered_map<Rank, std::list<Chunk>>
-        pigeonhole_;  ///< Storage for chunks, organized by destination rank.
-
-    // We may be able to remove the following members once we move to a rank-based
-    // extraction.
-    std::function<Rank(PartID)>
-        partition_owner_;  ///< Function to determine partition owner.
-    std::unordered_set<ChunkID> chunk_ids_;  ///< Set of chunk IDs in the PostBox.
+    std::function<key_type(PartID)>
+        key_map_fn_;  ///< Function to map partition IDs to keys.
+    std::unordered_map<key_type, std::unordered_map<ChunkID, Chunk>>
+        pigeonhole_;  ///< Storage for chunks, organized by partition and chunk ID.
 };
 
 /**
@@ -125,7 +131,8 @@ class PostBox {
  * @param obj The object to write.
  * @return A reference to the modified output stream.
  */
-inline std::ostream& operator<<(std::ostream& os, PostBox const& obj) {
+template <typename KeyType>
+inline std::ostream& operator<<(std::ostream& os, PostBox<KeyType> const& obj) {
     os << obj.str();
     return os;
 }
