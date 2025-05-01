@@ -256,7 +256,7 @@ class BufferResource {
      * @brief Move device buffer data into a Buffer.
      *
      * @param data A unique pointer to the device buffer.
-     * @param stream CUDA stream for the operation.
+     * @param stream CUDA stream used for the data allocation, copy, and/or move.
      * @return A unique pointer to the resulting Buffer.
      */
     std::unique_ptr<Buffer> move(
@@ -270,7 +270,7 @@ class BufferResource {
      *
      * @param target The target memory type.
      * @param buffer The buffer to move.
-     * @param stream CUDA stream for the operation.
+     * @param stream CUDA stream used for the buffer allocation, copy, and/or move.
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the moved Buffer.
      *
@@ -290,7 +290,7 @@ class BufferResource {
      * If and only if moving between different memory types will this perform a copy.
      *
      * @param buffer The buffer to move.
-     * @param stream CUDA stream for the operation.
+     * @param stream CUDA stream used for the buffer allocation, copy, and/or move.
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the resulting device buffer.
      *
@@ -310,7 +310,7 @@ class BufferResource {
      * If and only if moving between different memory types will this perform a copy.
      *
      * @param buffer The buffer to move.
-     * @param stream CUDA stream for the operation.
+     * @param stream CUDA stream used for the buffer allocation, copy, and/or move.
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the resulting host vector.
      *
@@ -331,7 +331,7 @@ class BufferResource {
      *
      * @param target The target memory type.
      * @param buffer The buffer to copy.
-     * @param stream CUDA stream for the operation.
+     * @param stream CUDA stream used for the buffer allocation and copy.
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the new Buffer.
      *

@@ -160,7 +160,7 @@ class Buffer {
      * @brief Construct a Buffer from device memory.
      *
      * @param device_buffer A unique pointer to a device buffer.
-     * @param stream CUDA stream for the operation.
+     * @param stream CUDA stream used for the device buffer allocation.
      * @param br Buffer resource for memory allocation.
      *
      * @throws std::invalid_argument if `device_buffer` is null.
@@ -206,7 +206,7 @@ class Buffer {
     /**
      * @brief Create a copy of this buffer using the same memory type.
      *
-     * @param stream CUDA stream used for device memory operations.
+     * @param stream CUDA stream used for the device buffer allocation and copy.
      * @return A unique pointer to a new Buffer containing the copied data.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy(rmm::cuda_stream_view stream) const;
@@ -215,7 +215,7 @@ class Buffer {
      * @brief Create a copy of this buffer using the specified memory type.
      *
      * @param target The target memory type.
-     * @param stream CUDA stream used for device memory operations.
+     * @param stream CUDA stream used for device bufferallocation and copy.
      * @return A unique pointer to a new Buffer containing the copied data.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy(
