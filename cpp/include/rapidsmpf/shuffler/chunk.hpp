@@ -134,10 +134,10 @@ class Chunk {
     /**
      * @brief Returns true if the chunk is ready for consumption.
      *
-     * Checks that the shared CUDA event and the buffer's CUDA event are both ready.
-     * The shared CUDA event is used to synchronize the chunk's data across a set of
-     * chunks, while the buffer's CUDA event is used to synchronize the chunk's data
-     * if any spilling is involved.
+     * Checks that the gpu_data's CUDA event is ready, if gpu_data contains a valid
+     * buffer. The CUDA event is used to synchronize the chunk's data to ensure
+     * any allocation or copy (e.g., spilling) is complete before the chunk is
+     * consumed.
      *
      * @return true if the chunk is ready, false otherwise.
      */
