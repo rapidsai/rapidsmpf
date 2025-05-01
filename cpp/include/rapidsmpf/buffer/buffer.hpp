@@ -5,7 +5,9 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <variant>
 #include <vector>
 
@@ -18,6 +20,7 @@
 namespace rapidsmpf {
 
 class BufferResource;
+class Event;
 
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
@@ -138,13 +141,6 @@ class Buffer {
     Buffer& operator=(Buffer& o) = delete;
     Buffer& operator=(Buffer&& o) = delete;
 
-    /**
-     * @brief Destructor for Buffer.
-     *
-     * Cleans up any allocated resources.
-     */
-    ~Buffer();
-
   private:
     /**
      * @brief Construct a Buffer from host memory.
@@ -231,7 +227,7 @@ class Buffer {
     /// applicable).
     StorageT storage_;
     /// @brief CUDA event used to track copy operations
-    cudaEvent_t cuda_event_;
+    std::unique_ptr<Event> event_;
 };
 
 }  // namespace rapidsmpf

@@ -29,48 +29,6 @@ using ChunkID = std::uint64_t;
  */
 class Chunk {
   public:
-    /**
-     * @brief CUDA event to provide synchronization among set of chunks.
-     *
-     * This event is used to serve as a synchronization point for a set of chunks
-     * given a user-specified stream.
-     */
-    class Event {
-      public:
-        /**
-         * @brief Construct a CUDA event for a given stream.
-         *
-         * @param stream CUDA stream used for device memory operations
-         * @param log Logger to warn if object is destroyed before event is ready.
-         */
-        Event(rmm::cuda_stream_view stream, Communicator::Logger& log);
-
-        /**
-         * @brief Destructor for Event.
-         *
-         * Cleans up the CUDA event if one was created. If the event is not done,
-         * it will log a warning.
-         */
-        ~Event();
-
-        /**
-         * @brief Check if the CUDA event has been completed.
-         *
-         * @return true if the event has been completed, false otherwise.
-         */
-        [[nodiscard]] bool is_ready();
-
-      private:
-        cudaEvent_t event_;  ///< CUDA event used to track device memory allocation
-        Communicator::Logger&
-            log_;  ///< Logger to warn if object is destroyed before event is ready
-        std::atomic<bool> done_{false
-        };  ///< Cache of the event status to avoid unnecessary queries.
-        mutable std::mutex mutex_;  ///< Protects access to event_
-        std::atomic<bool> destroying_{false
-        };  ///< Flag to indicate destruction in progress
-    };
-
     PartID const pid;  ///< Partition ID that this chunk belongs to.
 
     ChunkID const cid;  ///< Unique ID of this chunk.
@@ -88,9 +46,6 @@ class Chunk {
     /// GPU data buffer of the packed `cudf::table` associated with this chunk.
     std::unique_ptr<Buffer> gpu_data;
 
-    /// CUDA event to provide synchronization among set of chunks.
-    std::shared_ptr<Event> event;
-
     /**
      * @brief Construct a new chunk of a partition.
      *
@@ -103,7 +58,6 @@ class Chunk {
      * chunk.
      *  @param gpu_data The gpu_data of the packed `cudf::table` that makes up this
      * chunk.
-     * @param event CUDA event to provide synchronization among set of chunks.
      */
     Chunk(
         PartID pid,
@@ -111,8 +65,7 @@ class Chunk {
         std::size_t expected_num_chunks,
         std::size_t gpu_data_size,
         std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<Buffer> gpu_data,
-        std::shared_ptr<Event> event
+        std::unique_ptr<Buffer> gpu_data
     );
 
     /**

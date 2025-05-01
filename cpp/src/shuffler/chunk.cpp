@@ -12,66 +12,23 @@
 
 namespace rapidsmpf::shuffler::detail {
 
-Chunk::Event::Event(rmm::cuda_stream_view stream, Communicator::Logger& log) : log_(log) {
-    RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event_, cudaEventDisableTiming));
-    RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream));
-}
-
-Chunk::Event::~Event() {
-    // If the event is not ready, log a warning
-    if (!is_ready()) {
-        log_.warn("Event destroyed before CUDA event completed");
-    }
-
-    // Then mark as destroying - if we fail, another thread is already destroying
-    bool expected = false;
-    if (!destroying_.compare_exchange_strong(expected, true)) {
-        return;
-    }
-
-    // Finally acquire the mutex and destroy the event
-    std::lock_guard<std::mutex> lock(mutex_);
-    cudaEventDestroy(event_);
-}
-
-[[nodiscard]] bool Chunk::Event::is_ready() {
-    // Fast path: if done or being destroyed, return immediately
-    if (done_.load(std::memory_order_relaxed)
-        || destroying_.load(std::memory_order_acquire))
-    {
-        return true;
-    }
-
-    // Acquire mutex and check destroying_ again, if being destroyed, return the
-    // previous value of done_.
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (destroying_.load(std::memory_order_acquire)) {
-        return done_.load(std::memory_order_relaxed);
-    }
-
-    // If we're not destroying, check if the event is ready
-    return cudaEventQuery(event_) == cudaSuccess;
-}
-
 Chunk::Chunk(
     PartID pid,
     ChunkID cid,
     std::size_t expected_num_chunks,
     std::size_t gpu_data_size,
     std::unique_ptr<std::vector<uint8_t>> metadata,
-    std::unique_ptr<Buffer> gpu_data,
-    std::shared_ptr<Event> event
+    std::unique_ptr<Buffer> gpu_data
 )
     : pid{pid},
       cid{cid},
       expected_num_chunks{expected_num_chunks},
       gpu_data_size{gpu_data_size},
       metadata{std::move(metadata)},
-      gpu_data{std::move(gpu_data)},
-      event{std::move(event)} {}
+      gpu_data{std::move(gpu_data)} {}
 
 Chunk::Chunk(PartID pid, ChunkID cid, std::size_t expected_num_chunks)
-    : Chunk{pid, cid, expected_num_chunks, 0, nullptr, nullptr, nullptr} {}
+    : Chunk{pid, cid, expected_num_chunks, 0, nullptr, nullptr} {}
 
 std::unique_ptr<std::vector<uint8_t>> Chunk::to_metadata_message() const {
     auto metadata_size = metadata ? metadata->size() : 0;
@@ -107,7 +64,6 @@ Chunk Chunk::from_metadata_message(std::unique_ptr<std::vector<uint8_t>> const& 
         header->expected_num_chunks,
         header->gpu_data_size,
         std::move(metadata),
-        nullptr,
         nullptr
     };
 }
@@ -131,7 +87,7 @@ std::unique_ptr<cudf::table> Chunk::unpack(rmm::cuda_stream_view stream) const {
 }
 
 bool Chunk::is_ready() const {
-    return (!event || event->is_ready()) && (!gpu_data || gpu_data->is_ready());
+    return !gpu_data || gpu_data->is_ready();
 }
 
 std::string Chunk::str(std::size_t max_nbytes, rmm::cuda_stream_view stream) const {

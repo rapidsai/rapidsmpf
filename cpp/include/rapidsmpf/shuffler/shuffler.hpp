@@ -235,8 +235,7 @@ class Shuffler {
         PartID pid,
         std::unique_ptr<std::vector<uint8_t>> metadata,
         std::unique_ptr<rmm::device_buffer> gpu_data,
-        rmm::cuda_stream_view stream,
-        std::shared_ptr<detail::Chunk::Event> event
+        rmm::cuda_stream_view stream
     ) {
         return detail::Chunk{
             pid,
@@ -244,8 +243,7 @@ class Shuffler {
             0,  // expected_num_chunks
             gpu_data ? gpu_data->size() : 0,  // gpu_data_size
             std::move(metadata),
-            br_->move(std::move(gpu_data), stream),
-            std::move(event)
+            br_->move(std::move(gpu_data), stream)
         };
     }
 
