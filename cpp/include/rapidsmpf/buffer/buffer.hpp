@@ -196,6 +196,7 @@ class Buffer {
      * @param device_buffer A unique pointer to a device buffer.
      * @param stream CUDA stream used for the device buffer allocation.
      * @param br Buffer resource for memory allocation.
+     * @param event The shared event to use for the buffer.
      *
      * @throws std::invalid_argument if `device_buffer` is null.
      * @throws std::invalid_argument if `stream` or `br->mr` isn't the same used by
@@ -204,7 +205,8 @@ class Buffer {
     Buffer(
         std::unique_ptr<rmm::device_buffer> device_buffer,
         rmm::cuda_stream_view stream,
-        BufferResource* br
+        BufferResource* br,
+        std::shared_ptr<Event> event = nullptr
     );
 
     /**
@@ -265,7 +267,7 @@ class Buffer {
     /// applicable).
     StorageT storage_;
     /// @brief CUDA event used to track copy operations
-    std::unique_ptr<Event> event_;
+    std::shared_ptr<Event> event_;
 };
 
 }  // namespace rapidsmpf

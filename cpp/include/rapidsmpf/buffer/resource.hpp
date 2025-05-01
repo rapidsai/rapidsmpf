@@ -257,10 +257,13 @@ class BufferResource {
      *
      * @param data A unique pointer to the device buffer.
      * @param stream CUDA stream used for the data allocation, copy, and/or move.
+     * @param event The event to use for the buffer.
      * @return A unique pointer to the resulting Buffer.
      */
     std::unique_ptr<Buffer> move(
-        std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+        std::unique_ptr<rmm::device_buffer> data,
+        rmm::cuda_stream_view stream,
+        std::shared_ptr<Buffer::Event> event = nullptr
     );
 
     /**

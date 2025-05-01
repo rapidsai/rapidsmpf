@@ -495,6 +495,8 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
 
+    auto event = std::make_shared<Buffer::Event>(stream_);
+
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_data] : chunks) {
         // Check if we should spill the chunk before inserting into the inbox.
@@ -513,7 +515,8 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 pid,
                 std::move(packed_data.metadata),
                 std::move(packed_data.gpu_data),
-                stream_
+                stream_,
+                event
             );
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
@@ -532,7 +535,8 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 pid,
                 std::move(packed_data.metadata),
                 std::move(packed_data.gpu_data),
-                stream_
+                stream_,
+                event
             ));
         }
     }

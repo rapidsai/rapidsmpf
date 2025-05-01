@@ -70,12 +70,13 @@ Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource
 Buffer::Buffer(
     std::unique_ptr<rmm::device_buffer> device_buffer,
     rmm::cuda_stream_view stream,
-    BufferResource* br
+    BufferResource* br,
+    std::shared_ptr<Event> event
 )
     : br{br},
       size{device_buffer ? device_buffer->size() : 0},
       storage_{std::move(device_buffer)},
-      event_{std::make_unique<Event>(stream)} {
+      event_{event ? event : std::make_shared<Event>(stream)} {
     RAPIDSMPF_EXPECTS(
         std::get<DeviceStorageT>(storage_) != nullptr, "the device buffer cannot be NULL"
     );

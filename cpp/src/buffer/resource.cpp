@@ -109,9 +109,11 @@ std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<std::vector<uint8_t
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+    std::unique_ptr<rmm::device_buffer> data,
+    rmm::cuda_stream_view stream,
+    std::shared_ptr<Buffer::Event> event
 ) {
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, this));
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, this, event));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
