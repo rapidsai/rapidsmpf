@@ -26,34 +26,32 @@ Buffer::Event::Event(rmm::cuda_stream_view stream) {
 }
 
 Buffer::Event::~Event() {
-    // Mark as destroying - if we fail, another thread is already destroying
+    // Use compare_exchange to ensure only one thread destroys the event
     bool expected = false;
-    if (!destroying_.compare_exchange_strong(expected, true)) {
-        return;
+    if (destroying_.compare_exchange_strong(expected, true)) {
+        // TODO: if we're being destroyed, warn the user if the event is
+        // not completed.
+        std::lock_guard<std::mutex> lock(mutex_);
+        cudaEventDestroy(event_);
     }
-
-    // Finally acquire the mutex and destroy the event
-    std::lock_guard<std::mutex> lock(mutex_);
-    cudaEventDestroy(event_);
 }
 
 [[nodiscard]] bool Buffer::Event::is_ready() {
-    // Fast path: if done or being destroyed, return immediately
-    if (done_.load(std::memory_order_relaxed)
-        || destroying_.load(std::memory_order_acquire))
-    {
+    // Check if we've already determined it's done or being destroyed.
+    if (done_.load(std::memory_order_relaxed)) {
         return true;
     }
 
-    // Acquire mutex and check destroying_ again, if being destroyed, return the
-    // previous value of done_.
+    // Check the actual event status under mutex protection
     std::lock_guard<std::mutex> lock(mutex_);
-    if (destroying_.load(std::memory_order_acquire)) {
-        return done_.load(std::memory_order_relaxed);
+    if (!done_.load(std::memory_order_relaxed)
+        && !destroying_.load(std::memory_order_acquire))
+    {
+        bool is_complete = (cudaEventQuery(event_) == cudaSuccess);
+        done_.store(is_complete, std::memory_order_release);
+        return is_complete;
     }
-
-    // If we're not destroying, check if the event is ready
-    return cudaEventQuery(event_) == cudaSuccess;
+    return true;
 }
 
 Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br)
