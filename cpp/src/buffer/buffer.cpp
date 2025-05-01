@@ -20,76 +20,41 @@ template <typename T>
 }
 }  // namespace
 
-/**
- * @brief CUDA event to provide synchronization among set of chunks.
- *
- * This event is used to serve as a synchronization point for a set of chunks
- * given a user-specified stream.
- */
-class Event {
-  public:
-    /**
-     * @brief Construct a CUDA event for a given stream.
-     *
-     * @param stream CUDA stream used for device memory operations
-     * @param log Logger to warn if object is destroyed before event is ready.
-     */
-    Event(rmm::cuda_stream_view stream) {
-        RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event_, cudaEventDisableTiming));
-        RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream));
+Buffer::Event::Event(rmm::cuda_stream_view stream) {
+    RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event_, cudaEventDisableTiming));
+    RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream));
+}
+
+Buffer::Event::~Event() {
+    // Mark as destroying - if we fail, another thread is already destroying
+    bool expected = false;
+    if (!destroying_.compare_exchange_strong(expected, true)) {
+        return;
     }
 
-    /**
-     * @brief Destructor for Event.
-     *
-     * Cleans up the CUDA event if one was created. If the event is not done,
-     * it will log a warning.
-     */
-    ~Event() {
-        // Mark as destroying - if we fail, another thread is already destroying
-        bool expected = false;
-        if (!destroying_.compare_exchange_strong(expected, true)) {
-            return;
-        }
+    // Finally acquire the mutex and destroy the event
+    std::lock_guard<std::mutex> lock(mutex_);
+    cudaEventDestroy(event_);
+}
 
-        // Finally acquire the mutex and destroy the event
-        std::lock_guard<std::mutex> lock(mutex_);
-        cudaEventDestroy(event_);
+[[nodiscard]] bool Buffer::Event::is_ready() {
+    // Fast path: if done or being destroyed, return immediately
+    if (done_.load(std::memory_order_relaxed)
+        || destroying_.load(std::memory_order_acquire))
+    {
+        return true;
     }
 
-    /**
-     * @brief Check if the CUDA event has been completed.
-     *
-     * @return true if the event has been completed, false otherwise.
-     */
-    [[nodiscard]] bool is_ready() {
-        // Fast path: if done or being destroyed, return immediately
-        if (done_.load(std::memory_order_relaxed)
-            || destroying_.load(std::memory_order_acquire))
-        {
-            return true;
-        }
-
-        // Acquire mutex and check destroying_ again, if being destroyed, return the
-        // previous value of done_.
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (destroying_.load(std::memory_order_acquire)) {
-            return done_.load(std::memory_order_relaxed);
-        }
-
-        // If we're not destroying, check if the event is ready
-        return cudaEventQuery(event_) == cudaSuccess;
+    // Acquire mutex and check destroying_ again, if being destroyed, return the
+    // previous value of done_.
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (destroying_.load(std::memory_order_acquire)) {
+        return done_.load(std::memory_order_relaxed);
     }
 
-  private:
-    cudaEvent_t event_;  ///< CUDA event used to track device memory allocation
-    // Communicator::Logger&
-    //     log_;  ///< Logger to warn if object is destroyed before event is ready
-    std::atomic<bool> done_{false
-    };  ///< Cache of the event status to avoid unnecessary queries.
-    mutable std::mutex mutex_;  ///< Protects access to event_
-    std::atomic<bool> destroying_{false};  ///< Flag to indicate destruction in progress
-};
+    // If we're not destroying, check if the event is ready
+    return cudaEventQuery(event_) == cudaSuccess;
+}
 
 Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br)
     : br{br},

@@ -42,6 +42,44 @@ class Buffer {
     friend class BufferResource;
 
   public:
+    /**
+     * @brief CUDA event to provide synchronization among set of chunks.
+     *
+     * This event is used to serve as a synchronization point for a set of chunks
+     * given a user-specified stream.
+     */
+    class Event {
+      public:
+        /**
+         * @brief Construct a CUDA event for a given stream.
+         *
+         * @param stream CUDA stream used for device memory operations
+         */
+        Event(rmm::cuda_stream_view stream);
+
+        /**
+         * @brief Destructor for Event.
+         *
+         * Cleans up the CUDA event if one was created.
+         */
+        ~Event();
+
+        /**
+         * @brief Check if the CUDA event has been completed.
+         *
+         * @return true if the event has been completed, false otherwise.
+         */
+        [[nodiscard]] bool is_ready();
+
+      private:
+        cudaEvent_t event_;  ///< CUDA event used to track device memory allocation
+        std::atomic<bool> done_{false
+        };  ///< Cache of the event status to avoid unnecessary queries.
+        mutable std::mutex mutex_;  ///< Protects access to event_
+        std::atomic<bool> destroying_{false
+        };  ///< Flag to indicate destruction in progress
+    };
+
     /// @brief  Storage type for the device buffer.
     using DeviceStorageT = std::unique_ptr<rmm::device_buffer>;
 
