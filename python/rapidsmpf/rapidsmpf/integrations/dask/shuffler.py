@@ -17,7 +17,7 @@ from rapidsmpf.integrations.dask.core import (
     get_progress_thread,
     get_worker_rank,
     get_worker_thread_lock,
-    global_rmp_barrier,
+    global_rmpf_barrier,
 )
 from rapidsmpf.shuffler import Shuffler
 
@@ -70,29 +70,29 @@ def get_shuffler(
     Notes
     -----
     Whenever a new :class:`Shuffler` object is created, it is
-    saved as ``dask_worker._rmp_shufflers[shuffle_id]``.
+    saved as ``dask_worker._rmpf_shufflers[shuffle_id]``.
 
     This function is expected to run on a Dask worker.
     """
     dask_worker = dask_worker or get_worker()
     with get_worker_thread_lock():
-        if shuffle_id not in dask_worker._rmp_shufflers:
+        if shuffle_id not in dask_worker._rmpf_shufflers:
             if partition_count is None:
                 raise ValueError(
                     "Need partition_count to create new shuffler."
                     f" shuffle_id: {shuffle_id}\n"
-                    f" Shufflers: {dask_worker._rmp_shufflers}"
+                    f" Shufflers: {dask_worker._rmpf_shufflers}"
                 )
-            dask_worker._rmp_shufflers[shuffle_id] = Shuffler(
+            dask_worker._rmpf_shufflers[shuffle_id] = Shuffler(
                 get_comm(dask_worker),
                 get_progress_thread(dask_worker),
                 op_id=shuffle_id,
                 total_num_partitions=partition_count,
                 stream=DEFAULT_STREAM,
-                br=dask_worker._rmp_buffer_resource,
-                statistics=dask_worker._rmp_statistics,
+                br=dask_worker._rmpf_buffer_resource,
+                statistics=dask_worker._rmpf_statistics,
             )
-    return cast(Shuffler, dask_worker._rmp_shufflers[shuffle_id])
+    return cast(Shuffler, dask_worker._rmpf_shufflers[shuffle_id])
 
 
 @runtime_checkable
@@ -150,7 +150,7 @@ class DaskIntegration(Protocol[DataFrameT]):
         """
 
 
-def _worker_rmp_barrier(
+def _worker_rmpf_barrier(
     shuffle_ids: tuple[int, ...],
     partition_count: int,
     dependency: None,
@@ -396,10 +396,10 @@ def rapidsmpf_shuffle_graph(
     restricted_keys: MutableMapping[Any, str] = {}
 
     # Define task names for each phase of the shuffle
-    insert_name = f"rmp-insert-{output_name}"
-    global_barrier_1_name = f"rmp-global-barrier-1-{output_name}"
-    global_barrier_2_name = f"rmp-global-barrier-2-{output_name}"
-    worker_barrier_name = f"rmp-worker-barrier-{output_name}"
+    insert_name = f"rmpf-insert-{output_name}"
+    global_barrier_1_name = f"rmpf-global-barrier-1-{output_name}"
+    global_barrier_2_name = f"rmpf-global-barrier-2-{output_name}"
+    worker_barrier_name = f"rmpf-worker-barrier-{output_name}"
 
     # Stage a shuffler on every worker for this shuffle id
     client.run(
@@ -427,7 +427,7 @@ def rapidsmpf_shuffle_graph(
 
     # Add global barrier task
     graph[(global_barrier_1_name, 0)] = (
-        global_rmp_barrier,
+        global_rmpf_barrier,
         list(graph.keys()),
     )
 
@@ -437,7 +437,7 @@ def rapidsmpf_shuffle_graph(
         key = (worker_barrier_name, rank)
         worker_barriers[rank] = key
         graph[key] = (
-            _worker_rmp_barrier,
+            _worker_rmpf_barrier,
             (shuffle_id,),
             partition_count_out,
             (global_barrier_1_name, 0),
@@ -446,7 +446,7 @@ def rapidsmpf_shuffle_graph(
 
     # Add global barrier task
     graph[(global_barrier_2_name, 0)] = (
-        global_rmp_barrier,
+        global_rmpf_barrier,
         list(worker_barriers.values()),
     )
 
@@ -470,7 +470,7 @@ def rapidsmpf_shuffle_graph(
     # to specific workers
     client._send_to_scheduler(
         {
-            "op": "rmp_add_restricted_tasks",
+            "op": "rmpf_add_restricted_tasks",
             "tasks": restricted_keys,
         }
     )

@@ -76,7 +76,7 @@ class SpillableWrapper(Generic[WrappedType]):
             # If running on a Worker, add this wrapper to the worker's spill collection,
             # which makes it available for spilling on demand.
             try:
-                spill_collection: SpillCollection = get_worker()._rmp_spill_collection
+                spill_collection: SpillCollection = get_worker()._rmpf_spill_collection
             except ValueError:
                 pass
             else:

@@ -41,7 +41,7 @@ def get_worker_thread_lock() -> threading.RLock:
     """
     Return the worker thread lock.
 
-    Guard access to a dask worker's `_rmp_shufflers` attribute.
+    Guard access to a dask worker's `_rmpf_shufflers` attribute.
 
     Returns
     -------
@@ -71,7 +71,7 @@ def get_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
     return get_comm(dask_worker).rank
 
 
-def global_rmp_barrier(dependencies: Sequence[None]) -> None:
+def global_rmpf_barrier(dependencies: Sequence[None]) -> None:
     """
     Global barrier for RapidsMPF shuffle.
 
@@ -142,7 +142,7 @@ async def rapidsmpf_ucxx_rank_setup_node(
     return None
 
 
-def rmp_worker_setup(
+def rmpf_worker_setup(
     dask_worker: distributed.Worker,
     *,
     spill_device: float,
@@ -182,26 +182,26 @@ def rmp_worker_setup(
     This function is expected to run on a Dask worker.
     """
     with get_worker_thread_lock():
-        if hasattr(dask_worker, "_rmp_shufflers"):
+        if hasattr(dask_worker, "_rmpf_shufflers"):
             return  # Worker already initialized
 
         # We start with no active shufflers
-        dask_worker._rmp_shufflers = {}
+        dask_worker._rmpf_shufflers = {}
 
         # Print statistics at worker shutdown.
         if enable_statistics:
-            dask_worker._rmp_statistics = Statistics(enable=True)
+            dask_worker._rmpf_statistics = Statistics(enable=True)
             weakref.finalize(
                 dask_worker,
                 lambda name, stats: print(name, stats.report()),
                 name=str(dask_worker),
-                stats=dask_worker._rmp_statistics,
+                stats=dask_worker._rmpf_statistics,
             )
         else:
-            dask_worker._rmp_statistics = None
+            dask_worker._rmpf_statistics = None
 
         dask_worker._rapidsmpf_progress_thread = ProgressThread(
-            dask_worker._rapidsmpf_comm, dask_worker._rmp_statistics
+            dask_worker._rapidsmpf_comm, dask_worker._rmpf_statistics
         )
 
         # Setup a buffer_resource.
@@ -214,7 +214,7 @@ def rmp_worker_setup(
                 mr, limit=int(total_memory * spill_device)
             )
         }
-        dask_worker._rmp_buffer_resource = BufferResource(
+        dask_worker._rmpf_buffer_resource = BufferResource(
             mr,
             memory_available=memory_available,
             periodic_spill_check=periodic_spill_check,
@@ -223,9 +223,9 @@ def rmp_worker_setup(
         # Add a new spill collection to enable spilling of DataFrames. We use a
         # negative priority (-10) such that spilling within shufflers have
         # higher priority than spilling of DataFrames.
-        dask_worker._rmp_spill_collection = SpillCollection()
-        dask_worker._rmp_buffer_resource.spill_manager.add_spill_function(
-            func=dask_worker._rmp_spill_collection.spill, priority=-10
+        dask_worker._rmpf_spill_collection = SpillCollection()
+        dask_worker._rmpf_buffer_resource.spill_manager.add_spill_function(
+            func=dask_worker._rmpf_spill_collection.spill, priority=-10
         )
 
 
@@ -278,7 +278,7 @@ def bootstrap_dask_cluster(
         return
 
     # Scheduler stuff
-    scheduler_plugin = RMPSchedulerPlugin()
+    scheduler_plugin = RMPFSchedulerPlugin()
     client.register_plugin(scheduler_plugin)
 
     workers = sorted(client.scheduler_info()["workers"])
@@ -307,7 +307,7 @@ def bootstrap_dask_cluster(
 
     # Finally, prepare the RapidsMPF resources on top of the UCXX comms
     client.run(
-        rmp_worker_setup,
+        rmpf_worker_setup,
         spill_device=spill_device,
         periodic_spill_check=periodic_spill_check,
         enable_statistics=enable_statistics,
@@ -317,7 +317,7 @@ def bootstrap_dask_cluster(
     _initialized_clusters.add(client.id)
 
 
-class RMPSchedulerPlugin(SchedulerPlugin):
+class RMPFSchedulerPlugin(SchedulerPlugin):
     """
     RAPIDS-MP Scheduler Plugin.
 
@@ -328,10 +328,10 @@ class RMPSchedulerPlugin(SchedulerPlugin):
     """
 
     scheduler: Scheduler
-    _rmp_restricted_tasks: dict[str, str]
+    _rmpf_restricted_tasks: dict[str, str]
 
     def __init__(self) -> None:
-        self._rmp_restricted_tasks = {}
+        self._rmpf_restricted_tasks = {}
         self.scheduler = None
 
     async def start(  # noqa: D102
@@ -339,10 +339,10 @@ class RMPSchedulerPlugin(SchedulerPlugin):
     ) -> None:  # numpydoc ignore=GL08
         self.scheduler = scheduler
         self.scheduler.stream_handlers.update(
-            {"rmp_add_restricted_tasks": self.rmp_add_restricted_tasks}
+            {"rmpf_add_restricted_tasks": self.rmpf_add_restricted_tasks}
         )
 
-    def rmp_add_restricted_tasks(self, *args: Any, **kwargs: Any) -> None:
+    def rmpf_add_restricted_tasks(self, *args: Any, **kwargs: Any) -> None:
         """
         Add restricted tasks that must run on specific workers.
 
@@ -356,7 +356,7 @@ class RMPSchedulerPlugin(SchedulerPlugin):
         """
         tasks = kwargs.pop("tasks", ())
         for key, worker in tasks.items():
-            self._rmp_restricted_tasks[key] = worker
+            self._rmpf_restricted_tasks[key] = worker
 
     def update_graph(self, *args: Any, **kwargs: Any) -> None:
         """
@@ -369,12 +369,12 @@ class RMPSchedulerPlugin(SchedulerPlugin):
         **kwargs
             Key-word arguments. Used to access new tasks.
         """
-        if self._rmp_restricted_tasks:
+        if self._rmpf_restricted_tasks:
             tasks = kwargs.pop("tasks", [])
             for key in tasks:
                 ts: TaskState = self.scheduler.tasks[key]
-                if key in self._rmp_restricted_tasks:
-                    worker = self._rmp_restricted_tasks.pop(key)
+                if key in self._rmpf_restricted_tasks:
+                    worker = self._rmpf_restricted_tasks.pop(key)
                     self.scheduler.set_restrictions({ts.key: {worker}})
 
 
