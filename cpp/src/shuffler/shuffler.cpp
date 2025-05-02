@@ -34,8 +34,6 @@ namespace {
  * @param size The size of the buffer in bytes.
  * @param stream CUDA stream to use for device allocations.
  * @param br Buffer resource used for the reservation and allocation.
- * @param log Logger to warn if object is destroyed before event is ready.
- * @param enable_event Whether to track CUDA events for this buffer.
  * @returns A new buffer or nullptr.
  */
 std::unique_ptr<Buffer> allocate_buffer(
