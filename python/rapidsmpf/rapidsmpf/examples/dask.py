@@ -47,7 +47,7 @@ class DaskCudfIntegration:
         shuffler: Shuffler,
     ) -> None:
         """
-        Add cudf DataFrame chunks to an RMP shuffler.
+        Add cudf DataFrame chunks to an RMPF shuffler.
 
         Parameters
         ----------
@@ -77,7 +77,7 @@ class DaskCudfIntegration:
         shuffler: Shuffler,
     ) -> cudf.DataFrame:
         """
-        Extract a finished partition from the RMP shuffler.
+        Extract a finished partition from the RMPF shuffler.
 
         Parameters
         ----------
