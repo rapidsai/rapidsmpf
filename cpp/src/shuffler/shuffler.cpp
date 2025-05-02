@@ -176,7 +176,7 @@ class Shuffler::Progress {
 
         // Check for new chunks in the inbox and send off their metadata.
         auto const t0_send_metadata = Clock::now();
-        for (auto&& chunk : shuffler_.outgoing_chunks_.extract_all()) {
+        for (auto&& chunk : shuffler_.outgoing_chunks_.extract_all_ready()) {
             auto dst = shuffler_.partition_owner(shuffler_.comm_, chunk.pid);
             log.trace("send metadata to ", dst, ": ", chunk);
             RAPIDSMPF_EXPECTS(
