@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import threading
 import weakref
@@ -68,6 +69,7 @@ class DaskWorkerContext:
     spill_collection: SpillCollection = field(default_factory=SpillCollection)
     statistics: Statistics | None = None
     shufflers: dict[int, Shuffler] = field(default_factory=dict)
+    spill_staging_buffer: rmm.DeviceBuffer = None
 
 
 def get_worker_context(
@@ -250,12 +252,20 @@ def rmpf_worker_setup(
             periodic_spill_check=periodic_spill_check,
         )
 
-        # Add a new spill collection to enable spilling of DataFrames. We use a
-        # negative priority (-10) such that spilling within shufflers have
-        # higher priority than spilling of DataFrames.
-        ctx.br.spill_manager.add_spill_function(
-            func=ctx.spill_collection.spill, priority=-10
+        # Create a spill function that spills the python objects in the spill-
+        # collection. This way, we have a central place (the dask worker) to track
+        # and trigger spilling of python objects. Additionally, we create a staging
+        # device buffer for the spilling to reduce device memory pressure.
+        ctx.spill_staging_buffer = rmm.DeviceBuffer(size=2**25, mr=mr)
+        spill_func = functools.partial(
+            ctx.spill_collection.spill,
+            context={"staging_device_buffer": ctx.spill_staging_buffer},
         )
+
+        # Add the spill function using a negative priority (-10) such that spilling
+        # of internal shuffle buffers (non-python objects) have higher priority than
+        # spilling of the Python objects in the collection.
+        ctx.br.spill_manager.add_spill_function(func=spill_func, priority=-10)
 
 
 _initialized_clusters: set[str] = set()
