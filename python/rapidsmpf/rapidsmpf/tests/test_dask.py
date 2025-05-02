@@ -54,7 +54,9 @@ async def test_dask_ucxx_cluster_sync() -> None:
 
         def get_rank(dask_worker: Worker) -> int:
             # TODO: maybe move the cast into rapidsmpf_comm?
-            return cast(int, get_worker_context(dask_worker).comm.rank)
+            comm = get_worker_context(dask_worker).comm
+            assert comm is not None
+            return comm.rank
 
         result = client.run(get_rank)
         assert set(result.values()) == set(range(len(cluster.workers)))

@@ -40,31 +40,12 @@ DataFrameT = TypeVar("DataFrameT")
 @dataclass
 class DaskWorkerContext:
     lock: ClassVar[threading.RLock] = threading.RLock()
+    br: BufferResource | None = None
+    progress_thread: ProgressThread | None = None
+    comm: Communicator | None = None
     spill_collection: SpillCollection = field(default_factory=SpillCollection)
     statistics: Statistics | None = None
     shufflers: dict[int, Shuffler] = field(default_factory=dict)
-
-    _br: BufferResource | None = None
-    _progress_thread: ProgressThread | None = None
-    _comm: Communicator | None = None
-
-    @property
-    def br(self) -> BufferResource:
-        if self._br is None:
-            raise ValueError("Buffer resource has not been initialized")
-        return self._br
-
-    @property
-    def progress_thread(self) -> ProgressThread:
-        if self._progress_thread is None:
-            raise ValueError("Progress thread has not been initialized")
-        return self._progress_thread
-
-    @property
-    def comm(self) -> Communicator:
-        if self._comm is None:
-            raise ValueError("Communicator has not been initialized")
-        return self._comm
 
 
 def get_worker_context(
@@ -131,7 +112,7 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int) -> bytes:
         The UCXX address of the root node.
     """
     ctx = get_worker_context()
-    ctx._comm = new_communicator(n_ranks, None, None)
+    ctx.comm = new_communicator(n_ranks, None, None)
     ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
     return get_root_ucxx_address(ctx.comm)
 
@@ -150,9 +131,9 @@ async def rapidsmpf_ucxx_rank_setup_node(
         The UCXX address of the root node.
     """
     ctx = get_worker_context()
-    if ctx._comm is None:
+    if ctx.comm is None:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-        ctx._comm = new_communicator(n_ranks, None, root_address)
+        ctx.comm = new_communicator(n_ranks, None, root_address)
         ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
 
     ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier")
@@ -211,7 +192,8 @@ def rmpf_worker_setup(
                 stats=ctx.statistics,
             )
 
-        ctx._progress_thread = ProgressThread(ctx.comm, ctx.statistics)
+        assert ctx.comm is not None
+        ctx.progress_thread = ProgressThread(ctx.comm, ctx.statistics)
 
         # Setup a buffer_resource.
         # Wrap the current RMM resource in statistics adaptor.
@@ -223,7 +205,7 @@ def rmpf_worker_setup(
                 mr, limit=int(total_memory * spill_device)
             )
         }
-        ctx._br = BufferResource(
+        ctx.br = BufferResource(
             mr,
             memory_available=memory_available,
             periodic_spill_check=periodic_spill_check,
@@ -416,7 +398,9 @@ def get_comm(dask_worker: distributed.Worker | None = None) -> Communicator:
     -----
     This function is expected to run on a Dask worker.
     """
-    return get_worker_context(dask_worker).comm
+    comm = get_worker_context(dask_worker).comm
+    assert comm is not None
+    return comm
 
 
 def get_progress_thread(
@@ -439,4 +423,5 @@ def get_progress_thread(
     This function is expected to run on a Dask worker.
     """
     ctx = get_worker_context(dask_worker)
+    assert ctx.progress_thread is not None
     return ctx.progress_thread

@@ -84,6 +84,7 @@ def get_shuffler(
                     f" shuffle_id: {shuffle_id}\n"
                     f" Shufflers: {ctx.shufflers}"
                 )
+            assert ctx.br is not None
             ctx.shufflers[shuffle_id] = Shuffler(
                 get_comm(dask_worker),
                 get_progress_thread(dask_worker),
