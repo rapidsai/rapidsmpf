@@ -38,6 +38,7 @@ DataFrameT = TypeVar("DataFrameT")
 @dataclass
 class DaskWorkerContext:
     lock: ClassVar[threading.RLock] = threading.RLock()
+    spill_collection = SpillCollection()
     statistics: Statistics | None = None
     _br: BufferResource | None = None
 
@@ -233,9 +234,8 @@ def rmpf_worker_setup(
         # Add a new spill collection to enable spilling of DataFrames. We use a
         # negative priority (-10) such that spilling within shufflers have
         # higher priority than spilling of DataFrames.
-        dask_worker._rmpf_spill_collection = SpillCollection()
         ctx.br.spill_manager.add_spill_function(
-            func=dask_worker._rmpf_spill_collection.spill, priority=-10
+            func=ctx.spill_collection.spill, priority=-10
         )
 
 
