@@ -19,6 +19,7 @@
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/progress_thread.hpp>
@@ -228,11 +229,13 @@ class Shuffler {
      * @param pid The partition ID of the new chunk.
      * @param metadata The metadata of the new chunk, can be null.
      * @param gpu_data The gpu data of the new chunk, can be null.
+     * @param event Event tracking all stream-ordered work populating `gpu_data`.
      */
     [[nodiscard]] detail::Chunk create_chunk(
         PartID pid,
         std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<rmm::device_buffer> gpu_data
+        std::unique_ptr<rmm::device_buffer> gpu_data,
+        std::shared_ptr<Event> event = nullptr
     ) {
         return detail::Chunk{
             pid,
@@ -240,7 +243,7 @@ class Shuffler {
             0,  // expected_num_chunks
             gpu_data ? gpu_data->size() : 0,  // gpu_data_size
             std::move(metadata),
-            br_->move(std::move(gpu_data))
+            br_->move(std::move(gpu_data), event)
         };
     }
 

@@ -15,6 +15,7 @@
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -470,11 +471,16 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
 
+    auto event = std::make_shared<Event>();
+    // Record all work on the application stream: the contents of the
+    // PackedData values depend on this work.
+    event->record(stream_);
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_data] : chunks) {
-        // Check if we should spill the chunk before inserting into the inbox.
+        // Check if we should spill the chunk before inserting into
+        // the inbox. Only necessary if gpu_data has non-zero size.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
-        if (headroom < 0 && packed_data.gpu_data) {
+        if (headroom < 0 && packed_data.gpu_data && packed_data.gpu_data->size() > 0) {
             auto [host_reservation, host_overbooking] =
                 br_->reserve(MemoryType::HOST, packed_data.gpu_data->size(), true);
             if (host_overbooking > 0) {
@@ -485,7 +491,10 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 continue;
             }
             auto chunk = create_chunk(
-                pid, std::move(packed_data.metadata), std::move(packed_data.gpu_data)
+                pid,
+                std::move(packed_data.metadata),
+                std::move(packed_data.gpu_data),
+                event
             );
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
@@ -501,7 +510,10 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             insert(std::move(chunk));
         } else {
             insert(create_chunk(
-                pid, std::move(packed_data.metadata), std::move(packed_data.gpu_data)
+                pid,
+                std::move(packed_data.metadata),
+                std::move(packed_data.gpu_data),
+                event
             ));
         }
     }

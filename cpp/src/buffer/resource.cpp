@@ -4,8 +4,10 @@
  */
 
 #include <limits>
+#include <memory>
 
 #include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/cuda_event.hpp>
 
 namespace rapidsmpf {
 
@@ -93,11 +95,14 @@ std::unique_ptr<Buffer> BufferResource::allocate(
         );
         break;
     case MemoryType::DEVICE:
-        auto event = std::make_shared<Event>();
-        auto buf = std::make_unique<rmm::device_buffer>(size, stream, device_mr_);
-        event->record(stream);
-        ret = std::make_unique<Buffer>(Buffer{std::move(buf), this, std::move(event)});
-        break;
+        {
+            auto event = std::make_shared<Event>();
+            auto buf = std::make_unique<rmm::device_buffer>(size, stream, device_mr_);
+            event->record(stream);
+            ret =
+                std::make_unique<Buffer>(Buffer{std::move(buf), this, std::move(event)});
+            break;
+        }
     default:
         RAPIDSMPF_FAIL("MemoryType: unknown");
     }
@@ -109,8 +114,10 @@ std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<std::vector<uint8_t
     return std::make_unique<Buffer>(Buffer{std::move(data), this, nullptr});
 }
 
-std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<rmm::device_buffer> data) {
-    return std::make_unique<Buffer>(Buffer{std::move(data), this});
+std::unique_ptr<Buffer> BufferResource::move(
+    std::unique_ptr<rmm::device_buffer> data, std::shared_ptr<Event> event
+) {
+    return std::make_unique<Buffer>(Buffer{std::move(data), this, event});
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
