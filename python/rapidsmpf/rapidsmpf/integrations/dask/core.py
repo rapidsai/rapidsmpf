@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     import distributed
     from distributed.scheduler import Scheduler, TaskState
 
+    from rapidsmpf.shuffler import Shuffler
+
 
 _dask_logger = logging.getLogger("distributed.worker")
 DataFrameT = TypeVar("DataFrameT")
@@ -71,6 +73,8 @@ class DaskWorkerContext:
         if self._progress_thread is not None:
             raise ValueError("Cannot overwrite progress thread.")
         self._progress_thread = value
+
+    shufflers: dict[int, Shuffler] = field(default_factory=dict)
 
 
 def get_worker_context(
@@ -216,9 +220,6 @@ def rmpf_worker_setup(
     """
     ctx = get_worker_context(dask_worker)
     with ctx.lock:
-        # We start with no active shufflers
-        dask_worker._rmpf_shufflers = {}
-
         # Print statistics at worker shutdown.
         if enable_statistics:
             ctx.statistics = Statistics(enable=True)

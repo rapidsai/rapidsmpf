@@ -70,21 +70,21 @@ def get_shuffler(
     Notes
     -----
     Whenever a new :class:`Shuffler` object is created, it is
-    saved as ``dask_worker._rmpf_shufflers[shuffle_id]``.
+    saved as ``DaskWorkerContext.shufflers[shuffle_id]``.
 
     This function is expected to run on a Dask worker.
     """
     dask_worker = dask_worker or get_worker()
     ctx = get_worker_context(dask_worker)
     with ctx.lock:
-        if shuffle_id not in dask_worker._rmpf_shufflers:
+        if shuffle_id not in ctx.shufflers:
             if partition_count is None:
                 raise ValueError(
                     "Need partition_count to create new shuffler."
                     f" shuffle_id: {shuffle_id}\n"
-                    f" Shufflers: {dask_worker._rmpf_shufflers}"
+                    f" Shufflers: {ctx.shufflers}"
                 )
-            dask_worker._rmpf_shufflers[shuffle_id] = Shuffler(
+            ctx.shufflers[shuffle_id] = Shuffler(
                 get_comm(dask_worker),
                 get_progress_thread(dask_worker),
                 op_id=shuffle_id,
@@ -93,7 +93,7 @@ def get_shuffler(
                 br=ctx.br,
                 statistics=ctx.statistics,
             )
-    return cast(Shuffler, dask_worker._rmpf_shufflers[shuffle_id])
+    return cast(Shuffler, ctx.shufflers[shuffle_id])
 
 
 @runtime_checkable
