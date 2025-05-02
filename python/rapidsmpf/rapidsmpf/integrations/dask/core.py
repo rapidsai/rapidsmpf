@@ -176,7 +176,6 @@ async def rapidsmpf_ucxx_rank_setup_node(
     comm.logger.trace(f"Rank {comm.rank} setup barrier")
     barrier(comm)
     comm.logger.trace(f"Rank {comm.rank} setup barrier passed")
-    return None
 
 
 def rmpf_worker_setup(
