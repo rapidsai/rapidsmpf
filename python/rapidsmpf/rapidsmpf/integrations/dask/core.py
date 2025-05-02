@@ -350,7 +350,7 @@ class RMPFSchedulerPlugin(SchedulerPlugin):
     """
     RapidsMPF Scheduler Plugin.
 
-    The plugin helps manage integration with the RAPIDS-MP
+    The plugin helps manage integration with the RAPIDS-MPF
     shuffle service by making it possible for the client
     to inform the scheduler of tasks that must be
     constrained to specific workers.
