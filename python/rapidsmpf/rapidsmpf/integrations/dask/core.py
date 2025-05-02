@@ -46,9 +46,9 @@ class DaskWorkerContext:
     ----------
     lock
         The global worker lock. Must be acquired before accessing attributes
-        that might be modified while the worker is running (e.g. shufflers).
+        that might be modified while the worker is running such as the shufflers.
     br
-        The buffer resource used by worker exclusively.
+        The buffer resource used by the worker exclusively.
     progress_thread
         The progress thread used by the worker.
     comm
