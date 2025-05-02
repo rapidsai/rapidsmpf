@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from distributed import get_worker
 
@@ -93,7 +93,7 @@ def get_shuffler(
                 br=ctx.br,
                 statistics=ctx.statistics,
             )
-    return cast(Shuffler, ctx.shufflers[shuffle_id])
+    return ctx.shufflers[shuffle_id]
 
 
 @runtime_checkable
