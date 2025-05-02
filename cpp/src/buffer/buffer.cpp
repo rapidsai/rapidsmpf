@@ -181,10 +181,7 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
 }
 
 bool Buffer::is_ready() const {
-    if (event_ == nullptr) {
-        return true;  // No device memory operation was performed
-    }
-    return event_->is_ready();
+    return !event || event_->is_ready();
 }
 
 }  // namespace rapidsmpf
