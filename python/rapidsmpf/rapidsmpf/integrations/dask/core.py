@@ -52,6 +52,8 @@ class DaskWorkerContext:
     def br(self, value: BufferResource) -> None:
         if value is None:
             raise ValueError("Cannot set buffer resource to None.")
+        if self._br is not None:
+            raise ValueError("Cannot overwrite buffer resource.")
         self._br = value
 
 
