@@ -110,6 +110,8 @@ class DaskIntegration(Protocol[DataFrameT]):
         on: Sequence[str],
         partition_count: int,
         shuffler: Shuffler,
+        boundaries: DataFrameT | None,
+        options: dict[str, Any],
     ) -> None:
         """
         Add a partition to a RapidsMPF Shuffler.
@@ -124,6 +126,11 @@ class DaskIntegration(Protocol[DataFrameT]):
             Number of output partitions for the current shuffle.
         shuffler
             The RapidsMPF Shuffler object to extract from.
+        boundaries
+            Output partition boundaries for sorting. If None,
+            hashing will be used to calculate output partitions.
+        options
+            Optional key-work arguments.
         """
 
     @staticmethod
@@ -218,6 +225,8 @@ def _insert_partition(
     on: Sequence[str],
     partition_count: int,
     shuffle_id: int,
+    boundaries_name: str | tuple[str, int] | None,
+    options: dict[str, Any],
 ) -> None:
     """
     Add a partition to a RapidsMPF Shuffler.
@@ -236,6 +245,11 @@ def _insert_partition(
         Number of output partitions for the current shuffle.
     shuffle_id
         The RapidsMPF shuffle id.
+    boundaries_name
+        The task name for sorting boundaries. Only needed
+        if the shuffle is in service of a sort operation.
+    options
+        Optional key-word arguments.
     """
     if callback is None:
         raise ValueError("callback missing in _insert_partition.")
@@ -246,6 +260,8 @@ def _insert_partition(
         on,
         partition_count,
         get_shuffler(shuffle_id),
+        boundaries_name,
+        options,
     )
 
 
@@ -296,6 +312,9 @@ def rapidsmpf_shuffle_graph(
     partition_count_in: int,
     partition_count_out: int,
     integration: DaskIntegration,
+    *,
+    boundaries_name: str | tuple[str, int] | None = None,
+    **options: dict[str, Any],
 ) -> dict[Any, Any]:
     """
     Return the task graph for a RapidsMPF shuffle.
@@ -309,13 +328,23 @@ def rapidsmpf_shuffle_graph(
     column_names
         Sequence of output column names.
     shuffle_on
-        Sequence of column names to shuffle on (by hash).
+        Sequence of column names to shuffle on. Output
+        partitions will be based on the hash of these
+        columns, unless ``sort_boundaries_name`` is
+        specified. In the case of sorting, output
+        partitioning will be based on the first element
+        of ``shuffle_on`` only.
     partition_count_in
         Partition count of input collection.
     partition_count_out
         Partition count of output collection.
     integration
         Dask-integration specification.
+    boundaries_name
+        The task name for sorting boundaries. Only needed
+        if the shuffle is in service of a sort operation.
+    **options
+        Optional key-word arguments.
 
     Returns
     -------
@@ -421,6 +450,8 @@ def rapidsmpf_shuffle_graph(
             shuffle_on,
             partition_count_out,
             shuffle_id,
+            boundaries_name,
+            options,
         )
         for pid in range(partition_count_in)
     }

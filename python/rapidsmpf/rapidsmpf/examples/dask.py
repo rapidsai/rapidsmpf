@@ -18,6 +18,7 @@ from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import Any
 
     import dask_cudf
 
@@ -45,6 +46,8 @@ class DaskCudfIntegration:
         on: Sequence[str],
         partition_count: int,
         shuffler: Shuffler,
+        boundaries: cudf.DataFrame | None,
+        options: dict[str, Any],
     ) -> None:
         """
         Add cudf DataFrame chunks to an RMP shuffler.
@@ -59,7 +62,15 @@ class DaskCudfIntegration:
             Number of output partitions for the current shuffle.
         shuffler
             The RapidsMPF Shuffler object to extract from.
+        boundaries
+            Output partition boundaries for sorting.
+        options
+            Optional key-work arguments.
         """
+        if boundaries is not None:
+            raise ValueError("Dask-cudf sort is not yet supported in rapimdsmpf.")
+        if options:
+            raise ValueError(f"Unsupported options: {options}")
         columns_to_hash = tuple(list(df.columns).index(val) for val in on)
         packed_inputs = partition_and_pack(
             df.to_pylibcudf()[0],
