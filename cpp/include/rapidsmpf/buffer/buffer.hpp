@@ -9,8 +9,10 @@
 #include <variant>
 #include <vector>
 
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf {
@@ -32,6 +34,9 @@ constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType
  * @note The constructors are private, use `BufferResource` to construct buffers.
  * @note The memory type (e.g., host or device) is constant and cannot change during
  * the buffer's lifetime.
+ * @note A buffer is a stream-ordered object, when passing to a
+ * library which is not stream-aware one must ensure that `is_ready`
+ * returns `true` otherwise behaviour is undefined.
  */
 class Buffer {
     friend class BufferResource;
@@ -106,6 +111,14 @@ class Buffer {
     [[nodiscard]] void const* data() const;
 
     /**
+     * @brief Check if the buffer is ready to be used.
+     *
+     * @return true If all stream-ordered work on the buffer is
+     * complete.
+     */
+    [[nodiscard]] bool is_ready() const;
+
+    /**
      * @brief Get the memory type of the buffer.
      *
      * @return The memory type of the buffer.
@@ -134,22 +147,34 @@ class Buffer {
      *
      * @param host_buffer A unique pointer to a vector containing host memory.
      * @param br Buffer resource for memory allocation.
+     * @param event Event tracking all stream-ordered work populating
+     * `host_buffer`. Discarded if the `host_buffer` is zero-sized.
      *
      * @throws std::invalid_argument if `host_buffer` is null.
      */
-    Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br);
+    Buffer(
+        std::unique_ptr<std::vector<uint8_t>> host_buffer,
+        BufferResource* br,
+        std::shared_ptr<Event> event
+    );
 
     /**
      * @brief Construct a Buffer from device memory.
      *
      * @param device_buffer A unique pointer to a device buffer.
      * @param br Buffer resource for memory allocation.
+     * @param event Event tracking all stream-ordered work populating
+     * `device_buffer`. Discarded if the `device_buffer` is zero-sized.
      *
      * @throws std::invalid_argument if `device_buffer` is null.
      * @throws std::invalid_argument if `stream` or `br->mr` isn't the same used by
      * `device_buffer`.
      */
-    Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource* br);
+    Buffer(
+        std::unique_ptr<rmm::device_buffer> device_buffer,
+        BufferResource* br,
+        std::shared_ptr<Event> event
+    );
 
     /**
      * @brief Access the underlying host memory buffer.
@@ -208,6 +233,9 @@ class Buffer {
     /// @brief The underlying storage host memory or device memory buffer (where
     /// applicable).
     StorageT storage_;
+
+    std::shared_ptr<Event> event_{nullptr
+    };  ///< Event used to ensure work to populate gpu data is complete.
 };
 
 }  // namespace rapidsmpf
