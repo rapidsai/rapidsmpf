@@ -13,7 +13,6 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 from rapidsmpf.integrations.dask.core import (
     DataFrameT,
     get_dask_client,
-    get_progress_thread,
     get_worker_context,
     get_worker_rank,
     global_rmpf_barrier,
@@ -73,7 +72,6 @@ def get_shuffler(
 
     This function is expected to run on a Dask worker.
     """
-    dask_worker = dask_worker or get_worker()
     ctx = get_worker_context(dask_worker)
     with ctx.lock:
         if shuffle_id not in ctx.shufflers:
@@ -85,9 +83,10 @@ def get_shuffler(
                 )
             assert ctx.br is not None
             assert ctx.comm is not None
+            assert ctx.progress_thread is not None
             ctx.shufflers[shuffle_id] = Shuffler(
                 ctx.comm,
-                get_progress_thread(dask_worker),
+                ctx.progress_thread,
                 op_id=shuffle_id,
                 total_num_partitions=partition_count,
                 stream=DEFAULT_STREAM,

@@ -417,27 +417,3 @@ def get_dask_client() -> distributed.Client:
     client = get_client()
     bootstrap_dask_cluster(client)  # Make sure the cluster supports RapidsMPF
     return client
-
-
-def get_progress_thread(
-    dask_worker: distributed.Worker | None = None,
-) -> ProgressThread:
-    """
-    Get the RAPIDS-MP progress thread for a Dask worker.
-
-    Parameters
-    ----------
-    dask_worker
-        Local Dask worker.
-
-    Returns
-    -------
-    Current RapidsMPF progress thread.
-
-    Notes
-    -----
-    This function is expected to run on a Dask worker.
-    """
-    ctx = get_worker_context(dask_worker)
-    assert ctx.progress_thread is not None
-    return ctx.progress_thread
