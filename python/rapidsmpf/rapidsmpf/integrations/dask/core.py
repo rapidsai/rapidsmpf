@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import threading
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
 
 import ucxx._lib.libucxx as ucx_api
@@ -38,7 +38,7 @@ DataFrameT = TypeVar("DataFrameT")
 @dataclass
 class DaskWorkerContext:
     lock: ClassVar[threading.RLock] = threading.RLock()
-    spill_collection = SpillCollection()
+    spill_collection: SpillCollection = field(default_factory=SpillCollection)
     statistics: Statistics | None = None
     _br: BufferResource | None = None
 
