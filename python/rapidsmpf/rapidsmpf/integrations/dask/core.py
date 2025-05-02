@@ -56,6 +56,22 @@ class DaskWorkerContext:
             raise ValueError("Cannot overwrite buffer resource.")
         self._br = value
 
+    _progress_thread: ProgressThread | None = None
+
+    @property
+    def progress_thread(self) -> ProgressThread:
+        if self._progress_thread is None:
+            raise ValueError("Progress thread has not been initialized")
+        return self._progress_thread
+
+    @progress_thread.setter
+    def progress_thread(self, value: ProgressThread) -> None:
+        if value is None:
+            raise ValueError("Cannot set progress thread to None.")
+        if self._progress_thread is not None:
+            raise ValueError("Cannot overwrite progress thread.")
+        self._progress_thread = value
+
 
 def get_worker_context(
     dask_worker: distributed.Worker | None = None,
@@ -213,7 +229,7 @@ def rmpf_worker_setup(
                 stats=ctx.statistics,
             )
 
-        dask_worker._rapidsmpf_progress_thread = ProgressThread(
+        ctx.progress_thread = ProgressThread(
             dask_worker._rapidsmpf_comm, ctx.statistics
         )
 
@@ -446,8 +462,5 @@ def get_progress_thread(
     -----
     This function is expected to run on a Dask worker.
     """
-    dask_worker = dask_worker or get_worker()
-    assert isinstance(dask_worker._rapidsmpf_progress_thread, ProgressThread), (
-        f"Expected ProgressThread, got {dask_worker._rapidsmpf_progress_thread}"
-    )
-    return dask_worker._rapidsmpf_progress_thread
+    ctx = get_worker_context(dask_worker)
+    return ctx.progress_thread
