@@ -39,6 +39,27 @@ DataFrameT = TypeVar("DataFrameT")
 
 @dataclass
 class DaskWorkerContext:
+    """
+    RapidsMPF specific attributes for a Dask worker.
+
+    Attributes
+    ----------
+    lock
+        The global worker lock. Must be acquired before accessing attributes that might be modified while the worker is running (e.g. shufflers).
+    br
+        The buffer resource used by worker exclusively.
+    progress_thread
+        The progress used by the worker.
+    comm
+        The UCXX communication connected to all other workers in the Dask cluster.
+    spill_collection
+        A collection of Python objects that can be spilled to free up device memory.
+    statistics
+        The statistics used by the worker. If None, statistics is disabled.
+    shufflers
+        A mapping from shuffler IDs to active shuffler instances.
+    """
+
     lock: ClassVar[threading.RLock] = threading.RLock()
     br: BufferResource | None = None
     progress_thread: ProgressThread | None = None
@@ -51,6 +72,22 @@ class DaskWorkerContext:
 def get_worker_context(
     dask_worker: distributed.Worker | None = None,
 ) -> DaskWorkerContext:
+    """
+    Retrieve the `DaskWorkerContext` associated with a Dask worker.
+
+    If the worker context does not already exist on the worker, it will be created
+    and attached to the worker under the attribute `_rapidsmpf_worker_context`.
+
+    Parameters
+    ----------
+    dask_worker
+        An optional Dask worker instance. If not provided, the current worker
+        is retrieved using `get_worker()`.
+
+    Returns
+    -------
+    The existing or newly initialized worker context.
+    """
     with DaskWorkerContext.lock:
         dask_worker = dask_worker or get_worker()
         if not hasattr(dask_worker, "_rapidsmpf_worker_context"):
