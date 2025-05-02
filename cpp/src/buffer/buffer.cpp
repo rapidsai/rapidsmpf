@@ -181,7 +181,7 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
 }
 
 bool Buffer::is_ready() const {
-    return !event || event_->is_ready();
+    return !event_ || event_->is_ready();
 }
 
 }  // namespace rapidsmpf

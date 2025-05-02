@@ -78,6 +78,8 @@ class Buffer {
         mutable std::mutex mutex_;  ///< Protects access to event_
         std::atomic<bool> destroying_{false
         };  ///< Flag to indicate destruction in progress
+        std::atomic<int> active_readers_{0
+        };  ///< Number of threads currently executing is_ready()
     };
 
     /// @brief  Storage type for the device buffer.
