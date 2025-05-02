@@ -7,7 +7,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
 import dask.sizeof
-from distributed import get_worker
 from distributed.protocol.cuda import (
     cuda_deserialize,
     cuda_dumps,
@@ -18,6 +17,7 @@ from distributed.protocol.serialize import dask_dumps, dask_loads
 from distributed.utils import log_errors
 
 from rapidsmpf.buffer.buffer import MemoryType
+from rapidsmpf.integrations.dask.core import get_worker_context
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -76,7 +76,9 @@ class SpillableWrapper(Generic[WrappedType]):
             # If running on a Worker, add this wrapper to the worker's spill collection,
             # which makes it available for spilling on demand.
             try:
-                spill_collection: SpillCollection = get_worker()._rmp_spill_collection
+                spill_collection: SpillCollection = (
+                    get_worker_context().spill_collection
+                )
             except ValueError:
                 pass
             else:
