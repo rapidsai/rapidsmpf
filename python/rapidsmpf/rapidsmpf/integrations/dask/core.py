@@ -112,8 +112,9 @@ def get_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
     -----
     This function is expected to run on a Dask worker.
     """
-    dask_worker = dask_worker or get_worker()
-    return get_comm(dask_worker).rank
+    comm = get_worker_context(dask_worker).comm
+    assert comm is not None
+    return comm.rank
 
 
 def global_rmpf_barrier(dependencies: Sequence[None]) -> None:
@@ -416,28 +417,6 @@ def get_dask_client() -> distributed.Client:
     client = get_client()
     bootstrap_dask_cluster(client)  # Make sure the cluster supports RapidsMPF
     return client
-
-
-def get_comm(dask_worker: distributed.Worker | None = None) -> Communicator:
-    """
-    Get the RAPIDS-MP UCXX comm for a Dask worker.
-
-    Parameters
-    ----------
-    dask_worker
-        Local Dask worker.
-
-    Returns
-    -------
-    Current RapidsMPF communicator.
-
-    Notes
-    -----
-    This function is expected to run on a Dask worker.
-    """
-    comm = get_worker_context(dask_worker).comm
-    assert comm is not None
-    return comm
 
 
 def get_progress_thread(

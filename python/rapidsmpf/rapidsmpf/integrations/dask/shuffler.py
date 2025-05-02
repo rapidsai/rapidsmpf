@@ -12,7 +12,6 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.integrations.dask.core import (
     DataFrameT,
-    get_comm,
     get_dask_client,
     get_progress_thread,
     get_worker_context,
@@ -85,8 +84,9 @@ def get_shuffler(
                     f" Shufflers: {ctx.shufflers}"
                 )
             assert ctx.br is not None
+            assert ctx.comm is not None
             ctx.shufflers[shuffle_id] = Shuffler(
-                get_comm(dask_worker),
+                ctx.comm,
                 get_progress_thread(dask_worker),
                 op_id=shuffle_id,
                 total_num_partitions=partition_count,
