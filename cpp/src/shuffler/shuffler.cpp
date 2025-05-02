@@ -221,26 +221,36 @@ class Shuffler::Progress {
 
         // Post receives for incoming chunks
         auto const t0_post_incoming_chunk_recv = Clock::now();
-        for (auto first_chunk = incoming_chunks_.begin();
-             first_chunk != incoming_chunks_.end();)
-        {
-            // Note, extract_item invalidates the iterator, so must increment here.
-            auto [src, chunk] = extract_item(incoming_chunks_, first_chunk++);
-            log.trace("picked incoming chunk data from ", src, ": ", chunk);
+        for (auto it = incoming_chunks_.begin(); it != incoming_chunks_.end();) {
+            auto& [src, chunk] = *it;
+            log.trace("Processing incoming chunk data from ", src, ": ", chunk);
             // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
             // directly to the outbox.
             if (chunk.gpu_data_size > 0) {
-                // Create a new buffer and let the buffer resource decide the memory type.
-                auto recv_buffer = allocate_buffer(
-                    chunk.gpu_data_size, shuffler_.stream_, shuffler_.br_
-                );
-                if (recv_buffer->mem_type() == MemoryType::HOST) {
-                    stats.add_bytes_stat("spill-bytes-recv-to-host", recv_buffer->size);
+                if (!chunk.gpu_data) {
+                    // Create a new buffer and let the buffer resource decide the memory
+                    // type.
+                    chunk.gpu_data = allocate_buffer(
+                        chunk.gpu_data_size, shuffler_.stream_, shuffler_.br_
+                    );
+                    if (chunk.gpu_data->mem_type() == MemoryType::HOST) {
+                        stats.add_bytes_stat(
+                            "spill-bytes-recv-to-host", chunk.gpu_data->size
+                        );
+                    }
+                }
+                if (!chunk.gpu_data->is_ready()) {
+                    // Allocation not yet complete
+                    ++it;
+                    continue;
                 }
 
+                // OK, allocation is ready.
+                // Extraction invalidates the iterator, so increment here.
+                auto [src, chunk] = extract_item(incoming_chunks_, it++);
                 // Setup to receive the chunk into `in_transit_*`.
                 auto future =
-                    shuffler_.comm_->recv(src, gpu_data_tag, std::move(recv_buffer));
+                    shuffler_.comm_->recv(src, gpu_data_tag, std::move(chunk.gpu_data));
                 RAPIDSMPF_EXPECTS(
                     in_transit_futures_.insert({chunk.cid, std::move(future)}).second,
                     "in transit future already exist"
@@ -260,6 +270,7 @@ class Shuffler::Progress {
                     shuffler_.br_
                 ));
             } else {
+                auto [src, chunk] = extract_item(incoming_chunks_, it++);
                 if (chunk.gpu_data == nullptr) {
                     chunk.gpu_data = allocate_buffer(0, shuffler_.stream_, shuffler_.br_);
                 }
