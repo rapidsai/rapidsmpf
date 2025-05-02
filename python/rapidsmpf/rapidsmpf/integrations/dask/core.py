@@ -50,9 +50,9 @@ class DaskWorkerContext:
     br
         The buffer resource used by worker exclusively.
     progress_thread
-        The progress used by the worker.
+        The progress thread used by the worker.
     comm
-        The UCXX communication connected to all other workers in the Dask cluster.
+        The UCXX communicator connected to all other workers in the Dask cluster.
     spill_collection
         A collection of Python objects that can be spilled to free up device memory.
     statistics
@@ -348,7 +348,7 @@ def bootstrap_dask_cluster(
 
 class RMPFSchedulerPlugin(SchedulerPlugin):
     """
-    RAPIDS-MP Scheduler Plugin.
+    RapidsMPF Scheduler Plugin.
 
     The plugin helps manage integration with the RAPIDS-MP
     shuffle service by making it possible for the client
