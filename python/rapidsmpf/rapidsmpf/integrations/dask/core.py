@@ -19,7 +19,6 @@ import rmm.mr
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.buffer.spill_collection import SpillCollection
-from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.statistics import Statistics
@@ -30,6 +29,7 @@ if TYPE_CHECKING:
     import distributed
     from distributed.scheduler import Scheduler, TaskState
 
+    from rapidsmpf.communicator.communicator import Communicator
     from rapidsmpf.shuffler import Shuffler
 
 
@@ -42,7 +42,11 @@ class DaskWorkerContext:
     lock: ClassVar[threading.RLock] = threading.RLock()
     spill_collection: SpillCollection = field(default_factory=SpillCollection)
     statistics: Statistics | None = None
+    shufflers: dict[int, Shuffler] = field(default_factory=dict)
+
     _br: BufferResource | None = None
+    _progress_thread: ProgressThread | None = None
+    _comm: Communicator | None = None
 
     @property
     def br(self) -> BufferResource:
@@ -58,8 +62,6 @@ class DaskWorkerContext:
             raise ValueError("Cannot overwrite buffer resource.")
         self._br = value
 
-    _progress_thread: ProgressThread | None = None
-
     @property
     def progress_thread(self) -> ProgressThread:
         if self._progress_thread is None:
@@ -74,7 +76,19 @@ class DaskWorkerContext:
             raise ValueError("Cannot overwrite progress thread.")
         self._progress_thread = value
 
-    shufflers: dict[int, Shuffler] = field(default_factory=dict)
+    @property
+    def comm(self) -> Communicator:
+        if self._comm is None:
+            raise ValueError("Communicator has not been initialized")
+        return self._comm
+
+    @comm.setter
+    def comm(self, value: Communicator) -> None:
+        if value is None:
+            raise ValueError("Cannot set communicator to None.")
+        if self._comm is not None:
+            raise ValueError("Cannot overwrite communicator.")
+        self._comm = value
 
 
 def get_worker_context(
@@ -140,12 +154,10 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int) -> bytes:
     bytes
         The UCXX address of the root node.
     """
-    dask_worker = get_worker()
-
-    comm = new_communicator(n_ranks, None, None)
-    comm.logger.trace(f"Rank {comm.rank} created")
-    dask_worker._rapidsmpf_comm = comm
-    return get_root_ucxx_address(comm)
+    ctx = get_worker_context()
+    ctx.comm = new_communicator(n_ranks, None, None)
+    ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
+    return get_root_ucxx_address(ctx.comm)
 
 
 async def rapidsmpf_ucxx_rank_setup_node(
@@ -161,21 +173,15 @@ async def rapidsmpf_ucxx_rank_setup_node(
     root_address_bytes
         The UCXX address of the root node.
     """
-    dask_worker = get_worker()
-
-    if hasattr(dask_worker, "_rapidsmpf_comm"):
-        assert isinstance(dask_worker._rapidsmpf_comm, Communicator)
-        comm = dask_worker._rapidsmpf_comm
-    else:
+    ctx = get_worker_context()
+    if ctx._comm is None:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-        comm = new_communicator(n_ranks, None, root_address)
+        ctx.comm = new_communicator(n_ranks, None, root_address)
+        ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
 
-        comm.logger.trace(f"Rank {comm.rank} created")
-        dask_worker._rapidsmpf_comm = comm
-
-    comm.logger.trace(f"Rank {comm.rank} setup barrier")
-    barrier(comm)
-    comm.logger.trace(f"Rank {comm.rank} setup barrier passed")
+    ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier")
+    barrier(ctx.comm)
+    ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier passed")
 
 
 def rmpf_worker_setup(
@@ -229,9 +235,7 @@ def rmpf_worker_setup(
                 stats=ctx.statistics,
             )
 
-        ctx.progress_thread = ProgressThread(
-            dask_worker._rapidsmpf_comm, ctx.statistics
-        )
+        ctx.progress_thread = ProgressThread(ctx.comm, ctx.statistics)
 
         # Setup a buffer_resource.
         # Wrap the current RMM resource in statistics adaptor.
@@ -436,11 +440,7 @@ def get_comm(dask_worker: distributed.Worker | None = None) -> Communicator:
     -----
     This function is expected to run on a Dask worker.
     """
-    dask_worker = dask_worker or get_worker()
-    assert isinstance(dask_worker._rapidsmpf_comm, Communicator), (
-        f"Expected Communicator, got {dask_worker._rapidsmpf_comm}"
-    )
-    return dask_worker._rapidsmpf_comm
+    return get_worker_context(dask_worker).comm
 
 
 def get_progress_thread(

@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, cast
 import dask
 import pytest
 
+from rapidsmpf.integrations.dask.core import get_worker_context
+
 dask_cuda = pytest.importorskip("dask_cuda")
 
 from dask.distributed import Client  # noqa: E402
@@ -52,7 +54,7 @@ async def test_dask_ucxx_cluster_sync() -> None:
 
         def get_rank(dask_worker: Worker) -> int:
             # TODO: maybe move the cast into rapidsmpf_comm?
-            return cast(int, dask_worker._rapidsmpf_comm.rank)
+            return cast(int, get_worker_context(dask_worker).comm.rank)
 
         result = client.run(get_rank)
         assert set(result.values()) == set(range(len(cluster.workers)))
@@ -94,10 +96,12 @@ def test_dask_cudf_integration(loop: pytest.FixtureDef, partition_count: int) ->
 def test_bootstrap_dask_cluster_idempotent() -> None:
     with LocalCUDACluster() as cluster, Client(cluster) as client:
         bootstrap_dask_cluster(client, spill_device=0.1)
-        before = client.run(lambda dask_worker: id(dask_worker._rapidsmpf_comm))
+        before = client.run(
+            lambda dask_worker: id(get_worker_context(dask_worker).comm)
+        )
 
         bootstrap_dask_cluster(client, spill_device=0.1)
-        after = client.run(lambda dask_worker: id(dask_worker._rapidsmpf_comm))
+        after = client.run(lambda dask_worker: id(get_worker_context(dask_worker).comm))
         assert before == after
 
 
