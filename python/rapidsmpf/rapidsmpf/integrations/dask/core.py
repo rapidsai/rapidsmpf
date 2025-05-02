@@ -54,41 +54,17 @@ class DaskWorkerContext:
             raise ValueError("Buffer resource has not been initialized")
         return self._br
 
-    @br.setter
-    def br(self, value: BufferResource) -> None:
-        if value is None:
-            raise ValueError("Cannot set buffer resource to None.")
-        if self._br is not None:
-            raise ValueError("Cannot overwrite buffer resource.")
-        self._br = value
-
     @property
     def progress_thread(self) -> ProgressThread:
         if self._progress_thread is None:
             raise ValueError("Progress thread has not been initialized")
         return self._progress_thread
 
-    @progress_thread.setter
-    def progress_thread(self, value: ProgressThread) -> None:
-        if value is None:
-            raise ValueError("Cannot set progress thread to None.")
-        if self._progress_thread is not None:
-            raise ValueError("Cannot overwrite progress thread.")
-        self._progress_thread = value
-
     @property
     def comm(self) -> Communicator:
         if self._comm is None:
             raise ValueError("Communicator has not been initialized")
         return self._comm
-
-    @comm.setter
-    def comm(self, value: Communicator) -> None:
-        if value is None:
-            raise ValueError("Cannot set communicator to None.")
-        if self._comm is not None:
-            raise ValueError("Cannot overwrite communicator.")
-        self._comm = value
 
 
 def get_worker_context(
@@ -155,7 +131,7 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int) -> bytes:
         The UCXX address of the root node.
     """
     ctx = get_worker_context()
-    ctx.comm = new_communicator(n_ranks, None, None)
+    ctx._comm = new_communicator(n_ranks, None, None)
     ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
     return get_root_ucxx_address(ctx.comm)
 
@@ -176,7 +152,7 @@ async def rapidsmpf_ucxx_rank_setup_node(
     ctx = get_worker_context()
     if ctx._comm is None:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-        ctx.comm = new_communicator(n_ranks, None, root_address)
+        ctx._comm = new_communicator(n_ranks, None, root_address)
         ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
 
     ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier")
@@ -235,7 +211,7 @@ def rmpf_worker_setup(
                 stats=ctx.statistics,
             )
 
-        ctx.progress_thread = ProgressThread(ctx.comm, ctx.statistics)
+        ctx._progress_thread = ProgressThread(ctx.comm, ctx.statistics)
 
         # Setup a buffer_resource.
         # Wrap the current RMM resource in statistics adaptor.
@@ -247,7 +223,7 @@ def rmpf_worker_setup(
                 mr, limit=int(total_memory * spill_device)
             )
         }
-        ctx.br = BufferResource(
+        ctx._br = BufferResource(
             mr,
             memory_available=memory_available,
             periodic_spill_check=periodic_spill_check,
