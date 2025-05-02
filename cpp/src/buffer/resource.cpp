@@ -90,8 +90,8 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     case MemoryType::HOST:
         // TODO: use pinned memory, maybe use rmm::mr::pinned_memory_resource and
         // std::pmr::vector?
-        ret = std::make_unique<Buffer>(
-            Buffer{std::make_unique<std::vector<uint8_t>>(size), this, nullptr}
+        ret = std::unique_ptr<Buffer>(
+            new Buffer{std::make_unique<std::vector<uint8_t>>(size), this, nullptr}
         );
         break;
     case MemoryType::DEVICE:
@@ -100,7 +100,8 @@ std::unique_ptr<Buffer> BufferResource::allocate(
             auto buf = std::make_unique<rmm::device_buffer>(size, stream, device_mr_);
             event->record(stream);
             ret =
-                std::make_unique<Buffer>(Buffer{std::move(buf), this, std::move(event)});
+                std::unique_ptr<Buffer>(new Buffer{std::move(buf), this, std::move(event)}
+                );
             break;
         }
     default:
@@ -111,13 +112,13 @@ std::unique_ptr<Buffer> BufferResource::allocate(
 }
 
 std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<std::vector<uint8_t>> data) {
-    return std::make_unique<Buffer>(Buffer{std::move(data), this, nullptr});
+    return std::unique_ptr<Buffer>(new Buffer{std::move(data), this, nullptr});
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<rmm::device_buffer> data, std::shared_ptr<Event> event
 ) {
-    return std::make_unique<Buffer>(Buffer{std::move(data), this, event});
+    return std::unique_ptr<Buffer>(new Buffer{std::move(data), this, event});
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
