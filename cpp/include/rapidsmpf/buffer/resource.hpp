@@ -6,6 +6,7 @@
 #pragma once
 
 #include <array>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
@@ -15,6 +16,7 @@
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/spill_manager.hpp>
+#include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -256,9 +258,12 @@ class BufferResource {
      * @brief Move device buffer data into a Buffer.
      *
      * @param data A unique pointer to the device buffer.
+     * @param event Event tracking all stream-ordered work populating `data`.
      * @return A unique pointer to the resulting Buffer.
      */
-    std::unique_ptr<Buffer> move(std::unique_ptr<rmm::device_buffer> data);
+    std::unique_ptr<Buffer> move(
+        std::unique_ptr<rmm::device_buffer> data, std::shared_ptr<Event> event
+    );
 
     /**
      * @brief Move a Buffer to the specified memory type.

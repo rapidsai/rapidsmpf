@@ -90,6 +90,13 @@ class PostBox {
     std::vector<Chunk> extract_all();
 
     /**
+     * @brief Extracts all ready chunks from the PostBox.
+     *
+     * @return A vector of all ready chunks in the PostBox.
+     */
+    std::vector<Chunk> extract_all_ready();
+
+    /**
      * @brief Checks if the PostBox is empty.
      *
      * @return `true` if the PostBox is empty, `false` otherwise.

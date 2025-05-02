@@ -15,6 +15,7 @@
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -175,7 +176,7 @@ class Shuffler::Progress {
 
         // Check for new chunks in the inbox and send off their metadata.
         auto const t0_send_metadata = Clock::now();
-        for (auto&& chunk : shuffler_.outgoing_chunks_.extract_all()) {
+        for (auto&& chunk : shuffler_.outgoing_chunks_.extract_all_ready()) {
             auto dst = shuffler_.partition_owner(shuffler_.comm_, chunk.pid);
             log.trace("send metadata to ", dst, ": ", chunk);
             RAPIDSMPF_EXPECTS(
@@ -220,26 +221,36 @@ class Shuffler::Progress {
 
         // Post receives for incoming chunks
         auto const t0_post_incoming_chunk_recv = Clock::now();
-        for (auto first_chunk = incoming_chunks_.begin();
-             first_chunk != incoming_chunks_.end();)
-        {
-            // Note, extract_item invalidates the iterator, so must increment here.
-            auto [src, chunk] = extract_item(incoming_chunks_, first_chunk++);
-            log.trace("picked incoming chunk data from ", src, ": ", chunk);
+        for (auto it = incoming_chunks_.begin(); it != incoming_chunks_.end();) {
+            auto& [src, chunk] = *it;
+            log.trace("Processing incoming chunk data from ", src, ": ", chunk);
             // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
             // directly to the outbox.
             if (chunk.gpu_data_size > 0) {
-                // Create a new buffer and let the buffer resource decide the memory type.
-                auto recv_buffer = allocate_buffer(
-                    chunk.gpu_data_size, shuffler_.stream_, shuffler_.br_
-                );
-                if (recv_buffer->mem_type() == MemoryType::HOST) {
-                    stats.add_bytes_stat("spill-bytes-recv-to-host", recv_buffer->size);
+                if (!chunk.gpu_data) {
+                    // Create a new buffer and let the buffer resource decide the memory
+                    // type.
+                    chunk.gpu_data = allocate_buffer(
+                        chunk.gpu_data_size, shuffler_.stream_, shuffler_.br_
+                    );
+                    if (chunk.gpu_data->mem_type() == MemoryType::HOST) {
+                        stats.add_bytes_stat(
+                            "spill-bytes-recv-to-host", chunk.gpu_data->size
+                        );
+                    }
+                }
+                if (!chunk.gpu_data->is_ready()) {
+                    // Allocation not yet complete
+                    ++it;
+                    continue;
                 }
 
+                // OK, allocation is ready.
+                // Extraction invalidates the iterator, so increment here.
+                auto [src, chunk] = extract_item(incoming_chunks_, it++);
                 // Setup to receive the chunk into `in_transit_*`.
                 auto future =
-                    shuffler_.comm_->recv(src, gpu_data_tag, std::move(recv_buffer));
+                    shuffler_.comm_->recv(src, gpu_data_tag, std::move(chunk.gpu_data));
                 RAPIDSMPF_EXPECTS(
                     in_transit_futures_.insert({chunk.cid, std::move(future)}).second,
                     "in transit future already exist"
@@ -259,6 +270,7 @@ class Shuffler::Progress {
                     shuffler_.br_
                 ));
             } else {
+                auto [src, chunk] = extract_item(incoming_chunks_, it++);
                 if (chunk.gpu_data == nullptr) {
                     chunk.gpu_data = allocate_buffer(0, shuffler_.stream_, shuffler_.br_);
                 }
@@ -470,11 +482,16 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
 
+    auto event = std::make_shared<Event>();
+    // Record all work on the application stream: the contents of the
+    // PackedData values depend on this work.
+    event->record(stream_);
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_data] : chunks) {
-        // Check if we should spill the chunk before inserting into the inbox.
+        // Check if we should spill the chunk before inserting into
+        // the inbox. Only necessary if gpu_data has non-zero size.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
-        if (headroom < 0 && packed_data.gpu_data) {
+        if (headroom < 0 && packed_data.gpu_data && packed_data.gpu_data->size() > 0) {
             auto [host_reservation, host_overbooking] =
                 br_->reserve(MemoryType::HOST, packed_data.gpu_data->size(), true);
             if (host_overbooking > 0) {
@@ -485,7 +502,10 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 continue;
             }
             auto chunk = create_chunk(
-                pid, std::move(packed_data.metadata), std::move(packed_data.gpu_data)
+                pid,
+                std::move(packed_data.metadata),
+                std::move(packed_data.gpu_data),
+                event
             );
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
@@ -501,7 +521,10 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             insert(std::move(chunk));
         } else {
             insert(create_chunk(
-                pid, std::move(packed_data.metadata), std::move(packed_data.gpu_data)
+                pid,
+                std::move(packed_data.metadata),
+                std::move(packed_data.gpu_data),
+                event
             ));
         }
     }
