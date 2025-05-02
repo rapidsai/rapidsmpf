@@ -171,7 +171,7 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
 
                 // The event is created here instead of the constructor because the
                 // memcpy is async, but the buffer is created on the host.
-                new_buffer->event_ = std::make_unique<Event>(stream);
+                new_buffer->event_ = std::make_shared<Event>(stream);
 
                 return new_buffer;
             }
