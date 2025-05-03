@@ -25,7 +25,7 @@ dependencies:
 - libcudf==25.6.*,>=0.0.0a0
 - libucxx==0.44.*,>=0.0.0a0
 - make
-- mpi4py
+- mpi4py>=3,<4
 - myst-parser
 - ninja
 - numpydoc
