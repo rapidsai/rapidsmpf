@@ -106,7 +106,7 @@ std::unique_ptr<cudf::table> Chunk::unpack(rmm::cuda_stream_view stream) const {
 }
 
 bool Chunk::is_ready() const {
-    return (expected_num_chunks > 0) || (gpu_data && gpu_data->is_ready());
+    return expected_num_chunks > 0 || !gpu_data || gpu_data->is_ready();
 }
 
 std::string Chunk::str(std::size_t max_nbytes, rmm::cuda_stream_view stream) const {
