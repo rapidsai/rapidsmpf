@@ -64,11 +64,11 @@ class Buffer {
      * given a user-specified stream.
      *
      * @note To prevent undefined behavior due to unfinished memory operations, events
-     * should be used in the followingcases, if any of the operations below was
+     * should be used in the following cases, if any of the operations below was
      * performed *asynchronously with respect to the host*:
      * 1. Before addressing a device buffer's allocation.
      * 2. Before accessing a device buffer's data whose data has been copied from
-     * any location, or that has been processed by a CUDA kernel;
+     * any location, or that has been processed by a CUDA kernel.
      * 3. Before accessing a host buffer's data whose data has been copied from device,
      * or processed by a CUDA kernel.
      */
