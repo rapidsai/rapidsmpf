@@ -5,10 +5,13 @@
 from __future__ import annotations
 
 import threading
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from weakref import WeakValueDictionary
 
 from rapidsmpf.buffer.buffer import MemoryType
+
+if TYPE_CHECKING:
+    import rmm
 
 
 @runtime_checkable
@@ -33,7 +36,9 @@ class Spillable(Protocol):
         The amount of memory in bytes.
         """
 
-    def spill(self, amount: int) -> int:
+    def spill(
+        self, amount: int, *, staging_device_buffer: rmm.DeviceBuffer | None = None
+    ) -> int:
         """
         Spill a specified amount of memory.
 
@@ -41,6 +46,10 @@ class Spillable(Protocol):
         ----------
         amount
             The amount of memory to spill in bytes.
+        staging_device_buffer
+            An optional preallocated device buffer that can be used as temporary
+            staging space during the spill operation. If not provided, a new buffer
+            may be allocated internally.
 
         Returns
         -------
@@ -84,7 +93,9 @@ class SpillCollection:
             self._key_counter += 1
             self._spillables[memtype][self._key_counter] = obj
 
-    def spill(self, amount: int) -> int:
+    def spill(
+        self, amount: int, *, staging_device_buffer: rmm.DeviceBuffer | None = None
+    ) -> int:
         """
         Spill memory from device to host until the requested amount is reached.
 
@@ -96,6 +107,10 @@ class SpillCollection:
         ----------
         amount
             The amount of memory to spill in bytes.
+        staging_device_buffer
+            An optional preallocated device buffer that can be used as temporary
+            staging space during the spill operation. If not provided, a new buffer
+            may be allocated internally.
 
         Returns
         -------
@@ -127,7 +142,9 @@ class SpillCollection:
         spilled: list[Spillable] = []
         spilled_amount = 0
         for obj in to_spill:
-            spilled_amount += obj.spill(amount - spilled_amount)
+            spilled_amount += obj.spill(
+                amount - spilled_amount, staging_device_buffer=staging_device_buffer
+            )
             spilled.append(obj)
 
         # Add the spilled objects to host memory spillables.

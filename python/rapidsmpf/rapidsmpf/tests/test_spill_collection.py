@@ -2,8 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.spill_collection import SpillCollection, Spillable
+
+if TYPE_CHECKING:
+    import rmm
 
 
 class MySpillableObject:
@@ -17,7 +22,9 @@ class MySpillableObject:
     def approx_spillable_amount(self) -> int:
         return self._nbytes
 
-    def spill(self, amount: int) -> int:
+    def spill(
+        self, amount: int, *, staging_device_buffer: rmm.DeviceBuffer | None = None
+    ) -> int:
         self._mem_type = MemoryType.HOST
         return self._nbytes
 

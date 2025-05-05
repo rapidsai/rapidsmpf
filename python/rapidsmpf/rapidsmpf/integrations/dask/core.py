@@ -259,7 +259,7 @@ def rmpf_worker_setup(
         ctx.spill_staging_buffer = rmm.DeviceBuffer(size=2**25, mr=mr)
         spill_func = functools.partial(
             ctx.spill_collection.spill,
-            context={"staging_device_buffer": ctx.spill_staging_buffer},
+            staging_device_buffer=ctx.spill_staging_buffer,
         )
 
         # Add the spill function using a negative priority (-10) such that spilling
