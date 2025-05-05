@@ -49,6 +49,9 @@ overloaded(Ts...) -> overloaded<Ts...>;
  * @note The constructors are private, use `BufferResource` to construct buffers.
  * @note The memory type (e.g., host or device) is constant and cannot change during
  * the buffer's lifetime.
+ * @note A buffer is a stream-ordered object, when passing to a library which is
+ * not stream-aware one must ensure that `is_ready` returns `true` otherwise
+ * behaviour is undefined.
  */
 class Buffer {
     friend class BufferResource;
@@ -59,6 +62,15 @@ class Buffer {
      *
      * This event is used to serve as a synchronization point for a set of chunks
      * given a user-specified stream.
+     *
+     * @note To prevent undefined behavior due to unfinished memory operations, events
+     * should be used in the followingcases, if any of the operations below was
+     * performed *asynchronously with respect to the host*:
+     * 1. Before addressing a device buffer's allocation.
+     * 2. Before accessing a device buffer's data whose data has been copied from
+     * any location, or that has been processed by a CUDA kernel;
+     * 3. Before accessing a host buffer's data whose data has been copied from device,
+     * or processed by a CUDA kernel.
      */
     class Event {
       public:
@@ -256,7 +268,7 @@ class Buffer {
      * @brief Create a copy of this buffer using the specified memory type.
      *
      * @param target The target memory type.
-     * @param stream CUDA stream used for device bufferallocation and copy.
+     * @param stream CUDA stream used for device buffer allocation and copy.
      * @return A unique pointer to a new Buffer containing the copied data.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy(
