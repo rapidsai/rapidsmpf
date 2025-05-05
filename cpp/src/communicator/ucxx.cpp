@@ -1085,6 +1085,10 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
+    if (!msg->is_ready()) {
+        logger().warn("msg is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
     auto req = get_endpoint(rank)->tagSend(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
     );
@@ -1094,6 +1098,10 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
+    if (!recv_buffer->is_ready()) {
+        logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
     auto req = get_endpoint(rank)->tagRecv(
         recv_buffer->data(),
         recv_buffer->size,
