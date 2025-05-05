@@ -134,8 +134,9 @@ class Chunk {
      * Checks that the gpu_data's CUDA event is ready, if gpu_data contains a valid
      * buffer. The CUDA event is used to synchronize the chunk's data to ensure
      * any allocation or copy (e.g., spilling) is complete before the chunk is
-     * consumed. If expected_num_chunks is greater than 0, the chunk is considered
-     * always ready as it should not have any CUDA data to receive.
+     * consumed. If expected_num_chunks is greater than 0, or gpu_data_size is 0,
+     * the chunk is considered always ready as it should not have any CUDA data
+     * to receive.
      *
      * @return true if the chunk is ready, false otherwise.
      */
