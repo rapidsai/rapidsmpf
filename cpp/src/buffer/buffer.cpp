@@ -26,60 +26,19 @@ Buffer::Event::Event(rmm::cuda_stream_view stream) {
 }
 
 Buffer::Event::~Event() {
-    // First mark as destroying to prevent new readers
-    destroying_.store(true, std::memory_order_release);
-
-    // Wait for any pending is_ready() calls to complete
-    while (active_readers_.load(std::memory_order_acquire) > 0) {
-        std::this_thread::yield();
-    }
-
-    // Now safe to destroy as no readers can start and no readers are active
-    std::lock_guard<std::mutex> lock(mutex_);
     // TODO: if we're being destroyed, warn the user if the event is
     // not completed.
     cudaEventDestroy(event_);
 }
 
 [[nodiscard]] bool Buffer::Event::is_ready() {
-    // First register as an active reader
-    active_readers_.fetch_add(1, std::memory_order_acquire);
-
-    auto exit_if_destroying = [&]() -> std::optional<bool> {
-        if (destroying_.load(std::memory_order_acquire)) {
-            bool done = done_.load(std::memory_order_relaxed);
-            active_readers_.fetch_sub(1, std::memory_order_release);
-            return done;
-        }
-        return std::nullopt;
-    };
-
-    // Early exit if destroying
-    if (auto destroying = exit_if_destroying()) {
-        return *destroying;
+    if (!done_.load(std::memory_order_relaxed)) {
+        bool result = cudaEventQuery(event_) == cudaSuccess;
+        done_.store(result, std::memory_order_relaxed);
+        return result;
     }
 
-    // Check if we've already determined it's done
-    if (done_.load(std::memory_order_relaxed)) {
-        active_readers_.fetch_sub(1, std::memory_order_release);
-        return true;
-    }
-
-    std::lock_guard<std::mutex> lock(mutex_);
-    // Recheck destroying_ under lock
-    if (auto destroying = exit_if_destroying()) {
-        return *destroying;
-    }
-
-    bool done = done_.load(std::memory_order_relaxed);
-    if (!done) {
-        bool is_complete = (cudaEventQuery(event_) == cudaSuccess);
-        done_.store(is_complete, std::memory_order_release);
-        done = is_complete;
-    }
-
-    active_readers_.fetch_sub(1, std::memory_order_release);
-    return done;
+    return true;
 }
 
 Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br)
