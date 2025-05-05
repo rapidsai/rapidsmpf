@@ -27,8 +27,27 @@ Chunk::Chunk(
       metadata{std::move(metadata)},
       gpu_data{std::move(gpu_data)} {}
 
+Chunk::Chunk(
+    PartID pid,
+    ChunkID cid,
+    std::size_t gpu_data_size,
+    std::unique_ptr<std::vector<uint8_t>> metadata,
+    std::unique_ptr<Buffer> gpu_data
+)
+    : pid{pid},
+      cid{cid},
+      expected_num_chunks{0},
+      gpu_data_size{gpu_data_size},
+      metadata{std::move(metadata)},
+      gpu_data{std::move(gpu_data)} {}
+
 Chunk::Chunk(PartID pid, ChunkID cid, std::size_t expected_num_chunks)
-    : Chunk{pid, cid, expected_num_chunks, 0, nullptr, nullptr} {}
+    : pid{pid},
+      cid{cid},
+      expected_num_chunks{expected_num_chunks},
+      gpu_data_size{0},
+      metadata{nullptr},
+      gpu_data{nullptr} {}
 
 std::unique_ptr<std::vector<uint8_t>> Chunk::to_metadata_message() const {
     auto metadata_size = metadata ? metadata->size() : 0;
@@ -87,7 +106,7 @@ std::unique_ptr<cudf::table> Chunk::unpack(rmm::cuda_stream_view stream) const {
 }
 
 bool Chunk::is_ready() const {
-    return !gpu_data || gpu_data->is_ready();
+    return (expected_num_chunks > 0) || (!gpu_data || gpu_data->is_ready());
 }
 
 std::string Chunk::str(std::size_t max_nbytes, rmm::cuda_stream_view stream) const {
