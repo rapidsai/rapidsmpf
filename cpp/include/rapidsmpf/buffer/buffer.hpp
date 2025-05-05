@@ -31,6 +31,18 @@ enum class MemoryType : int {
 /// @brief Array of all the different memory types.
 constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
 
+namespace {
+/// @brief Helper for overloaded lambdas using std::visit.
+template <class... Ts>
+struct overloaded : Ts... {
+    using Ts::operator()...;
+};
+/// @brief Explicit deduction guide
+template <class... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+
+}  // namespace
+
 /**
  * @brief Buffer representing device or host memory.
  *
@@ -93,15 +105,6 @@ class Buffer {
      */
     using StorageT = std::variant<DeviceStorageT, HostStorageT>;
 
-    /// @brief Helper for overloaded lambdas for Storage types in StorageT
-    template <class... Ts>
-    struct overloaded : Ts... {
-        using Ts::operator()...;
-    };
-    /// @brief Explicit deduction guide
-    template <class... Ts>
-    overloaded(Ts...) -> overloaded<Ts...>;
-
     /**
      * @brief Access the underlying host memory buffer (const).
      *
@@ -157,7 +160,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer is not initialized.
      */
-    MemoryType constexpr mem_type() const {
+    [[nodiscard]] MemoryType constexpr mem_type() const {
         return std::visit(
             overloaded{
                 [](const HostStorageT&) -> MemoryType { return MemoryType::HOST; },
