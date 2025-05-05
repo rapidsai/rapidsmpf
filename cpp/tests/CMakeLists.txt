@@ -40,7 +40,7 @@ function(rapidsmpf_mpirun_test_add)
   endforeach(np)
 endfunction(rapidsmpf_mpirun_test_add)
 
-file(GLOB SOURCES "main/mpi.cpp" "*.cpp")
+file(GLOB SOURCES "main/mpi.cpp" "*.cpp" "*.cu")
 add_executable(mpi_tests ${SOURCES})
 set_target_properties(
   mpi_tests
@@ -65,7 +65,7 @@ disable_sign_conversion_warning(mpi_tests)
 
 rapidsmpf_mpirun_test_add(TEST_TARGET mpi_tests)
 
-file(GLOB SOURCES "main/ucxx.cpp" "*.cpp")
+file(GLOB SOURCES "main/ucxx.cpp" "*.cpp" "*.cu")
 add_executable(ucxx_tests ${SOURCES})
 set_target_properties(
   ucxx_tests

@@ -42,7 +42,10 @@ template <typename KeyType>
 std::vector<Chunk> PostBox<KeyType>::extract_all() {
     std::lock_guard const lock(mutex_);
     std::vector<Chunk> ret;
+
     for (auto& [_, chunks] : pigeonhole_) {
+        // reserve for the chunks size
+        ret.reserve(ret.size() + chunks.size());
         for (auto& [_, chunk] : chunks) {
             ret.push_back(std::move(chunk));
         }
