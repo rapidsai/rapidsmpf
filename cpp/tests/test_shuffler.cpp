@@ -71,7 +71,7 @@ TEST(MetadataMessage, round_trip) {
     auto metadata = iota_vector<uint8_t>(100);
 
     rapidsmpf::shuffler::detail::Chunk expect(
-        1, 2, true, 0, std::make_unique<std::vector<uint8_t>>(metadata), nullptr
+        1, 2, true, std::make_unique<std::vector<uint8_t>>(metadata), nullptr
     );
 
     // Extract the metadata from then chunk.
@@ -541,7 +541,7 @@ class PostBoxTest : public cudf::test::BaseFixture {
 
 TEST_F(PostBoxTest, EmptyPostbox) {
     EXPECT_TRUE(postbox->empty());
-    EXPECT_TRUE(postbox->extract_all().empty());
+    EXPECT_TRUE(postbox->extract_all_ready().empty());
 }
 
 TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
@@ -554,7 +554,6 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
         rapidsmpf::shuffler::detail::Chunk chunk{
             rapidsmpf::shuffler::PartID{i % num_partitions},
             rapidsmpf::shuffler::detail::ChunkID{i},
-            0,  // expected_num_chunks
             0,  // gpu_data_size
             nullptr,  // metadata
             nullptr  // gpu_data
@@ -584,7 +583,7 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
     }
 
     // extract all chunks
-    auto all_chunks = postbox->extract_all();
+    auto all_chunks = postbox->extract_all_ready();
     EXPECT_TRUE(postbox->empty());
     EXPECT_EQ(all_chunks.size(), num_chunks);
 }
@@ -601,7 +600,6 @@ TEST_F(PostBoxTest, ThreadSafety) {
                 rapidsmpf::shuffler::detail::Chunk chunk{
                     rapidsmpf::shuffler::PartID{j / chunks_per_partition},
                     rapidsmpf::shuffler::detail::ChunkID{i * chunks_per_thread + j},
-                    0,  // expected_num_chunks
                     0,  // gpu_data_size
                     nullptr,  // metadata
                     nullptr  // gpu_data
