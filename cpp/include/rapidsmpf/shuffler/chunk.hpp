@@ -62,6 +62,8 @@ using ChunkID = std::uint64_t;
  * sizeof(ChunkID) + sizeof(PartID) + sizeof(size_t) + sizeof(uint32_t) + sizeof(uint64_t)
  * + M = 40 + M bytes.
  */
+
+// TODO: This class will be renamed to `Chunk` once the `Chunk` class is removed.
 class ChunkBatch {
   public:
     /**
