@@ -98,13 +98,14 @@ std::unordered_map<PartID, PackedData> split_and_pack(
 
     if (table.num_rows() == 0) {
         // Work around cudf::split() not supporting empty tables.
-        for (auto val : splits) {
-            if (val != 0) {
-                throw std::out_of_range("split point is invalid for empty table");
-            }
-            tables.emplace_back(table);
-        }
-        tables.emplace_back(table);  // splits + 1 partitions
+        RAPIDSMPF_EXPECTS(
+            std::all_of(splits.begin(), splits.end(), [](auto val) { return val == 0; }),
+            "split point != 0 is invalid for empty table",
+            std::out_of_range
+        );
+        tables = std::vector<cudf::table_view>(
+            static_cast<std::size_t>(splits.size() + 1), table
+        );
     } else {
         tables = cudf::split(table, splits, stream);
     }
