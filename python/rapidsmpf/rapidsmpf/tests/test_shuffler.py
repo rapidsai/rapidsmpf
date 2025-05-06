@@ -60,6 +60,7 @@ def test_partition_and_pack_unpack(
     [
         {"0": [1, 2, 3], "1": [2, 2, 1]},
         {"0": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "1": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]},
+        {"0": [], "1": []},
     ],
 )
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
@@ -85,16 +86,16 @@ def test_split_and_pack_unpack(
     assert_eq(expect, got)
 
 
+@pytest.mark.parametrize("df", [{"0": [1, 2, 3], "1": [2, 2, 1]}, {"0": [], "1": []}])
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
-def test_split_and_pack_unpack_empty_table(
-    device_mr: rmm.mr.CudaMemoryResource, num_partitions: int
+def test_split_and_pack_unpack_out_of_range(
+    device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
 ) -> None:
     expect = cudf.DataFrame({"0": [], "1": []})
-    splits = np.linspace(0, len(expect), num_partitions, endpoint=False)[1:].astype(int)
-    with pytest.raises(ValueError, match=".*the input table cannot be empty"):
+    with pytest.raises(IndexError):
         split_and_pack(
             cudf_to_pylibcudf_table(expect),
-            splits=splits,
+            splits=[100],
             stream=DEFAULT_STREAM,
             device_mr=device_mr,
         )

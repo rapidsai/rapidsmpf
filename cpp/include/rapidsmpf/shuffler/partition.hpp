@@ -97,7 +97,7 @@ partition_and_split(
  *
  * @return A map of partition IDs and their packed tables.
  *
- * @throw std::invalid_argument if the input table is empty
+ * @throw std::out_of_range if the splits are invalid.
  *
  * @see unpack_and_concat
  * @see cudf::split
