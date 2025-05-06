@@ -28,8 +28,14 @@ using ChunkID = std::uint64_t;
 
 /**
  * @brief Chunk with multiple messages.
- * 
- * Format:
+ *
+ * This class will have two buffers:
+ * - metadata_: The metadata buffer that contains information about the messages in the
+ * chunks and the concatenated metadata of the messages.
+ * - data_: The data buffer that contains the concatenateddata of the messages in the
+ * chunk.
+ *
+ * The metadata_ buffer will have the following format:
  * - chunk_id: uint64_t, ID of the chunk
  * - n_elements: size_t, Number of messages in the chunk
  * - [partition_ids]: std::vector<PartID>, Partition IDs of the messages, size =
@@ -123,11 +129,13 @@ class ChunkBatch {
     /**
      * @brief Get the data of the i-th message, as a new ChunkBatch.
      *
+     * @param new_chunk_id The ID of the new chunk.
      * @param i The index of the message.
+     * @param stream The CUDA stream.
      * @return A new ChunkBatch containing the data of the i-th message.
      * @note This will create a copy of the packed data. If there is only one message and
      * the message is a data message, the buffers will be moved to the new ChunkBatch.
-     * Otherwise a new ChunkBatch will be created by copying data. 
+     * Otherwise a new ChunkBatch will be created by copying data.
      *
      * @throws std::out_of_range if the index is out of bounds.
      */
