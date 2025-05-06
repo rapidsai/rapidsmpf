@@ -112,4 +112,171 @@ std::string Chunk::str(std::size_t max_nbytes, rmm::cuda_stream_view stream) con
     ss << ")";
     return ss.str();
 }
+
+ChunkBatch ChunkBatch::get_data(
+    ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view /* stream */
+) {
+    RAPIDSMPF_EXPECTS(i < n_messages(), "index out of bounds", std::out_of_range);
+
+    if (is_control_message(i)) {
+        return from_finished_partition(new_chunk_id, part_id(i), expected_num_chunks(i));
+    }
+
+    // Calculate the offset and size of the metadata and data
+    uint32_t meta_offset = i == 0 ? 0 : *(psum_meta_begin() + i - 1);
+    uint32_t meta_size = metadata_size(i);
+    // uint64_t data_offset = i == 0 ? 0 : *(psum_data_begin() + i - 1);
+    uint64_t data_size = this->data_size(i);
+
+    ChunkBatch new_chunk;
+
+    // Create metadata vector
+    new_chunk.metadata_ = std::make_unique<std::vector<uint8_t>>(
+        concat_metadata_begin() + meta_offset,
+        concat_metadata_begin() + meta_offset + meta_size
+    );
+
+    if (n_messages() == 1 && data_size > 0) {  // i == 0, already veried
+        new_chunk.data_ = std::move(data_);
+    } else {
+        RAPIDSMPF_EXPECTS(false, "not implemented");
+        // TODO: slice and copy data
+    }
+
+    return new_chunk;
+}
+
+ChunkBatch ChunkBatch::from_packed_data(
+    ChunkID chunk_id, PartID part_id, PackedData&& packed_data, BufferResource* br
+) {
+    ChunkBatch chunk;
+    size_t metadata_buf_size =
+        metadata_message_header_size(1)
+        + (packed_data.metadata ? packed_data.metadata->size() : 0);
+    // Create metadata buffer
+    chunk.metadata_ = std::make_unique<std::vector<uint8_t>>(metadata_buf_size);
+
+    // Write chunk ID
+    *reinterpret_cast<ChunkID*>(chunk.metadata_->data()) = chunk_id;
+
+    // Write number of messages (1)
+    *reinterpret_cast<size_t*>(chunk.metadata_->data() + sizeof(ChunkID)) = 1;
+
+    // Write partition ID
+    *reinterpret_cast<PartID*>(chunk.part_ids_begin()) = part_id;
+
+    // Write expected number of chunks (0 for data message)
+    *reinterpret_cast<size_t*>(chunk.expected_num_chunks_begin()) = 0;
+
+    // Write metadata size
+    if (packed_data.metadata) {
+        RAPIDSMPF_EXPECTS(
+            packed_data.metadata->size() <= std::numeric_limits<uint32_t>::max(),
+            "metadata size is too large(> 4GB)"
+        );
+        *reinterpret_cast<uint32_t*>(chunk.psum_meta_begin()) =
+            packed_data.metadata->size();
+
+        // Copy data into the chunk's metadata buffer
+        std::memcpy(
+            chunk.concat_metadata_begin(),
+            packed_data.metadata->data(),
+            packed_data.metadata->size()
+        );
+
+        assert(packed_data.metadata->size() == chunk.concat_metadata_size());
+    }
+
+    if (packed_data.gpu_data) {
+        // Write data size
+        *reinterpret_cast<uint64_t*>(chunk.psum_data_begin()) =
+            packed_data.gpu_data->size();
+        chunk.data_ = br->move(std::move(packed_data.gpu_data));
+    }
+
+    return chunk;
+}
+
+ChunkBatch ChunkBatch::from_finished_partition(
+    ChunkID chunk_id, PartID part_id, size_t expected_num_chunks
+) {
+    ChunkBatch chunk;
+    size_t metadata_buf_size = metadata_message_header_size(1);
+    // Create metadata buffer
+    chunk.metadata_ = std::make_unique<std::vector<uint8_t>>(metadata_buf_size, 0);
+
+    // Write chunk ID
+    *reinterpret_cast<ChunkID*>(chunk.metadata_->data()) = chunk_id;
+
+    // Write number of messages (1)
+    *reinterpret_cast<size_t*>(chunk.metadata_->data() + sizeof(ChunkID)) = 1;
+
+    // Write partition ID
+    *reinterpret_cast<PartID*>(chunk.part_ids_begin()) = part_id;
+
+    // Write expected number of chunks
+    *reinterpret_cast<size_t*>(chunk.expected_num_chunks_begin()) = expected_num_chunks;
+
+    return chunk;
+}
+
+ChunkBatch ChunkBatch::from_metadata_message(
+    std::unique_ptr<std::vector<uint8_t>> msg, bool validate
+) {
+    if (validate) {
+        RAPIDSMPF_EXPECTS(
+            validate_metadata_format(*msg),
+            "metadata buffer does not follow the expected format"
+        );
+    }
+    ChunkBatch chunk;
+    chunk.metadata_ = std::move(msg);
+    return chunk;
+}
+
+bool ChunkBatch::validate_metadata_format(std::vector<uint8_t> const& metadata_buf) {
+    // Check if buffer is large enough to contain at least the header
+    if (metadata_buf.size() < sizeof(ChunkID) + sizeof(size_t)) {
+        return false;
+    }
+
+    // Get number of messages
+    size_t n_messages =
+        *reinterpret_cast<size_t const*>(metadata_buf.data() + sizeof(ChunkID));
+
+    if (n_messages == 0) {
+        return false;
+    }
+
+    // Check if buffer is large enough to contain all the messages' metadata
+    size_t expected_size = metadata_message_header_size(n_messages);
+    if (metadata_buf.size() < expected_size) {
+        return false;
+    }
+
+    // For each message, validate the metadata and data sizes
+    auto const* psum_meta = reinterpret_cast<uint32_t const*>(
+        metadata_buf.data() + sizeof(ChunkID) + sizeof(size_t)
+        + n_messages * (sizeof(PartID) + sizeof(size_t))
+    );
+    auto const* psum_data = reinterpret_cast<uint64_t const*>(psum_meta + n_messages);
+
+    // Check if prefix sums are non-decreasing
+    for (size_t i = 1; i < n_messages; ++i) {
+        if (psum_meta[i] < psum_meta[i - 1] || psum_data[i] < psum_data[i - 1]) {
+            return false;
+        }
+    }
+
+    // Check if the total metadata size matches the buffer size
+    if (n_messages > 0) {
+        size_t total_meta_size = psum_meta[n_messages - 1];
+        if (metadata_buf.size() != expected_size + total_meta_size) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 }  // namespace rapidsmpf::shuffler::detail

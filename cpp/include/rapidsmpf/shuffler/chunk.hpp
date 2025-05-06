@@ -8,6 +8,8 @@
 #include <sstream>
 #include <vector>
 
+#include <cuda/std/span>
+
 #include <cudf/contiguous_split.hpp>
 #include <cudf/table/table.hpp>
 
@@ -20,6 +22,249 @@ namespace rapidsmpf::shuffler::detail {
  * @brief The globally unique ID of a chunk.
  */
 using ChunkID = std::uint64_t;
+
+/**
+ * Format:
+ * - chunk_id: uint64_t, ID of the chunk
+ * - n_elements: size_t, Number of messages in the chunk
+ * - [partition_ids]: std::vector<PartID>, Partition IDs of the messages, size =
+ * n_elements
+ * - [expected_num_chunks]: std::vector<size_t>, Expected number of chunks of the
+ * messages, size = n_elements
+ * - [psum_meta]: std::vector<uint32_t>, Prefix sums (excluding 0) of the metadata
+ * sizes of the messages, size = n_elements
+ * - [psum_data]: std::vector<uint64_t>, Prefix sums (excluding 0) of the data sizes of
+ * the messages, size = n_elements
+ * - [concat_metadata]: std::vector<uint8_t>, Concatenated metadata of the messages,
+ * size = psum_meta[n_elements - 1]
+ *
+ * For a chunk with N messages with M bytes of concat metadata the size of metadata_
+ * buffer is sizeof(ChunkID) + sizeof(size_t) + N * (sizeof(PartID) + sizeof(size_t) +
+ * sizeof(uint32_t) + sizeof(uint64_t)) + M = 16 + N * 24 + M bytes.
+ *
+ * For a chunk with a single control message, the size of the metadata_ buffer is
+ * sizeof(ChunkID) + sizeof(PartID)+ 2*sizeof(size_t) + sizeof(uint32_t) +
+ * sizeof(uint64_t) = 40 bytes.
+ *
+ * For a chunk with a single message with M bytes of metadata, the size of the metadata_
+ * buffer is sizeof(ChunkID) + sizeof(PartID) + sizeof(size_t) + sizeof(uint32_t) +
+ * sizeof(ChunkID) + sizeof(PartID) + sizeof(size_t) + sizeof(uint32_t) + sizeof(uint64_t)
+ * + M = 40 + M bytes.
+ */
+class ChunkBatch {
+  public:
+    /**
+     * @brief The size of the metadata message header.
+     *
+     * @param n_messages The number of messages in the chunk.
+     * @return The size of the metadata message header.
+     */
+    static constexpr size_t metadata_message_header_size(size_t n_messages) {
+        return sizeof(ChunkID) + sizeof(size_t)
+               + n_messages
+                     * (sizeof(PartID) + sizeof(size_t) + sizeof(uint32_t)
+                        + sizeof(uint64_t));
+    }
+
+    /**
+     * @brief The ID of the chunk.
+     *
+     * @return The ID of the chunk.
+     */
+    inline ChunkID chunk_id() const {
+        return *reinterpret_cast<ChunkID*>(metadata_->data());
+    }
+
+    /**
+     * @brief The number of messages in the chunk.
+     *
+     * @return The number of messages in the chunk.
+     */
+    inline size_t n_messages() const {
+        return *reinterpret_cast<size_t*>(metadata_->data() + sizeof(ChunkID));
+    }
+
+    /**
+     * @brief Partition ID of the i-th message.
+     *
+     * @param i The index of the message.
+     * @return The ID of the partition.
+     */
+    inline PartID part_id(size_t i) const {
+        return *(part_ids_begin() + i);
+    }
+
+    /**
+     * @brief The expected number of chunks of the i-th message.
+     *
+     * @param i The index of the message.
+     * @return The expected number of chunks for the message. Non-zero when the message
+     * is a control message, otherwise zero (data message).
+     */
+    inline size_t expected_num_chunks(size_t i) const {
+        return *(expected_num_chunks_begin() + i);
+    }
+
+    /**
+     * @brief Whether the i-th message is a control message.
+     *
+     * @param i The index of the message.
+     * @return True if the message is a control message, false otherwise.
+     */
+    inline bool is_control_message(size_t i) const {
+        return expected_num_chunks(i) > 0;
+    }
+
+    /**
+     * @brief Get the data of the i-th message, as a new ChunkBatch.
+     *
+     * @param i The index of the message.
+     * @return A new ChunkBatch containing the data of the i-th message.
+     * @note This will create a copy of the packed data. If i==0 and n_messages() == 1 and
+     * the message is a data message, the data buffer will be moved to the new ChunkBatch.
+     */
+    ChunkBatch get_data(ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view stream);
+
+    /**
+     * @brief Get the size of the metadata of the i-th message.
+     *
+     * @param i The index of the message.
+     * @return The size of the metadata of the message. Zero when the message is a
+     * control message, otherwise the size of `PackedData::metadata`.
+     */
+    inline uint32_t metadata_size(size_t i) const {
+        return i == 0 ? *(psum_meta_begin())
+                      : *(psum_meta_begin() + i) - *(psum_meta_begin() + i - 1);
+    }
+
+    /**
+     * @brief Get the size of the packed data of the i-th message.
+     *
+     * @param i The index of the message.
+     * @return The size of the packed data of the message. Zero when the message is a
+     * control message, otherwise the size of `PackedData::gpu_data` of the message.
+     */
+    inline size_t data_size(size_t i) const {
+        return i == 0 ? *(psum_data_begin())
+                      : *(psum_data_begin() + i) - *(psum_data_begin() + i - 1);
+    }
+
+    /**
+     * @brief Set the data buffer.
+     *
+     * @param data The data buffer.
+     */
+    void set_data_buffer(std::unique_ptr<Buffer> data) {
+        data_ = std::move(data);
+    }
+
+    /**
+     * @brief Release the ownership of the metadata buffer.
+     *
+     * @return The metadata buffer.
+     */
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> release_metadata_buffer() {
+        return std::move(metadata_);
+    }
+
+    /**
+     * @brief Release the ownership of the data buffer.
+     *
+     * @return The data buffer.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> release_data_buffer() {
+        return std::move(data_);
+    }
+
+    /**
+     * @brief Create a single-message ChunkBatch from a packed data.
+     *
+     * @param chunk_id The ID of the chunk.
+     * @param part_id The ID of the partition.
+     * @param packed_data The packed data.
+     * @param br The buffer resource.
+     * @return The ChunkBatch.
+     */
+    static ChunkBatch from_packed_data(
+        ChunkID chunk_id, PartID part_id, PackedData&& packed_data, BufferResource* br
+    );
+
+    /**
+     * @brief Create a single-message ChunkBatch for a finished partition (control
+     * message).
+     *
+     * @param chunk_id The ID of the chunk.
+     * @param part_id The ID of the partition.
+     * @param expected_num_chunks The expected number of chunks.
+     * @return The ChunkBatch.
+     */
+    static ChunkBatch from_finished_partition(
+        ChunkID chunk_id, PartID part_id, size_t expected_num_chunks
+    );
+
+    /**
+     * @brief Create a ChunkBatch from a metadata message.
+     *
+     * @param msg The metadata message received from another rank.
+     * @param validate Whether to validate the metadata buffer.
+     * @return The ChunkBatch.
+     *
+     * @throws std::runtime_error if the metadata buffer does not follow the expected
+     * format and `validate` is true.
+     */
+    static ChunkBatch from_metadata_message(
+        std::unique_ptr<std::vector<uint8_t>> msg, bool validate = true
+    );
+
+
+    /**
+     * @brief Validate if a provided metadata buffer follows the expected format.
+     *
+     * @param metadata_buf The metadata buffer to validate.
+     * @return True if the metadata buffer follows the expected format, false otherwise.
+     */
+    static bool validate_metadata_format(std::vector<uint8_t> const& metadata_buf);
+
+
+  private:
+    /// @brief The beginning of the partition IDs in the chunk.
+    inline PartID* part_ids_begin() const {
+        return reinterpret_cast<PartID*>(
+            metadata_->data() + sizeof(ChunkID) + sizeof(size_t)
+        );
+    }
+
+    /// @brief The beginning of the expected number of chunks in the chunk.
+    inline size_t* expected_num_chunks_begin() const {
+        return reinterpret_cast<size_t*>(part_ids_begin() + n_messages());
+    }
+
+    /// @brief The beginning of the psum metadata in the chunk.
+    inline uint32_t* psum_meta_begin() const {
+        return reinterpret_cast<uint32_t*>(expected_num_chunks_begin() + n_messages());
+    }
+
+    /// @brief The beginning of the psum data in the chunk.
+    inline uint64_t* psum_data_begin() const {
+        return reinterpret_cast<uint64_t*>(psum_meta_begin() + n_messages());
+    }
+
+    /// @brief The beginning of the concat metadata in the chunk.
+    inline uint8_t* concat_metadata_begin() const {
+        return reinterpret_cast<uint8_t*>(psum_data_begin() + n_messages());
+    }
+
+    /// @brief The size of the concat metadata in the chunk.
+    inline size_t concat_metadata_size() const {
+        return *(psum_data_begin() + n_messages() - 1);
+    }
+
+    /// Metadata buffer that contains information about the messages in the chunk.
+    std::unique_ptr<std::vector<uint8_t>> metadata_;
+
+    /// Concatenated data buffer of the messages in the chunk.
+    std::unique_ptr<Buffer> data_;
+};
 
 /**
  * @brief A chunk of a partition.
