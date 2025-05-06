@@ -140,14 +140,14 @@ cpdef dict split_and_pack(
 
     Raises
     ------
-    ValueError
-        If the input table is empty.
+    IndexError
+        If the splits are out of range for ``[0, len(table)]``.
 
     See Also
     --------
-    rapidsmp.shuffler.unpack_and_concat
-    pylibcudf.copy.split
-    pylibcudf.partitioning.partition_and_pack
+    rapidsmpf.shuffler.unpack_and_concat
+    pylibcudf.copying.split
+    rapidsmpf.shuffler.partition_and_pack
     """
     cdef vector[size_type] _splits = tuple(splits)
     cdef unordered_map[uint32_t, cpp_PackedData] _ret
