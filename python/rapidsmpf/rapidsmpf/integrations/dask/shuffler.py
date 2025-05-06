@@ -282,11 +282,16 @@ def _extract_partition(
     """
     if callback is None:
         raise ValueError("Missing callback in _extract_partition.")
-    return callback(
+    shuffler = get_shuffler(shuffle_id)
+    ret = callback(
         partition_id,
         column_names,
-        get_shuffler(shuffle_id),
+        shuffler,
     )
+    if shuffler.finished():
+        ctx = get_worker_context()
+        del ctx.shufflers[shuffle_id]
+    return ret
 
 
 def rapidsmpf_shuffle_graph(
