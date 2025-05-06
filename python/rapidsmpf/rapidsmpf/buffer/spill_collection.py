@@ -12,6 +12,8 @@ from rapidsmpf.buffer.buffer import MemoryType
 
 if TYPE_CHECKING:
     import rmm
+    from rmm.pylibrmm.memory_resource import DeviceMemoryResource
+    from rmm.pylibrmm.stream import Stream
 
 
 @runtime_checkable
@@ -37,7 +39,12 @@ class Spillable(Protocol):
         """
 
     def spill(
-        self, amount: int, *, staging_device_buffer: rmm.DeviceBuffer | None = None
+        self,
+        amount: int,
+        *,
+        stream: Stream,
+        device_mr: DeviceMemoryResource,
+        staging_device_buffer: rmm.DeviceBuffer | None = None,
     ) -> int:
         """
         Spill a specified amount of memory.
@@ -46,6 +53,10 @@ class Spillable(Protocol):
         ----------
         amount
             The amount of memory to spill in bytes.
+        stream
+            The CUDA stream on which to perform the spill operation.
+        device_mr
+            The memory resource used for device memory allocation and deallocation.
         staging_device_buffer
             An optional preallocated device buffer that can be used as temporary
             staging space during the spill operation. If not provided, a new buffer
@@ -94,7 +105,12 @@ class SpillCollection:
             self._spillables[memtype][self._key_counter] = obj
 
     def spill(
-        self, amount: int, *, staging_device_buffer: rmm.DeviceBuffer | None = None
+        self,
+        amount: int,
+        *,
+        stream: Stream,
+        device_mr: DeviceMemoryResource,
+        staging_device_buffer: rmm.DeviceBuffer | None = None,
     ) -> int:
         """
         Spill memory from device to host until the requested amount is reached.
@@ -107,6 +123,10 @@ class SpillCollection:
         ----------
         amount
             The amount of memory to spill in bytes.
+        stream
+            The CUDA stream on which to perform the spill operation.
+        device_mr
+            The memory resource used for device memory allocation and deallocation.
         staging_device_buffer
             An optional preallocated device buffer that can be used as temporary
             staging space during the spill operation. If not provided, a new buffer
@@ -143,7 +163,10 @@ class SpillCollection:
         spilled_amount = 0
         for obj in to_spill:
             spilled_amount += obj.spill(
-                amount - spilled_amount, staging_device_buffer=staging_device_buffer
+                amount - spilled_amount,
+                stream=stream,
+                device_mr=device_mr,
+                staging_device_buffer=staging_device_buffer,
             )
             spilled.append(obj)
 

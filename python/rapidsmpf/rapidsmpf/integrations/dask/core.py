@@ -15,6 +15,7 @@ from distributed import get_client, get_worker, wait
 from distributed.diagnostics.plugin import SchedulerPlugin
 
 import rmm.mr
+from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
@@ -255,7 +256,9 @@ def rmpf_worker_setup(
         # and trigger spilling of python objects. Additionally, we create a staging
         # device buffer for the spilling to reduce device memory pressure.
         # TODO: maybe have a pool of staging buffers?
-        spill_staging_buffer = rmm.DeviceBuffer(size=2**25, mr=mr)
+        spill_staging_buffer = rmm.DeviceBuffer(
+            size=2**25, stream=DEFAULT_STREAM, mr=mr
+        )
         spill_staging_buffer_lock = threading.Lock()
 
         def spill_func(amount: int) -> int:
@@ -278,11 +281,16 @@ def rmpf_worker_setup(
             if spill_staging_buffer_lock.acquire(blocking=False):
                 try:
                     return ctx.spill_collection.spill(
-                        amount, staging_device_buffer=spill_staging_buffer
+                        amount,
+                        stream=DEFAULT_STREAM,
+                        device_mr=mr,
+                        staging_device_buffer=spill_staging_buffer,
                     )
                 finally:
                     spill_staging_buffer_lock.release()
-            return ctx.spill_collection.spill(amount)
+            return ctx.spill_collection.spill(
+                amount, stream=DEFAULT_STREAM, device_mr=mr
+            )
 
         # Add the spill function using a negative priority (-10) such that spilling
         # of internal shuffle buffers (non-python objects) have higher priority than

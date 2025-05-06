@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 
     import rmm
     from pylibcudf import gpumemoryview
+    from rmm.pylibrmm.memory_resource import DeviceMemoryResource
+    from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.buffer.spill_collection import SpillCollection
 
@@ -114,7 +116,12 @@ class SpillableWrapper(Generic[WrappedType]):
             return 0
 
     def spill(
-        self, amount: int, *, staging_device_buffer: rmm.DeviceBuffer | None = None
+        self,
+        amount: int,
+        *,
+        stream: Stream,
+        device_mr: DeviceMemoryResource,
+        staging_device_buffer: rmm.DeviceBuffer | None = None,
     ) -> int:
         """
         Spill the object from the device to the host.
@@ -123,6 +130,10 @@ class SpillableWrapper(Generic[WrappedType]):
         ----------
         amount
             The amount of memory in bytes requested to be spilled.
+        stream
+            The CUDA stream on which to perform the spill operation.
+        device_mr
+            The memory resource used for device memory allocation and deallocation.
         staging_device_buffer
             An optional preallocated device buffer that can be used as temporary
             staging space during the spill operation. If not provided, a new buffer
@@ -138,7 +149,12 @@ class SpillableWrapper(Generic[WrappedType]):
             if on_device is not None and self._on_host is None:
                 ret = self.approx_spillable_amount()
                 self._on_host = dask_dumps(
-                    on_device, context={"staging_device_buffer": staging_device_buffer}
+                    on_device,
+                    context={
+                        "stream": stream,
+                        "device_mr": device_mr,
+                        "staging_device_buffer": staging_device_buffer,
+                    },
                 )
                 self._on_device = None
                 return ret

@@ -9,6 +9,8 @@ from rapidsmpf.buffer.spill_collection import SpillCollection, Spillable
 
 if TYPE_CHECKING:
     import rmm
+    from rmm.pylibrmm.memory_resource import DeviceMemoryResource
+    from rmm.pylibrmm.stream import Stream
 
 
 class MySpillableObject:
@@ -23,20 +25,25 @@ class MySpillableObject:
         return self._nbytes
 
     def spill(
-        self, amount: int, *, staging_device_buffer: rmm.DeviceBuffer | None = None
+        self,
+        amount: int,
+        *,
+        stream: Stream,
+        device_mr: DeviceMemoryResource,
+        staging_device_buffer: rmm.DeviceBuffer | None = None,
     ) -> int:
         self._mem_type = MemoryType.HOST
         return self._nbytes
 
 
-def test_spill_collection() -> None:
+def test_spill_collection(stream: Stream, device_mr: DeviceMemoryResource) -> None:
     collection = SpillCollection()
 
     obj1 = MySpillableObject(100)
     assert isinstance(obj1, Spillable)
     collection.add_spillable(obj1)
-    assert collection.spill(100) == 100
-    assert collection.spill(100) == 0
+    assert collection.spill(100, stream=stream, device_mr=device_mr) == 100
+    assert collection.spill(100, stream=stream, device_mr=device_mr) == 0
     assert obj1.mem_type() == MemoryType.HOST
 
     obj2 = MySpillableObject(10)
@@ -44,7 +51,7 @@ def test_spill_collection() -> None:
     collection.add_spillable(obj2)
     collection.add_spillable(obj3)
     # Eventhough we ask for 100 bytes, only 20 bytes can be spilled.
-    assert collection.spill(100) == 20
-    assert collection.spill(100) == 0
+    assert collection.spill(100, stream=stream, device_mr=device_mr) == 20
+    assert collection.spill(100, stream=stream, device_mr=device_mr) == 0
     assert obj2.mem_type() == MemoryType.HOST
     assert obj3.mem_type() == MemoryType.HOST
