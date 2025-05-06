@@ -300,4 +300,21 @@ bool ChunkBatch::validate_metadata_format(std::vector<uint8_t> const& metadata_b
     return true;
 }
 
+std::string ChunkBatch::str(std::size_t /*max_nbytes*/, rmm::cuda_stream_view /*stream*/)
+    const {
+    std::stringstream ss;
+    ss << "Chunk(id=" << chunk_id() << ", n=" << n_messages();
+
+    // Add message details
+    for (size_t i = 0; i < n_messages(); ++i) {
+        ss << "msg[" << i << "]={";
+        ss << "part_id=" << part_id(i);
+        ss << ", expected_num_chunks=" << expected_num_chunks(i);
+        ss << ", metadata_size=" << metadata_size(i);
+        ss << ", data_size=" << data_size(i);
+        ss << "},";
+    }
+    ss << ")";
+    return ss.str();
+}
 }  // namespace rapidsmpf::shuffler::detail

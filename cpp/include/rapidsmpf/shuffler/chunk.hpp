@@ -248,6 +248,29 @@ class ChunkBatch {
      */
     static bool validate_metadata_format(std::vector<uint8_t> const& metadata_buf);
 
+    /**
+     * @brief Whether the chunk is ready for consumption.
+     *
+     * @return True if the chunk is ready, false otherwise.
+     * @note ChunkBatch is ready if it has no data or if the data is ready. data_ buffer
+     * could be set later, so we need to check if it is non-null.
+     */
+    [[nodiscard]] inline bool is_ready() const {
+        // psum_data[-1] contains the size of the data buffer
+        return psum_data_begin()[n_messages() - 1] == 0 || (data_ && data_->is_ready());
+    }
+
+    /**
+     * @brief Returns a description of this chunk.
+     *
+     * @param max_nbytes The maximum size of the chunk data to include.
+     * @param stream The CUDA stream.
+     * @return The description.
+     */
+    [[nodiscard]] std::string str(
+        size_t max_nbytes = 512, rmm::cuda_stream_view stream = cudf::get_default_stream()
+    ) const;
+
   private:
     /// @brief The beginning of the partition IDs in the chunk.
     inline PartID* part_ids_begin() const {
