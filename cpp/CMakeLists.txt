@@ -122,7 +122,11 @@ target_include_directories(
   INTERFACE "$<INSTALL_INTERFACE:include>"
 )
 
-target_link_libraries(rapidsmpf PUBLIC rmm::rmm cudf::cudf ucxx::ucxx)
+target_link_libraries(
+  rapidsmpf
+  PUBLIC rmm::rmm cudf::cudf ucxx::ucxx
+  PRIVATE MPI::MPI_C
+)
 
 # Add Conda library, and include paths if specified
 if(TARGET conda_env)
