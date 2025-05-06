@@ -89,7 +89,7 @@ partition_and_split(
 /**
  * @brief Splits rows from the input table into multiple packed (serialized) tables.
  *
- * @param tables The tables to pack into partitions.
+ * @param table The table to split and pack into partitions.
  * @param splits The split points, equivalent to cudf::split(), i.e. one less than
  * the number of result partitions.
  * @param stream CUDA stream used for device memory operations and kernel launches.
