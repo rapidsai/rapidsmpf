@@ -27,6 +27,8 @@ namespace rapidsmpf::shuffler::detail {
 using ChunkID = std::uint64_t;
 
 /**
+ * @brief Chunk with multiple messages.
+ * 
  * Format:
  * - chunk_id: uint64_t, ID of the chunk
  * - n_elements: size_t, Number of messages in the chunk
@@ -123,8 +125,11 @@ class ChunkBatch {
      *
      * @param i The index of the message.
      * @return A new ChunkBatch containing the data of the i-th message.
-     * @note This will create a copy of the packed data. If i==0 and n_messages() == 1 and
-     * the message is a data message, the data buffer will be moved to the new ChunkBatch.
+     * @note This will create a copy of the packed data. If there is only one message and
+     * the message is a data message, the buffers will be moved to the new ChunkBatch.
+     * Otherwise a new ChunkBatch will be created by copying data. 
+     *
+     * @throws std::out_of_range if the index is out of bounds.
      */
     ChunkBatch get_data(ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view stream);
 
@@ -185,11 +190,16 @@ class ChunkBatch {
      * @param chunk_id The ID of the chunk.
      * @param part_id The ID of the partition.
      * @param packed_data The packed data.
+     * @param stream The CUDA stream.
      * @param br The buffer resource.
      * @return The ChunkBatch.
      */
     static ChunkBatch from_packed_data(
-        ChunkID chunk_id, PartID part_id, PackedData&& packed_data, BufferResource* br
+        ChunkID chunk_id,
+        PartID part_id,
+        PackedData&& packed_data,
+        rmm::cuda_stream_view stream,
+        BufferResource* br
     );
 
     /**
@@ -227,7 +237,6 @@ class ChunkBatch {
      * @return True if the metadata buffer follows the expected format, false otherwise.
      */
     static bool validate_metadata_format(std::vector<uint8_t> const& metadata_buf);
-
 
   private:
     /// @brief The beginning of the partition IDs in the chunk.

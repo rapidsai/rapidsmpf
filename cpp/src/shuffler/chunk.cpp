@@ -145,21 +145,10 @@ ChunkBatch ChunkBatch::get_data(
         return from_finished_partition(new_chunk_id, part_id(i), expected_num_chunks(i));
     }
 
-    // Calculate the offset and size of the metadata and data
-    uint32_t meta_offset = i == 0 ? 0 : *(psum_meta_begin() + i - 1);
-    uint32_t meta_size = metadata_size(i);
-    // uint64_t data_offset = i == 0 ? 0 : *(psum_data_begin() + i - 1);
-    uint64_t data_size = this->data_size(i);
-
     ChunkBatch new_chunk;
-
-    // Create metadata vector
-    new_chunk.metadata_ = std::make_unique<std::vector<uint8_t>>(
-        concat_metadata_begin() + meta_offset,
-        concat_metadata_begin() + meta_offset + meta_size
-    );
-
-    if (n_messages() == 1 && data_size > 0) {  // i == 0, already veried
+    if (n_messages() == 1) {  // i == 0, already verified
+        // If there is only one message, move the metadata and data to the new chunk.
+        new_chunk.metadata_ = std::move(metadata_);
         new_chunk.data_ = std::move(data_);
     } else {
         RAPIDSMPF_EXPECTS(false, "not implemented");
@@ -170,7 +159,11 @@ ChunkBatch ChunkBatch::get_data(
 }
 
 ChunkBatch ChunkBatch::from_packed_data(
-    ChunkID chunk_id, PartID part_id, PackedData&& packed_data, BufferResource* br
+    ChunkID chunk_id,
+    PartID part_id,
+    PackedData&& packed_data,
+    rmm::cuda_stream_view stream,
+    BufferResource* br
 ) {
     ChunkBatch chunk;
     size_t metadata_buf_size =
@@ -214,7 +207,11 @@ ChunkBatch ChunkBatch::from_packed_data(
         // Write data size
         *reinterpret_cast<uint64_t*>(chunk.psum_data_begin()) =
             packed_data.gpu_data->size();
-        chunk.data_ = br->move(std::move(packed_data.gpu_data));
+        chunk.data_ = br->move(
+            std::move(packed_data.gpu_data),
+            stream,
+            std::make_shared<Buffer::Event>(stream)
+        );
     }
 
     return chunk;
