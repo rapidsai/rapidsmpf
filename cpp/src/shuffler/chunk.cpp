@@ -264,13 +264,13 @@ bool ChunkBatch::validate_metadata_format(std::vector<uint8_t> const& metadata_b
     size_t n_messages =
         *reinterpret_cast<size_t const*>(metadata_buf.data() + sizeof(ChunkID));
 
-    if (n_messages == 0) {
+    if (n_messages == 0) {  // no messages
         return false;
     }
 
     // Check if buffer is large enough to contain all the messages' metadata
-    size_t expected_size = metadata_message_header_size(n_messages);
-    if (metadata_buf.size() < expected_size) {
+    size_t header_size = metadata_message_header_size(n_messages);
+    if (metadata_buf.size() < header_size) {
         return false;
     }
 
@@ -282,18 +282,19 @@ bool ChunkBatch::validate_metadata_format(std::vector<uint8_t> const& metadata_b
     auto const* psum_data = reinterpret_cast<uint64_t const*>(psum_meta + n_messages);
 
     // Check if prefix sums are non-decreasing
+    bool is_non_decreasing = true;
     for (size_t i = 1; i < n_messages; ++i) {
-        if (psum_meta[i] < psum_meta[i - 1] || psum_data[i] < psum_data[i - 1]) {
-            return false;
-        }
+        is_non_decreasing &= (psum_meta[i] >= psum_meta[i - 1]);
+        is_non_decreasing &= (psum_data[i] >= psum_data[i - 1]);
+    }
+    if (!is_non_decreasing) {
+        return false;
     }
 
     // Check if the total metadata size matches the buffer size
-    if (n_messages > 0) {
-        size_t total_meta_size = psum_meta[n_messages - 1];
-        if (metadata_buf.size() != expected_size + total_meta_size) {
-            return false;
-        }
+    size_t total_meta_size = psum_meta[n_messages - 1];
+    if (metadata_buf.size() != header_size + total_meta_size) {
+        return false;
     }
 
     return true;
