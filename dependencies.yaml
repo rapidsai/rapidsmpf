@@ -42,6 +42,30 @@ files:
       - docs
       - py_version
       - test_rapidsmpf
+  py_build_rapidsmpf:
+    output: pyproject
+    pyproject_dir: python/rapidsmpf
+    extras:
+      table: build-system
+    includes:
+      - rapids_build_skbuild
+  py_rapids_build_rapidsmpf:
+    output: pyproject
+    pyproject_dir: python/rapidsmpf
+    extras:
+      table: tool.rapids-build-backend
+      key: requires
+    includes:
+      - build-cpp
+      - run_and_build_rapidsmpf
+  py_run_rapidsmpf:
+    output: pyproject
+    pyproject_dir: python/rapidsmpf
+    extras:
+      table: project
+    includes:
+      - run_and_build_rapidsmpf
+      - run_rapidsmpf
 channels:
   - rapidsai
   - rapidsai-nightly
@@ -212,3 +236,56 @@ dependencies:
           - sphinx-autobuild
           - sphinx-copybutton
           - ucxx==0.44.*,>=0.0.0a0
+  run_rapidsmpf:
+    common:
+      - output_types: [conda, requirements, pyproject]
+        packages:
+          - numpy >=1.23,<3.0a0
+          - cupy >=12.0.0
+      - output_types: requirements
+        packages:
+          # pip recognizes the index as a global option for the requirements.txt file
+          # This index is needed for rmm, cubinlinker, ptxcompiler.
+          - --extra-index-url=https://pypi.nvidia.com
+          - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
+    specific:
+      - output_types: [conda, requirements, pyproject]
+        matrices:
+          - matrix: {cuda: "12.*"}
+            packages: &run_rapidsmpf_packages_all_cu12
+              - cuda-python>=12.6.2,<13.0a0
+          - {matrix: null, packages: *run_rapidsmpf_packages_all_cu12}
+  run_and_build_rapidsmpf:
+    common:
+      - output_types: conda
+        packages:
+          - &libcudf_unsuffixed libcudf==25.6.*,>=0.0.0a0
+          - &librmm_unsuffixed librmm==25.6.*,>=0.0.0a0
+          - &pylibcudf_unsuffixed pylibcudf==25.6.*,>=0.0.0a0
+          - *rmm_unsuffixed
+          - &ucxx_unsuffixed ucxx==0.44.*,>=0.0.0a0
+      - output_types: requirements
+        packages:
+          # pip recognizes the index as a global option for the requirements.txt file
+          # This index is needed for libcudf-cu{11,12}.
+          - --extra-index-url=https://pypi.nvidia.com
+          - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
+    specific:
+      - output_types: [requirements, pyproject]
+        matrices:
+          - matrix:
+              cuda: "12.*"
+              cuda_suffixed: "true"
+            packages:
+              - libcudf-cu12==25.6.*,>=0.0.0a0
+              - librmm-cu12==25.6.*,>=0.0.0a0
+              - pylibcudf-cu12==25.6.*,>=0.0.0a0
+              - rmm-cu12==25.6.*,>=0.0.0a0
+              - ucxx-cu12==0.44.*,>=0.0.0a0
+          - matrix: null
+            packages:
+              - *libcudf_unsuffixed
+              - *librmm_unsuffixed
+              - *pylibcudf_unsuffixed
+              - *rmm_unsuffixed
+              - *ucxx_unsuffixed
