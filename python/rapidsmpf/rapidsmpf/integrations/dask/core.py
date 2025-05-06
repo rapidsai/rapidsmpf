@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import functools
 import logging
 import threading
 import weakref
@@ -69,7 +68,6 @@ class DaskWorkerContext:
     spill_collection: SpillCollection = field(default_factory=SpillCollection)
     statistics: Statistics | None = None
     shufflers: dict[int, Shuffler] = field(default_factory=dict)
-    spill_staging_buffer: rmm.DeviceBuffer = None
 
 
 def get_worker_context(
@@ -256,11 +254,35 @@ def rmpf_worker_setup(
         # collection. This way, we have a central place (the dask worker) to track
         # and trigger spilling of python objects. Additionally, we create a staging
         # device buffer for the spilling to reduce device memory pressure.
-        ctx.spill_staging_buffer = rmm.DeviceBuffer(size=2**25, mr=mr)
-        spill_func = functools.partial(
-            ctx.spill_collection.spill,
-            staging_device_buffer=ctx.spill_staging_buffer,
-        )
+        # TODO: maybe have a pool of staging buffers?
+        spill_staging_buffer = rmm.DeviceBuffer(size=2**25, mr=mr)
+        spill_staging_buffer_lock = threading.Lock()
+
+        def spill_func(amount: int) -> int:
+            """
+            Spill a specified amount of data from the Python object spill collection.
+
+            This function attempts to use a preallocated staging device buffer to
+            spill Python objects from the spill collection. If the staging buffer
+            is currently in use, it will fall back to spilling without it.
+
+            Parameters
+            ----------
+            amount
+                The amount of data to spill, in bytes.
+
+            Returns
+            -------
+            The actual amount of data spilled, in bytes.
+            """
+            if spill_staging_buffer_lock.acquire(blocking=False):
+                try:
+                    return ctx.spill_collection.spill(
+                        amount, staging_device_buffer=spill_staging_buffer
+                    )
+                finally:
+                    spill_staging_buffer_lock.release()
+            return ctx.spill_collection.spill(amount)
 
         # Add the spill function using a negative priority (-10) such that spilling
         # of internal shuffle buffers (non-python objects) have higher priority than
