@@ -8,12 +8,15 @@ import pytest
 from mpi4py import MPI
 
 import rmm.mr
+from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.communicator.mpi import new_communicator
 from rapidsmpf.communicator.testing import ucxx_mpi_setup
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.communicator.communicator import Communicator
 
@@ -47,7 +50,7 @@ def _ucxx_comm() -> Communicator:
 @pytest.fixture(
     params=["mpi", "ucxx"],
 )
-def comm(request: pytest.FixtureRequest) -> Generator[Communicator, None, None]:
+def comm(request: pytest.FixtureRequest) -> Generator[Communicator]:
     """
     Fixture for a rapidsmpf communicator, scoped for each test.
     """
@@ -57,7 +60,7 @@ def comm(request: pytest.FixtureRequest) -> Generator[Communicator, None, None]:
 
 
 @pytest.fixture
-def device_mr() -> Generator[rmm.mr.CudaMemoryResource, None, None]:
+def device_mr() -> Generator[rmm.mr.CudaMemoryResource]:
     """
     Fixture for creating a new cuda memory resource and making it the
     current rmm resource temporarily.
@@ -69,3 +72,14 @@ def device_mr() -> Generator[rmm.mr.CudaMemoryResource, None, None]:
         yield mr
     finally:
         rmm.mr.set_current_device_resource(prior_mr)
+
+
+@pytest.fixture
+def stream() -> Stream:
+    """
+    Fixture to get a CUDA stream.
+
+    TODO: create a new stream compatible with the `device_mr` fixture. For now,
+    we just return the default stream.
+    """
+    return DEFAULT_STREAM

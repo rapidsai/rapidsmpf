@@ -5,9 +5,13 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <variant>
 #include <vector>
+
+#include <cuda_runtime.h>
 
 #include <rmm/device_buffer.hpp>
 
@@ -16,6 +20,7 @@
 namespace rapidsmpf {
 
 class BufferResource;
+class Event;
 
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
@@ -26,17 +31,81 @@ enum class MemoryType : int {
 /// @brief Array of all the different memory types.
 constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
 
+namespace {
+/// @brief Helper for overloaded lambdas using std::visit.
+template <class... Ts>
+struct overloaded : Ts... {
+    using Ts::operator()...;
+};
+/// @brief Explicit deduction guide
+template <class... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+
+}  // namespace
+
 /**
  * @brief Buffer representing device or host memory.
  *
  * @note The constructors are private, use `BufferResource` to construct buffers.
  * @note The memory type (e.g., host or device) is constant and cannot change during
  * the buffer's lifetime.
+ * @note A buffer is a stream-ordered object, when passing to a library which is
+ * not stream-aware one must ensure that `is_ready` returns `true` otherwise
+ * behaviour is undefined.
  */
 class Buffer {
     friend class BufferResource;
 
   public:
+    /**
+     * @brief CUDA event to provide synchronization among set of chunks.
+     *
+     * This event is used to serve as a synchronization point for a set of chunks
+     * given a user-specified stream.
+     *
+     * @note To prevent undefined behavior due to unfinished memory operations, events
+     * should be used in the following cases, if any of the operations below was
+     * performed *asynchronously with respect to the host*:
+     * 1. Before addressing a device buffer's allocation.
+     * 2. Before accessing a device buffer's data whose data has been copied from
+     * any location, or that has been processed by a CUDA kernel.
+     * 3. Before accessing a host buffer's data whose data has been copied from device,
+     * or processed by a CUDA kernel.
+     */
+    class Event {
+      public:
+        /**
+         * @brief Construct a CUDA event for a given stream.
+         *
+         * @param stream CUDA stream used for device memory operations
+         */
+        Event(rmm::cuda_stream_view stream);
+
+        /**
+         * @brief Destructor for Event.
+         *
+         * Cleans up the CUDA event if one was created.
+         */
+        ~Event();
+
+        /**
+         * @brief Check if the CUDA event has been completed.
+         *
+         * @return true if the event has been completed, false otherwise.
+         */
+        [[nodiscard]] bool is_ready();
+
+      private:
+        cudaEvent_t event_;  ///< CUDA event used to track device memory allocation
+        std::atomic<bool> done_{false
+        };  ///< Cache of the event status to avoid unnecessary queries.
+        mutable std::mutex mutex_;  ///< Protects access to event_
+        std::atomic<bool> destroying_{false
+        };  ///< Flag to indicate destruction in progress
+        std::atomic<int> active_readers_{0
+        };  ///< Number of threads currently executing is_ready()
+    };
+
     /// @brief  Storage type for the device buffer.
     using DeviceStorageT = std::unique_ptr<rmm::device_buffer>;
 
@@ -47,15 +116,6 @@ class Buffer {
      * @brief  Storage type in Buffer, which could be either host or device memory.
      */
     using StorageT = std::variant<DeviceStorageT, HostStorageT>;
-
-    /// @brief Helper for overloaded lambdas for Storage types in StorageT
-    template <class... Ts>
-    struct overloaded : Ts... {
-        using Ts::operator()...;
-    };
-    /// @brief Explicit deduction guide
-    template <class... Ts>
-    overloaded(Ts...) -> overloaded<Ts...>;
 
     /**
      * @brief Access the underlying host memory buffer (const).
@@ -112,7 +172,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer is not initialized.
      */
-    MemoryType constexpr mem_type() const {
+    [[nodiscard]] MemoryType constexpr mem_type() const {
         return std::visit(
             overloaded{
                 [](const HostStorageT&) -> MemoryType { return MemoryType::HOST; },
@@ -122,8 +182,16 @@ class Buffer {
         );
     }
 
-    /// @brief Buffer has a move ctor but no copy or assign operator.
-    Buffer(Buffer&&) = default;
+    /**
+     * @brief Check if the device memory operation has completed.
+     *
+     * @return true if the device memory operation has completed or no device
+     * memory operation was performed, false if it is still in progress.
+     */
+    [[nodiscard]] bool is_ready() const;
+
+    /// @brief Delete move and copy constructors and assignment operators.
+    Buffer(Buffer&&) = delete;
     Buffer(Buffer const&) = delete;
     Buffer& operator=(Buffer& o) = delete;
     Buffer& operator=(Buffer&& o) = delete;
@@ -143,13 +211,20 @@ class Buffer {
      * @brief Construct a Buffer from device memory.
      *
      * @param device_buffer A unique pointer to a device buffer.
+     * @param stream CUDA stream used for the device buffer allocation.
      * @param br Buffer resource for memory allocation.
+     * @param event The shared event to use for the buffer.
      *
      * @throws std::invalid_argument if `device_buffer` is null.
      * @throws std::invalid_argument if `stream` or `br->mr` isn't the same used by
      * `device_buffer`.
      */
-    Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource* br);
+    Buffer(
+        std::unique_ptr<rmm::device_buffer> device_buffer,
+        rmm::cuda_stream_view stream,
+        BufferResource* br,
+        std::shared_ptr<Event> event = nullptr
+    );
 
     /**
      * @brief Access the underlying host memory buffer.
@@ -184,7 +259,7 @@ class Buffer {
     /**
      * @brief Create a copy of this buffer using the same memory type.
      *
-     * @param stream CUDA stream used for device memory operations.
+     * @param stream CUDA stream used for the device buffer allocation and copy.
      * @return A unique pointer to a new Buffer containing the copied data.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy(rmm::cuda_stream_view stream) const;
@@ -193,7 +268,7 @@ class Buffer {
      * @brief Create a copy of this buffer using the specified memory type.
      *
      * @param target The target memory type.
-     * @param stream CUDA stream used for device memory operations.
+     * @param stream CUDA stream used for device buffer allocation and copy.
      * @return A unique pointer to a new Buffer containing the copied data.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy(
@@ -208,6 +283,8 @@ class Buffer {
     /// @brief The underlying storage host memory or device memory buffer (where
     /// applicable).
     StorageT storage_;
+    /// @brief CUDA event used to track copy operations
+    std::shared_ptr<Event> event_;
 };
 
 }  // namespace rapidsmpf

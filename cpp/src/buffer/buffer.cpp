@@ -4,6 +4,8 @@
  */
 #include <stdexcept>
 
+#include <cuda_runtime.h>
+
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 
@@ -18,20 +20,48 @@ template <typename T>
 }
 }  // namespace
 
+Buffer::Event::Event(rmm::cuda_stream_view stream) {
+    RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event_, cudaEventDisableTiming));
+    RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream));
+}
+
+Buffer::Event::~Event() {
+    // TODO: if we're being destroyed, warn the user if the event is
+    // not completed.
+    cudaEventDestroy(event_);
+}
+
+[[nodiscard]] bool Buffer::Event::is_ready() {
+    if (!done_.load(std::memory_order_relaxed)) {
+        bool result = cudaEventQuery(event_) == cudaSuccess;
+        done_.store(result, std::memory_order_relaxed);
+        return result;
+    }
+
+    return true;
+}
+
 Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br)
     : br{br},
       size{host_buffer ? host_buffer->size() : 0},
-      storage_{std::move(host_buffer)} {
+      storage_{std::move(host_buffer)},
+      event_{nullptr} {
     RAPIDSMPF_EXPECTS(
         std::get<HostStorageT>(storage_) != nullptr, "the host_buffer cannot be NULL"
     );
     RAPIDSMPF_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 
-Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, BufferResource* br)
+Buffer::Buffer(
+    std::unique_ptr<rmm::device_buffer> device_buffer,
+    rmm::cuda_stream_view stream,
+    BufferResource* br,
+    std::shared_ptr<Event> event
+)
     : br{br},
       size{device_buffer ? device_buffer->size() : 0},
-      storage_{std::move(device_buffer)} {
+      storage_{std::move(device_buffer)},
+      event_{event ? event : std::make_shared<Event>(stream)} {
     RAPIDSMPF_EXPECTS(
         std::get<DeviceStorageT>(storage_) != nullptr, "the device buffer cannot be NULL"
     );
@@ -55,12 +85,14 @@ std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
                 );
             },
             [&](const DeviceStorageT& storage) -> std::unique_ptr<Buffer> {
-                return std::unique_ptr<Buffer>(new Buffer{
+                auto new_buffer = std::unique_ptr<Buffer>(new Buffer{
                     std::make_unique<rmm::device_buffer>(
                         storage->data(), storage->size(), stream, br->device_mr()
                     ),
+                    stream,
                     br
                 });
+                return new_buffer;
             }
         },
         storage_
@@ -76,12 +108,14 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
     return std::visit(
         overloaded{
             [&](const HostStorageT& storage) -> std::unique_ptr<Buffer> {
-                return std::unique_ptr<Buffer>(new Buffer{
+                auto new_buffer = std::unique_ptr<Buffer>(new Buffer{
                     std::make_unique<rmm::device_buffer>(
                         storage->data(), storage->size(), stream, br->device_mr()
                     ),
+                    stream,
                     br
                 });
+                return new_buffer;
             },
             [&](const DeviceStorageT& storage) -> std::unique_ptr<Buffer> {
                 auto ret = std::make_unique<std::vector<uint8_t>>(storage->size());
@@ -92,11 +126,21 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
                     cudaMemcpyDeviceToHost,
                     stream
                 ));
-                return std::unique_ptr<Buffer>(new Buffer{std::move(ret), br});
+                auto new_buffer = std::unique_ptr<Buffer>(new Buffer{std::move(ret), br});
+
+                // The event is created here instead of the constructor because the
+                // memcpy is async, but the buffer is created on the host.
+                new_buffer->event_ = std::make_shared<Event>(stream);
+
+                return new_buffer;
             }
         },
         storage_
     );
+}
+
+bool Buffer::is_ready() const {
+    return !event_ || event_->is_ready();
 }
 
 }  // namespace rapidsmpf
