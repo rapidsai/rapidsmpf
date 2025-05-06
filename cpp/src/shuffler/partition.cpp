@@ -79,6 +79,27 @@ std::unordered_map<PartID, PackedData> partition_and_pack(
     return ret;
 }
 
+std::unordered_map<PartID, PackedData> split_and_pack(
+    cudf::table_view const& table,
+    std::vector<cudf::size_type> const& splits,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
+) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    // Can't split empty tables (0 is out of bounds), so raise
+    RAPIDSMPF_EXPECTS(
+        table.num_rows() > 0, "the input table cannot be empty", std::invalid_argument
+    );
+
+    auto tables = cudf::split(table, splits, stream);
+    std::unordered_map<PartID, PackedData> ret;
+    for (PartID i = 0; static_cast<std::size_t>(i) < tables.size(); ++i) {
+        auto pack = cudf::detail::pack(tables[i], stream, mr);
+        ret.emplace(i, PackedData(std::move(pack.metadata), std::move(pack.gpu_data)));
+    }
+    return ret;
+}
+
 std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,

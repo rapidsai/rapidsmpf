@@ -13,7 +13,12 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread
-from rapidsmpf.shuffler import Shuffler, partition_and_pack, unpack_and_concat
+from rapidsmpf.shuffler import (
+    Shuffler,
+    partition_and_pack,
+    split_and_pack,
+    unpack_and_concat,
+)
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import (
     cudf_to_pylibcudf_table,
@@ -48,6 +53,51 @@ def test_partition_and_pack_unpack(
     )
     # Since the row order isn't preserved, we sort the rows by the "0" column.
     assert_eq(expect, got, sort_rows="0")
+
+
+@pytest.mark.parametrize(
+    "df",
+    [
+        {"0": [1, 2, 3], "1": [2, 2, 1]},
+        {"0": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "1": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]},
+    ],
+)
+@pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
+def test_split_and_pack_unpack(
+    device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
+) -> None:
+    expect = cudf.DataFrame(df)
+    splits = np.linspace(0, len(expect), num_partitions, endpoint=False)[1:].astype(int)
+    partitions = split_and_pack(
+        cudf_to_pylibcudf_table(expect),
+        splits=splits,
+        stream=DEFAULT_STREAM,
+        device_mr=device_mr,
+    )
+    got = pylibcudf_to_cudf_dataframe(
+        unpack_and_concat(
+            tuple(partitions[i] for i in range(num_partitions)),
+            stream=DEFAULT_STREAM,
+            device_mr=device_mr,
+        )
+    )
+
+    assert_eq(expect, got)
+
+
+@pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
+def test_split_and_pack_unpack_empty_table(
+    device_mr: rmm.mr.CudaMemoryResource, num_partitions: int
+) -> None:
+    expect = cudf.DataFrame({"0": [], "1": []})
+    splits = np.linspace(0, len(expect), num_partitions, endpoint=False)[1:].astype(int)
+    with pytest.raises(ValueError, match=".*the input table cannot be empty"):
+        split_and_pack(
+            cudf_to_pylibcudf_table(expect),
+            splits=splits,
+            stream=DEFAULT_STREAM,
+            device_mr=device_mr,
+        )
 
 
 @pytest.mark.parametrize("wait_on", [False, True])

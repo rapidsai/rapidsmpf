@@ -21,6 +21,12 @@ def partition_and_pack(
     stream: Stream,
     device_mr: DeviceMemoryResource,
 ) -> dict[int, PackedData]: ...
+def split_and_pack(
+    table: Table,
+    splits: Iterable[int],
+    stream: Stream,
+    device_mr: DeviceMemoryResource,
+) -> dict[int, PackedData]: ...
 def unpack_and_concat(
     partitions: Iterable[PackedData],
     stream: Stream,
