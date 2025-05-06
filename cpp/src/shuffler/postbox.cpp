@@ -39,15 +39,33 @@ std::unordered_map<ChunkID, Chunk> PostBox<KeyType>::extract_by_key(KeyType key)
 }
 
 template <typename KeyType>
-std::vector<Chunk> PostBox<KeyType>::extract_all() {
+std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
     std::lock_guard const lock(mutex_);
     std::vector<Chunk> ret;
-    for (auto& [_, chunks] : pigeonhole_) {
-        for (auto& [_, chunk] : chunks) {
-            ret.push_back(std::move(chunk));
+
+    // Iterate through the outer map
+    auto pid_it = pigeonhole_.begin();
+    while (pid_it != pigeonhole_.end()) {
+        // Iterate through the inner map
+        auto& chunks = pid_it->second;
+        auto chunk_it = chunks.begin();
+        while (chunk_it != chunks.end()) {
+            if (chunk_it->second.is_ready()) {
+                ret.push_back(std::move(chunk_it->second));
+                chunk_it = chunks.erase(chunk_it);
+            } else {
+                ++chunk_it;
+            }
+        }
+
+        // Remove the pid entry if its chunks map is empty
+        if (chunks.empty()) {
+            pid_it = pigeonhole_.erase(pid_it);
+        } else {
+            ++pid_it;
         }
     }
-    pigeonhole_.clear();
+
     return ret;
 }
 

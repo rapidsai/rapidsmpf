@@ -15,6 +15,7 @@ from distributed import get_client, get_worker, wait
 from distributed.diagnostics.plugin import SchedulerPlugin
 
 import rmm.mr
+from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
@@ -250,12 +251,51 @@ def rmpf_worker_setup(
             periodic_spill_check=periodic_spill_check,
         )
 
-        # Add a new spill collection to enable spilling of DataFrames. We use a
-        # negative priority (-10) such that spilling within shufflers have
-        # higher priority than spilling of DataFrames.
-        ctx.br.spill_manager.add_spill_function(
-            func=ctx.spill_collection.spill, priority=-10
+        # Create a spill function that spills the python objects in the spill-
+        # collection. This way, we have a central place (the dask worker) to track
+        # and trigger spilling of python objects. Additionally, we create a staging
+        # device buffer for the spilling to reduce device memory pressure.
+        # TODO: maybe have a pool of staging buffers?
+        spill_staging_buffer = rmm.DeviceBuffer(
+            size=2**25, stream=DEFAULT_STREAM, mr=mr
         )
+        spill_staging_buffer_lock = threading.Lock()
+
+        def spill_func(amount: int) -> int:
+            """
+            Spill a specified amount of data from the Python object spill collection.
+
+            This function attempts to use a preallocated staging device buffer to
+            spill Python objects from the spill collection. If the staging buffer
+            is currently in use, it will fall back to spilling without it.
+
+            Parameters
+            ----------
+            amount
+                The amount of data to spill, in bytes.
+
+            Returns
+            -------
+            The actual amount of data spilled, in bytes.
+            """
+            if spill_staging_buffer_lock.acquire(blocking=False):
+                try:
+                    return ctx.spill_collection.spill(
+                        amount,
+                        stream=DEFAULT_STREAM,
+                        device_mr=mr,
+                        staging_device_buffer=spill_staging_buffer,
+                    )
+                finally:
+                    spill_staging_buffer_lock.release()
+            return ctx.spill_collection.spill(
+                amount, stream=DEFAULT_STREAM, device_mr=mr
+            )
+
+        # Add the spill function using a negative priority (-10) such that spilling
+        # of internal shuffle buffers (non-python objects) have higher priority than
+        # spilling of the Python objects in the collection.
+        ctx.br.spill_manager.add_spill_function(func=spill_func, priority=-10)
 
 
 _initialized_clusters: set[str] = set()

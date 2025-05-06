@@ -4,7 +4,9 @@
  */
 #pragma once
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <vector>
 
@@ -12,6 +14,7 @@
 #include <cudf/table/table.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/shuffler/partition.hpp>
 
 namespace rapidsmpf::shuffler::detail {
@@ -27,6 +30,7 @@ using ChunkID = std::uint64_t;
 class Chunk {
   public:
     PartID const pid;  ///< Partition ID that this chunk belongs to.
+
     ChunkID const cid;  ///< Unique ID of this chunk.
 
     /// If not zero, the number of chunks of the partition expected to get from the
@@ -47,8 +51,6 @@ class Chunk {
      *
      * @param pid The ID of the partition this chunk is part of.
      * @param cid The ID of the chunk.
-     * @param expected_num_chunks If not zero, the number of chunks of the partition
-     * expected to get from the sending rank. Ignored when it is zero.
      * @param gpu_data_size If known, the size of the gpu data buffer (in bytes).
      * @param metadata The metadata of the packed `cudf::table` that makes up this
      * chunk.
@@ -58,7 +60,6 @@ class Chunk {
     Chunk(
         PartID pid,
         ChunkID cid,
-        std::size_t expected_num_chunks,
         std::size_t gpu_data_size,
         std::unique_ptr<std::vector<uint8_t>> metadata,
         std::unique_ptr<Buffer> gpu_data
@@ -126,6 +127,43 @@ class Chunk {
         std::size_t max_nbytes = 512,
         rmm::cuda_stream_view stream = cudf::get_default_stream()
     ) const;
+
+    /**
+     * @brief Returns true if the chunk is ready for consumption.
+     *
+     * Checks that the gpu_data's CUDA event is ready, if gpu_data contains a valid
+     * buffer. The CUDA event is used to synchronize the chunk's data to ensure
+     * any allocation or copy (e.g., spilling) is complete before the chunk is
+     * consumed. If expected_num_chunks is greater than 0, or gpu_data_size is 0,
+     * the chunk is considered always ready as it should not have any CUDA data
+     * to receive.
+     *
+     * @return true if the chunk is ready, false otherwise.
+     */
+    [[nodiscard]] bool is_ready() const;
+
+  private:
+    /**
+     * @brief Construct a new chunk of a partition.
+     *
+     * @param pid The ID of the partition this chunk is part of.
+     * @param cid The ID of the chunk.
+     * @param expected_num_chunks If not zero, the number of chunks of the partition
+     * expected to get from the sending rank. Ignored when it is zero.
+     * @param gpu_data_size If known, the size of the gpu data buffer (in bytes).
+     * @param metadata The metadata of the packed `cudf::table` that makes up this
+     * chunk.
+     *  @param gpu_data The gpu_data of the packed `cudf::table` that makes up this
+     * chunk.
+     */
+    Chunk(
+        PartID pid,
+        ChunkID cid,
+        std::size_t expected_num_chunks,
+        std::size_t gpu_data_size,
+        std::unique_ptr<std::vector<uint8_t>> metadata,
+        std::unique_ptr<Buffer> gpu_data
+    );
 };
 
 /**

@@ -220,3 +220,139 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
     EXPECT_EQ(dev_mem_available(), 0);
 }
+
+TEST(BufferResource, CUDAEventTracking) {
+    constexpr std::size_t buffer_size = 1 * 1024 * 1024;  // 1 MiB
+
+    rmm::mr::cuda_memory_resource mr_cuda;
+    auto stream = cudf::get_default_stream();
+
+    // Create a buffer resource with no memory limits
+    BufferResource br{mr_cuda, {}};
+
+    // Helper lambdas for data initialization and verification
+    auto initialize_data = [](std::vector<uint8_t>& data) {
+        for (std::size_t i = 0; i < data.size(); ++i) {
+            data[i] = static_cast<uint8_t>(i % 256);
+        }
+    };
+
+    auto verify_data = [](const std::vector<uint8_t>& data) {
+        for (std::size_t i = 0; i < data.size(); ++i) {
+            EXPECT_EQ(data[i], static_cast<uint8_t>(i % 256));
+        }
+    };
+
+    // Test host-to-host copy (should not create an event)
+    {
+        auto host_data = std::make_unique<std::vector<uint8_t>>(1024);
+        initialize_data(*host_data);
+        auto host_buf = br.move(std::move(host_data));
+        auto [host_reserve, host_overbooking] = br.reserve(MemoryType::HOST, 1024, false);
+        auto host_copy = br.copy(MemoryType::HOST, host_buf, stream, host_reserve);
+        EXPECT_TRUE(host_copy->is_ready());  // No event created
+
+        // Verify the data
+        auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(1024);
+        std::memcpy(verify_data_buf->data(), host_copy->data(), 1024);
+        verify_data(*verify_data_buf);
+    }
+
+    // Test device-to-device copy (should create an event)
+    {
+        auto [alloc_reserve, alloc_overbooking] =
+            br.reserve(MemoryType::DEVICE, buffer_size, false);
+        auto dev_buf =
+            br.allocate(MemoryType::DEVICE, buffer_size, stream, alloc_reserve);
+
+        // Initialize device data with a pattern
+        auto host_pattern = std::make_unique<std::vector<uint8_t>>(buffer_size);
+        initialize_data(*host_pattern);
+        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+            dev_buf->data(),
+            host_pattern->data(),
+            buffer_size,
+            cudaMemcpyHostToDevice,
+            stream
+        ));
+
+        auto [copy_reserve, copy_overbooking] =
+            br.reserve(MemoryType::DEVICE, buffer_size, false);
+        auto dev_copy = br.copy(MemoryType::DEVICE, dev_buf, stream, copy_reserve);
+
+        // Wait for copy to complete
+        stream.synchronize();
+        EXPECT_TRUE(dev_copy->is_ready());
+
+        // Verify the data
+        auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(buffer_size);
+        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+            verify_data_buf->data(),
+            dev_copy->data(),
+            buffer_size,
+            cudaMemcpyDeviceToHost,
+            stream
+        ));
+        stream.synchronize();
+        verify_data(*verify_data_buf);
+    }
+
+    // Test host-to-device copy (should create an event)
+    {
+        auto host_data = std::make_unique<std::vector<uint8_t>>(buffer_size);
+        initialize_data(*host_data);
+        auto host_buf = br.move(std::move(host_data));
+        auto [dev_reserve, dev_overbooking] =
+            br.reserve(MemoryType::DEVICE, buffer_size, false);
+
+        auto dev_copy = br.copy(MemoryType::DEVICE, host_buf, stream, dev_reserve);
+
+        // Wait for copy to complete
+        stream.synchronize();
+        EXPECT_TRUE(dev_copy->is_ready());
+
+        // Verify the data
+        auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(buffer_size);
+        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+            verify_data_buf->data(),
+            dev_copy->data(),
+            buffer_size,
+            cudaMemcpyDeviceToHost,
+            stream
+        ));
+        stream.synchronize();
+        verify_data(*verify_data_buf);
+    }
+
+    // Test device-to-host copy (should create an event)
+    {
+        auto [alloc_reserve, alloc_overbooking] =
+            br.reserve(MemoryType::DEVICE, buffer_size, false);
+        auto dev_buf =
+            br.allocate(MemoryType::DEVICE, buffer_size, stream, alloc_reserve);
+
+        // Initialize device data with a pattern
+        auto host_pattern = std::make_unique<std::vector<uint8_t>>(buffer_size);
+        initialize_data(*host_pattern);
+        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+            dev_buf->data(),
+            host_pattern->data(),
+            buffer_size,
+            cudaMemcpyHostToDevice,
+            stream
+        ));
+
+        auto [host_reserve, host_overbooking] =
+            br.reserve(MemoryType::HOST, buffer_size, false);
+        auto host_copy = br.copy(MemoryType::HOST, dev_buf, stream, host_reserve);
+
+        // Wait for copy to complete
+        stream.synchronize();
+        EXPECT_TRUE(host_copy->is_ready());
+
+        // Verify the data
+        auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(buffer_size);
+        std::memcpy(verify_data_buf->data(), host_copy->data(), buffer_size);
+        verify_data(*verify_data_buf);
+    }
+}
