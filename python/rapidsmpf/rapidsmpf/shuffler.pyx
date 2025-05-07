@@ -38,6 +38,14 @@ cdef extern from "<rapidsmpf/shuffler/partition.hpp>" nogil:
             device_memory_resource *mr,
         ) except +
 
+    cdef unordered_map[uint32_t, cpp_PackedData] cpp_split_and_pack \
+        "rapidsmpf::shuffler::split_and_pack"(
+            const table_view& table,
+            const vector[size_type] &splits,
+            cuda_stream_view stream,
+            device_memory_resource *mr,
+        ) except +
+
 
 cpdef dict partition_and_pack(
     Table table,
@@ -76,6 +84,7 @@ cpdef dict partition_and_pack(
     rapidsmpf.shuffler.unpack_and_concat
     pylibcudf.partitioning.hash_partition
     pylibcudf.contiguous_split.pack
+    rapidsmpf.shuffler.split_and_pack
     """
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, cpp_PackedData] _ret
@@ -90,6 +99,67 @@ cpdef dict partition_and_pack(
             num_partitions,
             cpp_HASH_MURMUR3,
             cpp_DEFAULT_HASH_SEED,
+            _stream,
+            device_mr.get_mr()
+        )
+    ret = {}
+    cdef unordered_map[uint32_t, cpp_PackedData].iterator it = _ret.begin()
+    while(it != _ret.end()):
+        ret[deref(it).first] = PackedData.from_librapidsmpf(
+            make_unique[cpp_PackedData](move(deref(it).second))
+        )
+        postincrement(it)
+    return ret
+
+
+cpdef dict split_and_pack(
+    Table table,
+    splits,
+    stream,
+    DeviceMemoryResource device_mr,
+):
+    """
+    Splits rows from the input table into multiple packed (serialized) tables.
+
+    Parameters
+    ----------
+    table
+        The input table to split and pack.  The table cannot be empty (the
+        split points would not be valid).
+    splits
+        The split points, equivalent to cudf::split(), i.e. one less than
+        the number of result partitions.
+    stream
+        The CUDA stream used for memory operations.
+    device_mr
+        Reference to the RMM device memory resource used for device allocations.
+
+    Returns
+    -------
+    A dictionary where the keys are partition IDs and the values are packed tables.
+
+    Raises
+    ------
+    IndexError
+        If the splits are out of range for ``[0, len(table)]``.
+
+    See Also
+    --------
+    rapidsmpf.shuffler.unpack_and_concat
+    pylibcudf.copying.split
+    rapidsmpf.shuffler.partition_and_pack
+    """
+    cdef vector[size_type] _splits = tuple(splits)
+    cdef unordered_map[uint32_t, cpp_PackedData] _ret
+    cdef table_view tbl = table.view()
+    if stream is None:
+        raise ValueError("stream cannot be None")
+    cdef cuda_stream_view _stream = Stream(stream).view()
+
+    with nogil:
+        _ret = cpp_split_and_pack(
+            tbl,
+            _splits,
             _stream,
             device_mr.get_mr()
         )
