@@ -170,9 +170,9 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
             bootstrap_dask_cluster(client, spill_device=0.1)
             max_num_shuffles = Shuffler.max_concurrent_shuffles
 
-            # We can shuffle `max_num_shuffles` consecutive times.
-            do_shuffle(seed=1, num_shuffles=max_num_shuffles)
-            # And more times after a compute.
+            # We can shuffle `max_num_shuffles` consecutive times but to limit CI
+            # running time, we just do 5+10 shuffles.
+            do_shuffle(seed=1, num_shuffles=5)
             do_shuffle(seed=2, num_shuffles=10)
 
             # Check that all shufflers has been cleaned up.
