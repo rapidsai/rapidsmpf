@@ -261,7 +261,7 @@ cdef class Shuffler:
         self,
         Communicator comm,
         ProgressThread progress_thread,
-        uint16_t op_id,
+        uint8_t op_id,
         uint32_t total_num_partitions,
         stream,
         BufferResource br,
