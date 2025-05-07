@@ -132,10 +132,15 @@ class ProgressThread {
      *
      * @param logger The logger instance to use.
      * @param statistics The statistics instance to use (disabled by default).
+     * @param sleep The duration to sleep between each progress loop iteration.
+     * If 0, the thread yields execution instead of sleeping. Anecdotally, a 1 us
+     * sleep time (the default) is sufficient to avoid starvation and get smooth
+     * progress.
      */
     ProgressThread(
         Communicator::Logger& logger,
-        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false)
+        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false),
+        Duration sleep = std::chrono::microseconds{1}
     );
 
     ~ProgressThread();
