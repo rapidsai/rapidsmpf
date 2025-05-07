@@ -242,7 +242,7 @@ cdef class Shuffler:
         The progress thread to use for tracking progress.
     op_id
         The operation ID of the shuffle. Must have a value between 0 and
-        `max_concurrent_shuffles-1`.
+        ``max_concurrent_shuffles-1``.
     total_num_partitions
         Total number of partitions in the shuffle.
     stream
