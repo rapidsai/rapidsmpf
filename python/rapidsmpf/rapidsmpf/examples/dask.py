@@ -81,7 +81,7 @@ class DaskCudfIntegration:
             )
         else:
             # TODO: Check for unsupported kwargs
-            df = df.sort_values(on, ascending=True)
+            df = df.sort_values(on)
             splits = df[on[0]].searchsorted(sort_boundaries, side="right")
             packed_inputs = split_and_pack(
                 df.to_pylibcudf()[0],
@@ -132,6 +132,7 @@ def dask_cudf_shuffle(
     df: dask_cudf.DataFrame,
     shuffle_on: list[str],
     *,
+    sort: bool = False,
     partition_count: int | None = None,
 ) -> dask_cudf.DataFrame:
     """
@@ -143,6 +144,10 @@ def dask_cudf_shuffle(
         Input `dask_cudf.DataFrame` collection.
     shuffle_on
         List of column names to shuffle on.
+    sort
+        Whether the output partitioning should be in
+        sorted order. The first column in ``shuffle_on``
+        must be numerical.
     partition_count
         Output partition count. Default will preserve
         the input partition count.
@@ -157,6 +162,13 @@ def dask_cudf_shuffle(
     token = tokenize(df0, shuffle_on, count_out)
     name_in = df0._name
     name_out = f"shuffle-{token}"
+    if sort:
+        boundaries = (
+            df0[shuffle_on[0]].quantile(np.linspace(0.0, 1.0, count_out)[1:]).optimize()
+        )
+        sort_boundaries_name = (boundaries._name, 0)
+    else:
+        sort_boundaries_name = None
     graph = rapidsmpf_shuffle_graph(
         name_in,
         name_out,
@@ -165,73 +177,13 @@ def dask_cudf_shuffle(
         count_in,
         count_out,
         DaskCudfIntegration,
+        sort_boundaries_name=sort_boundaries_name,
     )
 
     # Add df0 dependencies to the task graph
     graph.update(df0.dask)
-
-    # Return a Dask-DataFrame collection
-    return dd.from_graph(
-        graph,
-        df0._meta,
-        (None,) * (count_out + 1),
-        [(name_out, pid) for pid in range(count_out)],
-        "rapidsmpf",
-    )
-
-
-def dask_cudf_sort(
-    df: dask_cudf.DataFrame,
-    sort_on: list[str],
-    *,
-    ascending: bool = True,
-    partition_count: int | None = None,
-) -> dask_cudf.DataFrame:
-    """
-    Sort a dask_cudf.DataFrame with RapidsMPF.
-
-    Parameters
-    ----------
-    df
-        Input `dask_cudf.DataFrame` collection.
-    sort_on
-        List of column names to shuffle on.
-    ascending
-        Whether to sort in ascending order.
-    partition_count
-        Output partition count. Default will preserve
-        the input partition count.
-
-    Returns
-    -------
-    Sorted Dask-cuDF DataFrame collection.
-    """
-    df0 = df.optimize()
-    count_in = df0.npartitions
-    count_out = partition_count or count_in
-    token = tokenize(df0, sort_on, count_out)
-    name_in = df0._name
-    name_out = f"shuffle-{token}"
-
-    boundaries = (
-        df0[sort_on[0]].quantile(np.linspace(0.0, 1.0, count_out)[1:]).optimize()
-    )
-
-    graph = rapidsmpf_shuffle_graph(
-        name_in,
-        name_out,
-        list(df0.columns),
-        sort_on,
-        count_in,
-        count_out,
-        DaskCudfIntegration,
-        sort_boundaries_name=(boundaries._name, 0),
-        options={"ascending": ascending},
-    )
-
-    # Add df0/boundaries dependencies to the task graph
-    graph.update(df0.dask)
-    graph.update(boundaries.dask)
+    if sort:
+        graph.update(boundaries.dask)
 
     # Return a Dask-DataFrame collection
     return dd.from_graph(
