@@ -64,6 +64,7 @@ static std::unordered_map<PartID, PackedData> pack_tables(
     rmm::device_async_resource_ref mr
 ) {
     std::unordered_map<PartID, PackedData> ret;
+    ret.reserve(tables.size());
     for (PartID i = 0; static_cast<std::size_t>(i) < tables.size(); ++i) {
         auto pack = cudf::detail::pack(tables[i], stream, mr);
         ret.emplace(i, PackedData(std::move(pack.metadata), std::move(pack.gpu_data)));
