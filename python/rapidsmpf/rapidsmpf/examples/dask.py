@@ -69,9 +69,9 @@ class DaskCudfIntegration:
         options
             Optional key-work arguments.
         """
+        if options:
+            raise ValueError(f"Unsupported options: {options}")
         if sort_boundaries is None:
-            if options:
-                raise ValueError(f"Unsupported options: {options}")
             columns_to_hash = tuple(list(df.columns).index(val) for val in on)
             packed_inputs = partition_and_pack(
                 df.to_pylibcudf()[0],
@@ -81,8 +81,6 @@ class DaskCudfIntegration:
                 device_mr=rmm.mr.get_current_device_resource(),
             )
         else:
-            if options:
-                raise ValueError(f"Unsupported options: {options}")
             df = df.sort_values(on)
             splits = df[on[0]].searchsorted(sort_boundaries, side="right")
             packed_inputs = split_and_pack(
