@@ -27,15 +27,10 @@ namespace rapidsmpf::shuffler::detail {
 using ChunkID = std::uint64_t;
 
 /**
- * @brief Chunk with multiple messages.
+ * @brief Chunk with multiple messages. This class contains two buffers for concatenated
+ * metadata and data.
  *
- * This class will have two buffers:
- * - metadata_: The metadata buffer that contains information about the messages in the
- * chunks and the concatenated metadata of the messages.
- * - data_: The data buffer that contains the concatenateddata of the messages in the
- * chunk.
- *
- * The metadata_ buffer will have the following format:
+ * When the Chunk is serialized, the format is as follows:
  * - chunk_id: uint64_t, ID of the chunk
  * - n_elements: size_t, Number of messages in the chunk
  * - [partition_ids]: std::vector<PartID>, Partition IDs of the messages, size =
@@ -49,22 +44,21 @@ using ChunkID = std::uint64_t;
  * - [concat_metadata]: std::vector<uint8_t>, Concatenated metadata of the messages,
  * size = psum_meta[n_elements - 1]
  *
- * For a chunk with N messages with M bytes of concat metadata the size of metadata_
+ * For a chunk with N messages with M bytes of concat metadata the size of serialized
  * buffer is sizeof(ChunkID) + sizeof(size_t) + N * (sizeof(PartID) + sizeof(size_t) +
  * sizeof(uint32_t) + sizeof(uint64_t)) + M = 16 + N * 24 + M bytes.
  *
- * For a chunk with a single control message, the size of the metadata_ buffer is
- * sizeof(ChunkID) + sizeof(PartID)+ 2*sizeof(size_t) + sizeof(uint32_t) +
- * sizeof(uint64_t) = 40 bytes.
+ * For a chunk with a single control message (ie. M = 0), the size of the serialized
+ * buffer is 40 bytes.
  *
- * For a chunk with a single message with M bytes of metadata, the size of the metadata_
- * buffer is sizeof(ChunkID) + sizeof(PartID) + sizeof(size_t) + sizeof(uint32_t) +
- * sizeof(ChunkID) + sizeof(PartID) + sizeof(size_t) + sizeof(uint32_t) + sizeof(uint64_t)
- * + M = 40 + M bytes.
+ * For a chunk with a single message with M bytes of metadata, the size of the serialized
+ * buffer is 40 + M bytes.
  */
 
-// TODO: This class will be renamed to `Chunk` once the `Chunk` class is removed.
-class ChunkBatch {
+class Chunk {
+    // friend a method that creates a dummy chunk for testing
+    friend Chunk make_dummy_chunk(ChunkID, size_t, PartID);
+
   public:
     /**
      * @brief The size of the metadata message header.
@@ -84,8 +78,8 @@ class ChunkBatch {
      *
      * @return The ID of the chunk.
      */
-    inline ChunkID chunk_id() const {
-        return *reinterpret_cast<ChunkID*>(metadata_->data());
+    constexpr ChunkID chunk_id() const {
+        return chunk_id_;
     }
 
     /**
@@ -93,8 +87,8 @@ class ChunkBatch {
      *
      * @return The number of messages in the chunk.
      */
-    inline size_t n_messages() const {
-        return *reinterpret_cast<size_t*>(metadata_->data() + sizeof(ChunkID));
+    constexpr size_t n_messages() const {
+        return n_messages_;
     }
 
     /**
@@ -104,7 +98,7 @@ class ChunkBatch {
      * @return The ID of the partition.
      */
     inline PartID part_id(size_t i) const {
-        return *(part_ids_begin() + i);
+        return part_ids_[i];
     }
 
     /**
@@ -115,7 +109,7 @@ class ChunkBatch {
      * is a control message, otherwise zero (data message).
      */
     inline size_t expected_num_chunks(size_t i) const {
-        return *(expected_num_chunks_begin() + i);
+        return expected_num_chunks_[i];
     }
 
     /**
@@ -125,7 +119,7 @@ class ChunkBatch {
      * @return True if the message is a control message, false otherwise.
      */
     inline bool is_control_message(size_t i) const {
-        return expected_num_chunks(i) > 0;
+        return expected_num_chunks_[i] > 0;
     }
 
     /**
@@ -141,7 +135,7 @@ class ChunkBatch {
      *
      * @throws std::out_of_range if the index is out of bounds.
      */
-    ChunkBatch get_data(ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view stream);
+    Chunk get_data(ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view stream);
 
     /**
      * @brief Get the size of the metadata of the i-th message.
@@ -151,8 +145,9 @@ class ChunkBatch {
      * control message, otherwise the size of `PackedData::metadata`.
      */
     inline uint32_t metadata_size(size_t i) const {
-        return i == 0 ? *(psum_meta_begin())
-                      : *(psum_meta_begin() + i) - *(psum_meta_begin() + i - 1);
+        assert(!meta_offsets_.empty());
+        assert(!is_control_message(i));
+        return i == 0 ? meta_offsets_[0] : meta_offsets_[i] - meta_offsets_[i - 1];
     }
 
     /**
@@ -163,8 +158,9 @@ class ChunkBatch {
      * control message, otherwise the size of `PackedData::gpu_data` of the message.
      */
     inline size_t data_size(size_t i) const {
-        return i == 0 ? *(psum_data_begin())
-                      : *(psum_data_begin() + i) - *(psum_data_begin() + i - 1);
+        assert(!data_offsets_.empty());
+        assert(!is_control_message(i));
+        return i == 0 ? data_offsets_[0] : data_offsets_[i] - data_offsets_[i - 1];
     }
 
     /**
@@ -174,6 +170,58 @@ class ChunkBatch {
      */
     void set_data_buffer(std::unique_ptr<Buffer> data) {
         data_ = std::move(data);
+    }
+
+    /**
+     * @brief Whether the data buffer is set.
+     *
+     * @return True if the data buffer is set, false otherwise.
+     */
+    inline bool is_data_buffer_set() const {
+        return data_ != nullptr;
+    }
+
+    /**
+     * @brief Whether the metadata buffer is set.
+     *
+     * @return True if the metadata buffer is set, false otherwise.
+     */
+    inline bool is_metadata_buffer_set() const {
+        return metadata_ != nullptr;
+    }
+
+    /**
+     * @brief Get the memory type of the data buffer.
+     *
+     * @return The memory type of the data buffer.
+     */
+    inline MemoryType data_memory_type() const {
+        assert(data_);
+        return data_->mem_type();
+    }
+
+    /**
+     * @brief Get the size of the concatenated data.
+     *
+     * @return The size of the concatenated data.
+     */
+    inline size_t concat_data_size() const {
+        assert(data_);
+        assert(!data_offsets_.empty());
+        assert(data_offsets_[n_messages() - 1] == data_->size);
+        return data_offsets_[n_messages() - 1];
+    }
+
+    /**
+     * @brief Get the size of the concatenated metadata.
+     *
+     * @return The size of the concatenated metadata.
+     */
+    inline size_t concat_metadata_size() const {
+        assert(metadata_);
+        assert(!meta_offsets_.empty());
+        assert(meta_offsets_[n_messages() - 1] == metadata_->size());
+        return meta_offsets_[n_messages() - 1];
     }
 
     /**
@@ -204,10 +252,11 @@ class ChunkBatch {
      * @param br The buffer resource.
      * @return The ChunkBatch.
      */
-    static ChunkBatch from_packed_data(
+    static Chunk from_packed_data(
         ChunkID chunk_id,
         PartID part_id,
         PackedData&& packed_data,
+        std::shared_ptr<Buffer::Event> event,
         rmm::cuda_stream_view stream,
         BufferResource* br
     );
@@ -221,7 +270,7 @@ class ChunkBatch {
      * @param expected_num_chunks The expected number of chunks.
      * @return The ChunkBatch.
      */
-    static ChunkBatch from_finished_partition(
+    static Chunk from_finished_partition(
         ChunkID chunk_id, PartID part_id, size_t expected_num_chunks
     );
 
@@ -235,10 +284,9 @@ class ChunkBatch {
      * @throws std::runtime_error if the metadata buffer does not follow the expected
      * format and `validate` is true.
      */
-    static ChunkBatch from_metadata_message(
-        std::unique_ptr<std::vector<uint8_t>> msg, bool validate = true
+    static Chunk from_serialized_buf(
+        std::vector<uint8_t> const& msg, bool validate = true
     );
-
 
     /**
      * @brief Validate if a provided metadata buffer follows the expected format.
@@ -246,7 +294,7 @@ class ChunkBatch {
      * @param metadata_buf The metadata buffer to validate.
      * @return True if the metadata buffer follows the expected format, false otherwise.
      */
-    static bool validate_metadata_format(std::vector<uint8_t> const& metadata_buf);
+    static bool validate_format(std::vector<uint8_t> const& serialized_buf);
 
     /**
      * @brief Whether the chunk is ready for consumption.
@@ -256,8 +304,11 @@ class ChunkBatch {
      * could be set later, so we need to check if it is non-null.
      */
     [[nodiscard]] inline bool is_ready() const {
-        // psum_data[-1] contains the size of the data buffer
-        return psum_data_begin()[n_messages() - 1] == 0 || (data_ && data_->is_ready());
+        // psum_data[-1] contains the size of the data buffer. If it is 0, the chunk has
+        // no data messages, so it is ready. Else, the chunk is ready if the data buffer
+        // is non-null and the data buffer is ready.
+        return !data_offsets_.empty()
+               && (data_offsets_[n_messages() - 1] == 0 || (data_ && data_->is_ready()));
     }
 
     /**
@@ -271,186 +322,42 @@ class ChunkBatch {
         size_t max_nbytes = 512, rmm::cuda_stream_view stream = cudf::get_default_stream()
     ) const;
 
+    /**
+     * @brief Returns a metadata message that represents this chunk.
+     *
+     * @returns The metadata message as a serialized byte vector.
+     */
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> serialize() const;
+
   private:
-    /// @brief The beginning of the partition IDs in the chunk.
-    inline PartID* part_ids_begin() const {
-        return reinterpret_cast<PartID*>(
-            metadata_->data() + sizeof(ChunkID) + sizeof(size_t)
-        );
-    }
+    // constructor
+    Chunk(
+        ChunkID chunk_id,
+        size_t n_messages,
+        std::vector<PartID> part_ids,
+        std::vector<size_t> expected_num_chunks,
+        std::vector<uint32_t> meta_offsets,
+        std::vector<uint64_t> data_offsets,
+        std::unique_ptr<std::vector<uint8_t>> metadata = nullptr,
+        std::unique_ptr<Buffer> data = nullptr
+    );
 
-    /// @brief The beginning of the expected number of chunks in the chunk.
-    inline size_t* expected_num_chunks_begin() const {
-        return reinterpret_cast<size_t*>(part_ids_begin() + n_messages());
-    }
-
-    /// @brief The beginning of the psum metadata in the chunk.
-    inline uint32_t* psum_meta_begin() const {
-        return reinterpret_cast<uint32_t*>(expected_num_chunks_begin() + n_messages());
-    }
-
-    /// @brief The beginning of the psum data in the chunk.
-    inline uint64_t* psum_data_begin() const {
-        return reinterpret_cast<uint64_t*>(psum_meta_begin() + n_messages());
-    }
-
-    /// @brief The beginning of the concat metadata in the chunk.
-    inline uint8_t* concat_metadata_begin() const {
-        return reinterpret_cast<uint8_t*>(psum_data_begin() + n_messages());
-    }
-
-    /// @brief The size of the concat metadata in the chunk.
-    inline size_t concat_metadata_size() const {
-        return *(psum_data_begin() + n_messages() - 1);
-    }
+    ChunkID const chunk_id_;  ///< The ID of the chunk.
+    size_t const n_messages_;  ///< The number of messages in the chunk.
+    std::vector<PartID> const
+        part_ids_;  ///< The partition IDs of the messages in the chunk.
+    std::vector<size_t> const expected_num_chunks_;  ///< The expected number of chunks of
+                                                     ///< the messages in the chunk.
+    std::vector<uint32_t> const
+        meta_offsets_;  ///< The offsets of the metadata of the messages in the chunk.
+    std::vector<uint64_t> const
+        data_offsets_;  ///< The offsets of the data of the messages in the chunk.
 
     /// Metadata buffer that contains information about the messages in the chunk.
     std::unique_ptr<std::vector<uint8_t>> metadata_;
 
     /// Concatenated data buffer of the messages in the chunk.
     std::unique_ptr<Buffer> data_;
-};
-
-/**
- * @brief A chunk of a partition.
- */
-class Chunk {
-  public:
-    PartID const pid;  ///< Partition ID that this chunk belongs to.
-
-    ChunkID const cid;  ///< Unique ID of this chunk.
-
-    /// If not zero, the number of chunks of the partition expected to get from the
-    /// sending rank. Ignored when it is zero.
-    std::size_t const expected_num_chunks;
-
-    /// If known, the size of the GPU data buffer (in bytes).
-    std::size_t const gpu_data_size;
-
-    /// Metadata of the packed `cudf::table` associated with this chunk.
-    std::unique_ptr<std::vector<uint8_t>> metadata;
-
-    /// GPU data buffer of the packed `cudf::table` associated with this chunk.
-    std::unique_ptr<Buffer> gpu_data;
-
-    /**
-     * @brief Construct a new chunk of a partition.
-     *
-     * @param pid The ID of the partition this chunk is part of.
-     * @param cid The ID of the chunk.
-     * @param gpu_data_size If known, the size of the gpu data buffer (in bytes).
-     * @param metadata The metadata of the packed `cudf::table` that makes up this
-     * chunk.
-     *  @param gpu_data The gpu_data of the packed `cudf::table` that makes up this
-     * chunk.
-     */
-    Chunk(
-        PartID pid,
-        ChunkID cid,
-        std::size_t gpu_data_size,
-        std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<Buffer> gpu_data
-    );
-
-    /**
-     * @brief Construct a new chunk of a partition.
-     *
-     * @param pid The ID of the partition this chunk is part of.
-     * @param cid The ID of the chunk.
-     * @param expected_num_chunks If not zero, the number of chunks of the partition
-     * expected to get from the sending rank. Ignored when it is zero.
-     */
-    Chunk(PartID pid, ChunkID cid, std::size_t expected_num_chunks);
-
-    /**
-     * @brief Header of a metadata message.
-     */
-    struct MetadataMessageHeader {
-        PartID pid;  ///< The ID of the partition this chunk is part of.
-        ChunkID cid;  ///< The ID of the chunk.
-        /// If not zero, the number of chunks of the partition expected to get from the
-        /// sending rank. Ignored when it is zero.
-        std::size_t expected_num_chunks;
-        /// If known, the size of the gpu data buffer (in bytes).
-        std::size_t gpu_data_size;
-    };
-
-    /**
-     * @brief Returns a metadata message that represents this chunk.
-     *
-     * @returns The metadata message as a serialized byte vector.
-     */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> to_metadata_message() const;
-
-    /**
-     * @brief Construct a new chunk from a metadata message.
-     *
-     * @param msg A serialized metadata message previously returned by
-     * `to_metadata_message`.
-     * @returns The new chunk.
-     */
-    [[nodiscard]] static Chunk from_metadata_message(
-        std::unique_ptr<std::vector<uint8_t>> const& msg
-    );
-
-    /**
-     * @brief Returns an unpacked (deserialized) chunk.
-     *
-     * @warning This copies the data and shouldn't be used in performance critical code.
-     *
-     * @param stream CUDA stream used for device memory operations and kernel launches.
-     * @returns A `cudf::table` that represents the chunk data.
-     */
-    [[nodiscard]] std::unique_ptr<cudf::table> unpack(rmm::cuda_stream_view stream) const;
-
-    /**
-     * @brief Returns a description of this instance.
-     *
-     * @param max_nbytes The maximum size of the chunk data to include.
-     * @param stream CUDA stream used for device memory operations and kernel launches.
-     * @return The description.
-     */
-    [[nodiscard]] std::string str(
-        std::size_t max_nbytes = 512,
-        rmm::cuda_stream_view stream = cudf::get_default_stream()
-    ) const;
-
-    /**
-     * @brief Returns true if the chunk is ready for consumption.
-     *
-     * Checks that the gpu_data's CUDA event is ready, if gpu_data contains a valid
-     * buffer. The CUDA event is used to synchronize the chunk's data to ensure
-     * any allocation or copy (e.g., spilling) is complete before the chunk is
-     * consumed. If expected_num_chunks is greater than 0, or gpu_data_size is 0,
-     * the chunk is considered always ready as it should not have any CUDA data
-     * to receive.
-     *
-     * @return true if the chunk is ready, false otherwise.
-     */
-    [[nodiscard]] bool is_ready() const;
-
-  private:
-    /**
-     * @brief Construct a new chunk of a partition.
-     *
-     * @param pid The ID of the partition this chunk is part of.
-     * @param cid The ID of the chunk.
-     * @param expected_num_chunks If not zero, the number of chunks of the partition
-     * expected to get from the sending rank. Ignored when it is zero.
-     * @param gpu_data_size If known, the size of the gpu data buffer (in bytes).
-     * @param metadata The metadata of the packed `cudf::table` that makes up this
-     * chunk.
-     *  @param gpu_data The gpu_data of the packed `cudf::table` that makes up this
-     * chunk.
-     */
-    Chunk(
-        PartID pid,
-        ChunkID cid,
-        std::size_t expected_num_chunks,
-        std::size_t gpu_data_size,
-        std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<Buffer> gpu_data
-    );
 };
 
 /**

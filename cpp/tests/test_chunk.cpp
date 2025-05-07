@@ -29,7 +29,7 @@ TEST_F(ChunkBatchTest, FromFinishedPartition) {
     PartID part_id = 456;
     size_t expected_num_chunks = 789;
 
-    auto test_chunk = [&](ChunkBatch& chunk) {
+    auto test_chunk = [&](Chunk& chunk) {
         EXPECT_EQ(chunk.chunk_id(), chunk_id);
         EXPECT_EQ(chunk.n_messages(), 1);
         EXPECT_EQ(chunk.part_id(0), part_id);
@@ -39,11 +39,11 @@ TEST_F(ChunkBatchTest, FromFinishedPartition) {
         EXPECT_EQ(chunk.data_size(0), 0);
     };
 
-    auto chunk =
-        ChunkBatch::from_finished_partition(chunk_id, part_id, expected_num_chunks);
+    auto chunk = Chunk::from_finished_partition(chunk_id, part_id, expected_num_chunks);
     test_chunk(chunk);
 
-    auto chunk2 = ChunkBatch::from_metadata_message(chunk.release_metadata_buffer());
+    auto msg = chunk.serialize();
+    auto chunk2 = Chunk::from_serialized_buf(*msg, true);
     test_chunk(chunk2);
 
     auto chunk3 = chunk2.get_data(chunk_id, 0, stream);
@@ -71,7 +71,7 @@ TEST_F(ChunkBatchTest, FromPackedData) {
         std::make_unique<std::vector<uint8_t>>(*metadata), std::move(data)
     };
 
-    auto test_chunk = [&](ChunkBatch& chunk) {
+    auto test_chunk = [&](Chunk& chunk) {
         EXPECT_EQ(chunk.chunk_id(), chunk_id);
         EXPECT_EQ(chunk.n_messages(), 1);
         EXPECT_EQ(chunk.part_id(0), part_id);
@@ -80,12 +80,15 @@ TEST_F(ChunkBatchTest, FromPackedData) {
         EXPECT_EQ(chunk.metadata_size(0), 4);
         EXPECT_EQ(chunk.data_size(0), 4);
     };
-    auto chunk = ChunkBatch::from_packed_data(
-        chunk_id, part_id, std::move(packed_data), stream, br.get()
+
+    // no need of an event because cuda buffer copy is synchronous
+    auto chunk = Chunk::from_packed_data(
+        chunk_id, part_id, std::move(packed_data), nullptr, stream, br.get()
     );
     test_chunk(chunk);
 
-    auto chunk2 = ChunkBatch::from_metadata_message(chunk.release_metadata_buffer());
+    auto msg = chunk.serialize();
+    auto chunk2 = Chunk::from_serialized_buf(*msg, true);
     chunk2.set_data_buffer(chunk.release_data_buffer());
     test_chunk(chunk2);
 

@@ -72,6 +72,7 @@ std::unordered_map<PartID, PackedData> partition_and_pack(
         table, columns_to_hash, num_partitions, hash_function, seed, stream, mr
     );
     std::unordered_map<PartID, PackedData> ret;
+    ret.reserve(tables.size());
     for (PartID i = 0; static_cast<std::size_t>(i) < tables.size(); ++i) {
         auto pack = cudf::detail::pack(tables[i], stream, mr);
         ret.emplace(i, PackedData(std::move(pack.metadata), std::move(pack.gpu_data)));
