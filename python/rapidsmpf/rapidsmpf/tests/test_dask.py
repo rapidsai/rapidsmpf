@@ -96,7 +96,10 @@ def test_dask_cudf_integration(
                 partition_count=partition_count,
             )
             assert shuffled.npartitions == (partition_count or partition_count_in)
-            got = shuffled.compute().sort_values(["id", "name", "x", "y"])
+            got = shuffled.compute()
+            if sort:
+                assert got["id"].is_monotonic_increasing
+            got = got.sort_values(["id", "name", "x", "y"])
 
             dd.assert_eq(expect, got, check_index=False)
 

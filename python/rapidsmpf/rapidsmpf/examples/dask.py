@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import dask.dataframe as dd
 import numpy as np
 from dask.tokenize import tokenize
+from dask.utils import M
 
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
@@ -185,11 +186,19 @@ def dask_cudf_shuffle(
     if sort:
         graph.update(boundaries.dask)
 
-    # Return a Dask-DataFrame collection
-    return dd.from_graph(
+    shuffled = dd.from_graph(
         graph,
         df0._meta,
         (None,) * (count_out + 1),
         [(name_out, pid) for pid in range(count_out)],
         "rapidsmpf",
     )
+
+    # Return a Dask-DataFrame collection
+    if sort:
+        return shuffled.map_partitions(
+            M.sort_values(shuffle_on),
+            meta=shuffled._meta,
+        )
+    else:
+        return shuffled
