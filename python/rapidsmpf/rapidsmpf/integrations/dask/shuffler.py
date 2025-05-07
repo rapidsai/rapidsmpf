@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 
 # Set of available shuffle IDs
-_shuffle_id_vacancy: set[int] = set(range(256))
+_shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
 _shuffle_id_vacancy_lock: threading.Lock = threading.Lock()
 
 
@@ -35,12 +35,11 @@ def _get_new_shuffle_id(client: Client) -> int:
     """
     Get a new available shuffle ID.
 
-    Since RapidsMPF only supports 256 shuffler instances at any given time,
-    this function maintains a shared pool of 256 shuffle IDs to ensure the
-    returned shuffle ID is not currently in use on any Dask worker.
+    Since RapidsMPF only supports a limited number of shuffler instances at
+    any given time, this function maintains a shared pool of shuffle IDs.
 
     If no IDs are available locally, it queries all workers for IDs in use,
-    updates the vacancy set accordingly, and retries. If all 256 IDs are in use
+    updates the vacancy set accordingly, and retries. If all IDs are in use
     across the cluster, an error is raised.
 
     Parameters
@@ -55,7 +54,7 @@ def _get_new_shuffle_id(client: Client) -> int:
     Raises
     ------
     ValueError
-        If all 256 shuffle IDs are currently in use across the cluster.
+        If all shuffle IDs are currently in use across the cluster.
     """
     with _shuffle_id_vacancy_lock:
         if not _shuffle_id_vacancy:
@@ -65,12 +64,13 @@ def _get_new_shuffle_id(client: Client) -> int:
                 with ctx.lock:
                     return set(ctx.shufflers.keys())
 
-            _shuffle_id_vacancy.update(range(256))
+            _shuffle_id_vacancy.update(range(Shuffler.max_concurrent_shuffles))
             _shuffle_id_vacancy.difference_update(*client.run(get_vacancy_ids).values())
 
             if not _shuffle_id_vacancy:
                 raise ValueError(
-                    "Cannot shuffle more than 256 times in a single Dask compute."
+                    f"Cannot shuffle more than {Shuffler.max_concurrent_shuffles} "
+                    "times in a single Dask compute."
                 )
 
         return _shuffle_id_vacancy.pop()

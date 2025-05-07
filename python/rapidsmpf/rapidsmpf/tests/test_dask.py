@@ -11,6 +11,7 @@ import pytest
 from rapidsmpf.examples.dask import DaskCudfIntegration
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
+from rapidsmpf.shuffler import Shuffler
 
 dask_cuda = pytest.importorskip("dask_cuda")
 
@@ -167,9 +168,10 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
     with LocalCUDACluster(n_workers=1, loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
             bootstrap_dask_cluster(client, spill_device=0.1)
+            max_num_shuffles = Shuffler.max_concurrent_shuffles
 
-            # We can shuffle 256 consecutive times.
-            do_shuffle(seed=1, num_shuffles=256)
+            # We can shuffle `max_num_shuffles` consecutive times.
+            do_shuffle(seed=1, num_shuffles=max_num_shuffles)
             # And more times after a compute.
             do_shuffle(seed=2, num_shuffles=10)
 
@@ -180,9 +182,9 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
 
             client.run(check_worker)
 
-            # But we cannot shuffle more than 256 times in a single compute.
+            # But we cannot shuffle more than `max_num_shuffles` times in a single compute.
             with pytest.raises(
                 ValueError,
-                match="Cannot shuffle more than 256 times in a single Dask compute",
+                match=f"Cannot shuffle more than {max_num_shuffles} times in a single Dask compute",
             ):
                 do_shuffle(seed=3, num_shuffles=257)
