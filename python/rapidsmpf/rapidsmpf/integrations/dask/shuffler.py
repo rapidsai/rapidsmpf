@@ -288,7 +288,7 @@ def _extract_partition(
     partition_id: int,
     column_names: list[str],
     worker_barrier: tuple[int, ...],
-    options: dict[str, Any] | None = None,
+    options: dict[str, Any] | None,
 ) -> DataFrameT:
     """
     Extract a partition from a RapidsMPF Shuffler.
@@ -514,6 +514,7 @@ def rapidsmpf_shuffle_graph(
             part_id,
             column_names,
             (global_barrier_2_name, 0),
+            options,
         )
         # Assume round-robin partition assignment
         restricted_keys[output_keys[-1]] = worker_ranks[rank]
