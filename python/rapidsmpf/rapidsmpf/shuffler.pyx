@@ -273,6 +273,7 @@ cdef class Shuffler:
         self._comm = comm
         self._br = br
         cdef cpp_BufferResource* br_ = br.ptr()
+        cdef cuda_stream_view _stream = self._stream.view()
         if statistics is None:
             statistics = Statistics(enable=False)  # Disables statistics.
         with nogil:
@@ -281,7 +282,7 @@ cdef class Shuffler:
                 progress_thread._handle,
                 op_id,
                 total_num_partitions,
-                self._stream.view(),
+                _stream,
                 br_,
                 statistics._handle,
             )
