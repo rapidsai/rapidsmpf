@@ -115,55 +115,63 @@ def test_boostrap_single_node_cluster_no_deadlock() -> None:
         bootstrap_dask_cluster(client, spill_device=0.1)
 
 
-def test_many_consecutive_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
+def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
     pytest.importorskip("dask_cudf")
+
+    def do_shuffle(seed: int, num_shuffles: int) -> None:
+        """Shuffle a dataframe `num_shuffles` consecutive times and check the result"""
+        expect = (
+            dask.datasets.timeseries(
+                freq="3600s",
+                partition_freq="2D",
+                seed=seed,
+            )
+            .reset_index(drop=True)
+            .to_backend("cudf")
+        )
+        df0 = expect.optimize()
+        partition_count_in = df0.npartitions
+        partition_count_out = partition_count_in
+        column_names = list(df0.columns)
+        shuffle_on = ["name", "id"]
+
+        graph = df0.dask.copy()
+        name_in = df0._name
+        for i in range(num_shuffles):
+            name_out = f"test_many_shuffles-output-{i}"
+            graph.update(
+                rapidsmpf_shuffle_graph(
+                    input_name=name_in,
+                    output_name=name_out,
+                    column_names=column_names,
+                    shuffle_on=shuffle_on,
+                    partition_count_in=partition_count_in,
+                    partition_count_out=partition_count_out,
+                    integration=DaskCudfIntegration,
+                )
+            )
+            name_in = name_out
+        got = dd.from_graph(
+            graph,
+            df0._meta,
+            (None,) * (partition_count_out + 1),
+            [(name_out, pid) for pid in range(partition_count_out)],
+            "rapidsmpf",
+        )
+        dd.assert_eq(
+            expect.compute().sort_values(["x", "y"]),
+            got.compute().sort_values(["x", "y"]),
+            check_index=False,
+        )
 
     with LocalCUDACluster(n_workers=1, loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
             bootstrap_dask_cluster(client, spill_device=0.1)
 
-            df = (
-                dask.datasets.timeseries(
-                    freq="3600s",
-                    partition_freq="2D",
-                )
-                .reset_index(drop=True)
-                .to_backend("cudf")
-            )
-            expect = df.compute().sort_values(["x", "y"])
-            df0 = df.optimize()
-            partition_count_in = df0.npartitions
-            partition_count_out = partition_count_in
-            column_names = list(df0.columns)
-            shuffle_on = ["name", "id"]
-
-            # Create a graph that shuffle `df` many consecutive times.
-            graph = df0.dask.copy()
-            name_in = df0._name
-            for i in range(256):
-                name_out = f"test_many_shuffles-output-{i}"
-                graph.update(
-                    rapidsmpf_shuffle_graph(
-                        input_name=name_in,
-                        output_name=name_out,
-                        column_names=column_names,
-                        shuffle_on=shuffle_on,
-                        partition_count_in=partition_count_in,
-                        partition_count_out=partition_count_out,
-                        integration=DaskCudfIntegration,
-                    )
-                )
-                name_in = name_out
-            shuffled = dd.from_graph(
-                graph,
-                df0._meta,
-                (None,) * (partition_count_out + 1),
-                [(name_out, pid) for pid in range(partition_count_out)],
-                "rapidsmpf",
-            )
-
-            got = shuffled.compute().sort_values(["x", "y"])
-            dd.assert_eq(expect, got, check_index=False)
+            # We can shuffle 256 consecutive times.
+            do_shuffle(seed=1, num_shuffles=256)
+            # And more times after a compute.
+            do_shuffle(seed=2, num_shuffles=10)
 
             # Check that all shufflers has been cleaned up.
             def check_worker(dask_worker: Worker) -> None:
@@ -171,3 +179,10 @@ def test_many_consecutive_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F8
                 assert len(ctx.shufflers) == 0
 
             client.run(check_worker)
+
+            # But we cannot shuffle more than 256 times in a single compute.
+            with pytest.raises(
+                ValueError,
+                match="Cannot shuffle more than 256 times in a single Dask compute",
+            ):
+                do_shuffle(seed=3, num_shuffles=257)
