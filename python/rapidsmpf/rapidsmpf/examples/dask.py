@@ -197,7 +197,8 @@ def dask_cudf_shuffle(
     # Return a Dask-DataFrame collection
     if sort:
         return shuffled.map_partitions(
-            M.sort_values(shuffle_on),
+            M.sort_values,
+            shuffle_on,
             meta=shuffled._meta,
         )
     else:
