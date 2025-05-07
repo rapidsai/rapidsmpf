@@ -139,6 +139,7 @@ class DaskIntegration(Protocol[DataFrameT]):
         partition_id: int,
         column_names: list[str],
         shuffler: Shuffler,
+        options: dict[str, Any] | None,
     ) -> DataFrameT:
         """
         Extract a DataFrame partition from a RapidsMPF Shuffler.
@@ -151,6 +152,8 @@ class DaskIntegration(Protocol[DataFrameT]):
             Sequence of output column names.
         shuffler
             The RapidsMPF Shuffler object to extract from.
+        options
+            Additional options.
 
         Returns
         -------
@@ -277,11 +280,15 @@ def _insert_partition(
 
 
 def _extract_partition(
-    callback: Callable[[int, Sequence[str], Shuffler], DataFrameT],
+    callback: Callable[
+        [int, Sequence[str], Shuffler, dict[str, Any] | None],
+        DataFrameT,
+    ],
     shuffle_id: int,
     partition_id: int,
     column_names: list[str],
     worker_barrier: tuple[int, ...],
+    options: dict[str, Any] | None = None,
 ) -> DataFrameT:
     """
     Extract a partition from a RapidsMPF Shuffler.
@@ -301,6 +308,8 @@ def _extract_partition(
     worker_barrier
         Worker-barrier task dependency. This value should
         not be used for compute logic.
+    options
+        Additional options.
 
     Returns
     -------
@@ -312,6 +321,7 @@ def _extract_partition(
         partition_id,
         column_names,
         get_shuffler(shuffle_id),
+        options,
     )
 
 

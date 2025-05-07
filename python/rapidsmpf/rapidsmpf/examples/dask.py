@@ -14,7 +14,7 @@ import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
-from rapidsmpf.shuffler import partition_and_pack, unpack_and_concat
+from rapidsmpf.shuffler import partition_and_pack, split_and_pack, unpack_and_concat
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
@@ -68,18 +68,27 @@ class DaskCudfIntegration:
         options
             Optional key-work arguments.
         """
-        if sort_boundaries is not None:
-            raise ValueError("Dask-cudf sort is not yet supported in rapimdsmpf.")
-        if options:
-            raise ValueError(f"Unsupported options: {options}")
-        columns_to_hash = tuple(list(df.columns).index(val) for val in on)
-        packed_inputs = partition_and_pack(
-            df.to_pylibcudf()[0],
-            columns_to_hash=columns_to_hash,
-            num_partitions=partition_count,
-            stream=DEFAULT_STREAM,
-            device_mr=rmm.mr.get_current_device_resource(),
-        )
+        if sort_boundaries is None:
+            if options:
+                raise ValueError(f"Unsupported options: {options}")
+            columns_to_hash = tuple(list(df.columns).index(val) for val in on)
+            packed_inputs = partition_and_pack(
+                df.to_pylibcudf()[0],
+                columns_to_hash=columns_to_hash,
+                num_partitions=partition_count,
+                stream=DEFAULT_STREAM,
+                device_mr=rmm.mr.get_current_device_resource(),
+            )
+        else:
+            # TODO: Check for unsupported kwargs
+            df = df.sort_values(on, ascending=True)
+            splits = df[on[0]].searchsorted(sort_boundaries, side="right")
+            packed_inputs = split_and_pack(
+                df.to_pylibcudf()[0],
+                splits.tolist(),
+                stream=DEFAULT_STREAM,
+                device_mr=rmm.mr.get_current_device_resource(),
+            )
         shuffler.insert_chunks(packed_inputs)
 
     @staticmethod
@@ -87,6 +96,7 @@ class DaskCudfIntegration:
         partition_id: int,
         column_names: list[str],
         shuffler: Shuffler,
+        options: dict[str, Any] | None,
     ) -> cudf.DataFrame:
         """
         Extract a finished partition from the RMPF shuffler.
@@ -99,6 +109,8 @@ class DaskCudfIntegration:
             Sequence of output column names.
         shuffler
             The RapidsMPF Shuffler object to extract from.
+        options
+            Additional options.
 
         Returns
         -------
@@ -172,7 +184,7 @@ def dask_cudf_sort(
     df: dask_cudf.DataFrame,
     sort_on: list[str],
     *,
-    descending: bool = False,
+    ascending: bool = True,
     partition_count: int | None = None,
 ) -> dask_cudf.DataFrame:
     """
@@ -184,8 +196,8 @@ def dask_cudf_sort(
         Input `dask_cudf.DataFrame` collection.
     sort_on
         List of column names to shuffle on.
-    descending
-        Whether to sort in descending order.
+    ascending
+        Whether to sort in ascending order.
     partition_count
         Output partition count. Default will preserve
         the input partition count.
@@ -202,7 +214,7 @@ def dask_cudf_sort(
     name_out = f"shuffle-{token}"
 
     boundaries = (
-        df0[sort_on[0]].quantile(np.linspace(0.0, 1.0, count_out + 2)[1:-1]).optimize()
+        df0[sort_on[0]].quantile(np.linspace(0.0, 1.0, count_out)[1:]).optimize()
     )
 
     graph = rapidsmpf_shuffle_graph(
@@ -213,11 +225,12 @@ def dask_cudf_sort(
         count_in,
         count_out,
         DaskCudfIntegration,
-        sort_boundaries_name=boundaries._name,
-        options={"descending": descending},
+        sort_boundaries_name=(boundaries._name, 0),
+        options={"ascending": ascending},
     )
 
     # Add df0/boundaries dependencies to the task graph
+    graph.update(df0.dask)
     graph.update(boundaries.dask)
 
     # Return a Dask-DataFrame collection

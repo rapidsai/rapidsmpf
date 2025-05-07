@@ -95,6 +95,39 @@ def test_dask_cudf_integration(loop: pytest.FixtureDef, partition_count: int) ->
             dd.assert_eq(expect, got, check_index=False)
 
 
+@pytest.mark.parametrize("partition_count", [None, 3])
+def test_dask_cudf_sort(loop: pytest.FixtureDef, partition_count: int) -> None:  # noqa: F811
+    # Test basic Dask-cuDF integration
+    pytest.importorskip("dask_cudf")
+
+    import dask.dataframe as dd
+
+    from rapidsmpf.examples.dask import dask_cudf_sort
+
+    with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
+        with Client(cluster) as client:
+            bootstrap_dask_cluster(client, spill_device=0.1)
+            df = (
+                dask.datasets.timeseries(
+                    freq="3600s",
+                    partition_freq="2D",
+                )
+                .reset_index(drop=True)
+                .to_backend("cudf")
+            )
+            partition_count_in = df.npartitions
+            expect = df.compute().sort_values(["id", "x", "y", "name"])
+            shuffled = dask_cudf_sort(
+                df,
+                ["id"],
+                partition_count=partition_count,
+            )
+            assert shuffled.npartitions == (partition_count or partition_count_in)
+            got = shuffled.compute().sort_values(["id", "x", "y", "name"])
+
+            dd.assert_eq(expect, got, check_index=False)
+
+
 def test_bootstrap_dask_cluster_idempotent() -> None:
     with LocalCUDACluster() as cluster, Client(cluster) as client:
         bootstrap_dask_cluster(client, spill_device=0.1)
