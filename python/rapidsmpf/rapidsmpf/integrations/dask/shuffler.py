@@ -131,7 +131,7 @@ class DaskIntegration(Protocol[DataFrameT]):
             Output partition boundaries for sorting. If None,
             hashing will be used to calculate output partitions.
         options
-            Optional key-work arguments.
+            Additional options.
         """
 
     @staticmethod
