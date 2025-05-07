@@ -68,10 +68,10 @@ def _get_new_shuffle_id(client: Client) -> int:
             _shuffle_id_vacancy.update(range(256))
             _shuffle_id_vacancy.difference_update(*client.run(get_vacancy_ids).values())
 
-        if not _shuffle_id_vacancy:
-            raise ValueError(
-                "Cannot shuffle more than 256 times in a single Dask compute."
-            )
+            if not _shuffle_id_vacancy:
+                raise ValueError(
+                    "Cannot shuffle more than 256 times in a single Dask compute."
+                )
 
         return _shuffle_id_vacancy.pop()
 
