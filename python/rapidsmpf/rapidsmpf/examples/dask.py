@@ -81,7 +81,8 @@ class DaskCudfIntegration:
                 device_mr=rmm.mr.get_current_device_resource(),
             )
         else:
-            # TODO: Check for unsupported kwargs
+            if options:
+                raise ValueError(f"Unsupported options: {options}")
             df = df.sort_values(on)
             splits = df[on[0]].searchsorted(sort_boundaries, side="right")
             packed_inputs = split_and_pack(
@@ -117,6 +118,8 @@ class DaskCudfIntegration:
         -------
         A shuffled DataFrame partition.
         """
+        if options:
+            raise ValueError(f"Unsupported options: {options}")
         shuffler.wait_on(partition_id)
         table = unpack_and_concat(
             shuffler.extract(partition_id),
