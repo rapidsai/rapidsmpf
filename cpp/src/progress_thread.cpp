@@ -67,12 +67,10 @@ void ProgressThread::stop() {
 }
 
 ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
-    std::lock_guard lock(mutex_);
-    // We can use `this` as the thread address only because `ProgressThread` isn't
-    // moveable or copyable.
+    std::lock_guard lock(staging_mutex_);
     auto id =
         FunctionID(reinterpret_cast<ProgressThreadAddress>(this), next_function_id_++);
-    functions_.emplace(id.function_index, std::move(function));
+    staged_functions_.emplace(id.function_index, std::move(function));
     thread_.resume();
     return id;
 }
@@ -99,23 +97,34 @@ void ProgressThread::remove_function(FunctionID function_id) {
 
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
-    std::vector<FunctionIndex> completed_functions;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        for (auto& [id, function] : functions_) {
-            function();
-            if (function.is_done) {
-                completed_functions.push_back(id);
-                completion_tracker_.mark_completed(id);
-            }
-        }
 
-        // Remove completed functions
+    // Move any staged functions to active functions
+    {
+        std::lock_guard<std::mutex> lock(staging_mutex_);
+        if (!staged_functions_.empty()) {
+            functions_.insert(staged_functions_.begin(), staged_functions_.end());
+            staged_functions_.clear();
+        }
+    }
+
+    // Process all active functions without holding any locks
+    std::vector<FunctionIndex> completed_functions;
+    for (auto& [id, function] : functions_) {
+        function();
+        if (function.is_done) {
+            completed_functions.push_back(id);
+            completion_tracker_.mark_completed(id);
+        }
+    }
+
+    // Remove completed functions and check if we should pause
+    if (!completed_functions.empty()) {
+        std::lock_guard<std::mutex> lock(staging_mutex_);
         for (auto id : completed_functions) {
             functions_.erase(id);
         }
 
-        if (functions_.empty()) {
+        if (functions_.empty() && staged_functions_.empty()) {
             thread_.pause();
         }
     }
