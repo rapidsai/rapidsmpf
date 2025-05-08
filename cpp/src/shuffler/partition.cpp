@@ -58,6 +58,20 @@ partition_and_split(
     return std::make_pair(std::move(tbl_partitioned), std::move(partition_table));
 }
 
+static std::unordered_map<PartID, PackedData> pack_tables(
+    std::vector<cudf::table_view> const& tables,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
+) {
+    std::unordered_map<PartID, PackedData> ret;
+    ret.reserve(tables.size());
+    for (PartID i = 0; static_cast<std::size_t>(i) < tables.size(); ++i) {
+        auto pack = cudf::detail::pack(tables[i], stream, mr);
+        ret.emplace(i, PackedData(std::move(pack.metadata), std::move(pack.gpu_data)));
+    }
+    return ret;
+}
+
 std::unordered_map<PartID, PackedData> partition_and_pack(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& columns_to_hash,
@@ -71,13 +85,32 @@ std::unordered_map<PartID, PackedData> partition_and_pack(
     auto [tables, owner] = partition_and_split(
         table, columns_to_hash, num_partitions, hash_function, seed, stream, mr
     );
-    std::unordered_map<PartID, PackedData> ret;
-    ret.reserve(tables.size());
-    for (PartID i = 0; static_cast<std::size_t>(i) < tables.size(); ++i) {
-        auto pack = cudf::detail::pack(tables[i], stream, mr);
-        ret.emplace(i, PackedData(std::move(pack.metadata), std::move(pack.gpu_data)));
+    return pack_tables(tables, stream, mr);
+}
+
+std::unordered_map<PartID, PackedData> split_and_pack(
+    cudf::table_view const& table,
+    std::vector<cudf::size_type> const& splits,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
+) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    std::vector<cudf::table_view> tables;
+
+    if (table.num_rows() == 0) {
+        // Work around cudf::split() not supporting empty tables.
+        RAPIDSMPF_EXPECTS(
+            std::all_of(splits.begin(), splits.end(), [](auto val) { return val == 0; }),
+            "split point != 0 is invalid for empty table",
+            std::out_of_range
+        );
+        tables = std::vector<cudf::table_view>(
+            static_cast<std::size_t>(splits.size() + 1), table
+        );
+    } else {
+        tables = cudf::split(table, splits, stream);
     }
-    return ret;
+    return pack_tables(tables, stream, mr);
 }
 
 std::unique_ptr<cudf::table> unpack_and_concat(

@@ -4,7 +4,7 @@
 
 from cython.operator cimport dereference as deref
 from cython.operator cimport postincrement
-from libc.stdint cimport uint32_t
+from libc.stdint cimport UINT8_MAX, uint32_t
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
@@ -34,6 +34,14 @@ cdef extern from "<rapidsmpf/shuffler/partition.hpp>" nogil:
             int num_partitions,
             int hash_function,
             uint32_t seed,
+            cuda_stream_view stream,
+            device_memory_resource *mr,
+        ) except +
+
+    cdef unordered_map[uint32_t, cpp_PackedData] cpp_split_and_pack \
+        "rapidsmpf::shuffler::split_and_pack"(
+            const table_view& table,
+            const vector[size_type] &splits,
             cuda_stream_view stream,
             device_memory_resource *mr,
         ) except +
@@ -76,6 +84,7 @@ cpdef dict partition_and_pack(
     rapidsmpf.shuffler.unpack_and_concat
     pylibcudf.partitioning.hash_partition
     pylibcudf.contiguous_split.pack
+    rapidsmpf.shuffler.split_and_pack
     """
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, cpp_PackedData] _ret
@@ -90,6 +99,67 @@ cpdef dict partition_and_pack(
             num_partitions,
             cpp_HASH_MURMUR3,
             cpp_DEFAULT_HASH_SEED,
+            _stream,
+            device_mr.get_mr()
+        )
+    ret = {}
+    cdef unordered_map[uint32_t, cpp_PackedData].iterator it = _ret.begin()
+    while(it != _ret.end()):
+        ret[deref(it).first] = PackedData.from_librapidsmpf(
+            make_unique[cpp_PackedData](move(deref(it).second))
+        )
+        postincrement(it)
+    return ret
+
+
+cpdef dict split_and_pack(
+    Table table,
+    splits,
+    stream,
+    DeviceMemoryResource device_mr,
+):
+    """
+    Splits rows from the input table into multiple packed (serialized) tables.
+
+    Parameters
+    ----------
+    table
+        The input table to split and pack.  The table cannot be empty (the
+        split points would not be valid).
+    splits
+        The split points, equivalent to cudf::split(), i.e. one less than
+        the number of result partitions.
+    stream
+        The CUDA stream used for memory operations.
+    device_mr
+        Reference to the RMM device memory resource used for device allocations.
+
+    Returns
+    -------
+    A dictionary where the keys are partition IDs and the values are packed tables.
+
+    Raises
+    ------
+    IndexError
+        If the splits are out of range for ``[0, len(table)]``.
+
+    See Also
+    --------
+    rapidsmpf.shuffler.unpack_and_concat
+    pylibcudf.copying.split
+    rapidsmpf.shuffler.partition_and_pack
+    """
+    cdef vector[size_type] _splits = tuple(splits)
+    cdef unordered_map[uint32_t, cpp_PackedData] _ret
+    cdef table_view tbl = table.view()
+    if stream is None:
+        raise ValueError("stream cannot be None")
+    cdef cuda_stream_view _stream = Stream(stream).view()
+
+    with nogil:
+        _ret = cpp_split_and_pack(
+            tbl,
+            _splits,
             _stream,
             device_mr.get_mr()
         )
@@ -171,7 +241,8 @@ cdef class Shuffler:
     progress_thread
         The progress thread to use for tracking progress.
     op_id
-        The operation ID of the shuffle.
+        The operation ID of the shuffle. Must have a value between 0 and
+        ``max_concurrent_shuffles-1``.
     total_num_partitions
         Total number of partitions in the shuffle.
     stream
@@ -181,17 +252,24 @@ cdef class Shuffler:
     statistics
         The statistics instance to use. If None, statistics is disabled.
 
+    Attributes
+    ----------
+    max_concurrent_shuffles
+        Maximum number of concurrent shufflers.
+
     Notes
     -----
     This class is designed to handle distributed operations by partitioning data
     and redistributing it across ranks in a cluster. It is typically used in
     distributed data processing workflows involving cuDF tables.
     """
+    max_concurrent_shuffles = UINT8_MAX + 1  # match the type of the `op_id` argument.
+
     def __init__(
         self,
         Communicator comm,
         ProgressThread progress_thread,
-        uint16_t op_id,
+        uint8_t op_id,
         uint32_t total_num_partitions,
         stream,
         BufferResource br,
@@ -203,6 +281,7 @@ cdef class Shuffler:
         self._comm = comm
         self._br = br
         cdef cpp_BufferResource* br_ = br.ptr()
+        cdef cuda_stream_view _stream = self._stream.view()
         if statistics is None:
             statistics = Statistics(enable=False)  # Disables statistics.
         with nogil:
@@ -211,7 +290,7 @@ cdef class Shuffler:
                 progress_thread._handle,
                 op_id,
                 total_num_partitions,
-                self._stream.view(),
+                _stream,
                 br_,
                 statistics._handle,
             )
