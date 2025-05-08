@@ -185,7 +185,7 @@ class Shuffler::Progress {
             fire_and_forget_.push_back(
                 shuffler_.comm_->send(chunk.serialize(), dst, metadata_tag, shuffler_.br_)
             );
-            if (!chunk.is_control_message(0)) {
+            if (chunk.concat_data_size() > 0) {
                 RAPIDSMPF_EXPECTS(
                     outgoing_chunks_.insert({chunk.chunk_id(), std::move(chunk)}).second,
                     "outgoing chunk already exist"
@@ -357,12 +357,6 @@ class Shuffler::Progress {
 
         // Return Done only if the shuffler is inactive (shutdown was called) _and_
         // all containers are empty (all work is done).
-        // std::cout << "status: " << fire_and_forget_.empty() << " " <<
-        // incoming_chunks_.empty()
-        //           << " " << outgoing_chunks_.empty() << " " <<
-        //           in_transit_chunks_.empty()
-        //           << " " << in_transit_futures_.empty() << " "
-        //           << shuffler_.outgoing_chunks_.empty() << std::endl;
         return (shuffler_.active_
                 || !(
                     fire_and_forget_.empty() && incoming_chunks_.empty()
