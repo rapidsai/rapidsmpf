@@ -79,11 +79,13 @@ void ProgressThread2::wait_for_function(FunctionID id) {
     std::unique_lock<std::mutex> lock(mutex_);
 
     // Wait until task is done or removed
-    task_done_cv_.wait(lock, [this, id]() {
-        return completed_tasks_.find(id) != completed_tasks_.end();
+    decltype(completed_tasks_)::iterator it;
+    task_done_cv_.wait(lock, [this, id, &it]() {
+        it = completed_tasks_.find(id);
+        return it != completed_tasks_.end();
     });
 
-    completed_tasks_.erase(id);
+    completed_tasks_.erase(it);
 }
 
 void ProgressThread2::clear_functions() {

@@ -45,7 +45,8 @@ class ProgressThread2 {
     /// @brief The type of a task
     using Function = std::function<ProgressState()>;
 
-    /// @brief The type of a task ID
+    /// @brief The type of a task ID. Each task is assigned a unique ID when it is added
+    /// to the progress thread by incrementing the next_task_id_ atomic.
     using FunctionID = uint64_t;
 
     /// @brief Constructor
