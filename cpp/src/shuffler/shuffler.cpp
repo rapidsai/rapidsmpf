@@ -565,7 +565,6 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     // Sum the total size of all chunks not in device memory already.
     std::size_t non_device_size{0};
     for (auto& [_, chunk] : chunks) {
-        std::cout << chunk.str() << std::endl;
         if (chunk.data_memory_type() != MemoryType::DEVICE) {
             non_device_size += chunk.concat_data_size();
         }

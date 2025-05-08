@@ -56,7 +56,7 @@ using ChunkID = std::uint64_t;
  */
 class Chunk {
     // friend a method that creates a dummy chunk for testing
-    friend Chunk make_dummy_chunk(ChunkID, size_t, PartID);
+    friend Chunk make_dummy_chunk(ChunkID, PartID);
 
   public:
     /**
@@ -186,7 +186,7 @@ class Chunk {
      * @return True if the metadata buffer is set, false otherwise.
      */
     inline bool is_metadata_buffer_set() const {
-        return metadata_ != nullptr;
+        return metadata_ != nullptr && !metadata_->empty();
     }
 
     /**
@@ -205,9 +205,7 @@ class Chunk {
      * @return The size of the concatenated data.
      */
     inline size_t concat_data_size() const {
-        assert(data_);
         assert(!data_offsets_.empty());
-        assert(data_offsets_[n_messages() - 1] == data_->size);
         return data_offsets_[n_messages() - 1];
     }
 
