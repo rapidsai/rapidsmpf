@@ -33,6 +33,7 @@ rapids_cmake_build_type(Release)
 # ##################################################################################################
 # * build options ---------------------------------------------------------------------------------
 
+option(BUILD_MPI "Build rapidsmpf with the MPI backend" ON)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
@@ -41,9 +42,22 @@ option(BUILD_SHARED_LIBS "Build rapidsmpf shared library" ON)
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
 
+set(RAPIDSMPF_BUILD_MPI ${BUILD_MPI})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
+
+if(NOT RAPIDSMPF_BUILD_MPI)
+  if(RAPIDSMPF_BUILD_TESTS)
+    message(FATAL_ERROR "BUILD_TESTS cannot be ON when BUILD_MPI is OFF")
+  endif()
+  if(RAPIDSMPF_BUILD_BENCHMARKS)
+    message(FATAL_ERROR "BUILD_BENCHMARKS cannot be ON when BUILD_MPI is OFF")
+  endif()
+  if(RAPIDSMPF_BUILD_EXAMPLES)
+    message(FATAL_ERROR "BUILD_EXAMPLES cannot be ON when BUILD_MPI is OFF")
+  endif()
+endif()
 
 # ##################################################################################################
 # * conda environment -----------------------------------------------------------------------------
@@ -72,11 +86,6 @@ include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 rapids_find_package(
-  MPI REQUIRED
-  BUILD_EXPORT_SET rapidsmpf-exports
-  INSTALL_EXPORT_SET rapidsmpf-exports
-)
-rapids_find_package(
   UCX REQUIRED
   BUILD_EXPORT_SET rapidsmpf-exports
   INSTALL_EXPORT_SET rapidsmpf-exports
@@ -86,6 +95,13 @@ rapids_find_package(
   BUILD_EXPORT_SET rapidsmpf-exports
   INSTALL_EXPORT_SET rapidsmpf-exports
 )
+if(RAPIDSMPF_BUILD_MPI)
+  rapids_find_package(
+    MPI REQUIRED
+    BUILD_EXPORT_SET rapidsmpf-exports
+    INSTALL_EXPORT_SET rapidsmpf-exports
+  )
+endif()
 if(RAPIDSMPF_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
 endif()
@@ -125,7 +141,7 @@ target_include_directories(
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf ucxx::ucxx
-  PRIVATE MPI::MPI_C
+  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
 )
 
 # Add Conda library, and include paths if specified
