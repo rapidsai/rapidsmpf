@@ -256,12 +256,16 @@ RAPIDSMPF.
     ]=]
 )
 
+# Export `RAPIDSMPF_BUILD_MPI_SUPPORT` such that downstream projects knowns if MPI is supported.
+set(final_code_string "set(RAPIDSMPF_BUILD_MPI_SUPPORT [=[${RAPIDSMPF_BUILD_MPI_SUPPORT}]=])")
+
 rapids_export(
   INSTALL rapidsmpf
   EXPORT_SET rapidsmpf-exports
   GLOBAL_TARGETS rapidsmpf
   NAMESPACE rapidsmpf::
   DOCUMENTATION doc_string
+  FINAL_CODE_BLOCK final_code_string
 )
 
 # ##################################################################################################
@@ -273,4 +277,5 @@ rapids_export(
   GLOBAL_TARGETS rapidsmpf
   NAMESPACE rapidsmpf::
   DOCUMENTATION doc_string
+  FINAL_CODE_BLOCK final_code_string
 )

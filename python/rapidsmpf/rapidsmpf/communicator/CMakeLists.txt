@@ -23,6 +23,6 @@ if(RAPIDSMPF_BUILD_MPI_SUPPORT)
   rapids_cython_create_modules(
     CXX
     SOURCE_FILES "${modules_need_mpi}"
-    LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE MPI::MPI_C
+    LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE MPI::MPI_CXX
   )
 endif()
