@@ -150,7 +150,7 @@ class DaskIntegration(Protocol[DataFrameT]):
         partition_id: int,
         partition_count: int,
         shuffler: Shuffler,
-        options: dict[str, Any],
+        options: Any,
         *other: Any,
     ) -> None:
         """
@@ -177,7 +177,7 @@ class DaskIntegration(Protocol[DataFrameT]):
     def extract_partition(
         partition_id: int,
         shuffler: Shuffler,
-        options: dict[str, Any],
+        options: Any,
     ) -> DataFrameT:
         """
         Extract a DataFrame partition from a RapidsMPF Shuffler.
@@ -266,7 +266,7 @@ def _insert_partition(
             int,
             int,
             Shuffler,
-            dict[str, Any],
+            Any,
             *tuple[str | tuple[str, int], ...],
         ],
         None,
@@ -275,7 +275,7 @@ def _insert_partition(
     partition_id: int,
     partition_count: int,
     shuffle_id: int,
-    options: dict[str, Any],
+    options: Any,
     *other_keys: str | tuple[str, int],
 ) -> None:
     """
@@ -316,13 +316,13 @@ def _insert_partition(
 
 def _extract_partition(
     callback: Callable[
-        [int, Shuffler, dict[str, Any]],
+        [int, Shuffler, Any],
         DataFrameT,
     ],
     shuffle_id: int,
     partition_id: int,
     worker_barrier: tuple[int, ...],
-    options: dict[str, Any],
+    options: Any,
 ) -> DataFrameT:
     """
     Extract a partition from a RapidsMPF Shuffler.
@@ -366,7 +366,7 @@ def rapidsmpf_shuffle_graph(
     partition_count_in: int,
     partition_count_out: int,
     integration: DaskIntegration,
-    options: dict[str, Any],
+    options: Any,
     *other_keys: str | tuple[str, int],
 ) -> dict[Any, Any]:
     """
