@@ -147,6 +147,7 @@ class DaskIntegration(Protocol[DataFrameT]):
     @staticmethod
     def insert_partition(
         df: DataFrameT,
+        partition_id: int,
         partition_count: int,
         shuffler: Shuffler,
         options: dict[str, Any],
@@ -159,6 +160,8 @@ class DaskIntegration(Protocol[DataFrameT]):
         ----------
         df
             DataFrame partition to add to a RapidsMPF shuffler.
+        partition_id
+            The input partition id of ``df``.
         partition_count
             Number of output partitions for the current shuffle.
         shuffler
@@ -261,6 +264,7 @@ def _insert_partition(
         [
             DataFrameT,
             int,
+            int,
             Shuffler,
             dict[str, Any],
             *tuple[str | tuple[str, int], ...],
@@ -268,6 +272,7 @@ def _insert_partition(
         None,
     ],
     df: DataFrameT,
+    partition_id: int,
     partition_count: int,
     shuffle_id: int,
     options: dict[str, Any],
@@ -284,6 +289,8 @@ def _insert_partition(
         protocol.
     df
         DataFrame partition to add to a RapidsMPF shuffler.
+    partition_id
+        The input partition id of ``df``.
     partition_count
         Number of output partitions for the current shuffle.
     shuffle_id
@@ -299,6 +306,7 @@ def _insert_partition(
 
     callback(
         df,
+        partition_id,
         partition_count,
         get_shuffler(shuffle_id),
         options,
@@ -478,6 +486,7 @@ def rapidsmpf_shuffle_graph(
             _insert_partition,
             integration.insert_partition,
             (input_name, pid),
+            pid,
             partition_count_out,
             shuffle_id,
             options,

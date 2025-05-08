@@ -44,6 +44,7 @@ class DaskCudfIntegration:
     @staticmethod
     def insert_partition(
         df: cudf.DataFrame,
+        partition_id: int,
         partition_count: int,
         shuffler: Shuffler,
         options: dict[str, Any],
@@ -56,6 +57,8 @@ class DaskCudfIntegration:
         ----------
         df
             DataFrame partition to add to a RapidsMPF shuffler.
+        partition_id
+            The input partition id of ``df``.
         partition_count
             Number of output partitions for the current shuffle.
         shuffler
