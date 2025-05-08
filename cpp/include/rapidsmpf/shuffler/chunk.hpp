@@ -392,6 +392,7 @@ class Chunk {
      * @param chunk_id The ID of the chunk.
      * @param part_id The ID of the partition.
      * @param packed_data The packed data.
+     * @param event The CUDA event.
      * @param stream The CUDA stream.
      * @param br The buffer resource.
      * @return The ChunkBatch.
@@ -435,7 +436,7 @@ class Chunk {
     /**
      * @brief Validate if a provided metadata buffer follows the expected format.
      *
-     * @param metadata_buf The metadata buffer to validate.
+     * @param serialized_buf The metadata buffer to validate.
      * @return True if the metadata buffer follows the expected format, false otherwise.
      */
     static bool validate_format(std::vector<uint8_t> const& serialized_buf);
