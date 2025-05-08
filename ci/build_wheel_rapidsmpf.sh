@@ -40,6 +40,11 @@ export RAPIDS_VERSION="25.06"
 
 python -m auditwheel repair \
     --exclude librapids_logger.so \
+    --exclude libcudf.so \
+    --exclude libucxx.so \
+    --exclude libucxx_python.so \
+    --exclude libucp.so.0 \
+    --exclude librapidsmpf.so \
     -w "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}" \
     ${package_dir}/dist/*
 
