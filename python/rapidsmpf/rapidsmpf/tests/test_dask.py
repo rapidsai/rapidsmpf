@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from distributed.worker import Worker
 
 
-def is_multi_node_mpi_run() -> bool:
+def is_running_on_multiple_mpi_nodes() -> bool:
     if not rapidsmpf.communicator.MPI_SUPPORT:
         return False
 
@@ -44,7 +44,7 @@ def is_multi_node_mpi_run() -> bool:
 
 
 pytestmark = pytest.mark.skipif(
-    is_multi_node_mpi_run(),
+    is_running_on_multiple_mpi_nodes(),
     reason="Dask tests should not run with more than one MPI process",
 )
 
