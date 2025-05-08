@@ -110,6 +110,13 @@ endif()
 # * library targets --------------------------------------------------------------------------------
 
 file(GLOB SOURCES "src/*.cpp" "src/shuffler/*.cpp" "src/communicator/*.cpp" "src/buffer/*.cpp")
+
+# Without MPI support, remove the MPI communicator from the source list.
+if(NOT RAPIDSMPF_BUILD_MPI_SUPPORT)
+  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/mpi.cpp")
+  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx_utils.cpp")
+endif()
+
 add_library(rapidsmpf ${SOURCES})
 
 set_target_properties(
