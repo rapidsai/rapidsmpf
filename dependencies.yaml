@@ -56,7 +56,8 @@ files:
       table: tool.rapids-build-backend
       key: requires
     includes:
-      - build-cpp
+      - build-universal
+      - build-python
       - run_and_build_rapidsmpf
   py_run_rapidsmpf:
     output: pyproject
@@ -73,9 +74,9 @@ channels:
 dependencies:
   build-universal:
     common:
-      - output_types: [conda, pyproject]
+      - output_types: [conda, pyproject, requirements]
         packages:
-          - &cmake_ver cmake>=3.26.4,!=3.30.0
+          - &cmake_ver cmake>=3.30.4,<4
           - ninja
   build-cpp:
     common:
@@ -111,13 +112,13 @@ dependencies:
               - cuda-nvcc
   rapids_build_skbuild:
     common:
-      - output_types: [conda, pyproject]
+      - output_types: [conda, pyproject, requirements]
         packages:
-          - &rapids_build_backend rapids-build-backend>=0.3.0,<0.4.0.dev0
+          - rapids-build-backend>=0.3.0,<0.4.0.dev0
       - output_types: conda
         packages:
           - scikit-build-core>=0.10.0
-      - output_types: [pyproject]
+      - output_types: [pyproject, requirements]
         packages:
           - scikit-build-core[pyproject]>=0.10.0
   build-python:
@@ -125,10 +126,8 @@ dependencies:
       - output_types: [conda, pyproject]
         packages:
           - cython>=3.0.3
-          - *rmm_unsuffixed
-          - pylibcudf==25.6.*,>=0.0.0a0
-          - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
-          - mpi4py
+          # - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+          # - mpi4py
   checks:
     common:
       - output_types: conda

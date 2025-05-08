@@ -7,7 +7,7 @@ channels:
 dependencies:
 - c-compiler
 - click >=8.1
-- cmake>=3.26.4,!=3.30.0
+- cmake>=3.30.4
 - cuda-cudart-dev
 - cuda-nvcc
 - cuda-nvrtc-dev
@@ -25,7 +25,6 @@ dependencies:
 - libcudf==25.6.*,>=0.0.0a0
 - libucxx==0.44.*,>=0.0.0a0
 - make
-- mpi4py
 - myst-parser
 - ninja
 - numpydoc
@@ -34,7 +33,6 @@ dependencies:
 - pre-commit
 - psutil
 - pydata-sphinx-theme
-- pylibcudf==25.6.*,>=0.0.0a0
 - pytest
 - python>=3.10,<3.13
 - rapids-build-backend>=0.3.0,<0.4.0.dev0
