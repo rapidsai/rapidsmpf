@@ -56,17 +56,22 @@ def _get_new_shuffle_id(client: Client) -> int:
     ValueError
         If all shuffle IDs are currently in use across the cluster.
     """
+    global _shuffle_id_vacancy  # noqa: PLW0603
+
     with _shuffle_id_vacancy_lock:
         if not _shuffle_id_vacancy:
 
-            def get_vacancy_ids(dask_worker: Worker) -> set[int]:
+            def get_occupied_ids(dask_worker: Worker) -> set[int]:
                 ctx = get_worker_context(dask_worker)
                 with ctx.lock:
                     return set(ctx.shufflers.keys())
 
-            _shuffle_id_vacancy.update(range(Shuffler.max_concurrent_shuffles))
-            _shuffle_id_vacancy.difference_update(*client.run(get_vacancy_ids).values())
-
+            # We start with setting all IDs as vacant and then subtract all
+            # IDs occupied on any one worker.
+            _shuffle_id_vacancy = set(range(Shuffler.max_concurrent_shuffles))
+            _shuffle_id_vacancy.difference_update(
+                *client.run(get_occupied_ids).values()
+            )
             if not _shuffle_id_vacancy:
                 raise ValueError(
                     f"Cannot shuffle more than {Shuffler.max_concurrent_shuffles} "
