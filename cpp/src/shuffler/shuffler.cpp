@@ -175,7 +175,7 @@ class Shuffler::Progress {
 
         // Check for new chunks in the inbox and send off their metadata.
         auto const t0_send_metadata = Clock::now();
-        for (auto&& chunk : shuffler_.outgoing_chunks_.extract_all_ready()) {
+        for (auto&& chunk : shuffler_.outgoing_postbox_.extract_all_ready()) {
             auto dst = shuffler_.partition_owner(shuffler_.comm_, chunk.pid);
             log.trace("send metadata to ", dst, ": ", chunk);
             RAPIDSMPF_EXPECTS(
@@ -282,7 +282,7 @@ class Shuffler::Progress {
                     chunk.gpu_data =
                         std::move(allocate_buffer(0, shuffler_.stream_, shuffler_.br_));
                 }
-                shuffler_.insert_into_outbox(std::move(chunk));
+                shuffler_.insert_into_ready_postbox(std::move(chunk));
             }
         }
 
@@ -325,7 +325,7 @@ class Shuffler::Progress {
                 auto chunk = extract_value(in_transit_chunks_, cid);
                 auto future = extract_value(in_transit_futures_, cid);
                 chunk.gpu_data = shuffler_.comm_->get_gpu_data(std::move(future));
-                shuffler_.insert_into_outbox(std::move(chunk));
+                shuffler_.insert_into_ready_postbox(std::move(chunk));
             }
         }
 
@@ -356,7 +356,7 @@ class Shuffler::Progress {
                 || !(
                     fire_and_forget_.empty() && incoming_chunks_.empty()
                     && outgoing_chunks_.empty() && in_transit_chunks_.empty()
-                    && in_transit_futures_.empty() && shuffler_.outgoing_chunks_.empty()
+                    && in_transit_futures_.empty() && shuffler_.outgoing_postbox_.empty()
                 ))
                    ? ProgressThread::ProgressState::InProgress
                    : ProgressThread::ProgressState::Done;
@@ -404,13 +404,13 @@ Shuffler::Shuffler(
       partition_owner{partition_owner},
       stream_{stream},
       br_{br},
-      outgoing_chunks_{
+      outgoing_postbox_{
           [this](PartID pid) -> Rank {
               return this->partition_owner(this->comm_, pid);
           },  // extract Rank from pid
           static_cast<std::size_t>(comm->nranks())
       },
-      received_chunks_{
+      ready_postbox_{
           [](PartID pid) -> PartID { return pid; },  // identity mapping
           static_cast<std::size_t>(total_num_partitions),
       },
@@ -459,14 +459,14 @@ void Shuffler::shutdown() {
     }
 }
 
-void Shuffler::insert_into_outbox(detail::Chunk&& chunk) {
+void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
     auto& log = comm_->logger();
     log.trace("insert_into_outbox: ", chunk);
     auto pid = chunk.pid;
     if (chunk.expected_num_chunks) {
         finish_counter_.move_goalpost(chunk.pid, chunk.expected_num_chunks);
     } else {
-        received_chunks_.insert(std::move(chunk));
+        ready_postbox_.insert(std::move(chunk));
     }
     finish_counter_.add_finished_chunk(pid);
 }
@@ -481,9 +481,9 @@ void Shuffler::insert(detail::Chunk&& chunk) {
             statistics_->add_bytes_stat("shuffle-payload-send", chunk.gpu_data->size);
             statistics_->add_bytes_stat("shuffle-payload-recv", chunk.gpu_data->size);
         }
-        insert_into_outbox(std::move(chunk));
+        insert_into_ready_postbox(std::move(chunk));
     } else {
-        outgoing_chunks_.insert(std::move(chunk));
+        outgoing_postbox_.insert(std::move(chunk));
     }
 }
 
@@ -555,7 +555,7 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     // Protect the chunk extraction to make sure we don't get a chunk
     // `Shuffler::spill` is in the process of spilling.
     std::unique_lock<std::mutex> lock(outbox_spilling_mutex_);
-    auto chunks = received_chunks_.extract(pid);
+    auto chunks = ready_postbox_.extract(pid);
     lock.unlock();
     std::vector<PackedData> ret;
     ret.reserve(chunks.size());
@@ -610,7 +610,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     if (spill_need > 0) {
         std::lock_guard<std::mutex> lock(outbox_spilling_mutex_);
         spilled =
-            postbox_spilling(br_, comm_->logger(), stream_, received_chunks_, spill_need);
+            postbox_spilling(br_, comm_->logger(), stream_, ready_postbox_, spill_need);
     }
     return spilled;
 }
@@ -625,7 +625,7 @@ detail::ChunkID Shuffler::get_new_cid() {
 
 std::string Shuffler::str() const {
     std::stringstream ss;
-    ss << "Shuffler(outgoing=" << outgoing_chunks_ << ", received=" << received_chunks_
+    ss << "Shuffler(outgoing=" << outgoing_postbox_ << ", received=" << ready_postbox_
        << ", " << finish_counter_;
     return ss.str();
 }
