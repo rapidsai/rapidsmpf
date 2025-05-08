@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import dask
 import dask.dataframe as dd
 import pytest
 
+import rapidsmpf.communicator
 from rapidsmpf.examples.dask import DaskCudfIntegration
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
@@ -24,7 +25,6 @@ from distributed.utils_test import (  # noqa: E402, F401
     loop,
     loop_in_thread,
 )
-from mpi4py import MPI  # noqa: E402
 
 from rapidsmpf.integrations.dask.core import (  # noqa: E402
     bootstrap_dask_cluster,
@@ -34,15 +34,17 @@ if TYPE_CHECKING:
     from distributed.worker import Worker
 
 
-def get_mpi_nsize() -> int:
-    comm = MPI.COMM_WORLD
-    size = comm.Get_size()
-    # without the cast, mypy sees this as Any
-    return cast(int, size)
+def is_multi_node_mpi_run() -> bool:
+    if not rapidsmpf.communicator.MPI_SUPPORT:
+        return False
+
+    from mpi4py import MPI
+
+    return bool(MPI.COMM_WORLD.Get_size() > 1)
 
 
 pytestmark = pytest.mark.skipif(
-    get_mpi_nsize() > 1,
+    is_multi_node_mpi_run(),
     reason="Dask tests should not run with more than one MPI process",
 )
 

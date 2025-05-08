@@ -10,7 +10,6 @@ import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 import rapidsmpf.communicator
-from rapidsmpf.communicator.testing import ucxx_mpi_setup
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -69,6 +68,11 @@ def _ucxx_comm() -> Communicator:
 
     Do not use this fixture directly, use the `ucxx_comm` fixture instead.
     """
+    if not rapidsmpf.communicator.MPI_SUPPORT:
+        pytest.skip("No MPI support")
+
+    from rapidsmpf.communicator.testing import ucxx_mpi_setup
+
     return ucxx_mpi_setup(None)
 
 
