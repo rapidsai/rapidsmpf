@@ -7,8 +7,6 @@
 #include <stdexcept>
 #include <utility>
 
-#include <mpi.h>
-
 #include <cudf/concatenate.hpp>
 #include <cudf/detail/contiguous_split.hpp>  // `cudf::detail::pack` (stream ordered version)
 
