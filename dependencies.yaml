@@ -123,7 +123,7 @@ dependencies:
           - scikit-build-core[pyproject]>=0.10.0
   build-python:
     common:
-      - output_types: [conda, pyproject]
+      - output_types: [conda, pyproject, requirements]
         packages:
           - cython>=3.0.3
           # - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
@@ -199,12 +199,14 @@ dependencies:
           - rapidsmpf==25.6.*,>=0.0.0a0
   test_python:
     common:
-      - output_types: [conda, pyproject]
+      - output_types: conda
+        packages:
+          - gdb
+      - output_types: [conda, pyproject, requirements]
         packages:
           - cudf==25.6.*,>=0.0.0a0
           - dask-cuda==25.6.*,>=0.0.0a0
           - dask-cudf==25.6.*,>=0.0.0a0
-          - gdb
           - psutil
           - pytest
           - ucxx==0.44.*,>=0.0.0a0
@@ -219,22 +221,6 @@ dependencies:
           - matrix:
               arch: aarch64
             packages:
-  docs:
-    common:
-      - output_types: [conda]
-        packages:
-          - *doxygen
-          - *rmm_unsuffixed
-          - dask-cuda==25.6.*,>=0.0.0a0
-          - make
-          - myst-parser
-          - numpydoc
-          - pydata-sphinx-theme
-          - ray-default==2.42.*,>=0.0.0a0
-          - sphinx
-          - sphinx-autobuild
-          - sphinx-copybutton
-          - ucxx==0.44.*,>=0.0.0a0
   run_rapidsmpf:
     common:
       - output_types: [conda, requirements, pyproject]
@@ -288,3 +274,28 @@ dependencies:
               - *pylibcudf_unsuffixed
               - *rmm_unsuffixed
               - *ucxx_unsuffixed
+  docs:
+    common:
+      - output_types: [conda]
+        packages:
+          - *doxygen
+          - *rmm_unsuffixed
+          - dask-cuda==25.6.*,>=0.0.0a0
+          - make
+          - myst-parser
+          - numpydoc
+          - pydata-sphinx-theme
+          - sphinx
+          - sphinx-autobuild
+          - sphinx-copybutton
+          - ucxx==0.44.*,>=0.0.0a0
+    specific:
+      - output_types: conda
+        matrices:
+          - matrix:
+              arch: x86_64
+            packages:
+              - ray-default==2.42.*,>=0.0.0a0
+          - matrix:
+              arch: aarch64
+            packages:

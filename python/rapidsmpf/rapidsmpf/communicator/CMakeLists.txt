@@ -4,8 +4,8 @@
 # =================================================================================
 
 set(modules_only_rapidsmpf communicator.pyx)
-set(modules_need_mpi mpi.pyx)
 set(modules_need_ucxx ucxx.pyx)
+set(modules_need_mpi mpi.pyx)
 
 rapids_cython_create_modules(
   CXX
@@ -15,12 +15,14 @@ rapids_cython_create_modules(
 
 rapids_cython_create_modules(
   CXX
-  SOURCE_FILES "${modules_need_mpi}"
-  LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE MPI::MPI_CXX
-)
-
-rapids_cython_create_modules(
-  CXX
   SOURCE_FILES "${modules_need_ucxx}"
   LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE ucxx::ucxx ucxx::python ucx::ucp
 )
+
+if(RAPIDSMPF_BUILD_MPI_SUPPORT)
+  rapids_cython_create_modules(
+    CXX
+    SOURCE_FILES "${modules_need_mpi}"
+    LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE MPI::MPI_CXX
+  )
+endif()

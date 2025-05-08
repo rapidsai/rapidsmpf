@@ -33,17 +33,31 @@ rapids_cmake_build_type(Release)
 # ##################################################################################################
 # * build options ---------------------------------------------------------------------------------
 
+option(BUILD_MPI_SUPPORT "Build RapidsMPF with MPI support" ON)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
-option(BUILD_SHARED_LIBS "Build rapidsmpf shared library" ON)
+option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
 
+set(RAPIDSMPF_BUILD_MPI_SUPPORT ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
+
+if(NOT RAPIDSMPF_BUILD_MPI_SUPPORT)
+  if(RAPIDSMPF_BUILD_TESTS)
+    message(FATAL_ERROR "BUILD_TESTS cannot be ON when BUILD_MPI_SUPPORT is OFF")
+  endif()
+  if(RAPIDSMPF_BUILD_BENCHMARKS)
+    message(FATAL_ERROR "BUILD_BENCHMARKS cannot be ON when BUILD_MPI_SUPPORT is OFF")
+  endif()
+  if(RAPIDSMPF_BUILD_EXAMPLES)
+    message(FATAL_ERROR "BUILD_EXAMPLES cannot be ON when BUILD_MPI_SUPPORT is OFF")
+  endif()
+endif()
 
 # ##################################################################################################
 # * conda environment -----------------------------------------------------------------------------
@@ -72,11 +86,6 @@ include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 rapids_find_package(
-  MPI REQUIRED
-  BUILD_EXPORT_SET rapidsmpf-exports
-  INSTALL_EXPORT_SET rapidsmpf-exports
-)
-rapids_find_package(
   UCX REQUIRED
   BUILD_EXPORT_SET rapidsmpf-exports
   INSTALL_EXPORT_SET rapidsmpf-exports
@@ -86,6 +95,13 @@ rapids_find_package(
   BUILD_EXPORT_SET rapidsmpf-exports
   INSTALL_EXPORT_SET rapidsmpf-exports
 )
+if(RAPIDSMPF_BUILD_MPI_SUPPORT)
+  rapids_find_package(
+    MPI REQUIRED
+    BUILD_EXPORT_SET rapidsmpf-exports
+    INSTALL_EXPORT_SET rapidsmpf-exports
+  )
+endif()
 if(RAPIDSMPF_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
 endif()
@@ -94,6 +110,13 @@ endif()
 # * library targets --------------------------------------------------------------------------------
 
 file(GLOB SOURCES "src/*.cpp" "src/shuffler/*.cpp" "src/communicator/*.cpp" "src/buffer/*.cpp")
+
+# Without MPI support, remove the MPI communicator from the source list.
+if(NOT RAPIDSMPF_BUILD_MPI_SUPPORT)
+  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/mpi.cpp")
+  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx_utils.cpp")
+endif()
+
 add_library(rapidsmpf ${SOURCES})
 
 set_target_properties(
@@ -125,13 +148,12 @@ target_include_directories(
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf ucxx::ucxx
-  PRIVATE MPI::MPI_C
+  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 
-# Add Conda library, and include paths if specified
-if(TARGET conda_env)
-  target_link_libraries(rapidsmpf PRIVATE conda_env)
-endif()
+target_compile_definitions(
+  rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_BUILD_MPI_SUPPORT}>:RAPIDSMPF_BUILD_MPI_SUPPORT>
+)
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
 
@@ -234,12 +256,16 @@ RAPIDSMPF.
     ]=]
 )
 
+# Export `RAPIDSMPF_BUILD_MPI_SUPPORT` to let downstream projects know if MPI is supported.
+set(final_code_string "set(RAPIDSMPF_BUILD_MPI_SUPPORT [=[${RAPIDSMPF_BUILD_MPI_SUPPORT}]=])")
+
 rapids_export(
   INSTALL rapidsmpf
   EXPORT_SET rapidsmpf-exports
   GLOBAL_TARGETS rapidsmpf
   NAMESPACE rapidsmpf::
   DOCUMENTATION doc_string
+  FINAL_CODE_BLOCK final_code_string
 )
 
 # ##################################################################################################
@@ -251,4 +277,5 @@ rapids_export(
   GLOBAL_TARGETS rapidsmpf
   NAMESPACE rapidsmpf::
   DOCUMENTATION doc_string
+  FINAL_CODE_BLOCK final_code_string
 )

@@ -215,7 +215,7 @@ class Shuffler {
      *
      * @param chunk The chunk to insert.
      */
-    void insert_into_outbox(detail::Chunk&& chunk);
+    void insert_into_ready_postbox(detail::Chunk&& chunk);
 
     /// @brief Get an new unique chunk ID.
     [[nodiscard]] detail::ChunkID get_new_cid();
@@ -255,10 +255,10 @@ class Shuffler {
     rmm::cuda_stream_view stream_;
     BufferResource* br_;
     bool active_{true};
-    detail::PostBox<Rank>
-        outgoing_chunks_;  ///< Outgoing chunks, that are ready to be sent to other ranks.
-    detail::PostBox<PartID> received_chunks_;  ///< Received chunks, that are ready to be
-                                               ///< extracted by the user.
+    detail::PostBox<Rank> outgoing_postbox_;  ///< Postbox for outgoing chunks, that are
+                                              ///< ready to be sent to other ranks.
+    detail::PostBox<PartID> ready_postbox_;  ///< Postbox for received chunks, that are
+                                             ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
     std::shared_ptr<ProgressThread> progress_thread_;

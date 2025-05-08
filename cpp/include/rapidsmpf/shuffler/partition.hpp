@@ -85,6 +85,32 @@ partition_and_split(
     rmm::device_async_resource_ref mr
 );
 
+
+/**
+ * @brief Splits rows from the input table into multiple packed (serialized) tables.
+ *
+ * @param table The table to split and pack into partitions.
+ * @param splits The split points, equivalent to cudf::split(), i.e. one less than
+ * the number of result partitions.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @param mr Device memory resource used to allocate the returned table's device memory.
+ *
+ * @return A map of partition IDs and their packed tables.
+ *
+ * @throw std::out_of_range if the splits are invalid.
+ *
+ * @see unpack_and_concat
+ * @see cudf::split
+ * @see partition_and_pack
+ */
+[[nodiscard]] std::unordered_map<PartID, PackedData> split_and_pack(
+    cudf::table_view const& table,
+    std::vector<cudf::size_type> const& splits,
+    rmm::cuda_stream_view stream,
+    rmm::device_async_resource_ref mr
+);
+
+
 /**
  * @brief Unpack (deserialize) input tables and concatenate them.
  *

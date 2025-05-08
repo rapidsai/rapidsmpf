@@ -7,7 +7,7 @@ channels:
 dependencies:
 - c-compiler
 - click >=8.1
-- cmake>=3.30.4
+- cmake>=3.30.4,<4
 - cuda-cudart-dev
 - cuda-nvcc
 - cuda-nvrtc-dev
@@ -36,7 +36,6 @@ dependencies:
 - pytest
 - python>=3.10,<3.13
 - rapids-build-backend>=0.3.0,<0.4.0.dev0
-- ray-default==2.42.*,>=0.0.0a0
 - rmm==25.6.*,>=0.0.0a0
 - scikit-build-core>=0.10.0
 - spdlog
