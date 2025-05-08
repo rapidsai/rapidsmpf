@@ -10,6 +10,7 @@ include(rapids-cpm)
 rapids_cpm_init()
 include(rapids-cuda)
 include(rapids-find)
+
 rapids_cuda_init_architectures(rapidsmpf-python)
 
 project(
@@ -18,9 +19,20 @@ project(
   LANGUAGES CXX CUDA
 )
 
-find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
+add_subdirectory(../../cpp librapidsmpf)
+
+# Or it can't find `ucxx` but this seems wrong
+set(ucxx-python_DIR /pyenv/versions/3.13.3/lib/python3.13/site-packages/ucxx/lib64/cmake/ucxx-python/)
+
+# Or it can't find <ucxx/python/exception.h> but again seems wrong
+include_directories("/pyenv/versions/3.13.3/lib/python3.13/site-packages/ucxx/include")
+
+#find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
+find_package(ucx REQUIRED)
+find_package(ucxx REQUIRED "${UCXX_VERSION}")
 find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
 find_package(CUDAToolkit REQUIRED)
+
 
 include(rapids-cython-core)
 rapids_cython_init()

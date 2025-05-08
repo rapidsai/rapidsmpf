@@ -33,10 +33,10 @@ rapids_cmake_build_type(Release)
 # ##################################################################################################
 # * build options ---------------------------------------------------------------------------------
 
-option(BUILD_MPI_SUPPORT "Build RapidsMPF with MPI support" ON)
-option(BUILD_TESTS "Configure CMake to build tests" ON)
-option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
-option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
+option(BUILD_MPI_SUPPORT "Build RapidsMPF with MPI support" OFF)
+option(BUILD_TESTS "Configure CMake to build tests" OFF)
+option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" OFF)
+option(BUILD_EXAMPLES "Configure CMake to build examples" OFF)
 option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
