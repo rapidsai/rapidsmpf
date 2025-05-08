@@ -29,10 +29,6 @@ export PIP_NO_BUILD_ISOLATION=0
 
 export SKBUILD_CMAKE_ARGS="-DBUILD_MPI_SUPPORT=OFF;-DBUILD_TESTS=OFF;-DBUILD_BENCHMARKS=OFF;-DBUILD_EXAMPLES=OFF"
 
-rapidsmpf_ROOT="$(realpath ./cpp/build)"
-export rapidsmpf_ROOT
-
-set -x
 export UCXX_VERSION="0.44"
 export RAPIDS_VERSION="25.06"
 
