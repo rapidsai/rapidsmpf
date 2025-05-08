@@ -33,11 +33,11 @@ rapids_cmake_build_type(Release)
 # ##################################################################################################
 # * build options ---------------------------------------------------------------------------------
 
-option(BUILD_MPI_SUPPORT "Build rapidsmpf with MPI support" ON)
+option(BUILD_MPI_SUPPORT "Build RapidsMPF with MPI support" ON)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
-option(BUILD_SHARED_LIBS "Build rapidsmpf shared library" ON)
+option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
@@ -256,7 +256,7 @@ RAPIDSMPF.
     ]=]
 )
 
-# Export `RAPIDSMPF_BUILD_MPI_SUPPORT` such that downstream projects knowns if MPI is supported.
+# Export `RAPIDSMPF_BUILD_MPI_SUPPORT` such that downstream projects knows if MPI is supported.
 set(final_code_string "set(RAPIDSMPF_BUILD_MPI_SUPPORT [=[${RAPIDSMPF_BUILD_MPI_SUPPORT}]=])")
 
 rapids_export(
