@@ -34,6 +34,7 @@ def unpack_and_concat(
 ) -> Table: ...
 
 class Shuffler:
+    max_concurrent_shuffles: int
     def __init__(
         self,
         comm: Communicator,
