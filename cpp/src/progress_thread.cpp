@@ -84,36 +84,41 @@ void ProgressThread::remove_function(FunctionID function_id) {
         "Function was not registered with this ProgressThread"
     );
 
-    std::unique_lock lock(mutex_);
-    auto it = functions_.find(function_id.function_index);
-    RAPIDSMPF_EXPECTS(
-        it != functions_.end(), "Function not registered or already removed"
-    );
+    auto function_idx = function_id.function_index;
 
-    // Wait for the function to complete.
-    // iterator it can get invalidated, if some other thread erases a function. So, query
-    // functions_ instead
-    cv_.wait(lock, [&, f_idx = it->first]() { return functions_.at(f_idx).is_done; });
-
-    // Waiting done. Now, mutex_ is locked again
-    functions_.erase(function_id.function_index);
-
-    if (functions_.empty()) {
-        thread_.pause();
+    // First check if it's already completed
+    if (completion_tracker_.is_completed(function_idx)) {
+        completion_tracker_.remove(function_idx);
+        return;
     }
+
+    // Wait for completion
+    completion_tracker_.wait_for_completion(function_idx);
+    completion_tracker_.remove(function_idx);
 }
 
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
+    std::vector<FunctionIndex> completed_functions;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         for (auto& [id, function] : functions_) {
             function();
+            if (function.is_done) {
+                completed_functions.push_back(id);
+                completion_tracker_.mark_completed(id);
+            }
+        }
+
+        // Remove completed functions
+        for (auto id : completed_functions) {
+            functions_.erase(id);
+        }
+
+        if (functions_.empty()) {
+            thread_.pause();
         }
     }
-
-    // Notify all waiting functions that we've completed an iteration
-    cv_.notify_all();
 
     statistics_->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 }

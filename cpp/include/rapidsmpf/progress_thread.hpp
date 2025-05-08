@@ -23,6 +23,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <rapidsmpf/pausable_thread_loop.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -183,6 +184,38 @@ class ProgressThread {
      */
     void event_loop();
 
+    /**
+     * @brief Tracks completed function IDs.
+     */
+    class CompletionTracker {
+      public:
+        void mark_completed(FunctionIndex id) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            completed_functions_.insert(id);
+            cv_.notify_all();
+        }
+
+        bool is_completed(FunctionIndex id) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            return completed_functions_.count(id) > 0;
+        }
+
+        void remove(FunctionIndex id) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            completed_functions_.erase(id);
+        }
+
+        void wait_for_completion(FunctionIndex id) {
+            std::unique_lock<std::mutex> lock(mutex_);
+            cv_.wait(lock, [this, id]() { return completed_functions_.count(id) > 0; });
+        }
+
+      private:
+        std::mutex mutex_;
+        std::condition_variable cv_;
+        std::unordered_set<FunctionIndex> completed_functions_;
+    };
+
     detail::PausableThreadLoop thread_;
     Communicator::Logger& logger_;
     std::shared_ptr<Statistics> statistics_;
@@ -191,6 +224,7 @@ class ProgressThread {
     std::condition_variable cv_;
     FunctionIndex next_function_id_{0};
     std::unordered_map<FunctionIndex, FunctionState> functions_;
+    CompletionTracker completion_tracker_;
 };
 
 }  // namespace rapidsmpf
