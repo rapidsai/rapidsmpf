@@ -40,9 +40,9 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(false, true)  // enable_statistics
     ),
     [](const testing::TestParamInfo<std::tuple<int, int, bool>>& info) {
-        return "nt_" + std::to_string(std::get<0>(info.param))
-               + "_nf_" + std::to_string(std::get<1>(info.param))
-               + "_stats_" + std::to_string(std::get<2>(info.param));
+        return "nt_" + std::to_string(std::get<0>(info.param)) + "_nf_"
+               + std::to_string(std::get<1>(info.param)) + "_stats_"
+               + std::to_string(std::get<2>(info.param));
     }
 );
 

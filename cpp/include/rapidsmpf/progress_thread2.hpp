@@ -31,6 +31,9 @@
 
 namespace rapidsmpf {
 
+/**
+ * @brief A class that manages a background thread that executes tasks
+ */
 class ProgressThread2 {
   public:
     /// @brief The state of a task
@@ -105,7 +108,8 @@ class ProgressThread2 {
     std::vector<FunctionInfo> staged_tasks_;  ///< Staging area for new tasks
     std::vector<FunctionID>
         staged_removals_;  ///< Staging area for task IDs to be removed
-    std::unordered_set<FunctionID> completed_tasks_;  ///< Set of completed tasks (done/ removed)
+    std::unordered_set<FunctionID>
+        completed_tasks_;  ///< Set of completed tasks (done/ removed)
     std::mutex mutex_;
     std::condition_variable cv_;  ///< For waiting on new tasks
     std::condition_variable task_done_cv_;  ///< For waiting on task completion
