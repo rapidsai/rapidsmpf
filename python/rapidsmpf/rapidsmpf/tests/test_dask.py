@@ -153,11 +153,10 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
                 rapidsmpf_shuffle_graph(
                     input_name=name_in,
                     output_name=name_out,
-                    column_names=column_names,
-                    shuffle_on=shuffle_on,
                     partition_count_in=partition_count_in,
                     partition_count_out=partition_count_out,
                     integration=DaskCudfIntegration,
+                    options={"on": shuffle_on, "column_names": column_names},
                 )
             )
             name_in = name_out

@@ -19,7 +19,6 @@ from rapidsmpf.shuffler import partition_and_pack, split_and_pack, unpack_and_co
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from typing import Any
 
     import dask_cudf
@@ -45,11 +44,10 @@ class DaskCudfIntegration:
     @staticmethod
     def insert_partition(
         df: cudf.DataFrame,
-        on: Sequence[str],
         partition_count: int,
         shuffler: Shuffler,
-        sort_boundaries: cudf.DataFrame | None,
-        options: dict[str, Any] | None,
+        options: dict[str, Any],
+        *other: Any,
     ) -> None:
         """
         Add cudf DataFrame chunks to an RMPF shuffler.
@@ -58,20 +56,28 @@ class DaskCudfIntegration:
         ----------
         df
             DataFrame partition to add to a RapidsMPF shuffler.
-        on
-            Sequence of column names to shuffle on.
         partition_count
             Number of output partitions for the current shuffle.
         shuffler
             The RapidsMPF Shuffler object to extract from.
-        sort_boundaries
-            Output partition boundaries for sorting.
         options
-            Optional key-work arguments.
+            Additional options.
+        *other
+            Other data needed for partitioning. For example,
+            this may be boundary values needed for sorting.
         """
-        if options:
-            raise ValueError(f"Unsupported options: {options}")
-        if sort_boundaries is None:
+        on = options["on"]
+        if other:
+            df = df.sort_values(on)
+            (sort_boundaries,) = other
+            splits = df[on[0]].searchsorted(sort_boundaries, side="right")
+            packed_inputs = split_and_pack(
+                df.to_pylibcudf()[0],
+                splits.tolist(),
+                stream=DEFAULT_STREAM,
+                device_mr=rmm.mr.get_current_device_resource(),
+            )
+        else:
             columns_to_hash = tuple(list(df.columns).index(val) for val in on)
             packed_inputs = partition_and_pack(
                 df.to_pylibcudf()[0],
@@ -80,23 +86,13 @@ class DaskCudfIntegration:
                 stream=DEFAULT_STREAM,
                 device_mr=rmm.mr.get_current_device_resource(),
             )
-        else:
-            df = df.sort_values(on)
-            splits = df[on[0]].searchsorted(sort_boundaries, side="right")
-            packed_inputs = split_and_pack(
-                df.to_pylibcudf()[0],
-                splits.tolist(),
-                stream=DEFAULT_STREAM,
-                device_mr=rmm.mr.get_current_device_resource(),
-            )
         shuffler.insert_chunks(packed_inputs)
 
     @staticmethod
     def extract_partition(
         partition_id: int,
-        column_names: list[str],
         shuffler: Shuffler,
-        options: dict[str, Any] | None,
+        options: dict[str, Any],
     ) -> cudf.DataFrame:
         """
         Extract a finished partition from the RMPF shuffler.
@@ -105,8 +101,6 @@ class DaskCudfIntegration:
         ----------
         partition_id
             Partition id to extract.
-        column_names
-            Sequence of output column names.
         shuffler
             The RapidsMPF Shuffler object to extract from.
         options
@@ -116,8 +110,7 @@ class DaskCudfIntegration:
         -------
         A shuffled DataFrame partition.
         """
-        if options:
-            raise ValueError(f"Unsupported options: {options}")
+        column_names = options["column_names"]
         shuffler.wait_on(partition_id)
         table = unpack_and_concat(
             shuffler.extract(partition_id),
@@ -132,7 +125,7 @@ class DaskCudfIntegration:
 
 def dask_cudf_shuffle(
     df: dask_cudf.DataFrame,
-    shuffle_on: list[str],
+    on: list[str],
     *,
     sort: bool = False,
     partition_count: int | None = None,
@@ -144,12 +137,12 @@ def dask_cudf_shuffle(
     ----------
     df
         Input `dask_cudf.DataFrame` collection.
-    shuffle_on
+    on
         List of column names to shuffle on.
     sort
         Whether the output partitioning should be in
-        sorted order. The first column in ``shuffle_on``
-        must be numerical.
+        sorted order. The first column in ``on`` must
+        be numerical when ``sort`` is True.
     partition_count
         Output partition count. Default will preserve
         the input partition count.
@@ -161,25 +154,28 @@ def dask_cudf_shuffle(
     df0 = df.optimize()
     count_in = df0.npartitions
     count_out = partition_count or count_in
-    token = tokenize(df0, shuffle_on, count_out)
+    token = tokenize(df0, on, count_out)
     name_in = df0._name
     name_out = f"shuffle-{token}"
+    sort_boundary_names: tuple[()] | tuple[tuple[Any, int]]
     if sort:
+        # NOTE: This implementation makes no effort to
+        # handle the case where many rows are equal
+        # (they will all be mapped to the same partition).
         boundaries = (
-            df0[shuffle_on[0]].quantile(np.linspace(0.0, 1.0, count_out)[1:]).optimize()
+            df0[on[0]].quantile(np.linspace(0.0, 1.0, count_out)[1:]).optimize()
         )
-        sort_boundaries_name = (boundaries._name, 0)
+        sort_boundary_names = ((boundaries._name, 0),)
     else:
-        sort_boundaries_name = None
+        sort_boundary_names = ()
     graph = rapidsmpf_shuffle_graph(
         name_in,
         name_out,
-        list(df0.columns),
-        shuffle_on,
         count_in,
         count_out,
         DaskCudfIntegration,
-        sort_boundaries_name=sort_boundaries_name,
+        {"on": on, "column_names": list(df0.columns)},
+        *sort_boundary_names,
     )
 
     # Add df0 dependencies to the task graph
@@ -199,7 +195,7 @@ def dask_cudf_shuffle(
     if sort:
         return shuffled.map_partitions(
             M.sort_values,
-            shuffle_on,
+            on,
             meta=shuffled._meta,
         )
     else:
