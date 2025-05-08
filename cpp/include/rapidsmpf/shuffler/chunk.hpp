@@ -26,6 +26,150 @@ namespace rapidsmpf::shuffler::detail {
  */
 using ChunkID = std::uint64_t;
 
+// /**
+//  * @brief A chunk of a partition.
+//  */
+// class Chunk {
+//   public:
+//     PartID const pid;  ///< Partition ID that this chunk belongs to.
+
+//     ChunkID const cid;  ///< Unique ID of this chunk.
+
+//     /// If not zero, the number of chunks of the partition expected to get from the
+//     /// sending rank. Ignored when it is zero.
+//     std::size_t const expected_num_chunks;
+
+//     /// If known, the size of the GPU data buffer (in bytes).
+//     std::size_t const gpu_data_size;
+
+//     /// Metadata of the packed `cudf::table` associated with this chunk.
+//     std::unique_ptr<std::vector<uint8_t>> metadata;
+
+//     /// GPU data buffer of the packed `cudf::table` associated with this chunk.
+//     std::unique_ptr<Buffer> gpu_data;
+
+//     /**
+//      * @brief Construct a new chunk of a partition.
+//      *
+//      * @param pid The ID of the partition this chunk is part of.
+//      * @param cid The ID of the chunk.
+//      * @param gpu_data_size If known, the size of the gpu data buffer (in bytes).
+//      * @param metadata The metadata of the packed `cudf::table` that makes up this
+//      * chunk.
+//      *  @param gpu_data The gpu_data of the packed `cudf::table` that makes up this
+//      * chunk.
+//      */
+//     Chunk(
+//         PartID pid,
+//         ChunkID cid,
+//         std::size_t gpu_data_size,
+//         std::unique_ptr<std::vector<uint8_t>> metadata,
+//         std::unique_ptr<Buffer> gpu_data
+//     );
+
+//     /**
+//      * @brief Construct a new chunk of a partition.
+//      *
+//      * @param pid The ID of the partition this chunk is part of.
+//      * @param cid The ID of the chunk.
+//      * @param expected_num_chunks If not zero, the number of chunks of the partition
+//      * expected to get from the sending rank. Ignored when it is zero.
+//      */
+//     Chunk(PartID pid, ChunkID cid, std::size_t expected_num_chunks);
+
+//     /**
+//      * @brief Header of a metadata message.
+//      */
+//     struct MetadataMessageHeader {
+//         PartID pid;  ///< The ID of the partition this chunk is part of.
+//         ChunkID cid;  ///< The ID of the chunk.
+//         /// If not zero, the number of chunks of the partition expected to get from the
+//         /// sending rank. Ignored when it is zero.
+//         std::size_t expected_num_chunks;
+//         /// If known, the size of the gpu data buffer (in bytes).
+//         std::size_t gpu_data_size;
+//     };
+
+//     /**
+//      * @brief Returns a metadata message that represents this chunk.
+//      *
+//      * @returns The metadata message as a serialized byte vector.
+//      */
+//     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> to_metadata_message() const;
+
+//     /**
+//      * @brief Construct a new chunk from a metadata message.
+//      *
+//      * @param msg A serialized metadata message previously returned by
+//      * `to_metadata_message`.
+//      * @returns The new chunk.
+//      */
+//     [[nodiscard]] static Chunk from_metadata_message(
+//         std::unique_ptr<std::vector<uint8_t>> const& msg
+//     );
+
+//     /**
+//      * @brief Returns an unpacked (deserialized) chunk.
+//      *
+//      * @warning This copies the data and shouldn't be used in performance critical
+//      code.
+//      *
+//      * @param stream CUDA stream used for device memory operations and kernel launches.
+//      * @returns A `cudf::table` that represents the chunk data.
+//      */
+//     [[nodiscard]] std::unique_ptr<cudf::table> unpack(rmm::cuda_stream_view stream)
+//     const;
+
+//     /**
+//      * @brief Returns a description of this instance.
+//      *
+//      * @param max_nbytes The maximum size of the chunk data to include.
+//      * @param stream CUDA stream used for device memory operations and kernel launches.
+//      * @return The description.
+//      */
+//     [[nodiscard]] std::string str(
+//         std::size_t max_nbytes = 512,
+//         rmm::cuda_stream_view stream = cudf::get_default_stream()
+//     ) const;
+
+//     /**
+//      * @brief Returns true if the chunk is ready for consumption.
+//      *
+//      * Checks that the gpu_data's CUDA event is ready, if gpu_data contains a valid
+//      * buffer. The CUDA event is used to synchronize the chunk's data to ensure
+//      * any allocation or copy (e.g., spilling) is complete before the chunk is
+//      * consumed. If expected_num_chunks is greater than 0, or gpu_data_size is 0,
+//      * the chunk is considered always ready as it should not have any CUDA data
+//      * to receive.
+//      *
+//      * @return true if the chunk is ready, false otherwise.
+//      */
+//     [[nodiscard]] bool is_ready() const;
+
+//   private:
+//     /**
+//      * @brief Construct a new chunk of a partition.
+//      *
+//      * @param pid The ID of the partition this chunk is part of.
+//      * @param cid The ID of the chunk.
+//      * @param expected_num_chunks If not zero, the number of chunks of the partition
+//      * expected to get from the sending rank. Ignored when it is zero.
+//      * @param gpu_data_size If known, the size of the gpu data buffer (in bytes).
+//      * @param metadata The metadata of the packed `cudf::table` that makes up this
+//      * chunk.
+//      *  @param gpu_data The gpu_data of the packed `cudf::table` that makes up this
+//      * chunk.
+//      */
+//     Chunk(
+//         PartID pid,
+//         ChunkID cid,
+//         std::size_t expected_num_chunks,
+//         std::size_t gpu_data_size,
+//         std::unique_ptr<std::vector<uint8_t>> metadata,
+//         std::unique_ptr<Buffer> gpu_data
+//     );
+// };
+
 /**
  * @brief Chunk with multiple messages. This class contains two buffers for concatenated
  * metadata and data.
