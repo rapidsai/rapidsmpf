@@ -141,13 +141,10 @@ target_include_directories(
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf ucxx::ucxx
-  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 
-# Add Conda library, and include paths if specified
-if(TARGET conda_env)
-  target_link_libraries(rapidsmpf PRIVATE conda_env)
-endif()
+target_compile_definitions(rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_BUILD_MPI}>:RAPIDSMPF_BUILD_MPI>)
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
 

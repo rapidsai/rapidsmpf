@@ -16,7 +16,7 @@ rapids_cython_create_modules(
 rapids_cython_create_modules(
   CXX
   SOURCE_FILES "${modules_need_mpi}"
-  LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE MPI::MPI_CXX
+  LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
 )
 
 rapids_cython_create_modules(
