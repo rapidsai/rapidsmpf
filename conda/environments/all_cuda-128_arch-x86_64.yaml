@@ -36,7 +36,7 @@ dependencies:
 - pydata-sphinx-theme
 - pylibcudf==25.6.*,>=0.0.0a0
 - pytest
-- python>=3.10,<3.13
+- python>=3.10,<3.14
 - rapids-build-backend>=0.3.0,<0.4.0.dev0
 - ray-default==2.42.*,>=0.0.0a0
 - rmm==25.6.*,>=0.0.0a0
