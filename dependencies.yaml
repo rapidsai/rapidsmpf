@@ -49,7 +49,7 @@ channels:
 dependencies:
   build-universal:
     common:
-      - output_types: [conda, pyproject]
+      - output_types: [conda, pyproject, requirements]
         packages:
           - &cmake_ver cmake>=3.26.4,!=3.30.0
           - ninja
@@ -87,18 +87,18 @@ dependencies:
               - cuda-nvcc
   rapids_build_skbuild:
     common:
-      - output_types: [conda, pyproject]
+      - output_types: [conda, pyproject, requirements]
         packages:
           - &rapids_build_backend rapids-build-backend>=0.3.0,<0.4.0.dev0
       - output_types: conda
         packages:
           - scikit-build-core>=0.10.0
-      - output_types: [pyproject]
+      - output_types: [pyproject, requirements]
         packages:
           - scikit-build-core[pyproject]>=0.10.0
   build-python:
     common:
-      - output_types: [conda, pyproject]
+      - output_types: [conda, pyproject, requirements]
         packages:
           - cython>=3.0.3
           - *rmm_unsuffixed
@@ -176,12 +176,14 @@ dependencies:
           - rapidsmpf==25.8.*,>=0.0.0a0
   test_python:
     common:
-      - output_types: [conda, pyproject]
+      - output_types: conda
+        packages:
+          - gdb
+      - output_types: [conda, pyproject, requirements]
         packages:
           - cudf==25.8.*,>=0.0.0a0
           - dask-cuda==25.8.*,>=0.0.0a0
           - dask-cudf==25.8.*,>=0.0.0a0
-          - gdb
           - psutil
           - pytest
           - ucxx==0.45.*,>=0.0.0a0
@@ -207,8 +209,17 @@ dependencies:
           - myst-parser
           - numpydoc
           - pydata-sphinx-theme
-          - ray-default==2.42.*,>=0.0.0a0
           - sphinx
           - sphinx-autobuild
           - sphinx-copybutton
           - ucxx==0.45.*,>=0.0.0a0
+    specific:
+      - output_types: conda
+        matrices:
+          - matrix:
+              arch: x86_64
+            packages:
+              - ray-default==2.42.*,>=0.0.0a0
+          - matrix:
+              arch: aarch64
+            packages:
