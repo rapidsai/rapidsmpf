@@ -150,7 +150,7 @@ class DaskIntegration(Protocol[DataFrameT]):
         partition_id: int,
         partition_count: int,
         shuffler: Shuffler,
-        options: dict[str, Any],
+        options: Any,
         *other: Any,
     ) -> None:
         """
