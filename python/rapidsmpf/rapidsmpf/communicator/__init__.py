@@ -6,7 +6,7 @@ Submodule for communication abstraction (e.g. UCXX and MPI).
 Attributes
 ----------
 MPI_SUPPORT
-    Whether the MPI communicator (`rapidsmpf.communicator.mpi`) is available. This is
+    Whether the MPI communicator (``rapidsmpf.communicator.mpi``) is available. This is
     False when RapidsMPF wasn't built with MPI support. Typically, MPI is supported in
     the Conda package but not in the PIP package.
 """
