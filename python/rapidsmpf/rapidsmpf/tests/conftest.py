@@ -5,20 +5,42 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from mpi4py import MPI
 
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-from rapidsmpf.communicator.mpi import new_communicator
+import rapidsmpf.communicator
 from rapidsmpf.communicator.testing import ucxx_mpi_setup
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from mpi4py import MPI
+
     from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.communicator.communicator import Communicator
+
+
+def _get_mpi_module_or_skip() -> MPI:
+    """
+    Return the `mpi4py.MPI` module if MPI support is available or pytest.skip.
+
+    Returns
+    -------
+    The `mpi4py.MPI` module.
+
+    Raises
+    ------
+    pytest.skip
+        If MPI support is not available.
+    """
+    if not rapidsmpf.communicator.MPI_SUPPORT:
+        pytest.skip("No MPI support")
+
+    from mpi4py import MPI
+
+    return MPI
 
 
 @pytest.fixture(scope="session")
@@ -31,6 +53,9 @@ def _mpi_comm() -> Communicator:
 
     Do not use this fixture directly, use the `comm` fixture instead.
     """
+    MPI = _get_mpi_module_or_skip()
+    from rapidsmpf.communicator.mpi import new_communicator
+
     return new_communicator(MPI.COMM_WORLD)
 
 
@@ -54,6 +79,7 @@ def comm(request: pytest.FixtureRequest) -> Generator[Communicator]:
     """
     Fixture for a rapidsmpf communicator, scoped for each test.
     """
+    MPI = _get_mpi_module_or_skip()
     MPI.COMM_WORLD.barrier()
     yield request.getfixturevalue(f"_{request.param}_comm")
     MPI.COMM_WORLD.barrier()
