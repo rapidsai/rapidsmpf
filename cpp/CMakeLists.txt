@@ -33,7 +33,7 @@ rapids_cmake_build_type(Release)
 # ##################################################################################################
 # * build options ---------------------------------------------------------------------------------
 
-option(BUILD_MPI "Build rapidsmpf with the MPI backend" ON)
+option(BUILD_MPI_SUPPORT "Build rapidsmpf with MPI support" ON)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
@@ -42,20 +42,20 @@ option(BUILD_SHARED_LIBS "Build rapidsmpf shared library" ON)
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
 
-set(RAPIDSMPF_BUILD_MPI ${BUILD_MPI})
+set(RAPIDSMPF_BUILD_MPI_SUPPORT ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
 
-if(NOT RAPIDSMPF_BUILD_MPI)
+if(NOT RAPIDSMPF_BUILD_MPI_SUPPORT)
   if(RAPIDSMPF_BUILD_TESTS)
-    message(FATAL_ERROR "BUILD_TESTS cannot be ON when BUILD_MPI is OFF")
+    message(FATAL_ERROR "BUILD_TESTS cannot be ON when BUILD_MPI_SUPPORT is OFF")
   endif()
   if(RAPIDSMPF_BUILD_BENCHMARKS)
-    message(FATAL_ERROR "BUILD_BENCHMARKS cannot be ON when BUILD_MPI is OFF")
+    message(FATAL_ERROR "BUILD_BENCHMARKS cannot be ON when BUILD_MPI_SUPPORT is OFF")
   endif()
   if(RAPIDSMPF_BUILD_EXAMPLES)
-    message(FATAL_ERROR "BUILD_EXAMPLES cannot be ON when BUILD_MPI is OFF")
+    message(FATAL_ERROR "BUILD_EXAMPLES cannot be ON when BUILD_MPI_SUPPORT is OFF")
   endif()
 endif()
 
@@ -95,7 +95,7 @@ rapids_find_package(
   BUILD_EXPORT_SET rapidsmpf-exports
   INSTALL_EXPORT_SET rapidsmpf-exports
 )
-if(RAPIDSMPF_BUILD_MPI)
+if(RAPIDSMPF_BUILD_MPI_SUPPORT)
   rapids_find_package(
     MPI REQUIRED
     BUILD_EXPORT_SET rapidsmpf-exports
@@ -144,7 +144,9 @@ target_link_libraries(
   PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 
-target_compile_definitions(rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_BUILD_MPI}>:RAPIDSMPF_BUILD_MPI>)
+target_compile_definitions(
+  rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_BUILD_MPI_SUPPORT}>:RAPIDSMPF_BUILD_MPI_SUPPORT>
+)
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
 
