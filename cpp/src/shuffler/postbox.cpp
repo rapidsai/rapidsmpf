@@ -15,8 +15,14 @@ namespace rapidsmpf::shuffler::detail {
 template <typename KeyType>
 void PostBox<KeyType>::insert(Chunk&& chunk) {
     std::lock_guard const lock(mutex_);
-    auto [_, inserted] =
-        pigeonhole_[key_map_fn_(chunk.pid)].insert({chunk.cid, std::move(chunk)});
+    // TODO: this is a questionable change!
+    // now the outgoing_chunks_ postbox in shuffler is rank-based. If there are multiple
+    // messages in the chunk now, they SHOULD have the same target rank! Otherwise, we
+    // would have to slice the chunk, which is not what we want.
+    // This is why I think we should have a Chunk class and ChunkBatch class separately.
+    auto [_, inserted] = pigeonhole_[key_map_fn_(chunk.part_id(0))].insert(
+        {chunk.chunk_id(), std::move(chunk)}
+    );
     RAPIDSMPF_EXPECTS(inserted, "PostBox.insert(): chunk already exist");
 }
 
@@ -82,8 +88,8 @@ std::vector<std::tuple<KeyType, ChunkID, std::size_t>> PostBox<KeyType>::search(
     std::vector<std::tuple<KeyType, ChunkID, std::size_t>> ret;
     for (auto& [key, chunks] : pigeonhole_) {
         for (auto& [cid, chunk] : chunks) {
-            if (chunk.gpu_data && chunk.gpu_data->mem_type() == mem_type) {
-                ret.emplace_back(key, cid, chunk.gpu_data->size);
+            if (!chunk.is_control_message(0) && chunk.data_memory_type() == mem_type) {
+                ret.emplace_back(key, cid, chunk.concat_data_size());
             }
         }
     }
@@ -100,9 +106,9 @@ std::string PostBox<KeyType>::str() const {
     for (auto const& [key, chunks] : pigeonhole_) {
         ss << "k=" << key << ": [";
         for (auto const& [cid, chunk] : chunks) {
-            assert(cid == chunk.cid);
-            if (chunk.expected_num_chunks) {
-                ss << "EOP" << chunk.expected_num_chunks << ", ";
+            assert(cid == chunk.chunk_id());
+            if (chunk.is_control_message(0)) {
+                ss << "EOP" << chunk.expected_num_chunks(0) << ", ";
             } else {
                 ss << cid << ", ";
             }
