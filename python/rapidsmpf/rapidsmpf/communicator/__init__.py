@@ -4,16 +4,17 @@
 
 from __future__ import annotations
 
-import importlib.util
+from rapidsmpf.communicator.communicator import _available_communicators
 
-MPI_SUPPORT: bool = importlib.util.find_spec("rapidsmpf.communicator.mpi") is not None
-"""Whether the MPI communicator (``rapidsmpf.communicator.mpi``) is available.
+COMMUNICATORS = _available_communicators()
+"""Tuple of available communicators.
 
-This is false when RapidsMPF wasn't built with MPI support. Typically, MPI is
-supported in the Conda package but not in the PIP package.
+RapidsMPF if built with a set of communicators, which can be found as submodules
+under ``rapidsmpf.communicator.*``. Typically, the Conda package is built with
+both UCXX and MPI support whereas the PIP package only supports UCXX.
 """
 
 
 __all__ = [
-    "MPI_SUPPORT",
+    "COMMUNICATORS",
 ]

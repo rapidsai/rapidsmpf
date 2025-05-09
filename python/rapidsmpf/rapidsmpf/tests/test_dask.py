@@ -8,7 +8,7 @@ import dask
 import dask.dataframe as dd
 import pytest
 
-import rapidsmpf.communicator
+from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.examples.dask import DaskCudfIntegration
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 
 def is_running_on_multiple_mpi_nodes() -> bool:
-    if not rapidsmpf.communicator.MPI_SUPPORT:
+    if "mpi" not in COMMUNICATORS:
         return False
 
     from mpi4py import MPI
