@@ -215,7 +215,7 @@ class Shuffler {
      *
      * @param chunk The chunk to insert.
      */
-    void insert_into_outbox(detail::Chunk&& chunk);
+    void insert_into_ready_postbox(detail::Chunk&& chunk);
 
     /// @brief Get an new unique chunk ID.
     [[nodiscard]] detail::ChunkID get_new_cid();
@@ -228,19 +228,22 @@ class Shuffler {
      * @param pid The partition ID of the new chunk.
      * @param metadata The metadata of the new chunk, can be null.
      * @param gpu_data The gpu data of the new chunk, can be null.
+     * @param stream The CUDA stream for BufferResource memory operations.
+     * @param event The event to use for the new chunk.
      */
     [[nodiscard]] detail::Chunk create_chunk(
         PartID pid,
         std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<rmm::device_buffer> gpu_data
+        std::unique_ptr<rmm::device_buffer> gpu_data,
+        rmm::cuda_stream_view stream,
+        std::shared_ptr<Buffer::Event> event
     ) {
         return detail::Chunk{
             pid,
             get_new_cid(),
-            0,  // expected_num_chunks
             gpu_data ? gpu_data->size() : 0,  // gpu_data_size
             std::move(metadata),
-            br_->move(std::move(gpu_data))
+            br_->move(std::move(gpu_data), stream, event)
         };
     }
 
@@ -252,8 +255,10 @@ class Shuffler {
     rmm::cuda_stream_view stream_;
     BufferResource* br_;
     bool active_{true};
-    detail::PostBox inbox_;
-    detail::PostBox outbox_;
+    detail::PostBox<Rank> outgoing_postbox_;  ///< Postbox for outgoing chunks, that are
+                                              ///< ready to be sent to other ranks.
+    detail::PostBox<PartID> ready_postbox_;  ///< Postbox for received chunks, that are
+                                             ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
     std::shared_ptr<ProgressThread> progress_thread_;

@@ -26,7 +26,7 @@ df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
 # Use an rmm pool for optimal performance.
 with LocalCUDACluster(rmm_pool_size=0.8) as cluster:
     with dask.distributed.Client(cluster) as client:
-        shuffled = dask_cudf_shuffle(df, shuffle_on=["name"])
+        shuffled = dask_cudf_shuffle(df, on=["name"])
 
         # collect the results in memory.
         result = shuffled.compute()

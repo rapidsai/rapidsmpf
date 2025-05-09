@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+import threading
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from distributed import get_worker
 
@@ -12,36 +13,72 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.integrations.dask.core import (
     DataFrameT,
-    get_comm,
     get_dask_client,
-    get_progress_thread,
+    get_worker_context,
     get_worker_rank,
-    get_worker_thread_lock,
-    global_rmp_barrier,
+    global_rmpf_barrier,
 )
 from rapidsmpf.shuffler import Shuffler
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, MutableMapping, Sequence
+    from collections.abc import Callable, MutableMapping
 
-    from distributed import Worker
-
-
-_shuffle_counter: int = 0
+    from distributed import Client, Worker
 
 
-def get_shuffle_id() -> int:
+# Set of available shuffle IDs
+_shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
+_shuffle_id_vacancy_lock: threading.Lock = threading.Lock()
+
+
+def _get_new_shuffle_id(client: Client) -> int:
     """
-    Return the unique id for a new shuffle.
+    Get a new available shuffle ID.
+
+    Since RapidsMPF only supports a limited number of shuffler instances at
+    any given time, this function maintains a shared pool of shuffle IDs.
+
+    If no IDs are available locally, it queries all workers for IDs in use,
+    updates the vacancy set accordingly, and retries. If all IDs are in use
+    across the cluster, an error is raised.
+
+    Parameters
+    ----------
+    client
+        A Dask distributed client used to query workers for active shuffle IDs.
 
     Returns
     -------
-    The enumerated integer id for the current shuffle.
-    """
-    global _shuffle_counter  # noqa: PLW0603
+    A unique shuffle ID not currently in use.
 
-    _shuffle_counter += 1
-    return _shuffle_counter
+    Raises
+    ------
+    ValueError
+        If all shuffle IDs are currently in use across the cluster.
+    """
+    global _shuffle_id_vacancy  # noqa: PLW0603
+
+    with _shuffle_id_vacancy_lock:
+        if not _shuffle_id_vacancy:
+
+            def get_occupied_ids(dask_worker: Worker) -> set[int]:
+                ctx = get_worker_context(dask_worker)
+                with ctx.lock:
+                    return set(ctx.shufflers.keys())
+
+            # We start with setting all IDs as vacant and then subtract all
+            # IDs occupied on any one worker.
+            _shuffle_id_vacancy = set(range(Shuffler.max_concurrent_shuffles))
+            _shuffle_id_vacancy.difference_update(
+                *client.run(get_occupied_ids).values()
+            )
+            if not _shuffle_id_vacancy:
+                raise ValueError(
+                    f"Cannot shuffle more than {Shuffler.max_concurrent_shuffles} "
+                    "times in a single Dask compute."
+                )
+
+        return _shuffle_id_vacancy.pop()
 
 
 def get_shuffler(
@@ -70,29 +107,32 @@ def get_shuffler(
     Notes
     -----
     Whenever a new :class:`Shuffler` object is created, it is
-    saved as ``dask_worker._rmp_shufflers[shuffle_id]``.
+    saved as ``DaskWorkerContext.shufflers[shuffle_id]``.
 
     This function is expected to run on a Dask worker.
     """
-    dask_worker = dask_worker or get_worker()
-    with get_worker_thread_lock():
-        if shuffle_id not in dask_worker._rmp_shufflers:
+    ctx = get_worker_context(dask_worker)
+    with ctx.lock:
+        if shuffle_id not in ctx.shufflers:
             if partition_count is None:
                 raise ValueError(
                     "Need partition_count to create new shuffler."
                     f" shuffle_id: {shuffle_id}\n"
-                    f" Shufflers: {dask_worker._rmp_shufflers}"
+                    f" Shufflers: {ctx.shufflers}"
                 )
-            dask_worker._rmp_shufflers[shuffle_id] = Shuffler(
-                get_comm(dask_worker),
-                get_progress_thread(dask_worker),
+            assert ctx.br is not None
+            assert ctx.comm is not None
+            assert ctx.progress_thread is not None
+            ctx.shufflers[shuffle_id] = Shuffler(
+                ctx.comm,
+                ctx.progress_thread,
                 op_id=shuffle_id,
                 total_num_partitions=partition_count,
                 stream=DEFAULT_STREAM,
-                br=dask_worker._rmp_buffer_resource,
-                statistics=dask_worker._rmp_statistics,
+                br=ctx.br,
+                statistics=ctx.statistics,
             )
-    return cast(Shuffler, dask_worker._rmp_shufflers[shuffle_id])
+    return ctx.shufflers[shuffle_id]
 
 
 @runtime_checkable
@@ -107,9 +147,11 @@ class DaskIntegration(Protocol[DataFrameT]):
     @staticmethod
     def insert_partition(
         df: DataFrameT,
-        on: Sequence[str],
+        partition_id: int,
         partition_count: int,
         shuffler: Shuffler,
+        options: Any,
+        *other: Any,
     ) -> None:
         """
         Add a partition to a RapidsMPF Shuffler.
@@ -118,19 +160,24 @@ class DaskIntegration(Protocol[DataFrameT]):
         ----------
         df
             DataFrame partition to add to a RapidsMPF shuffler.
-        on
-            Sequence of column names to shuffle on.
+        partition_id
+            The input partition id of ``df``.
         partition_count
             Number of output partitions for the current shuffle.
         shuffler
             The RapidsMPF Shuffler object to extract from.
+        options
+            Additional options.
+        *other
+            Other data needed for partitioning. For example,
+            this may be boundary values needed for sorting.
         """
 
     @staticmethod
     def extract_partition(
         partition_id: int,
-        column_names: list[str],
         shuffler: Shuffler,
+        options: Any,
     ) -> DataFrameT:
         """
         Extract a DataFrame partition from a RapidsMPF Shuffler.
@@ -139,10 +186,10 @@ class DaskIntegration(Protocol[DataFrameT]):
         ----------
         partition_id
             Partition id to extract.
-        column_names
-            Sequence of output column names.
         shuffler
             The RapidsMPF Shuffler object to extract from.
+        options
+            Additional options.
 
         Returns
         -------
@@ -150,7 +197,7 @@ class DaskIntegration(Protocol[DataFrameT]):
         """
 
 
-def _worker_rmp_barrier(
+def _worker_rmpf_barrier(
     shuffle_ids: tuple[int, ...],
     partition_count: int,
     dependency: None,
@@ -213,11 +260,23 @@ def _stage_shuffler(
 
 
 def _insert_partition(
-    callback: Callable[[DataFrameT, Sequence[str], int, Shuffler], None],
+    callback: Callable[
+        [
+            DataFrameT,
+            int,
+            int,
+            Shuffler,
+            Any,
+            *tuple[str | tuple[str, int], ...],
+        ],
+        None,
+    ],
     df: DataFrameT,
-    on: Sequence[str],
+    partition_id: int,
     partition_count: int,
     shuffle_id: int,
+    options: Any,
+    *other_keys: str | tuple[str, int],
 ) -> None:
     """
     Add a partition to a RapidsMPF Shuffler.
@@ -230,12 +289,16 @@ def _insert_partition(
         protocol.
     df
         DataFrame partition to add to a RapidsMPF shuffler.
-    on
-        Sequence of column names to shuffle on.
+    partition_id
+        The input partition id of ``df``.
     partition_count
         Number of output partitions for the current shuffle.
     shuffle_id
         The RapidsMPF shuffle id.
+    options
+        Optional key-word arguments.
+    *other_keys
+        Other keys needed by ``callback``.
     """
     if callback is None:
         raise ValueError("callback missing in _insert_partition.")
@@ -243,18 +306,23 @@ def _insert_partition(
 
     callback(
         df,
-        on,
+        partition_id,
         partition_count,
         get_shuffler(shuffle_id),
+        options,
+        *other_keys,
     )
 
 
 def _extract_partition(
-    callback: Callable[[int, Sequence[str], Shuffler], DataFrameT],
+    callback: Callable[
+        [int, Shuffler, Any],
+        DataFrameT,
+    ],
     shuffle_id: int,
     partition_id: int,
-    column_names: list[str],
     worker_barrier: tuple[int, ...],
+    options: Any,
 ) -> DataFrameT:
     """
     Extract a partition from a RapidsMPF Shuffler.
@@ -269,33 +337,37 @@ def _extract_partition(
         The RapidsMPF shuffle id.
     partition_id
         Partition id to extract.
-    column_names
-        Sequence of output column names.
     worker_barrier
         Worker-barrier task dependency. This value should
         not be used for compute logic.
+    options
+        Additional options.
 
     Returns
     -------
     Extracted DataFrame partition.
     """
-    if callback is None:
-        raise ValueError("Missing callback in _extract_partition.")
-    return callback(
-        partition_id,
-        column_names,
-        get_shuffler(shuffle_id),
-    )
+    shuffler = get_shuffler(shuffle_id)
+    try:
+        return callback(
+            partition_id,
+            shuffler,
+            options,
+        )
+    finally:
+        if shuffler.finished():
+            ctx = get_worker_context()
+            del ctx.shufflers[shuffle_id]
 
 
 def rapidsmpf_shuffle_graph(
     input_name: str,
     output_name: str,
-    column_names: Sequence[str],
-    shuffle_on: Sequence[str],
     partition_count_in: int,
     partition_count_out: int,
     integration: DaskIntegration,
+    options: Any,
+    *other_keys: str | tuple[str, int],
 ) -> dict[Any, Any]:
     """
     Return the task graph for a RapidsMPF shuffle.
@@ -306,16 +378,16 @@ def rapidsmpf_shuffle_graph(
         The task name for input DataFrame tasks.
     output_name
         The task name for output DataFrame tasks.
-    column_names
-        Sequence of output column names.
-    shuffle_on
-        Sequence of column names to shuffle on (by hash).
     partition_count_in
         Partition count of input collection.
     partition_count_out
         Partition count of output collection.
     integration
         Dask-integration specification.
+    options
+        Optional key-word arguments.
+    *other_keys
+        Other keys needed by ``integration.insert_partition``.
 
     Returns
     -------
@@ -382,7 +454,7 @@ def rapidsmpf_shuffle_graph(
     """
     # Get the shuffle id
     client = get_dask_client()
-    shuffle_id = get_shuffle_id()
+    shuffle_id = _get_new_shuffle_id(client)
 
     # Check integration argument
     if not isinstance(integration, DaskIntegration):
@@ -396,10 +468,10 @@ def rapidsmpf_shuffle_graph(
     restricted_keys: MutableMapping[Any, str] = {}
 
     # Define task names for each phase of the shuffle
-    insert_name = f"rmp-insert-{output_name}"
-    global_barrier_1_name = f"rmp-global-barrier-1-{output_name}"
-    global_barrier_2_name = f"rmp-global-barrier-2-{output_name}"
-    worker_barrier_name = f"rmp-worker-barrier-{output_name}"
+    insert_name = f"rmpf-insert-{output_name}"
+    global_barrier_1_name = f"rmpf-global-barrier-1-{output_name}"
+    global_barrier_2_name = f"rmpf-global-barrier-2-{output_name}"
+    worker_barrier_name = f"rmpf-worker-barrier-{output_name}"
 
     # Stage a shuffler on every worker for this shuffle id
     client.run(
@@ -408,26 +480,24 @@ def rapidsmpf_shuffle_graph(
         partition_count=partition_count_out,
     )
 
-    # Make sure shuffle_on does not contain duplicate keys
-    if len(set(shuffle_on)) != len(shuffle_on):
-        raise ValueError(f"Got duplicate keys in shuffle_on: {shuffle_on}")
-
     # Add tasks to insert each partition into the shuffler
     graph: dict[Any, Any] = {
         (insert_name, pid): (
             _insert_partition,
             integration.insert_partition,
             (input_name, pid),
-            shuffle_on,
+            pid,
             partition_count_out,
             shuffle_id,
+            options,
+            *other_keys,
         )
         for pid in range(partition_count_in)
     }
 
     # Add global barrier task
     graph[(global_barrier_1_name, 0)] = (
-        global_rmp_barrier,
+        global_rmpf_barrier,
         list(graph.keys()),
     )
 
@@ -437,7 +507,7 @@ def rapidsmpf_shuffle_graph(
         key = (worker_barrier_name, rank)
         worker_barriers[rank] = key
         graph[key] = (
-            _worker_rmp_barrier,
+            _worker_rmpf_barrier,
             (shuffle_id,),
             partition_count_out,
             (global_barrier_1_name, 0),
@@ -446,7 +516,7 @@ def rapidsmpf_shuffle_graph(
 
     # Add global barrier task
     graph[(global_barrier_2_name, 0)] = (
-        global_rmp_barrier,
+        global_rmpf_barrier,
         list(worker_barriers.values()),
     )
 
@@ -460,8 +530,8 @@ def rapidsmpf_shuffle_graph(
             integration.extract_partition,
             shuffle_id,
             part_id,
-            column_names,
             (global_barrier_2_name, 0),
+            options,
         )
         # Assume round-robin partition assignment
         restricted_keys[output_keys[-1]] = worker_ranks[rank]
@@ -470,7 +540,7 @@ def rapidsmpf_shuffle_graph(
     # to specific workers
     client._send_to_scheduler(
         {
-            "op": "rmp_add_restricted_tasks",
+            "op": "rmpf_add_restricted_tasks",
             "tasks": restricted_keys,
         }
     )

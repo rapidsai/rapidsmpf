@@ -26,22 +26,25 @@ from rapidsmpf.integrations.dask.spilling import (
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from rmm.pylibrmm.memory_resource import DeviceMemoryResource
+    from rmm.pylibrmm.stream import Stream
+
 
 register_dask_serialize()
 
 
-def test_spillable_wrapper() -> None:
+def test_spillable_wrapper(stream: Stream, device_mr: DeviceMemoryResource) -> None:
     df = cudf.DataFrame({"a": [1, 2, 3]}, dtype="int64")
 
     wrapper: SpillableWrapper[cudf.DataFrame] = SpillableWrapper(on_device=df)
     assert wrapper.mem_type() == MemoryType.DEVICE
     assert wrapper.approx_spillable_amount() == sizeof(df) == 24
 
-    wrapper.spill(amount=0)
+    wrapper.spill(amount=0, stream=stream, device_mr=device_mr)
     assert wrapper.mem_type() == MemoryType.DEVICE
     assert wrapper.approx_spillable_amount() == sizeof(df) == 24
 
-    wrapper.spill(amount=1)
+    wrapper.spill(amount=1, stream=stream, device_mr=device_mr)
     assert wrapper.mem_type() == MemoryType.HOST
     assert wrapper.approx_spillable_amount() == 0
 
@@ -62,7 +65,9 @@ def test_spillable_wrapper() -> None:
         MemoryType.HOST,
     ],
 )
-def test_spillable_wrapper_dask_serialize(memtype: MemoryType) -> None:
+def test_spillable_wrapper_dask_serialize(
+    stream: Stream, device_mr: DeviceMemoryResource, memtype: MemoryType
+) -> None:
     def copy_frames(
         frames: Iterable[memoryview | gpumemoryview],
     ) -> Iterable[memoryview | gpumemoryview]:
@@ -86,14 +91,16 @@ def test_spillable_wrapper_dask_serialize(memtype: MemoryType) -> None:
     df = cudf.DataFrame({"a": [1, 2, 3]}, dtype="int64")
     wrapper: SpillableWrapper[cudf.DataFrame] = SpillableWrapper(on_device=df)
     if memtype == MemoryType.HOST:
-        wrapper.spill(100)
+        wrapper.spill(100, stream=stream, device_mr=device_mr)
     header, frames = cuda_dumps(wrapper)
     res = cuda_loads(copy.deepcopy(header), copy_frames(frames))
     assert isinstance(res, SpillableWrapper)
     cudf.testing.assert_eq(res.unspill(), df)
 
 
-def test_spillable_wrapper_thread_safety() -> None:
+def test_spillable_wrapper_thread_safety(
+    stream: Stream, device_mr: DeviceMemoryResource
+) -> None:
     """Spawn threads and have them spill/serialize wrapped objects"""
 
     SEED = 42
@@ -112,7 +119,7 @@ def test_spillable_wrapper_thread_safety() -> None:
         random.seed(seed)
         for _ in range(NUM_OPS):
             idx = random.randint(0, len(wrappers) - 1)
-            wrappers[idx].spill(1)
+            wrappers[idx].spill(1, stream=stream, device_mr=device_mr)
 
             idx = random.randint(0, len(wrappers) - 1)
             assert wrappers[idx].unspill()["a"][0] == idx

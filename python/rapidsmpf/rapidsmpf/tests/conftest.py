@@ -5,15 +5,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from mpi4py import MPI
 
 import rmm.mr
+from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-from rapidsmpf.communicator.mpi import new_communicator
-from rapidsmpf.communicator.testing import ucxx_mpi_setup
+from rapidsmpf.communicator import COMMUNICATORS
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+    from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.communicator.communicator import Communicator
 
@@ -28,6 +29,10 @@ def _mpi_comm() -> Communicator:
 
     Do not use this fixture directly, use the `comm` fixture instead.
     """
+    from mpi4py import MPI
+
+    from rapidsmpf.communicator.mpi import new_communicator
+
     return new_communicator(MPI.COMM_WORLD)
 
 
@@ -41,23 +46,40 @@ def _ucxx_comm() -> Communicator:
 
     Do not use this fixture directly, use the `ucxx_comm` fixture instead.
     """
+    from rapidsmpf.communicator.testing import ucxx_mpi_setup
+
     return ucxx_mpi_setup(None)
 
 
 @pytest.fixture(
     params=["mpi", "ucxx"],
 )
-def comm(request: pytest.FixtureRequest) -> Generator[Communicator, None, None]:
+def comm(request: pytest.FixtureRequest) -> Generator[Communicator]:
     """
-    Fixture for a rapidsmpf communicator, scoped for each test.
+    Fixture for a rapidsmpf communicator and setup, scoped for each test.
     """
+    comm_name = request.param
+
+    if "mpi" not in COMMUNICATORS:
+        if comm_name == "mpi":
+            pytest.skip("RapidsMPF not built with MPI support")
+        if comm_name == "ucxx":
+            pytest.skip(
+                "RapidsMPF not built with MPI support, which is "
+                "used to bootstrap this UCXX test"
+            )
+    if "ucxx" not in COMMUNICATORS:
+        pytest.skip("RapidsMPF not built with UCXX support")
+
+    from mpi4py import MPI
+
     MPI.COMM_WORLD.barrier()
-    yield request.getfixturevalue(f"_{request.param}_comm")
+    yield request.getfixturevalue(f"_{comm_name}_comm")
     MPI.COMM_WORLD.barrier()
 
 
 @pytest.fixture
-def device_mr() -> Generator[rmm.mr.CudaMemoryResource, None, None]:
+def device_mr() -> Generator[rmm.mr.CudaMemoryResource]:
     """
     Fixture for creating a new cuda memory resource and making it the
     current rmm resource temporarily.
@@ -69,3 +91,14 @@ def device_mr() -> Generator[rmm.mr.CudaMemoryResource, None, None]:
         yield mr
     finally:
         rmm.mr.set_current_device_resource(prior_mr)
+
+
+@pytest.fixture
+def stream() -> Stream:
+    """
+    Fixture to get a CUDA stream.
+
+    TODO: create a new stream compatible with the `device_mr` fixture. For now,
+    we just return the default stream.
+    """
+    return DEFAULT_STREAM

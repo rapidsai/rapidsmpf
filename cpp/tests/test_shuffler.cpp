@@ -67,11 +67,41 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(sort_table(expect), sort_table(result));
 }
 
+TEST_P(NumOfPartitions, split_and_pack) {
+    int const num_partitions = std::get<0>(GetParam());
+    int const num_rows = std::get<1>(GetParam());
+    std::int64_t const seed = 42;
+    auto stream = cudf::get_default_stream();
+    auto mr = cudf::get_current_device_resource_ref();
+
+    cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
+
+    std::vector<cudf::size_type> splits;
+    for (int i = 1; i < num_partitions; ++i) {
+        splits.emplace_back(i * num_rows / num_partitions);
+    }
+
+    auto chunks = rapidsmpf::shuffler::split_and_pack(expect, splits, stream, mr);
+
+    // Convert to a vector (restoring the original order).
+    std::vector<rapidsmpf::PackedData> chunks_vector;
+    for (int i = 0; i < num_partitions; ++i) {
+        chunks_vector.emplace_back(std::move(chunks.at(i)));
+    }
+    EXPECT_EQ(chunks_vector.size(), num_partitions);
+
+    auto result =
+        rapidsmpf::shuffler::unpack_and_concat(std::move(chunks_vector), stream, mr);
+
+    // Compare the input table with the result.
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(expect, *result);
+}
+
 TEST(MetadataMessage, round_trip) {
     auto metadata = iota_vector<uint8_t>(100);
 
     rapidsmpf::shuffler::detail::Chunk expect(
-        1, 2, true, 0, std::make_unique<std::vector<uint8_t>>(metadata), nullptr
+        1, 2, true, std::make_unique<std::vector<uint8_t>>(metadata), nullptr
     );
 
     // Extract the metadata from then chunk.
@@ -509,4 +539,117 @@ TEST(FinishCounterTests, wait_some_with_timeout) {
             return p_ids[0];
         }
     ));
+}
+
+class PostBoxTest : public cudf::test::BaseFixture {
+  protected:
+    using PostboxType = rapidsmpf::shuffler::detail::PostBox<rapidsmpf::Rank>;
+
+    void SetUp() override {
+        GlobalEnvironment->barrier();  // sync the env
+
+        postbox = std::make_unique<PostboxType>(
+            [this](rapidsmpf::shuffler::PartID part_id) {
+                return partition_owner(part_id);
+            },
+            GlobalEnvironment->comm_->nranks()
+        );
+    }
+
+    rapidsmpf::Rank partition_owner(rapidsmpf::shuffler::PartID part_id) {
+        return rapidsmpf::shuffler::Shuffler::round_robin(
+            GlobalEnvironment->comm_, part_id
+        );
+    }
+
+    void TearDown() override {
+        postbox.reset();
+    }
+
+    std::unique_ptr<PostboxType> postbox;
+};
+
+TEST_F(PostBoxTest, EmptyPostbox) {
+    EXPECT_TRUE(postbox->empty());
+    EXPECT_TRUE(postbox->extract_all_ready().empty());
+}
+
+TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
+    uint32_t const num_partitions =
+        GlobalEnvironment->comm_->nranks() * 2;  // 2 paritions/ rank
+    uint32_t const num_chunks = num_partitions * 4;  // 4 chunks/ partition
+
+    // Insert chunks for rank 0
+    for (uint32_t i = 0; i < num_chunks; ++i) {
+        rapidsmpf::shuffler::detail::Chunk chunk{
+            rapidsmpf::shuffler::PartID{i % num_partitions},
+            rapidsmpf::shuffler::detail::ChunkID{i},
+            0,  // gpu_data_size
+            nullptr,  // metadata
+            nullptr  // gpu_data
+        };
+        postbox->insert(std::move(chunk));
+    }
+
+    EXPECT_FALSE(postbox->empty());
+
+    // extract chunks for each rank
+    std::vector<rapidsmpf::shuffler::detail::Chunk> extracted_chunks;
+    uint32_t extracted_nchunks = 0;
+    for (rapidsmpf::Rank rank = 0; rank < GlobalEnvironment->comm_->nranks(); ++rank) {
+        auto chunks = postbox->extract_by_key(rank);
+        extracted_nchunks += chunks.size();
+
+        for (auto& [_, chunk] : chunks) {
+            extracted_chunks.emplace_back(std::move(chunk));
+        }
+    }
+    EXPECT_EQ(extracted_nchunks, num_chunks);
+    EXPECT_TRUE(postbox->empty());
+
+    // reinsert the exctracted chunks
+    for (auto& chunk : extracted_chunks) {
+        postbox->insert(std::move(chunk));
+    }
+
+    // extract all chunks
+    auto all_chunks = postbox->extract_all_ready();
+    EXPECT_TRUE(postbox->empty());
+    EXPECT_EQ(all_chunks.size(), num_chunks);
+}
+
+TEST_F(PostBoxTest, ThreadSafety) {
+    constexpr uint32_t num_threads = 4;
+    constexpr uint32_t chunks_per_thread = 100;
+    constexpr uint32_t chunks_per_partition = 4;
+
+    std::vector<std::thread> threads;
+    for (uint32_t i = 0; i < num_threads; ++i) {
+        threads.emplace_back([this, i] {
+            for (uint32_t j = 0; j < chunks_per_thread; ++j) {
+                rapidsmpf::shuffler::detail::Chunk chunk{
+                    rapidsmpf::shuffler::PartID{j / chunks_per_partition},
+                    rapidsmpf::shuffler::detail::ChunkID{i * chunks_per_thread + j},
+                    0,  // gpu_data_size
+                    nullptr,  // metadata
+                    nullptr  // gpu_data
+                };
+                postbox->insert(std::move(chunk));
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    // Verify all chunks were inserted correctly
+    uint32_t extracted_nchunks = 0;
+    for (rapidsmpf::Rank rank = 0; rank < GlobalEnvironment->comm_->nranks(); ++rank) {
+        auto chunks = postbox->extract_by_key(rank);
+        extracted_nchunks += chunks.size();
+    }
+    EXPECT_EQ(extracted_nchunks, num_threads * chunks_per_thread);
+
+    EXPECT_TRUE(postbox->empty());
 }

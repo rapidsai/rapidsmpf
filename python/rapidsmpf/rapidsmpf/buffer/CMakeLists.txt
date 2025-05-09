@@ -8,5 +8,5 @@ set(cython_modules buffer.pyx packed_data.pyx resource.pyx spill_manager.pyx)
 rapids_cython_create_modules(
   CXX
   SOURCE_FILES "${cython_modules}"
-  LINKED_LIBRARIES rapidsmpf::rapidsmpf MPI::MPI_CXX ucxx::ucxx ucx::ucp
+  LINKED_LIBRARIES rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
 )
