@@ -186,3 +186,12 @@ cdef class Communicator:
         """
         cdef string s = deref(self._handle).str()
         return s.decode('utf-8')
+
+
+def _available_communicators():
+    ret = []
+    if COMM_HAVE_UCXX:
+        ret.append("ucxx")
+    if COMM_HAVE_MPI:
+        ret.append("mpi")
+    return tuple(ret)
