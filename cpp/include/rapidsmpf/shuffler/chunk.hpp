@@ -33,16 +33,15 @@ using ChunkID = std::uint64_t;
  * When the Chunk is serialized, the format is as follows:
  * - chunk_id: uint64_t, ID of the chunk
  * - n_elements: size_t, Number of messages in the chunk
- * - [partition_ids]: std::vector<PartID>, Partition IDs of the messages, size =
- * n_elements
- * - [expected_num_chunks]: std::vector<size_t>, Expected number of chunks of the
- * messages, size = n_elements
- * - [psum_meta]: std::vector<uint32_t>, Prefix sums (excluding 0) of the metadata
- * sizes of the messages, size = n_elements
- * - [psum_data]: std::vector<uint64_t>, Prefix sums (excluding 0) of the data sizes of
+ * - [partition_ids]: vector<PartID>, Partition IDs of the messages, size = n_elements
+ * - [expected_num_chunks]: vector<size_t>, Expected number of chunks of the messages,
+ * size = n_elements
+ * - [meta_offsets]: vector<uint32_t>, Prefix sums (excluding 0) of the metadata sizes
+ * of the messages, size = n_elements
+ * - [data_offsets]: vector<uint64_t>, Prefix sums (excluding 0) of the data sizes of
  * the messages, size = n_elements
- * - [concat_metadata]: std::vector<uint8_t>, Concatenated metadata of the messages,
- * size = psum_meta[n_elements - 1]
+ * - [concat_metadata]: vector<uint8_t>, Concatenated metadata of the messages,
+ * size = meta_offsets[n_elements - 1]
  *
  * For a chunk with N messages with M bytes of concat metadata the size of serialized
  * buffer is sizeof(ChunkID) + sizeof(size_t) + N * (sizeof(PartID) + sizeof(size_t) +
@@ -97,7 +96,7 @@ class Chunk {
      * @return The ID of the partition.
      */
     inline PartID part_id(size_t i) const {
-        return part_ids_[i];
+        return part_ids_.at(i);
     }
 
     /**
@@ -108,7 +107,7 @@ class Chunk {
      * is a control message, otherwise zero (data message).
      */
     inline size_t expected_num_chunks(size_t i) const {
-        return expected_num_chunks_[i];
+        return expected_num_chunks_.at(i);
     }
 
     /**
@@ -118,7 +117,7 @@ class Chunk {
      * @return True if the message is a control message, false otherwise.
      */
     inline bool is_control_message(size_t i) const {
-        return expected_num_chunks_[i] > 0;
+        return expected_num_chunks(i) > 0;
     }
 
     /**
@@ -144,6 +143,7 @@ class Chunk {
      * control message, otherwise the size of `PackedData::metadata`.
      */
     inline uint32_t metadata_size(size_t i) const {
+        assert(i < n_messages());
         assert(!meta_offsets_.empty());
         assert(!is_control_message(i));
         return i == 0 ? meta_offsets_[0] : meta_offsets_[i] - meta_offsets_[i - 1];
@@ -157,6 +157,7 @@ class Chunk {
      * control message, otherwise the size of `PackedData::gpu_data` of the message.
      */
     inline size_t data_size(size_t i) const {
+        assert(i < n_messages());
         assert(!data_offsets_.empty());
         assert(!is_control_message(i));
         return i == 0 ? data_offsets_[0] : data_offsets_[i] - data_offsets_[i - 1];
@@ -273,7 +274,7 @@ class Chunk {
     );
 
     /**
-     * @brief Create a ChunkBatch from a metadata message.
+     * @brief Create a ChunkBatch by deserializing a metadata message.
      *
      * @param msg The metadata message received from another rank.
      * @param validate Whether to validate the metadata buffer.
@@ -282,15 +283,14 @@ class Chunk {
      * @throws std::runtime_error if the metadata buffer does not follow the expected
      * format and `validate` is true.
      */
-    static Chunk from_serialized_buf(
-        std::vector<uint8_t> const& msg, bool validate = true
-    );
+    static Chunk deserialize(std::vector<uint8_t> const& msg, bool validate = true);
 
     /**
-     * @brief Validate if a provided metadata buffer follows the expected format.
+     * @brief Validate if a deserialized buffer follows the Chunk format.
      *
-     * @param serialized_buf The metadata buffer to validate.
-     * @return True if the metadata buffer follows the expected format, false otherwise.
+     * @param serialized_buf The deserialized buffer to validate.
+     * @return True if the deserialized buffer follows the Chunk format, false
+     * otherwise.
      */
     static bool validate_format(std::vector<uint8_t> const& serialized_buf);
 
@@ -302,9 +302,9 @@ class Chunk {
      * could be set later, so we need to check if it is non-null.
      */
     [[nodiscard]] inline bool is_ready() const {
-        // psum_data[-1] contains the size of the data buffer. If it is 0, the chunk has
-        // no data messages, so it is ready. Else, the chunk is ready if the data buffer
-        // is non-null and the data buffer is ready.
+        // data_offsets_[-1] contains the size of the data buffer. If it is 0, the chunk
+        // has no data messages, so it is ready. Else, the chunk is ready if the data
+        // buffer is non-null and the data buffer is ready.
         return !data_offsets_.empty()
                && (data_offsets_[n_messages() - 1] == 0 || (data_ && data_->is_ready()));
     }

@@ -202,7 +202,7 @@ class Shuffler::Progress {
         while (true) {
             auto const [msg, src] = shuffler_.comm_->recv_any(metadata_tag);
             if (msg) {
-                auto chunk = Chunk::from_serialized_buf(*msg, false);
+                auto chunk = Chunk::deserialize(*msg, false);
                 log.trace("recv_any from ", src, ": ", chunk);
                 RAPIDSMPF_EXPECTS(
                     shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0))

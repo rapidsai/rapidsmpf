@@ -43,7 +43,7 @@ TEST_F(ChunkBatchTest, FromFinishedPartition) {
     test_chunk(chunk);
 
     auto msg = chunk.serialize();
-    auto chunk2 = Chunk::from_serialized_buf(*msg, true);
+    auto chunk2 = Chunk::deserialize(*msg, true);
     test_chunk(chunk2);
 
     auto chunk3 = chunk2.get_data(chunk_id, 0, stream);
@@ -88,7 +88,7 @@ TEST_F(ChunkBatchTest, FromPackedData) {
     test_chunk(chunk);
 
     auto msg = chunk.serialize();
-    auto chunk2 = Chunk::from_serialized_buf(*msg, true);
+    auto chunk2 = Chunk::deserialize(*msg, true);
     chunk2.set_data_buffer(chunk.release_data_buffer());
     test_chunk(chunk2);
 

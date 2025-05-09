@@ -98,10 +98,10 @@ Chunk Chunk::from_finished_partition(
     return {chunk_id, 1, {part_id}, {expected_num_chunks}, {0}, {0}};
 }
 
-Chunk Chunk::from_serialized_buf(std::vector<uint8_t> const& msg, bool validate) {
+Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
     if (validate) {
         RAPIDSMPF_EXPECTS(
-            validate_format(msg), "metadata buffer does not follow the expected format"
+            validate_format(msg), "serialized message does not follow the expected format"
         );
     }
     size_t offset = 0;
