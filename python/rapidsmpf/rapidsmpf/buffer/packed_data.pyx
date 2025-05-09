@@ -43,6 +43,9 @@ cdef class PackedData:
                     deref(packed_columns.c_obj).gpu_data):
                 raise ValueError("Cannot release empty PackedColumns")
 
+            # we cannot use packed_columns.release() because it returns a tuple of
+            # memoryview and gpumemoryview, and we need to take ownership of the
+            # underlying buffers
             ret.c_obj = make_unique[cpp_PackedData](
                 move(deref(packed_columns.c_obj).metadata),
                 move(deref(packed_columns.c_obj).gpu_data))

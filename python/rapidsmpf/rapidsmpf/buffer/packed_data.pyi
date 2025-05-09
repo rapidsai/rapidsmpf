@@ -5,5 +5,5 @@ from pylibcudf.contiguous_split import PackedColumns as CudfPackedColumns
 
 class PackedData:
     def __init__(self) -> None: ...
-    @staticmethod
+    @classmethod
     def from_cudf_packed_columns(packed_columns: CudfPackedColumns) -> PackedData: ...
