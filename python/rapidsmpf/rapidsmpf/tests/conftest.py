@@ -66,7 +66,7 @@ def comm(request: pytest.FixtureRequest) -> Generator[Communicator]:
         if comm_name == "ucxx":
             pytest.skip(
                 "RapidsMPF not built with MPI support, which is "
-                "used to bootstrap some of the UCXX tests"
+                "used to bootstrap this UCXX test"
             )
     if "ucxx" not in COMMUNICATORS:
         pytest.skip("RapidsMPF not built with UCXX support")
