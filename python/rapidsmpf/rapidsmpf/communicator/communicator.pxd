@@ -12,6 +12,8 @@ cdef class Logger:
 cdef extern from "<rapidsmpf/communicator/communicator.hpp>" namespace \
   "rapidsmpf" nogil:
     ctypedef int32_t Rank
+    cdef const bint COMM_HAVE_UCXX
+    cdef const bint COMM_HAVE_MPI
 
 cdef extern from "<rapidsmpf/communicator/communicator.hpp>" namespace \
   "rapidsmpf::Communicator::Logger" nogil:
