@@ -58,8 +58,16 @@ target_compile_options(
                     "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  mpi_tests PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
-                    GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
+  mpi_tests
+  PRIVATE rapidsmpf::rapidsmpf
+          cudf::cudftestutil
+          cudf::cudftestutil_impl
+          GTest::gmock
+          GTest::gtest
+          ucxx::ucxx
+          ucx::ucp
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+          $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 disable_sign_conversion_warning(mpi_tests)
 
@@ -83,8 +91,16 @@ target_compile_options(
                      "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  ucxx_tests PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
-                     GTest::gtest MPI::MPI_C ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:conda_env>
+  ucxx_tests
+  PRIVATE rapidsmpf::rapidsmpf
+          cudf::cudftestutil
+          cudf::cudftestutil_impl
+          GTest::gmock
+          GTest::gtest
+          ucxx::ucxx
+          ucx::ucp
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+          $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 disable_sign_conversion_warning(ucxx_tests)
 
@@ -138,6 +154,7 @@ install(
   TARGETS ${testing_targets}
   DESTINATION bin/tests/librapidsmpf/gtests
   COMPONENT testing
+  EXCLUDE_FROM_ALL
 )
 
 # Install the CTestTestfile.cmake to bin/tests/librapidsmpf
@@ -145,4 +162,5 @@ install(
   FILES "${RAPIDSMPF_BINARY_DIR}/tests/CTestTestfile.cmake"
   DESTINATION bin/tests/librapidsmpf
   COMPONENT testing
+  EXCLUDE_FROM_ALL
 )
