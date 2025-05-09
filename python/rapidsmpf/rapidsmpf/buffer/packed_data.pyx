@@ -19,13 +19,13 @@ cdef class PackedData:
     @classmethod
     def from_cudf_packed_columns(cls, PackedColumns packed_columns):
         """
-        Constructs a PackedData from cudf PackedColumns by taking the ownership of the
+        Constructs a PackedData from CudfPackedColumns by taking the ownership of the
         data and releasing `packed_columns`.
 
         Parameters
         ----------
         packed_columns
-            Packed data what contains metadata and GPU data buffers
+            Packed data containing metadata and GPU data buffers
 
         Returns
         -------
