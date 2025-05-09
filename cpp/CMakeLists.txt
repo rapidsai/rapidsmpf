@@ -42,12 +42,12 @@ option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
 
-set(RAPIDSMPF_BUILD_MPI_SUPPORT ${BUILD_MPI_SUPPORT})
+set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
 
-if(NOT RAPIDSMPF_BUILD_MPI_SUPPORT)
+if(NOT RAPIDSMPF_HAVE_MPI)
   if(RAPIDSMPF_BUILD_TESTS)
     message(FATAL_ERROR "BUILD_TESTS cannot be ON when BUILD_MPI_SUPPORT is OFF")
   endif()
@@ -95,7 +95,7 @@ rapids_find_package(
   BUILD_EXPORT_SET rapidsmpf-exports
   INSTALL_EXPORT_SET rapidsmpf-exports
 )
-if(RAPIDSMPF_BUILD_MPI_SUPPORT)
+if(RAPIDSMPF_HAVE_MPI)
   rapids_find_package(
     MPI REQUIRED
     BUILD_EXPORT_SET rapidsmpf-exports
@@ -112,7 +112,7 @@ endif()
 file(GLOB SOURCES "src/*.cpp" "src/shuffler/*.cpp" "src/communicator/*.cpp" "src/buffer/*.cpp")
 
 # Without MPI support, remove the MPI communicator from the source list.
-if(NOT RAPIDSMPF_BUILD_MPI_SUPPORT)
+if(NOT RAPIDSMPF_HAVE_MPI)
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/mpi.cpp")
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx_utils.cpp")
 endif()
@@ -152,7 +152,7 @@ target_link_libraries(
 )
 
 target_compile_definitions(
-  rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_BUILD_MPI_SUPPORT}>:RAPIDSMPF_BUILD_MPI_SUPPORT>
+  rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>
 )
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
@@ -256,8 +256,8 @@ RAPIDSMPF.
     ]=]
 )
 
-# Export `RAPIDSMPF_BUILD_MPI_SUPPORT` to let downstream projects know if MPI is supported.
-set(final_code_string "set(RAPIDSMPF_BUILD_MPI_SUPPORT [=[${RAPIDSMPF_BUILD_MPI_SUPPORT}]=])")
+# Export `RAPIDSMPF_HAVE_MPI` to let downstream projects know if MPI is supported.
+set(final_code_string "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_MPI}]=])")
 
 rapids_export(
   INSTALL rapidsmpf
