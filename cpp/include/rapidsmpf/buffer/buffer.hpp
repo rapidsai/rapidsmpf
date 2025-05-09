@@ -124,7 +124,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] constexpr std::unique_ptr<std::vector<uint8_t>> const& host() const {
+    [[nodiscard]] constexpr HostStorageT const& host() const {
         if (const auto* ref = std::get_if<HostStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -139,7 +139,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] constexpr std::unique_ptr<rmm::device_buffer> const& device() const {
+    [[nodiscard]] constexpr DeviceStorageT const& device() const {
         if (const auto* ref = std::get_if<DeviceStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -180,6 +180,15 @@ class Buffer {
             },
             storage_
         );
+    }
+
+    /**
+     * @brief Set the event for the buffer.
+     *
+     * @param event The event to set.
+     */
+    inline void override_event(std::shared_ptr<Event> event) {
+        event_ = std::move(event);
     }
 
     /**
@@ -233,7 +242,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>>& host() {
+    [[nodiscard]] HostStorageT& host() {
         if (auto ref = std::get_if<HostStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -248,7 +257,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] std::unique_ptr<rmm::device_buffer>& device() {
+    [[nodiscard]] DeviceStorageT& device() {
         if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -273,6 +282,34 @@ class Buffer {
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy(
         MemoryType target, rmm::cuda_stream_view stream
+    ) const;
+
+    /**
+     * @brief Copy a slice of the buffer to a new buffer.
+     *
+     * @param offset Offset in bytes from the start of the buffer.
+     * @param length Length in bytes of the slice.
+     * @param stream CUDA stream to use for the copy.
+     * @returns A new buffer containing the copied slice.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
+        std::ptrdiff_t offset, std::ptrdiff_t length, rmm::cuda_stream_view stream
+    ) const;
+
+    /**
+     * @brief Copy a slice of the buffer to a new buffer.
+     *
+     * @param target Memory type of the new buffer.
+     * @param offset Offset in bytes from the start of the buffer.
+     * @param length Length in bytes of the slice.
+     * @param stream CUDA stream to use for the copy.
+     * @returns A new buffer containing the copied slice.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
+        MemoryType target,
+        std::ptrdiff_t offset,
+        std::ptrdiff_t length,
+        rmm::cuda_stream_view stream
     ) const;
 
   public:

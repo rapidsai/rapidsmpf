@@ -47,8 +47,8 @@ class MemoryReservation {
      */
     MemoryReservation(MemoryReservation&& o)
         : MemoryReservation{
-            o.mem_type_, std::exchange(o.br_, nullptr), std::exchange(o.size_, 0)
-        } {}
+              o.mem_type_, std::exchange(o.br_, nullptr), std::exchange(o.size_, 0)
+          } {}
 
     /**
      * @brief Move assignment operator for MemoryReservation.
@@ -344,6 +344,26 @@ class BufferResource {
     std::unique_ptr<Buffer> copy(
         MemoryType target,
         std::unique_ptr<Buffer> const& buffer,
+        rmm::cuda_stream_view stream,
+        MemoryReservation& reservation
+    );
+
+    /**
+     * @brief Copy a slice of the buffer to a new buffer.
+     *
+     * @param target Memory type of the new buffer.
+     * @param buffer The buffer to copy from.
+     * @param offset Offset in bytes from the start of the buffer.
+     * @param length Length in bytes of the slice.
+     * @param stream CUDA stream to use for the copy.
+     * @param reservation The reservation to use for memory allocations.
+     * @returns A new buffer containing the copied slice.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
+        MemoryType target,
+        std::unique_ptr<Buffer> const& buffer,
+        std::ptrdiff_t offset,
+        std::ptrdiff_t length,
         rmm::cuda_stream_view stream,
         MemoryReservation& reservation
     );

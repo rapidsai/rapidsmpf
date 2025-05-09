@@ -139,6 +139,94 @@ std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view st
     );
 }
 
+std::unique_ptr<Buffer> Buffer::copy_slice(
+    std::ptrdiff_t offset, std::ptrdiff_t length, rmm::cuda_stream_view stream
+) const {
+    RAPIDSMPF_EXPECTS(offset <= std::ptrdiff_t(size), "offset can't be more than size");
+    RAPIDSMPF_EXPECTS(
+        offset + length <= std::ptrdiff_t(size), "offset + length can't be more than size"
+    );
+    return std::visit(
+        overloaded{
+            [&](const HostStorageT& storage) {
+                auto host_buf = std::unique_ptr<Buffer>(new Buffer{
+                    std::make_unique<std::vector<uint8_t>>(
+                        storage->begin() + offset, storage->begin() + offset + length
+                    ),
+                    br
+                });
+                host_buf->override_event(event_);  // if there was an event, use it
+                return host_buf;
+            },
+            [&](DeviceStorageT const& storage) {
+                return std::unique_ptr<Buffer>(new Buffer{
+                    std::make_unique<rmm::device_buffer>(
+                        static_cast<cuda::std::byte*>(storage->data()) + offset,
+                        length,
+                        stream,
+                        br->device_mr()
+                    ),
+                    stream,
+                    br
+                });
+            }
+        },
+        storage_
+    );
+}
+
+std::unique_ptr<Buffer> Buffer::copy_slice(
+    MemoryType target,
+    std::ptrdiff_t offset,
+    std::ptrdiff_t length,
+    rmm::cuda_stream_view stream
+) const {
+    RAPIDSMPF_EXPECTS(offset <= std::ptrdiff_t(size), "offset can't be more than size");
+    RAPIDSMPF_EXPECTS(
+        offset + length <= std::ptrdiff_t(size), "offset + length can't be more than size"
+    );
+
+    if (mem_type() == target) {
+        return copy_slice(offset, length, stream);
+    }
+
+    // Implement the copy between each possible memory types (both directions).
+    return std::visit(
+        overloaded{
+            [&](const HostStorageT& storage) {  // host -> device
+                return std::unique_ptr<Buffer>(new Buffer{
+                    std::make_unique<rmm::device_buffer>(
+                        static_cast<uint8_t const*>(storage->data()) + offset,
+                        length,
+                        stream,
+                        br->device_mr()
+                    ),
+                    stream,
+                    br
+                });
+            },
+            [&](DeviceStorageT const& storage) {  // device -> host
+                {
+                    auto ret = std::make_unique<std::vector<uint8_t>>(length);
+                    RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+                        ret->data(),
+                        static_cast<cuda::std::byte const*>(storage->data()) + offset,
+                        size_t(length),
+                        cudaMemcpyDeviceToHost,
+                        stream
+                    ));
+                    auto host_buf =
+                        std::unique_ptr<Buffer>(new Buffer{std::move(ret), br});
+                    // Create a new event to track the async copy
+                    host_buf->override_event(std::make_shared<Event>(stream));
+                    return host_buf;
+                }
+            }
+        },
+        storage_
+    );
+}
+
 bool Buffer::is_ready() const {
     return !event_ || event_->is_ready();
 }

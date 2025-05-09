@@ -356,3 +356,133 @@ TEST(BufferResource, CUDAEventTracking) {
         verify_data(*verify_data_buf);
     }
 }
+
+struct SliceParams {
+    std::size_t offset;
+    std::size_t length;
+};
+
+class BufferResourceCopySliceTest : public ::testing::TestWithParam<SliceParams> {
+  protected:
+    void SetUp() override {
+        br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
+        stream = cudf::get_default_stream();
+
+        // initialize the host pattern
+        host_pattern.resize(buffer_size);
+        for (std::size_t i = 0; i < host_pattern.size(); ++i) {
+            host_pattern[i] = static_cast<uint8_t>(i % 256);
+        }
+    }
+
+    void verify_slice(
+        std::vector<uint8_t> const& data,
+        std::size_t const offset,
+        std::size_t const length
+    ) {
+        EXPECT_EQ(data.size(), length);
+        for (std::size_t i = 0; i < length; ++i) {
+            EXPECT_EQ(data[i], static_cast<uint8_t>((offset + i) % 256));
+        }
+    }
+
+    std::unique_ptr<Buffer> create_and_initialize_buffer(
+        MemoryType const mem_type, std::size_t const size
+    ) {
+        auto [alloc_reserve, alloc_overbooking] = br->reserve(mem_type, size, false);
+        auto buf = br->allocate(mem_type, size, stream, alloc_reserve);
+
+        if (mem_type == MemoryType::DEVICE) {
+            // copy the host pattern to the device buffer
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                const_cast<void*>(buf->data()),
+                host_pattern.data(),
+                size,
+                cudaMemcpyHostToDevice,
+                stream
+            ));
+            // add an event to guarantee async copy is complete
+            buf->override_event(std::make_shared<Buffer::Event>(stream));
+        } else {
+            // copy the host pattern to the host buffer
+            std::memcpy(const_cast<void*>(buf->data()), host_pattern.data(), size);
+        }
+
+        return buf;
+    }
+
+    std::unique_ptr<Buffer> copy_slice_and_verify(
+        MemoryType const target,
+        std::unique_ptr<Buffer> const& source,
+        std::size_t const offset,
+        std::size_t const length
+    ) {
+        auto [slice_reserve, slice_overbooking] = br->reserve(target, length, false);
+        auto slice =
+            br->copy_slice(target, source, offset, length, stream, slice_reserve);
+
+        EXPECT_EQ(slice->mem_type(), target);
+        stream.synchronize();
+        EXPECT_TRUE(slice->is_ready());
+
+        if (target == MemoryType::HOST) {
+            verify_slice(*const_cast<const Buffer&>(*slice).host(), offset, length);
+        } else {
+            auto verify_data = std::make_unique<std::vector<uint8_t>>(length);
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                verify_data->data(), slice->data(), length, cudaMemcpyDeviceToHost, stream
+            ));
+            stream.synchronize();
+            verify_slice(*verify_data, offset, length);
+        }
+
+        return slice;
+    }
+
+    static constexpr std::size_t buffer_size = 1024;  // 1 KiB
+
+    std::unique_ptr<BufferResource> br;
+    rmm::cuda_stream_view stream;
+
+    std::vector<uint8_t> host_pattern;  // a predefined pattern for testing
+};
+
+TEST_P(BufferResourceCopySliceTest, DeviceToDevice) {
+    auto const& [offset, length] = GetParam();
+    auto dev_buf = create_and_initialize_buffer(MemoryType::DEVICE, buffer_size);
+    copy_slice_and_verify(MemoryType::DEVICE, dev_buf, offset, length);
+}
+
+TEST_P(BufferResourceCopySliceTest, HostToHost) {
+    auto const& [offset, length] = GetParam();
+    auto host_buf = create_and_initialize_buffer(MemoryType::HOST, buffer_size);
+    copy_slice_and_verify(MemoryType::HOST, host_buf, offset, length);
+}
+
+TEST_P(BufferResourceCopySliceTest, DeviceToHost) {
+    auto const& [offset, length] = GetParam();
+    auto dev_buf = create_and_initialize_buffer(MemoryType::DEVICE, buffer_size);
+    copy_slice_and_verify(MemoryType::HOST, dev_buf, offset, length);
+}
+
+TEST_P(BufferResourceCopySliceTest, HostToDevice) {
+    auto const& [offset, length] = GetParam();
+    auto host_buf = create_and_initialize_buffer(MemoryType::HOST, buffer_size);
+    copy_slice_and_verify(MemoryType::DEVICE, host_buf, offset, length);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SliceTests,
+    BufferResourceCopySliceTest,
+    ::testing::Values(
+        SliceParams{0, 0},  // Empty slice at start
+        SliceParams{0, 1024},  // Full buffer
+        SliceParams{1024, 0},  // Empty slice at end
+        SliceParams{11, 37},  // Small slice in middle
+        SliceParams{256, 512}  // Larger slice in middle
+    ),
+    [](const ::testing::TestParamInfo<SliceParams>& info) {
+        return "off_" + std::to_string(info.param.offset) + "_len_"
+               + std::to_string(info.param.length);
+    }
+);

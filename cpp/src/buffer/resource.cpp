@@ -161,6 +161,19 @@ std::unique_ptr<Buffer> BufferResource::copy(
     return ret;
 }
 
+std::unique_ptr<Buffer> BufferResource::copy_slice(
+    MemoryType target,
+    std::unique_ptr<Buffer> const& buffer,
+    std::ptrdiff_t offset,
+    std::ptrdiff_t length,
+    rmm::cuda_stream_view stream,
+    MemoryReservation& reservation
+) {
+    auto ret = buffer->copy_slice(target, offset, length, stream);
+    release(reservation, target, ret->size);
+    return ret;
+}
+
 SpillManager& BufferResource::spill_manager() {
     return spill_manager_;
 }
