@@ -510,6 +510,16 @@ class Communicator {
     [[nodiscard]] virtual std::string str() const = 0;
 };
 
+/// @brief Whether RapidsMPF was built with the UCXX Communicator.
+constexpr bool COMM_HAVE_UCXX = true;
+
+/// @brief Whether RapidsMPF was built with the MPI Communicator.
+#ifdef RAPIDSMPF_HAVE_MPI
+constexpr bool COMM_HAVE_MPI = true;
+#else
+constexpr bool COMM_HAVE_MPI = false;
+#endif
+
 /**
  * @brief Overloads the stream insertion operator for the Communicator class.
  *
