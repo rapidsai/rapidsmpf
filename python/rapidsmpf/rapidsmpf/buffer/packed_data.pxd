@@ -12,6 +12,9 @@ cdef extern from "<rapidsmpf/buffer/packed_data.hpp>" nogil:
         unique_ptr[vector[uint8_t]] metadata
         unique_ptr[device_buffer] gpu_data
 
+        cpp_PackedData(unique_ptr[vector[uint8_t]] metadata,
+                       unique_ptr[device_buffer] gpu_data)
+
 
 cdef class PackedData:
     cdef unique_ptr[cpp_PackedData] c_obj
