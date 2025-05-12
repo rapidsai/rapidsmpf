@@ -32,11 +32,12 @@ export SKBUILD_CMAKE_ARGS="-DBUILD_MPI_SUPPORT=OFF;-DBUILD_TESTS=OFF;-DBUILD_BEN
 ./ci/build_wheel.sh "${package_name}" "${package_dir}"
 
 python -m auditwheel repair \
-    --exclude librapids_logger.so \
     --exclude libcudf.so \
+    --exclude librapids_logger.so \
+    --exclude librmm.so \
+    --exclude libucp.so.0 \
     --exclude libucxx.so \
     --exclude libucxx_python.so \
-    --exclude libucp.so.0 \
     --exclude librapidsmpf.so \
     -w "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}" \
     ${package_dir}/dist/*
