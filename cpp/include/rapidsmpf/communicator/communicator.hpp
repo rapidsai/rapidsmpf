@@ -163,6 +163,8 @@ class Communicator {
      * The logger class provides various logging methods with different verbosity levels.
      * It ensures thread-safety using a mutex and allows filtering of log messages
      * based on the configured verbosity level.
+     *
+     * TODO: support writing to a file.
      */
     class Logger {
       public:
@@ -241,8 +243,7 @@ class Communicator {
          *
          * @param comm The `Communicator` to use.
          */
-        Logger(Communicator* comm)  // TODO: support writing to a file.
-            : comm_{comm}, level_{level_from_env()} {};
+        Logger(Communicator* comm);
         virtual ~Logger() noexcept = default;
 
         /**
