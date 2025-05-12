@@ -154,6 +154,7 @@ install(
   TARGETS ${testing_targets}
   DESTINATION bin/tests/librapidsmpf/gtests
   COMPONENT testing
+  EXCLUDE_FROM_ALL
 )
 
 # Install the CTestTestfile.cmake to bin/tests/librapidsmpf
@@ -161,4 +162,5 @@ install(
   FILES "${RAPIDSMPF_BINARY_DIR}/tests/CTestTestfile.cmake"
   DESTINATION bin/tests/librapidsmpf
   COMPONENT testing
+  EXCLUDE_FROM_ALL
 )

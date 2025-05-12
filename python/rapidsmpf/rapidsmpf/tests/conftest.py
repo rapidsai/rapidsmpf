@@ -9,7 +9,7 @@ import pytest
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-import rapidsmpf.communicator
+from rapidsmpf.communicator import COMMUNICATORS
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -34,7 +34,7 @@ def _get_mpi_module_or_skip() -> MPI:
     pytest.skip
         If MPI support is not available.
     """
-    if not rapidsmpf.communicator.MPI_SUPPORT:
+    if "mpi" not in COMMUNICATORS:
         pytest.skip("No MPI support")
 
     from mpi4py import MPI
@@ -52,7 +52,8 @@ def _mpi_comm() -> Communicator:
 
     Do not use this fixture directly, use the `comm` fixture instead.
     """
-    MPI = _get_mpi_module_or_skip()
+    from mpi4py import MPI
+
     from rapidsmpf.communicator.mpi import new_communicator
 
     return new_communicator(MPI.COMM_WORLD)
@@ -68,9 +69,6 @@ def _ucxx_comm() -> Communicator:
 
     Do not use this fixture directly, use the `ucxx_comm` fixture instead.
     """
-    if not rapidsmpf.communicator.MPI_SUPPORT:
-        pytest.skip("No MPI support")
-
     from rapidsmpf.communicator.testing import ucxx_mpi_setup
 
     return ucxx_mpi_setup(None)
@@ -81,11 +79,25 @@ def _ucxx_comm() -> Communicator:
 )
 def comm(request: pytest.FixtureRequest) -> Generator[Communicator]:
     """
-    Fixture for a rapidsmpf communicator, scoped for each test.
+    Fixture for a rapidsmpf communicator and setup, scoped for each test.
     """
-    MPI = _get_mpi_module_or_skip()
+    comm_name = request.param
+
+    if "mpi" not in COMMUNICATORS:
+        if comm_name == "mpi":
+            pytest.skip("RapidsMPF not built with MPI support")
+        if comm_name == "ucxx":
+            pytest.skip(
+                "RapidsMPF not built with MPI support, which is "
+                "used to bootstrap this UCXX test"
+            )
+    if "ucxx" not in COMMUNICATORS:
+        pytest.skip("RapidsMPF not built with UCXX support")
+
+    from mpi4py import MPI
+
     MPI.COMM_WORLD.barrier()
-    yield request.getfixturevalue(f"_{request.param}_comm")
+    yield request.getfixturevalue(f"_{comm_name}_comm")
     MPI.COMM_WORLD.barrier()
 
 

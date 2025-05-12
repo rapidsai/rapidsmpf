@@ -8,7 +8,7 @@ import dask
 import dask.dataframe as dd
 import pytest
 
-import rapidsmpf.communicator
+from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.examples.dask import DaskCudfIntegration
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 
 def is_running_on_multiple_mpi_nodes() -> bool:
-    if not rapidsmpf.communicator.MPI_SUPPORT:
+    if "mpi" not in COMMUNICATORS:
         return False
 
     from mpi4py import MPI
@@ -69,7 +69,12 @@ async def test_dask_ucxx_cluster_sync() -> None:
 
 
 @pytest.mark.parametrize("partition_count", [None, 3])
-def test_dask_cudf_integration(loop: pytest.FixtureDef, partition_count: int) -> None:  # noqa: F811
+@pytest.mark.parametrize("sort", [True, False])
+def test_dask_cudf_integration(
+    loop: pytest.FixtureDef,  # noqa: F811
+    partition_count: int,
+    sort: bool,  # noqa: FBT001
+) -> None:
     # Test basic Dask-cuDF integration
     pytest.importorskip("dask_cudf")
 
@@ -89,14 +94,18 @@ def test_dask_cudf_integration(loop: pytest.FixtureDef, partition_count: int) ->
                 .to_backend("cudf")
             )
             partition_count_in = df.npartitions
-            expect = df.compute().sort_values(["x", "y"])
+            expect = df.compute().sort_values(["id", "name", "x", "y"])
             shuffled = dask_cudf_shuffle(
                 df,
-                ["name", "id"],
+                ["id", "name"],
+                sort=sort,
                 partition_count=partition_count,
             )
             assert shuffled.npartitions == (partition_count or partition_count_in)
-            got = shuffled.compute().sort_values(["x", "y"])
+            got = shuffled.compute()
+            if sort:
+                assert got["id"].is_monotonic_increasing
+            got = got.sort_values(["id", "name", "x", "y"])
 
             dd.assert_eq(expect, got, check_index=False)
 
@@ -146,11 +155,10 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
                 rapidsmpf_shuffle_graph(
                     input_name=name_in,
                     output_name=name_out,
-                    column_names=column_names,
-                    shuffle_on=shuffle_on,
                     partition_count_in=partition_count_in,
                     partition_count_out=partition_count_out,
                     integration=DaskCudfIntegration,
+                    options={"on": shuffle_on, "column_names": column_names},
                 )
             )
             name_in = name_out

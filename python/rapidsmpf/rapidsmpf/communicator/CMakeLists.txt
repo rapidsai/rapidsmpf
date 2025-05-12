@@ -19,7 +19,7 @@ rapids_cython_create_modules(
   LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE ucxx::ucxx ucxx::python ucx::ucp
 )
 
-if(RAPIDSMPF_BUILD_MPI_SUPPORT)
+if(RAPIDSMPF_HAVE_MPI)
   rapids_cython_create_modules(
     CXX
     SOURCE_FILES "${modules_need_mpi}"

@@ -25,7 +25,7 @@ target_link_libraries(
 )
 install(
   TARGETS bench_shuffle
-  COMPONENT testing
+  COMPONENT benchmarking
   DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL
 )
@@ -51,7 +51,7 @@ target_link_libraries(
 )
 install(
   TARGETS bench_comm
-  COMPONENT testing
+  COMPONENT benchmarking
   DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL
 )
