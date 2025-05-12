@@ -202,6 +202,9 @@ class Shuffler::Progress {
             if (msg) {
                 auto chunk = Chunk::deserialize(*msg, false);
                 log.trace("recv_any from ", src, ": ", chunk);
+                // all messages in the chunk must map to the same key. This is
+                // guaranteed by the PostBox. Therefore, we can use the partition
+                // ID of the first message in the chunk to determine the source rank.
                 RAPIDSMPF_EXPECTS(
                     shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0))
                         == shuffler_.comm_->rank(),

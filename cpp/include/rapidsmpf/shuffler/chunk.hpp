@@ -143,10 +143,10 @@ class Chunk {
      * control message, otherwise the size of `PackedData::metadata`.
      */
     inline uint32_t metadata_size(size_t i) const {
-        assert(i < n_messages());
         assert(!meta_offsets_.empty());
         assert(!is_control_message(i));
-        return i == 0 ? meta_offsets_[0] : meta_offsets_[i] - meta_offsets_[i - 1];
+        return i == 0 ? meta_offsets_.at(0)
+                      : meta_offsets_.at(i) - meta_offsets_.at(i - 1);
     }
 
     /**
@@ -157,10 +157,10 @@ class Chunk {
      * control message, otherwise the size of `PackedData::gpu_data` of the message.
      */
     inline size_t data_size(size_t i) const {
-        assert(i < n_messages());
         assert(!data_offsets_.empty());
         assert(!is_control_message(i));
-        return i == 0 ? data_offsets_[0] : data_offsets_[i] - data_offsets_[i - 1];
+        return i == 0 ? data_offsets_.at(0)
+                      : data_offsets_.at(i) - data_offsets_.at(i - 1);
     }
 
     /**

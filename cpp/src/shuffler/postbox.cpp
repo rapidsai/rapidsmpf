@@ -14,15 +14,16 @@ namespace rapidsmpf::shuffler::detail {
 
 template <typename KeyType>
 void PostBox<KeyType>::insert(Chunk&& chunk) {
+    // check if all partition IDs in the chunk map to the same key
+    KeyType key = key_map_fn_(chunk.part_id(0));
+    for (size_t i = 1; i < chunk.n_messages(); ++i) {
+        RAPIDSMPF_EXPECTS(
+            key == key_map_fn_(chunk.part_id(i)),
+            "PostBox.insert(): all messages in the chunk must map to the same key"
+        );
+    }
     std::lock_guard const lock(mutex_);
-    // TODO: this is a questionable change!
-    // now the outgoing_chunks_ postbox in shuffler is rank-based. If there are multiple
-    // messages in the chunk now, they SHOULD have the same target rank! Otherwise, we
-    // would have to slice the chunk, which is not what we want.
-    // This is why I think we should have a Chunk class and ChunkBatch class separately.
-    auto [_, inserted] = pigeonhole_[key_map_fn_(chunk.part_id(0))].insert(
-        {chunk.chunk_id(), std::move(chunk)}
-    );
+    auto [_, inserted] = pigeonhole_[key].insert({chunk.chunk_id(), std::move(chunk)});
     RAPIDSMPF_EXPECTS(inserted, "PostBox.insert(): chunk already exist");
 }
 
