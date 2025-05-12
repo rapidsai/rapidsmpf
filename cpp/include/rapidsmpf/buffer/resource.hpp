@@ -47,8 +47,8 @@ class MemoryReservation {
      */
     MemoryReservation(MemoryReservation&& o)
         : MemoryReservation{
-              o.mem_type_, std::exchange(o.br_, nullptr), std::exchange(o.size_, 0)
-          } {}
+            o.mem_type_, std::exchange(o.br_, nullptr), std::exchange(o.size_, 0)
+        } {}
 
     /**
      * @brief Move assignment operator for MemoryReservation.

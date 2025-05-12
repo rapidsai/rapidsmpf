@@ -227,6 +227,43 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
     );
 }
 
+std::ptrdiff_t Buffer::copy_to(
+    Buffer& dest, std::ptrdiff_t dest_offset, rmm::cuda_stream_view stream
+) const {
+    RAPIDSMPF_EXPECTS(
+        dest.size - size_t(dest_offset) >= size,
+        "destination buffer is too small",
+        std::invalid_argument
+    );
+
+    if (size == 0) {  // empty buffer, nothing to do
+        return 0;
+    }
+
+    cudaMemcpyKind kind;
+
+    // if both buffers are on the host, use memcpy, otherwise, use cudaMemcpyAsync
+    if (mem_type() == MemoryType::HOST && dest.mem_type() == MemoryType::HOST) {
+        std::memcpy(static_cast<uint8_t*>(dest.data()) + dest_offset, data(), size);
+        return std::ptrdiff_t(size);
+    } else if (mem_type() == MemoryType::HOST) {
+        kind = cudaMemcpyHostToDevice;
+    } else if (dest.mem_type() == MemoryType::HOST) {
+        kind = cudaMemcpyDeviceToHost;
+    } else {
+        kind = cudaMemcpyDeviceToDevice;
+    }
+
+    RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+        static_cast<cuda::std::byte*>(dest.data()) + dest_offset,
+        data(),
+        size,
+        kind,
+        stream
+    ));
+    return std::ptrdiff_t(size);
+}
+
 bool Buffer::is_ready() const {
     return !event_ || event_->is_ready();
 }

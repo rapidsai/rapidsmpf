@@ -4,6 +4,8 @@
  */
 
 
+#include <sstream>
+
 #include <gtest/gtest.h>
 
 #include <cudf_test/base_fixture.hpp>
@@ -19,7 +21,6 @@
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
-
 
 using namespace rapidsmpf;
 
@@ -357,12 +358,7 @@ TEST(BufferResource, CUDAEventTracking) {
     }
 }
 
-struct SliceParams {
-    std::size_t offset;
-    std::size_t length;
-};
-
-class BufferResourceCopySliceTest : public ::testing::TestWithParam<SliceParams> {
+class BaseBufferResourceCopyTest : public ::testing::Test {
   protected:
     void SetUp() override {
         br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
@@ -372,17 +368,6 @@ class BufferResourceCopySliceTest : public ::testing::TestWithParam<SliceParams>
         host_pattern.resize(buffer_size);
         for (std::size_t i = 0; i < host_pattern.size(); ++i) {
             host_pattern[i] = static_cast<uint8_t>(i % 256);
-        }
-    }
-
-    void verify_slice(
-        std::vector<uint8_t> const& data,
-        std::size_t const offset,
-        std::size_t const length
-    ) {
-        EXPECT_EQ(data.size(), length);
-        for (std::size_t i = 0; i < length; ++i) {
-            EXPECT_EQ(data[i], static_cast<uint8_t>((offset + i) % 256));
         }
     }
 
@@ -411,34 +396,6 @@ class BufferResourceCopySliceTest : public ::testing::TestWithParam<SliceParams>
         return buf;
     }
 
-    std::unique_ptr<Buffer> copy_slice_and_verify(
-        MemoryType const target,
-        std::unique_ptr<Buffer> const& source,
-        std::size_t const offset,
-        std::size_t const length
-    ) {
-        auto [slice_reserve, slice_overbooking] = br->reserve(target, length, false);
-        auto slice =
-            br->copy_slice(target, source, offset, length, stream, slice_reserve);
-
-        EXPECT_EQ(slice->mem_type(), target);
-        stream.synchronize();
-        EXPECT_TRUE(slice->is_ready());
-
-        if (target == MemoryType::HOST) {
-            verify_slice(*const_cast<const Buffer&>(*slice).host(), offset, length);
-        } else {
-            auto verify_data = std::make_unique<std::vector<uint8_t>>(length);
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                verify_data->data(), slice->data(), length, cudaMemcpyDeviceToHost, stream
-            ));
-            stream.synchronize();
-            verify_slice(*verify_data, offset, length);
-        }
-
-        return slice;
-    }
-
     static constexpr std::size_t buffer_size = 1024;  // 1 KiB
 
     std::unique_ptr<BufferResource> br;
@@ -447,42 +404,185 @@ class BufferResourceCopySliceTest : public ::testing::TestWithParam<SliceParams>
     std::vector<uint8_t> host_pattern;  // a predefined pattern for testing
 };
 
-TEST_P(BufferResourceCopySliceTest, DeviceToDevice) {
-    auto const& [offset, length] = GetParam();
-    auto dev_buf = create_and_initialize_buffer(MemoryType::DEVICE, buffer_size);
-    copy_slice_and_verify(MemoryType::DEVICE, dev_buf, offset, length);
-}
+struct CopySliceParams {
+    std::size_t offset;
+    std::size_t length;
+};
 
-TEST_P(BufferResourceCopySliceTest, HostToHost) {
-    auto const& [offset, length] = GetParam();
-    auto host_buf = create_and_initialize_buffer(MemoryType::HOST, buffer_size);
-    copy_slice_and_verify(MemoryType::HOST, host_buf, offset, length);
-}
+// SliceCopyTestParams is a tuple of (source_type, dest_type, params)
+using SliceCopyTestParams = std::tuple<MemoryType, MemoryType, CopySliceParams>;
 
-TEST_P(BufferResourceCopySliceTest, DeviceToHost) {
-    auto const& [offset, length] = GetParam();
-    auto dev_buf = create_and_initialize_buffer(MemoryType::DEVICE, buffer_size);
-    copy_slice_and_verify(MemoryType::HOST, dev_buf, offset, length);
-}
+class BufferResourceCopySliceTest
+    : public BaseBufferResourceCopyTest,
+      public ::testing::WithParamInterface<SliceCopyTestParams> {
+  protected:
+    std::unique_ptr<Buffer> copy_slice_and_verify(
+        MemoryType const dest_type,
+        std::unique_ptr<Buffer> const& source,
+        std::size_t const offset,
+        std::size_t const length
+    ) {
+        auto [slice_reserve, slice_overbooking] = br->reserve(dest_type, length, false);
+        auto slice =
+            br->copy_slice(dest_type, source, offset, length, stream, slice_reserve);
 
-TEST_P(BufferResourceCopySliceTest, HostToDevice) {
-    auto const& [offset, length] = GetParam();
-    auto host_buf = create_and_initialize_buffer(MemoryType::HOST, buffer_size);
-    copy_slice_and_verify(MemoryType::DEVICE, host_buf, offset, length);
+        EXPECT_EQ(slice->mem_type(), dest_type);
+        stream.synchronize();
+        EXPECT_TRUE(slice->is_ready());
+
+        if (dest_type == MemoryType::HOST) {
+            verify_slice(*const_cast<const Buffer&>(*slice).host(), offset, length);
+        } else {
+            std::vector<uint8_t> verify_data(length);
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                verify_data.data(), slice->data(), length, cudaMemcpyDeviceToHost, stream
+            ));
+            stream.synchronize();
+            verify_slice(verify_data, offset, length);
+        }
+
+        return slice;
+    }
+
+    // verify the buffer is the same as the host pattern[offset:offset+length]
+    void verify_slice(
+        std::vector<uint8_t> const& data,
+        std::size_t const offset,
+        std::size_t const length
+    ) {
+        EXPECT_EQ(data.size(), length);
+        for (std::size_t i = 0; i < length; ++i) {
+            EXPECT_EQ(data[i], host_pattern[offset + i]);
+        }
+    }
+};
+
+TEST_P(BufferResourceCopySliceTest, CopySlice) {
+    auto [source_type, dest_type, params] = GetParam();
+    auto src_buf = create_and_initialize_buffer(source_type, buffer_size);
+    copy_slice_and_verify(dest_type, src_buf, params.offset, params.length);
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    SliceTests,
+    CopySliceTests,
     BufferResourceCopySliceTest,
-    ::testing::Values(
-        SliceParams{0, 0},  // Empty slice at start
-        SliceParams{0, 1024},  // Full buffer
-        SliceParams{1024, 0},  // Empty slice at end
-        SliceParams{11, 37},  // Small slice in middle
-        SliceParams{256, 512}  // Larger slice in middle
+    ::testing::Combine(
+        ::testing::Values(MemoryType::HOST, MemoryType::DEVICE),  // source type
+        ::testing::Values(MemoryType::HOST, MemoryType::DEVICE),  // dest type
+        ::testing::Values(
+            CopySliceParams{0, 0},  // Empty slice at start
+            CopySliceParams{0, 1024},  // Full buffer
+            CopySliceParams{1024, 0},  // Empty slice at end
+            CopySliceParams{11, 37},  // Small slice in middle
+            CopySliceParams{256, 512}  // Larger slice in middle
+        )
     ),
-    [](const ::testing::TestParamInfo<SliceParams>& info) {
-        return "off_" + std::to_string(info.param.offset) + "_len_"
-               + std::to_string(info.param.length);
+    [](const ::testing::TestParamInfo<SliceCopyTestParams>& info) {
+        std::stringstream ss;
+        ss << (std::get<0>(info.param) == MemoryType::HOST ? "Host" : "Device") << "To"
+           << (std::get<1>(info.param) == MemoryType::HOST ? "Host" : "Device") << "_"
+           << "off_" << std::get<2>(info.param).offset << "_"
+           << "len_" << std::get<2>(info.param).length;
+        return ss.str();
     }
 );
+
+struct CopyToParams {
+    std::size_t source_size;
+    std::size_t dest_offset;
+};
+
+// CopyToTestParams is a tuple of (source_type, dest_type, params)
+using CopyToTestParams = std::tuple<MemoryType, MemoryType, CopyToParams>;
+
+class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
+                                 public ::testing::WithParamInterface<CopyToTestParams> {
+  protected:
+    void copy_and_verify(
+        std::unique_ptr<Buffer> const& source,
+        std::unique_ptr<Buffer>& dest,
+        std::size_t const dest_offset
+    ) {
+        auto length = source->size;
+        auto bytes_written = source->copy_to(*dest, dest_offset, stream);
+        stream.synchronize();
+        EXPECT_TRUE(dest->is_ready());
+        EXPECT_EQ(bytes_written, length);
+
+        if (dest->mem_type() == MemoryType::HOST) {
+            verify_slice(*const_cast<const Buffer&>(*dest).host(), dest_offset, length);
+        } else {
+            std::vector<uint8_t> verify_data_buf(length);
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                verify_data_buf.data(),
+                static_cast<uint8_t*>(dest->data()) + dest_offset,
+                length,
+                cudaMemcpyDeviceToHost,
+                stream
+            ));
+            stream.synchronize();
+            verify_slice(verify_data_buf, 0, length);
+        }
+    }
+
+    // verify the slice of the buffer[offset:offset+length] is the same as the host
+    // pattern
+    void verify_slice(
+        std::vector<uint8_t> const& data,
+        std::size_t const offset,
+        std::size_t const length
+    ) {
+        EXPECT_GE(data.size(), offset + length);
+        for (std::size_t i = 0; i < length; ++i) {
+            EXPECT_EQ(data[offset + i], host_pattern[i]);
+        }
+    }
+};
+
+TEST_P(BufferResourceCopyToTest, CopyTo) {
+    auto [source_type, dest_type, params] = BufferResourceCopyToTest::GetParam();
+    auto source = create_and_initialize_buffer(source_type, params.source_size);
+    auto [dest_reserve, dest_overbooking] = br->reserve(dest_type, buffer_size, false);
+    auto dest = br->allocate(dest_type, buffer_size, stream, dest_reserve);
+
+    copy_and_verify(source, dest, params.dest_offset);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    CopyToTests,
+    BufferResourceCopyToTest,
+    ::testing::Combine(
+        ::testing::Values(MemoryType::HOST, MemoryType::DEVICE),  // source type
+        ::testing::Values(MemoryType::HOST, MemoryType::DEVICE),  // dest type
+        ::testing::Values(
+            // source_size, dest_offset (dest_size = 1024)
+            CopyToParams{1024, 0},  // Same sized buffers
+            CopyToParams{503, 0},  // Copy to beginning
+            CopyToParams{503, 503},  // Copy to end
+            CopyToParams{503, 257},  // Copy to middle
+            CopyToParams{0, 0},  // Empty copy to beginning
+            CopyToParams{0, 1024},  // Empty copy to end
+            CopyToParams{0, 503}  // Empty copy to middle
+        )
+    ),
+    [](const ::testing::TestParamInfo<CopyToTestParams>& info) {
+        auto source_type = std::get<0>(info.param);
+        auto dest_type = std::get<1>(info.param);
+        auto params = std::get<2>(info.param);
+        std::stringstream ss;
+        ss << (source_type == MemoryType::HOST ? "Host" : "Device") << "To"
+           << (dest_type == MemoryType::HOST ? "Host" : "Device") << "_"
+           << "src_" << params.source_size << "_"
+           << "dst_off_" << params.dest_offset;
+        return ss.str();
+    }
+);
+
+TEST_F(BufferResourceCopyToTest, OutOfBounds) {
+    // create a source and destination buffer with size 128 bytes
+    auto source = create_and_initialize_buffer(MemoryType::HOST, 128);
+    auto dest = create_and_initialize_buffer(MemoryType::HOST, 128);
+
+    // try to copy with an offset that would exceed the destination buffer size
+    EXPECT_THROW(std::ignore = source->copy_to(*dest, 1, stream), std::invalid_argument);
+}

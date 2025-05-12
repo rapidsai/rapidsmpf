@@ -199,6 +199,20 @@ class Buffer {
      */
     [[nodiscard]] bool is_ready() const;
 
+    /**
+     * @brief Copy data from this buffer to a destination buffer with a given offset.
+     *
+     * @param dest Destination buffer.
+     * @param dest_offset Offset of the destination buffer.
+     * @param stream CUDA stream to use for the copy.
+     * @returns Number of bytes written to the destination buffer.
+     * @throws std::invalid_argument if copy violates the bounds of the destination
+     * buffer.
+     */
+    [[nodiscard]] std::ptrdiff_t copy_to(
+        Buffer& dest, std::ptrdiff_t dest_offset, rmm::cuda_stream_view stream
+    ) const;
+
     /// @brief Delete move and copy constructors and assignment operators.
     Buffer(Buffer&&) = delete;
     Buffer(Buffer const&) = delete;
