@@ -13,6 +13,6 @@ rapids-generate-pip-constraints test_python ./constraints.txt
 rapids-pip-retry install \
     -v \
     --constraint ./constraints.txt \
-    "$(echo "${PYTHON_WHEELHOUSE}"/rapidsmpf_"${RAPIDS_PY_CUDA_SUFFIX}"*.whl)"
+    "$(echo "${PYTHON_WHEELHOUSE}"/rapidsmpf_"${RAPIDS_PY_CUDA_SUFFIX}"*.whl)[test]"
 
 python -m pytest ./python/rapidsmpf/rapidsmpf/tests
