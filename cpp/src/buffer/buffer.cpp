@@ -61,7 +61,13 @@ Buffer::Buffer(
     : br{br},
       size{device_buffer ? device_buffer->size() : 0},
       storage_{std::move(device_buffer)},
-      event_{event ? event : std::make_shared<Event>(stream)} {
+      // Use the provided event if it exists, otherwise create a new event to track the
+      // async copy only if the buffer is not empty
+      event_{
+          event      ? event
+          : size > 0 ? std::make_shared<Event>(stream)
+                     : nullptr
+      } {
     RAPIDSMPF_EXPECTS(
         std::get<DeviceStorageT>(storage_) != nullptr, "the device buffer cannot be NULL"
     );
@@ -148,7 +154,7 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
     );
     return std::visit(
         overloaded{
-            [&](const HostStorageT& storage) {
+            [&](const HostStorageT& storage) {  // host -> host
                 auto host_buf = std::unique_ptr<Buffer>(new Buffer{
                     std::make_unique<std::vector<uint8_t>>(
                         storage->begin() + offset, storage->begin() + offset + length
@@ -158,7 +164,7 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
                 host_buf->override_event(event_);  // if there was an event, use it
                 return host_buf;
             },
-            [&](DeviceStorageT const& storage) {
+            [&](DeviceStorageT const& storage) {  // device -> device
                 return std::unique_ptr<Buffer>(new Buffer{
                     std::make_unique<rmm::device_buffer>(
                         static_cast<cuda::std::byte*>(storage->data()) + offset,
@@ -217,8 +223,10 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
                     ));
                     auto host_buf =
                         std::unique_ptr<Buffer>(new Buffer{std::move(ret), br});
-                    // Create a new event to track the async copy
-                    host_buf->override_event(std::make_shared<Event>(stream));
+                    // Create a new event to track the async copy only if length > 0
+                    if (length > 0) {
+                        host_buf->override_event(std::make_shared<Event>(stream));
+                    }
                     return host_buf;
                 }
             }
