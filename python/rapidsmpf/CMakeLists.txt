@@ -21,17 +21,14 @@ project(
 
 add_subdirectory(../../cpp librapidsmpf)
 
-# Or it can't find `ucxx` but this seems wrong
-set(ucxx-python_DIR /pyenv/versions/3.13.3/lib/python3.13/site-packages/ucxx/lib64/cmake/ucxx-python/)
-
-# Or it can't find <ucxx/python/exception.h> but again seems wrong
-include_directories("/pyenv/versions/3.13.3/lib/python3.13/site-packages/ucxx/include")
+# TODO: don't use env-vars for this
+include_directories($ENV{SITE_PACKAGES}/ucxx/include)
+set(ucxx-python_DIR $ENV{SITE_PACKAGES}/ucxx/lib64/cmake/ucxx-python/)
 
 rapids_find_package(ucx REQUIRED)
 rapids_find_package(ucxx REQUIRED "${UCXX_VERSION}")
 rapids_find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
 find_package(CUDAToolkit REQUIRED)
-
 
 include(rapids-cython-core)
 rapids_cython_init()
