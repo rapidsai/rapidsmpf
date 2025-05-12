@@ -27,6 +27,8 @@ files:
     includes:
       - cuda_version
       - py_version
+      - run_and_build_rapidsmpf
+      - run_rapidsmpf
       - test_python
       - test_rapidsmpf
   checks:
