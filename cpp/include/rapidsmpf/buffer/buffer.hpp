@@ -97,6 +97,8 @@ class Buffer {
 
         /**
          * @brief Wait for the event to be completed.
+         *
+         * @throws rapidsmpf::cuda_error if cudaEventSynchronize fails.
          */
         void wait();
 
@@ -205,7 +207,7 @@ class Buffer {
     /**
      * @brief Wait for the device memory operation to complete.
      *
-     * @throws rapidsmpf::cuda_error if cudaEventSynchronize fails.
+     * @throws rapidsmpf::cuda_error if event wait fails (if set).
      */
     void wait_for_ready() const;
 
