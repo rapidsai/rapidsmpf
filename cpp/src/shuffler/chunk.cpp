@@ -367,13 +367,13 @@ Chunk ChunkBuilder::build() {
         // try to allocate data buffer from memory types in order [DEVICE, HOST]
         for (auto mem_type : MEMORY_TYPES) {
             auto [res, size] = br_->reserve(mem_type, total_data_size, false);
-            if (size == total_data_size) {
+            if (res.size() == total_data_size) {
                 data = br_->allocate(mem_type, total_data_size, stream_, res);
                 RAPIDSMPF_EXPECTS(res.size() == 0, "didn't use all of the reservation");
                 break;
             }
         }
-        RAPIDSMPF_EXPECTS(data, "failed to allocate data buffer");
+        assert(data && data->size == total_data_size);
 
         // Copy the data from the staged buffers to the data buffer
         std::ptrdiff_t data_offset = 0;
