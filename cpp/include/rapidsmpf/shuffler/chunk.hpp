@@ -7,6 +7,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <sstream>
 #include <vector>
 
@@ -411,7 +412,12 @@ class ChunkBuilder {
     std::vector<uint64_t> data_offsets_;
     std::vector<std::vector<uint8_t>>
         staged_metadata_;  ///< Temporary storage for metadata during building
-    std::vector<std::unique_ptr<Buffer>>
+
+    // There may be situations where the staged data is not ready to copy to the data
+    // buffer. In those cases, we need to retry the copy. Therefore, we use a queue to
+    // store the staged data. When a staged buffer is moved to the data buffer, it is
+    // removed from the queue.
+    std::queue<std::unique_ptr<Buffer>>
         staged_data_;  ///< Temporary storage for GPU data during building
 };
 

@@ -291,7 +291,6 @@ ChunkBuilder::ChunkBuilder(
         meta_offsets_.reserve(num_messages_hint);
         data_offsets_.reserve(num_messages_hint);
         staged_metadata_.reserve(num_messages_hint);
-        staged_data_.reserve(num_messages_hint);
     }
 }
 
@@ -340,9 +339,7 @@ ChunkBuilder& ChunkBuilder::add_packed_data(PartID part_id, PackedData&& packed_
         // this operation. rmm buffer is only staged, until the chunk is built. During the
         // build() method, a new event is created which can guarantee the completion of
         // all staged operations.
-        staged_data_.emplace_back(
-            br_->move(std::move(packed_data.gpu_data), stream_, nullptr)
-        );
+        staged_data_.push(br_->move(std::move(packed_data.gpu_data), stream_, nullptr));
     }
 
     return *this;
@@ -362,21 +359,58 @@ Chunk ChunkBuilder::build() {
 
     // Concatenate data
     std::unique_ptr<Buffer> data;
-    if (!staged_data_.empty() && data_offsets_.back() > 0) {
+    size_t total_data_size = data_offsets_.back();
+    if (total_data_size > 0) {
+        assert(!staged_data_.empty());
         // TODO(niranda): Handle spiiling
-        auto [res, size] = br_->reserve(MemoryType::DEVICE, data_offsets_.back(), false);
-        data = br_->allocate(MemoryType::DEVICE, data_offsets_.back(), stream_, res);
-        RAPIDSMPF_EXPECTS(res.size() == 0, "didn't use all of the reservation");
+
+        // try to allocate data buffer from memory types in order [DEVICE, HOST]
+        for (auto mem_type : MEMORY_TYPES) {
+            auto [res, size] = br_->reserve(mem_type, total_data_size, false);
+            if (size == total_data_size) {
+                data = br_->allocate(mem_type, total_data_size, stream_, res);
+                RAPIDSMPF_EXPECTS(res.size() == 0, "didn't use all of the reservation");
+                break;
+            }
+        }
+        RAPIDSMPF_EXPECTS(data, "failed to allocate data buffer");
 
         // Copy the data from the staged buffers to the data buffer
         std::ptrdiff_t data_offset = 0;
-        for (auto&& staged_data : staged_data_) {
-            data_offset += staged_data->copy_to(*data, data_offset, stream_);
-            staged_data.reset();  // release the staged buffer
+        // if the data buffer is on the device, we need to create an event to track the
+        // async copies
+        bool need_event = (data->mem_type() == MemoryType::DEVICE);
+
+        // while there are staged buffers, try to copy them to the data buffer
+        // if the staged buffer is not ready, push it back to the queue.
+        // NOTE: there is a risk of a busy loop if staged buffers are not ready.
+        while (!staged_data_.empty()) {
+            // pop the front staged data queue
+            auto staged_buf = std::move(staged_data_.front());
+            staged_data_.pop();
+
+            // if staged buffer is empty, skip it
+            if (staged_buf == nullptr || staged_buf->size == 0) {
+                continue;
+            }
+
+            // try to copy the staged buffer to the data buffer
+            auto bytes_copied = staged_buf->copy_to(*data, data_offset, stream_);
+
+            if (bytes_copied == 0) {  // staged buffer is not ready, push it back
+                staged_data_.push(std::move(staged_buf));
+                continue;
+            }
+            data_offset += bytes_copied;
+            // if the staged buffer is on the device, we need an event
+            need_event |= (staged_buf->mem_type() == MemoryType::DEVICE);
         }
-        // create a new event to track the async copies
-        data->override_event(std::make_shared<Buffer::Event>(stream_));
-    } else {  // No data messages, so we need to allocate an empty host buffer
+        RAPIDSMPF_EXPECTS(size_t(data_offset) == total_data_size, "didn't copy all data");
+
+        if (need_event) {  // create a new event to track the async copies
+            data->override_event(std::make_shared<Buffer::Event>(stream_));
+        }
+    } else {  // No data messages, so let's allocate an empty host buffer
         auto [res, size] = br_->reserve(MemoryType::HOST, 0, false);
         data = br_->allocate(MemoryType::HOST, 0, stream_, res);
     }
