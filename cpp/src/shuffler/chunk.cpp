@@ -278,5 +278,114 @@ std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
     return metadata_buf;
 }
 
+ChunkBuilder::ChunkBuilder(
+    ChunkID chunk_id,
+    rmm::cuda_stream_view stream,
+    BufferResource* br,
+    size_t num_messages_hint
+)
+    : chunk_id_(chunk_id), stream_(stream), br_(br) {
+    if (num_messages_hint > 0) {
+        part_ids_.reserve(num_messages_hint);
+        expected_num_chunks_.reserve(num_messages_hint);
+        meta_offsets_.reserve(num_messages_hint);
+        data_offsets_.reserve(num_messages_hint);
+        staged_metadata_.reserve(num_messages_hint);
+        staged_data_.reserve(num_messages_hint);
+    }
+}
+
+ChunkBuilder& ChunkBuilder::add_control_message(
+    PartID part_id, size_t expected_num_chunks
+) {
+    part_ids_.push_back(part_id);
+    expected_num_chunks_.push_back(expected_num_chunks);
+    // For control messages, we need to add zero offsets since they don't have data
+    if (meta_offsets_.empty() && data_offsets_.empty()) {
+        meta_offsets_.push_back(0);
+        data_offsets_.push_back(0);
+    } else {
+        meta_offsets_.push_back(meta_offsets_.back());
+        data_offsets_.push_back(data_offsets_.back());
+    }
+    return *this;
+}
+
+ChunkBuilder& ChunkBuilder::add_packed_data(PartID part_id, PackedData&& packed_data) {
+    part_ids_.push_back(part_id);
+    expected_num_chunks_.push_back(0);  // Data messages have 0 expected chunks
+
+    // Calculate metadata offset
+    uint32_t meta_offset = meta_offsets_.empty() ? 0 : meta_offsets_.back();
+    if (packed_data.metadata) {
+        meta_offset += packed_data.metadata->size();
+    }
+    meta_offsets_.push_back(meta_offset);
+
+    // Calculate data offset
+    uint64_t data_offset = data_offsets_.empty() ? 0 : data_offsets_.back();
+    if (packed_data.gpu_data) {
+        data_offset += packed_data.gpu_data->size();
+    }
+    data_offsets_.push_back(data_offset);
+
+    // Move the packed data into our staged buffers
+    if (packed_data.metadata) {
+        staged_metadata_.emplace_back(std::move(*packed_data.metadata));
+    }
+
+    if (packed_data.gpu_data) {
+        staged_data_.emplace_back(std::unique_ptr<Buffer>(
+            new Buffer{std::move(packed_data.gpu_data), stream_, br_, nullptr}
+        ));
+    }
+
+    return *this;
+}
+
+Chunk ChunkBuilder::build() {
+    RAPIDSMPF_EXPECTS(!part_ids_.empty(), "No messages added to chunk");
+
+    // Concatenate metadata
+    auto metadata = std::make_unique<std::vector<uint8_t>>(meta_offsets_.back());
+    size_t meta_offset = 0;
+    for (auto&& meta : staged_metadata_) {
+        auto temp = std::move(meta);  // Move the vector to temp and destroy it
+        std::memcpy(metadata->data() + meta_offset, temp.data(), temp.size());
+        meta_offset += temp.size();
+    }
+
+    // Concatenate data
+    std::unique_ptr<Buffer> data;
+    if (!staged_data_.empty() && data_offsets_.back() > 0) {
+        // TODO(niranda): Handle spiiling
+        auto [res, size] = br_->reserve(MemoryType::DEVICE, data_offsets_.back(), false);
+        data = br_->allocate(MemoryType::DEVICE, data_offsets_.back(), stream_, res);
+        RAPIDSMPF_EXPECTS(res.size() == 0, "didn't use all of the reservation");
+
+        // Copy the data from the staged buffers to the data buffer
+        std::ptrdiff_t data_offset = 0;
+        for (auto&& staged_data : staged_data_) {
+            data_offset += staged_data->copy_to(*data, data_offset, stream_);
+            staged_data.reset();  // release the staged buffer
+        }
+        // create a new event to track the async copies
+        data->override_event(std::make_shared<Buffer::Event>(stream_));
+    } else {  // No data messages, so we need to allocate an empty host buffer
+        auto [res, size] = br_->reserve(MemoryType::HOST, 0, false);
+        data = br_->allocate(MemoryType::HOST, 0, stream_, res);
+    }
+
+    return {
+        chunk_id_,
+        part_ids_.size(),
+        std::move(part_ids_),
+        std::move(expected_num_chunks_),
+        std::move(meta_offsets_),
+        std::move(data_offsets_),
+        std::move(metadata),
+        std::move(data)
+    };
+}
 
 }  // namespace rapidsmpf::shuffler::detail

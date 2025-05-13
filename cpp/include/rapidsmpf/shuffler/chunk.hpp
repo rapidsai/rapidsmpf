@@ -56,6 +56,8 @@ using ChunkID = std::uint64_t;
 class Chunk {
     // friend a method that creates a dummy chunk for testing
     friend Chunk make_dummy_chunk(ChunkID, PartID);
+    // friend the builder class
+    friend class ChunkBuilder;
 
   public:
     /**
@@ -347,6 +349,70 @@ class Chunk {
 
     /// Concatenated data buffer of the messages in the chunk.
     std::unique_ptr<Buffer> data_;
+};
+
+/**
+ * @brief Builder class for constructing Chunk objects.
+ */
+class ChunkBuilder {
+  public:
+    /**
+     * @brief Construct a new Builder object.
+     *
+     * @param chunk_id The ID of the chunk.
+     * @param stream The CUDA stream to use to build the chunk.
+     * @param br The buffer resource to use to build the chunk.
+     * @param num_messages_hint Hint for the expected number of messages in the chunk.
+     *                          Used to pre-reserve vectors for better performance.
+     */
+    explicit ChunkBuilder(
+        ChunkID chunk_id,
+        rmm::cuda_stream_view stream,
+        BufferResource* br,
+        size_t num_messages_hint = 0
+    );
+
+    /**
+     * @brief Add a control message to the chunk.
+     *
+     * @param part_id The partition ID of the message.
+     * @param expected_num_chunks The expected number of chunks for this message.
+     * @return ChunkBuilder& Reference to this builder for method chaining.
+     */
+    ChunkBuilder& add_control_message(PartID part_id, size_t expected_num_chunks);
+
+    /**
+     * @brief Add a data message to the chunk using packed data.
+     *
+     * @param part_id The partition ID of the message.
+     * @param packed_data The packed data containing metadata and GPU data.
+     * @return ChunkBuilder& Reference to this builder for method chaining.
+     */
+    ChunkBuilder& add_packed_data(PartID part_id, PackedData&& packed_data);
+
+    /**
+     * @brief Build the Chunk object. This will concatenate the staged metadata and data
+     * buffers into a single metadata and data buffer.
+     *
+     * @param stream The CUDA stream.
+     * @param br The buffer resource.
+     * @return Chunk The constructed Chunk object.
+     * @throws std::runtime_error if required fields are not set.
+     */
+    Chunk build();
+
+  private:
+    ChunkID chunk_id_;
+    rmm::cuda_stream_view stream_;
+    BufferResource* br_;
+    std::vector<PartID> part_ids_;
+    std::vector<size_t> expected_num_chunks_;
+    std::vector<uint32_t> meta_offsets_;
+    std::vector<uint64_t> data_offsets_;
+    std::vector<std::vector<uint8_t>>
+        staged_metadata_;  ///< Temporary storage for metadata during building
+    std::vector<std::unique_ptr<Buffer>>
+        staged_data_;  ///< Temporary storage for GPU data during building
 };
 
 /**

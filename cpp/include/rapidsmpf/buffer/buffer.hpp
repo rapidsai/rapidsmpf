@@ -19,6 +19,10 @@
 
 namespace rapidsmpf {
 
+namespace shuffler::detail {
+class ChunkBuilder;  // forward declaration
+}
+
 class BufferResource;
 class Event;
 class MemoryReservation;
@@ -56,6 +60,7 @@ overloaded(Ts...) -> overloaded<Ts...>;
  */
 class Buffer {
     friend class BufferResource;
+    friend class shuffler::detail::ChunkBuilder;
 
   public:
     /**
