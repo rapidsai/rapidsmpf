@@ -203,7 +203,7 @@ class Buffer {
      * @brief Copy data from this buffer to a destination buffer with a given offset.
      *
      * @param dest Destination buffer.
-     * @param dest_offset Offset of the destination buffer.
+     * @param dest_offset Offset of the destination buffer (in bytes).
      * @param stream CUDA stream to use for the copy.
      * @returns Number of bytes written to the destination buffer.
      * @throws std::invalid_argument if copy violates the bounds of the destination
