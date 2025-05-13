@@ -120,6 +120,7 @@ class Chunk {
      * @return True if the message is a control message, false otherwise.
      */
     inline bool is_control_message(size_t i) const {
+        // expected_num_chunks is always non-zero for control messages
         return expected_num_chunks(i) > 0;
     }
 
@@ -136,7 +137,12 @@ class Chunk {
      *
      * @throws std::out_of_range if the index is out of bounds.
      */
-    Chunk get_data(ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view stream);
+    Chunk get_data(
+        ChunkID new_chunk_id,
+        size_t i,
+        rmm::cuda_stream_view stream,
+        BufferResource* br
+    );
 
     /**
      * @brief Get the size of the metadata of the i-th message.
