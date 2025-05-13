@@ -21,6 +21,7 @@ project(
 
 if(NOT DETECT_CONDA_ENV)
   set(RAPIDSMPF_PYTHON_INSTALL "rapidsmpf/")
+  set(CUDA_STATIC_RUNTIME ON)
   add_subdirectory(../../cpp librapidsmpf)
 
   # TODO: don't use env-vars for this

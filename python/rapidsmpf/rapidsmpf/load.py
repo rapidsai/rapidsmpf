@@ -77,7 +77,7 @@ def load_library() -> list:
     )
 
     libs_to_return = []
-    for soname in ["libcudart.so.12", "librapidsmpf.so"]:
+    for soname in ["librapidsmpf.so"]:
         librapidsmpf_lib = None
         if prefer_system_installation:
             # Prefer a system library if one is present to
