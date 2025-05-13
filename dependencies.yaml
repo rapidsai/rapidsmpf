@@ -201,6 +201,10 @@ dependencies:
         matrices:
           - matrix:
               arch: x86_64
+              py: "3.13"
+            packages:
+          - matrix:
+              arch: x86_64
             packages:
               - ray-default==2.42.*,>=0.0.0a0
           - matrix:
