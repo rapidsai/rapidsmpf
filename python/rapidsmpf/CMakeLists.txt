@@ -19,15 +19,20 @@ project(
   LANGUAGES CXX CUDA
 )
 
-set(RAPIDSMPF_PYTHON_INSTALL "rapidsmpf/")
-add_subdirectory(../../cpp librapidsmpf)
+if(NOT DETECT_CONDA_ENV)
+  set(RAPIDSMPF_PYTHON_INSTALL "rapidsmpf/")
+  add_subdirectory(../../cpp librapidsmpf)
 
-# TODO: don't use env-vars for this
-include_directories($ENV{SITE_PACKAGES}/ucxx/include)
-set(ucxx-python_DIR $ENV{SITE_PACKAGES}/ucxx/lib64/cmake/ucxx-python/)
+  # TODO: don't use env-vars for this
+  include_directories($ENV{SITE_PACKAGES}/ucxx/include)
+  set(ucxx-python_DIR $ENV{SITE_PACKAGES}/ucxx/lib64/cmake/ucxx-python/)
 
-rapids_find_package(ucx REQUIRED)
-rapids_find_package(ucxx REQUIRED "${UCXX_VERSION}")
+  rapids_find_package(ucx REQUIRED)
+  rapids_find_package(ucxx REQUIRED "${UCXX_VERSION}")
+else()
+  find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
+endif()
+
 rapids_find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
 find_package(CUDAToolkit REQUIRED)
 
