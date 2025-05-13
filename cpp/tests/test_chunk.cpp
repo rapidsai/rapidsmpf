@@ -122,6 +122,9 @@ TEST_F(ChunkTest, ChunkBuilderControlMessages) {
     ChunkID chunk_id = 123;
     ChunkBuilder builder(chunk_id, stream, br.get(), 3);  // Hint for 3 messages
 
+    // No messages added to the builder -> should throw
+    EXPECT_THROW(builder.build(), std::runtime_error);
+
     // Add three control messages
     builder.add_control_message(1, 10).add_control_message(2, 20).add_control_message(
         3, 30
@@ -141,6 +144,9 @@ TEST_F(ChunkTest, ChunkBuilderControlMessages) {
         EXPECT_EQ(chunk.metadata_size(i), 0);
         EXPECT_EQ(chunk.data_size(i), 0);
     }
+
+    // after building, the builder is empty
+    EXPECT_THROW(builder.build(), std::runtime_error);
 }
 
 TEST_F(ChunkTest, ChunkBuilderPackedData) {
@@ -197,6 +203,9 @@ TEST_F(ChunkTest, ChunkBuilderPackedData) {
         cudaMemcpy(host_data.data(), released_data->data(), 5, cudaMemcpyDeviceToHost)
     );
     EXPECT_EQ(data, host_data);
+
+    // after building, the builder is empty
+    EXPECT_THROW(builder.build(), std::runtime_error);
 }
 
 TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
@@ -204,8 +213,8 @@ TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
     ChunkBuilder builder(chunk_id, stream, br.get(), 4);  // Hint for 4 messages
 
     // Create test metadata and data
-    std::vector<uint8_t> metadata{1, 2, 3, 7, 8};  // Concatenated metadata
-    std::vector<uint8_t> data{4, 5, 6, 9, 10};  // Concatenated data
+    std::vector<uint8_t> metadata{1, 2, 3, 4, 5, 6};  // Concatenated metadata
+    std::vector<uint8_t> data{6, 7, 8, 9, 10};  // Concatenated data
 
 
     auto chunk =
@@ -224,11 +233,20 @@ TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
                 create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream)
             )  // packed data 2
             .add_packed_data(6, PackedData{nullptr, nullptr})  // empty packed data - null
+            .add_packed_data(
+                7,
+                PackedData{
+                    std::make_unique<std::vector<uint8_t>>(
+                        metadata.begin() + 5, metadata.end()
+                    ),
+                    nullptr
+                }
+            )  // metadata only packed data
             .build();
 
     // Verify the chunk properties
     EXPECT_EQ(chunk.chunk_id(), chunk_id);
-    EXPECT_EQ(chunk.n_messages(), 6);
+    EXPECT_EQ(chunk.n_messages(), 7);
 
     // Verify control message 1
     EXPECT_EQ(chunk.part_id(0), 1);
@@ -272,6 +290,13 @@ TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
     EXPECT_EQ(chunk.metadata_size(5), 0);
     EXPECT_EQ(chunk.data_size(5), 0);
 
+    // Verify metadata only packed data
+    EXPECT_EQ(chunk.part_id(6), 7);
+    EXPECT_EQ(chunk.expected_num_chunks(6), 0);
+    EXPECT_FALSE(chunk.is_control_message(6));
+    EXPECT_EQ(chunk.metadata_size(6), 1);
+    EXPECT_EQ(chunk.data_size(6), 0);
+
     // Release and verify buffers
     auto released_metadata = chunk.release_metadata_buffer();
     auto released_data = chunk.release_data_buffer();
@@ -282,12 +307,15 @@ TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
 
     // Verify data buffer
     ASSERT_NE(released_data, nullptr);
-    EXPECT_EQ(released_data->size, 5);  // Total size of data
-    std::vector<uint8_t> host_data(5);
-    RAPIDSMPF_CUDA_TRY(
-        cudaMemcpy(host_data.data(), released_data->data(), 5, cudaMemcpyDeviceToHost)
-    );
+    EXPECT_EQ(released_data->size, data.size());  // Total size of data
+    std::vector<uint8_t> host_data(data.size());
+    RAPIDSMPF_CUDA_TRY(cudaMemcpy(
+        host_data.data(), released_data->data(), data.size(), cudaMemcpyDeviceToHost
+    ));
     EXPECT_EQ(data, host_data);
+
+    // after building, the builder is empty
+    EXPECT_THROW(builder.build(), std::runtime_error);
 }
 
 TEST_F(ChunkTest, ChunkWithHostBuffer) {

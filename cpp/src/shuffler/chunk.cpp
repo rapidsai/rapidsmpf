@@ -346,7 +346,9 @@ ChunkBuilder& ChunkBuilder::add_packed_data(PartID part_id, PackedData&& packed_
 }
 
 Chunk ChunkBuilder::build() {
-    RAPIDSMPF_EXPECTS(!part_ids_.empty(), "No messages added to chunk");
+    RAPIDSMPF_EXPECTS(
+        !part_ids_.empty(), "No messages added to the chunk builder", std::runtime_error
+    );
 
     // Concatenate metadata
     auto metadata = std::make_unique<std::vector<uint8_t>>(meta_offsets_.back());

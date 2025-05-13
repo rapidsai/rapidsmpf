@@ -395,10 +395,8 @@ class ChunkBuilder {
      * @brief Build the Chunk object. This will concatenate the staged metadata and data
      * buffers into a single metadata and data buffer.
      *
-     * @param stream The CUDA stream.
-     * @param br The buffer resource.
      * @return Chunk The constructed Chunk object.
-     * @throws std::runtime_error if required fields are not set.
+     * @throws std::runtime_error if no messages are added.
      */
     Chunk build();
 
