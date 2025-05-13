@@ -967,8 +967,11 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
     }
 }
 
-UCXX::UCXX(std::unique_ptr<InitializedRank> ucxx_initialized_rank)
-    : shared_resources_(ucxx_initialized_rank->shared_resources_), logger_(this) {
+UCXX::UCXX(
+    std::unique_ptr<InitializedRank> ucxx_initialized_rank, config::Options options
+)
+    : shared_resources_(ucxx_initialized_rank->shared_resources_),
+      logger_(this, std::move(options)) {
     shared_resources_->logger = &logger_;
 }
 

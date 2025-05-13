@@ -103,8 +103,9 @@ class MPI final : public Communicator {
      * @brief Construct an MPI communicator.
      *
      * @param comm The MPI communicator to be used for communication.
+     * @param options Configuration options.
      */
-    MPI(MPI_Comm comm);
+    MPI(MPI_Comm comm, config::Options options = {});
 
     ~MPI() noexcept override = default;
 

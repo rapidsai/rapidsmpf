@@ -131,8 +131,12 @@ class UCXX final : public Communicator {
      * `init()`.
      *
      * @param ucxx_initialized_rank The previously initialized UCXX rank.
+     * @param options Configuration options.
      */
-    UCXX(std::unique_ptr<InitializedRank> ucxx_initialized_rank);
+    UCXX(
+        std::unique_ptr<InitializedRank> ucxx_initialized_rank,
+        config::Options options = {}
+    );
 
     ~UCXX() noexcept override;
 

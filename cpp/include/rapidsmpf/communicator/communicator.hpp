@@ -216,7 +216,7 @@ class Communicator {
          * @param comm The `Communicator` to use.
          * @param options Configuration options.
          */
-        Logger(Communicator* comm, config::Options options = {});
+        Logger(Communicator* comm, config::Options options);
         virtual ~Logger() noexcept = default;
 
         /**
