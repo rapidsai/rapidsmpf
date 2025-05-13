@@ -22,7 +22,7 @@ project(
 )
 
 if(NOT BUILD_IN_CONDA)
-  set(RAPIDSMPF_PYTHON_INSTALL "rapidsmpf/")
+  set(RELOCATE_LIBRAPIDSMPF ON)
   set(CUDA_STATIC_RUNTIME ON)
   add_subdirectory(../../cpp librapidsmpf)
 
