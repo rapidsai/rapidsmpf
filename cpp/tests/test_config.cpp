@@ -28,7 +28,7 @@ TEST(Options, RetrieveExistingOption) {
     std::unordered_map<std::string, std::unique_ptr<Option>> options;
     options["key"] = std::make_unique<MockOption>("value");
 
-    Options opts(std::move(options));
+    Options opts({}, std::move(options));
     auto retrieved_option = opts.get<MockOption>("key");
 
     ASSERT_NE(retrieved_option, nullptr);
@@ -47,7 +47,7 @@ TEST(Options, RetrieveOptionWithStringFallback) {
     std::unordered_map<std::string, std::string> options_as_strings;
     options_as_strings["key"] = "fallback-value";
 
-    Options opts({}, std::move(options_as_strings));
+    Options opts(std::move(options_as_strings));
     auto retrieved_option = opts.get<MockOption>("key");
 
     ASSERT_NE(retrieved_option, nullptr);
@@ -58,7 +58,7 @@ TEST(Options, InvalidTypeAccess) {
     std::unordered_map<std::string, std::unique_ptr<Option>> options;
     options["key"] = std::make_unique<MockOption>("value");
 
-    Options opts(std::move(options));
+    Options opts({}, std::move(options));
 
     EXPECT_THROW(opts.get<MockOptionNotUsed>("key"), std::invalid_argument);
 }

@@ -39,12 +39,12 @@ class OptionsImpl {
     /**
      * @brief Constructs an `OptionsImpl` instance.
      *
-     * @param options A map of option keys to their corresponding `Option` objects.
      * @param options_as_strings A map of option keys to their string representations.
+     * @param options A map of option keys to their corresponding `Option` objects.
      */
     OptionsImpl(
-        std::unordered_map<std::string, std::unique_ptr<Option>> options,
-        std::unordered_map<std::string, std::string> options_as_strings
+        std::unordered_map<std::string, std::string> options_as_strings,
+        std::unordered_map<std::string, std::unique_ptr<Option>> options
     );
 
     /**
@@ -79,8 +79,8 @@ class OptionsImpl {
     }
 
   private:
-    std::unordered_map<std::string, std::unique_ptr<Option>> options_;
     std::unordered_map<std::string, std::string> options_as_strings_;
+    std::unordered_map<std::string, std::unique_ptr<Option>> options_;
 };
 
 }  // namespace detail
@@ -100,12 +100,12 @@ class Options {
     /**
      * @brief Constructs an `Options` instance.
      *
-     * @param options A map of option keys to their corresponding `Option` objects.
      * @param options_as_strings A map of option keys to their string representations.
+     * @param options A map of option keys to their corresponding `Option` objects.
      */
     Options(
-        std::unordered_map<std::string, std::unique_ptr<Option>> options = {},
-        std::unordered_map<std::string, std::string> options_as_strings = {}
+        std::unordered_map<std::string, std::string> options_as_strings = {},
+        std::unordered_map<std::string, std::unique_ptr<Option>> options = {}
     );
 
     /**

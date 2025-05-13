@@ -10,19 +10,21 @@ namespace rapidsmpf::config {
 namespace detail {
 
 OptionsImpl::OptionsImpl(
-    std::unordered_map<std::string, std::unique_ptr<Option>> options,
-    std::unordered_map<std::string, std::string> options_as_strings
+    std::unordered_map<std::string, std::string> options_as_strings,
+    std::unordered_map<std::string, std::unique_ptr<Option>> options
+
 )
-    : options_{std::move(options)}, options_as_strings_{std::move(options_as_strings)} {}
+    : options_as_strings_{std::move(options_as_strings)}, options_{std::move(options)} {}
 
 }  // namespace detail
 
 Options::Options(
-    std::unordered_map<std::string, std::unique_ptr<Option>> options,
-    std::unordered_map<std::string, std::string> options_as_strings
+    std::unordered_map<std::string, std::string> options_as_strings,
+    std::unordered_map<std::string, std::unique_ptr<Option>> options
+
 )
     : impl_{std::make_shared<detail::OptionsImpl>(
-        std::move(options), std::move(options_as_strings)
+        std::move(options_as_strings), std::move(options)
     )} {}
 
 
