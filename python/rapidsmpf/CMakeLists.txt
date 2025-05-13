@@ -13,13 +13,15 @@ include(rapids-find)
 
 rapids_cuda_init_architectures(rapidsmpf-python)
 
+option(BUILD_IN_CONDA "Build RapidsMPF library using conda" ON)
+
 project(
   rapidsmpf-python
   VERSION "${RAPIDS_VERSION}"
   LANGUAGES CXX CUDA
 )
 
-if(NOT DETECT_CONDA_ENV)
+if(NOT BUILD_IN_CONDA)
   set(RAPIDSMPF_PYTHON_INSTALL "rapidsmpf/")
   set(CUDA_STATIC_RUNTIME ON)
   add_subdirectory(../../cpp librapidsmpf)
