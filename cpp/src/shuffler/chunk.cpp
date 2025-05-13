@@ -12,6 +12,33 @@
 
 namespace rapidsmpf::shuffler::detail {
 
+namespace {
+
+/// @brief Try to allocate a buffer from the buffer resource.
+/// @param br The buffer resource.
+/// @param total_data_size The size of the buffer to allocate.
+/// @param stream The stream to use for the allocation.
+/// @return A unique pointer to the allocated buffer, or nullptr if no buffer was
+/// allocated.
+template <typename ReservationConsumer>
+void try_reserve(
+    BufferResource* br,
+    size_t size,
+    rmm::cuda_stream_view stream,
+    ReservationConsumer&& consumer
+) {
+    // try to allocate data buffer from memory types in order [DEVICE, HOST]
+    for (auto mem_type : MEMORY_TYPES) {
+        auto [res, overbooking] = br->reserve(mem_type, size, false);
+        if (res.size() == size) {
+            consumer(std::move(res));
+            return;
+        }
+    }
+}
+
+}  // namespace
+
 Chunk::Chunk(
     ChunkID chunk_id,
     std::vector<PartID> part_ids,
@@ -37,7 +64,7 @@ Chunk::Chunk(
 }
 
 Chunk Chunk::get_data(
-    ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view /* stream */
+    ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view stream, BufferResource* br
 ) {
     RAPIDSMPF_EXPECTS(i < n_messages(), "index out of bounds", std::out_of_range);
 
@@ -57,8 +84,16 @@ Chunk Chunk::get_data(
             std::move(data_)
         );
     } else {
-        RAPIDSMPF_EXPECTS(false, "not implemented");
-        // TODO: slice and copy data
+        size_t data_offset = i == 0 ? 0 : data_offsets_[i - 1];
+        size_t data_size = data_offsets_[i] - data_offset;
+
+        // copy the data to the new chunk
+        std::unique_ptr<Buffer> data;
+        try_reserve(br, data_size, stream, [this, data_offset, &data](auto res) {
+
+        });
+
+        return Chunk();
     }
 
     return {new_chunk_id, {}, {}, {}, {}};  // never reached
