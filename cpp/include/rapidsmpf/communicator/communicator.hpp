@@ -204,7 +204,8 @@ class Communicator {
         /**
          * @brief Construct a new logger.
          *
-         * To control the verbosity level, set the environment variable `RAPIDSMPF_LOG`:
+         * To control the verbosity level, set the configuration option "log" to
+         * one of following:
          *  - NONE:  No logging.
          *  - PRINT: General print messages.
          *  - WARN:  Warning messages (default)
@@ -213,6 +214,7 @@ class Communicator {
          *  - TRACE: Trace messages.
          *
          * @param comm The `Communicator` to use.
+         * @param options Configuration options.
          */
         Logger(Communicator* comm, config::Options options = {});
         virtual ~Logger() noexcept = default;
