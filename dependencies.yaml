@@ -158,6 +158,10 @@ dependencies:
             packages:
               - python=3.12
           - matrix:
+              py: "3.13"
+            packages:
+              - python=3.13
+          - matrix:
             packages:
               - python>=3.10,<3.13
   test_cpp:
@@ -195,6 +199,10 @@ dependencies:
               arch: x86_64
             packages:
               - ray-default==2.42.*,>=0.0.0a0
+          - matrix:
+              arch: x86_64
+              py: "3.13"
+            packages:
           - matrix:
               arch: aarch64
             packages:
