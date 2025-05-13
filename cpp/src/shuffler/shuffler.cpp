@@ -479,7 +479,12 @@ void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
     if (chunk.is_control_message(0)) {
         finish_counter_.move_goalpost(pid, chunk.expected_num_chunks(0));
     } else {
-        ready_postbox_.insert(std::move(chunk));
+        if (chunk.n_messages() == 1) {
+            ready_postbox_.insert(std::move(chunk));
+        }
+        // else
+        // TODO: ready_postbox has partition id as key, so we need unwrap all messages
+        // in the chunk and insert them into the postbox.
     }
     finish_counter_.add_finished_chunk(pid);
 }
@@ -496,6 +501,7 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         }
         insert_into_ready_postbox(std::move(chunk));
     } else {
+        // TODO: Gurantee that all messages in the chunk map to the same key (rank).
         outgoing_postbox_.insert(std::move(chunk));
     }
 }
