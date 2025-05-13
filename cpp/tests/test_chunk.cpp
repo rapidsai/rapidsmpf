@@ -13,7 +13,7 @@
 namespace rapidsmpf::shuffler::detail {
 namespace test {
 
-class ChunkBatchTest : public ::testing::Test {
+class ChunkTest : public ::testing::Test {
   protected:
     void SetUp() override {
         br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
@@ -24,7 +24,7 @@ class ChunkBatchTest : public ::testing::Test {
     rmm::cuda_stream_view stream;
 };
 
-TEST_F(ChunkBatchTest, FromFinishedPartition) {
+TEST_F(ChunkTest, FromFinishedPartition) {
     ChunkID chunk_id = 123;
     PartID part_id = 456;
     size_t expected_num_chunks = 789;
@@ -52,7 +52,7 @@ TEST_F(ChunkBatchTest, FromFinishedPartition) {
     EXPECT_THROW(chunk3.get_data(chunk_id, 1, stream), std::out_of_range);
 }
 
-TEST_F(ChunkBatchTest, FromPackedData) {
+TEST_F(ChunkTest, FromPackedData) {
     ChunkID chunk_id = 123;
     PartID part_id = 456;
 
