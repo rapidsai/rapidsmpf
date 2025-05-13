@@ -26,8 +26,17 @@ class OptionsImpl {
     );
 
     template <typename T>
-    T const* get(std::string const& key) const {
+    T const* get(std::string const& key) {
         static_assert(std::is_base_of<Option, T>::value, "T must derive from Option");
+
+        if (options_.find(key) == options_.end()) {
+            if (options_as_strings_.find(key) == options_as_strings_.end()) {
+                options_[key] = std::make_unique<T>();
+            } else {
+                options_[key] = std::make_unique<T>(options_as_strings_[key]);
+            }
+        }
+
         auto option = dynamic_cast<T*>(options_.at(key).get());
         RAPIDSMPF_EXPECTS(
             option != nullptr,
@@ -51,7 +60,7 @@ class Options {
     );
 
     template <typename T>
-    T const* get(std::string const& key) const {
+    T const* get(std::string const& key) {
         return impl_->get<T>(key);
     }
 
