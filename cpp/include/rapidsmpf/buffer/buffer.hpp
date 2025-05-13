@@ -183,7 +183,10 @@ class Buffer {
     }
 
     /**
-     * @brief Set the event for the buffer.
+     * @brief Override the event for the buffer.
+     *
+     * @note Use this if you want the buffer to sync with an event happening after the
+     * original event. Need to be used with care when dealing with multiple streams.
      *
      * @param event The event to set.
      */
