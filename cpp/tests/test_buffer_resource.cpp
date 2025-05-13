@@ -251,6 +251,7 @@ TEST(BufferResource, CUDAEventTracking) {
         auto host_buf = br.move(std::move(host_data));
         auto [host_reserve, host_overbooking] = br.reserve(MemoryType::HOST, 1024, false);
         auto host_copy = br.copy(MemoryType::HOST, host_buf, stream, host_reserve);
+        host_copy->wait_for_ready();  // should be no-op
         EXPECT_TRUE(host_copy->is_ready());  // No event created
 
         // Verify the data
@@ -282,19 +283,14 @@ TEST(BufferResource, CUDAEventTracking) {
         auto dev_copy = br.copy(MemoryType::DEVICE, dev_buf, stream, copy_reserve);
 
         // Wait for copy to complete
-        stream.synchronize();
+        dev_copy->wait_for_ready();
         EXPECT_TRUE(dev_copy->is_ready());
 
         // Verify the data
         auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(buffer_size);
-        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-            verify_data_buf->data(),
-            dev_copy->data(),
-            buffer_size,
-            cudaMemcpyDeviceToHost,
-            stream
+        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpy(
+            verify_data_buf->data(), dev_copy->data(), buffer_size, cudaMemcpyDeviceToHost
         ));
-        stream.synchronize();
         verify_data(*verify_data_buf);
     }
 
@@ -309,19 +305,14 @@ TEST(BufferResource, CUDAEventTracking) {
         auto dev_copy = br.copy(MemoryType::DEVICE, host_buf, stream, dev_reserve);
 
         // Wait for copy to complete
-        stream.synchronize();
+        dev_copy->wait_for_ready();
         EXPECT_TRUE(dev_copy->is_ready());
 
         // Verify the data
         auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(buffer_size);
-        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-            verify_data_buf->data(),
-            dev_copy->data(),
-            buffer_size,
-            cudaMemcpyDeviceToHost,
-            stream
+        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpy(
+            verify_data_buf->data(), dev_copy->data(), buffer_size, cudaMemcpyDeviceToHost
         ));
-        stream.synchronize();
         verify_data(*verify_data_buf);
     }
 
@@ -348,7 +339,7 @@ TEST(BufferResource, CUDAEventTracking) {
         auto host_copy = br.copy(MemoryType::HOST, dev_buf, stream, host_reserve);
 
         // Wait for copy to complete
-        stream.synchronize();
+        host_copy->wait_for_ready();
         EXPECT_TRUE(host_copy->is_ready());
 
         // Verify the data

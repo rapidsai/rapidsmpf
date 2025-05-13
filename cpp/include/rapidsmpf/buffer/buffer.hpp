@@ -95,15 +95,15 @@ class Buffer {
          */
         [[nodiscard]] bool is_ready();
 
+        /**
+         * @brief Wait for the event to be completed.
+         */
+        void wait();
+
       private:
         cudaEvent_t event_;  ///< CUDA event used to track device memory allocation
         std::atomic<bool> done_{false
         };  ///< Cache of the event status to avoid unnecessary queries.
-        mutable std::mutex mutex_;  ///< Protects access to event_
-        std::atomic<bool> destroying_{false
-        };  ///< Flag to indicate destruction in progress
-        std::atomic<int> active_readers_{0
-        };  ///< Number of threads currently executing is_ready()
     };
 
     /// @brief  Storage type for the device buffer.
@@ -203,7 +203,23 @@ class Buffer {
     [[nodiscard]] bool is_ready() const;
 
     /**
+     * @brief Wait for the device memory operation to complete.
+     *
+     * @throws rapidsmpf::cuda_error if cudaEventSynchronize fails.
+     */
+    void wait_for_ready() const;
+
+    /**
      * @brief Copy data from this buffer to a destination buffer with a given offset.
+     *
+     * Follows the following rules:
+     * +------+------+-----------------------------------+
+     * |  src | dest |                 op                |
+     * +------+------+-----------------------------------+
+     * | host | host | memcpy if src is ready else NO OP |
+     * +------+------+-----------------------------------+
+     * |   X  |   X  |   cudaMemcpyAsync (needs event)   |
+     * +------+------+-----------------------------------+
      *
      * @param dest Destination buffer.
      * @param dest_offset Offset of the destination buffer (in bytes).

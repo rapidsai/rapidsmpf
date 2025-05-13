@@ -33,12 +33,19 @@ Buffer::Event::~Event() {
 
 [[nodiscard]] bool Buffer::Event::is_ready() {
     if (!done_.load(std::memory_order_relaxed)) {
-        bool result = cudaEventQuery(event_) == cudaSuccess;
+        bool result = (cudaEventQuery(event_) == cudaSuccess);
         done_.store(result, std::memory_order_relaxed);
         return result;
     }
 
     return true;
+}
+
+void Buffer::Event::wait() {
+    if (!done_.load(std::memory_order_relaxed)) {
+        RAPIDSMPF_CUDA_TRY(cudaEventSynchronize(event_));
+        done_.store(true, std::memory_order_relaxed);
+    }
 }
 
 Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br)
@@ -155,6 +162,8 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
     return std::visit(
         overloaded{
             [&](const HostStorageT& storage) {  // host -> host
+                // wait for this buffer to be ready, as host-to-host copy is synchronous
+                wait_for_ready();
                 auto host_buf = std::unique_ptr<Buffer>(new Buffer{
                     std::make_unique<std::vector<uint8_t>>(
                         storage->begin() + offset, storage->begin() + offset + length
@@ -252,6 +261,11 @@ std::ptrdiff_t Buffer::copy_to(
 
     // if both buffers are on the host, use memcpy, otherwise, use cudaMemcpyAsync
     if (mem_type() == MemoryType::HOST && dest.mem_type() == MemoryType::HOST) {
+        // if the source buffer is not ready, return 0
+        if (!is_ready()) {
+            return 0;
+        }
+        // src buffer is ready, copy the data
         std::memcpy(static_cast<uint8_t*>(dest.data()) + dest_offset, data(), size);
         return std::ptrdiff_t(size);
     } else if (mem_type() == MemoryType::HOST) {
@@ -274,6 +288,12 @@ std::ptrdiff_t Buffer::copy_to(
 
 bool Buffer::is_ready() const {
     return !event_ || event_->is_ready();
+}
+
+void Buffer::wait_for_ready() const {
+    if (event_) {
+        event_->wait();
+    }
 }
 
 }  // namespace rapidsmpf
