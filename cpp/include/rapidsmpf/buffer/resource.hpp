@@ -353,8 +353,8 @@ class BufferResource {
      *
      * @param target Memory type of the new buffer.
      * @param buffer The buffer to copy from.
-     * @param offset Offset in bytes from the start of the buffer.
-     * @param length Length in bytes of the slice.
+     * @param offset Offset from the start of the buffer (in bytes).
+     * @param length Length of the slice (in bytes).
      * @param stream CUDA stream to use for the copy.
      * @param reservation The reservation to use for memory allocations.
      * @returns A new buffer containing the copied slice.

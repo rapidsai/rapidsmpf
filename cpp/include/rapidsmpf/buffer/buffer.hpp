@@ -301,8 +301,8 @@ class Buffer {
     /**
      * @brief Copy a slice of the buffer to a new buffer.
      *
-     * @param offset Offset in bytes from the start of the buffer.
-     * @param length Length in bytes of the slice.
+     * @param offset Offset from the start of the buffer (in bytes).
+     * @param length Length of the slice (in bytes).
      * @param stream CUDA stream to use for the copy.
      * @returns A new buffer containing the copied slice.
      */
@@ -314,8 +314,8 @@ class Buffer {
      * @brief Copy a slice of the buffer to a new buffer.
      *
      * @param target Memory type of the new buffer.
-     * @param offset Offset in bytes from the start of the buffer.
-     * @param length Length in bytes of the slice.
+     * @param offset Offset from the start of the buffer (in bytes).
+     * @param length Length of the slice (in bytes).
      * @param stream CUDA stream to use for the copy.
      * @returns A new buffer containing the copied slice.
      */
