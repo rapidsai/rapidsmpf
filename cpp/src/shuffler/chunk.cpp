@@ -335,9 +335,14 @@ ChunkBuilder& ChunkBuilder::add_packed_data(PartID part_id, PackedData&& packed_
     }
 
     if (packed_data.gpu_data) {
-        staged_data_.emplace_back(std::unique_ptr<Buffer>(
-            new Buffer{std::move(packed_data.gpu_data), stream_, br_, nullptr}
-        ));
+        // trivially convert the rmm buffer to a Buffer.
+        // TODO: based on the current Buffer API, we are needlessly create an event for
+        // this operation. rmm buffer is only staged, until the chunk is built. During the
+        // build() method, a new event is created which can guarantee the completion of
+        // all staged operations.
+        staged_data_.emplace_back(
+            br_->move(std::move(packed_data.gpu_data), stream_, nullptr)
+        );
     }
 
     return *this;
