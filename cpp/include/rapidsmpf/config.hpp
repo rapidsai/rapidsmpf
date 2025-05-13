@@ -5,13 +5,10 @@
 #pragma once
 
 #include <memory>
-#include <regex>
 #include <string>
 #include <unordered_map>
 
 #include <rapidsmpf/error.hpp>
-
-extern char** environ;
 
 namespace rapidsmpf::config {
 
@@ -20,17 +17,17 @@ class Option {
     virtual ~Option() = default;
 };
 
-class Options {
+namespace detail {
+class OptionsImpl {
   public:
-    Options(
-        std::unordered_map<std::string, std::unique_ptr<Option>> options_ = {},
-        std::unordered_map<std::string, std::string> options_as_strings_ = {}
+    OptionsImpl(
+        std::unordered_map<std::string, std::unique_ptr<Option>> options,
+        std::unordered_map<std::string, std::string> options_as_strings
     );
 
     template <typename T>
     T const* get(std::string const& key) const {
         static_assert(std::is_base_of<Option, T>::value, "T must derive from Option");
-
         auto option = dynamic_cast<T*>(options_.at(key).get());
         RAPIDSMPF_EXPECTS(
             option != nullptr,
@@ -43,6 +40,23 @@ class Options {
   private:
     std::unordered_map<std::string, std::unique_ptr<Option>> options_;
     std::unordered_map<std::string, std::string> options_as_strings_;
+};
+}  // namespace detail
+
+class Options {
+  public:
+    Options(
+        std::unordered_map<std::string, std::unique_ptr<Option>> options_ = {},
+        std::unordered_map<std::string, std::string> options_as_strings_ = {}
+    );
+
+    template <typename T>
+    T const* get(std::string const& key) const {
+        return impl_->get<T>(key);
+    }
+
+  private:
+    std::shared_ptr<detail::OptionsImpl> impl_;
 };
 
 
