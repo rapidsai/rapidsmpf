@@ -5,13 +5,16 @@
 
 #include <gtest/gtest.h>
 
+#include <cuda/std/span>
+
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 
-namespace rapidsmpf::shuffler::detail {
-namespace test {
+using namespace rapidsmpf;
+using namespace rapidsmpf::shuffler;
+using namespace rapidsmpf::shuffler::detail;
 
 class ChunkTest : public ::testing::Test {
   protected:
@@ -23,6 +26,24 @@ class ChunkTest : public ::testing::Test {
     std::unique_ptr<BufferResource> br;
     rmm::cuda_stream_view stream;
 };
+
+namespace {
+
+PackedData create_packed_data(
+    cuda::std::span<uint8_t const> metadata,
+    cuda::std::span<uint8_t const> data,
+    rmm::cuda_stream_view stream
+) {
+    auto metadata_ptr =
+        std::make_unique<std::vector<uint8_t>>(metadata.begin(), metadata.end());
+    auto data_ptr = std::make_unique<rmm::device_buffer>(data.size(), stream);
+    RAPIDSMPF_CUDA_TRY(
+        cudaMemcpy(data_ptr->data(), data.data(), data.size(), cudaMemcpyHostToDevice)
+    );
+    return PackedData{std::move(metadata_ptr), std::move(data_ptr)};
+}
+
+}  // namespace
 
 TEST_F(ChunkTest, FromFinishedPartition) {
     ChunkID chunk_id = 123;
@@ -96,5 +117,125 @@ TEST_F(ChunkTest, FromPackedData) {
     test_chunk(chunk3);
 }
 
-}  // namespace test
-}  // namespace rapidsmpf::shuffler::detail
+TEST_F(ChunkTest, ChunkBuilderControlMessages) {
+    ChunkID chunk_id = 123;
+    ChunkBuilder builder(chunk_id, stream, br.get(), 3);  // Hint for 3 messages
+
+    // Add three control messages
+    builder.add_control_message(1, 10).add_control_message(2, 20).add_control_message(
+        3, 30
+    );
+
+    auto chunk = builder.build();
+
+    // Verify the chunk properties
+    EXPECT_EQ(chunk.chunk_id(), chunk_id);
+    EXPECT_EQ(chunk.n_messages(), 3);
+
+    // Verify each message
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_EQ(chunk.part_id(i), i + 1);
+        EXPECT_EQ(chunk.expected_num_chunks(i), (i + 1) * 10);
+        EXPECT_TRUE(chunk.is_control_message(i));
+        EXPECT_EQ(chunk.metadata_size(i), 0);
+        EXPECT_EQ(chunk.data_size(i), 0);
+    }
+}
+
+TEST_F(ChunkTest, ChunkBuilderPackedData) {
+    ChunkID chunk_id = 123;
+    ChunkBuilder builder(chunk_id, stream, br.get(), 2);  // Hint for 2 messages
+
+    // Create test metadata and data
+    std::vector<uint8_t> metadata{1, 2, 3, 7, 8};  // Concatenated metadata
+    std::vector<uint8_t> data{4, 5, 6, 9, 10};  // Concatenated data
+
+    // Add the packed data messages using spans
+    builder
+        .add_packed_data(
+            1, create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream)
+        )
+        .add_packed_data(
+            2, create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream)
+        );
+
+    auto chunk = builder.build();
+
+    // Verify the chunk properties
+    EXPECT_EQ(chunk.chunk_id(), chunk_id);
+    EXPECT_EQ(chunk.n_messages(), 2);
+
+    // Verify first message
+    EXPECT_EQ(chunk.part_id(0), 1);
+    EXPECT_EQ(chunk.expected_num_chunks(0), 0);
+    EXPECT_FALSE(chunk.is_control_message(0));
+    EXPECT_EQ(chunk.metadata_size(0), 3);
+    EXPECT_EQ(chunk.data_size(0), 3);
+
+    // Verify second message
+    EXPECT_EQ(chunk.part_id(1), 2);
+    EXPECT_EQ(chunk.expected_num_chunks(1), 0);
+    EXPECT_FALSE(chunk.is_control_message(1));
+    EXPECT_EQ(chunk.metadata_size(1), 2);
+    EXPECT_EQ(chunk.data_size(1), 2);
+
+    // Release and verify buffers
+    auto released_metadata = chunk.release_metadata_buffer();
+    auto released_data = chunk.release_data_buffer();
+
+    // Verify metadata buffer
+    ASSERT_NE(released_metadata, nullptr);
+    EXPECT_EQ(released_metadata->size(), 5);  // Total size of both metadata chunks
+    EXPECT_EQ(metadata, *released_metadata);
+
+    // Verify data buffer
+    ASSERT_NE(released_data, nullptr);
+    EXPECT_EQ(released_data->size, 5);  // Total size of both data chunks
+    std::vector<uint8_t> host_data(5);
+    RAPIDSMPF_CUDA_TRY(
+        cudaMemcpy(host_data.data(), released_data->data(), 5, cudaMemcpyDeviceToHost)
+    );
+    EXPECT_EQ(data, host_data);
+}
+
+// TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
+//     ChunkID chunk_id = 123;
+//     ChunkBuilder builder(chunk_id, stream, br.get(), 3);  // Hint for 3 messages
+
+//     // Add a control message
+//     builder.add_control_message(1, 10);
+
+//     // Add a packed data message
+//     auto packed_data = create_packed_data({1, 2, 3}, {4, 5, 6}, stream);
+//     builder.add_packed_data(2, std::move(packed_data));
+
+//     // Add another control message
+//     builder.add_control_message(3, 30);
+
+//     auto chunk = builder.build();
+
+//     // Verify the chunk properties
+//     EXPECT_EQ(chunk.chunk_id(), chunk_id);
+//     EXPECT_EQ(chunk.n_messages(), 3);
+
+//     // Verify control message 1
+//     EXPECT_EQ(chunk.part_id(0), 1);
+//     EXPECT_EQ(chunk.expected_num_chunks(0), 10);
+//     EXPECT_TRUE(chunk.is_control_message(0));
+//     EXPECT_EQ(chunk.metadata_size(0), 0);
+//     EXPECT_EQ(chunk.data_size(0), 0);
+
+//     // Verify packed data message
+//     EXPECT_EQ(chunk.part_id(1), 2);
+//     EXPECT_EQ(chunk.expected_num_chunks(1), 0);
+//     EXPECT_FALSE(chunk.is_control_message(1));
+//     EXPECT_EQ(chunk.metadata_size(1), 3);
+//     EXPECT_EQ(chunk.data_size(1), 3);
+
+//     // Verify control message 2
+//     EXPECT_EQ(chunk.part_id(2), 3);
+//     EXPECT_EQ(chunk.expected_num_chunks(2), 30);
+//     EXPECT_TRUE(chunk.is_control_message(2));
+//     EXPECT_EQ(chunk.metadata_size(2), 0);
+//     EXPECT_EQ(chunk.data_size(2), 0);
+// }
