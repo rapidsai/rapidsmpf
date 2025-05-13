@@ -1,0 +1,49 @@
+/**
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#pragma once
+
+#include <memory>
+#include <regex>
+#include <string>
+#include <unordered_map>
+
+#include <rapidsmpf/error.hpp>
+
+extern char** environ;
+
+namespace rapidsmpf::config {
+
+class Option {
+  public:
+    virtual ~Option() = default;
+};
+
+class Options {
+  public:
+    Options(
+        std::unordered_map<std::string, std::unique_ptr<Option>> options_ = {},
+        std::unordered_map<std::string, std::string> options_as_strings_ = {}
+    );
+
+    template <typename T>
+    T const* get(std::string const& key) const {
+        static_assert(std::is_base_of<Option, T>::value, "T must derive from Option");
+
+        auto option = dynamic_cast<T*>(options_.at(key).get());
+        RAPIDSMPF_EXPECTS(
+            option != nullptr,
+            "accessing option with incompatible template type",
+            std::invalid_argument
+        );
+        return option;
+    }
+
+  private:
+    std::unordered_map<std::string, std::unique_ptr<Option>> options_;
+    std::unordered_map<std::string, std::string> options_as_strings_;
+};
+
+
+}  // namespace rapidsmpf::config
