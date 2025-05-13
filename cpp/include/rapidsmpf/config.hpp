@@ -37,7 +37,7 @@ class OptionsImpl {
             }
         }
 
-        auto option = dynamic_cast<T*>(options_.at(key).get());
+        auto option = dynamic_cast<T*>(options_[key].get());
         RAPIDSMPF_EXPECTS(
             option != nullptr,
             "accessing option with incompatible template type",
