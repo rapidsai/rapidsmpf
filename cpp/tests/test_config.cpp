@@ -70,3 +70,43 @@ TEST(Options, MissingKeyThrowsNoException) {
     ASSERT_NE(retrieved_option, nullptr);
     EXPECT_EQ(retrieved_option->value, "");
 }
+
+TEST(ConfigEnvironmentVariables, ReturnsMatchingVariables) {
+    // Set environment variables for testing
+    setenv("RAPIDSMPF_TEST_VAR1", "value1", 1);
+    setenv("RAPIDSMPF_TEST_VAR2", "value2", 1);
+    setenv("OTHER_VAR", "should_not_match", 1);
+
+    auto env_vars = get_environment_variables("RAPIDSMPF_.*");
+
+    // Should contain the RAPIDSMPF_ variables
+    ASSERT_TRUE(env_vars.find("RAPIDSMPF_TEST_VAR1") != env_vars.end());
+    ASSERT_TRUE(env_vars.find("RAPIDSMPF_TEST_VAR2") != env_vars.end());
+    EXPECT_EQ(env_vars["RAPIDSMPF_TEST_VAR1"], "value1");
+    EXPECT_EQ(env_vars["RAPIDSMPF_TEST_VAR2"], "value2");
+
+    // Should not contain non-matching variables
+    ASSERT_TRUE(env_vars.find("OTHER_VAR") == env_vars.end());
+}
+
+TEST(ConfigEnvironmentVariables, OutputMapIsPopulated) {
+    setenv("RAPIDSMPF_ANOTHER_VAR", "another_value", 1);
+
+    std::unordered_map<std::string, std::string> output;
+    get_environment_variables(output, "RAPIDSMPF_ANOTHER_VAR");
+
+    ASSERT_TRUE(output.find("RAPIDSMPF_ANOTHER_VAR") != output.end());
+    EXPECT_EQ(output["RAPIDSMPF_ANOTHER_VAR"], "another_value");
+}
+
+TEST(ConfigEnvironmentVariables, DoesNotOverwriteExistingKey) {
+    setenv("RAPIDSMPF_EXISTING_VAR", "env_value", 1);
+
+    std::unordered_map<std::string, std::string> output;
+    output["RAPIDSMPF_EXISTING_VAR"] = "original_value";
+
+    get_environment_variables(output, "RAPIDSMPF_EXISTING_VAR");
+
+    // The value should remain as the original, not overwritten by the environment
+    EXPECT_EQ(output["RAPIDSMPF_EXISTING_VAR"], "original_value");
+}

@@ -129,4 +129,44 @@ class Options {
     std::shared_ptr<detail::OptionsImpl> impl_;
 };
 
+/**
+ * @brief Populates a map with environment variables matching a given regular expression.
+ *
+ * This function scans the current process's environment variables and inserts those whose
+ * keys match the provided regular expression into the `output` map. Only variables with
+ * keys not already present in `output` are inserted; existing keys are left unchanged.
+ *
+ * Matching is done using full-line `std::regex_match`, so `key_regex` must be designed to
+ * match the key portion at the start of the string, before the `=`.
+ *
+ * @param[out] output The map to populate with matching environment variables. Only keys
+ *                    that do not already exist in the map will be added.
+ * @param[in] key_regex A regular expression used to match the environment variable keys.
+ *                      Only environment variables with keys matching this pattern will
+ *                      be considered.
+ *
+ * @warning This function uses `std::regex` and relies on the global `environ` symbol,
+ * which is POSIX-specific and is **not** thread-safe.
+ */
+void get_environment_variables(
+    std::unordered_map<std::string, std::string>& output,
+    std::string const& key_regex = "RAPIDSMPF_.*"
+);
+
+/**
+ * @brief Returns a map of environment variables matching a given regular expression.
+ *
+ * This is a convenience overload. See the documentation for the first variant of
+ * `get_environment_variables()` for details on matching and behavior.
+ *
+ * @param[in] key_regex A regular expression used to match the environment variable keys.
+ * @return A map containing all matching environment variables.
+ *
+ * @see get_environment_variables(std::unordered_map<std::string, std::string>&,
+ * std::string const&)
+ */
+std::unordered_map<std::string, std::string> get_environment_variables(
+    std::string const& key_regex = "RAPIDSMPF_.*"
+);
+
 }  // namespace rapidsmpf::config
