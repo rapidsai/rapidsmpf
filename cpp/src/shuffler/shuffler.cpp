@@ -174,6 +174,9 @@ class Shuffler::Progress {
         // Check for new chunks in the inbox and send off their metadata.
         auto const t0_send_metadata = Clock::now();
         for (auto&& chunk : shuffler_.outgoing_postbox_.extract_all_ready()) {
+            // TODO: all messages in the chunk must map to the same key. This is
+            // guaranteed by the PostBox. Therefore, we can use the partition
+            // ID of the first message in the chunk to determine the source rank.
             auto dst = shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0));
             log.trace("send metadata to ", dst, ": ", chunk);
             RAPIDSMPF_EXPECTS(
@@ -202,7 +205,7 @@ class Shuffler::Progress {
             if (msg) {
                 auto chunk = Chunk::deserialize(*msg, false);
                 log.trace("recv_any from ", src, ": ", chunk);
-                // all messages in the chunk must map to the same key. This is
+                // TODO: all messages in the chunk must map to the same key. This is
                 // guaranteed by the PostBox. Therefore, we can use the partition
                 // ID of the first message in the chunk to determine the source rank.
                 RAPIDSMPF_EXPECTS(
@@ -269,6 +272,7 @@ class Shuffler::Progress {
                     "shuffle-payload-recv", chunk.concat_data_size()
                 );
                 // Tell the source of the chunk that we are ready to receive it.
+                // TODO: all partition IDs in the chunk must map to the same key (rank).
                 fire_and_forget_.push_back(shuffler_.comm_->send(
                     ReadyForDataMessage{chunk.part_id(0), chunk.chunk_id()}.pack(),
                     src,
@@ -475,6 +479,9 @@ detail::Chunk Shuffler::create_chunk(
 void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
     auto& log = comm_->logger();
     log.trace("insert_into_outbox: ", chunk);
+    // TODO: Now chunk could have multiple messages, so we need to unwrap them and
+    // insert them into the postbox individually because ready_postbox has partition
+    // id as key.
     auto pid = chunk.part_id(0);
     if (chunk.is_control_message(0)) {
         finish_counter_.move_goalpost(pid, chunk.expected_num_chunks(0));
@@ -492,8 +499,11 @@ void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
 void Shuffler::insert(detail::Chunk&& chunk) {
     {
         std::lock_guard const lock(outbound_chunk_counter_mutex_);
+        // TODO: There are multiple partitions in the chunk. So, do this for each
+        // partition.
         ++outbound_chunk_counter_[chunk.part_id(0)];
     }
+    // TODO: Gurantee that all messages in the chunk map to the same key (rank).
     if (partition_owner(comm_, chunk.part_id(0)) == comm_->rank()) {
         if (chunk.is_data_buffer_set()) {
             statistics_->add_bytes_stat("shuffle-payload-send", chunk.concat_data_size());
@@ -501,7 +511,6 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         }
         insert_into_ready_postbox(std::move(chunk));
     } else {
-        // TODO: Gurantee that all messages in the chunk map to the same key (rank).
         outgoing_postbox_.insert(std::move(chunk));
     }
 }
