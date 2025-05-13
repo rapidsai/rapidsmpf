@@ -23,7 +23,11 @@ files:
       - cuda_version
       - test_cpp
   test_python:
-    output: none
+    output: pyproject
+    pyproject_dir: python/rapidsmpf
+    extras:
+      table: project.optional-dependencies
+      key: test
     includes:
       - cuda_version
       - py_version
