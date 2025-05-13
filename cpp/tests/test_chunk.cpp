@@ -29,6 +29,7 @@ class ChunkTest : public ::testing::Test {
 
 namespace {
 
+/// @brief Create a PackedData object from a host buffer
 PackedData create_packed_data(
     cuda::std::span<uint8_t const> metadata,
     cuda::std::span<uint8_t const> data,
@@ -198,44 +199,115 @@ TEST_F(ChunkTest, ChunkBuilderPackedData) {
     EXPECT_EQ(data, host_data);
 }
 
-// TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
-//     ChunkID chunk_id = 123;
-//     ChunkBuilder builder(chunk_id, stream, br.get(), 3);  // Hint for 3 messages
+TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
+    ChunkID chunk_id = 123;
+    ChunkBuilder builder(chunk_id, stream, br.get(), 4);  // Hint for 4 messages
 
-//     // Add a control message
-//     builder.add_control_message(1, 10);
+    // Create test metadata and data
+    std::vector<uint8_t> metadata{1, 2, 3, 7, 8};  // Concatenated metadata
+    std::vector<uint8_t> data{4, 5, 6, 9, 10};  // Concatenated data
 
-//     // Add a packed data message
-//     auto packed_data = create_packed_data({1, 2, 3}, {4, 5, 6}, stream);
-//     builder.add_packed_data(2, std::move(packed_data));
 
-//     // Add another control message
-//     builder.add_control_message(3, 30);
+    auto chunk =
+        builder
+            .add_control_message(1, 10)  // control message 1
+            .add_packed_data(
+                2, create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream)
+            )  // packed data 1
+            .add_control_message(3, 40)  // control message 2
+            .add_packed_data(
+                4,
+                create_packed_data({metadata.data() + 5, 0}, {data.data() + 5, 0}, stream)
+            )  // empty packed data - non-null
+            .add_packed_data(
+                5,
+                create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream)
+            )  // packed data 2
+            .add_packed_data(6, PackedData{nullptr, nullptr})  // empty packed data - null
+            .build();
 
-//     auto chunk = builder.build();
+    // Verify the chunk properties
+    EXPECT_EQ(chunk.chunk_id(), chunk_id);
+    EXPECT_EQ(chunk.n_messages(), 6);
 
-//     // Verify the chunk properties
-//     EXPECT_EQ(chunk.chunk_id(), chunk_id);
-//     EXPECT_EQ(chunk.n_messages(), 3);
+    // Verify control message 1
+    EXPECT_EQ(chunk.part_id(0), 1);
+    EXPECT_EQ(chunk.expected_num_chunks(0), 10);
+    EXPECT_TRUE(chunk.is_control_message(0));
+    EXPECT_EQ(chunk.metadata_size(0), 0);
+    EXPECT_EQ(chunk.data_size(0), 0);
 
-//     // Verify control message 1
-//     EXPECT_EQ(chunk.part_id(0), 1);
-//     EXPECT_EQ(chunk.expected_num_chunks(0), 10);
-//     EXPECT_TRUE(chunk.is_control_message(0));
-//     EXPECT_EQ(chunk.metadata_size(0), 0);
-//     EXPECT_EQ(chunk.data_size(0), 0);
+    // Verify first packed data message
+    EXPECT_EQ(chunk.part_id(1), 2);
+    EXPECT_EQ(chunk.expected_num_chunks(1), 0);
+    EXPECT_FALSE(chunk.is_control_message(1));
+    EXPECT_EQ(chunk.metadata_size(1), 3);
+    EXPECT_EQ(chunk.data_size(1), 3);
 
-//     // Verify packed data message
-//     EXPECT_EQ(chunk.part_id(1), 2);
-//     EXPECT_EQ(chunk.expected_num_chunks(1), 0);
-//     EXPECT_FALSE(chunk.is_control_message(1));
-//     EXPECT_EQ(chunk.metadata_size(1), 3);
-//     EXPECT_EQ(chunk.data_size(1), 3);
+    // Verify control message 2
+    EXPECT_EQ(chunk.part_id(2), 3);
+    EXPECT_EQ(chunk.expected_num_chunks(2), 40);
+    EXPECT_TRUE(chunk.is_control_message(2));
+    EXPECT_EQ(chunk.metadata_size(2), 0);
+    EXPECT_EQ(chunk.data_size(2), 0);
 
-//     // Verify control message 2
-//     EXPECT_EQ(chunk.part_id(2), 3);
-//     EXPECT_EQ(chunk.expected_num_chunks(2), 30);
-//     EXPECT_TRUE(chunk.is_control_message(2));
-//     EXPECT_EQ(chunk.metadata_size(2), 0);
-//     EXPECT_EQ(chunk.data_size(2), 0);
-// }
+    // Verify empty packed data message
+    EXPECT_EQ(chunk.part_id(3), 4);
+    EXPECT_EQ(chunk.expected_num_chunks(3), 0);
+    EXPECT_FALSE(chunk.is_control_message(3));
+    EXPECT_EQ(chunk.metadata_size(3), 0);
+    EXPECT_EQ(chunk.data_size(3), 0);
+
+    // Verify second packed data message
+    EXPECT_EQ(chunk.part_id(4), 5);
+    EXPECT_EQ(chunk.expected_num_chunks(4), 0);
+    EXPECT_FALSE(chunk.is_control_message(4));
+    EXPECT_EQ(chunk.metadata_size(4), 2);
+    EXPECT_EQ(chunk.data_size(4), 2);
+
+    // Verify empty packed data message with null metadata and data
+    EXPECT_EQ(chunk.part_id(5), 6);
+    EXPECT_EQ(chunk.expected_num_chunks(5), 0);
+    EXPECT_FALSE(chunk.is_control_message(5));
+    EXPECT_EQ(chunk.metadata_size(5), 0);
+    EXPECT_EQ(chunk.data_size(5), 0);
+
+    // Release and verify buffers
+    auto released_metadata = chunk.release_metadata_buffer();
+    auto released_data = chunk.release_data_buffer();
+
+    // Verify metadata buffer
+    ASSERT_NE(released_metadata, nullptr);
+    EXPECT_EQ(metadata, *released_metadata);
+
+    // Verify data buffer
+    ASSERT_NE(released_data, nullptr);
+    EXPECT_EQ(released_data->size, 5);  // Total size of data
+    std::vector<uint8_t> host_data(5);
+    RAPIDSMPF_CUDA_TRY(
+        cudaMemcpy(host_data.data(), released_data->data(), 5, cudaMemcpyDeviceToHost)
+    );
+    EXPECT_EQ(data, host_data);
+}
+
+TEST_F(ChunkTest, ChunkWithHostBuffer) {
+    // create a new buffer resource with only host memory available
+    br = std::make_unique<BufferResource>(
+        cudf::get_current_device_resource_ref(),
+        std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{
+            {MemoryType::DEVICE, []() { return 0; }}
+        }
+    );
+
+    ChunkID chunk_id = 123;
+    ChunkBuilder builder(chunk_id, stream, br.get(), 2);
+
+    // Create test metadata and data
+    std::vector<uint8_t> metadata{1, 2, 3, 7, 8};  // Concatenated metadata
+    std::vector<uint8_t> data{4, 5, 6, 9, 10};  // Concatenated data
+
+    auto chunk =
+        builder.add_packed_data(1, create_packed_data(metadata, data, stream)).build();
+
+    EXPECT_EQ(MemoryType::HOST, chunk.data_memory_type());
+}
