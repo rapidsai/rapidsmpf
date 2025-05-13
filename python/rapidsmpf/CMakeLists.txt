@@ -19,6 +19,7 @@ project(
   LANGUAGES CXX CUDA
 )
 
+set(RAPIDSMPF_PYTHON_INSTALL "rapidsmpf/")
 add_subdirectory(../../cpp librapidsmpf)
 
 # TODO: don't use env-vars for this

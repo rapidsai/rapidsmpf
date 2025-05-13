@@ -38,6 +38,7 @@ option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
 option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
+option(RAPIDSMPF_PYTHON_INSTALL "Update install target to wheel directory" "")
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
@@ -243,7 +244,7 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME rapidsmpf)
 
 install(
   TARGETS rapidsmpf
-  DESTINATION ${lib_dir}
+  DESTINATION ${RAPIDSMPF_PYTHON_INSTALL}${lib_dir}
   EXPORT rapidsmpf-exports
 )
 install(DIRECTORY include/rapidsmpf/ DESTINATION include/rapidsmpf)
