@@ -216,14 +216,14 @@ dependencies:
       - output_types: conda
         packages:
           - gdb
+          - cudf==25.6.*,>=0.0.0a0
+          - dask-cudf==25.6.*,>=0.0.0a0
+          - ucxx==0.44.*,>=0.0.0a0
       - output_types: [conda, pyproject, requirements]
         packages:
-          - cudf==25.6.*,>=0.0.0a0
           - dask-cuda==25.6.*,>=0.0.0a0
-          - dask-cudf==25.6.*,>=0.0.0a0
           - psutil
           - pytest
-          - ucxx==0.44.*,>=0.0.0a0
           - nvidia-ml-py
     specific:
       - output_types: conda
@@ -235,6 +235,14 @@ dependencies:
           - matrix:
               arch: aarch64
             packages:
+      - output_types: pyproject
+        matrices:
+          - matrix: {}
+            packages:
+              - cudf-cu12==25.6.*,>=0.0.0a0
+              - dask-cudf-cu12==25.6.*,>=0.0.0a0
+              - ucxx-cu12==0.44.*,>=0.0.0a0
+
   run_rapidsmpf:
     common:
       - output_types: [conda, requirements, pyproject]
