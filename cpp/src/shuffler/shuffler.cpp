@@ -174,9 +174,9 @@ class Shuffler::Progress {
         // Check for new chunks in the inbox and send off their metadata.
         auto const t0_send_metadata = Clock::now();
         for (auto&& chunk : shuffler_.outgoing_postbox_.extract_all_ready()) {
-            // TODO: all messages in the chunk must map to the same key. This is
-            // guaranteed by the PostBox. Therefore, we can use the partition
-            // ID of the first message in the chunk to determine the source rank.
+            // All messages in the chunk maps to the same key (checked by the PostBox)
+            // thus we can use the partition ID of the first message in the chunk to 
+            // determine the source rank of all of them.
             auto dst = shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0));
             log.trace("send metadata to ", dst, ": ", chunk);
             RAPIDSMPF_EXPECTS(
@@ -205,9 +205,9 @@ class Shuffler::Progress {
             if (msg) {
                 auto chunk = Chunk::deserialize(*msg, false);
                 log.trace("recv_any from ", src, ": ", chunk);
-                // TODO: all messages in the chunk must map to the same key. This is
-                // guaranteed by the PostBox. Therefore, we can use the partition
-                // ID of the first message in the chunk to determine the source rank.
+            // All messages in the chunk maps to the same key (checked by the PostBox)
+            // thus we can use the partition ID of the first message in the chunk to 
+            // determine the source rank of all of them.
                 RAPIDSMPF_EXPECTS(
                     shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0))
                         == shuffler_.comm_->rank(),
