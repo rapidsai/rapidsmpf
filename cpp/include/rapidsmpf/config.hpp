@@ -6,6 +6,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -60,15 +61,16 @@ class OptionsImpl {
     template <typename T>
     T const* get(std::string const& key) {
         static_assert(std::is_base_of<Option, T>::value, "T must derive from Option");
-
-        if (options_.find(key) == options_.end()) {
-            if (options_as_strings_.find(key) == options_as_strings_.end()) {
-                options_[key] = std::make_unique<T>();
-            } else {
-                options_[key] = std::make_unique<T>(options_as_strings_[key]);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (options_.find(key) == options_.end()) {
+                if (options_as_strings_.find(key) == options_as_strings_.end()) {
+                    options_[key] = std::make_unique<T>();
+                } else {
+                    options_[key] = std::make_unique<T>(options_as_strings_[key]);
+                }
             }
         }
-
         auto option = dynamic_cast<T*>(options_[key].get());
         RAPIDSMPF_EXPECTS(
             option != nullptr,
@@ -79,6 +81,7 @@ class OptionsImpl {
     }
 
   private:
+    mutable std::mutex mutex_;
     std::unordered_map<std::string, std::string> options_as_strings_;
     std::unordered_map<std::string, std::unique_ptr<Option>> options_;
 };
@@ -91,9 +94,11 @@ class OptionsImpl {
  * The `Options` class provides a high-level interface for storing and retrieving
  * configuration options.
  *
- * To avoid having to use `std::shared_ptr<Options>` arguments everywhere, it uses an
- * internal implementation (`OptionsImpl`) to handle the actual storage and retrieval
- * logic.
+ * All keys are trimmed and converted to lower case using `rapidsmpf::trim()` and
+ * `rapidsmpf::to_lower()`.
+ *
+ * @note Copying `rapidsmpf::Options` is fast as it uses a shared pointer to its internal
+ * implementation (`OptionsImpl`).
  */
 class Options {
   public:

@@ -71,6 +71,38 @@ TEST(Options, MissingKeyThrowsNoException) {
     EXPECT_EQ(retrieved_option->value, "");
 }
 
+TEST(Options, KeysAreConvertedToLowercase) {
+    std::unordered_map<std::string, std::unique_ptr<Option>> options;
+    options["KEYUPPER"] = std::make_unique<MockOption>("upper");
+    options["KeyMixed"] = std::make_unique<MockOption>("mixed");
+    options["keylower"] = std::make_unique<MockOption>("lower");
+
+    Options opts({}, std::move(options));
+
+    // All keys should be accessible in lowercase
+    auto opt1 = opts.get<MockOption>("keyupper");
+    auto opt2 = opts.get<MockOption>("keymixed");
+    auto opt3 = opts.get<MockOption>("keylower");
+
+    ASSERT_NE(opt1, nullptr);
+    ASSERT_NE(opt2, nullptr);
+    ASSERT_NE(opt3, nullptr);
+
+    EXPECT_EQ(opt1->value, "upper");
+    EXPECT_EQ(opt2->value, "mixed");
+    EXPECT_EQ(opt3->value, "lower");
+
+    // Original case keys should not be accessible (should fallback to default)
+    auto opt4 = opts.get<MockOption>("KEYUPPER");
+    auto opt5 = opts.get<MockOption>("KeyMixed");
+
+    ASSERT_NE(opt4, nullptr);
+    ASSERT_NE(opt5, nullptr);
+
+    EXPECT_EQ(opt4->value, "");
+    EXPECT_EQ(opt5->value, "");
+}
+
 TEST(ConfigEnvironmentVariables, ReturnsMatchingVariables) {
     // Set environment variables for testing
     setenv("RAPIDSMPF_TEST_VAR1", "value1", 1);
