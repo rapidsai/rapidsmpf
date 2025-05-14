@@ -215,12 +215,15 @@ int main(int argc, char** argv) {
 
     ArgumentParser args{argc, argv};
 
+    // Initialize configuration options from environment variables.
+    rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
+
     std::shared_ptr<Communicator> comm;
     if (args.comm_type == "mpi") {
         mpi::init(&argc, &argv);
-        comm = std::make_shared<MPI>(MPI_COMM_WORLD);
+        comm = std::make_shared<MPI>(MPI_COMM_WORLD, options);
     } else {  // ucxx
-        comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD);
+        comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
     }
 
     auto& log = comm->logger();

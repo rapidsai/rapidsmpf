@@ -23,11 +23,16 @@ int main(int argc, char** argv) {
     // optional MPI-init function that initialize MPI with thread support.
     rapidsmpf::mpi::init(&argc, &argv);
 
-    // First, we have to create a Communicator, which we will use throughout the example.
-    // Notice, if you want to do multiple shuffles concurrently, each shuffle should use
-    // its own Communicator backed by its own MPI communicator.
+    // Initialize configuration options from environment variables.
+    rapidsmpf::config::Options config_options{
+        rapidsmpf::config::get_environment_variables()
+    };
+
+    // First, we have to create a Communicator, which we will use throughout the
+    // example. Notice, if you want to do multiple shuffles concurrently, each shuffle
+    // should use its own Communicator backed by its own MPI communicator.
     std::shared_ptr<rapidsmpf::Communicator> comm =
-        std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD);
+        std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, config_options);
 
     // Create a statistics instance for the shuffler that tracks useful information.
     auto stats = std::make_shared<rapidsmpf::Statistics>();
