@@ -14,6 +14,7 @@ from ucxx._lib.libucxx cimport Address, UCXAddress, UCXWorker, Worker
 
 from rapidsmpf.communicator.communicator cimport *
 from rapidsmpf.communicator.ucxx cimport *
+from rapidsmpf.config cimport Options, cpp_Options
 
 
 cdef extern from "<variant>" namespace "std" nogil:
@@ -52,7 +53,8 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace "rapidsmpf::ucxx"
     cdef cppclass cpp_UCXX_Communicator "rapidsmpf::ucxx::UCXX":
         cpp_UCXX_Communicator() except +
         cpp_UCXX_Communicator(
-            unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
+            unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank,
+            cpp_Options options
         ) except +
         cpp_UCXX_ListenerAddress listener_address()
         void barrier() except +
@@ -63,6 +65,7 @@ cdef Communicator cpp_new_communicator(
     shared_ptr[Worker] worker,
     shared_ptr[Address] root_address,
 ):
+    cdef Options options = Options()
     cdef unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
     cdef Communicator ret = Communicator.__new__(Communicator)
     with nogil:
@@ -70,7 +73,9 @@ cdef Communicator cpp_new_communicator(
             ucxx_initialized_rank = init(worker, nranks, nullopt)
         else:
             ucxx_initialized_rank = init(worker, nranks, root_address)
-        ret._handle = make_shared[cpp_UCXX_Communicator](move(ucxx_initialized_rank))
+        ret._handle = make_shared[cpp_UCXX_Communicator](
+            move(ucxx_initialized_rank), options._handle
+        )
     return ret
 
 
