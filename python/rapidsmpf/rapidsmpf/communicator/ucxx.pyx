@@ -64,8 +64,8 @@ cdef Communicator cpp_new_communicator(
     Rank nranks,
     shared_ptr[Worker] worker,
     shared_ptr[Address] root_address,
+    Options options,
 ):
-    cdef Options options = Options()
     cdef unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
     cdef Communicator ret = Communicator.__new__(Communicator)
     with nogil:
@@ -82,7 +82,8 @@ cdef Communicator cpp_new_communicator(
 def new_communicator(
     Rank nranks,
     UCXWorker ucx_worker,
-    UCXAddress root_ucxx_address
+    UCXAddress root_ucxx_address,
+    Options options,
 ):
     """
     Create a new UCXX communicator with the given number of ranks.
@@ -99,6 +100,8 @@ def new_communicator(
         An existing UCXX worker to use if specified, otherwise one will be created.
     root_ucxx_address
         The UCXX address of the root rank (only specified for non-root ranks).
+    options
+        Configuration options.
 
     Returns
     -------
@@ -113,7 +116,9 @@ def new_communicator(
     else:
         root_ucxx_address_ptr = root_ucxx_address.get_ucxx_shared_ptr()
 
-    return cpp_new_communicator(nranks, ucx_worker_ptr, root_ucxx_address_ptr)
+    return cpp_new_communicator(
+        nranks, ucx_worker_ptr, root_ucxx_address_ptr, options
+    )
 
 
 def get_root_ucxx_address(Communicator comm):
