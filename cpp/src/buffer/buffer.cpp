@@ -156,20 +156,20 @@ template <cudaMemcpyKind Kind, typename T>
 std::unique_ptr<Buffer> cuda_copy_slice_impl(
     const T& storage,
     std::ptrdiff_t offset,
-    std::ptrdiff_t length,
+    std::size_t length,
     MemoryReservation& target_reserv,
     rmm::cuda_stream_view stream
 ) {
     // allocate buffer using the target reservation
     auto out_buf = target_reserv.br()->allocate(
-        target_reserv.mem_type(), size_t(length), stream, target_reserv
+        target_reserv.mem_type(), length, stream, target_reserv
     );
 
     if (length > 0) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
             static_cast<cuda::std::uint8_t*>(out_buf->data()),
             static_cast<cuda::std::uint8_t*>(storage->data()) + offset,
-            size_t(length),
+            length,
             Kind,
             stream
         ));
@@ -182,14 +182,17 @@ std::unique_ptr<Buffer> cuda_copy_slice_impl(
 
 std::unique_ptr<Buffer> Buffer::copy_slice(
     std::ptrdiff_t offset,
-    std::ptrdiff_t length,
+    std::size_t length,
     MemoryReservation& target_reserv,
     rmm::cuda_stream_view stream
 ) const {
-    RAPIDSMPF_EXPECTS(target_reserv.size() >= size_t(length), "reservation is too small");
-    RAPIDSMPF_EXPECTS(offset <= std::ptrdiff_t(size), "offset can't be more than size");
+    RAPIDSMPF_EXPECTS(target_reserv.size() >= length, "reservation is too small");
     RAPIDSMPF_EXPECTS(
-        offset + length <= std::ptrdiff_t(size), "offset + length can't be more than size"
+        offset <= std::ptrdiff_t(size), "offset can't be greater than size"
+    );
+    RAPIDSMPF_EXPECTS(
+        offset + std::ptrdiff_t(length) <= std::ptrdiff_t(size),
+        "offset + length can't be greater than size"
     );
 
     // Implement the copy between each possible memory types (both directions).
@@ -201,15 +204,13 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
                     {
                         // allocate host buffer using the target reservation
                         auto host_buf = target_reserv.br()->allocate(
-                            MemoryType::HOST, size_t(length), stream, target_reserv
+                            MemoryType::HOST, length, stream, target_reserv
                         );
 
                         // wait for this buffer to be ready, as host-to-host copy is
                         // synchronous
                         wait_for_ready();
-                        std::memcpy(
-                            host_buf->data(), storage->data() + offset, size_t(length)
-                        );
+                        std::memcpy(host_buf->data(), storage->data() + offset, length);
                         return host_buf;
                     }
                 case MemoryType::DEVICE:  // host -> device

@@ -165,7 +165,7 @@ std::unique_ptr<Buffer> BufferResource::copy(
 std::unique_ptr<Buffer> BufferResource::copy_slice(
     std::unique_ptr<Buffer> const& buffer,
     std::ptrdiff_t offset,
-    std::ptrdiff_t length,
+    std::size_t length,
     MemoryReservation& reservation,
     rmm::cuda_stream_view stream
 ) {

@@ -332,7 +332,7 @@ class Buffer {
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
         std::ptrdiff_t offset,
-        std::ptrdiff_t length,
+        std::size_t length,
         MemoryReservation& target_reserv,
         rmm::cuda_stream_view stream
     ) const;
