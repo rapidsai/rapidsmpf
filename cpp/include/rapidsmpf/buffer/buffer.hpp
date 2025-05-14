@@ -93,6 +93,8 @@ class Buffer {
          * @brief Check if the CUDA event has been completed.
          *
          * @return true if the event has been completed, false otherwise.
+         *
+         * @throws rapidsmpf::cuda_error if cudaEventQuery fails.
          */
         [[nodiscard]] bool is_ready();
 

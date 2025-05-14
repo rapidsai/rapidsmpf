@@ -32,10 +32,13 @@ Buffer::Event::~Event() {
 }
 
 [[nodiscard]] bool Buffer::Event::is_ready() {
-    if (!done_.load(std::memory_order_relaxed)) {
-        bool result = (cudaEventQuery(event_) == cudaSuccess);
-        done_.store(result, std::memory_order_relaxed);
-        return result;
+    if (!done_.load(std::memory_order_acquire)) {
+        auto result = cudaEventQuery(event_);
+        done_.store(result == cudaSuccess, std::memory_order_release);
+        if (result != cudaSuccess && result != cudaErrorNotReady) {
+            RAPIDSMPF_CUDA_TRY(result);
+        }
+        return result == cudaSuccess;
     }
 
     return true;
@@ -173,8 +176,10 @@ std::unique_ptr<Buffer> cuda_copy_slice_impl(
             Kind,
             stream
         ));
-        // override the event to track the async copy
-        out_buf->override_event(std::make_shared<Buffer::Event>(stream));
+        // override the event to track the async copy, if the copy is not host-to-host
+        if constexpr (Kind != cudaMemcpyHostToHost) {
+            out_buf->override_event(std::make_shared<Buffer::Event>(stream));
+        }
     }
 
     return out_buf;
@@ -201,18 +206,9 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
             [&](const HostStorageT& storage) {
                 switch (target_reserv.mem_type()) {
                 case MemoryType::HOST:  // host -> host
-                    {
-                        // allocate host buffer using the target reservation
-                        auto host_buf = target_reserv.br()->allocate(
-                            MemoryType::HOST, length, stream, target_reserv
-                        );
-
-                        // wait for this buffer to be ready, as host-to-host copy is
-                        // synchronous
-                        wait_for_ready();
-                        std::memcpy(host_buf->data(), storage->data() + offset, length);
-                        return host_buf;
-                    }
+                    return cuda_copy_slice_impl<cudaMemcpyHostToHost>(
+                        storage, offset, length, target_reserv, stream
+                    );
                 case MemoryType::DEVICE:  // host -> device
                     return cuda_copy_slice_impl<cudaMemcpyHostToDevice>(
                         storage, offset, length, target_reserv, stream
