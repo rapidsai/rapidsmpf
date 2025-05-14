@@ -85,8 +85,8 @@ class Chunk {
      *
      * @return The number of messages in the chunk.
      */
-    constexpr size_t n_messages() const {
-        return n_messages_;
+    inline size_t n_messages() const {
+        return part_ids_.size();
     }
 
     /**
@@ -121,15 +121,15 @@ class Chunk {
     }
 
     /**
-     * @brief Get the data of the i-th message, as a new ChunkBatch.
+     * @brief Get the data of the i-th message, as a new chunk.
      *
      * @param new_chunk_id The ID of the new chunk.
      * @param i The index of the message.
      * @param stream The CUDA stream.
-     * @return A new ChunkBatch containing the data of the i-th message.
+     * @return A new chunk containing the data of the i-th message.
      * @note This will create a copy of the packed data. If there is only one message and
-     * the message is a data message, the buffers will be moved to the new ChunkBatch.
-     * Otherwise a new ChunkBatch will be created by copying data.
+     * the message is a data message, the buffers will be moved to the new chunk.
+     * Otherwise a new chunk will be created by copying data.
      *
      * @throws std::out_of_range if the index is out of bounds.
      */
@@ -143,8 +143,6 @@ class Chunk {
      * control message, otherwise the size of `PackedData::metadata`.
      */
     inline uint32_t metadata_size(size_t i) const {
-        assert(!meta_offsets_.empty());
-        assert(!is_control_message(i));
         return i == 0 ? meta_offsets_.at(0)
                       : meta_offsets_.at(i) - meta_offsets_.at(i - 1);
     }
@@ -157,8 +155,6 @@ class Chunk {
      * control message, otherwise the size of `PackedData::gpu_data` of the message.
      */
     inline size_t data_size(size_t i) const {
-        assert(!data_offsets_.empty());
-        assert(!is_control_message(i));
         return i == 0 ? data_offsets_.at(0)
                       : data_offsets_.at(i) - data_offsets_.at(i - 1);
     }
@@ -195,8 +191,8 @@ class Chunk {
      *
      * @return The memory type of the data buffer.
      */
-    inline MemoryType data_memory_type() const {
-        assert(data_);
+    MemoryType data_memory_type() const {
+        RAPIDSMPF_EXPECTS(data_, "data buffer is not set");
         return data_->mem_type();
     }
 
@@ -206,7 +202,6 @@ class Chunk {
      * @return The size of the concatenated data.
      */
     inline size_t concat_data_size() const {
-        assert(!data_offsets_.empty());
         return data_offsets_[n_messages() - 1];
     }
 
@@ -216,9 +211,6 @@ class Chunk {
      * @return The size of the concatenated metadata.
      */
     inline size_t concat_metadata_size() const {
-        assert(metadata_);
-        assert(!meta_offsets_.empty());
-        assert(meta_offsets_[n_messages() - 1] == metadata_->size());
         return meta_offsets_[n_messages() - 1];
     }
 
@@ -241,7 +233,7 @@ class Chunk {
     }
 
     /**
-     * @brief Create a single-message ChunkBatch from a packed data.
+     * @brief Create a single-message chunk from a packed data.
      *
      * @param chunk_id The ID of the chunk.
      * @param part_id The ID of the partition.
@@ -249,7 +241,7 @@ class Chunk {
      * @param event The CUDA event.
      * @param stream The CUDA stream.
      * @param br The buffer resource.
-     * @return The ChunkBatch.
+     * @return The chunk.
      */
     static Chunk from_packed_data(
         ChunkID chunk_id,
@@ -261,24 +253,24 @@ class Chunk {
     );
 
     /**
-     * @brief Create a single-message ChunkBatch for a finished partition (control
+     * @brief Create a single-message chunk for a finished partition (control
      * message).
      *
      * @param chunk_id The ID of the chunk.
      * @param part_id The ID of the partition.
      * @param expected_num_chunks The expected number of chunks.
-     * @return The ChunkBatch.
+     * @return The chunk.
      */
     static Chunk from_finished_partition(
         ChunkID chunk_id, PartID part_id, size_t expected_num_chunks
     );
 
     /**
-     * @brief Create a ChunkBatch by deserializing a metadata message.
+     * @brief Create a chunk by deserializing a metadata message.
      *
      * @param msg The metadata message received from another rank.
      * @param validate Whether to validate the metadata buffer.
-     * @return The ChunkBatch.
+     * @return The chunk.
      *
      * @throws std::runtime_error if the metadata buffer does not follow the expected
      * format and `validate` is true.
@@ -298,7 +290,7 @@ class Chunk {
      * @brief Whether the chunk is ready for consumption.
      *
      * @return True if the chunk is ready, false otherwise.
-     * @note ChunkBatch is ready if it has no data or if the data is ready. data_ buffer
+     * @note chunk is ready if it has no data or if the data is ready. data_ buffer
      * could be set later, so we need to check if it is non-null.
      */
     [[nodiscard]] inline bool is_ready() const {
@@ -331,7 +323,6 @@ class Chunk {
     // constructor
     Chunk(
         ChunkID chunk_id,
-        size_t n_messages,
         std::vector<PartID> part_ids,
         std::vector<size_t> expected_num_chunks,
         std::vector<uint32_t> meta_offsets,
@@ -341,7 +332,6 @@ class Chunk {
     );
 
     ChunkID const chunk_id_;  ///< The ID of the chunk.
-    size_t const n_messages_;  ///< The number of messages in the chunk.
     std::vector<PartID> const
         part_ids_;  ///< The partition IDs of the messages in the chunk.
     std::vector<size_t> const expected_num_chunks_;  ///< The expected number of chunks of

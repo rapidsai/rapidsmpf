@@ -14,7 +14,6 @@ namespace rapidsmpf::shuffler::detail {
 
 Chunk::Chunk(
     ChunkID chunk_id,
-    size_t n_messages,
     std::vector<PartID> part_ids,
     std::vector<size_t> expected_num_chunks,
     std::vector<uint32_t> meta_offsets,
@@ -23,13 +22,19 @@ Chunk::Chunk(
     std::unique_ptr<Buffer> data
 )
     : chunk_id_{chunk_id},
-      n_messages_{n_messages},
       part_ids_{std::move(part_ids)},
       expected_num_chunks_{std::move(expected_num_chunks)},
       meta_offsets_{std::move(meta_offsets)},
       data_offsets_{std::move(data_offsets)},
       metadata_{std::move(metadata)},
-      data_{std::move(data)} {}
+      data_{std::move(data)} {
+    RAPIDSMPF_EXPECTS(
+        (part_ids_.size() > 0) && (part_ids_.size() == expected_num_chunks_.size())
+            && (part_ids_.size() == meta_offsets_.size())
+            && (part_ids_.size() == data_offsets_.size()),
+        "invalid chunk: input vectors have different sizes"
+    );
+}
 
 Chunk Chunk::get_data(
     ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view /* stream */
@@ -44,7 +49,6 @@ Chunk Chunk::get_data(
         // If there is only one message, move the metadata and data to the new chunk.
         return Chunk(
             new_chunk_id,
-            1,
             {part_ids_[0]},
             {expected_num_chunks_[0]},
             {meta_offsets_[0]},
@@ -57,7 +61,7 @@ Chunk Chunk::get_data(
         // TODO: slice and copy data
     }
 
-    return {new_chunk_id, 1, {}, {}, {}, {}};  // never reached
+    return {new_chunk_id, {}, {}, {}, {}};  // never reached
 }
 
 Chunk Chunk::from_packed_data(
@@ -80,7 +84,6 @@ Chunk Chunk::from_packed_data(
 
     return {
         chunk_id,
-        1,
         {part_id},
         {0},  // expected_num_chunks
         std::move(meta_offsets),
@@ -95,7 +98,7 @@ Chunk Chunk::from_packed_data(
 Chunk Chunk::from_finished_partition(
     ChunkID chunk_id, PartID part_id, size_t expected_num_chunks
 ) {
-    return {chunk_id, 1, {part_id}, {expected_num_chunks}, {0}, {0}};
+    return {chunk_id, {part_id}, {expected_num_chunks}, {0}, {0}};
 }
 
 Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
@@ -138,7 +141,6 @@ Chunk Chunk::deserialize(std::vector<uint8_t> const& msg, bool validate) {
 
     return {
         chunk_id,
-        n_messages,
         std::move(part_ids),
         std::move(expected_num_chunks),
         std::move(meta_offsets),
@@ -155,38 +157,61 @@ bool Chunk::validate_format(std::vector<uint8_t> const& serialized_buf) {
     }
 
     // Get number of messages
-    size_t n_messages =
-        *reinterpret_cast<size_t const*>(serialized_buf.data() + sizeof(ChunkID));
+    size_t n = 0;
+    std::memcpy(&n, serialized_buf.data() + sizeof(ChunkID), sizeof(size_t));
 
-    if (n_messages == 0) {  // no messages
+    if (n == 0) {  // no messages
         return false;
     }
 
     // Check if buffer is large enough to contain all the messages' metadata
-    size_t header_size = metadata_message_header_size(n_messages);
+    size_t header_size = metadata_message_header_size(n);
     if (serialized_buf.size() < header_size) {
         return false;
     }
 
     // For each message, validate the metadata and data sizes
-    auto const* psum_meta = reinterpret_cast<uint32_t const*>(
-        serialized_buf.data() + sizeof(ChunkID) + sizeof(size_t)
-        + n_messages * (sizeof(PartID) + sizeof(size_t))
-    );
-    auto const* psum_data = reinterpret_cast<uint64_t const*>(psum_meta + n_messages);
+    uint8_t const* meta_offsets_start =
+        serialized_buf.data()
+        + (sizeof(ChunkID) + sizeof(size_t) + n * (sizeof(PartID) + sizeof(size_t)));
+    uint8_t const* data_offsets_start = meta_offsets_start + n * sizeof(uint32_t);
 
     // Check if prefix sums are non-decreasing
     bool is_non_decreasing = true;
-    for (size_t i = 1; i < n_messages; ++i) {
-        is_non_decreasing &= (psum_meta[i] >= psum_meta[i - 1]);
-        is_non_decreasing &= (psum_data[i] >= psum_data[i - 1]);
+    for (size_t i = 1; i < n; ++i) {
+        uint32_t prev_meta_offset, this_meta_offset;
+        std::memcpy(
+            &prev_meta_offset,
+            meta_offsets_start + (i - 1) * sizeof(uint32_t),
+            sizeof(uint32_t)
+        );
+        std::memcpy(
+            &this_meta_offset, meta_offsets_start + i * sizeof(uint32_t), sizeof(uint32_t)
+        );
+        is_non_decreasing &= (this_meta_offset >= prev_meta_offset);
+
+        uint64_t prev_data_offset, this_data_offset;
+        std::memcpy(
+            &prev_data_offset,
+            data_offsets_start + (i - 1) * sizeof(uint64_t),
+            sizeof(uint64_t)
+        );
+        std::memcpy(
+            &this_data_offset, data_offsets_start + i * sizeof(uint64_t), sizeof(uint64_t)
+        );
+        is_non_decreasing &= (this_data_offset >= prev_data_offset);
     }
     if (!is_non_decreasing) {
         return false;
     }
 
     // Check if the total metadata size matches the buffer size
-    size_t total_meta_size = psum_meta[n_messages - 1];
+    uint32_t total_meta_size;
+    std::memcpy(
+        &total_meta_size,
+        meta_offsets_start + (n - 1) * sizeof(uint32_t),
+        sizeof(uint32_t)
+    );
     if (serialized_buf.size() != header_size + total_meta_size) {
         return false;
     }
@@ -213,8 +238,10 @@ std::string Chunk::str(std::size_t /*max_nbytes*/, rmm::cuda_stream_view /*strea
 }
 
 std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
+    size_t n = this->n_messages();
+
     size_t metadata_buf_size =
-        metadata_message_header_size(n_messages_) + (metadata_ ? metadata_->size() : 0);
+        metadata_message_header_size(n) + (metadata_ ? metadata_->size() : 0);
     auto metadata_buf = std::make_unique<std::vector<uint8_t>>(metadata_buf_size);
 
     uint8_t* p = metadata_buf->data();
@@ -223,24 +250,24 @@ std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
     p += sizeof(ChunkID);
 
     // Write number of messages
-    std::memcpy(p, &n_messages_, sizeof(size_t));
+    std::memcpy(p, &n, sizeof(size_t));
     p += sizeof(size_t);
 
     // Write partition IDs
-    std::memcpy(p, part_ids_.data(), n_messages_ * sizeof(PartID));
-    p += n_messages_ * sizeof(PartID);
+    std::memcpy(p, part_ids_.data(), n * sizeof(PartID));
+    p += n * sizeof(PartID);
 
     // Write expected number of chunks
-    std::memcpy(p, expected_num_chunks_.data(), n_messages_ * sizeof(size_t));
-    p += n_messages_ * sizeof(size_t);
+    std::memcpy(p, expected_num_chunks_.data(), n * sizeof(size_t));
+    p += n * sizeof(size_t);
 
     // Write metadata offsets
-    std::memcpy(p, meta_offsets_.data(), n_messages_ * sizeof(uint32_t));
-    p += n_messages_ * sizeof(uint32_t);
+    std::memcpy(p, meta_offsets_.data(), n * sizeof(uint32_t));
+    p += n * sizeof(uint32_t);
 
     // Write data offsets
-    std::memcpy(p, data_offsets_.data(), n_messages_ * sizeof(uint64_t));
-    p += n_messages_ * sizeof(uint64_t);
+    std::memcpy(p, data_offsets_.data(), n * sizeof(uint64_t));
+    p += n * sizeof(uint64_t);
 
     // Write concatenated metadata
     if (metadata_) {

@@ -103,12 +103,12 @@ TEST(MetadataMessage, round_trip) {
     auto metadata = iota_vector<uint8_t>(100);
 
     auto expect = rapidsmpf::shuffler::detail::Chunk::from_packed_data(
-        1,
-        2,
-        {std::make_unique<std::vector<uint8_t>>(metadata), nullptr},
-        nullptr,
+        1,  // chunk_id
+        2,  // part_id
+        {std::make_unique<std::vector<uint8_t>>(metadata), nullptr},  // packed_data
+        nullptr,  // event
         stream,
-        nullptr
+        nullptr  // buffer_resource
     );
 
     // Extract the metadata from then chunk.
@@ -551,7 +551,7 @@ TEST(FinishCounterTests, wait_some_with_timeout) {
 
 namespace rapidsmpf::shuffler::detail {
 Chunk make_dummy_chunk(ChunkID chunk_id, PartID part_id) {
-    return Chunk(chunk_id, 1, {part_id}, {0}, {0}, {0}, nullptr, nullptr);
+    return Chunk(chunk_id, {part_id}, {0}, {0}, {0}, nullptr, nullptr);
 }
 }  // namespace rapidsmpf::shuffler::detail
 
