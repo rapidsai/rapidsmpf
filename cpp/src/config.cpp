@@ -34,7 +34,7 @@ std::unordered_map<std::string, T> transform_keys_trim_lower(
 
 OptionsImpl::OptionsImpl(
     std::unordered_map<std::string, std::string> options_as_strings,
-    std::unordered_map<std::string, std::unique_ptr<Option>> options
+    std::unordered_map<std::string, std::any> options
 
 )
     : options_as_strings_{transform_keys_trim_lower(std::move(options_as_strings))},
@@ -44,7 +44,7 @@ OptionsImpl::OptionsImpl(
 
 Options::Options(
     std::unordered_map<std::string, std::string> options_as_strings,
-    std::unordered_map<std::string, std::unique_ptr<Option>> options
+    std::unordered_map<std::string, std::any> options
 
 )
     : impl_{std::make_shared<detail::OptionsImpl>(

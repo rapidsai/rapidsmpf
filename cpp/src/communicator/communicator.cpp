@@ -6,11 +6,11 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 
 namespace rapidsmpf {
-
-namespace detail {
-
-
+namespace {
 Communicator::Logger::LOG_LEVEL level_from_string(std::string const& str) {
+    if (str.empty()) {
+        return Communicator::Logger::LOG_LEVEL::WARN;  // Default log level.
+    }
     auto trimmed = to_upper(trim(str));
     for (std::uint32_t i = 0; i < Communicator::Logger::LOG_LEVEL_NAMES.size(); ++i) {
         auto level = static_cast<Communicator::Logger::LOG_LEVEL>(i);
@@ -26,24 +26,10 @@ Communicator::Logger::LOG_LEVEL level_from_string(std::string const& str) {
     ss << "}";
     throw std::invalid_argument(ss.str());
 }
-
-class LogLevelOption : public config::Option {
-  public:
-    LogLevelOption() : value{Communicator::Logger::LOG_LEVEL::WARN} {}
-
-    LogLevelOption(std::string const& option_as_string)
-        : value{level_from_string(option_as_string)} {}
-
-    ~LogLevelOption() override = default;
-
-    Communicator::Logger::LOG_LEVEL const value;
-};
-
-
-}  // namespace detail
+}  // namespace
 
 Communicator::Logger::Logger(Communicator* comm, config::Options options)
-    : comm_{comm}, level_{options.get<detail::LogLevelOption>("log")->value} {};
+    : comm_{comm}, level_(options.get<LOG_LEVEL>("log", level_from_string)){};
 
 
 }  // namespace rapidsmpf

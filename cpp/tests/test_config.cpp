@@ -10,99 +10,6 @@
 
 using namespace rapidsmpf::config;
 
-class MockOption : public Option {
-  public:
-    explicit MockOption(std::string value = "") : value(std::move(value)) {}
-
-    std::string value;
-};
-
-class MockOptionNotUsed : public Option {
-  public:
-    explicit MockOptionNotUsed(std::string value = "") : value(std::move(value)) {}
-
-    std::string value;
-};
-
-TEST(Options, RetrieveExistingOption) {
-    std::unordered_map<std::string, std::unique_ptr<Option>> options;
-    options["key"] = std::make_unique<MockOption>("value");
-
-    Options opts({}, std::move(options));
-    auto retrieved_option = opts.get<MockOption>("key");
-
-    ASSERT_NE(retrieved_option, nullptr);
-    EXPECT_EQ(retrieved_option->value, "value");
-}
-
-TEST(Options, RetrieveNonExistingOption) {
-    Options opts;
-    auto retrieved_option = opts.get<MockOption>("nonexistent-key");
-
-    ASSERT_NE(retrieved_option, nullptr);
-    EXPECT_EQ(retrieved_option->value, "");
-}
-
-TEST(Options, RetrieveOptionWithStringFallback) {
-    std::unordered_map<std::string, std::string> options_as_strings;
-    options_as_strings["key"] = "fallback-value";
-
-    Options opts(std::move(options_as_strings));
-    auto retrieved_option = opts.get<MockOption>("key");
-
-    ASSERT_NE(retrieved_option, nullptr);
-    EXPECT_EQ(retrieved_option->value, "fallback-value");
-}
-
-TEST(Options, InvalidTypeAccess) {
-    std::unordered_map<std::string, std::unique_ptr<Option>> options;
-    options["key"] = std::make_unique<MockOption>("value");
-
-    Options opts({}, std::move(options));
-
-    EXPECT_THROW(opts.get<MockOptionNotUsed>("key"), std::invalid_argument);
-}
-
-TEST(Options, MissingKeyThrowsNoException) {
-    Options opts;
-    auto retrieved_option = opts.get<MockOption>("missing-key");
-
-    ASSERT_NE(retrieved_option, nullptr);
-    EXPECT_EQ(retrieved_option->value, "");
-}
-
-TEST(Options, KeysAreConvertedToLowercase) {
-    std::unordered_map<std::string, std::unique_ptr<Option>> options;
-    options["KEYUPPER"] = std::make_unique<MockOption>("upper");
-    options["KeyMixed"] = std::make_unique<MockOption>("mixed");
-    options["keylower"] = std::make_unique<MockOption>("lower");
-
-    Options opts({}, std::move(options));
-
-    // All keys should be accessible in lowercase
-    auto opt1 = opts.get<MockOption>("keyupper");
-    auto opt2 = opts.get<MockOption>("keymixed");
-    auto opt3 = opts.get<MockOption>("keylower");
-
-    ASSERT_NE(opt1, nullptr);
-    ASSERT_NE(opt2, nullptr);
-    ASSERT_NE(opt3, nullptr);
-
-    EXPECT_EQ(opt1->value, "upper");
-    EXPECT_EQ(opt2->value, "mixed");
-    EXPECT_EQ(opt3->value, "lower");
-
-    // Original case keys should not be accessible (should fallback to default)
-    auto opt4 = opts.get<MockOption>("KEYUPPER");
-    auto opt5 = opts.get<MockOption>("KeyMixed");
-
-    ASSERT_NE(opt4, nullptr);
-    ASSERT_NE(opt5, nullptr);
-
-    EXPECT_EQ(opt4->value, "");
-    EXPECT_EQ(opt5->value, "");
-}
-
 TEST(ConfigEnvironmentVariables, ReturnsMatchingVariables) {
     // Set environment variables for testing
     setenv("RAPIDSMPF_TEST_VAR1", "value1", 1);
@@ -153,4 +60,72 @@ TEST(ConfigEnvironmentVariables, ThrowsIfNoCaptureGroup) {
     EXPECT_THROW(
         get_environment_variables(output, "RAPIDSMPF_.*"), std::invalid_argument
     );
+}
+
+template <typename T>
+OptionFactory<T> make_factory(T default_value, std::function<T(std::string)> parser) {
+    return [=](std::string const& s) -> T {
+        if (s.empty())
+            return default_value;
+        return parser(s);
+    };
+}
+
+TEST(OptionsTest, GetOptionCorrectTypeSetExplicitly) {
+    std::unordered_map<std::string, std::any> options = {
+        {"myoption", std::make_any<int>(42)}
+    };
+    Options opts({}, options);
+
+    auto value = opts.get<int>("myoption", make_factory<int>(0, [](auto s) {
+                                   return std::stoi(s);
+                               }));
+    EXPECT_EQ(value, 42);
+}
+
+TEST(OptionsTest, GetOptionWrongTypeThrows) {
+    std::unordered_map<std::string, std::any> options = {
+        {"myoption", std::make_any<std::string>("not an int")}
+    };
+    Options opts({}, options);
+
+    EXPECT_THROW(
+        {
+            opts.get<int>("myoption", make_factory<int>(0, [](auto s) {
+                              return std::stoi(s);
+                          }));
+        },
+        std::invalid_argument
+    );
+}
+
+TEST(OptionsTest, GetUnsetOptionUsesFactoryWithDefaultValue) {
+    Options opts({}, {});
+
+    auto value = opts.get<std::string>(
+        "newoption", make_factory<std::string>("default", [](auto s) { return s; })
+    );
+    EXPECT_EQ(value, "default");
+}
+
+TEST(OptionsTest, GetUnsetOptionUsesFactoryWithStringValue) {
+    std::unordered_map<std::string, std::string> strings = {{"level", "5"}};
+    Options opts(strings, {});
+
+    auto value =
+        opts.get<int>("level", make_factory<int>(0, [](auto s) { return std::stoi(s); }));
+    EXPECT_EQ(value, 5);
+}
+
+TEST(OptionsTest, GetSetOptionOverridesStringMap) {
+    std::unordered_map<std::string, std::string> strings = {{"myoption", "999"}};
+    std::unordered_map<std::string, std::any> options = {
+        {"myoption", std::make_any<int>(123)}
+    };
+    Options opts(strings, options);
+
+    auto value = opts.get<int>("myoption", make_factory<int>(0, [](auto s) {
+                                   return std::stoi(s);
+                               }));
+    EXPECT_EQ(value, 123);  // set value overrides string-based one
 }

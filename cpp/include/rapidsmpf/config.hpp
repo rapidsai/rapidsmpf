@@ -5,8 +5,11 @@
 
 #pragma once
 
+#include <any>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 
@@ -15,24 +18,18 @@
 namespace rapidsmpf::config {
 
 /**
- * @brief Base class for configuration options.
+ * @brief Type alias for a factory function that constructs options from strings.
  *
- * All configuration options must derive from this class and must implement:
- *  - A default ctor that either initialize to a meaningful default value or throw
- *    std::invalid_argument.
- *  - A ctor that takes a single argument `std::string const&`, which is the option as a
- *    string. The ctor must convert this string to a relevant value.
+ * The factory receives the string representation of an option value and returns
+ * an instance of the option type. If the option is unset, the function receives
+ * an empty string and should either return a meaningful default value or throw
+ * `std::invalid_argument`.
  *
- * @warning The ctor cannot access other options as this might deadlock because a lock is
- * held while options are initialized.
+ * @note The factory must not access other options, as a lock is held during option
+ * initialization and doing so may cause a deadlock.
  */
-class Option {
-  public:
-    /**
-     * @brief Virtual destructor for the `Option` base class.
-     */
-    virtual ~Option() = default;
-};
+template <typename T>
+using OptionFactory = std::function<T(std::string const&)>;
 
 namespace detail {
 
@@ -52,7 +49,7 @@ class OptionsImpl {
      */
     OptionsImpl(
         std::unordered_map<std::string, std::string> options_as_strings,
-        std::unordered_map<std::string, std::unique_ptr<Option>> options
+        std::unordered_map<std::string, std::any> options
     );
 
     /**
@@ -60,43 +57,42 @@ class OptionsImpl {
      *
      * Refer to the `Options::get` method for usage details.
      *
-     * @tparam T The type of the option to retrieve. Must derive from `Option`.
-     * @param key The key of the option to retrieve.
-     * @return A pointer to the retrieved option.
-     * @throws std::invalid_argument If the option exists but is of an incompatible type.
+     * @tparam T The type of the option to retrieve.
+     * @param key The option key (should be lower case).
+     * @param factory Function to construct the option from a string.
+     * @return Reference to the option value.
+     * @throws std::invalid_argument If the stored option type does not match T.
      */
     template <typename T>
-    T const* get(std::string const& key) {
-        static_assert(std::is_base_of<Option, T>::value, "T must derive from Option");
+    T const& get(std::string const& key, std::function<T(std::string const&)> factory) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (options_.find(key) == options_.end()) {
                 if (options_as_strings_.find(key) == options_as_strings_.end()) {
-                    options_[key] = std::make_unique<T>();
+                    options_[key] = std::make_any<T>(factory(""));
                 } else {
-                    options_[key] = std::make_unique<T>(options_as_strings_[key]);
+                    options_[key] = std::make_any<T>(factory(options_as_strings_[key]));
                 }
             }
         }
-        auto option = dynamic_cast<T*>(options_[key].get());
-        RAPIDSMPF_EXPECTS(
-            option != nullptr,
-            "accessing option with incompatible template type",
-            std::invalid_argument
-        );
-        return option;
+        try {
+            return std::any_cast<T const&>(options_[key]);
+        } catch (std::bad_any_cast const&) {
+            RAPIDSMPF_FAIL(
+                "accessing option with incompatible template type", std::invalid_argument
+            );
+        }
     }
 
   private:
     mutable std::mutex mutex_;
     std::unordered_map<std::string, std::string> options_as_strings_;
-    std::unordered_map<std::string, std::unique_ptr<Option>> options_;
+    std::unordered_map<std::string, std::any> options_;
 };
-
 }  // namespace detail
 
 /**
- * @brief Manages configuration options for the RapidsMPF operations.
+ * @brief Manages configuration options for RapidsMPF operations.
  *
  * The `Options` class provides a high-level interface for storing and retrieving
  * configuration options.
@@ -104,8 +100,8 @@ class OptionsImpl {
  * All keys are trimmed and converted to lower case using `rapidsmpf::trim()` and
  * `rapidsmpf::to_lower()`.
  *
- * @note Copying `rapidsmpf::Options` is fast as it uses a shared pointer to its internal
- * implementation (`OptionsImpl`).
+ * @note Copying `rapidsmpf::config::Options` is efficient as it uses a shared pointer
+ * to its internal implementation (`OptionsImpl`).
  */
 class Options {
   public:
@@ -117,24 +113,25 @@ class Options {
      */
     Options(
         std::unordered_map<std::string, std::string> options_as_strings = {},
-        std::unordered_map<std::string, std::unique_ptr<Option>> options = {}
+        std::unordered_map<std::string, std::any> options = {}
     );
 
     /**
      * @brief Retrieves a configuration option by key.
      *
-     * If the option does not exist, it is created using:
-     *  1) its string representation if available, or
-     *  2) using its default constructor.
+     * If the option is not present, it will be constructed using the provided
+     * factory, which receives the string representation of the option (or an
+     * empty string if unset).
      *
-     * @tparam T The type of the option to retrieve. Must derive from `Option`.
-     * @param key The key of the option to retrieve.
-     * @return A pointer to the retrieved option.
-     * @throws std::invalid_argument If the option exists but is of an incompatible type.
+     * @tparam T The type of the option to retrieve.
+     * @param key The option key (should be lower case).
+     * @param factory Function to construct the option from a string.
+     * @return Reference to the option value.
+     * @throws std::invalid_argument If the stored option type does not match T.
      */
     template <typename T>
-    T const* get(std::string const& key) {
-        return impl_->get<T>(key);
+    T const& get(std::string const& key, OptionFactory<T> factory) {
+        return impl_->get<T>(key, factory);
     }
 
   private:
