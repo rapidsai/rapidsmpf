@@ -24,15 +24,13 @@ int main(int argc, char** argv) {
     rapidsmpf::mpi::init(&argc, &argv);
 
     // Initialize configuration options from environment variables.
-    rapidsmpf::config::Options config_options{
-        rapidsmpf::config::get_environment_variables()
-    };
+    rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
     // First, we have to create a Communicator, which we will use throughout the
     // example. Notice, if you want to do multiple shuffles concurrently, each shuffle
     // should use its own Communicator backed by its own MPI communicator.
     std::shared_ptr<rapidsmpf::Communicator> comm =
-        std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, config_options);
+        std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options);
 
     // Create a statistics instance for the shuffler that tracks useful information.
     auto stats = std::make_shared<rapidsmpf::Statistics>();

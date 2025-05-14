@@ -60,6 +60,13 @@ def get_environment_variables(str key_regex = "RAPIDSMPF_(.*)"):
 
 
 cdef class Options:
+    """Initialize an Options object with a dictionary of string options.
+
+    Parameters
+    ----------
+    options_as_strings
+        A dictionary representing option names and their corresponding values.
+    """
     def __cinit__(self, options_as_strings):
         cdef unordered_map[string, string] opts
         for key, val in options_as_strings.items():
