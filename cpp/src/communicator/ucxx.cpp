@@ -971,7 +971,8 @@ UCXX::UCXX(
     std::unique_ptr<InitializedRank> ucxx_initialized_rank, config::Options options
 )
     : shared_resources_(ucxx_initialized_rank->shared_resources_),
-      logger_(this, std::move(options)) {
+      options_{options},
+      logger_(this, options) {
     shared_resources_->logger = &logger_;
 }
 
@@ -1249,7 +1250,7 @@ std::shared_ptr<UCXX> UCXX::split() {
 
     // Create the new UCXX instance
     auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
-    return std::make_shared<UCXX>(std::move(initialized_rank));
+    return std::make_shared<UCXX>(std::move(initialized_rank), options_);
 }
 
 }  // namespace ucxx

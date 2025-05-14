@@ -133,10 +133,7 @@ class UCXX final : public Communicator {
      * @param ucxx_initialized_rank The previously initialized UCXX rank.
      * @param options Configuration options.
      */
-    UCXX(
-        std::unique_ptr<InitializedRank> ucxx_initialized_rank,
-        config::Options options = {}
-    );
+    UCXX(std::unique_ptr<InitializedRank> ucxx_initialized_rank, config::Options options);
 
     ~UCXX() noexcept override;
 
@@ -246,6 +243,7 @@ class UCXX final : public Communicator {
 
   private:
     std::shared_ptr<SharedResources> shared_resources_;
+    config::Options options_;
     Logger logger_;
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
