@@ -72,8 +72,26 @@ class MemoryReservation {
      *
      * @return The size of the reserved memory in bytes.
      */
-    [[nodiscard]] std::size_t size() const noexcept {
+    [[nodiscard]] constexpr std::size_t size() const noexcept {
         return size_;
+    }
+
+    /**
+     * @brief Get the type of memory associated with this reservation.
+     *
+     * @return The type of memory associated with this reservation.
+     */
+    [[nodiscard]] constexpr MemoryType mem_type() const noexcept {
+        return mem_type_;
+    }
+
+    /**
+     * @brief Get the buffer resource associated with this reservation.
+     *
+     * @return The buffer resource associated with this reservation.
+     */
+    [[nodiscard]] constexpr BufferResource* br() const noexcept {
+        return br_;
     }
 
   private:
@@ -349,23 +367,22 @@ class BufferResource {
     );
 
     /**
-     * @brief Copy a slice of the buffer to a new buffer.
+     * @brief Copy a slice of a buffer to a new buffer, based on the reservation. The
+     * output buffer is allocated from the reservation (type and size).
      *
-     * @param target Memory type of the new buffer.
      * @param buffer The buffer to copy from.
      * @param offset Offset from the start of the buffer (in bytes).
      * @param length Length of the slice (in bytes).
-     * @param stream CUDA stream to use for the copy.
      * @param reservation The reservation to use for memory allocations.
+     * @param stream CUDA stream to use for the copy.
      * @returns A new buffer containing the copied slice.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        MemoryType target,
         std::unique_ptr<Buffer> const& buffer,
         std::ptrdiff_t offset,
         std::ptrdiff_t length,
-        rmm::cuda_stream_view stream,
-        MemoryReservation& reservation
+        MemoryReservation& reservation,
+        rmm::cuda_stream_view stream
     );
 
     /**

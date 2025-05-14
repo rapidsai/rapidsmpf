@@ -21,6 +21,7 @@ namespace rapidsmpf {
 
 class BufferResource;
 class Event;
+class MemoryReservation;
 
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
@@ -320,30 +321,19 @@ class Buffer {
     ) const;
 
     /**
-     * @brief Copy a slice of the buffer to a new buffer.
+     * @brief Copy a slice of the buffer to a new buffer allocated from the target
+     * reservation.
      *
      * @param offset Offset from the start of the buffer (in bytes).
      * @param length Length of the slice (in bytes).
+     * @param target_reserv Memory reservation for the new buffer.
      * @param stream CUDA stream to use for the copy.
      * @returns A new buffer containing the copied slice.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        std::ptrdiff_t offset, std::ptrdiff_t length, rmm::cuda_stream_view stream
-    ) const;
-
-    /**
-     * @brief Copy a slice of the buffer to a new buffer.
-     *
-     * @param target Memory type of the new buffer.
-     * @param offset Offset from the start of the buffer (in bytes).
-     * @param length Length of the slice (in bytes).
-     * @param stream CUDA stream to use for the copy.
-     * @returns A new buffer containing the copied slice.
-     */
-    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        MemoryType target,
         std::ptrdiff_t offset,
         std::ptrdiff_t length,
+        MemoryReservation& target_reserv,
         rmm::cuda_stream_view stream
     ) const;
 

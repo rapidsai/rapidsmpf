@@ -156,22 +156,21 @@ std::unique_ptr<Buffer> BufferResource::copy(
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
+    // TODO: Inconsistency with multiple buffer resources #280
     auto ret = buffer->copy(target, stream);
     release(reservation, target, ret->size);
     return ret;
 }
 
 std::unique_ptr<Buffer> BufferResource::copy_slice(
-    MemoryType target,
     std::unique_ptr<Buffer> const& buffer,
     std::ptrdiff_t offset,
     std::ptrdiff_t length,
-    rmm::cuda_stream_view stream,
-    MemoryReservation& reservation
+    MemoryReservation& reservation,
+    rmm::cuda_stream_view stream
 ) {
-    auto ret = buffer->copy_slice(target, offset, length, stream);
-    release(reservation, target, ret->size);
-    return ret;
+    // no need to release the reservation, the buffer will take care of it
+    return buffer->copy_slice(offset, length, reservation, stream);
 }
 
 SpillManager& BufferResource::spill_manager() {

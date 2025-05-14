@@ -414,11 +414,10 @@ class BufferResourceCopySliceTest
         std::size_t const length
     ) {
         auto [slice_reserve, slice_overbooking] = br->reserve(dest_type, length, false);
-        auto slice =
-            br->copy_slice(dest_type, source, offset, length, stream, slice_reserve);
+        auto slice = br->copy_slice(source, offset, length, slice_reserve, stream);
 
         EXPECT_EQ(slice->mem_type(), dest_type);
-        stream.synchronize();
+        slice->wait_for_ready();
         EXPECT_TRUE(slice->is_ready());
 
         if (dest_type == MemoryType::HOST) {
@@ -496,7 +495,7 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
     ) {
         auto length = source->size;
         auto bytes_written = source->copy_to(*dest, dest_offset, stream);
-        stream.synchronize();
+        dest->wait_for_ready();
         EXPECT_TRUE(dest->is_ready());
         EXPECT_EQ(bytes_written, length);
 
