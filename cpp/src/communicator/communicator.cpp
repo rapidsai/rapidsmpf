@@ -36,7 +36,7 @@ class LogLevelOption : public config::Option {
 
     ~LogLevelOption() override = default;
 
-    Communicator::Logger::LOG_LEVEL value;
+    Communicator::Logger::LOG_LEVEL const value;
 };
 
 
