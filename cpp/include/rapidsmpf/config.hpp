@@ -17,7 +17,14 @@ namespace rapidsmpf::config {
 /**
  * @brief Base class for configuration options.
  *
- * All configuration options must derive from this class.
+ * All configuration options must derive from this class and must implement:
+ *  - A default ctor that either initialize to a meaningful default value or throw
+ *    std::invalid_argument.
+ *  - A ctor that takes a single argument `std::string const&`, which is the option as a
+ *    string. The ctor must convert this string to a relevant value.
+ *
+ * @warning The ctor cannot access other options as this might deadlock because a lock is
+ * held while options are initialized.
  */
 class Option {
   public:
