@@ -19,6 +19,7 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 import rapidsmpf.communicator.mpi
 from rapidsmpf.buffer.buffer import MemoryType
+from rapidsmpf.buffer.packed_data import PackedData
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.communicator.ucxx import (
     barrier,
@@ -31,8 +32,6 @@ from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.string import format_bytes, parse_bytes
 
 if TYPE_CHECKING:
-    from pylibcudf.contiguous_split import PackedColumns
-
     from rapidsmpf.communicator.communicator import Communicator
 
 
@@ -147,44 +146,42 @@ def streaming_shuffle(
         statistics=stats,
     )
 
-    # create a thread to consume the finished partitions
+    # create a thread to consume the finished partitions. It is a daemon thread, so it
+    # will not block the main thread from exiting in case of an error.
     consumer_thread = threading.Thread(
         target=consume_finished_partitions,
         args=(output_nparts, comm, shuffler),
         daemon=True,
     )
 
-    try:
-        consumer_thread.start()
+    # start the consumer thread. This will wait for any finished partition.
+    consumer_thread.start()
 
-        n_parts_local = local_size // part_size
+    n_parts_local = local_size // part_size
 
-        # simulate a hash partition by splitting a partition into total_num_partitions
-        split_size = part_size // output_nparts
-        dummy_table, _ = generate_partition(split_size).to_pylibcudf()
+    # simulate a hash partition by splitting a partition into total_num_partitions
+    split_size = part_size // output_nparts
+    dummy_table, _ = generate_partition(split_size).to_pylibcudf()
 
-        comm.logger.print(
-            f"num local partitions:{n_parts_local} split size:{split_size}"
-        )
-        for p in range(n_parts_local):
-            # generate chunks for a single local partition by deep copying the dummy table as packed columns
-            # NOTE: This would require part_size amount of GPU memory.
-            chunks: dict[int, PackedColumns] = {}
-            for i in range(output_nparts):
-                chunks[i] = pack(dummy_table)
-
-            if p > 0 and insert_delay_ms > 0:
-                time.sleep(insert_delay_ms / 1000)
-
-            shuffler.insert_chunks(chunks)
-
-        # finish inserting all partitions
+    comm.logger.print(f"num local partitions:{n_parts_local} split size:{split_size}")
+    for p in range(n_parts_local):
+        # generate chunks for a single local partition by deep copying the dummy table
+        # as packed columns
+        # NOTE: This will require part_size amount of GPU memory.
+        chunks: dict[int, PackedData] = {}
         for i in range(output_nparts):
-            shuffler.insert_finished(i)
+            chunks[i] = PackedData.from_cudf_packed_columns(pack(dummy_table))
 
-    finally:
-        # wait for all partitions to be consumed
-        consumer_thread.join(timeout=wait_timeout)
+        if p > 0 and insert_delay_ms > 0:
+            time.sleep(insert_delay_ms / 1000)
+
+        shuffler.insert_chunks(chunks)
+    # finish inserting all partitions
+    for i in range(output_nparts):
+        shuffler.insert_finished(i)
+
+    # wait for the consumer thread to finish.
+    consumer_thread.join(timeout=wait_timeout)
 
 
 def ucxx_mpi_setup() -> Communicator:
