@@ -43,7 +43,7 @@ class LogLevelOption : public config::Option {
 }  // namespace detail
 
 Communicator::Logger::Logger(Communicator* comm, config::Options options)
-    : comm_{comm}, level_{options.get<detail::LogLevelOption>("log_level")->value} {};
+    : comm_{comm}, level_{options.get<detail::LogLevelOption>("log")->value} {};
 
 
 }  // namespace rapidsmpf
