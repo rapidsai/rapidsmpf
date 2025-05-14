@@ -414,7 +414,7 @@ class BufferResourceCopySliceTest
         std::size_t const length
     ) {
         auto [slice_reserve, slice_overbooking] = br->reserve(dest_type, length, false);
-        auto slice = br->copy_slice(source, offset, length, slice_reserve, stream);
+        auto slice = source->copy_slice(offset, length, slice_reserve, stream);
 
         EXPECT_EQ(slice->mem_type(), dest_type);
         slice->wait_for_ready();
@@ -575,4 +575,63 @@ TEST_F(BufferResourceCopyToTest, OutOfBounds) {
 
     // try to copy with an offset that would exceed the destination buffer size
     EXPECT_THROW(std::ignore = source->copy_to(*dest, 1, stream), std::invalid_argument);
+}
+
+TEST(BufferResource, CopySliceDifferentResources) {
+    constexpr std::size_t buffer_size = 1_KiB;
+    constexpr std::size_t slice_offset = 128;
+    constexpr std::size_t slice_length = 512;
+
+    auto stream = cudf::get_default_stream();
+
+    // Host pattern for initialization and verification
+    std::vector<uint8_t> host_pattern(buffer_size);
+    for (std::size_t i = 0; i < host_pattern.size(); ++i) {
+        host_pattern[i] = static_cast<uint8_t>(i % 256);
+    }
+
+    // Setup br1 with statistics for its device memory
+    rmm::mr::cuda_memory_resource mr_cuda1;
+    rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource> stats_mr1{
+        mr_cuda1
+    };
+    BufferResource br1{&stats_mr1};
+
+    // Setup br2 with statistics for its device memory
+    rmm::mr::cuda_memory_resource mr_cuda2_dev;
+    rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource> stats_mr2{
+        mr_cuda2_dev
+    };
+    BufferResource br2{&stats_mr2};
+
+    // Create source buf1 on br1
+    auto [reserv1, ob1] = br1.reserve(MemoryType::DEVICE, buffer_size, false);
+    auto buf1 = br1.allocate(MemoryType::DEVICE, buffer_size, stream, reserv1);
+    EXPECT_EQ(reserv1.size(), 0); // reservation should be consumed
+
+    RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+        const_cast<void*>(buf1->data()),
+        host_pattern.data(),
+        buffer_size,
+        cudaMemcpyHostToDevice,
+        stream
+    ));
+    buf1->override_event(std::make_shared<Buffer::Event>(stream));
+    buf1->wait_for_ready();
+
+    auto br1_alloc_bytes = stats_mr1.get_bytes_counter().total;
+    EXPECT_EQ(br1_alloc_bytes, buffer_size);
+
+    // Reserve memory for the slice on br2
+    auto [reserv2, ob2] = br2.reserve(MemoryType::DEVICE, slice_length, false);
+
+    // Create slice of buf1 on br2
+    auto buf2_slice = buf1->copy_slice(slice_offset, slice_length, reserv2, stream);
+    EXPECT_EQ(reserv2.size(), 0); // reservation should be consumed
+
+    // Verify br1 hasn't allocated any more memory
+    EXPECT_EQ(stats_mr1.get_bytes_counter().total, br1_alloc_bytes);
+
+    // Verify br2 has allocated the slice
+    EXPECT_EQ(stats_mr2.get_bytes_counter().total, slice_length);
 }

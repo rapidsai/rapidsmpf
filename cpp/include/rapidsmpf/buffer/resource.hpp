@@ -367,25 +367,6 @@ class BufferResource {
     );
 
     /**
-     * @brief Copy a slice of a buffer to a new buffer, based on the reservation. The
-     * output buffer is allocated from the reservation (type and size).
-     *
-     * @param buffer The buffer to copy from.
-     * @param offset Offset from the start of the buffer (in bytes).
-     * @param length Length of the slice (in bytes).
-     * @param reservation The reservation to use for memory allocations.
-     * @param stream CUDA stream to use for the copy.
-     * @returns A new buffer containing the copied slice.
-     */
-    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        std::unique_ptr<Buffer> const& buffer,
-        std::ptrdiff_t offset,
-        std::size_t length,
-        MemoryReservation& reservation,
-        rmm::cuda_stream_view stream
-    );
-
-    /**
      * @brief Gets a reference to the spill manager used.
      *
      * @return Reference to the SpillManager instance.
