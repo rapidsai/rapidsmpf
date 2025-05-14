@@ -63,7 +63,6 @@ dependencies:
           - libcudf==25.8.*,>=0.0.0a0
           - libucxx==0.45.*,>=0.0.0a0
           - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
-          - spdlog
     specific:
       - output_types: conda
         matrices:

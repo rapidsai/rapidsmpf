@@ -41,7 +41,6 @@ dependencies:
 - ray-default==2.42.*,>=0.0.0a0
 - rmm==25.8.*,>=0.0.0a0
 - scikit-build-core>=0.10.0
-- spdlog
 - sphinx
 - sphinx-autobuild
 - sphinx-copybutton
