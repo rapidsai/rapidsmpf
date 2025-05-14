@@ -36,14 +36,18 @@ Options::Options(
 void get_environment_variables(
     std::unordered_map<std::string, std::string>& output, std::string const& key_regex
 ) {
-    // The pattern captures the key (matching key_regex) and the value
-    // after '=' in environ.
-    std::regex pattern("(" + key_regex + ")=(.*)");
+    RAPIDSMPF_EXPECTS(
+        std::regex(key_regex).mark_count() == 1,
+        "key_regex must contain exactly one capture group (e.g., \"RAPIDSMPF_(.*)\")",
+        std::invalid_argument
+    );
+
+    std::regex pattern(key_regex + "=(.*)");
     for (char** env = environ; *env != nullptr; ++env) {
         std::string entry(*env);
         std::smatch match;
         if (std::regex_match(entry, match, pattern)) {
-            if (match.size() == 3) {  // match[1]: key, match[2]: value
+            if (match.size() == 3) {  // match[1]: captured key, match[2]: value
                 output.insert({match[1].str(), match[2].str()});
             }
         }

@@ -136,21 +136,29 @@ class Options {
  * keys match the provided regular expression into the `output` map. Only variables with
  * keys not already present in `output` are inserted; existing keys are left unchanged.
  *
- * Matching is done using full-line `std::regex_match`, so `key_regex` must be designed to
- * match the key portion at the start of the string, before the `=`.
+ * The `key_regex` should contain a single capture group that extracts the portion of the
+ * environment variable key you want to use as the map key. For example, to strip the
+ * `RAPIDSMPF_` prefix, use `RAPIDSMPF_(.*)` as the regex. The captured group will be used
+ * as the key in the output map.
+ *
+ * Example:
+ *   - Environment variable: RAPIDSMPF_FOO=bar
+ *   - key_regex: "RAPIDSMPF_(.*)"
+ *   - Resulting map entry: { "FOO", "bar" }
  *
  * @param[out] output The map to populate with matching environment variables. Only keys
- *                    that do not already exist in the map will be added.
- * @param[in] key_regex A regular expression used to match the environment variable keys.
- *                      Only environment variables with keys matching this pattern will
- *                      be considered.
+ * that do not already exist in the map will be added.
+ * @param[in] key_regex A regular expression with a single capture group to match and
+ * extract the environment variable keys. Only environment variables with keys matching
+ * this pattern will be considered.
+ * @throws std::invalid_argument If key_regex doesn't contain exactly one capture group.
  *
  * @warning This function uses `std::regex` and relies on the global `environ` symbol,
  * which is POSIX-specific and is **not** thread-safe.
  */
 void get_environment_variables(
     std::unordered_map<std::string, std::string>& output,
-    std::string const& key_regex = "RAPIDSMPF_.*"
+    std::string const& key_regex = "RAPIDSMPF_(.*)"
 );
 
 /**
@@ -159,14 +167,17 @@ void get_environment_variables(
  * This is a convenience overload. See the documentation for the first variant of
  * `get_environment_variables()` for details on matching and behavior.
  *
- * @param[in] key_regex A regular expression used to match the environment variable keys.
- * @return A map containing all matching environment variables.
+ * @param key_regex A regular expression with a single capture group to match and extract
+ * the environment variable keys.
+ * @return A map containing all matching environment variables, with keys as extracted by
+ * the capture group.
+ * @throws std::invalid_argument If key_regex doesn't contain exactly one capture group.
  *
  * @see get_environment_variables(std::unordered_map<std::string, std::string>&,
  * std::string const&)
  */
 std::unordered_map<std::string, std::string> get_environment_variables(
-    std::string const& key_regex = "RAPIDSMPF_.*"
+    std::string const& key_regex = "RAPIDSMPF_(.*)"
 );
 
 }  // namespace rapidsmpf::config
