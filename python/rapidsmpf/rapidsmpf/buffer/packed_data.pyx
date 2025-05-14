@@ -29,8 +29,7 @@ cdef class PackedData:
 
         Returns
         -------
-        PackedData
-            A new PackedData instance containing the packed columns data
+        A new PackedData instance containing the packed columns data
 
         Raises
         ------
