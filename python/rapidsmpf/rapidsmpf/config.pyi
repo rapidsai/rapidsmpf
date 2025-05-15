@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TypeVar
 
-def get_environment_variables(key_regex: str = ...) -> dict[str, str]: ...
+T = TypeVar("T")
 
 class Options:
     def __init__(
         self,
         options_as_strings: Mapping[str, str],
     ) -> None: ...
+    def get_or_default(self, key: str, default_value: T) -> T: ...
+
+def get_environment_variables(key_regex: str = ...) -> dict[str, str]: ...

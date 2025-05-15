@@ -11,6 +11,13 @@ import os
 import re
 
 
+# Cython doesn't support a `std::function` type that uses a template argument,
+# which is needed to declare `rapidsmpf::config::OptionFactory`. To handle this,
+# we implement `cpp_options_get_using_parse_string()`, which calls `options.get<T>()`
+# with a lambda function that:
+#  - use `rapidsmpf::parse_string<T>()` to convert the option to type T, or
+#  - return `default_value` if the option isn't found.
+# TODO: implement a similar function for handle python objects.
 cdef extern from *:
     """
     #include <rapidsmpf/utils.hpp>
@@ -52,6 +59,28 @@ cdef class Options:
             self._handle = cpp_Options(move(opts))
 
     def get_or_default(self, str key, default_value):
+        """
+        Get the value associated with the given key, or the default value.
+
+        The type of the returned value is determined by the type of `default_value`.
+
+        Parameters
+        ----------
+        key
+            The key to look up in the configuration.
+        default_value
+            The value to return if the key is not found.
+
+        Returns
+        -------
+        The value associated with the key, or the default value if the key does
+        not exist.
+
+        Raises
+        ------
+        ValueError
+            If the type of default_value isn't supported.
+        """
         if isinstance(default_value, bool):
             return cpp_options_get_using_parse_string[bool_t](
                 self._handle, str.encode(key), <bool_t?>default_value
