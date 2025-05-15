@@ -1,12 +1,39 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from libc.stdint cimport int64_t
+from libcpp cimport bool as bool_t
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 
 import os
 import re
+
+
+cdef extern from *:
+    """
+    #include <rapidsmpf/utils.hpp>
+    template<typename T>
+    T cpp_options_get_using_parse_string(
+        rapidsmpf::config::Options &options, std::string const& key, T default_value
+    )
+    {
+        return options.get<T>(
+            key,
+            [default_value = std::move(default_value)](std::string const&x)
+            {
+                if(x.empty()) {
+                    return default_value;
+                }
+                return rapidsmpf::parse_string<T>(x);
+            }
+        );
+    }
+    """
+    T cpp_options_get_using_parse_string[T](
+        cpp_Options options, string key, T default_value
+    ) nogil
 
 
 cdef class Options:
@@ -23,6 +50,28 @@ cdef class Options:
             opts[str.encode(key)] = str.encode(val)
         with nogil:
             self._handle = cpp_Options(move(opts))
+
+    def get_or_default(self, str key, default_value):
+        if isinstance(default_value, bool):
+            return cpp_options_get_using_parse_string[bool_t](
+                self._handle, str.encode(key), <bool_t?>default_value
+            )
+        elif isinstance(default_value, float):
+            return cpp_options_get_using_parse_string[double](
+                self._handle, str.encode(key), <double?>default_value
+            )
+        elif isinstance(default_value, int):
+            return cpp_options_get_using_parse_string[int64_t](
+                self._handle, str.encode(key), <int64_t?>default_value
+            )
+        elif isinstance(default_value, str):
+            return cpp_options_get_using_parse_string[string](
+                self._handle, str.encode(key), str.encode(default_value)
+            ).decode('UTF-8')
+        raise ValueError(
+            f"default type ({type(default_value)}) is not support, "
+            "please use `.get()` (not implemented yet)."
+        )
 
 
 def get_environment_variables(str key_regex = "RAPIDSMPF_(.*)"):
