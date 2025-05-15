@@ -40,7 +40,26 @@ cdef extern from *:
     """
     T cpp_options_get_using_parse_string[T](
         cpp_Options options, string key, T default_value
-    ) nogil
+    ) except + nogil
+
+
+# Supported types for use with _options_get_using_parse_string().
+ctypedef fused DefaultValueT:
+    bool_t
+    int64_t
+    double
+    string
+
+cdef DefaultValueT _options_get_using_parse_string(
+    cpp_Options options, string key, DefaultValueT default_value
+):
+    """Release the GIL and retrieve an option value."""
+    cdef DefaultValueT ret
+    with nogil:
+        ret = cpp_options_get_using_parse_string(
+            options, key, default_value
+        )
+    return ret
 
 
 cdef class Options:
@@ -58,47 +77,65 @@ cdef class Options:
         with nogil:
             self._handle = cpp_Options(move(opts))
 
-    def get_or_default(self, str key, default_value):
+    def get_or_assign(self, str key, parser_type, default_value):
         """
-        Get the value associated with the given key, or the default value.
+        Get the value of the given key, or assign and return a default value.
 
-        The type of the returned value is determined by the type of `default_value`.
+        When a key is accessed for the first time, its option value (as a string)
+        is parsed using the `parser_type`. If the key has no option value,
+        `default_value` is assigned to the key and returned.
+
+        The type of the returned value is determined by the `parser_type` argument,
+        which must be one of the supported Python types: bool, int, float, or str.
+        The `default_value` is cast to the corresponding C++ type before being passed
+        to the underlying options system.
+
+        Note
+        ----
+        Once a key has been accessed with a particular `parser_type`, subsequent
+        calls to `get_or_assign` on the same key must use the same `parser_type`.
+        Using a different `parser_type` for the same key will result in a `ValueError`.
+        The first parsing determines the value type associated with that key.
 
         Parameters
         ----------
         key
-            The key to look up in the configuration.
+            The key to look up or assign in the configuration.
+        parser_type
+            The expected type of the result. Must be one of: bool, int, float, str.
         default_value
-            The value to return if the key is not found.
+            The value to assign and return if the key is not found. Its type must
+            match `parser_type`.
 
         Returns
         -------
-        The value associated with the key, or the default value if the key does
-        not exist.
+        The value associated with the key, parsed and cast to the given type,
+        or the assigned default value if the key did not exist.
 
         Raises
         ------
         ValueError
-            If the type of default_value isn't supported.
+            If the type of `default_value` is not supported or does not match
+            `parser_type`.
         """
-        if isinstance(default_value, bool):
-            return cpp_options_get_using_parse_string[bool_t](
-                self._handle, str.encode(key), <bool_t?>default_value
+        if issubclass(parser_type, bool):
+            return _options_get_using_parse_string[bool_t](
+                self._handle, str.encode(key), bool(default_value)
             )
-        elif isinstance(default_value, float):
-            return cpp_options_get_using_parse_string[double](
-                self._handle, str.encode(key), <double?>default_value
+        elif issubclass(parser_type, int):
+            return _options_get_using_parse_string[int64_t](
+                self._handle, str.encode(key), int(default_value)
             )
-        elif isinstance(default_value, int):
-            return cpp_options_get_using_parse_string[int64_t](
-                self._handle, str.encode(key), <int64_t?>default_value
+        elif issubclass(parser_type, float):
+            return _options_get_using_parse_string[double](
+                self._handle, str.encode(key), float(default_value)
             )
-        elif isinstance(default_value, str):
-            return cpp_options_get_using_parse_string[string](
-                self._handle, str.encode(key), str.encode(default_value)
+        elif issubclass(parser_type, str):
+            return _options_get_using_parse_string[string](
+                self._handle, str.encode(key), str.encode(str(default_value))
             ).decode('UTF-8')
         raise ValueError(
-            f"default type ({type(default_value)}) is not support, "
+            f"default type ({type(default_value)}) is not supported, "
             "please use `.get()` (not implemented yet)."
         )
 
