@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <array>
+#include <cstdint>
+
 #include <gtest/gtest.h>
 
 #include <cuda/std/span>
@@ -68,10 +71,10 @@ TEST_F(ChunkTest, FromFinishedPartition) {
     auto chunk2 = Chunk::deserialize(*msg, true);
     test_chunk(chunk2);
 
-    auto chunk3 = chunk2.get_data(chunk_id, 0, stream);
+    auto chunk3 = chunk2.get_data(chunk_id, 0, stream, br.get());
     test_chunk(chunk3);
 
-    EXPECT_THROW(chunk3.get_data(chunk_id, 1, stream), std::out_of_range);
+    EXPECT_THROW(chunk3.get_data(chunk_id, 1, stream, br.get()), std::out_of_range);
 }
 
 TEST_F(ChunkTest, FromPackedData) {
@@ -114,7 +117,7 @@ TEST_F(ChunkTest, FromPackedData) {
     chunk2.set_data_buffer(chunk.release_data_buffer());
     test_chunk(chunk2);
 
-    auto chunk3 = chunk2.get_data(chunk_id, 0, stream);
+    auto chunk3 = chunk2.get_data(chunk_id, 0, stream, br.get());
     test_chunk(chunk3);
 }
 
@@ -136,14 +139,28 @@ TEST_F(ChunkTest, ChunkBuilderControlMessages) {
     EXPECT_EQ(chunk.chunk_id(), chunk_id);
     EXPECT_EQ(chunk.n_messages(), 3);
 
-    // Verify each message
-    for (size_t i = 0; i < 3; ++i) {
-        EXPECT_EQ(chunk.part_id(i), i + 1);
-        EXPECT_EQ(chunk.expected_num_chunks(i), (i + 1) * 10);
+    auto test_chunk = [&](size_t i, PartID part_id, size_t expected_num_chunks) {
+        EXPECT_EQ(chunk.part_id(i), part_id);
+        EXPECT_EQ(chunk.expected_num_chunks(i), expected_num_chunks);
         EXPECT_TRUE(chunk.is_control_message(i));
         EXPECT_EQ(chunk.metadata_size(i), 0);
         EXPECT_EQ(chunk.data_size(i), 0);
-    }
+
+        auto chunk_copy = chunk.get_data(chunk_id, i, stream, br.get());
+        EXPECT_EQ(chunk_copy.part_id(0), part_id);
+        EXPECT_EQ(chunk_copy.expected_num_chunks(0), expected_num_chunks);
+        EXPECT_TRUE(chunk_copy.is_control_message(0));
+        EXPECT_EQ(chunk_copy.metadata_size(0), 0);
+        EXPECT_EQ(chunk_copy.data_size(0), 0);
+    };
+
+    test_chunk(0, 1, 10);
+    test_chunk(1, 2, 20);
+    test_chunk(2, 3, 30);
+
+    // this is not the intended use of the release_metadata_buffer method, but this
+    EXPECT_EQ(chunk.release_metadata_buffer()->size(), 0);
+    EXPECT_EQ(chunk.release_data_buffer()->size, 0);
 
     // after building, the builder is empty
     EXPECT_THROW(builder.build(), std::runtime_error);
@@ -172,19 +189,23 @@ TEST_F(ChunkTest, ChunkBuilderPackedData) {
     EXPECT_EQ(chunk.chunk_id(), chunk_id);
     EXPECT_EQ(chunk.n_messages(), 2);
 
-    // Verify first message
-    EXPECT_EQ(chunk.part_id(0), 1);
-    EXPECT_EQ(chunk.expected_num_chunks(0), 0);
-    EXPECT_FALSE(chunk.is_control_message(0));
-    EXPECT_EQ(chunk.metadata_size(0), 3);
-    EXPECT_EQ(chunk.data_size(0), 3);
+    auto test_chunk = [&](size_t i, PartID part_id, size_t size) {
+        EXPECT_EQ(chunk.part_id(i), part_id);
+        EXPECT_EQ(chunk.expected_num_chunks(i), 0);
+        EXPECT_FALSE(chunk.is_control_message(i));
+        EXPECT_EQ(chunk.metadata_size(i), size);
+        EXPECT_EQ(chunk.data_size(i), size);
 
-    // Verify second message
-    EXPECT_EQ(chunk.part_id(1), 2);
-    EXPECT_EQ(chunk.expected_num_chunks(1), 0);
-    EXPECT_FALSE(chunk.is_control_message(1));
-    EXPECT_EQ(chunk.metadata_size(1), 2);
-    EXPECT_EQ(chunk.data_size(1), 2);
+        auto chunk_copy = chunk.get_data(chunk_id, i, stream, br.get());
+        EXPECT_EQ(chunk_copy.part_id(0), part_id);
+        EXPECT_EQ(chunk_copy.expected_num_chunks(0), 0);
+        EXPECT_FALSE(chunk_copy.is_control_message(0));
+        EXPECT_EQ(chunk_copy.metadata_size(0), size);
+        EXPECT_EQ(chunk_copy.data_size(0), size);
+    };
+
+    test_chunk(0, 1, 3);
+    test_chunk(1, 2, 2);
 
     // Release and verify buffers
     auto released_metadata = chunk.release_metadata_buffer();
@@ -210,92 +231,69 @@ TEST_F(ChunkTest, ChunkBuilderPackedData) {
 
 TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
     ChunkID chunk_id = 123;
-    ChunkBuilder builder(chunk_id, stream, br.get(), 4);  // Hint for 4 messages
+    ChunkBuilder builder(chunk_id, stream, br.get(), 7);  // Hint for 7 messages
 
     // Create test metadata and data
     std::vector<uint8_t> metadata{1, 2, 3, 4, 5, 6};  // Concatenated metadata
     std::vector<uint8_t> data{6, 7, 8, 9, 10};  // Concatenated data
 
+    // Add messages in sequence
+    builder.add_control_message(1, 10);  // control message 1
+    builder.add_packed_data(
+        2, create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream)
+    );  // packed data 1
+    builder.add_control_message(3, 40);  // control message 2
+    builder.add_packed_data(
+        4, create_packed_data({metadata.data() + 5, 0}, {data.data() + 5, 0}, stream)
+    );  // empty packed data - non-null
+    builder.add_packed_data(
+        5, create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream)
+    );  // packed data 2
+    builder.add_packed_data(6, PackedData{nullptr, nullptr});  // empty packed data - null
+    builder.add_packed_data(
+        7,
+        PackedData{
+            std::make_unique<std::vector<uint8_t>>(metadata.begin() + 5, metadata.end()),
+            nullptr
+        }
+    );  // metadata only packed data
 
-    auto chunk =
-        builder
-            .add_control_message(1, 10)  // control message 1
-            .add_packed_data(
-                2, create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream)
-            )  // packed data 1
-            .add_control_message(3, 40)  // control message 2
-            .add_packed_data(
-                4,
-                create_packed_data({metadata.data() + 5, 0}, {data.data() + 5, 0}, stream)
-            )  // empty packed data - non-null
-            .add_packed_data(
-                5,
-                create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream)
-            )  // packed data 2
-            .add_packed_data(6, PackedData{nullptr, nullptr})  // empty packed data - null
-            .add_packed_data(
-                7,
-                PackedData{
-                    std::make_unique<std::vector<uint8_t>>(
-                        metadata.begin() + 5, metadata.end()
-                    ),
-                    nullptr
-                }
-            )  // metadata only packed data
-            .build();
+    auto chunk = builder.build();
 
     // Verify the chunk properties
     EXPECT_EQ(chunk.chunk_id(), chunk_id);
     EXPECT_EQ(chunk.n_messages(), 7);
 
-    // Verify control message 1
-    EXPECT_EQ(chunk.part_id(0), 1);
-    EXPECT_EQ(chunk.expected_num_chunks(0), 10);
-    EXPECT_TRUE(chunk.is_control_message(0));
-    EXPECT_EQ(chunk.metadata_size(0), 0);
-    EXPECT_EQ(chunk.data_size(0), 0);
+    // Helper function to verify message properties
+    auto test_message = [&](size_t i,
+                            PartID part_id,
+                            size_t expected_chunks,
+                            bool is_control,
+                            uint32_t meta_size,
+                            size_t data_size) {
+        EXPECT_EQ(chunk.part_id(i), part_id);
+        EXPECT_EQ(chunk.expected_num_chunks(i), expected_chunks);
+        EXPECT_EQ(chunk.is_control_message(i), is_control);
+        EXPECT_EQ(chunk.metadata_size(i), meta_size);
+        EXPECT_EQ(chunk.data_size(i), data_size);
 
-    // Verify first packed data message
-    EXPECT_EQ(chunk.part_id(1), 2);
-    EXPECT_EQ(chunk.expected_num_chunks(1), 0);
-    EXPECT_FALSE(chunk.is_control_message(1));
-    EXPECT_EQ(chunk.metadata_size(1), 3);
-    EXPECT_EQ(chunk.data_size(1), 3);
+        auto chunk_copy = chunk.get_data(chunk_id, i, stream, br.get());
 
-    // Verify control message 2
-    EXPECT_EQ(chunk.part_id(2), 3);
-    EXPECT_EQ(chunk.expected_num_chunks(2), 40);
-    EXPECT_TRUE(chunk.is_control_message(2));
-    EXPECT_EQ(chunk.metadata_size(2), 0);
-    EXPECT_EQ(chunk.data_size(2), 0);
+        EXPECT_EQ(chunk_copy.part_id(0), part_id);
+        EXPECT_EQ(chunk_copy.expected_num_chunks(0), expected_chunks);
+        EXPECT_EQ(chunk_copy.is_control_message(0), is_control);
+        EXPECT_EQ(chunk_copy.metadata_size(0), meta_size);
+        EXPECT_EQ(chunk_copy.data_size(0), data_size);
+    };
 
-    // Verify empty packed data message
-    EXPECT_EQ(chunk.part_id(3), 4);
-    EXPECT_EQ(chunk.expected_num_chunks(3), 0);
-    EXPECT_FALSE(chunk.is_control_message(3));
-    EXPECT_EQ(chunk.metadata_size(3), 0);
-    EXPECT_EQ(chunk.data_size(3), 0);
-
-    // Verify second packed data message
-    EXPECT_EQ(chunk.part_id(4), 5);
-    EXPECT_EQ(chunk.expected_num_chunks(4), 0);
-    EXPECT_FALSE(chunk.is_control_message(4));
-    EXPECT_EQ(chunk.metadata_size(4), 2);
-    EXPECT_EQ(chunk.data_size(4), 2);
-
-    // Verify empty packed data message with null metadata and data
-    EXPECT_EQ(chunk.part_id(5), 6);
-    EXPECT_EQ(chunk.expected_num_chunks(5), 0);
-    EXPECT_FALSE(chunk.is_control_message(5));
-    EXPECT_EQ(chunk.metadata_size(5), 0);
-    EXPECT_EQ(chunk.data_size(5), 0);
-
-    // Verify metadata only packed data
-    EXPECT_EQ(chunk.part_id(6), 7);
-    EXPECT_EQ(chunk.expected_num_chunks(6), 0);
-    EXPECT_FALSE(chunk.is_control_message(6));
-    EXPECT_EQ(chunk.metadata_size(6), 1);
-    EXPECT_EQ(chunk.data_size(6), 0);
+    // Verify each message
+    test_message(0, 1, 10, true, 0, 0);  // control message 1
+    test_message(1, 2, 0, false, 3, 3);  // packed data 1
+    test_message(2, 3, 40, true, 0, 0);  // control message 2
+    test_message(3, 4, 0, false, 0, 0);  // empty packed data - non-null
+    test_message(4, 5, 0, false, 2, 2);  // packed data 2
+    test_message(5, 6, 0, false, 0, 0);  // empty packed data - null
+    test_message(6, 7, 0, false, 1, 0);  // metadata only packed data
 
     // Release and verify buffers
     auto released_metadata = chunk.release_metadata_buffer();

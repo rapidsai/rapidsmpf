@@ -7,7 +7,6 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
-#include <queue>
 #include <sstream>
 #include <vector>
 
@@ -129,7 +128,8 @@ class Chunk {
      *
      * @param new_chunk_id The ID of the new chunk.
      * @param i The index of the message.
-     * @param stream The CUDA stream.
+     * @param stream The CUDA stream to use for copying the data.
+     * @param br The buffer resource to use for copying the data.
      * @return A new chunk containing the data of the i-th message.
      * @note This will create a copy of the packed data. If there is only one message and
      * the message is a data message, the buffers will be moved to the new chunk.
@@ -138,10 +138,7 @@ class Chunk {
      * @throws std::out_of_range if the index is out of bounds.
      */
     Chunk get_data(
-        ChunkID new_chunk_id,
-        size_t i,
-        rmm::cuda_stream_view stream,
-        BufferResource* br
+        ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view stream, BufferResource* br
     );
 
     /**
@@ -416,11 +413,7 @@ class ChunkBuilder {
     std::vector<std::vector<uint8_t>>
         staged_metadata_;  ///< Temporary storage for metadata during building
 
-    // There may be situations where the staged data is not ready to copy to the data
-    // buffer. In those cases, we need to retry the copy. Therefore, we use a queue to
-    // store the staged data. When a staged buffer is moved to the data buffer, it is
-    // removed from the queue.
-    std::queue<std::unique_ptr<Buffer>>
+    std::vector<std::unique_ptr<Buffer>>
         staged_data_;  ///< Temporary storage for GPU data during building
 };
 
