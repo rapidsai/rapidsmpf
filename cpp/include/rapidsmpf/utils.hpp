@@ -283,4 +283,52 @@ std::string to_lower(std::string str);
  */
 std::string to_upper(std::string str);
 
+/**
+ * @brief Parses a string into a value of type T.
+ *
+ * This function attempts to parse the given string into a value of the specified
+ * type `T` using a `std::stringstream`. If the parsing fails, an exception is thrown.
+ *
+ * @tparam T The type to parse the string into. Must support extraction from
+ * `std::istream` via `operator>>`.
+ * @param value The input string to parse.
+ * @return T The parsed value of type `T`.
+ *
+ * @throws std::invalid_argument If the string cannot be parsed into the requested type.
+ *
+ * @note This function assumes that the input string contains a valid representation of
+ * type `T`, and that `T` has a suitable `operator>>` overload.
+ *
+ * @example
+ * int i = parse_string<int>("42");            // i == 42
+ * double d = parse_string<double>("3.14");    // d == 3.14
+ */
+template <typename T>
+T parse_string(std::string const& value) {
+    std::stringstream sstream(value);
+    T ret;
+    sstream >> ret;
+    if (sstream.fail()) {
+        throw std::invalid_argument("cannot parse \"" + std::string{value} + "\"");
+    }
+    return ret;
+}
+
+/**
+ * @brief Specialization of `parse_string` for boolean values.
+ *
+ * Converts the input string to a boolean. This function handles common boolean
+ * representations such as `true`, `false`, `on`, `off`, `yes`, and `no`, as well as
+ * numeric representations (e.g., `0` or `1`). The input is first checked for a numeric
+ * value using `std::stoi`; if that fails, it is lowercased and trimmed before matching
+ * against known textual representations.
+ *
+ * @param value String to convert to a boolean.
+ * @return The corresponding boolean value.
+ *
+ * @throws std::invalid_argument If the string cannot be interpreted as a boolean.
+  */
+template <>
+bool parse_string(std::string const& value);
+
 }  // namespace rapidsmpf
