@@ -327,7 +327,7 @@ T parse_string(std::string const& value) {
  * @return The corresponding boolean value.
  *
  * @throws std::invalid_argument If the string cannot be interpreted as a boolean.
-  */
+ */
 template <>
 bool parse_string(std::string const& value);
 
