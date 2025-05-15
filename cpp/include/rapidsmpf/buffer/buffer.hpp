@@ -105,6 +105,15 @@ class Buffer {
          */
         void wait();
 
+        /**
+         * @brief Get the CUDA event.
+         *
+         * @return The CUDA event.
+         */
+        [[nodiscard]] constexpr cudaEvent_t event() const {
+            return event_;
+        }
+
       private:
         cudaEvent_t event_;  ///< CUDA event used to track device memory allocation
         std::atomic<bool> done_{false
@@ -218,7 +227,7 @@ class Buffer {
      * @brief Copy a slice of the buffer to a new buffer allocated from the target
      * reservation.
      *
-     * @param offset Offset from the start of the buffer (in bytes).
+     * @param offset Non-negative offset from the start of the buffer (in bytes).
      * @param length Length of the slice (in bytes).
      * @param target_reserv Memory reservation for the new buffer.
      * @param stream CUDA stream to use for the copy.
@@ -234,24 +243,26 @@ class Buffer {
     /**
      * @brief Copy data from this buffer to a destination buffer with a given offset.
      *
-     * Follows the following rules:
-     * +------+------+-----------------------------------+
-     * |  src | dest |                 op                |
-     * +------+------+-----------------------------------+
-     * | host | host | memcpy if src is ready else NO OP |
-     * +------+------+-----------------------------------+
-     * |   X  |   X  |   cudaMemcpyAsync (needs event)   |
-     * +------+------+-----------------------------------+
-     *
      * @param dest Destination buffer.
-     * @param dest_offset Offset of the destination buffer (in bytes).
+     * @param dest_offset Non-negative offset of the destination buffer (in bytes).
      * @param stream CUDA stream to use for the copy.
+     * @param attach_event If true, attach the event to the copy. Else, the caller needs
+     * to attach appropriate event to the destination buffer. If the copy is host-to-host,
+     * the copy is synchronous and the event is not needed, hence this argument is
+     * ignored.
      * @returns Number of bytes written to the destination buffer.
+     *
+     * @note If this buffer and destination buffer are both on the host, the copy is
+     * synchronous.
+     *
      * @throws std::invalid_argument if copy violates the bounds of the destination
      * buffer.
      */
     [[nodiscard]] std::ptrdiff_t copy_to(
-        Buffer& dest, std::ptrdiff_t dest_offset, rmm::cuda_stream_view stream
+        Buffer& dest,
+        std::ptrdiff_t dest_offset,
+        rmm::cuda_stream_view stream,
+        bool attach_event = false
     ) const;
 
     /// @brief Delete move and copy constructors and assignment operators.

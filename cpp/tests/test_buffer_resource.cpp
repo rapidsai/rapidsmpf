@@ -637,3 +637,47 @@ TEST(BufferResource, CopySliceDifferentResources) {
     // Verify br2 has allocated the slice
     EXPECT_EQ(stats_mr2.get_bytes_counter().total, slice_length);
 }
+
+TEST(BufferResource, CheckIllegalArgs) {
+    size_t buf_sz = 1024;  // 1 KiB
+    auto stream = cudf::get_default_stream();
+    BufferResource br{cudf::get_current_device_resource_ref()};
+    auto [src_res, src_ob] = br.reserve(MemoryType::HOST, buf_sz, false);
+    auto src = br.allocate(MemoryType::HOST, buf_sz, stream, src_res);
+
+    auto [dst_res, dst_ob] = br.reserve(MemoryType::HOST, buf_sz, false);
+    auto dst = br.allocate(MemoryType::HOST, buf_sz, stream, dst_res);
+
+    // Test copy_slice invalid offset
+    auto [res, ob] = br.reserve(MemoryType::HOST, buf_sz, false);
+    EXPECT_THROW(
+        std::ignore = src->copy_slice(-1, 10, res, stream), std::invalid_argument
+    );
+
+    EXPECT_THROW(
+        std::ignore = src->copy_slice(buf_sz + 1, 10, res, stream), std::invalid_argument
+    );
+
+    // Test copy_slice invalid length
+    EXPECT_THROW(
+        std::ignore = src->copy_slice(buf_sz - 5, 10, res, stream), std::invalid_argument
+    );
+
+    // Test copy_slice reservation too small
+    auto [res1, ob1] = br.reserve(MemoryType::HOST, 5, false);
+    EXPECT_THROW(
+        std::ignore = src->copy_slice(0, 10, res1, stream), std::invalid_argument
+    );
+
+    // Test copy_to invalid offset
+    EXPECT_THROW(std::ignore = src->copy_to(*dst, -1, stream), std::invalid_argument);
+
+    EXPECT_THROW(
+        std::ignore = src->copy_to(*dst, buf_sz + 1, stream), std::invalid_argument
+    );
+
+    // Test copy_to buffer too small
+    EXPECT_THROW(
+        std::ignore = src->copy_to(*dst, buf_sz - 5, stream), std::invalid_argument
+    );
+}
