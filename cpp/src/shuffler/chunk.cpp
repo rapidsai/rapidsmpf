@@ -431,6 +431,11 @@ Chunk ChunkBuilder::build() {
                 continue;
             }
 
+
+            /// THIS IS A PROBLEM. IF THE BUFFER IS NOT READY, IT WILL BE PUSHED BACK TO THE
+            /// QUEUE, AND IT WILL BE COPIED TO A DIFFERENT INDEX THAN INTENDED. 
+            /// USE A map offset->buffer instead of a queue. 
+
             // try to copy the staged buffer to the data buffer
             auto bytes_copied = staged_buf->copy_to(*data, data_offset, stream_);
 
