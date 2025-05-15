@@ -12,7 +12,7 @@ git clone https://github.com/rapidsai/rapidsmpf.git
 cd rapidsmpf
 
 # Choose a environment file that match your system.
-mamba env create --name rapidsmpf-dev --file conda/environments/all_cuda-129_arch-x86_64.yaml
+mamba env create --name rapidsmpf-dev --file conda/environments/all_cuda-128_arch-x86_64.yaml
 
 # Build
 ./build.sh
