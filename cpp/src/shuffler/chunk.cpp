@@ -12,32 +12,24 @@
 
 namespace rapidsmpf::shuffler::detail {
 
-namespace {
 
-/// @brief Try to allocate a buffer from the buffer resource.
-/// @param br The buffer resource.
-/// @param total_data_size The size of the buffer to allocate.
-/// @param stream The stream to use for the allocation.
-/// @return A unique pointer to the allocated buffer, or nullptr if no buffer was
-/// allocated.
-template <typename ReservationConsumer>
-void try_reserve(
-    BufferResource* br,
-    size_t size,
-    rmm::cuda_stream_view stream,
-    ReservationConsumer&& consumer
-) {
+/**
+ * @brief Try to allocate a buffer from the buffer resource.
+ * @param br The buffer resource.
+ * @param size The size of the buffer to allocate.
+ * @return A unique pointer to the allocated buffer, or nullptr if no buffer was
+ * allocated.
+ */
+MemoryReservation try_reserve_or_fail(BufferResource* br, size_t size) {
     // try to allocate data buffer from memory types in order [DEVICE, HOST]
     for (auto mem_type : MEMORY_TYPES) {
         auto [res, overbooking] = br->reserve(mem_type, size, false);
         if (res.size() == size) {
-            consumer(std::move(res));
-            return;
+            return std::move(res);
         }
     }
+    RAPIDSMPF_FAIL("failed to reserve memory");
 }
-
-}  // namespace
 
 Chunk::Chunk(
     ChunkID chunk_id,
@@ -84,19 +76,33 @@ Chunk Chunk::get_data(
             std::move(data_)
         );
     } else {
-        size_t data_offset = i == 0 ? 0 : data_offsets_[i - 1];
-        size_t data_size = data_offsets_[i] - data_offset;
+        // copy the metadata to the new chunk
+        uint32_t meta_slice_size = metadata_size(i);
+        std::ptrdiff_t meta_slice_offset =
+            (i == 0 ? 0 : std::ptrdiff_t(meta_offsets_[i - 1]));
+        std::vector<uint8_t> meta_slice(meta_slice_size);
+        std::memcpy(
+            meta_slice.data(), metadata_->data() + meta_slice_offset, meta_slice_size
+        );
 
         // copy the data to the new chunk
-        std::unique_ptr<Buffer> data;
-        try_reserve(br, data_size, stream, [this, data_offset, &data](auto res) {
+        size_t data_slice_size = data_size(i);
+        std::ptrdiff_t data_slice_offset =
+            (i == 0 ? 0 : std::ptrdiff_t(data_offsets_[i - 1]));
+        auto reserve = try_reserve_or_fail(br, data_slice_size);
+        auto data_slice =
+            data_->copy_slice(data_slice_offset, data_slice_size, reserve, stream);
 
-        });
-
-        return Chunk();
+        return {
+            new_chunk_id,
+            {part_ids_[i]},
+            {0},
+            {meta_slice_size},
+            {data_slice_size},
+            std::make_unique<std::vector<uint8_t>>(std::move(meta_slice)),
+            std::move(data_slice)
+        };
     }
-
-    return {new_chunk_id, {}, {}, {}, {}};  // never reached
 }
 
 Chunk Chunk::from_packed_data(
@@ -374,7 +380,9 @@ ChunkBuilder& ChunkBuilder::add_packed_data(PartID part_id, PackedData&& packed_
         // this operation. rmm buffer is only staged, until the chunk is built. During the
         // build() method, a new event is created which can guarantee the completion of
         // all staged operations.
-        staged_data_.push(br_->move(std::move(packed_data.gpu_data), stream_, nullptr));
+        staged_data_.emplace_back(
+            br_->move(std::move(packed_data.gpu_data), stream_, nullptr)
+        );
     }
 
     return *this;
@@ -402,15 +410,9 @@ Chunk ChunkBuilder::build() {
         // TODO(niranda): Handle spiiling
 
         // try to allocate data buffer from memory types in order [DEVICE, HOST]
-        for (auto mem_type : MEMORY_TYPES) {
-            auto [res, size] = br_->reserve(mem_type, total_data_size, false);
-            if (res.size() == total_data_size) {
-                data = br_->allocate(mem_type, total_data_size, stream_, res);
-                RAPIDSMPF_EXPECTS(res.size() == 0, "didn't use all of the reservation");
-                break;
-            }
-        }
-        assert(data && data->size == total_data_size);
+        auto reserve = try_reserve_or_fail(br_, total_data_size);
+        data = br_->allocate(reserve.mem_type(), total_data_size, stream_, reserve);
+        RAPIDSMPF_EXPECTS(reserve.size() == 0, "didn't use all of the reservation");
 
         // Copy the data from the staged buffers to the data buffer
         std::ptrdiff_t data_offset = 0;
@@ -418,34 +420,18 @@ Chunk ChunkBuilder::build() {
         // async copies
         bool need_event = (data->mem_type() == MemoryType::DEVICE);
 
-        // while there are staged buffers, try to copy them to the data buffer
-        // if the staged buffer is not ready, push it back to the queue.
-        // NOTE: there is a risk of a busy loop if staged buffers are not ready.
-        while (!staged_data_.empty()) {
-            // pop the front staged data queue
-            auto staged_buf = std::move(staged_data_.front());
-            staged_data_.pop();
-
+        for (auto&& staged_buf : staged_data_) {
+            auto temp = std::move(staged_buf);
             // if staged buffer is empty, skip it
-            if (staged_buf == nullptr || staged_buf->size == 0) {
+            if (temp == nullptr || temp->size == 0) {
                 continue;
             }
 
+            // copy the staged buffer to the data buffer
+            data_offset += temp->copy_to(*data, data_offset, stream_);
 
-            /// THIS IS A PROBLEM. IF THE BUFFER IS NOT READY, IT WILL BE PUSHED BACK TO THE
-            /// QUEUE, AND IT WILL BE COPIED TO A DIFFERENT INDEX THAN INTENDED. 
-            /// USE A map offset->buffer instead of a queue. 
-
-            // try to copy the staged buffer to the data buffer
-            auto bytes_copied = staged_buf->copy_to(*data, data_offset, stream_);
-
-            if (bytes_copied == 0) {  // staged buffer is not ready, push it back
-                staged_data_.push(std::move(staged_buf));
-                continue;
-            }
-            data_offset += bytes_copied;
             // if the staged buffer is on the device, we need an event
-            need_event |= (staged_buf->mem_type() == MemoryType::DEVICE);
+            need_event |= (temp->mem_type() == MemoryType::DEVICE);
         }
         RAPIDSMPF_EXPECTS(size_t(data_offset) == total_data_size, "didn't copy all data");
 
@@ -459,7 +445,6 @@ Chunk ChunkBuilder::build() {
 
     return {
         chunk_id_,
-        part_ids_.size(),
         std::move(part_ids_),
         std::move(expected_num_chunks_),
         std::move(meta_offsets_),
