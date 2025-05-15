@@ -18,6 +18,8 @@ jobs:
       - conda-python-build
       - conda-python-tests
       - docs-build
+      - wheel-build
+      - wheel-test
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@cuda-12.9.0
     if: always()
@@ -26,6 +28,24 @@ jobs:
   checks:
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@cuda-12.9.0
+  wheel-build:
+    needs: checks
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@cuda-12.9.0
+    with:
+      build_type: pull-request
+      script: ci/build_wheel_rapidsmpf.sh
+      package-name: rapidsmpf
+      package-type: python
+      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
+  wheel-test:
+    needs: wheel-build
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@cuda-12.9.0
+    with:
+      build_type: pull-request
+      script: ci/test_wheel.sh
+      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   conda-cpp-build:
     needs: checks
     secrets: inherit
