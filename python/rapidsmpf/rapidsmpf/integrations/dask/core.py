@@ -350,7 +350,7 @@ def bootstrap_dask_cluster(
     scheduler_plugin = RMPFSchedulerPlugin()
     client.register_plugin(scheduler_plugin)
 
-    workers = sorted(client.scheduler_info()["workers"])
+    workers = sorted(client.scheduler_info(n_workers=-1)["workers"])
     n_ranks = len(workers)
 
     # Set up the comms for the root worker
