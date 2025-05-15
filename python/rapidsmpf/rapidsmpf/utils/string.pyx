@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 
 
-def format_bytes(nbytes: int | float) -> str:
+def format_bytes(nbytes):
     """
     Convert a byte size into a human-readable string.
 
@@ -44,7 +44,7 @@ def format_bytes(nbytes: int | float) -> str:
     return f"{n:.2f} PiB"
 
 
-def parse_bytes(s: str | int) -> int:
+def parse_bytes(s):
     """
     Parse a human-readable byte size string into an integer.
 
