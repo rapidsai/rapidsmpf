@@ -64,7 +64,7 @@ class OptionsImpl {
      * @throws std::invalid_argument If the stored option type does not match T.
      */
     template <typename T>
-    T const& get(std::string const& key, std::function<T(std::string const&)> factory) {
+    T const& get(std::string const& key, OptionFactory<T> factory) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (options_.find(key) == options_.end()) {
