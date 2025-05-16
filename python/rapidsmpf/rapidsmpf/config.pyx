@@ -90,6 +90,11 @@ cdef class Options:
         The `default_value` is cast to the corresponding C++ type before being passed
         to the underlying options system.
 
+        TODO: Implement Python bindings to `rapidsmpf::config::Options::get` that
+        support Python objects. This will make it possible to store and retrieve any
+        kind of Python objects, not just bool, int, float, and str. The downside is
+        that those Python objects will not be accessible to C++.
+
         Note
         ----
         Once a key has been accessed with a particular `parser_type`, subsequent
