@@ -13,28 +13,17 @@ include(rapids-find)
 
 rapids_cuda_init_architectures(rapidsmpf-python)
 
-option(BUILD_IN_CONDA "Build RapidsMPF library using conda" ON)
-
 project(
   rapidsmpf-python
   VERSION "${RAPIDS_VERSION}"
   LANGUAGES CXX CUDA
 )
 
-if(NOT BUILD_IN_CONDA)
-  set(RELOCATE_LIBRAPIDSMPF ON)
-  set(CUDA_STATIC_RUNTIME ON)
-  add_subdirectory(../../cpp librapidsmpf)
+set(rapidsmpf_DIR $ENV{SITE_PACKAGES}/librapidsmpf/lib64/cmake/rapidsmpf/)
+set(ucxx-python_DIR $ENV{SITE_PACKAGES}/ucxx/lib64/cmake/ucxx-python/)
+include_directories($ENV{SITE_PACKAGES}/ucxx/include)
 
-  # TODO: don't use env-vars for this
-  include_directories($ENV{SITE_PACKAGES}/ucxx/include)
-  set(ucxx-python_DIR $ENV{SITE_PACKAGES}/ucxx/lib64/cmake/ucxx-python/)
-
-  rapids_find_package(ucx REQUIRED)
-  rapids_find_package(ucxx REQUIRED "${UCXX_VERSION}")
-else()
-  find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
-endif()
+find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
 
 rapids_find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
 find_package(CUDAToolkit REQUIRED)

@@ -8,6 +8,12 @@ package_dir="python/rapidsmpf"
 
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
 
+
+LIBRAPIDSMPF_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="librapidsmpf_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github cpp)
+echo "librapidsmpf-${RAPIDS_PY_CUDA_SUFFIX} @ file://$(echo "${LIBRAPIDSMPF_WHEELHOUSE}"/librapidsmpf_*.whl)" >> /tmp/constraints.txt
+
+export PIP_CONSTRAINT="/tmp/constraints.txt"
+
 rapids-logger "Generating build requirements"
 
 rapids-dependency-file-generator \
@@ -27,7 +33,7 @@ rapids-pip-retry install \
 # 0 really means "add --no-build-isolation" (ref: https://github.com/pypa/pip/issues/5735)
 export PIP_NO_BUILD_ISOLATION=0
 
-export SKBUILD_CMAKE_ARGS="-DBUILD_MPI_SUPPORT=OFF;-DBUILD_TESTS=OFF;-DBUILD_BENCHMARKS=OFF;-DBUILD_EXAMPLES=OFF;-DBUILD_IN_CONDA=OFF"
+export SKBUILD_CMAKE_ARGS=""
 
 SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
 export SITE_PACKAGES
