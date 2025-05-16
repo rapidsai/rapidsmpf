@@ -971,8 +971,8 @@ UCXX::UCXX(
     std::unique_ptr<InitializedRank> ucxx_initialized_rank, config::Options options
 )
     : shared_resources_(ucxx_initialized_rank->shared_resources_),
-      options_{options},
-      logger_(this, options) {
+      options_{std::move(options)},
+      logger_(this, options_) {
     shared_resources_->logger = &logger_;
 }
 
