@@ -156,6 +156,7 @@ std::unique_ptr<Buffer> BufferResource::copy(
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
+    // TODO: Inconsistency with multiple buffer resources #280
     auto ret = buffer->copy(target, stream);
     release(reservation, target, ret->size);
     return ret;
