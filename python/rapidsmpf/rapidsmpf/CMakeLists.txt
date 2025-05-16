@@ -3,7 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # =================================================================================
 
-set(cython_modules exception_handling.pyx progress_thread.pyx shuffler.pyx statistics.pyx)
+set(cython_modules exception_handling.pyx config.pyx progress_thread.pyx shuffler.pyx
+                   statistics.pyx
+)
 
 rapids_cython_create_modules(
   CXX

@@ -28,7 +28,9 @@ void Environment::SetUp() {
         provided == MPI_THREAD_MULTIPLE,
         "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
     );
-    comm_ = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD);
+
+    rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
+    comm_ = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
     progress_thread_ = std::make_shared<rapidsmpf::ProgressThread>(comm_->logger());
 }
 

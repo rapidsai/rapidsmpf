@@ -8,6 +8,7 @@ from mpi4py import MPI
 from rapidsmpf.communicator.communicator import LOG_LEVEL
 from rapidsmpf.communicator.mpi import new_communicator
 from rapidsmpf.communicator.testing import initialize_ucxx, ucxx_mpi_setup
+from rapidsmpf.config import Options, get_environment_variables
 
 
 @pytest.mark.parametrize(
@@ -17,7 +18,7 @@ def test_log_level(capfd: pytest.CaptureFixture[str], level: LOG_LEVEL) -> None:
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("RAPIDSMPF_LOG", level.name)
 
-        comm = new_communicator(MPI.COMM_WORLD)
+        comm = new_communicator(MPI.COMM_WORLD, Options(get_environment_variables()))
         assert comm.logger.verbosity_level is level
         comm.logger.print("PRINT")
         comm.logger.warn("WARN")
@@ -37,14 +38,14 @@ def test_log_level(capfd: pytest.CaptureFixture[str], level: LOG_LEVEL) -> None:
 
 
 def test_mpi() -> None:
-    comm = new_communicator(MPI.COMM_WORLD)
+    comm = new_communicator(MPI.COMM_WORLD, Options(get_environment_variables()))
     assert comm.nranks == MPI.COMM_WORLD.size
     assert comm.rank == MPI.COMM_WORLD.rank
 
 
 def test_ucxx() -> None:
     ucxx_worker = initialize_ucxx()
-    comm = ucxx_mpi_setup(ucxx_worker)
+    comm = ucxx_mpi_setup(ucxx_worker, Options(get_environment_variables()))
     assert comm.nranks == MPI.COMM_WORLD.size
 
     ucxx_worker.stop_progress_thread()

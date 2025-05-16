@@ -19,6 +19,7 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 import rapidsmpf.communicator.mpi
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.shuffler import Shuffler, partition_and_pack, unpack_and_concat
 from rapidsmpf.statistics import Statistics
@@ -210,7 +211,7 @@ def bulk_mpi_shuffle(
         shuffler.shutdown()
 
 
-def ucxx_mpi_setup() -> Communicator:
+def ucxx_mpi_setup(options: Options) -> Communicator:
     """
     Bootstrap UCXX cluster using MPI.
 
@@ -218,6 +219,8 @@ def ucxx_mpi_setup() -> Communicator:
     -------
     Communicator
         A new ucxx communicator.
+    options
+        Configuration options.
     """
     import ucxx._lib.libucxx as ucx_api
 
@@ -228,7 +231,7 @@ def ucxx_mpi_setup() -> Communicator:
     )
 
     if MPI.COMM_WORLD.Get_rank() == 0:
-        comm = new_communicator(MPI.COMM_WORLD.size, None, None)
+        comm = new_communicator(MPI.COMM_WORLD.size, None, None, options)
         root_address_bytes = get_root_ucxx_address(comm)
     else:
         root_address_bytes = None
@@ -237,7 +240,7 @@ def ucxx_mpi_setup() -> Communicator:
 
     if MPI.COMM_WORLD.Get_rank() != 0:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-        comm = new_communicator(MPI.COMM_WORLD.size, None, root_address)
+        comm = new_communicator(MPI.COMM_WORLD.size, None, root_address, options)
 
     assert comm.nranks == MPI.COMM_WORLD.size
     barrier(comm)
@@ -253,10 +256,12 @@ def setup_and_run(args: argparse.Namespace) -> None:
     args
         Command-line arguments containing the configuration for the shuffle example.
     """
+    options = Options(get_environment_variables())
+
     if args.cluster_type == "mpi":
-        comm = rapidsmpf.communicator.mpi.new_communicator(MPI.COMM_WORLD)
+        comm = rapidsmpf.communicator.mpi.new_communicator(MPI.COMM_WORLD, options)
     elif args.cluster_type == "ucxx":
-        comm = ucxx_mpi_setup()
+        comm = ucxx_mpi_setup(options)
 
     # Create a RMM stack with both a device pool and statistics.
     mr = rmm.mr.StatisticsResourceAdaptor(

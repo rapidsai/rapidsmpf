@@ -6,15 +6,16 @@ from mpi4py cimport libmpi
 from mpi4py.MPI cimport Intracomm
 
 from rapidsmpf.communicator.communicator cimport Communicator
+from rapidsmpf.config cimport Options, cpp_Options
 
 
 cdef extern from "<rapidsmpf/communicator/mpi.hpp>" nogil:
     cdef cppclass cpp_MPI_Communicator "rapidsmpf::MPI":
         cpp_MPI_Communicator() except +
-        cpp_MPI_Communicator(libmpi.MPI_Comm comm) except +
+        cpp_MPI_Communicator(libmpi.MPI_Comm comm, cpp_Options options) except +
 
 
-cpdef Communicator new_communicator(Intracomm comm):
+def new_communicator(Intracomm comm, Options options):
     """
     Create a new RapidsMPF-MPI communicator based on an existing mpi4py communicator.
 
@@ -22,6 +23,8 @@ cpdef Communicator new_communicator(Intracomm comm):
     ----------
     comm
         The existing mpi communicator from mpi4py.
+    options
+        Configuration options.
 
     Returns
     -------
@@ -29,5 +32,5 @@ cpdef Communicator new_communicator(Intracomm comm):
     """
     cdef Communicator ret = Communicator.__new__(Communicator)
     with nogil:
-        ret._handle = make_shared[cpp_MPI_Communicator](comm.ob_mpi)
+        ret._handle = make_shared[cpp_MPI_Communicator](comm.ob_mpi, options._handle)
     return ret
