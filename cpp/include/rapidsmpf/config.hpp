@@ -61,6 +61,7 @@ class OptionsImpl {
      * @param key The option key (should be lower case).
      * @param factory Function to construct the option from a string.
      * @return Reference to the option value.
+     *
      * @throws std::invalid_argument If the stored option type does not match T.
      */
     template <typename T>
@@ -127,7 +128,13 @@ class Options {
      * @param key The option key (should be lower case).
      * @param factory Function to construct the option from a string.
      * @return Reference to the option value.
+     *
      * @throws std::invalid_argument If the stored option type does not match T.
+     * @throws std::bad_any_cast If `T` doesn't match the type of the option.
+     *
+     * @note Once a key has been accessed with a particular `T`, subsequent calls
+     * to `get` on the same key must use the same `T`. Using a different `T` for
+     * the same key will result in a `std::bad_any_cast`.
      */
     template <typename T>
     T const& get(std::string const& key, OptionFactory<T> factory) {
@@ -160,6 +167,7 @@ class Options {
  * @param[in] key_regex A regular expression with a single capture group to match and
  * extract the environment variable keys. Only environment variables with keys matching
  * this pattern will be considered.
+ *
  * @throws std::invalid_argument If key_regex doesn't contain exactly one capture group.
  *
  * @warning This function uses `std::regex` and relies on the global `environ` symbol,
@@ -180,6 +188,7 @@ void get_environment_variables(
  * the environment variable keys.
  * @return A map containing all matching environment variables, with keys as extracted by
  * the capture group.
+ *
  * @throws std::invalid_argument If key_regex doesn't contain exactly one capture group.
  *
  * @see get_environment_variables(std::unordered_map<std::string, std::string>&,
