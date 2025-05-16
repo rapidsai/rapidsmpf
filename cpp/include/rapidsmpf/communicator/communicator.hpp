@@ -19,7 +19,6 @@
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/option.hpp>
 
 /**
  * @namespace rapidsmpf
