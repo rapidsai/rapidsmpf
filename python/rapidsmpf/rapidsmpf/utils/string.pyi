@@ -1,6 +1,0 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
-# SPDX-License-Identifier: Apache-2.0
-from __future__ import annotations
-
-def format_bytes(nbytes: int | float) -> str: ...
-def parse_bytes(s: str | int) -> int: ...

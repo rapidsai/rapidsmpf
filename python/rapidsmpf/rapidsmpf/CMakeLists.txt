@@ -15,4 +15,3 @@ rapids_cython_create_modules(
 
 add_subdirectory(communicator)
 add_subdirectory(buffer)
-add_subdirectory(utils)
