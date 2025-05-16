@@ -11,7 +11,6 @@ def test_get_or_default_with_explicit_values() -> None:
     opts = Options(
         {"debug": "true", "max_retries": "3", "timeout": "2.5", "mode": "fast"}
     )
-
     assert opts.get_or_assign("debug", bool, default_value=False) is True
     assert opts.get_or_assign("max_retries", int, default_value=0) == 3
     assert opts.get_or_assign("timeout", float, default_value=0.0) == 2.5
@@ -20,7 +19,6 @@ def test_get_or_default_with_explicit_values() -> None:
 
 def test_get_or_assign_returns_default_when_key_missing() -> None:
     opts = Options({})
-
     assert opts.get_or_assign("use_gpu", bool, default_value=True) is True
     assert opts.get_or_assign("workers", int, default_value=4) == 4
     assert opts.get_or_assign("rate", float, default_value=1.2) == 1.2
@@ -29,10 +27,8 @@ def test_get_or_assign_returns_default_when_key_missing() -> None:
 
 def test_get_or_assign_caches_assigned_value() -> None:
     opts = Options({})
-
     val1 = opts.get_or_assign("threshold", float, default_value=0.75)
     val2 = opts.get_or_assign("threshold", float, default_value=1.23)
-
     assert val1 == val2 == 0.75  # Second call should not override the first
 
 
