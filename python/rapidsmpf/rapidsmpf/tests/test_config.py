@@ -9,10 +9,17 @@ from rapidsmpf.config import Options
 
 def test_get_or_default_with_explicit_values() -> None:
     opts = Options(
-        {"debug": "true", "max_retries": "3", "timeout": "2.5", "mode": "fast"}
+        {
+            "debug": "true",
+            "max_retries": "3",
+            "timeout": "2.5",
+            "int": "2.5",
+            "mode": "fast",
+        }
     )
     assert opts.get_or_assign("debug", bool, default_value=False) is True
     assert opts.get_or_assign("max_retries", int, default_value=0) == 3
+    assert opts.get_or_assign("int", int, default_value=0) == 2
     assert opts.get_or_assign("timeout", float, default_value=0.0) == 2.5
     assert opts.get_or_assign("mode", str, default_value="slow") == "fast"
 
@@ -51,3 +58,9 @@ def test_get_or_assign_type_conflict_on_same_key() -> None:
     # Now try to access same key with a different type
     with pytest.raises(ValueError, match="incompatible template type"):
         opts.get_or_assign("batch_size", float, default_value=32.0)
+
+
+def test_get_or_default_int64_overflow() -> None:
+    opts = Options({"large_int": str(2**65)})
+    with pytest.raises(ValueError, match='cannot parse "36893488147419103232"'):
+        opts.get_or_assign("large_int", int, default_value=0)
