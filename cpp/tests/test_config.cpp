@@ -65,8 +65,9 @@ TEST(ConfigEnvironmentVariables, ThrowsIfNoCaptureGroup) {
 template <typename T>
 OptionFactory<T> make_factory(T default_value, std::function<T(std::string)> parser) {
     return [=](std::string const& s) -> T {
-        if (s.empty())
+        if (s.empty()) {
             return default_value;
+        }
         return parser(s);
     };
 }
@@ -76,7 +77,6 @@ TEST(OptionsTest, GetOptionCorrectTypeSetExplicitly) {
         {"myoption", std::make_any<int>(42)}
     };
     Options opts({}, options);
-
     auto value = opts.get<int>("myoption", make_factory<int>(0, [](auto s) {
                                    return std::stoi(s);
                                }));
@@ -88,7 +88,6 @@ TEST(OptionsTest, GetOptionWrongTypeThrows) {
         {"myoption", std::make_any<std::string>("not an int")}
     };
     Options opts({}, options);
-
     EXPECT_THROW(
         {
             opts.get<int>("myoption", make_factory<int>(0, [](auto s) {
@@ -101,7 +100,6 @@ TEST(OptionsTest, GetOptionWrongTypeThrows) {
 
 TEST(OptionsTest, GetUnsetOptionUsesFactoryWithDefaultValue) {
     Options opts({}, {});
-
     auto value = opts.get<std::string>(
         "newoption", make_factory<std::string>("default", [](auto s) { return s; })
     );
@@ -111,7 +109,6 @@ TEST(OptionsTest, GetUnsetOptionUsesFactoryWithDefaultValue) {
 TEST(OptionsTest, GetUnsetOptionUsesFactoryWithStringValue) {
     std::unordered_map<std::string, std::string> strings = {{"level", "5"}};
     Options opts(strings, {});
-
     auto value =
         opts.get<int>("level", make_factory<int>(0, [](auto s) { return std::stoi(s); }));
     EXPECT_EQ(value, 5);
@@ -123,7 +120,6 @@ TEST(OptionsTest, GetSetOptionOverridesStringMap) {
         {"myoption", std::make_any<int>(123)}
     };
     Options opts(strings, options);
-
     auto value = opts.get<int>("myoption", make_factory<int>(0, [](auto s) {
                                    return std::stoi(s);
                                }));
