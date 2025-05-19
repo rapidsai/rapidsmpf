@@ -15,6 +15,7 @@ from rapidsmpf.communicator.mpi import new_communicator  # noqa: E402
     "level", list(LOG_LEVEL), ids=[level.name for level in LOG_LEVEL]
 )
 def test_log_level(capfd: pytest.CaptureFixture[str], level: LOG_LEVEL) -> None:
+    MPI = pytest.importorskip("mpi4py.MPI")
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("RAPIDSMPF_LOG", level.name)
 
