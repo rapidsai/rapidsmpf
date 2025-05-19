@@ -9,6 +9,7 @@ files:
       - build-universal
       - build-cpp
       - build-python
+      - build-mpi
       - checks
       - cuda
       - cuda_version
@@ -144,13 +145,18 @@ dependencies:
       - output_types: [pyproject, requirements]
         packages:
           - scikit-build-core[pyproject]>=0.10.0
+
+  build-mpi:
+    common:
+      - output_types: [conda]
+        packages:
+          - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+          - mpi4py
   build-python:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
           - cython>=3.0.3
-          # - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
-          # - mpi4py
   checks:
     common:
       - output_types: conda
