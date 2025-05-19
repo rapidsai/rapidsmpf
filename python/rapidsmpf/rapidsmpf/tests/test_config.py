@@ -64,3 +64,8 @@ def test_get_or_default_int64_overflow() -> None:
     opts = Options({"large_int": str(2**65)})
     with pytest.raises(ValueError, match='cannot parse "36893488147419103232"'):
         opts.get_or_assign("large_int", int, default_value=0)
+
+    with pytest.raises(
+        OverflowError, match="Python int too large to convert to C long"
+    ):
+        opts.get_or_assign("another_large_int", int, default_value=2**65)
