@@ -25,7 +25,7 @@ classifiers = [
     "Topic :: Database",
     "Topic :: Scientific/Engineering",
     "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python",
+    "Programming Language :: C++",
 ]
 
 [project.optional-dependencies]
@@ -56,7 +56,7 @@ sdist.exclude = ["*tests*"]
 sdist.reproducible = true
 wheel.packages = ["librapidsmpf"]
 wheel.install-dir = "librapidsmpf"
-wheel.exclude = ["CMakeLists.txt"]
+wheel.py-api = "py3"
 
 [tool.scikit-build.metadata.version]
 provider = "scikit_build_core.metadata.regex"
