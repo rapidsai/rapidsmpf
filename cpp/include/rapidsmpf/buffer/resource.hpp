@@ -72,8 +72,26 @@ class MemoryReservation {
      *
      * @return The size of the reserved memory in bytes.
      */
-    [[nodiscard]] std::size_t size() const noexcept {
+    [[nodiscard]] constexpr std::size_t size() const noexcept {
         return size_;
+    }
+
+    /**
+     * @brief Get the type of memory associated with this reservation.
+     *
+     * @return The type of memory associated with this reservation.
+     */
+    [[nodiscard]] constexpr MemoryType mem_type() const noexcept {
+        return mem_type_;
+    }
+
+    /**
+     * @brief Get the buffer resource associated with this reservation.
+     *
+     * @return The buffer resource associated with this reservation.
+     */
+    [[nodiscard]] constexpr BufferResource* br() const noexcept {
+        return br_;
     }
 
   private:

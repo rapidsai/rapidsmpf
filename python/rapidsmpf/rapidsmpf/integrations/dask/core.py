@@ -21,6 +21,7 @@ from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.buffer.spill_collection import SpillCollection
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
+from rapidsmpf.integrations.dask import _compat
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.statistics import Statistics
 
@@ -350,7 +351,10 @@ def bootstrap_dask_cluster(
     scheduler_plugin = RMPFSchedulerPlugin()
     client.register_plugin(scheduler_plugin)
 
-    workers = sorted(client.scheduler_info()["workers"])
+    kwargs = {}
+    if _compat.DISTRIBUTED_2025_4_0():
+        kwargs["n_workers"] = -1
+    workers = sorted(client.scheduler_info(**kwargs)["workers"])
     n_ranks = len(workers)
 
     # Set up the comms for the root worker
