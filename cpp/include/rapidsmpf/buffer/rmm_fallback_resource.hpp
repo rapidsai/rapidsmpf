@@ -22,13 +22,11 @@ namespace rapidsmpf {
  * An instance of this resource must be constructed with two upstream resources to satisfy
  * allocation requests.
  *
- * @tparam ExceptionType The type of exception that this adaptor should respond to.
  */
-template <typename ExceptionType = rmm::out_of_memory>
 class RmmFallbackResource final : public rmm::mr::device_memory_resource {
   public:
     using exception_type =
-        ExceptionType;  ///< The type of exception this object catches/throws
+        rmm::out_of_memory;  ///< The type of exception this object catches/throws
 
     /**
      * @brief Construct a new `RmmFallbackResource` that uses `primary_upstream`

@@ -51,7 +51,7 @@ struct throw_at_limit_resource final : public rmm::mr::device_memory_resource {
 TEST(FailureAlternateTest, TrackBothUpstreams) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{100};
     throw_at_limit_resource<rmm::out_of_memory> alternate_mr{1000};
-    RmmFallbackResource<rmm::out_of_memory> mr{primary_mr, alternate_mr};
+    RmmFallbackResource mr{primary_mr, alternate_mr};
 
     // Check that a small allocation goes to the primary resource
     {
@@ -80,7 +80,7 @@ TEST(FailureAlternateTest, TrackBothUpstreams) {
 TEST(FailureAlternateTest, DifferentExceptionTypes) {
     throw_at_limit_resource<std::invalid_argument> primary_mr{100};
     throw_at_limit_resource<rmm::out_of_memory> alternate_mr{1000};
-    RmmFallbackResource<rmm::out_of_memory> mr{primary_mr, alternate_mr};
+    RmmFallbackResource mr{primary_mr, alternate_mr};
 
     // Check that only `rmm::out_of_memory` exceptions are caught
     EXPECT_THROW(mr.allocate(200), std::invalid_argument);
