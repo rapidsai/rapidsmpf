@@ -4,5 +4,5 @@
 
 from __future__ import annotations
 
-from librapidsmpf._version import __git_commit__, __version__
-from librapidsmpf.load import load_library
+from librapidsmpf._version import __git_commit__, __version__  # noqa: F401
+from librapidsmpf.load import load_library  # noqa: F401

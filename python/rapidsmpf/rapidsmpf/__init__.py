@@ -4,6 +4,6 @@
 
 from __future__ import annotations
 
-from rapidsmpf.load import load_library
+from librapidsmpf.load import load_library
 
 load_library()
