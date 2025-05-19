@@ -32,7 +32,7 @@ files:
     includes:
       - cuda_version
       - py_version
-      - run_and_build_rapidsmpf
+      - build_rapidsmpf
       - run_rapidsmpf
       - test_python
       - test_rapidsmpf
@@ -81,7 +81,7 @@ files:
     includes:
       - build-universal
       - build-python
-      - run_and_build_rapidsmpf
+      - build_rapidsmpf
       - depends_on_librapidsmpf
   py_run_rapidsmpf:
     output: pyproject
@@ -89,7 +89,7 @@ files:
     extras:
       table: project
     includes:
-      - run_and_build_rapidsmpf
+      - build_rapidsmpf
       - run_rapidsmpf
       - depends_on_librapidsmpf
 channels:
@@ -323,7 +323,7 @@ dependencies:
               - *libcudf_unsuffixed
               - *librmm_unsuffixed
               - *ucxx_unsuffixed
-  run_and_build_rapidsmpf:
+  build_rapidsmpf:
     common:
       - output_types: conda
         packages:
