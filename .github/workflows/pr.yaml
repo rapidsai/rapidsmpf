@@ -38,7 +38,8 @@ jobs:
       script: ci/build_wheel_librapidsmpf.sh
       package-name: librapidsmpf
       package-type: cpp
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
+      # build for every combination of arch on CUDA 12 and latest Python
+      matrix_filter: group_by([.ARCH]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
   rapidsmpf-wheel-build:
     needs: [checks, librapidsmpf-wheel-build]
     secrets: inherit
