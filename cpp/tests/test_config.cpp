@@ -73,10 +73,9 @@ OptionFactory<T> make_factory(T default_value, std::function<T(std::string)> par
 }
 
 TEST(OptionsTest, GetOptionCorrectTypeSetExplicitly) {
-    std::unordered_map<std::string, std::any> options = {
-        {"myoption", std::make_any<int>(42)}
+    std::unordered_map<std::string, OptionValue> options = {{"myoption", OptionValue(42)}
     };
-    Options opts({}, options);
+    Options opts(options);
     auto value = opts.get<int>("myoption", make_factory<int>(0, [](auto s) {
                                    return std::stoi(s);
                                }));
@@ -84,10 +83,10 @@ TEST(OptionsTest, GetOptionCorrectTypeSetExplicitly) {
 }
 
 TEST(OptionsTest, GetOptionWrongTypeThrows) {
-    std::unordered_map<std::string, std::any> options = {
-        {"myoption", std::make_any<std::string>("not an int")}
+    std::unordered_map<std::string, OptionValue> options = {
+        {"myoption", OptionValue("not an int")}
     };
-    Options opts({}, options);
+    Options opts(options);
     EXPECT_THROW(
         {
             opts.get<int>("myoption", make_factory<int>(0, [](auto s) {
@@ -99,7 +98,7 @@ TEST(OptionsTest, GetOptionWrongTypeThrows) {
 }
 
 TEST(OptionsTest, GetUnsetOptionUsesFactoryWithDefaultValue) {
-    Options opts({}, {});
+    Options opts;
     auto value = opts.get<std::string>(
         "newoption", make_factory<std::string>("default", [](auto s) { return s; })
     );
@@ -108,20 +107,8 @@ TEST(OptionsTest, GetUnsetOptionUsesFactoryWithDefaultValue) {
 
 TEST(OptionsTest, GetUnsetOptionUsesFactoryWithStringValue) {
     std::unordered_map<std::string, std::string> strings = {{"level", "5"}};
-    Options opts(strings, {});
+    Options opts(strings);
     auto value =
         opts.get<int>("level", make_factory<int>(0, [](auto s) { return std::stoi(s); }));
     EXPECT_EQ(value, 5);
-}
-
-TEST(OptionsTest, GetSetOptionOverridesStringMap) {
-    std::unordered_map<std::string, std::string> strings = {{"myoption", "999"}};
-    std::unordered_map<std::string, std::any> options = {
-        {"myoption", std::make_any<int>(123)}
-    };
-    Options opts(strings, options);
-    auto value = opts.get<int>("myoption", make_factory<int>(0, [](auto s) {
-                                   return std::stoi(s);
-                               }));
-    EXPECT_EQ(value, 123);  // set value overrides string-based one
 }

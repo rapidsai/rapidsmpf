@@ -31,6 +31,32 @@ namespace rapidsmpf::config {
 template <typename T>
 using OptionFactory = std::function<T(std::string const&)>;
 
+// Forward declaration to make it friendable.
+namespace detail {
+class OptionsImpl;
+}
+
+class OptionValue {
+    friend detail::OptionsImpl;
+
+  public:
+    OptionValue() = default;
+
+    OptionValue(std::any value) : value_{std::move(value)} {}
+
+    OptionValue(std::string value_as_string)
+        : value_as_string_{std::move(value_as_string)} {}
+
+    template <typename T>
+    OptionValue(T value) : OptionValue(std::make_any<T>(value)) {}
+
+
+  public:
+    std::string value_as_string_{};
+    std::any value_{};
+    // TODO: add a collective policy.
+};
+
 namespace detail {
 
 /**
@@ -44,13 +70,9 @@ class OptionsImpl {
     /**
      * @brief Constructs an `OptionsImpl` instance.
      *
-     * @param options_as_strings A map of option keys to their string representations.
-     * @param options A map of option keys to their corresponding `Option` objects.
+     * @param options A map of option keys to their corresponding option value.
      */
-    OptionsImpl(
-        std::unordered_map<std::string, std::string> options_as_strings,
-        std::unordered_map<std::string, std::any> options
-    );
+    OptionsImpl(std::unordered_map<std::string, OptionValue> options);
 
     /**
      * @brief Retrieves a configuration option by key.
@@ -68,16 +90,15 @@ class OptionsImpl {
     T const& get(std::string const& key, OptionFactory<T> factory) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            if (options_.find(key) == options_.end()) {
-                if (options_as_strings_.find(key) == options_as_strings_.end()) {
-                    options_[key] = std::make_any<T>(factory(""));
-                } else {
-                    options_[key] = std::make_any<T>(factory(options_as_strings_[key]));
-                }
+            auto it = options_.find(key);
+            if (it == options_.end() || !it->second.value_.has_value()) {
+                auto& option_value = options_[key];
+                option_value.value_ =
+                    std::make_any<T>(factory(option_value.value_as_string_));
             }
         }
         try {
-            return std::any_cast<T const&>(options_[key]);
+            return std::any_cast<T const&>(options_[key].value_);
         } catch (std::bad_any_cast const&) {
             RAPIDSMPF_FAIL(
                 "accessing option with incompatible template type", std::invalid_argument
@@ -87,8 +108,7 @@ class OptionsImpl {
 
   private:
     mutable std::mutex mutex_;
-    std::unordered_map<std::string, std::string> options_as_strings_;
-    std::unordered_map<std::string, std::any> options_;
+    std::unordered_map<std::string, OptionValue> options_;
 };
 }  // namespace detail
 
@@ -107,15 +127,20 @@ class OptionsImpl {
 class Options {
   public:
     /**
-     * @brief Constructs an `Options` instance.
+     * @brief Constructs an `Options` instance from option values.
+     *
+     * @param options A map of option keys to their corresponding option value.
+     */
+    Options(std::unordered_map<std::string, OptionValue> options = {});
+
+
+    /**
+     * @brief Constructs an `Options` instance from option values as strings.
      *
      * @param options_as_strings A map of option keys to their string representations.
      * @param options A map of option keys to their corresponding `Option` objects.
      */
-    Options(
-        std::unordered_map<std::string, std::string> options_as_strings = {},
-        std::unordered_map<std::string, std::any> options = {}
-    );
+    Options(std::unordered_map<std::string, std::string> options_as_strings);
 
     /**
      * @brief Retrieves a configuration option by key.

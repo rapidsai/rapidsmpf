@@ -30,26 +30,29 @@ std::unordered_map<std::string, T> transform_keys_trim_lower(
     }
     return ret;
 }
+
+// Helper function to get OptionValue map from options-as-strings map.
+std::unordered_map<std::string, OptionValue> from_options_as_strings(
+    std::unordered_map<std::string, std::string>&& options_as_strings
+) {
+    std::unordered_map<std::string, OptionValue> ret;
+    for (auto&& [key, val] : transform_keys_trim_lower(std::move(options_as_strings))) {
+        ret.insert({std::move(key), OptionValue(std::move(val))});
+    }
+    return ret;
+}
 }  // namespace
 
-OptionsImpl::OptionsImpl(
-    std::unordered_map<std::string, std::string> options_as_strings,
-    std::unordered_map<std::string, std::any> options
-
-)
-    : options_as_strings_{transform_keys_trim_lower(std::move(options_as_strings))},
-      options_{transform_keys_trim_lower(std::move(options))} {}
+OptionsImpl::OptionsImpl(std::unordered_map<std::string, OptionValue> options)
+    : options_{transform_keys_trim_lower(std::move(options))} {}
 
 }  // namespace detail
 
-Options::Options(
-    std::unordered_map<std::string, std::string> options_as_strings,
-    std::unordered_map<std::string, std::any> options
+Options::Options(std::unordered_map<std::string, OptionValue> options)
+    : impl_{std::make_shared<detail::OptionsImpl>(std::move(options))} {}
 
-)
-    : impl_{std::make_shared<detail::OptionsImpl>(
-        std::move(options_as_strings), std::move(options)
-    )} {}
+Options::Options(std::unordered_map<std::string, std::string> options_as_strings)
+    : Options(detail::from_options_as_strings(std::move(options_as_strings))){};
 
 void get_environment_variables(
     std::unordered_map<std::string, std::string>& output, std::string const& key_regex
