@@ -90,6 +90,7 @@ files:
     includes:
       - run_and_build_rapidsmpf
       - run_rapidsmpf
+      - depends_on_librapidsmpf
 channels:
   - rapidsai
   - rapidsai-nightly
