@@ -4,6 +4,7 @@
 set -eou pipefail
 
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
+CPP_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="librapidsmpf_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github cpp)
 PYTHON_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="rapidsmpf_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github python)
 
 # generate constraints (possibly pinning to oldest support versions of dependencies)
@@ -13,6 +14,7 @@ rapids-generate-pip-constraints test_python ./constraints.txt
 rapids-pip-retry install \
     -v \
     --constraint ./constraints.txt \
+    "${CPP_WHEELHOUSE}"/*.whl \
     "$(echo "${PYTHON_WHEELHOUSE}"/rapidsmpf_"${RAPIDS_PY_CUDA_SUFFIX}"*.whl)[test]"
 
 python -m pytest ./python/rapidsmpf/rapidsmpf/tests
