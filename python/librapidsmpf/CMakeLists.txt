@@ -19,6 +19,14 @@ project(
   LANGUAGES CXX CUDA
 )
 
+find_package(librapidsmpf "${RAPIDS_VERSION}")
+
+if(librapidsmpf_FOUND)
+  return()
+endif()
+
+unset(librapidsmpf_FOUND)
+
 set(CUDA_STATIC_RUNTIME ON)
 add_subdirectory(../../cpp librapidsmpf)
 find_package(CUDAToolkit REQUIRED)
