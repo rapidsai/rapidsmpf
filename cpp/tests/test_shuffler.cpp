@@ -147,10 +147,13 @@ MemoryAvailableMap get_memory_available_map(rapidsmpf::MemoryType priorities) {
     return ret;
 }
 
+template <typename InsertFn, typename InsertFinishedFn>
 void test_shuffler(
     std::shared_ptr<rapidsmpf::Communicator> const& comm,
     rapidsmpf::shuffler::Shuffler& shuffler,
     rapidsmpf::shuffler::PartID total_num_partitions,
+    InsertFn&& insert_fn,
+    InsertFinishedFn&& insert_finished_fn,
     std::size_t total_num_rows,
     std::int64_t seed,
     cudf::hash_id hash_fn,
@@ -202,14 +205,12 @@ void test_shuffler(
                 mr
             );
             // Add the chunks to the shuffle
-            shuffler.insert(std::move(packed_chunks));
+            insert_fn(std::move(packed_chunks));
         }
         row_offset += partiton_size;
     }
     // Tell the shuffler that we have no more input partitions.
-    for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-        shuffler.insert_finished(i);
-    }
+    insert_finished_fn();
 
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any(wait_timeout);
@@ -232,13 +233,39 @@ void test_shuffler(
 class MemoryAvailable_NumPartition
     : public cudf::test::BaseFixtureWithParam<
           std::tuple<MemoryAvailableMap, rapidsmpf::shuffler::PartID, std::size_t>> {
+  public:
     void SetUp() override {
+        stream = cudf::get_default_stream();
+        memory_available = std::get<0>(GetParam());
+        total_num_partitions = std::get<1>(GetParam());
+        total_num_rows = std::get<2>(GetParam());
+        br = std::make_unique<rapidsmpf::BufferResource>(mr(), memory_available);
+
+        shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
+            GlobalEnvironment->comm_,
+            GlobalEnvironment->progress_thread_,
+            0,  // op_id
+            total_num_partitions,
+            stream,
+            br.get()
+        );
+
         GlobalEnvironment->barrier();
     }
 
     void TearDown() override {
         GlobalEnvironment->barrier();
     }
+
+  protected:
+    MemoryAvailableMap memory_available;
+    rapidsmpf::shuffler::PartID total_num_partitions;
+    std::size_t total_num_rows;
+    std::int64_t seed = 42;
+    cudf::hash_id hash_fn = cudf::hash_id::HASH_MURMUR3;
+    rmm::cuda_stream_view stream;
+    std::unique_ptr<rapidsmpf::BufferResource> br;
+    std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler;
 };
 
 // test different `memory_available` and `total_num_partitions`.
@@ -255,34 +282,83 @@ INSTANTIATE_TEST_SUITE_P(
     )
 );
 
+// both insert and insert_finished ungrouped
 TEST_P(MemoryAvailable_NumPartition, round_trip) {
-    MemoryAvailableMap const memory_available = std::get<0>(GetParam());
-    rapidsmpf::shuffler::PartID const total_num_partitions = std::get<1>(GetParam());
-    std::size_t const total_num_rows = std::get<2>(GetParam());
-    std::int64_t const seed = 42;
-    cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
-    auto stream = cudf::get_default_stream();
-    auto mr = cudf::get_current_device_resource_ref();
-    rapidsmpf::BufferResource br{mr, memory_available};
-
-    rapidsmpf::shuffler::Shuffler shuffler(
-        GlobalEnvironment->comm_,
-        GlobalEnvironment->progress_thread_,
-        0,  // op_id
-        total_num_partitions,
-        stream,
-        &br
-    );
-
     EXPECT_NO_FATAL_FAILURE(test_shuffler(
         GlobalEnvironment->comm_,
-        shuffler,
+        *shuffler,
         total_num_partitions,
+        [&](auto&& packed_chunks) { shuffler->insert(std::move(packed_chunks)); },
+        [&]() {
+            for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+                shuffler->insert_finished(i);
+            }
+        },
         total_num_rows,
         seed,
         hash_fn,
         stream,
-        br.device_mr()
+        mr()
+    ));
+}
+
+// both insert and insert_finished grouped
+TEST_P(MemoryAvailable_NumPartition, round_trip_both_grouped) {
+    EXPECT_NO_FATAL_FAILURE(test_shuffler(
+        GlobalEnvironment->comm_,
+        *shuffler,
+        total_num_partitions,
+        [&](auto&& packed_chunks) { shuffler->insert_grouped(std::move(packed_chunks)); },
+        [&]() {
+            shuffler->insert_finished(
+                iota_vector<rapidsmpf::shuffler::PartID>(total_num_partitions)
+            );
+        },
+        total_num_rows,
+        seed,
+        hash_fn,
+        stream,
+        mr()
+    ));
+}
+
+// insert grouped and insert_finished ungrouped
+TEST_P(MemoryAvailable_NumPartition, round_trip_insert_grouped) {
+    EXPECT_NO_FATAL_FAILURE(test_shuffler(
+        GlobalEnvironment->comm_,
+        *shuffler,
+        total_num_partitions,
+        [&](auto&& packed_chunks) { shuffler->insert_grouped(std::move(packed_chunks)); },
+        [&]() {
+            for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+                shuffler->insert_finished(i);
+            }
+        },
+        total_num_rows,
+        seed,
+        hash_fn,
+        stream,
+        mr()
+    ));
+}
+
+// insert ungrouped and insert_finished grouped
+TEST_P(MemoryAvailable_NumPartition, round_trip_finished_grouped) {
+    EXPECT_NO_FATAL_FAILURE(test_shuffler(
+        GlobalEnvironment->comm_,
+        *shuffler,
+        total_num_partitions,
+        [&](auto&& packed_chunks) { shuffler->insert(std::move(packed_chunks)); },
+        [&]() {
+            shuffler->insert_finished(
+                iota_vector<rapidsmpf::shuffler::PartID>(total_num_partitions)
+            );
+        },
+        total_num_rows,
+        seed,
+        hash_fn,
+        stream,
+        mr()
     ));
 }
 
@@ -297,7 +373,7 @@ class ConcurrentShuffleTest
             static_cast<rapidsmpf::shuffler::PartID>(std::get<1>(GetParam()));
 
         // these resources will be used by multiple threads to instantiate shufflers
-        br = std::make_shared<rapidsmpf::BufferResource>(mr());
+        br = std::make_unique<rapidsmpf::BufferResource>(mr());
         stream = cudf::get_default_stream();
 
         GlobalEnvironment->barrier();
@@ -309,7 +385,8 @@ class ConcurrentShuffleTest
 
     // test run for each thread. The test follows the same logic as
     // `MemoryAvailable_NumPartition` test, but without any memory limitations
-    void RunTest(int t_id) {
+    template <typename InsertFn, typename InsertFinishedFn>
+    void RunTest(int t_id, InsertFn&& insert_fn, InsertFinishedFn&& insert_finished_fn) {
         rapidsmpf::shuffler::Shuffler shuffler(
             GlobalEnvironment->comm_,
             GlobalEnvironment->progress_thread_,
@@ -323,20 +400,103 @@ class ConcurrentShuffleTest
             GlobalEnvironment->comm_,
             shuffler,
             total_num_partitions,
+            [&](auto&& packed_chunks) { insert_fn(shuffler, std::move(packed_chunks)); },
+            [&]() { insert_finished_fn(shuffler); },
             100,  // total_num_rows
             t_id,  // seed
             cudf::hash_id::HASH_MURMUR3,
             stream,
-            br->device_mr()
+            mr()
         ));
+    }
+
+    template <typename InsertFn, typename InsertFinishedFn>
+    void RunTestTemplate(InsertFn insert_fn, InsertFinishedFn insert_finished_fn) {
+        std::vector<std::future<void>> futures;
+        futures.reserve(static_cast<std::size_t>(num_shufflers));
+
+        for (int t_id = 0; t_id < num_shufflers; t_id++) {
+            // pass a copy of the insert_fn and insert_finished_fn to each thread
+            futures.push_back(std::async(
+                std::launch::async,
+                [this,
+                 t_id,
+                 insert_fn1 = insert_fn,
+                 insert_finished_fn1 = insert_finished_fn] {
+                    ASSERT_NO_FATAL_FAILURE(this->RunTest(
+                        t_id, std::move(insert_fn1), std::move(insert_finished_fn1)
+                    ));
+                }
+            ));
+        }
+
+        for (auto& f : futures) {
+            ASSERT_NO_THROW(f.wait());
+        }
     }
 
     int num_shufflers;
     rapidsmpf::shuffler::PartID total_num_partitions;
 
-    std::shared_ptr<rapidsmpf::BufferResource> br;
     rmm::cuda_stream_view stream;
+    std::unique_ptr<rapidsmpf::BufferResource> br;
 };
+
+// both insert and insert_finished ungrouped
+TEST_P(ConcurrentShuffleTest, round_trip) {
+    ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
+        [&](auto& shuffler, auto&& packed_chunks) {
+            shuffler.insert(std::move(packed_chunks));
+        },
+        [&](auto& shuffler) {
+            for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+                shuffler.insert_finished(i);
+            }
+        }
+    ));
+}
+
+// both insert and insert_finished grouped
+TEST_P(ConcurrentShuffleTest, round_trip_both_grouped) {
+    ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
+        [&](auto& shuffler, auto&& packed_chunks) {
+            shuffler.insert_grouped(std::move(packed_chunks));
+        },
+        [&](auto& shuffler) {
+            shuffler.insert_finished(
+                iota_vector<rapidsmpf::shuffler::PartID>(total_num_partitions)
+            );
+        }
+    ));
+}
+
+// insert grouped and insert_finished ungrouped
+TEST_P(ConcurrentShuffleTest, round_trip_insert_grouped) {
+    ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
+        [&](auto& shuffler, auto&& packed_chunks) {
+            shuffler.insert_grouped(std::move(packed_chunks));
+        },
+        [&](auto& shuffler) {
+            for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+                shuffler.insert_finished(i);
+            }
+        }
+    ));
+}
+
+// insert ungrouped and insert_finished grouped
+TEST_P(ConcurrentShuffleTest, round_trip_finished_grouped) {
+    ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
+        [&](auto& shuffler, auto&& packed_chunks) {
+            shuffler.insert(std::move(packed_chunks));
+        },
+        [&](auto& shuffler) {
+            shuffler.insert_finished(
+                iota_vector<rapidsmpf::shuffler::PartID>(total_num_partitions)
+            );
+        }
+    ));
+}
 
 // test different `num_shufflers` and `total_num_partitions`.
 INSTANTIATE_TEST_SUITE_P(
@@ -352,27 +512,11 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
-TEST_P(ConcurrentShuffleTest, round_trip) {
-    std::vector<std::future<void>> futures;
-    futures.reserve(static_cast<std::size_t>(num_shufflers));
-
-    for (int t_id = 0; t_id < num_shufflers; t_id++) {
-        futures.push_back(std::async(std::launch::async, [this, t_id] {
-            ASSERT_NO_FATAL_FAILURE(this->RunTest(t_id));
-        }));
-    }
-
-    for (auto& f : futures) {
-        ASSERT_NO_THROW(f.wait());
-    }
-}
-
-class ShuffleInsertGroupedTest : public cudf::test::BaseFixtureWithParam<
-                                     std::tuple<rapidsmpf::shuffler::PartID, size_t>> {
+class ShuffleInsertGroupedTest
+    : public cudf::test::BaseFixtureWithParam<std::tuple<size_t, size_t>> {
   public:
     void SetUp() override {
-        pids = std::vector<rapidsmpf::shuffler::PartID>(std::get<0>(GetParam()));
-        std::iota(pids.begin(), pids.end(), 0);
+        pids = iota_vector<rapidsmpf::shuffler::PartID>(std::get<0>(GetParam()));
 
         num_bytes = std::get<1>(GetParam());
 
