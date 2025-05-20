@@ -316,7 +316,7 @@ def bootstrap_dask_cluster(
     *,
     spill_device: float = 0.50,
     periodic_spill_check: float | None = 1e-3,
-    oom_protection: bool = True,
+    oom_protection: bool = False,
     enable_statistics: bool = True,
 ) -> None:
     """
