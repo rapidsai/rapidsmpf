@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
+from rmm.pylibrmm.stream import Stream
 
 class RmmFallbackResource:
     def __init__(
@@ -13,3 +14,5 @@ class RmmFallbackResource:
     def get_upstream(self) -> DeviceMemoryResource: ...
     @property
     def get_alternate_upstream(self) -> DeviceMemoryResource: ...
+    def allocate(self, nbytes: int, stream: Stream = ...) -> int: ...
+    def deallocate(self, ptr: int, nbytes: int, stream: Stream = ...) -> None: ...

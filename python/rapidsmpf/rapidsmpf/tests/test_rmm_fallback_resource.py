@@ -5,6 +5,8 @@ from __future__ import annotations
 import functools
 from typing import TYPE_CHECKING, Any
 
+import pytest
+
 import rmm
 import rmm.mr
 
@@ -14,7 +16,7 @@ if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
 
 
-def test_fallback_resource_adaptor() -> None:
+def test_fallback() -> None:
     base = rmm.mr.CudaMemoryResource()
 
     def alloc_cb(size: int, stream: Stream, *, track: list[int], limit: int) -> Any:
@@ -63,3 +65,18 @@ def test_fallback_resource_adaptor() -> None:
     assert main_track[0] == main_track[1]
     assert len(alternate_track) == 2
     assert alternate_track[0] == alternate_track[1]
+
+
+def test_except_type() -> None:
+    def alloc_cb(size: int, stream: Stream) -> Any:
+        raise RuntimeError("not a MemoryError")
+
+    def dealloc_cb(ptr: int, size: int, stream: Stream) -> Any:
+        return None
+
+    main_mr = rmm.mr.CallbackMemoryResource(alloc_cb, dealloc_cb)
+    alternate_mr = rmm.mr.CudaMemoryResource()
+    mr = RmmFallbackResource(main_mr, alternate_mr)
+
+    with pytest.raises(RuntimeError, match="not a MemoryError"):
+        mr.allocate(100)
