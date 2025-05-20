@@ -147,6 +147,10 @@ MemoryAvailableMap get_memory_available_map(rapidsmpf::MemoryType priorities) {
     return ret;
 }
 
+/// @tparam InsertFn: lambda that inserts the packed chunks into the shuffler.
+/// Signature: void(std::vector<rapidsmpf::PackedData>&& packed_chunks)
+/// @tparam InsertFinishedFn: lambda that inserts the finished flag into the shuffler.
+/// Signature: void()
 template <typename InsertFn, typename InsertFinishedFn>
 void test_shuffler(
     std::shared_ptr<rapidsmpf::Communicator> const& comm,
@@ -512,6 +516,9 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
+/// test case for `insert_grouped` and `insert_finished`. This test would only test the
+/// insertion logic, so, the progress thread is paused for the duration of the test. This
+/// will prevent the progress thread from extracting from the outgoing_postbox_.
 class ShuffleInsertGroupedTest
     : public cudf::test::BaseFixtureWithParam<std::tuple<size_t, size_t>> {
   public:
