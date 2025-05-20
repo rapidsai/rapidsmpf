@@ -273,9 +273,9 @@ class Shuffler::Progress {
                     "shuffle-payload-recv", chunk.concat_data_size()
                 );
                 // Tell the source of the chunk that we are ready to receive it.
-                // TODO: all partition IDs in the chunk must map to the same key (rank).
+                // All partition IDs in the chunk must map to the same key (rank).
                 fire_and_forget_.push_back(shuffler_.comm_->send(
-                    ReadyForDataMessage{/* unused */ 0, chunk.chunk_id()}.pack(),
+                    ReadyForDataMessage{chunk.chunk_id()}.pack(),
                     src,
                     ready_for_data_tag,
                     shuffler_.br_
