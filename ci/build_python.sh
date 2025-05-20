@@ -20,7 +20,7 @@ RAPIDS_PACKAGE_VERSION=$(head -1 ./VERSION)
 export RAPIDS_PACKAGE_VERSION
 
 # Define this before sourcing `rapids-rattler-channel-string` to prepend
-RAPIDS_PREPENDED_CONDA_CHANNELS=(CPP_CHANNEL)
+RAPIDS_PREPENDED_CONDA_CHANNELS=("$CPP_CHANNEL")
 
 # populates `RATTLER_CHANNELS` array and `RATTLER_ARGS` array
 source rapids-rattler-channel-string
