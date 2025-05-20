@@ -102,7 +102,7 @@ class OptionValue {
         value_ = std::move(value);
     }
 
-  public:
+  private:
     std::any value_{};
     std::string value_as_string_{};
     // TODO: add a collective policy.
@@ -139,17 +139,16 @@ class OptionsImpl {
      */
     template <typename T>
     T const& get(std::string const& key, OptionFactory<T> factory) {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            auto it = options_.find(key);
-            if (it == options_.end() || !it->second.value_.has_value()) {
-                auto& option_value = options_[key];
-                option_value.value_ =
-                    std::make_any<T>(factory(option_value.value_as_string_));
-            }
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = options_.find(key);
+        if (it == options_.end() || !it->second.get_value().has_value()) {
+            auto& option_value = options_[key];
+            option_value.set_value(
+                std::make_any<T>(factory(option_value.get_value_as_string()))
+            );
         }
         try {
-            return std::any_cast<T const&>(options_[key].value_);
+            return std::any_cast<T const&>(options_[key].get_value());
         } catch (std::bad_any_cast const&) {
             RAPIDSMPF_FAIL(
                 "accessing option with incompatible template type", std::invalid_argument
