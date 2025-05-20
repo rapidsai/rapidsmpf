@@ -31,7 +31,7 @@ cdef extern from *:
             [default_value = std::move(default_value)](std::string const&x)
             {
                 if(x.empty()) {
-                    return default_value;
+                    return std::move(default_value);
                 }
                 return rapidsmpf::parse_string<T>(x);
             }
