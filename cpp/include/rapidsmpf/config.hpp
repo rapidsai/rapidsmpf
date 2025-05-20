@@ -142,18 +142,15 @@ class OptionsImpl {
      * @throws std::invalid_argument If the stored option type does not match T.
      */
     template <typename T>
-    T const& get(std::string const& key, OptionFactory<T> factory) {
+    T const& get(const std::string& key, OptionFactory<T> factory) {
         std::lock_guard<std::mutex> lock(mutex_);
-        auto it = options_.find(key);
-        if (it == options_.end() || !it->second.get_value().has_value()) {
-            auto& option_value = options_[key];
-            option_value.set_value(
-                std::make_any<T>(factory(option_value.get_value_as_string()))
-            );
+        auto& option = options_[key];
+        if (!option.get_value().has_value()) {
+            option.set_value(std::make_any<T>(factory(option.get_value_as_string())));
         }
         try {
-            return std::any_cast<T const&>(options_[key].get_value());
-        } catch (std::bad_any_cast const&) {
+            return std::any_cast<const T&>(option.get_value());
+        } catch (const std::bad_any_cast&) {
             RAPIDSMPF_FAIL(
                 "accessing option with incompatible template type", std::invalid_argument
             );
