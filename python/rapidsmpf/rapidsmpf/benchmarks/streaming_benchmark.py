@@ -26,6 +26,7 @@ from rapidsmpf.communicator.ucxx import (
     get_root_ucxx_address,
     new_communicator,
 )
+from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
@@ -184,7 +185,7 @@ def streaming_shuffle(
     consumer_thread.join(timeout=wait_timeout)
 
 
-def ucxx_mpi_setup() -> Communicator:
+def ucxx_mpi_setup(options: Options) -> Communicator:
     """
     Bootstrap UCXX cluster using MPI.
 
@@ -192,9 +193,11 @@ def ucxx_mpi_setup() -> Communicator:
     -------
     Communicator
         A new ucxx communicator.
+    options
+        Configuration options.
     """
     if MPI.COMM_WORLD.Get_rank() == 0:
-        comm = new_communicator(MPI.COMM_WORLD.size, None, None)
+        comm = new_communicator(MPI.COMM_WORLD.size, None, None, options)
         root_address_str = get_root_ucxx_address(comm)
     else:
         root_address_str = None
@@ -203,7 +206,7 @@ def ucxx_mpi_setup() -> Communicator:
 
     if MPI.COMM_WORLD.Get_rank() != 0:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_str)
-        comm = new_communicator(MPI.COMM_WORLD.size, None, root_address)
+        comm = new_communicator(MPI.COMM_WORLD.size, None, root_address, options)
 
     assert comm.nranks == MPI.COMM_WORLD.size
     barrier(comm)
@@ -219,10 +222,12 @@ def setup_and_run(args: argparse.Namespace) -> None:
     args
         The arguments to parse.
     """
+    options = Options(get_environment_variables())
+
     if args.comm == "mpi":
-        comm = rapidsmpf.communicator.mpi.new_communicator(MPI.COMM_WORLD)
+        comm = rapidsmpf.communicator.mpi.new_communicator(MPI.COMM_WORLD, options)
     elif args.comm == "ucxx":
-        comm = ucxx_mpi_setup()
+        comm = ucxx_mpi_setup(options)
 
     stats = Statistics(args.statistics)
 
