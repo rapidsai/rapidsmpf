@@ -77,9 +77,34 @@ class OptionValue {
         return value_;
     }
 
+    /**
+     * @brief Retrieves the string representation of the value.
+     *
+     * Is the empty string, if not string representation exist.
+     *
+     * @return A const reference to the string representation.
+     */
+    [[nodiscard]] std::string const& get_value_as_string() const {
+        return value_as_string_;
+    }
+
+    /**
+     * @brief Sets the value if it has not been set already.
+     *
+     * @param value The new value to store.
+     *
+     * @throws std::invalid_argument if the value is already set.
+     */
+    void set_value(std::any value) {
+        RAPIDSMPF_EXPECTS(
+            !value_.has_value(), "value already set", std::invalid_argument
+        );
+        value_ = std::move(value);
+    }
+
   public:
-    std::string value_as_string_{};
     std::any value_{};
+    std::string value_as_string_{};
     // TODO: add a collective policy.
 };
 
