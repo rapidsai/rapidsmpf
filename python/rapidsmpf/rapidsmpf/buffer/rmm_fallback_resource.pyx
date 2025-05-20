@@ -27,7 +27,8 @@ cdef class RmmFallbackResource(UpstreamResourceAdaptor):
         DeviceMemoryResource upstream_mr,
         DeviceMemoryResource alternate_upstream_mr,
     ):
-        if (alternate_upstream_mr is None):
+        # Note, `upstream_mr is None` is checked by `UpstreamResourceAdaptor`.
+        if alternate_upstream_mr is None:
             raise Exception("Argument `alternate_upstream_mr` must not be None")
         self.alternate_upstream_mr = alternate_upstream_mr
 
