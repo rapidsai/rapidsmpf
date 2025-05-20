@@ -6,8 +6,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
 import ucxx._lib.libucxx as ucx_api
-from mpi4py import MPI
+
+MPI = pytest.importorskip("mpi4py.MPI")
 
 if TYPE_CHECKING:
     from rapidsmpf.communicator.communicator import Communicator

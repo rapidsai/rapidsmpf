@@ -38,7 +38,7 @@ def is_running_on_multiple_mpi_nodes() -> bool:
     if "mpi" not in COMMUNICATORS:
         return False
 
-    from mpi4py import MPI
+    MPI = pytest.importorskip("mpi4py.MPI")
 
     return bool(MPI.COMM_WORLD.Get_size() > 1)
 
