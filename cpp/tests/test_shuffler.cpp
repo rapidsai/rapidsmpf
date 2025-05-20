@@ -599,7 +599,6 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
             rapidsmpf::shuffler::detail::ChunkID{i},
             rapidsmpf::shuffler::PartID{i % num_partitions}
         );
-
         postbox->insert(std::move(chunk));
     }
 
@@ -643,7 +642,6 @@ TEST_F(PostBoxTest, ThreadSafety) {
                     rapidsmpf::shuffler::detail::ChunkID{i * chunks_per_thread + j},
                     rapidsmpf::shuffler::PartID{j / chunks_per_partition}
                 );
-
                 postbox->insert(std::move(chunk));
             }
         });
