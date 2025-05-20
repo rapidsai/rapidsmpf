@@ -53,7 +53,7 @@ TEST(FailureAlternateTest, TrackBothUpstreams) {
     throw_at_limit_resource<rmm::out_of_memory> alternate_mr{1000};
     RmmFallbackResource mr{primary_mr, alternate_mr};
 
-    // Check that a small allocation goes to the primary resource
+    // Check that a small allocation goes to the primary resource.
     {
         void* a1 = mr.allocate(10);
         EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{a1});
@@ -63,7 +63,7 @@ TEST(FailureAlternateTest, TrackBothUpstreams) {
         EXPECT_EQ(alternate_mr.allocs, std::unordered_set<void*>{});
     }
 
-    // Check that a large allocation goes to the alternate resource
+    // Check that a large allocation goes to the alternate resource.
     {
         void* a1 = mr.allocate(200);
         EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{});
@@ -73,7 +73,8 @@ TEST(FailureAlternateTest, TrackBothUpstreams) {
         EXPECT_EQ(alternate_mr.allocs, std::unordered_set<void*>{});
     }
 
-    // Check that the exceptions raised by the alternate isn't caught
+    // Check that we get an error when the allocation cannot fit the
+    // primary or the alternate resource.
     EXPECT_THROW(mr.allocate(2000), rmm::out_of_memory);
 }
 
@@ -82,6 +83,6 @@ TEST(FailureAlternateTest, DifferentExceptionTypes) {
     throw_at_limit_resource<rmm::out_of_memory> alternate_mr{1000};
     RmmFallbackResource mr{primary_mr, alternate_mr};
 
-    // Check that only `rmm::out_of_memory` exceptions are caught
+    // Check that `RmmFallbackResource` only catch `rmm::out_of_memory` exceptions.
     EXPECT_THROW(mr.allocate(200), std::invalid_argument);
 }
