@@ -205,9 +205,9 @@ class Shuffler::Progress {
             if (msg) {
                 auto chunk = Chunk::deserialize(*msg, false);
                 log.trace("recv_any from ", src, ": ", chunk);
-                // All messages in the chunk maps to the same key (checked by the PostBox)
-                // thus we can use the partition ID of the first message in the chunk to
-                // determine the source rank of all of them.
+                // All messages in the chunk maps to the same Rank (checked by the
+                // PostBox) thus we can use the partition ID of the first message in the
+                // chunk to determine the source rank of all of them.
                 RAPIDSMPF_EXPECTS(
                     shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0))
                         == shuffler_.comm_->rank(),
@@ -229,7 +229,7 @@ class Shuffler::Progress {
             log.trace("checking incoming chunk data from ", src, ": ", chunk);
 
             // If the chunk contains gpu data, we need to receive it. Otherwise, it goes
-            // directly to the outbox.
+            // directly to the ready postbox.
             if (chunk.concat_data_size() > 0) {
                 if (!chunk.is_data_buffer_set()) {
                     // Create a new buffer and let the buffer resource decide the memory
@@ -256,6 +256,7 @@ class Shuffler::Progress {
                 auto [src, chunk] = extract_item(incoming_chunks_, it++);
 
                 // Setup to receive the chunk into `in_transit_*`.
+                // transfer the data buffer from the chunk to the future
                 auto future =
                     shuffler_.comm_->recv(src, gpu_data_tag, chunk.release_data_buffer());
                 RAPIDSMPF_EXPECTS(
@@ -274,24 +275,23 @@ class Shuffler::Progress {
                 // Tell the source of the chunk that we are ready to receive it.
                 // TODO: all partition IDs in the chunk must map to the same key (rank).
                 fire_and_forget_.push_back(shuffler_.comm_->send(
-                    ReadyForDataMessage{chunk.part_id(0), chunk.chunk_id()}.pack(),
+                    ReadyForDataMessage{/* unused */ 0, chunk.chunk_id()}.pack(),
                     src,
                     ready_for_data_tag,
                     shuffler_.br_
                 ));
-            } else {
+            } else {  // chunk contains control messages and/or metadata-only messages
                 // At this point we know we can process this item, so extract it.
                 // Note: extract_item invalidates the iterator, so must increment here.
                 auto [src, chunk] = extract_item(incoming_chunks_, it++);
 
-                // all messages in the chunk are control messages
-                if (!chunk.is_data_buffer_set()) {
-                    // An empty buffer does not need a CUDA event, so we can disable it.
-                    chunk.set_data_buffer(
-                        allocate_buffer(0, shuffler_.stream_, shuffler_.br_)
+                // iterate over all messages in the chunk
+                for (size_t i = 0; i < chunk.n_messages(); ++i) {
+                    auto chunk_copy = chunk.get_data(
+                        shuffler_.get_new_cid(), i, shuffler_.stream_, shuffler_.br_
                     );
+                    shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
                 }
-                shuffler_.insert_into_ready_postbox(std::move(chunk));
             }
         }
 
@@ -334,7 +334,12 @@ class Shuffler::Progress {
                 auto chunk = extract_value(in_transit_chunks_, cid);
                 auto future = extract_value(in_transit_futures_, cid);
                 chunk.set_data_buffer(shuffler_.comm_->get_gpu_data(std::move(future)));
-                shuffler_.insert_into_ready_postbox(std::move(chunk));
+
+                for (size_t i = 0; i < chunk.n_messages(); ++i) {
+                    shuffler_.insert_into_ready_postbox(chunk.get_data(
+                        shuffler_.get_new_cid(), i, shuffler_.stream_, shuffler_.br_
+                    ));
+                }
             }
         }
 
