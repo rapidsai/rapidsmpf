@@ -67,12 +67,10 @@ void ProgressThread::stop() {
 }
 
 ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
-    std::lock_guard lock(mutex_);
-    // We can use `this` as the thread address only because `ProgressThread` isn't
-    // moveable or copyable.
+    std::lock_guard lock(staging_mutex_);
     auto id =
         FunctionID(reinterpret_cast<ProgressThreadAddress>(this), next_function_id_++);
-    functions_.emplace(id.function_index, std::move(function));
+    staged_functions_.emplace(id.function_index, std::move(function));
     thread_.resume();
     return id;
 }
@@ -84,36 +82,52 @@ void ProgressThread::remove_function(FunctionID function_id) {
         "Function was not registered with this ProgressThread"
     );
 
-    std::unique_lock lock(mutex_);
-    auto it = functions_.find(function_id.function_index);
-    RAPIDSMPF_EXPECTS(
-        it != functions_.end(), "Function not registered or already removed"
-    );
+    auto function_idx = function_id.function_index;
 
-    // Wait for the function to complete.
-    // iterator it can get invalidated, if some other thread erases a function. So, query
-    // functions_ instead
-    cv_.wait(lock, [&, f_idx = it->first]() { return functions_.at(f_idx).is_done; });
-
-    // Waiting done. Now, mutex_ is locked again
-    functions_.erase(function_id.function_index);
-
-    if (functions_.empty()) {
-        thread_.pause();
+    // First check if it's already completed
+    if (completion_tracker_.is_completed(function_idx)) {
+        completion_tracker_.remove(function_idx);
+        return;
     }
+
+    // Wait for completion
+    completion_tracker_.wait_for_completion(function_idx);
+    completion_tracker_.remove(function_idx);
 }
 
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
+
+    // Move any staged functions to active functions
     {
-        std::lock_guard<std::mutex> lock(mutex_);
-        for (auto& [id, function] : functions_) {
-            function();
+        std::lock_guard<std::mutex> lock(staging_mutex_);
+        if (!staged_functions_.empty()) {
+            functions_.insert(staged_functions_.begin(), staged_functions_.end());
+            staged_functions_.clear();
         }
     }
 
-    // Notify all waiting functions that we've completed an iteration
-    cv_.notify_all();
+    // Process all active functions without holding any locks
+    std::vector<FunctionIndex> completed_functions;
+    for (auto& [id, function] : functions_) {
+        function();
+        if (function.is_done) {
+            completed_functions.push_back(id);
+            completion_tracker_.mark_completed(id);
+        }
+    }
+
+    // Remove completed functions and check if we should pause
+    if (!completed_functions.empty()) {
+        std::lock_guard<std::mutex> lock(staging_mutex_);
+        for (auto id : completed_functions) {
+            functions_.erase(id);
+        }
+
+        if (functions_.empty() && staged_functions_.empty()) {
+            thread_.pause();
+        }
+    }
 
     statistics_->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
 }
