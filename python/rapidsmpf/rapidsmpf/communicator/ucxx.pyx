@@ -14,6 +14,7 @@ from ucxx._lib.libucxx cimport Address, UCXAddress, UCXWorker, Worker
 
 from rapidsmpf.communicator.communicator cimport *
 from rapidsmpf.communicator.ucxx cimport *
+from rapidsmpf.config cimport Options, cpp_Options
 
 
 cdef extern from "<variant>" namespace "std" nogil:
@@ -52,7 +53,8 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace "rapidsmpf::ucxx"
     cdef cppclass cpp_UCXX_Communicator "rapidsmpf::ucxx::UCXX":
         cpp_UCXX_Communicator() except +
         cpp_UCXX_Communicator(
-            unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
+            unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank,
+            cpp_Options options
         ) except +
         cpp_UCXX_ListenerAddress listener_address()
         void barrier() except +
@@ -62,6 +64,7 @@ cdef Communicator cpp_new_communicator(
     Rank nranks,
     shared_ptr[Worker] worker,
     shared_ptr[Address] root_address,
+    Options options,
 ):
     cdef unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
     cdef Communicator ret = Communicator.__new__(Communicator)
@@ -70,14 +73,17 @@ cdef Communicator cpp_new_communicator(
             ucxx_initialized_rank = init(worker, nranks, nullopt)
         else:
             ucxx_initialized_rank = init(worker, nranks, root_address)
-        ret._handle = make_shared[cpp_UCXX_Communicator](move(ucxx_initialized_rank))
+        ret._handle = make_shared[cpp_UCXX_Communicator](
+            move(ucxx_initialized_rank), options._handle
+        )
     return ret
 
 
 def new_communicator(
     Rank nranks,
     UCXWorker ucx_worker,
-    UCXAddress root_ucxx_address
+    UCXAddress root_ucxx_address,
+    Options options,
 ):
     """
     Create a new UCXX communicator with the given number of ranks.
@@ -94,6 +100,8 @@ def new_communicator(
         An existing UCXX worker to use if specified, otherwise one will be created.
     root_ucxx_address
         The UCXX address of the root rank (only specified for non-root ranks).
+    options
+        Configuration options.
 
     Returns
     -------
@@ -108,7 +116,9 @@ def new_communicator(
     else:
         root_ucxx_address_ptr = root_ucxx_address.get_ucxx_shared_ptr()
 
-    return cpp_new_communicator(nranks, ucx_worker_ptr, root_ucxx_address_ptr)
+    return cpp_new_communicator(
+        nranks, ucx_worker_ptr, root_ucxx_address_ptr, options
+    )
 
 
 def get_root_ucxx_address(Communicator comm):
