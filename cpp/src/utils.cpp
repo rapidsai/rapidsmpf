@@ -117,4 +117,22 @@ std::string to_upper(std::string str) {
     return str;
 }
 
+template <>
+bool parse_string(std::string const& value) {
+    try {
+        // Try parsing `value` as a integer.
+        return static_cast<bool>(std::stoi(value));
+    } catch (std::invalid_argument const&) {
+    }
+    std::string str = to_lower(trim(value));
+    if (str == "true" || str == "on" || str == "yes") {
+        return true;
+    }
+    if (str == "false" || str == "off" || str == "no") {
+        return false;
+    }
+    throw std::invalid_argument("cannot parse \"" + std::string{value} + "\"");
+}
+
+
 }  // namespace rapidsmpf
