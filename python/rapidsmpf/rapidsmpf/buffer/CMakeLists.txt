@@ -3,7 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # =================================================================================
 
-set(cython_modules buffer.pyx packed_data.pyx resource.pyx spill_manager.pyx)
+set(cython_modules buffer.pyx packed_data.pyx resource.pyx spill_manager.pyx
+                   rmm_fallback_resource.pyx
+)
 
 rapids_cython_create_modules(
   CXX
