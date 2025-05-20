@@ -441,7 +441,6 @@ class ChunkBuilder {
  */
 class ReadyForDataMessage {
   public:
-    PartID pid;  ///< Partition ID associated with the message.
     ChunkID cid;  ///< Chunk ID associated with the message.
 
     /**
@@ -450,8 +449,8 @@ class ReadyForDataMessage {
      * @return A serialized byte vector representing the message.
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> pack() {
-        auto msg = std::make_unique<std::vector<uint8_t>>(sizeof(ReadyForDataMessage));
-        *reinterpret_cast<ReadyForDataMessage*>(msg->data()) = {pid, cid};
+        auto msg = std::make_unique<std::vector<uint8_t>>(sizeof(ChunkID));
+        std::memcpy(msg->data(), &cid, sizeof(cid));
         return msg;
     }
 
@@ -464,7 +463,9 @@ class ReadyForDataMessage {
     [[nodiscard]] static ReadyForDataMessage unpack(
         std::unique_ptr<std::vector<uint8_t>> const& msg
     ) {
-        return *reinterpret_cast<ReadyForDataMessage const*>(msg->data());
+        ChunkID cid;
+        std::memcpy(&cid, msg->data(), sizeof(cid));
+        return ReadyForDataMessage{cid};
     }
 
     /**
@@ -473,7 +474,7 @@ class ReadyForDataMessage {
      */
     [[nodiscard]] std::string str() const {
         std::stringstream ss;
-        ss << "ReadyForDataMessage(pid=" << pid << ", cid=" << cid << ")";
+        ss << "ReadyForDataMessage(cid=" << cid << ")";
         return ss.str();
     }
 };
