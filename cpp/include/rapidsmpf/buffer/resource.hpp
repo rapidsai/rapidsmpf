@@ -47,8 +47,8 @@ class MemoryReservation {
      */
     MemoryReservation(MemoryReservation&& o)
         : MemoryReservation{
-            o.mem_type_, std::exchange(o.br_, nullptr), std::exchange(o.size_, 0)
-        } {}
+              o.mem_type_, std::exchange(o.br_, nullptr), std::exchange(o.size_, 0)
+          } {}
 
     /**
      * @brief Move assignment operator for MemoryReservation.
@@ -380,6 +380,17 @@ class BufferResource {
      * @return Shared pointer the Statistics instance.
      */
     std::shared_ptr<Statistics> statistics();
+
+    /**
+     * @brief Allocate an empty host buffer.
+     *
+     * @return A unique pointer to the allocated Buffer.
+     */
+    std::unique_ptr<Buffer> allocate_empty_host_buffer() const {
+        return std::unique_ptr<Buffer>(new Buffer(
+            std::make_unique<std::vector<uint8_t>>(0), const_cast<BufferResource*>(this)
+        ));
+    }
 
   private:
     std::mutex mutex_;

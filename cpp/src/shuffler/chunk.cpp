@@ -64,7 +64,7 @@ Chunk Chunk::get_data(
         return from_finished_partition(new_chunk_id, part_id(i), expected_num_chunks(i));
     }
 
-    if (n_messages() == 1) {  // i == 0, already verified
+    if (n_messages() == 1) {
         // If there is only one message, move the metadata and data to the new chunk.
         return Chunk(
             new_chunk_id,
@@ -73,7 +73,7 @@ Chunk Chunk::get_data(
             {meta_offsets_[0]},
             {data_offsets_[0]},
             std::move(metadata_),
-            std::move(data_)
+            data_ ? std::move(data_) : br->allocate_empty_host_buffer()
         );
     } else {
         // copy the metadata to the new chunk
@@ -87,11 +87,16 @@ Chunk Chunk::get_data(
 
         // copy the data to the new chunk
         size_t data_slice_size = data_size(i);
-        std::ptrdiff_t data_slice_offset =
-            (i == 0 ? 0 : std::ptrdiff_t(data_offsets_[i - 1]));
-        auto reserve = try_reserve_or_fail(br, data_slice_size);
-        auto data_slice =
-            data_->copy_slice(data_slice_offset, data_slice_size, reserve, stream);
+        std::unique_ptr<Buffer> data_slice;
+        if (data_slice_size == 0) {
+            data_slice = br->allocate_empty_host_buffer();
+        } else {
+            std::ptrdiff_t data_slice_offset =
+                (i == 0 ? 0 : std::ptrdiff_t(data_offsets_[i - 1]));
+            auto reserve = try_reserve_or_fail(br, data_slice_size);
+            data_slice =
+                data_->copy_slice(data_slice_offset, data_slice_size, reserve, stream);
+        }
 
         return {
             new_chunk_id,
@@ -114,9 +119,8 @@ Chunk Chunk::from_packed_data(
     BufferResource* br
 ) {
     std::vector<uint32_t> meta_offsets{0};
-    if (packed_data.metadata) {
-        meta_offsets[0] = static_cast<uint32_t>(packed_data.metadata->size());
-    }
+    RAPIDSMPF_EXPECTS(packed_data.metadata != nullptr, "packed_data.metadata is nullptr");
+    meta_offsets[0] = static_cast<uint32_t>(packed_data.metadata->size());
 
     std::vector<uint64_t> data_offsets{0};
     if (packed_data.gpu_data) {
@@ -353,10 +357,9 @@ ChunkBuilder& ChunkBuilder::add_packed_data(PartID part_id, PackedData&& packed_
     expected_num_chunks_.push_back(0);  // Data messages have 0 expected chunks
 
     // Calculate metadata offset
+    RAPIDSMPF_EXPECTS(packed_data.metadata != nullptr, "packed_data.metadata is nullptr");
     uint32_t meta_offset = meta_offsets_.empty() ? 0 : meta_offsets_.back();
-    if (packed_data.metadata) {
-        meta_offset += packed_data.metadata->size();
-    }
+    meta_offset += packed_data.metadata->size();
     meta_offsets_.push_back(meta_offset);
 
     // Calculate data offset

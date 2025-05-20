@@ -133,7 +133,10 @@ class Chunk {
      * @return A new chunk containing the data of the i-th message.
      * @note This will create a copy of the packed data. If there is only one message and
      * the message is a data message, the buffers will be moved to the new chunk.
-     * Otherwise a new chunk will be created by copying data.
+     * Otherwise a new chunk will be created by copying data. If the i'th message is,
+     *  - control message, the metadata and data buffers will be nullptr
+     *  - data message, both metadata and data buffers will be non-null (for a
+     * metadata-only message, the data buffer will be an empty HOST buffer)
      *
      * @throws std::out_of_range if the index is out of bounds.
      */
