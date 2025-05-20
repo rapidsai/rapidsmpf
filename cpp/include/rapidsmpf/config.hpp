@@ -31,14 +31,13 @@ namespace rapidsmpf::config {
 template <typename T>
 using OptionFactory = std::function<T(std::string const&)>;
 
-// Forward declaration to make it friendable.
-namespace detail {
-class OptionsImpl;
-}
-
+/**
+ * @brief Configuration option value.
+ *
+ * The OptionValue class encapsulates a value (of any type using std::any)
+ * and an optional string representation of the value.
+ */
 class OptionValue {
-    friend detail::OptionsImpl;
-
   public:
     /**
      * @brief Default constructor.
@@ -47,6 +46,11 @@ class OptionValue {
      */
     OptionValue() = default;
 
+    /**
+     * @brief Constructs OptionValue from a std::any value.
+     *
+     * @param value The value to store, wrapped in std::any.
+     */
     OptionValue(std::any value) : value_{std::move(value)} {}
 
     /**
