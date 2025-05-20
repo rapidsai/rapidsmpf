@@ -363,17 +363,13 @@ class ChunkBuilder {
     /**
      * @brief Construct a new Builder object.
      *
-     * @param chunk_id The ID of the chunk.
-     * @param stream The CUDA stream to use to build the chunk.
-     * @param br The buffer resource to use to build the chunk.
+     * @param stream The CUDA stream for building the chunk.
+     * @param br The buffer resource for building the chunk.
      * @param num_messages_hint Hint for the expected number of messages in the chunk.
      *                          Used to pre-reserve vectors for better performance.
      */
-    explicit ChunkBuilder(
-        ChunkID chunk_id,
-        rmm::cuda_stream_view stream,
-        BufferResource* br,
-        size_t num_messages_hint = 0
+    ChunkBuilder(
+        rmm::cuda_stream_view stream, BufferResource* br, size_t num_messages_hint = 1
     );
 
     /**
@@ -395,16 +391,35 @@ class ChunkBuilder {
     ChunkBuilder& add_packed_data(PartID part_id, PackedData&& packed_data);
 
     /**
+     * @brief Get the size of the staged data.
+     *
+     * @return The size of the staged data.
+     */
+    inline uint64_t staged_data_size() const {
+        return data_offsets_.empty() ? 0 : data_offsets_.back();
+    }
+
+    /**
+     * @brief Whether the builder is empty.
+     *
+     * @return True if the builder is empty, false otherwise.
+     */
+    inline bool empty() const {
+        return part_ids_.empty();
+    }
+
+    /**
      * @brief Build the Chunk object. This will concatenate the staged metadata and data
      * buffers into a single metadata and data buffer.
+     *
+     * @param chunk_id The ID of the chunk.
      *
      * @return Chunk The constructed Chunk object.
      * @throws std::runtime_error if no messages are added.
      */
-    Chunk build();
+    Chunk build(ChunkID chunk_id);
 
   private:
-    ChunkID chunk_id_;
     rmm::cuda_stream_view stream_;
     BufferResource* br_;
     std::vector<PartID> part_ids_;

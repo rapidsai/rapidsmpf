@@ -320,12 +320,9 @@ std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
 }
 
 ChunkBuilder::ChunkBuilder(
-    ChunkID chunk_id,
-    rmm::cuda_stream_view stream,
-    BufferResource* br,
-    size_t num_messages_hint
+    rmm::cuda_stream_view stream, BufferResource* br, size_t num_messages_hint
 )
-    : chunk_id_(chunk_id), stream_(stream), br_(br) {
+    : stream_(stream), br_(br) {
     if (num_messages_hint > 0) {
         part_ids_.reserve(num_messages_hint);
         expected_num_chunks_.reserve(num_messages_hint);
@@ -388,7 +385,7 @@ ChunkBuilder& ChunkBuilder::add_packed_data(PartID part_id, PackedData&& packed_
     return *this;
 }
 
-Chunk ChunkBuilder::build() {
+Chunk ChunkBuilder::build(ChunkID chunk_id) {
     RAPIDSMPF_EXPECTS(
         !part_ids_.empty(), "No messages added to the chunk builder", std::runtime_error
     );
@@ -444,7 +441,7 @@ Chunk ChunkBuilder::build() {
     }
 
     return {
-        chunk_id_,
+        chunk_id,
         std::move(part_ids_),
         std::move(expected_num_chunks_),
         std::move(meta_offsets_),

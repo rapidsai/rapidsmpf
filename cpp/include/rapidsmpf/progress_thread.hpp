@@ -174,6 +174,20 @@ class ProgressThread {
      */
     void remove_function(FunctionID function_id);
 
+    /**
+     * @brief Pause the progress thread.
+     */
+    void pause() {
+        thread_.pause();
+    }
+
+    /**
+     * @brief Resume the progress thread.
+     */
+    void resume() {
+        thread_.resume();
+    }
+
   private:
     /**
      * @brief The event loop progressing each of the functions.
