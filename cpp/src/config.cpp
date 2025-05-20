@@ -26,7 +26,11 @@ std::unordered_map<std::string, T> transform_keys_trim_lower(
     ret.reserve(input.size());
     for (auto&& [key, value] : input) {
         auto new_key = rapidsmpf::to_lower(rapidsmpf::trim(key));
-        ret.emplace(std::move(new_key), std::move(value));
+        RAPIDSMPF_EXPECTS(
+            ret.emplace(std::move(new_key), std::move(value)).second,
+            "keys must be case-insensitive",
+            std::invalid_argument
+        );
     }
     return ret;
 }

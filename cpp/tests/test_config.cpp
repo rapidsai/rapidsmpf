@@ -112,3 +112,10 @@ TEST(OptionsTest, GetUnsetOptionUsesFactoryWithStringValue) {
         opts.get<int>("level", make_factory<int>(0, [](auto s) { return std::stoi(s); }));
     EXPECT_EQ(value, 5);
 }
+
+TEST(OptionsTest, CaseSensitiveKeys) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"key", "lower-key"}, {"KEY", "upper-key"}
+    };
+    EXPECT_THROW(Options opts(strings), std::invalid_argument);
+}

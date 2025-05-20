@@ -181,6 +181,8 @@ class Options {
      * @brief Constructs an `Options` instance from option values.
      *
      * @param options A map of option keys to their corresponding option value.
+     *
+     * @throws std::invalid_argument If keys are not case-insensitive.
      */
     Options(std::unordered_map<std::string, OptionValue> options = {});
 
@@ -189,6 +191,8 @@ class Options {
      * @brief Constructs an `Options` instance from option values as strings.
      *
      * @param options_as_strings A map of option keys to their string representations.
+     *
+     * @throws std::invalid_argument If keys are not case-insensitive.
      */
     Options(std::unordered_map<std::string, std::string> options_as_strings);
 
