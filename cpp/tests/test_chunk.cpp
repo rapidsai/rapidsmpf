@@ -257,6 +257,11 @@ TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
         }
     );  // metadata only packed data
 
+    // Add empty packed data - null should throw a logic error
+    EXPECT_THROW(
+        builder.add_packed_data(7, PackedData{nullptr, nullptr}), std::logic_error
+    );
+
     auto chunk = builder.build(chunk_id);
 
     // Verify the chunk properties

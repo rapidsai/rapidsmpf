@@ -353,9 +353,6 @@ ChunkBuilder& ChunkBuilder::add_control_message(
 }
 
 ChunkBuilder& ChunkBuilder::add_packed_data(PartID part_id, PackedData&& packed_data) {
-    part_ids_.push_back(part_id);
-    expected_num_chunks_.push_back(0);  // Data messages have 0 expected chunks
-
     // Calculate metadata offset
     RAPIDSMPF_EXPECTS(packed_data.metadata != nullptr, "packed_data.metadata is nullptr");
     uint32_t meta_offset = meta_offsets_.empty() ? 0 : meta_offsets_.back();
@@ -368,6 +365,10 @@ ChunkBuilder& ChunkBuilder::add_packed_data(PartID part_id, PackedData&& packed_
         data_offset += packed_data.gpu_data->size();
     }
     data_offsets_.push_back(data_offset);
+
+    // Add the part id and expected number of chunks
+    part_ids_.push_back(part_id);
+    expected_num_chunks_.push_back(0);  // Data messages have 0 expected chunks
 
     // Move the packed data into our staged buffers
     if (packed_data.metadata) {
