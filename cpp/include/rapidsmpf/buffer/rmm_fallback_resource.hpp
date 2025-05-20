@@ -9,6 +9,7 @@
 #include <mutex>
 #include <unordered_set>
 
+#include <rmm/error.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -17,7 +18,7 @@ namespace rapidsmpf {
 
 /**
  * @brief A device memory resource that uses an alternate upstream resource when the
- * primary upstream resource throws a specified exception type.
+ * primary upstream resource throws `rmm::out_of_memory`.
  *
  * An instance of this resource must be constructed with two upstream resources to satisfy
  * allocation requests.
@@ -25,13 +26,10 @@ namespace rapidsmpf {
  */
 class RmmFallbackResource final : public rmm::mr::device_memory_resource {
   public:
-    using exception_type =
-        rmm::out_of_memory;  ///< The type of exception this object catches/throws
-
     /**
      * @brief Construct a new `RmmFallbackResource` that uses `primary_upstream`
-     * to satisfy allocation requests and if that fails with `ExceptionType`, uses
-     * `alternate_upstream`.
+     * to satisfy allocation requests and if that fails with `rmm::out_of_memory`,
+     * uses `alternate_upstream`.
      *
      * @param primary_upstream The primary resource used for allocating/deallocating
      * device memory
@@ -48,14 +46,6 @@ class RmmFallbackResource final : public rmm::mr::device_memory_resource {
     ~RmmFallbackResource() override = default;
 
     /**
-     * @brief Move constructor for RmmFallbackResource.
-     *
-     * @param other The RmmFallbackResource instance to move from.
-     * @return Reference to the moved instance.
-     */
-    RmmFallbackResource& operator=(RmmFallbackResource&& other) noexcept = default;
-
-    /**
      * @brief Get a reference to the primary upstream resource.
      *
      * @return Reference to the RMM memory resource.
@@ -64,13 +54,10 @@ class RmmFallbackResource final : public rmm::mr::device_memory_resource {
         return primary_upstream_;
     }
 
-    RmmFallbackResource(RmmFallbackResource const&) = delete;
-    RmmFallbackResource& operator=(RmmFallbackResource const&) = delete;
-
     /**
      * @brief Get a reference to the alternative upstream resource.
      *
-     * This resource is used when primary upstream resource throws `exception_type`.
+     * This resource is used when primary upstream resource throws `rmm::out_of_memory`.
      *
      * @return Reference to the RMM memory resource.
      */
@@ -84,8 +71,8 @@ class RmmFallbackResource final : public rmm::mr::device_memory_resource {
      * @brief Allocates memory of size at least `bytes` using the upstream
      * resource.
      *
-     * @throws any exceptions thrown from the upstream resources, only `exception_type`
-     * thrown by the primary upstream is caught.
+     * @throws any exceptions thrown from the upstream resources, only
+     * `rmm::out_of_memory` thrown by the primary upstream is caught.
      *
      * @param bytes The size, in bytes, of the allocation
      * @param stream Stream on which to perform the allocation
@@ -95,9 +82,9 @@ class RmmFallbackResource final : public rmm::mr::device_memory_resource {
         void* ret{};
         try {
             ret = primary_upstream_.allocate_async(bytes, stream);
-        } catch (exception_type const& e) {
+        } catch (rmm::out_of_memory const& e) {
             ret = alternate_upstream_.allocate_async(bytes, stream);
-            std::lock_guard<std::mutex> lock(mtx_);
+            std::lock_guard<std::mutex> lock(mutex_);
             alternate_allocations_.insert(ret);
         }
         return ret;
@@ -114,7 +101,7 @@ class RmmFallbackResource final : public rmm::mr::device_memory_resource {
         override {
         std::size_t count{0};
         {
-            std::lock_guard<std::mutex> lock(mtx_);
+            std::lock_guard<std::mutex> lock(mutex_);
             count = alternate_allocations_.erase(ptr);
         }
         if (count > 0) {
@@ -145,10 +132,10 @@ class RmmFallbackResource final : public rmm::mr::device_memory_resource {
                       == cast->get_alternate_upstream_resource();
     }
 
+    std::mutex mutex_;
     rmm::device_async_resource_ref primary_upstream_;
     rmm::device_async_resource_ref alternate_upstream_;
     std::unordered_set<void*> alternate_allocations_;
-    mutable std::mutex mtx_;
 };
 
 
