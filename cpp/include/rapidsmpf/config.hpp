@@ -40,16 +40,42 @@ class OptionValue {
     friend detail::OptionsImpl;
 
   public:
+    /**
+     * @brief Default constructor.
+     *
+     * Constructs an empty OptionValue.
+     */
     OptionValue() = default;
 
     OptionValue(std::any value) : value_{std::move(value)} {}
 
+    /**
+     * @brief Constructs OptionValue from a string representation.
+     *
+     * @param value_as_string A string representation of the value.
+     */
     OptionValue(std::string value_as_string)
         : value_as_string_{std::move(value_as_string)} {}
 
+    /**
+     * @brief Convenience constructor to store any type.
+     *
+     * Wraps the given value in std::any and stores it.
+     *
+     * @tparam T The type of the value.
+     * @param value The value to store.
+     */
     template <typename T>
     OptionValue(T value) : OptionValue(std::make_any<T>(value)) {}
 
+    /**
+     * @brief Retrieves the stored value.
+     *
+     * @return A const reference to the std::any value.
+     */
+    [[nodiscard]] std::any const& get_value() const {
+        return value_;
+    }
 
   public:
     std::string value_as_string_{};
@@ -138,7 +164,6 @@ class Options {
      * @brief Constructs an `Options` instance from option values as strings.
      *
      * @param options_as_strings A map of option keys to their string representations.
-     * @param options A map of option keys to their corresponding `Option` objects.
      */
     Options(std::unordered_map<std::string, std::string> options_as_strings);
 
