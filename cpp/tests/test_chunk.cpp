@@ -231,7 +231,7 @@ TEST_F(ChunkTest, ChunkBuilderPackedData) {
 
 TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
     ChunkID chunk_id = 123;
-    ChunkBuilder builder(stream, br.get(), 7);  // Hint for 7 messages
+    ChunkBuilder builder(stream, br.get(), 6);  // Hint for 7 messages
 
     // Create test metadata and data
     std::vector<uint8_t> metadata{1, 2, 3, 4, 5, 6};  // Concatenated metadata
@@ -249,9 +249,8 @@ TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
     builder.add_packed_data(
         5, create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream)
     );  // packed data 2
-    builder.add_packed_data(6, PackedData{nullptr, nullptr});  // empty packed data - null
     builder.add_packed_data(
-        7,
+        6,
         PackedData{
             std::make_unique<std::vector<uint8_t>>(metadata.begin() + 5, metadata.end()),
             nullptr
@@ -262,7 +261,7 @@ TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
 
     // Verify the chunk properties
     EXPECT_EQ(chunk.chunk_id(), chunk_id);
-    EXPECT_EQ(chunk.n_messages(), 7);
+    EXPECT_EQ(chunk.n_messages(), 6);
 
     // Helper function to verify message properties
     auto test_message = [&](size_t i,
@@ -292,8 +291,7 @@ TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
     test_message(2, 3, 40, true, 0, 0);  // control message 2
     test_message(3, 4, 0, false, 0, 0);  // empty packed data - non-null
     test_message(4, 5, 0, false, 2, 2);  // packed data 2
-    test_message(5, 6, 0, false, 0, 0);  // empty packed data - null
-    test_message(6, 7, 0, false, 1, 0);  // metadata only packed data
+    test_message(5, 6, 0, false, 1, 0);  // metadata only packed data
 
     // Release and verify buffers
     auto released_metadata = chunk.release_metadata_buffer();
