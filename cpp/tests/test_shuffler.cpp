@@ -367,6 +367,202 @@ TEST_P(ConcurrentShuffleTest, round_trip) {
     }
 }
 
+class ShuffleInsertGroupedTest : public cudf::test::BaseFixtureWithParam<
+                                     std::tuple<rapidsmpf::shuffler::PartID, size_t>> {
+  public:
+    void SetUp() override {
+        pids = std::vector<rapidsmpf::shuffler::PartID>(std::get<0>(GetParam()));
+        std::iota(pids.begin(), pids.end(), 0);
+
+        num_bytes = std::get<1>(GetParam());
+
+        stream = cudf::get_default_stream();
+
+        // pause the progress thread for the duration of the test
+        progress_thread =
+            std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger()
+            );
+
+        GlobalEnvironment->barrier();
+    }
+
+    void TearDown() override {
+        // resume progress thread - this will guarantee that shuffler progress function is
+        // marked as done. This is important to ensure that the test does not hang.
+        progress_thread->resume();
+
+        if (shuffler) {
+            shuffler->shutdown();
+        }
+
+        progress_thread->stop();
+        GlobalEnvironment->barrier();
+    }
+
+    // Helper method to generate packed data for testing
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData>
+    generate_packed_data() {
+        auto dummy_meta = std::make_unique<std::vector<std::uint8_t>>(num_bytes);
+        // this will wrap around after 256 bytes
+        std::iota(dummy_meta->begin(), dummy_meta->end(), 0);
+
+        // use the same buffer for all partitions
+        auto dummy_data =
+            std::make_unique<rmm::device_buffer>(dummy_meta->data(), num_bytes, stream);
+
+        std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+
+        for (auto pid : pids) {
+            chunks[pid] = rapidsmpf::PackedData(
+                std::make_unique<std::vector<std::uint8_t>>(*dummy_meta),
+                std::make_unique<rmm::device_buffer>(
+                    dummy_data->data(), num_bytes, stream
+                )
+            );
+        }
+        cudaStreamSynchronize(stream);
+
+        return chunks;
+    }
+
+    // Helper method to verify the shuffler state after insert
+    void verify_shuffler_state(rapidsmpf::shuffler::Shuffler& shuffler) {
+        rapidsmpf::Rank local_rank = GlobalEnvironment->comm_->rank(),
+                        n_ranks = GlobalEnvironment->comm_->nranks();
+
+        // Rank -> n_messages in a chunk
+        std::vector<int64_t> expected_n_messages(n_ranks, 0);
+        for (auto pid : pids) {
+            rapidsmpf::Rank target =
+                shuffler.partition_owner(GlobalEnvironment->comm_, pid);
+            expected_n_messages[target]++;
+        }
+
+        // recreate the outbound_chunks map from the shuffler state
+        std::unordered_map<
+            rapidsmpf::shuffler::PartID,
+            rapidsmpf::shuffler::detail::ChunkID>
+            outbound_chunks;
+
+        size_t n_control_messages = 0;
+        size_t n_data_messages = 0;
+        size_t n_total_data_size = 0;
+        size_t n_total_metadata_size = 0;
+
+        // outgoing postbox contains messages to all remote ranks (including finished
+        // partitions message) its key is the rank ID.
+        for (rapidsmpf::Rank rank = 0; rank < n_ranks; ++rank) {
+            if (rank == local_rank || expected_n_messages[rank] == 0)
+            {  // skip local rank
+                continue;
+            }
+
+            auto chunks = shuffler.outgoing_postbox_.extract_by_key(rank);
+            for (auto& [cid, chunk] : chunks) {
+                for (size_t i = 0; i < chunk.n_messages(); ++i) {
+                    outbound_chunks[chunk.part_id(i)]++;
+                    if (chunk.is_control_message(i)) {
+                        n_control_messages++;
+                    } else {
+                        n_data_messages++;
+                        n_total_data_size += chunk.data_size(i);
+                        n_total_metadata_size += chunk.metadata_size(i);
+                    }
+                }
+            }
+        }
+        EXPECT_TRUE(shuffler.outgoing_postbox_.empty());
+
+        // ready postbox contains all local messages. Its key is the partition ID.
+        for (auto pid : pids) {
+            // only check for local partitions
+            if (shuffler.partition_owner(GlobalEnvironment->comm_, pid) == local_rank) {
+                auto local_chunks = shuffler.ready_postbox_.extract_by_key(pid);
+                // manually add the control message as ready postbox does not contain
+                // control messages
+                outbound_chunks[pid]++;
+                n_control_messages++;
+                for (auto& [cid, chunk] : local_chunks) {
+                    for (size_t i = 0; i < chunk.n_messages(); ++i) {
+                        outbound_chunks[chunk.part_id(i)]++;
+
+                        ASSERT_FALSE(chunk.is_control_message(i));
+                        n_data_messages++;
+                        n_total_data_size += chunk.data_size(i);
+                        n_total_metadata_size += chunk.metadata_size(i);
+                    }
+                }
+            }
+        }
+        EXPECT_TRUE(shuffler.ready_postbox_.empty());
+
+        EXPECT_EQ(outbound_chunks, shuffler.outbound_chunk_counter_);
+
+        EXPECT_EQ(pids.size(), n_control_messages);
+        EXPECT_EQ(pids.size(), n_data_messages);
+        EXPECT_EQ(num_bytes * pids.size(), n_total_data_size);
+        EXPECT_EQ(num_bytes * pids.size(), n_total_metadata_size);
+    }
+
+    std::vector<rapidsmpf::shuffler::PartID> pids;
+    size_t num_bytes;
+    std::shared_ptr<rapidsmpf::ProgressThread> progress_thread;
+    std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler;
+    std::unique_ptr<rapidsmpf::BufferResource> br;
+    rmm::cuda_stream_view stream;
+};
+
+TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
+    br = std::make_unique<rapidsmpf::BufferResource>(mr());
+    shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
+        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
+    );
+
+    // pause the progress thread to avoid extracting from outgoing_postbox_
+    progress_thread->pause();
+
+    auto chunks = generate_packed_data();
+    shuffler->insert_grouped(std::move(chunks));
+    shuffler->insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
+
+    ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(*shuffler));
+}
+
+TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
+    br = std::make_unique<rapidsmpf::BufferResource>(
+        mr(), get_memory_available_map(rapidsmpf::MemoryType::HOST)
+    );
+    shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
+        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
+    );
+
+    // pause the progress thread to avoid extracting from outgoing_postbox_
+    progress_thread->pause();
+
+    auto chunks = generate_packed_data();
+    shuffler->insert_grouped(std::move(chunks));
+    shuffler->insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
+
+    ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(*shuffler));
+
+    // resume progress thread - this will guarantee that shuffler progress function is
+    // marked as done. This is important to ensure that the test does not hang.
+    progress_thread->resume();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ShuffleTestP,
+    ShuffleInsertGroupedTest,
+    testing::Combine(
+        testing::Values(1, 9, 100),  // total_num_partitions
+        testing::Values(10, 1000)  // num_bytes
+    ),
+    [](const testing::TestParamInfo<ShuffleInsertGroupedTest::ParamType>& info) {
+        return "total_nparts_" + std::to_string(std::get<0>(info.param)) + "__nbytes_"
+               + std::to_string(std::get<1>(info.param));
+    }
+);
+
 TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmpf::shuffler::PartID const total_num_partitions = 2;
     std::int64_t const seed = 42;

@@ -123,17 +123,17 @@ TEST_F(ChunkTest, FromPackedData) {
 
 TEST_F(ChunkTest, ChunkBuilderControlMessages) {
     ChunkID chunk_id = 123;
-    ChunkBuilder builder(chunk_id, stream, br.get(), 3);  // Hint for 3 messages
+    ChunkBuilder builder(stream, br.get(), 3);  // Hint for 3 messages
 
     // No messages added to the builder -> should throw
-    EXPECT_THROW(builder.build(), std::runtime_error);
+    EXPECT_THROW(std::ignore = builder.build(0), std::runtime_error);
 
     // Add three control messages
     builder.add_control_message(1, 10).add_control_message(2, 20).add_control_message(
         3, 30
     );
 
-    auto chunk = builder.build();
+    auto chunk = builder.build(chunk_id);
 
     // Verify the chunk properties
     EXPECT_EQ(chunk.chunk_id(), chunk_id);
@@ -163,12 +163,12 @@ TEST_F(ChunkTest, ChunkBuilderControlMessages) {
     EXPECT_EQ(chunk.release_data_buffer()->size, 0);
 
     // after building, the builder is empty
-    EXPECT_THROW(builder.build(), std::runtime_error);
+    EXPECT_THROW(std::ignore = builder.build(0), std::runtime_error);
 }
 
 TEST_F(ChunkTest, ChunkBuilderPackedData) {
     ChunkID chunk_id = 123;
-    ChunkBuilder builder(chunk_id, stream, br.get(), 2);  // Hint for 2 messages
+    ChunkBuilder builder(stream, br.get(), 2);  // Hint for 2 messages
 
     // Create test metadata and data
     std::vector<uint8_t> metadata{1, 2, 3, 7, 8};  // Concatenated metadata
@@ -183,7 +183,7 @@ TEST_F(ChunkTest, ChunkBuilderPackedData) {
             2, create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream)
         );
 
-    auto chunk = builder.build();
+    auto chunk = builder.build(chunk_id);
 
     // Verify the chunk properties
     EXPECT_EQ(chunk.chunk_id(), chunk_id);
@@ -226,12 +226,12 @@ TEST_F(ChunkTest, ChunkBuilderPackedData) {
     EXPECT_EQ(data, host_data);
 
     // after building, the builder is empty
-    EXPECT_THROW(builder.build(), std::runtime_error);
+    EXPECT_THROW(std::ignore = builder.build(0), std::runtime_error);
 }
 
 TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
     ChunkID chunk_id = 123;
-    ChunkBuilder builder(chunk_id, stream, br.get(), 7);  // Hint for 7 messages
+    ChunkBuilder builder(stream, br.get(), 7);  // Hint for 7 messages
 
     // Create test metadata and data
     std::vector<uint8_t> metadata{1, 2, 3, 4, 5, 6};  // Concatenated metadata
@@ -258,7 +258,7 @@ TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
         }
     );  // metadata only packed data
 
-    auto chunk = builder.build();
+    auto chunk = builder.build(chunk_id);
 
     // Verify the chunk properties
     EXPECT_EQ(chunk.chunk_id(), chunk_id);
@@ -313,7 +313,7 @@ TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
     EXPECT_EQ(data, host_data);
 
     // after building, the builder is empty
-    EXPECT_THROW(builder.build(), std::runtime_error);
+    EXPECT_THROW(std::ignore = builder.build(0), std::runtime_error);
 }
 
 TEST_F(ChunkTest, ChunkWithHostBuffer) {
@@ -326,14 +326,14 @@ TEST_F(ChunkTest, ChunkWithHostBuffer) {
     );
 
     ChunkID chunk_id = 123;
-    ChunkBuilder builder(chunk_id, stream, br.get(), 2);
+    ChunkBuilder builder(stream, br.get(), 2);
 
     // Create test metadata and data
     std::vector<uint8_t> metadata{1, 2, 3, 7, 8};  // Concatenated metadata
     std::vector<uint8_t> data{4, 5, 6, 9, 10};  // Concatenated data
 
-    auto chunk =
-        builder.add_packed_data(1, create_packed_data(metadata, data, stream)).build();
+    auto chunk = builder.add_packed_data(1, create_packed_data(metadata, data, stream))
+                     .build(chunk_id);
 
     EXPECT_EQ(MemoryType::HOST, chunk.data_memory_type());
 }
