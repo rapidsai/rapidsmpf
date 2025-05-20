@@ -165,7 +165,7 @@ class Chunk {
      * @param data The data buffer.
      */
     void set_data_buffer(std::unique_ptr<Buffer> data) {
-        RAPIDSMPF_EXPECTS(data_, "buffer is already set");
+        RAPIDSMPF_EXPECTS(!data_, "buffer is already set");
         data_ = std::move(data);
     }
 
