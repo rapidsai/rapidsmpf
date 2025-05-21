@@ -38,6 +38,10 @@ cdef class Statistics:
         with nogil:
             self._handle = make_shared[cpp_Statistics](enable)
 
+    def __dealloc__(self):
+        with nogil:
+            self._handle.reset()
+
     @property
     def enabled(self):
         """

@@ -295,6 +295,10 @@ cdef class Shuffler:
                 statistics._handle,
             )
 
+    def __dealloc__(self):
+        with nogil:
+            self._handle.reset()
+
     def shutdown(self):
         """
         Shutdown the shuffle, blocking until all inflight communication is completed.
