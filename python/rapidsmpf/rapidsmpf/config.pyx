@@ -79,7 +79,7 @@ cdef class Options:
 
     def __dealloc__(self):
         with nogil:
-            self._handle = None
+            self._handle = cpp_Options()
 
     def get_or_assign(self, str key, parser_type, default_value):
         """

@@ -45,10 +45,6 @@ cdef class Logger:
     def __init__(self):
         raise TypeError("Please get a `Logger` from a communicater instance")
 
-    def __dealloc__(self):
-        with nogil:
-            self._comm = None
-
     @property
     def verbosity_level(self):
         """
@@ -149,8 +145,8 @@ cdef class Communicator:
         self._logger._comm = self
 
     def __dealloc__(self):
+        self._logger = None
         with nogil:
-            self._logger = None
             self._handle.reset()
 
     @property

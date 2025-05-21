@@ -57,4 +57,4 @@ cdef class PackedData:
 
     def __dealloc__(self):
         with nogil:
-            self._handle.reset()
+            self.c_obj.reset()
