@@ -182,3 +182,7 @@ cdef class LimitAvailableMemory:
         with nogil:
             ret = deref(self._handle)()
         return ret
+
+    def __dealloc__(self):
+        with nogil:
+            self._handle.reset()

@@ -44,3 +44,8 @@ cdef class ProgressThread:
                 deref(comm._handle).logger(),
                 statistics._handle,
             )
+
+
+    def __dealloc__(self):
+        with nogil:
+            self._handle.reset()

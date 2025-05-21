@@ -77,6 +77,10 @@ cdef class Options:
         with nogil:
             self._handle = cpp_Options(move(opts))
 
+    def __dealloc__(self):
+        with nogil:
+            self._handle = None
+
     def get_or_assign(self, str key, parser_type, default_value):
         """
         Get the value of the given key, or assign and return a default value.
