@@ -39,6 +39,10 @@ cdef class RmmFallbackResource(UpstreamResourceAdaptor):
             )
         )
 
+    def __dealloc__(self):
+        with nogil:
+            self.c_obj.reset()
+
     def __init__(
         self,
         DeviceMemoryResource upstream_mr,
