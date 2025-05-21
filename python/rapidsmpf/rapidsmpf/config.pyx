@@ -70,10 +70,11 @@ cdef class Options:
     options_as_strings
         A dictionary representing option names and their corresponding values.
     """
-    def __cinit__(self, options_as_strings):
+    def __cinit__(self, options_as_strings = None):
         cdef unordered_map[string, string] opts
-        for key, val in options_as_strings.items():
-            opts[str.encode(key)] = str.encode(val)
+        if options_as_strings is not None:
+            for key, val in options_as_strings.items():
+                opts[str.encode(key)] = str.encode(val)
         with nogil:
             self._handle = cpp_Options(move(opts))
 

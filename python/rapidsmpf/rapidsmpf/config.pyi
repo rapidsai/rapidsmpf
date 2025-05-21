@@ -10,7 +10,7 @@ T = TypeVar("T")
 class Options:
     def __init__(
         self,
-        options_as_strings: Mapping[str, str],
+        options_as_strings: Mapping[str, str] | None = None,
     ) -> None: ...
     def get_or_assign(self, key: str, parser_type: type[T], default_value: T) -> T: ...
 
