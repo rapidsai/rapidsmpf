@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import pickle
+
 import pytest
 
 from rapidsmpf.config import Options
@@ -153,3 +155,23 @@ def test_serialize_after_access_raises() -> None:
 
     with pytest.raises(ValueError):
         _ = opts.serialize()
+
+
+def test_pickle_roundtrip() -> None:
+    original_dict = {"x": "42", "y": "test", "Z": "true"}
+    opts = Options(original_dict)
+
+    pickled = pickle.dumps(opts)
+    unpickled = pickle.loads(pickled)
+
+    assert isinstance(unpickled, Options)
+    assert unpickled.get_strings() == {k.lower(): v for k, v in original_dict.items()}
+
+
+def test_pickle_empty_options() -> None:
+    opts = Options({})
+    pickled = pickle.dumps(opts)
+    unpickled = pickle.loads(pickled)
+
+    assert isinstance(unpickled, Options)
+    assert unpickled.get_strings() == {}

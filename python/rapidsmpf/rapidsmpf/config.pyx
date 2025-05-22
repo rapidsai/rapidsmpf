@@ -249,6 +249,36 @@ cdef class Options:
             ret._handle = cpp_Options.deserialize(vec)
         return ret
 
+    def __getstate__(self):
+        """
+        Get the state of the object for pickling.
+
+        This method is called by the `pickle` module to retrieve a serialized
+        representation of the `Options` object. It uses the `serialize()`
+        method to return the internal state as a `bytes` object.
+
+        Returns
+        -------
+        A binary representation of the `Options` object, suitable for pickling.
+        """
+        return self.serialize()
+
+    def __setstate__(self, state):
+        """
+        Set the state of the object during unpickling.
+
+        This method is called by the `pickle` module to restore the object's state
+        from a serialized `bytes` buffer. It uses the `deserialize()` method and
+        assigns the resulting internal handle.
+
+        Parameters
+        ----------
+        state
+            A `bytes` object representing the serialized state of the `Options` object.
+        """
+        cdef Options options = self.deserialize(state)
+        self._handle = options._handle
+
 
 def get_environment_variables(str key_regex = "RAPIDSMPF_(.*)"):
     """
