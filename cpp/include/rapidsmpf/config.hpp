@@ -97,51 +97,15 @@ class OptionValue {
 namespace detail {
 
 /**
- * @brief Internal implementation of the `Options` class.
+ * @brief Internal shared collection for the `Options` class.
  *
- * This class is used internally by `Options` to manage the storage and retrieval
- * of configuration options. Refer to the `Options` class documentation for details.
+ * This struct is used internally by `Options` to share the options between
+ * multiple instances of the Options class. This way, it is cheap to copy
+ * Options and its values are only initialized once.
  */
-class OptionsImpl {
-  public:
-    /**
-     * @brief Constructs an `OptionsImpl` instance.
-     *
-     * @param options A map of option keys to their corresponding option value.
-     */
-    OptionsImpl(std::unordered_map<std::string, OptionValue> options);
-
-    /**
-     * @brief Retrieves a configuration option by key.
-     *
-     * Refer to the `Options::get` method for usage details.
-     *
-     * @tparam T The type of the option to retrieve.
-     * @param key The option key (should be lower case).
-     * @param factory Function to construct the option from a string.
-     * @return Reference to the option value.
-     *
-     * @throws std::invalid_argument If the stored option type does not match T.
-     */
-    template <typename T>
-    T const& get(const std::string& key, OptionFactory<T> factory) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        auto& option = options_[key];
-        if (!option.get_value().has_value()) {
-            option.set_value(std::make_any<T>(factory(option.get_value_as_string())));
-        }
-        try {
-            return std::any_cast<const T&>(option.get_value());
-        } catch (const std::bad_any_cast&) {
-            RAPIDSMPF_FAIL(
-                "accessing option with incompatible template type", std::invalid_argument
-            );
-        }
-    }
-
-  private:
-    mutable std::mutex mutex_;
-    std::unordered_map<std::string, OptionValue> options_;
+struct SharedOptions {
+    std::mutex mutex;  ///< Shared mutex, must be use to guard `options`.
+    std::unordered_map<std::string, OptionValue> options;  ///< Shared options.
 };
 }  // namespace detail
 
@@ -155,7 +119,7 @@ class OptionsImpl {
  * `rapidsmpf::to_lower()`.
  *
  * @note Copying `rapidsmpf::config::Options` is efficient as it uses a shared pointer
- * to its internal implementation (`OptionsImpl`).
+ * to the shared options (`OptionsShared`).
  */
 class Options {
   public:
@@ -198,12 +162,24 @@ class Options {
      * the same key will result in a `std::bad_any_cast`.
      */
     template <typename T>
-    T const& get(std::string const& key, OptionFactory<T> factory) {
-        return impl_->get<T>(key, factory);
+    T const& get(const std::string& key, OptionFactory<T> factory) {
+        auto& shared = *shared_;
+        std::lock_guard<std::mutex> lock(shared.mutex);
+        auto& option = shared.options[key];
+        if (!option.get_value().has_value()) {
+            option.set_value(std::make_any<T>(factory(option.get_value_as_string())));
+        }
+        try {
+            return std::any_cast<const T&>(option.get_value());
+        } catch (const std::bad_any_cast&) {
+            RAPIDSMPF_FAIL(
+                "accessing option with incompatible template type", std::invalid_argument
+            );
+        }
     }
 
   private:
-    std::shared_ptr<detail::OptionsImpl> impl_;
+    std::shared_ptr<detail::SharedOptions> shared_;
 };
 
 /**

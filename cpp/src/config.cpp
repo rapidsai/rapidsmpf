@@ -14,49 +14,36 @@ extern char** environ;
 
 namespace rapidsmpf::config {
 
-namespace detail {
-
-namespace {
-// Helper function to trim and lower case all keys in a map.
-template <typename T>
-std::unordered_map<std::string, T> transform_keys_trim_lower(
-    std::unordered_map<std::string, T>&& input
-) {
-    std::unordered_map<std::string, T> ret;
-    ret.reserve(input.size());
-    for (auto&& [key, value] : input) {
+Options::Options(std::unordered_map<std::string, OptionValue> options)
+    : shared_{std::make_shared<detail::SharedOptions>()} {
+    // insert, trim and lower case all keys.
+    auto& opts = shared_->options;
+    opts.reserve(options.size());
+    for (auto&& [key, value] : options) {
         auto new_key = rapidsmpf::to_lower(rapidsmpf::trim(key));
         RAPIDSMPF_EXPECTS(
-            ret.emplace(std::move(new_key), std::move(value)).second,
-            "keys must be case-insensitive",
+            opts.emplace(std::move(new_key), std::move(value)).second,
+            "option keys must be case-insensitive",
             std::invalid_argument
         );
     }
-    return ret;
 }
 
+namespace {
 // Helper function to get OptionValue map from options-as-strings map.
 std::unordered_map<std::string, OptionValue> from_options_as_strings(
     std::unordered_map<std::string, std::string>&& options_as_strings
 ) {
     std::unordered_map<std::string, OptionValue> ret;
-    for (auto&& [key, val] : transform_keys_trim_lower(std::move(options_as_strings))) {
+    for (auto&& [key, val] : options_as_strings) {
         ret.emplace(std::move(key), OptionValue(std::move(val)));
     }
     return ret;
 }
 }  // namespace
 
-OptionsImpl::OptionsImpl(std::unordered_map<std::string, OptionValue> options)
-    : options_{transform_keys_trim_lower(std::move(options))} {}
-
-}  // namespace detail
-
-Options::Options(std::unordered_map<std::string, OptionValue> options)
-    : impl_{std::make_shared<detail::OptionsImpl>(std::move(options))} {}
-
 Options::Options(std::unordered_map<std::string, std::string> options_as_strings)
-    : Options(detail::from_options_as_strings(std::move(options_as_strings))){};
+    : Options(from_options_as_strings(std::move(options_as_strings))){};
 
 void get_environment_variables(
     std::unordered_map<std::string, std::string>& output, std::string const& key_regex
