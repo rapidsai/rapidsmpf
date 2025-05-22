@@ -3,12 +3,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdint>
+#include <cstring>
+#include <mutex>
 #include <regex>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include <unistd.h>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/utils.hpp>
+
 
 extern char** environ;
 
@@ -53,6 +61,119 @@ std::unordered_map<std::string, std::string> Options::get_strings() const {
         ret[key] = option.get_value_as_string();
     }
     return ret;
+}
+
+std::vector<std::byte> Options::serialize() const {
+    auto const& shared = *shared_;
+    std::lock_guard<std::mutex> lock(shared.mutex);
+
+    std::size_t const count = shared.options.size();
+    std::size_t const header_size = (1 + 2 * count) * sizeof(uint64_t);
+
+    std::size_t data_size = 0;
+    for (auto const& [key, option] : shared.options) {
+        data_size += key.size() + option.get_value_as_string().size();
+    }
+
+    std::vector<std::byte> buffer(header_size + data_size);
+    std::byte* base = buffer.data();
+
+    // Write count (number of key-value pairs).
+    {
+        auto const count_ = static_cast<uint64_t>(count);
+        std::memcpy(base, &count_, sizeof(uint64_t));
+    }
+
+    // Write offsets and data.
+    std::size_t offset_index = 1;  // Offsets starts after `count`.
+    std::size_t data_offset = header_size;
+    for (auto const& [key, option] : shared.options) {
+        RAPIDSMPF_EXPECTS(
+            !option.get_value().has_value(),
+            "cannot serialize already parsed (accessed) option values",
+            std::invalid_argument
+        );
+        std::string const& value = option.get_value_as_string();
+
+        auto key_offset = static_cast<uint64_t>(data_offset);
+        auto value_offset = static_cast<uint64_t>(key_offset + key.size());
+
+        // Write offsets
+        std::memcpy(
+            base + offset_index * sizeof(uint64_t), &key_offset, sizeof(uint64_t)
+        );
+        std::memcpy(
+            base + (offset_index + 1) * sizeof(uint64_t), &value_offset, sizeof(uint64_t)
+        );
+        offset_index += 2;
+
+        // Write data
+        std::memcpy(base + key_offset, key.data(), key.size());
+        std::memcpy(base + value_offset, value.data(), value.size());
+
+        data_offset = static_cast<std::size_t>(value_offset + value.size());
+    }
+
+    return buffer;
+}
+
+Options Options::deserialize(std::vector<std::byte> const& buffer) {
+    const std::byte* base = buffer.data();
+    std::size_t total_size = buffer.size();
+
+    // Read number of key-value pairs
+    uint64_t count = 0;
+    RAPIDSMPF_EXPECTS(
+        total_size >= sizeof(uint64_t),
+        "buffer is too small to contain count",
+        std::invalid_argument
+    );
+    std::memcpy(&count, base, sizeof(uint64_t));
+    std::size_t const header_size = (1 + 2 * count) * sizeof(uint64_t);
+    RAPIDSMPF_EXPECTS(
+        header_size <= total_size,
+        "buffer is too small for header with declared count",
+        std::invalid_argument
+    );
+
+    // Read offsets
+    std::vector<uint64_t> key_offsets(count);
+    std::vector<uint64_t> value_offsets(count);
+    for (uint64_t i = 0; i < count; ++i) {
+        std::memcpy(
+            &key_offsets[i], base + (1 + 2 * i) * sizeof(uint64_t), sizeof(uint64_t)
+        );
+        std::memcpy(
+            &value_offsets[i], base + (1 + 2 * i + 1) * sizeof(uint64_t), sizeof(uint64_t)
+        );
+    }
+
+    // Reconstruct the key-value pairs
+    std::unordered_map<std::string, std::string> ret;
+    for (uint64_t i = 0; i < count; ++i) {
+        uint64_t const key_offset = key_offsets[i];
+        uint64_t const value_offset = value_offsets[i];
+
+        RAPIDSMPF_EXPECTS(
+            key_offset < total_size && value_offset < total_size
+                && key_offset < value_offset,
+            "invalid offsets in serialized buffer",
+            std::out_of_range
+        );
+
+        std::size_t const key_len = value_offset - key_offset;
+        std::size_t const value_len =
+            (i + 1 < count ? key_offsets[i + 1] : total_size) - value_offset;
+
+        if (key_offset + key_len > total_size || value_offset + value_len > total_size) {
+            throw std::out_of_range("Deserialization offset exceeds buffer size");
+        }
+        std::string key(reinterpret_cast<const char*>(base + key_offset), key_len);
+        std::string val(reinterpret_cast<const char*>(base + value_offset), value_len);
+        ret.emplace(std::move(key), std::move(val));
+    }
+
+    return Options(ret);
 }
 
 void get_environment_variables(

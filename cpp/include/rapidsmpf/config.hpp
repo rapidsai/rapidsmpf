@@ -189,6 +189,35 @@ class Options {
      */
     [[nodiscard]] std::unordered_map<std::string, std::string> get_strings() const;
 
+    /**
+     * @brief Serializes the options into a binary buffer.
+     *
+     * The format is:
+     * - [uint64_t count] — number of key-value pairs.
+     * - [count * 2 * uint64_t] — offset pairs (key_offset, value_offset) for each entry.
+     * - [raw bytes] — all key and value strings, contiguous and null-free.
+     *
+     * Offsets are absolute byte positions into the buffer.
+     *
+     * @return A byte vector representing the serialized options.
+     *
+     * @throws std::invalid_argument If any option has already been accessed.
+     */
+    [[nodiscard]] std::vector<std::byte> serialize() const;
+
+    /**
+     * @brief Deserializes a binary buffer into an Options object.
+     *
+     * See Options::serialize() for the binary format.
+     *
+     * @param buffer The binary buffer produced by Options::serialize().
+     * @return An Options object reconstructed from the buffer.
+     *
+     * @throws std::invalid_argument If the buffer is malformed or incomplete.
+     * @throws std::out_of_range If offsets exceed buffer boundaries.
+     */
+    [[nodiscard]] static Options deserialize(std::vector<std::byte> const& buffer);
+
   private:
     std::shared_ptr<detail::SharedOptions> shared_;
 };

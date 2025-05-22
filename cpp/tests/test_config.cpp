@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstring>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -127,4 +129,71 @@ TEST(OptionsTest, GetStringsReturnsEmptyMapIfNoOptions) {
     auto result = opts.get_strings();
 
     EXPECT_TRUE(result.empty());
+}
+
+TEST(OptionsTest, SerializeDeserializeRoundTripPreservesData) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"alpha", "1"}, {"beta", "two"}, {"gamma", "3.14"}, {"empty", ""}
+    };
+
+    Options original(strings);
+    auto buffer = original.serialize();
+    Options deserialized = Options::deserialize(buffer);
+
+    auto roundtrip = deserialized.get_strings();
+    EXPECT_EQ(roundtrip.size(), strings.size());
+    for (const auto& [key, value] : strings) {
+        EXPECT_EQ(roundtrip[key], value);
+    }
+}
+
+TEST(OptionsTest, SerializeDeserializeEmptyOptions) {
+    Options empty;
+    auto buffer = empty.serialize();
+
+    // Buffer should contain only the count (0)
+    EXPECT_EQ(buffer.size(), sizeof(uint64_t));
+
+    Options deserialized = Options::deserialize(buffer);
+    EXPECT_TRUE(deserialized.get_strings().empty());
+}
+
+TEST(OptionsTest, DeserializeThrowsOnBufferTooSmallForCount) {
+    std::vector<std::byte> buffer(sizeof(std::uint64_t) - 1);
+    EXPECT_THROW(static_cast<void>(Options::deserialize(buffer)), std::invalid_argument);
+}
+
+TEST(OptionsTest, DeserializeThrowsOnBufferTooSmallForHeader) {
+    // Buffer has count = 2 but no offsets/data
+    uint64_t count = 2;
+    std::vector<std::byte> buffer(sizeof(uint64_t));
+    std::memcpy(buffer.data(), &count, sizeof(uint64_t));
+    EXPECT_THROW(static_cast<void>(Options::deserialize(buffer)), std::invalid_argument);
+}
+
+TEST(OptionsTest, DeserializeThrowsOnOffsetOutOfBounds) {
+    std::unordered_map<std::string, std::string> strings = {{"key", "value"}};
+    Options opts(strings);
+    auto buffer = opts.serialize();
+
+    // Corrupt count to 1 (valid)
+    uint64_t count = 1;
+    std::memcpy(buffer.data(), &count, sizeof(uint64_t));
+
+    // Corrupt one offset to be out-of-bounds (key offset)
+    auto bad_offset = static_cast<uint64_t>(buffer.size() + 100);
+    std::memcpy(buffer.data() + sizeof(uint64_t), &bad_offset, sizeof(uint64_t));
+
+    EXPECT_THROW(static_cast<void>(Options::deserialize(buffer)), std::out_of_range);
+}
+
+TEST(OptionsTest, SerializeThrowsIfOptionValueIsSet) {
+    std::unordered_map<std::string, std::string> strings = {{"level", "5"}};
+    Options opts(strings);
+    static_cast<void>(opts.get<int>("level", make_factory<int>(0, [](auto s) {
+                                        return std::stoi(s);
+                                    })));
+
+    // Expect serialize() to throw because the option value has been accessed.
+    EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
 }
