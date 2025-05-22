@@ -69,3 +69,32 @@ def test_get_or_default_int64_overflow() -> None:
         OverflowError, match="Python int too large to convert to C long"
     ):
         opts.get_or_assign("another_large_int", int, default_value=2**65)
+
+
+def test_get_strings_returns_correct_data() -> None:
+    input_data = {"Alpha": "one", "BETA": "2", "gamma": "THREE"}
+
+    opts = Options(input_data)
+    result = opts.get_strings()
+
+    # Keys should be lowercase
+    expected_keys = {k.lower() for k in input_data}
+    assert set(result.keys()) == expected_keys
+
+    for k, v in input_data.items():
+        assert result[k.lower()] == v
+
+
+def test_get_strings_returns_empty_dict_for_empty_options() -> None:
+    opts = Options()
+    result = opts.get_strings()
+    assert result == {}
+
+
+def test_get_strings_is_idempotent() -> None:
+    opts = Options({"key": "value"})
+    result1 = opts.get_strings()
+    result2 = opts.get_strings()
+
+    assert result1 == result2
+    assert result1["key"] == "value"

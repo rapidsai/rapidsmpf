@@ -9,6 +9,7 @@ cdef extern from "<rapidsmpf/config.hpp>" nogil:
     cdef cppclass cpp_Options "rapidsmpf::config::Options":
         cpp_Options() except +
         cpp_Options(unordered_map[string, string] options_as_strings) except +
+        unordered_map[string, string] get_strings() except +
 
 cdef class Options:
     cdef cpp_Options _handle

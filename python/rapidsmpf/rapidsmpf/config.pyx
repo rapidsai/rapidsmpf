@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cython.operator cimport dereference as deref
+from cython.operator cimport preincrement as inc
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
 from libcpp.string cimport string
@@ -148,6 +150,27 @@ cdef class Options:
             f"default type ({type(default_value)}) is not supported, "
             "please use `.get()` (not implemented yet)."
         )
+
+    def get_strings(self):
+        """
+        Get all option key-value pairs as strings.
+
+        Returns
+        -------
+        A dictionary containing all stored options, where the keys and values are
+        both strings.
+        """
+        cdef unordered_map[string, string] strings
+        with nogil:
+            strings = self._handle.get_strings()
+        cdef dict ret = {}
+        cdef unordered_map[string, string].iterator it = strings.begin()
+        while it != strings.end():
+            k = deref(it).first.decode("utf-8")
+            v = deref(it).second.decode("utf-8")
+            ret[k] = v
+            inc(it)
+        return ret
 
 
 def get_environment_variables(str key_regex = "RAPIDSMPF_(.*)"):
