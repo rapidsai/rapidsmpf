@@ -45,6 +45,16 @@ std::unordered_map<std::string, OptionValue> from_options_as_strings(
 Options::Options(std::unordered_map<std::string, std::string> options_as_strings)
     : Options(from_options_as_strings(std::move(options_as_strings))){};
 
+std::unordered_map<std::string, std::string> Options::get_strings() const {
+    auto const& shared = *shared_;
+    std::unordered_map<std::string, std::string> ret;
+    std::lock_guard<std::mutex> lock(shared.mutex);
+    for (const auto& [key, option] : shared.options) {
+        ret[key] = option.get_value_as_string();
+    }
+    return ret;
+}
+
 void get_environment_variables(
     std::unordered_map<std::string, std::string>& output, std::string const& key_regex
 ) {

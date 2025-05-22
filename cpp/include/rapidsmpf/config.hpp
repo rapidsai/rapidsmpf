@@ -104,7 +104,7 @@ namespace detail {
  * Options and its values are only initialized once.
  */
 struct SharedOptions {
-    std::mutex mutex;  ///< Shared mutex, must be use to guard `options`.
+    mutable std::mutex mutex;  ///< Shared mutex, must be use to guard `options`.
     std::unordered_map<std::string, OptionValue> options;  ///< Shared options.
 };
 }  // namespace detail
@@ -177,6 +177,17 @@ class Options {
             );
         }
     }
+
+    /**
+     * @brief Retrieves all option values as strings.
+     *
+     * This method returns a map of all currently stored options where both the keys
+     * and values are represented as strings.
+     *
+     * @return A map where each key is the option name and each value is the string
+     * representation of the corresponding option's value.
+     */
+    [[nodiscard]] std::unordered_map<std::string, std::string> get_strings() const;
 
   private:
     std::shared_ptr<detail::SharedOptions> shared_;

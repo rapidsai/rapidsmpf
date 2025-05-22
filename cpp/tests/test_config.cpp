@@ -107,3 +107,24 @@ TEST(OptionsTest, CaseSensitiveKeys) {
     };
     EXPECT_THROW(Options opts(strings), std::invalid_argument);
 }
+
+TEST(OptionsTest, GetStringsReturnsAllStoredOptions) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"option1", "value1"}, {"option2", "value2"}, {"Option3", "value3"}
+    };
+
+    Options opts(strings);
+    auto result = opts.get_strings();
+
+    EXPECT_EQ(result.size(), 3);
+    EXPECT_EQ(result["option1"], "value1");
+    EXPECT_EQ(result["option2"], "value2");
+    EXPECT_EQ(result["option3"], "value3");  // Keys are always lower case.
+}
+
+TEST(OptionsTest, GetStringsReturnsEmptyMapIfNoOptions) {
+    Options opts;
+    auto result = opts.get_strings();
+
+    EXPECT_TRUE(result.empty());
+}
