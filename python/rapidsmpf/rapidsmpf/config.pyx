@@ -1,13 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cpython.bytes cimport PyBytes_FromStringAndSize
 from cython.operator cimport dereference as deref
 from cython.operator cimport preincrement as inc
 from libc.stdint cimport int64_t
+from libc.string cimport memcpy
 from libcpp cimport bool as bool_t
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
+from libcpp.vector cimport vector
 
 import os
 import re
@@ -170,6 +173,80 @@ cdef class Options:
             v = deref(it).second.decode("utf-8")
             ret[k] = v
             inc(it)
+        return ret
+
+    def serialize(self) -> bytes:
+        """
+        Serialize the `Options` object into a binary buffer.
+
+        This method produces a compact binary representation of the internal
+        key-value options. The format is suitable for storage or transmission
+        and can be later restored using `Options.deserialize()`.
+
+        The binary format is:
+            - [uint64_t count] — number of key-value pairs
+            - [count * 2 * uint64_t] — offset pairs (key_offset, value_offset)
+            - [raw bytes] — key and value strings stored contiguously
+
+        Notes
+        -----
+        This method will raise an exception if any option has been previously
+        accessed and its value parsed, as the original string value might no
+        longer be representative.
+
+        Returns
+        -------
+        bytes
+            A `bytes` object containing the serialized binary representation
+            of the options.
+
+        Raises
+        ------
+        ValueError
+            If any option has already been accessed and cannot be serialized.
+        """
+        cdef vector[uint8_t] vec
+        with nogil:
+            vec = self._handle.serialize()
+
+        if vec.size() == 0:
+            return bytes()
+        return <bytes>PyBytes_FromStringAndSize(<const char*>&vec[0], vec.size())
+
+    @staticmethod
+    def deserialize(bytes serialized_buffer):
+        """
+        Deserialize a binary buffer into an `Options` object.
+
+        This method reconstructs an `Options` instance from a byte buffer
+        produced by the `Options.serialize()` method.
+
+        See `Options.serialize()` for the binary format.
+
+        Parameters
+        ----------
+        serialized_buffer
+            A buffer containing serialized options in the defined binary format.
+
+        Returns
+        -------
+        Options
+            A reconstructed `Options` instance containing the deserialized key-value
+            pairs.
+
+        Raises
+        ------
+        ValueError
+            If the input buffer is malformed or inconsistent with the expected format.
+        """
+        cdef Py_ssize_t size = len(serialized_buffer)
+        cdef const char* src = <const char*>serialized_buffer
+        cdef vector[uint8_t] vec
+        vec.resize(size)
+        cdef Options ret = Options.__new__(Options)
+        with nogil:
+            memcpy(<void*>vec.data(), src, size)
+            ret._handle = cpp_Options.deserialize(vec)
         return ret
 
 

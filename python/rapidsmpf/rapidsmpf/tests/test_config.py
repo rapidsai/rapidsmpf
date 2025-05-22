@@ -98,3 +98,58 @@ def test_get_strings_is_idempotent() -> None:
 
     assert result1 == result2
     assert result1["key"] == "value"
+
+
+def test_serialize_deserialize_roundtrip() -> None:
+    original_dict = {"alpha": "1", "beta": "two", "gamma": "3.14"}
+    opts = Options(original_dict)
+
+    serialized = opts.serialize()
+    deserialized = Options.deserialize(serialized)
+
+    restored = deserialized.get_strings()
+    assert restored == {k.lower(): v for k, v in original_dict.items()}
+
+
+def test_serialize_empty_options() -> None:
+    opts = Options({})
+    serialized = opts.serialize()
+    assert isinstance(serialized, bytes)
+    assert len(serialized) == 8  # Only the count (0) as uint64_t.
+
+    deserialized = Options.deserialize(serialized)
+    assert deserialized.get_strings() == {}
+
+
+def test_deserialize_invalid_size() -> None:
+    with pytest.raises(ValueError):
+        Options.deserialize(
+            b"\x01\x02\x03\x04\x05\x06\x07"
+        )  # 7 bytes (not multiple of 8).
+
+
+def test_deserialize_odd_offset_count() -> None:
+    # Count = 1, but only 1 offset instead of 2 (incomplete pair).
+    bad_data = (1).to_bytes(8, "little") + (42).to_bytes(8, "little")
+    with pytest.raises(ValueError):
+        Options.deserialize(bad_data)
+
+
+def test_deserialize_out_of_bounds_offset() -> None:
+    # Create valid serialized data and tamper with an offset.
+    opts = Options({"hello": "world"})
+    buf = bytearray(opts.serialize())
+
+    # Overwrite offset to something out of bounds.
+    bad_offset = len(buf) + 100
+    buf[8:16] = bad_offset.to_bytes(8, "little")  # tamper key offset.
+    with pytest.raises(IndexError):
+        Options.deserialize(bytes(buf))
+
+
+def test_serialize_after_access_raises() -> None:
+    opts = Options({"x": "42"})
+    _ = opts.get_or_assign("x", int, 1)  # Access value.
+
+    with pytest.raises(ValueError):
+        _ = opts.serialize()
