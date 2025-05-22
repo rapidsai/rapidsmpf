@@ -63,7 +63,7 @@ std::unordered_map<std::string, std::string> Options::get_strings() const {
     return ret;
 }
 
-std::vector<std::byte> Options::serialize() const {
+std::vector<std::uint8_t> Options::serialize() const {
     auto const& shared = *shared_;
     std::lock_guard<std::mutex> lock(shared.mutex);
 
@@ -75,8 +75,8 @@ std::vector<std::byte> Options::serialize() const {
         data_size += key.size() + option.get_value_as_string().size();
     }
 
-    std::vector<std::byte> buffer(header_size + data_size);
-    std::byte* base = buffer.data();
+    std::vector<std::uint8_t> buffer(header_size + data_size);
+    std::uint8_t* base = buffer.data();
 
     // Write count (number of key-value pairs).
     {
@@ -117,8 +117,8 @@ std::vector<std::byte> Options::serialize() const {
     return buffer;
 }
 
-Options Options::deserialize(std::vector<std::byte> const& buffer) {
-    const std::byte* base = buffer.data();
+Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
+    const std::uint8_t* base = buffer.data();
     std::size_t total_size = buffer.size();
 
     // Read number of key-value pairs

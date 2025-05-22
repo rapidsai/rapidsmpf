@@ -202,8 +202,11 @@ class Options {
      * @return A byte vector representing the serialized options.
      *
      * @throws std::invalid_argument If any option has already been accessed.
+     *
+     * @note To easy Python/Cython compatibility, a std::vector<std::uint8_t> is returned
+     * instead of std::vector<std::byte>.
      */
-    [[nodiscard]] std::vector<std::byte> serialize() const;
+    [[nodiscard]] std::vector<std::uint8_t> serialize() const;
 
     /**
      * @brief Deserializes a binary buffer into an Options object.
@@ -216,7 +219,7 @@ class Options {
      * @throws std::invalid_argument If the buffer is malformed or incomplete.
      * @throws std::out_of_range If offsets exceed buffer boundaries.
      */
-    [[nodiscard]] static Options deserialize(std::vector<std::byte> const& buffer);
+    [[nodiscard]] static Options deserialize(std::vector<std::uint8_t> const& buffer);
 
   private:
     std::shared_ptr<detail::SharedOptions> shared_;

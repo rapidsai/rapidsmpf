@@ -159,14 +159,14 @@ TEST(OptionsTest, SerializeDeserializeEmptyOptions) {
 }
 
 TEST(OptionsTest, DeserializeThrowsOnBufferTooSmallForCount) {
-    std::vector<std::byte> buffer(sizeof(std::uint64_t) - 1);
+    std::vector<std::uint8_t> buffer(sizeof(std::uint64_t) - 1);
     EXPECT_THROW(static_cast<void>(Options::deserialize(buffer)), std::invalid_argument);
 }
 
 TEST(OptionsTest, DeserializeThrowsOnBufferTooSmallForHeader) {
     // Buffer has count = 2 but no offsets/data
     uint64_t count = 2;
-    std::vector<std::byte> buffer(sizeof(uint64_t));
+    std::vector<std::uint8_t> buffer(sizeof(uint64_t));
     std::memcpy(buffer.data(), &count, sizeof(uint64_t));
     EXPECT_THROW(static_cast<void>(Options::deserialize(buffer)), std::invalid_argument);
 }
