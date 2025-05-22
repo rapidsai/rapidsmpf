@@ -162,6 +162,7 @@ def test_pickle_roundtrip() -> None:
     opts = Options(original_dict)
 
     pickled = pickle.dumps(opts)
+    assert isinstance(pickled, bytes)
     unpickled = pickle.loads(pickled)
 
     assert isinstance(unpickled, Options)
