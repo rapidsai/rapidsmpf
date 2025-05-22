@@ -72,21 +72,9 @@ OptionFactory<T> make_factory(T default_value, std::function<T(std::string)> par
     };
 }
 
-TEST(OptionsTest, GetOptionCorrectTypeSetExplicitly) {
-    std::unordered_map<std::string, OptionValue> options = {{"myoption", OptionValue(42)}
-    };
-    Options opts(options);
-    auto value = opts.get<int>("myoption", make_factory<int>(0, [](auto s) {
-                                   return std::stoi(s);
-                               }));
-    EXPECT_EQ(value, 42);
-}
-
 TEST(OptionsTest, GetOptionWrongTypeThrows) {
-    std::unordered_map<std::string, OptionValue> options = {
-        {"myoption", OptionValue("not an int")}
-    };
-    Options opts(options);
+    std::unordered_map<std::string, std::string> strings = {{"myoption", "not an int"}};
+    Options opts(strings);
     EXPECT_THROW(
         {
             opts.get<int>("myoption", make_factory<int>(0, [](auto s) {
