@@ -41,7 +41,7 @@ std::unordered_map<std::string, OptionValue> from_options_as_strings(
 ) {
     std::unordered_map<std::string, OptionValue> ret;
     for (auto&& [key, val] : transform_keys_trim_lower(std::move(options_as_strings))) {
-        ret.insert({std::move(key), OptionValue(std::move(val))});
+        ret.emplace(std::move(key), OptionValue(std::move(val)));
     }
     return ret;
 }
