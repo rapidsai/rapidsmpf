@@ -28,6 +28,9 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils.hpp>
 
+
+class ShuffleInsertGroupedTest;
+
 /**
  * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
@@ -44,6 +47,8 @@ namespace rapidsmpf::shuffler {
  * different ranks.
  */
 class Shuffler {
+    friend class ::ShuffleInsertGroupedTest;
+
   public:
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the
@@ -109,13 +114,20 @@ class Shuffler {
      */
     void shutdown();
 
-  public:
     /**
      * @brief Insert a chunk into the shuffle.
      *
      * @param chunk The chunk to insert.
      */
     void insert(detail::Chunk&& chunk);
+
+    /**
+     * @brief Insert a map of packed data, grouping them by destination rank, and
+     * concatenating into a single chunk per rank.
+     *
+     * @param chunks A map of partition IDs and their packed chunks.
+     */
+    void insert_grouped(std::unordered_map<PartID, PackedData>&& chunks);
 
     /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
@@ -132,6 +144,13 @@ class Shuffler {
      * @param pid The partition ID to mark as finished.
      */
     void insert_finished(PartID pid);
+
+    /**
+     * @brief Insert a finish mark for a list of partitions.
+     *
+     * @param pids The list of partition IDs to mark as finished.
+     */
+    void insert_finished(std::vector<PartID>&& pids);
 
     /**
      * @brief Extract all chunks of a specific partition.
@@ -232,20 +251,8 @@ class Shuffler {
      * @param event The event to use for the new chunk.
      */
     [[nodiscard]] detail::Chunk create_chunk(
-        PartID pid,
-        std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<rmm::device_buffer> gpu_data,
-        rmm::cuda_stream_view stream,
-        std::shared_ptr<Buffer::Event> event
-    ) {
-        return detail::Chunk{
-            pid,
-            get_new_cid(),
-            gpu_data ? gpu_data->size() : 0,  // gpu_data_size
-            std::move(metadata),
-            br_->move(std::move(gpu_data), stream, event)
-        };
-    }
+        PartID pid, PackedData&& packed_data, std::shared_ptr<Buffer::Event> event
+    );
 
   public:
     PartID const total_num_partitions;  ///< Total number of partition in the shuffle.
