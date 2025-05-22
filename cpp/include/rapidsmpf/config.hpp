@@ -35,7 +35,7 @@ using OptionFactory = std::function<T(std::string const&)>;
  * @brief Configuration option value.
  *
  * The OptionValue class encapsulates a value (of any type using std::any)
- * and an optional string representation of the value.
+ * and a string representation of the value.
  */
 class OptionValue {
   public:
@@ -47,30 +47,12 @@ class OptionValue {
     OptionValue() = default;
 
     /**
-     * @brief Constructs OptionValue from a std::any value.
-     *
-     * @param value The value to store, wrapped in std::any.
-     */
-    OptionValue(std::any value) : value_{std::move(value)} {}
-
-    /**
      * @brief Constructs OptionValue from a string representation.
      *
      * @param value_as_string A string representation of the value.
      */
     OptionValue(std::string value_as_string)
         : value_as_string_{std::move(value_as_string)} {}
-
-    /**
-     * @brief Convenience constructor to store any type.
-     *
-     * Wraps the given value in std::any and stores it.
-     *
-     * @tparam T The type of the value.
-     * @param value The value to store.
-     */
-    template <typename T>
-    OptionValue(T value) : OptionValue(std::make_any<T>(value)) {}
 
     /**
      * @brief Retrieves the stored value.
