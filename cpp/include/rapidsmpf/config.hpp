@@ -62,6 +62,36 @@ class OptionValue {
         : value_as_string_{std::move(value_as_string)} {}
 
     /**
+     * @brief Copy constructor.
+     *
+     * @param other The OptionValue to copy.
+     */
+    OptionValue(OptionValue const& other) = default;
+
+    /**
+     * @brief Copy assignment operator.
+     *
+     * @param other The OptionValue to copy.
+     * @return Reference to the copied OptionValue.
+     */
+    OptionValue& operator=(OptionValue const&) = default;
+
+    /**
+     * @brief Move constructor.
+     *
+     * @param other The OptionValue to move.
+     */
+    OptionValue(OptionValue&&) = default;
+
+    /**
+     * @brief Move assignment operator.
+     *
+     * @param other The OptionValue to move.
+     * @return Reference to the moved OptionValue.
+     */
+    OptionValue& operator=(OptionValue&&) = default;
+
+    /**
      * @brief Convenience constructor to store any type.
      *
      * Wraps the given value in std::any and stores it.
@@ -70,7 +100,9 @@ class OptionValue {
      * @param value The value to store.
      */
     template <typename T>
-    OptionValue(T value) : OptionValue(std::make_any<T>(value)) {}
+    static OptionValue make(T value) {
+        return OptionValue(std::make_any<T>(std::move(value)));
+    }
 
     /**
      * @brief Retrieves the stored value.

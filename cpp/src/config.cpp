@@ -16,7 +16,7 @@ namespace rapidsmpf::config {
 
 namespace detail {
 
-namespace {
+// namespace {
 // Helper function to trim and lower case all keys in a map.
 template <typename T>
 std::unordered_map<std::string, T> transform_keys_trim_lower(
@@ -35,17 +35,25 @@ std::unordered_map<std::string, T> transform_keys_trim_lower(
     return ret;
 }
 
+// explicitly instantiate transform_keys_trim_lower for std::string
+template std::unordered_map<std::string, std::string> transform_keys_trim_lower<std::string>(
+    std::unordered_map<std::string, std::string>&& input
+);
+template std::unordered_map<std::string, OptionValue> transform_keys_trim_lower<OptionValue>(
+    std::unordered_map<std::string, OptionValue>&& input
+);
+
 // Helper function to get OptionValue map from options-as-strings map.
 std::unordered_map<std::string, OptionValue> from_options_as_strings(
     std::unordered_map<std::string, std::string>&& options_as_strings
 ) {
     std::unordered_map<std::string, OptionValue> ret;
     for (auto&& [key, val] : transform_keys_trim_lower(std::move(options_as_strings))) {
-        ret.insert({std::move(key), OptionValue(std::move(val))});
+        ret.emplace(std::move(key), OptionValue(std::move(val)));
     }
     return ret;
 }
-}  // namespace
+// }  // namespace
 
 OptionsImpl::OptionsImpl(std::unordered_map<std::string, OptionValue> options)
     : options_{transform_keys_trim_lower(std::move(options))} {}
