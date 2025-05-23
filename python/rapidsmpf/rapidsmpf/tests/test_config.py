@@ -9,7 +9,7 @@ import pytest
 from rapidsmpf.config import Options
 
 
-def test_get_or_default_with_explicit_values() -> None:
+def test_get_with_explicit_values() -> None:
     opts = Options(
         {
             "debug": "true",
@@ -19,58 +19,61 @@ def test_get_or_default_with_explicit_values() -> None:
             "mode": "fast",
         }
     )
-    assert opts.get_or_assign("debug", bool, default_value=False) is True
-    assert opts.get_or_assign("max_retries", int, default_value=0) == 3
-    assert opts.get_or_assign("int", int, default_value=0) == 2
-    assert opts.get_or_assign("timeout", float, default_value=0.0) == 2.5
-    assert opts.get_or_assign("mode", str, default_value="slow") == "fast"
+    assert opts.get("debug", return_type=bool, factory=lambda s: s == "true") is True
+    assert opts.get("max_retries", return_type=int, factory=int) == 3
+    assert opts.get("timeout", return_type=float, factory=float) == 2.5
+    assert opts.get("mode", return_type=str, factory=str) == "fast"
 
 
-def test_get_or_assign_returns_default_when_key_missing() -> None:
+def test_get_uses_factory_when_key_missing() -> None:
     opts = Options({})
-    assert opts.get_or_assign("use_gpu", bool, default_value=True) is True
-    assert opts.get_or_assign("workers", int, default_value=4) == 4
-    assert opts.get_or_assign("rate", float, default_value=1.2) == 1.2
-    assert opts.get_or_assign("name", str, default_value="default") == "default"
+    assert opts.get("use_gpu", return_type=bool, factory=lambda s: True) is True
+    assert opts.get("workers", return_type=int, factory=lambda s: 4) == 4
+    assert opts.get("rate", return_type=float, factory=lambda s: 1.2) == 1.2
+    assert opts.get("name", return_type=str, factory=lambda s: "default") == "default"
 
 
-def test_get_or_assign_caches_assigned_value() -> None:
+def test_get_caches_assigned_value() -> None:
     opts = Options({})
-    val1 = opts.get_or_assign("threshold", float, default_value=0.75)
-    val2 = opts.get_or_assign("threshold", float, default_value=1.23)
-    assert val1 == val2 == 0.75  # Second call should not override the first
+
+    val1 = opts.get("threshold", return_type=float, factory=lambda s: 0.75)
+    val2 = opts.get("threshold", return_type=float, factory=lambda s: 1.23)
+    assert val1 == val2 == 0.75  # second call must return the cached value
 
 
-def test_get_or_assign_raises_on_unsupported_type() -> None:
+def test_get_raises_on_unsupported_type() -> None:
     class Unsupported:
         pass
 
     opts = Options({})
-    with pytest.raises(ValueError, match="is not support"):
-        opts.get_or_assign("key", Unsupported, Unsupported())
+    with pytest.raises(ValueError, match="is not supported"):
+        opts.get("key", return_type=Unsupported, factory=lambda s: Unsupported())
 
 
-def test_get_or_assign_type_conflict_on_same_key() -> None:
+def test_get_raises_on_type_conflict() -> None:
     opts = Options({"batch_size": "32"})
 
-    # First access with int parser
-    val = opts.get_or_assign("batch_size", int, default_value=16)
+    val = opts.get("batch_size", return_type=int, factory=int)
     assert val == 32
 
-    # Now try to access same key with a different type
     with pytest.raises(ValueError, match="incompatible template type"):
-        opts.get_or_assign("batch_size", float, default_value=32.0)
+        opts.get("batch_size", return_type=float, factory=float)
 
 
-def test_get_or_default_int64_overflow() -> None:
+def test_get_int64_overflow() -> None:
     opts = Options({"large_int": str(2**65)})
-    with pytest.raises(ValueError, match='cannot parse "36893488147419103232"'):
-        opts.get_or_assign("large_int", int, default_value=0)
 
-    with pytest.raises(
-        OverflowError, match="Python int too large to convert to C long"
-    ):
-        opts.get_or_assign("another_large_int", int, default_value=2**65)
+    with pytest.raises(OverflowError, match="too large"):
+        opts.get("large_int", return_type=int, factory=int)
+
+    with pytest.raises(OverflowError, match="too large"):
+        opts.get("another_large_int", return_type=int, factory=lambda s: 2**65)
+
+
+def test_get_raises_on_list_type() -> None:
+    opts = Options({})
+    with pytest.raises(ValueError, match="is not supported"):
+        opts.get("some_key", return_type=list, factory=lambda s: [])
 
 
 def test_get_strings_returns_correct_data() -> None:
@@ -85,6 +88,50 @@ def test_get_strings_returns_correct_data() -> None:
 
     for k, v in input_data.items():
         assert result[k.lower()] == v
+
+
+def test_get_or_default_returns_default_when_key_missing() -> None:
+    opts = Options({})
+    assert opts.get_or_default("debug", default_value=False) is False
+    assert opts.get_or_default("workers", default_value=8) == 8
+    assert opts.get_or_default("timeout", default_value=1.5) == 1.5
+    assert opts.get_or_default("loglevel", default_value="info") == "info"
+
+
+def test_get_or_default_parses_existing_values() -> None:
+    opts = Options(
+        {
+            "debug": "true",
+            "workers": "4",
+            "timeout": "2.0",
+            "loglevel": "debug",
+        }
+    )
+    assert opts.get_or_default("debug", default_value=False) is True
+    assert opts.get_or_default("workers", default_value=1) == 4
+    assert opts.get_or_default("timeout", default_value=1.0) == 2.0
+    assert opts.get_or_default("loglevel", default_value="info") == "debug"
+
+
+def test_get_or_default_type_conflict_raises() -> None:
+    opts = Options({"port": "8080"})
+    assert opts.get_or_default("port", default_value=8080) == 8080
+
+    with pytest.raises(ValueError, match="incompatible template type"):
+        opts.get_or_default("port", default_value=8080.0)
+
+
+def test_get_or_default_handles_bool_variants() -> None:
+    opts = Options({"enabled": "yes", "disabled": "0"})
+    assert opts.get_or_default("enabled", default_value=False) is True
+    assert opts.get_or_default("disabled", default_value=True) is False
+
+
+def test_get_or_default_raises_for_invalid_bool_string() -> None:
+    opts = Options({"enabled": "definitely"})
+
+    with pytest.raises(ValueError, match="Cannot parse boolean"):
+        opts.get_or_default("enabled", default_value=True)
 
 
 def test_get_strings_returns_empty_dict_for_empty_options() -> None:
@@ -151,7 +198,7 @@ def test_deserialize_out_of_bounds_offset() -> None:
 
 def test_serialize_after_access_raises() -> None:
     opts = Options({"x": "42"})
-    _ = opts.get_or_assign("x", int, 1)  # Access value.
+    _ = opts.get("x", return_type=int, factory=int)  # Access value.
 
     with pytest.raises(ValueError):
         _ = opts.serialize()
