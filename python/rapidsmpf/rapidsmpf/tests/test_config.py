@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import pickle
+
 import pytest
 
 from rapidsmpf.config import Options
@@ -69,3 +71,108 @@ def test_get_or_default_int64_overflow() -> None:
         OverflowError, match="Python int too large to convert to C long"
     ):
         opts.get_or_assign("another_large_int", int, default_value=2**65)
+
+
+def test_get_strings_returns_correct_data() -> None:
+    input_data = {"Alpha": "one", "BETA": "2", "gamma": "THREE"}
+
+    opts = Options(input_data)
+    result = opts.get_strings()
+
+    # Keys should be lowercase
+    expected_keys = {k.lower() for k in input_data}
+    assert set(result.keys()) == expected_keys
+
+    for k, v in input_data.items():
+        assert result[k.lower()] == v
+
+
+def test_get_strings_returns_empty_dict_for_empty_options() -> None:
+    opts = Options()
+    result = opts.get_strings()
+    assert result == {}
+
+
+def test_get_strings_is_idempotent() -> None:
+    opts = Options({"key": "value"})
+    result1 = opts.get_strings()
+    result2 = opts.get_strings()
+
+    assert result1 == result2
+    assert result1["key"] == "value"
+
+
+def test_serialize_deserialize_roundtrip() -> None:
+    original_dict = {"alpha": "1", "beta": "two", "Gamma": "3.14"}
+    opts = Options(original_dict)
+
+    serialized = opts.serialize()
+    deserialized = Options.deserialize(serialized)
+
+    restored = deserialized.get_strings()
+    assert restored == {k.lower(): v for k, v in original_dict.items()}
+
+
+def test_serialize_empty_options() -> None:
+    opts = Options({})
+    serialized = opts.serialize()
+    assert isinstance(serialized, bytes)
+    assert len(serialized) == 8  # Only the count (0) as uint64_t.
+
+    deserialized = Options.deserialize(serialized)
+    assert deserialized.get_strings() == {}
+
+
+def test_deserialize_invalid_size() -> None:
+    with pytest.raises(ValueError):
+        Options.deserialize(
+            b"\x01\x02\x03\x04\x05\x06\x07"
+        )  # 7 bytes (not multiple of 8).
+
+
+def test_deserialize_odd_offset_count() -> None:
+    # Count = 1, but only 1 offset instead of 2 (incomplete pair).
+    bad_data = (1).to_bytes(8, "little") + (42).to_bytes(8, "little")
+    with pytest.raises(ValueError):
+        Options.deserialize(bad_data)
+
+
+def test_deserialize_out_of_bounds_offset() -> None:
+    # Create valid serialized data and tamper with an offset.
+    opts = Options({"hello": "world"})
+    buf = bytearray(opts.serialize())
+
+    # Overwrite offset to something out of bounds.
+    bad_offset = len(buf) + 100
+    buf[8:16] = bad_offset.to_bytes(8, "little")  # tamper key offset.
+    with pytest.raises(IndexError):
+        Options.deserialize(bytes(buf))
+
+
+def test_serialize_after_access_raises() -> None:
+    opts = Options({"x": "42"})
+    _ = opts.get_or_assign("x", int, 1)  # Access value.
+
+    with pytest.raises(ValueError):
+        _ = opts.serialize()
+
+
+def test_pickle_roundtrip() -> None:
+    original_dict = {"x": "42", "y": "test", "Z": "true"}
+    opts = Options(original_dict)
+
+    pickled = pickle.dumps(opts)
+    assert isinstance(pickled, bytes)
+    unpickled = pickle.loads(pickled)
+
+    assert isinstance(unpickled, Options)
+    assert unpickled.get_strings() == {k.lower(): v for k, v in original_dict.items()}
+
+
+def test_pickle_empty_options() -> None:
+    opts = Options({})
+    pickled = pickle.dumps(opts)
+    unpickled = pickle.loads(pickled)
+
+    assert isinstance(unpickled, Options)
+    assert unpickled.get_strings() == {}

@@ -3,60 +3,178 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdint>
+#include <cstring>
+#include <mutex>
 #include <regex>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include <unistd.h>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/utils.hpp>
 
+
 extern char** environ;
 
 namespace rapidsmpf::config {
 
-namespace detail {
-
-namespace {
-// Helper function to trim and lower case all keys in a map.
-template <typename T>
-std::unordered_map<std::string, T> transform_keys_trim_lower(
-    std::unordered_map<std::string, T>&& input
-) {
-    std::unordered_map<std::string, T> ret;
-    ret.reserve(input.size());
-    for (auto&& [key, value] : input) {
+Options::Options(std::unordered_map<std::string, OptionValue> options)
+    : shared_{std::make_shared<detail::SharedOptions>()} {
+    // insert, trim and lower case all keys.
+    auto& opts = shared_->options;
+    opts.reserve(options.size());
+    for (auto&& [key, value] : options) {
         auto new_key = rapidsmpf::to_lower(rapidsmpf::trim(key));
         RAPIDSMPF_EXPECTS(
-            ret.emplace(std::move(new_key), std::move(value)).second,
-            "keys must be case-insensitive",
+            opts.emplace(std::move(new_key), std::move(value)).second,
+            "option keys must be case-insensitive",
             std::invalid_argument
         );
     }
-    return ret;
 }
 
+namespace {
 // Helper function to get OptionValue map from options-as-strings map.
 std::unordered_map<std::string, OptionValue> from_options_as_strings(
     std::unordered_map<std::string, std::string>&& options_as_strings
 ) {
     std::unordered_map<std::string, OptionValue> ret;
-    for (auto&& [key, val] : transform_keys_trim_lower(std::move(options_as_strings))) {
+    for (auto&& [key, val] : options_as_strings) {
         ret.emplace(std::move(key), OptionValue(std::move(val)));
     }
     return ret;
 }
 }  // namespace
 
-OptionsImpl::OptionsImpl(std::unordered_map<std::string, OptionValue> options)
-    : options_{transform_keys_trim_lower(std::move(options))} {}
-
-}  // namespace detail
-
-Options::Options(std::unordered_map<std::string, OptionValue> options)
-    : impl_{std::make_shared<detail::OptionsImpl>(std::move(options))} {}
-
 Options::Options(std::unordered_map<std::string, std::string> options_as_strings)
-    : Options(detail::from_options_as_strings(std::move(options_as_strings))){};
+    : Options(from_options_as_strings(std::move(options_as_strings))){};
+
+std::unordered_map<std::string, std::string> Options::get_strings() const {
+    auto const& shared = *shared_;
+    std::unordered_map<std::string, std::string> ret;
+    std::lock_guard<std::mutex> lock(shared.mutex);
+    for (const auto& [key, option] : shared.options) {
+        ret[key] = option.get_value_as_string();
+    }
+    return ret;
+}
+
+std::vector<std::uint8_t> Options::serialize() const {
+    auto const& shared = *shared_;
+    std::lock_guard<std::mutex> lock(shared.mutex);
+
+    std::size_t const count = shared.options.size();
+    std::size_t const header_size = (1 + 2 * count) * sizeof(uint64_t);
+
+    std::size_t data_size = 0;
+    for (auto const& [key, option] : shared.options) {
+        data_size += key.size() + option.get_value_as_string().size();
+    }
+
+    std::vector<std::uint8_t> buffer(header_size + data_size);
+    std::uint8_t* base = buffer.data();
+
+    // Write count (number of key-value pairs).
+    {
+        auto const count_ = static_cast<uint64_t>(count);
+        std::memcpy(base, &count_, sizeof(uint64_t));
+    }
+
+    // Write offsets and data.
+    std::size_t offset_index = 1;  // Offsets starts after `count`.
+    std::size_t data_offset = header_size;
+    for (auto const& [key, option] : shared.options) {
+        RAPIDSMPF_EXPECTS(
+            !option.get_value().has_value(),
+            "cannot serialize already parsed (accessed) option values",
+            std::invalid_argument
+        );
+        std::string const& value = option.get_value_as_string();
+
+        auto key_offset = static_cast<uint64_t>(data_offset);
+        auto value_offset = static_cast<uint64_t>(key_offset + key.size());
+
+        // Write offsets
+        std::memcpy(
+            base + offset_index * sizeof(uint64_t), &key_offset, sizeof(uint64_t)
+        );
+        std::memcpy(
+            base + (offset_index + 1) * sizeof(uint64_t), &value_offset, sizeof(uint64_t)
+        );
+        offset_index += 2;
+
+        // Write data
+        std::memcpy(base + key_offset, key.data(), key.size());
+        std::memcpy(base + value_offset, value.data(), value.size());
+
+        data_offset = static_cast<std::size_t>(value_offset + value.size());
+    }
+
+    return buffer;
+}
+
+Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
+    const std::uint8_t* base = buffer.data();
+    std::size_t total_size = buffer.size();
+
+    // Read number of key-value pairs
+    uint64_t count = 0;
+    RAPIDSMPF_EXPECTS(
+        total_size >= sizeof(uint64_t),
+        "buffer is too small to contain count",
+        std::invalid_argument
+    );
+    std::memcpy(&count, base, sizeof(uint64_t));
+    std::size_t const header_size = (1 + 2 * count) * sizeof(uint64_t);
+    RAPIDSMPF_EXPECTS(
+        header_size <= total_size,
+        "buffer is too small for header with declared count",
+        std::invalid_argument
+    );
+
+    // Read offsets
+    std::vector<uint64_t> key_offsets(count);
+    std::vector<uint64_t> value_offsets(count);
+    for (uint64_t i = 0; i < count; ++i) {
+        std::memcpy(
+            &key_offsets[i], base + (1 + 2 * i) * sizeof(uint64_t), sizeof(uint64_t)
+        );
+        std::memcpy(
+            &value_offsets[i], base + (1 + 2 * i + 1) * sizeof(uint64_t), sizeof(uint64_t)
+        );
+    }
+
+    // Reconstruct the key-value pairs
+    std::unordered_map<std::string, std::string> ret;
+    for (uint64_t i = 0; i < count; ++i) {
+        uint64_t const key_offset = key_offsets[i];
+        uint64_t const value_offset = value_offsets[i];
+
+        RAPIDSMPF_EXPECTS(
+            key_offset < total_size && value_offset < total_size
+                && key_offset < value_offset,
+            "invalid offsets in serialized buffer",
+            std::out_of_range
+        );
+
+        std::size_t const key_len = value_offset - key_offset;
+        std::size_t const value_len =
+            (i + 1 < count ? key_offsets[i + 1] : total_size) - value_offset;
+
+        if (key_offset + key_len > total_size || value_offset + value_len > total_size) {
+            throw std::out_of_range("Deserialization offset exceeds buffer size");
+        }
+        std::string key(reinterpret_cast<const char*>(base + key_offset), key_len);
+        std::string val(reinterpret_cast<const char*>(base + value_offset), value_len);
+        ret.emplace(std::move(key), std::move(val));
+    }
+
+    return Options(ret);
+}
 
 void get_environment_variables(
     std::unordered_map<std::string, std::string>& output, std::string const& key_regex
