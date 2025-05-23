@@ -90,6 +90,50 @@ def test_get_strings_returns_correct_data() -> None:
         assert result[k.lower()] == v
 
 
+def test_get_or_default_returns_default_when_key_missing() -> None:
+    opts = Options({})
+    assert opts.get_or_default("debug", default_value=False) is False
+    assert opts.get_or_default("workers", default_value=8) == 8
+    assert opts.get_or_default("timeout", default_value=1.5) == 1.5
+    assert opts.get_or_default("loglevel", default_value="info") == "info"
+
+
+def test_get_or_default_parses_existing_values() -> None:
+    opts = Options(
+        {
+            "debug": "true",
+            "workers": "4",
+            "timeout": "2.0",
+            "loglevel": "debug",
+        }
+    )
+    assert opts.get_or_default("debug", default_value=False) is True
+    assert opts.get_or_default("workers", default_value=1) == 4
+    assert opts.get_or_default("timeout", default_value=1.0) == 2.0
+    assert opts.get_or_default("loglevel", default_value="info") == "debug"
+
+
+def test_get_or_default_type_conflict_raises() -> None:
+    opts = Options({"port": "8080"})
+    assert opts.get_or_default("port", default_value=8080) == 8080
+
+    with pytest.raises(ValueError, match="incompatible template type"):
+        opts.get_or_default("port", default_value=8080.0)
+
+
+def test_get_or_default_handles_bool_variants() -> None:
+    opts = Options({"enabled": "yes", "disabled": "0"})
+    assert opts.get_or_default("enabled", default_value=False) is True
+    assert opts.get_or_default("disabled", default_value=True) is False
+
+
+def test_get_or_default_raises_for_invalid_bool_string() -> None:
+    opts = Options({"enabled": "definitely"})
+
+    with pytest.raises(ValueError, match="Cannot parse boolean"):
+        opts.get_or_default("enabled", default_value=True)
+
+
 def test_get_strings_returns_empty_dict_for_empty_options() -> None:
     opts = Options()
     result = opts.get_strings()

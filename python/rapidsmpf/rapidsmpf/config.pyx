@@ -17,6 +17,8 @@ from rapidsmpf._detail cimport config_options_get
 import os
 import re
 
+from rapidsmpf.utils.string import parse_boolean
+
 
 # Cython doesn't support a `std::function` type that uses a template argument,
 # which is needed to declare `rapidsmpf::config::OptionFactory`. To handle this,
@@ -154,6 +156,64 @@ cdef class Options:
             f"return type ({type(return_type)}) is not supported, "
             r"supported types: {bool, int, float, str}."
         )
+
+    def get_or_default(self, str key, *, default_value):
+        """
+        Retrieve a configuration option by key, using a default value if not present.
+
+        This is a convenience wrapper around `get()` that uses the type of the
+        `default_value` as the return type and provides a default factory that
+        parses a string into that type.
+
+        Parameters
+        ----------
+        key
+            The name of the option to retrieve.
+        default_value
+            The default value to return if the option is not set. Its type is used
+            to determine the expected return type.
+
+        Returns
+        -------
+        The value of the option if it exists and can be parsed to the type of
+        `default_value`, otherwise `default_value`.
+
+        Raises
+        ------
+        ValueError
+            If the stored option value cannot be parsed to the required type.
+        TypeError
+            If the option has already been accessed with a different return type.
+
+        Notes
+        -----
+        - Supported types for `default_value` include: `bool`, `int`, `float`, and
+          `str`.
+        - This method infers the return type from `type(default_value)`.
+        - If `default_value` is used, it will be cached and reused for subsequent
+          accesses of the same key.
+
+        Examples
+        --------
+        >>> opts = Options({})
+        >>> opts.get_or_default("debug", default_value=False)
+        False
+        >>> opts.get_or_default("timeout", default_value=1.5)
+        1.5
+        >>> opts.get_or_default("level", default_value="info")
+        'info'
+        """
+        if isinstance(default_value, bool):
+            def factory(option_as_string):
+                if option_as_string:
+                    return parse_boolean(option_as_string)
+                return default_value
+        else:
+            def factory(option_as_string):
+                if option_as_string:
+                    return type(default_value)(option_as_string)
+                return default_value
+        return self.get(key, return_type=type(default_value), factory=factory)
 
     def get_strings(self):
         """
