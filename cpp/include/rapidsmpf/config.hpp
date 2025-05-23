@@ -208,7 +208,7 @@ class Options {
      *
      * @throws std::invalid_argument If any option has already been accessed.
      *
-     * @note To easy Python/Cython compatibility, a std::vector<std::uint8_t> is returned
+     * @note To ease Python/Cython compatibility, a std::vector<std::uint8_t> is returned
      * instead of std::vector<std::byte>.
      */
     [[nodiscard]] std::vector<std::uint8_t> serialize() const;
