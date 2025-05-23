@@ -79,6 +79,9 @@ jobs:
       arch: '["amd64"]'
       cuda: '["12.8"]'
       build_command: |
+        # Needed until https://github.com/rapidsai/devcontainers/pull/519 merges
+        pip install -U rapids-dependency-file-generator
+
         sccache --zero-stats;
         build-all -DBUILD_BENCHMARKS=ON --verbose 2>&1 | tee telemetry-artifacts/build.log;
         sccache --show-adv-stats | tee telemetry-artifacts/sccache-stats.txt;

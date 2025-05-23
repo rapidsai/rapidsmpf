@@ -23,6 +23,7 @@ dependencies:
 - gcc_linux-64=13.*
 - gdb
 - libcudf==25.8.*,>=0.0.0a0
+- librmm==25.8.*,>=0.0.0a0
 - libucxx==0.45.*,>=0.0.0a0
 - make
 - mpi4py
