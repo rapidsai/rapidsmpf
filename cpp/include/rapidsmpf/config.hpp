@@ -192,6 +192,11 @@ class Options {
     /**
      * @brief Serializes the options into a binary buffer.
      *
+     * An Options instance can only be serialized if no options have been accessed. This
+     * is because serialization is based on the original string representations of the
+     * options. Once an option has been accessed and parsed, its string value may no
+     * longer accurately reflect its state, making serialization potentially inconsistent.
+     *
      * The format is:
      * - [uint64_t count] — number of key-value pairs.
      * - [count * 2 * uint64_t] — offset pairs (key_offset, value_offset) for each entry.

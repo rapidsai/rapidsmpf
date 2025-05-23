@@ -103,7 +103,7 @@ def test_get_strings_is_idempotent() -> None:
 
 
 def test_serialize_deserialize_roundtrip() -> None:
-    original_dict = {"alpha": "1", "beta": "two", "gamma": "3.14"}
+    original_dict = {"alpha": "1", "beta": "two", "Gamma": "3.14"}
     opts = Options(original_dict)
 
     serialized = opts.serialize()
