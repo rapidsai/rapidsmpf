@@ -190,9 +190,11 @@ cdef class Options:
 
         Notes
         -----
-        This method will raise an exception if any option has been previously
-        accessed and its value parsed, as the original string value might no
-        longer be representative.
+        An Options instance can only be serialized if no options have been
+        accessed. This is because serialization is based on the original
+        string representations of the options. Once an option has been
+        accessed and parsed, its string value may no longer accurately
+        reflect its state, making serialization potentially inconsistent.
 
         Returns
         -------
