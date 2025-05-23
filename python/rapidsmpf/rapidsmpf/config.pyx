@@ -242,9 +242,9 @@ cdef class Options:
         cdef Py_ssize_t size = len(serialized_buffer)
         cdef const char* src = <const char*>serialized_buffer
         cdef vector[uint8_t] vec
-        vec.resize(size)
         cdef Options ret = Options.__new__(Options)
         with nogil:
+            vec.resize(size)
             memcpy(<void*>vec.data(), src, size)
             ret._handle = cpp_Options.deserialize(vec)
         return ret
