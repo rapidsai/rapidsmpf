@@ -83,7 +83,10 @@ jobs:
         pip install -U rapids-dependency-file-generator
         if [[ "${PYTHON_PACKAGE_MANAGER}" == "conda" ]]; then
           rapids-make-conda-env
+          # Temporarily allow unbound variables for conda activation
+          set +u
           conda activate rapids
+          set -u
         else
           rapids-make-pip-env
           . ~/.local/share/venvs/rapids/bin/activate
