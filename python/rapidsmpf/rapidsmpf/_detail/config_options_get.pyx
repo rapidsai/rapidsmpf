@@ -54,7 +54,7 @@ cdef bool_t _invoke_factory_bool(
     throw_py_as_cpp_exception(err)
 
 
-cdef bool_t get_bool(Options options, str key, factory):
+cdef get_bool(Options options, str key, factory):
     cdef string _key = str.encode(key)
     cdef bool_t _ret
     with nogil:
@@ -79,7 +79,7 @@ cdef int64_t _invoke_factory_int64(
     throw_py_as_cpp_exception(err)
 
 
-cdef int get_int(Options options, str key, factory):
+cdef get_int(Options options, str key, factory):
     cdef string _key = str.encode(key)
     cdef int64_t _ret
     with nogil:
@@ -104,7 +104,7 @@ cdef double _invoke_factory_double(
     throw_py_as_cpp_exception(err)
 
 
-cdef float get_float(Options options, str key, factory):
+cdef get_float(Options options, str key, factory):
     cdef string _key = str.encode(key)
     cdef double _ret
     with nogil:
@@ -123,13 +123,13 @@ cdef string _invoke_factory_string(
     cdef CppExcept err
     with gil:
         try:
-            return (<object?>py_factory)(value.decode("UTF-8"))
+            return str.encode((<object?>py_factory)(value.decode("UTF-8")))
         except BaseException as e:
             err = translate_py_to_cpp_exception(e)
     throw_py_as_cpp_exception(err)
 
 
-cdef str get_str(Options options, str key, factory):
+cdef get_str(Options options, str key, factory):
     cdef string _key = str.encode(key)
     cdef string _ret
     with nogil:

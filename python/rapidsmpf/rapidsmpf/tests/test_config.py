@@ -73,6 +73,60 @@ def test_get_or_default_int64_overflow() -> None:
         opts.get_or_assign("another_large_int", int, default_value=2**65)
 
 
+def test_get_retrieves_existing_values() -> None:
+    opts = Options(
+        {
+            "debug": "true",
+            "max_retries": "3",
+            "timeout": "2.5",
+            "mode": "fast",
+        }
+    )
+    assert opts.get("debug", bool, lambda s: s == "true") is True
+    assert opts.get("max_retries", int, int) == 3
+    assert opts.get("timeout", float, float) == 2.5
+    assert opts.get("mode", str, str) == "fast"
+
+
+def test_get_uses_factory_when_missing() -> None:
+    opts = Options({})
+    assert opts.get("feature_enabled", bool, lambda s: True) is True
+    assert opts.get("retries", int, lambda s: 5) == 5
+    assert opts.get("threshold", float, lambda s: 0.85) == 0.85
+    assert opts.get("profile", str, lambda s: "standard") == "standard"
+
+
+def test_get_caches_value_after_first_use() -> None:
+    opts = Options({})
+
+    def factory_1(_: str) -> int:
+        return 42
+
+    def factory_2(_: str) -> int:
+        return 999
+
+    val1 = opts.get("id", int, factory_1)
+    val2 = opts.get("id", int, factory_2)
+    assert val1 == val2 == 42
+
+
+def test_get_raises_on_type_conflict() -> None:
+    opts = Options({"batch_size": "64"})
+
+    assert opts.get("batch_size", int, int) == 64
+    with pytest.raises(ValueError, match="incompatible template type"):
+        opts.get("batch_size", float, float)
+
+
+def test_get_raises_on_unsupported_type() -> None:
+    class Unsupported:
+        pass
+
+    opts = Options({})
+    with pytest.raises(ValueError, match="is not supported"):
+        opts.get("weird", Unsupported, lambda s: Unsupported())
+
+
 def test_get_strings_returns_correct_data() -> None:
     input_data = {"Alpha": "one", "BETA": "2", "gamma": "THREE"}
 

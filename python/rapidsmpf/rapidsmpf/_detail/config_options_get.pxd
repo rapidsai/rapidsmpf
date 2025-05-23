@@ -6,7 +6,7 @@ from libcpp cimport bool as bool_t
 from rapidsmpf.config cimport Options
 
 
-cdef bool_t get_bool(Options options, str key, factory)
-cdef int get_int(Options options, str key, factory)
-cdef float get_float(Options options, str key, factory)
-cdef str get_str(Options options, str key, factory)
+cdef get_bool(Options options, str key, factory)
+cdef get_int(Options options, str key, factory)
+cdef get_float(Options options, str key, factory)
+cdef get_str(Options options, str key, factory)
