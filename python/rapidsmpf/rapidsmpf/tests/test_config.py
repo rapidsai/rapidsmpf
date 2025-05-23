@@ -70,6 +70,12 @@ def test_get_int64_overflow() -> None:
         opts.get("another_large_int", int, lambda s: 2**65)
 
 
+def test_get_raises_on_list_type() -> None:
+    opts = Options({})
+    with pytest.raises(ValueError, match="is not supported"):
+        opts.get("some_key", list, lambda s: [])
+
+
 def test_get_strings_returns_correct_data() -> None:
     input_data = {"Alpha": "one", "BETA": "2", "gamma": "THREE"}
 
@@ -148,7 +154,7 @@ def test_deserialize_out_of_bounds_offset() -> None:
 
 def test_serialize_after_access_raises() -> None:
     opts = Options({"x": "42"})
-    _ = opts.get_or_assign("x", int, 1)  # Access value.
+    _ = opts.get("x", int, int)  # Access value.
 
     with pytest.raises(ValueError):
         _ = opts.serialize()
