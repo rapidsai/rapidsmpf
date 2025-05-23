@@ -18,6 +18,7 @@ jobs:
       - conda-python-build
       - conda-python-tests
       - docs-build
+      - devcontainer
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-25.08
     if: always()
@@ -71,3 +72,13 @@ jobs:
       arch: "amd64"
       container_image: "rapidsai/ci-conda:latest"
       script: "ci/build_docs.sh"
+  devcontainer:
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@branch-25.08
+    with:
+      arch: '["amd64"]'
+      cuda: '["12.8"]'
+      build_command: |
+        sccache --zero-stats;
+        build-all -DBUILD_BENCHMARKS=ON --verbose 2>&1 | tee telemetry-artifacts/build.log;
+        sccache --show-adv-stats | tee telemetry-artifacts/sccache-stats.txt;
