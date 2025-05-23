@@ -4,9 +4,7 @@
 from cpython.bytes cimport PyBytes_FromStringAndSize
 from cython.operator cimport dereference as deref
 from cython.operator cimport preincrement as inc
-from libc.stdint cimport int64_t
 from libc.string cimport memcpy
-from libcpp cimport bool as bool_t
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
@@ -18,57 +16,6 @@ import os
 import re
 
 from rapidsmpf.utils.string import parse_boolean
-
-
-# Cython doesn't support a `std::function` type that uses a template argument,
-# which is needed to declare `rapidsmpf::config::OptionFactory`. To handle this,
-# we implement `cpp_options_get_using_parse_string()`, which calls `options.get<T>()`
-# with a lambda function that:
-#  - use `rapidsmpf::parse_string<T>()` to convert the option to type T, or
-#  - return `default_value` if the option isn't found.
-# TODO: implement a similar function for handle python objects.
-cdef extern from *:
-    """
-    #include <rapidsmpf/utils.hpp>
-    template<typename T>
-    T cpp_options_get_using_parse_string(
-        rapidsmpf::config::Options &options, std::string const& key, T default_value
-    )
-    {
-        return options.get<T>(
-            key,
-            [default_value = std::move(default_value)](std::string const&x)
-            {
-                if(x.empty()) {
-                    return std::move(default_value);
-                }
-                return rapidsmpf::parse_string<T>(x);
-            }
-        );
-    }
-    """
-    T cpp_options_get_using_parse_string[T](
-        cpp_Options options, string key, T default_value
-    ) except + nogil
-
-
-# Supported types for use with _options_get_using_parse_string().
-ctypedef fused DefaultValueT:
-    bool_t
-    int64_t
-    double
-    string
-
-cdef DefaultValueT _options_get_using_parse_string(
-    cpp_Options options, string key, DefaultValueT default_value
-):
-    """Release the GIL and retrieve an option value."""
-    cdef DefaultValueT ret
-    with nogil:
-        ret = cpp_options_get_using_parse_string(
-            options, key, default_value
-        )
-    return ret
 
 
 cdef class Options:
