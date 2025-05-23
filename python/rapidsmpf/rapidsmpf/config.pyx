@@ -89,7 +89,7 @@ cdef class Options:
         with nogil:
             self._handle = cpp_Options()
 
-    def get(self, str key, return_type, factory):
+    def get(self, str key, *, return_type, factory):
         """
         Retrieves a configuration option by key.
 
@@ -110,7 +110,7 @@ cdef class Options:
         key
             The option key. Should be in lowercase.
         return_type
-            The expected return type. Must be one of: `bool`, `int`, `float`, `str`.
+            The return type. Must be one of: `bool`, `int`, `float`, `str`.
         factory
             A factory function that constructs an instance of the desired type
             from a string representation.

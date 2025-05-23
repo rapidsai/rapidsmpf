@@ -19,25 +19,25 @@ def test_get_with_explicit_values() -> None:
             "mode": "fast",
         }
     )
-    assert opts.get("debug", bool, lambda s: s == "true") is True
-    assert opts.get("max_retries", int, int) == 3
-    assert opts.get("timeout", float, float) == 2.5
-    assert opts.get("mode", str, str) == "fast"
+    assert opts.get("debug", return_type=bool, factory=lambda s: s == "true") is True
+    assert opts.get("max_retries", return_type=int, factory=int) == 3
+    assert opts.get("timeout", return_type=float, factory=float) == 2.5
+    assert opts.get("mode", return_type=str, factory=str) == "fast"
 
 
 def test_get_uses_factory_when_key_missing() -> None:
     opts = Options({})
-    assert opts.get("use_gpu", bool, lambda s: True) is True
-    assert opts.get("workers", int, lambda s: 4) == 4
-    assert opts.get("rate", float, lambda s: 1.2) == 1.2
-    assert opts.get("name", str, lambda s: "default") == "default"
+    assert opts.get("use_gpu", return_type=bool, factory=lambda s: True) is True
+    assert opts.get("workers", return_type=int, factory=lambda s: 4) == 4
+    assert opts.get("rate", return_type=float, factory=lambda s: 1.2) == 1.2
+    assert opts.get("name", return_type=str, factory=lambda s: "default") == "default"
 
 
 def test_get_caches_assigned_value() -> None:
     opts = Options({})
 
-    val1 = opts.get("threshold", float, lambda s: 0.75)
-    val2 = opts.get("threshold", float, lambda s: 1.23)
+    val1 = opts.get("threshold", return_type=float, factory=lambda s: 0.75)
+    val2 = opts.get("threshold", return_type=float, factory=lambda s: 1.23)
     assert val1 == val2 == 0.75  # second call must return the cached value
 
 
@@ -47,33 +47,33 @@ def test_get_raises_on_unsupported_type() -> None:
 
     opts = Options({})
     with pytest.raises(ValueError, match="is not supported"):
-        opts.get("key", Unsupported, lambda s: Unsupported())
+        opts.get("key", return_type=Unsupported, factory=lambda s: Unsupported())
 
 
 def test_get_raises_on_type_conflict() -> None:
     opts = Options({"batch_size": "32"})
 
-    val = opts.get("batch_size", int, int)
+    val = opts.get("batch_size", return_type=int, factory=int)
     assert val == 32
 
     with pytest.raises(ValueError, match="incompatible template type"):
-        opts.get("batch_size", float, float)
+        opts.get("batch_size", return_type=float, factory=float)
 
 
 def test_get_int64_overflow() -> None:
     opts = Options({"large_int": str(2**65)})
 
     with pytest.raises(OverflowError, match="too large"):
-        opts.get("large_int", int, int)
+        opts.get("large_int", return_type=int, factory=int)
 
     with pytest.raises(OverflowError, match="too large"):
-        opts.get("another_large_int", int, lambda s: 2**65)
+        opts.get("another_large_int", return_type=int, factory=lambda s: 2**65)
 
 
 def test_get_raises_on_list_type() -> None:
     opts = Options({})
     with pytest.raises(ValueError, match="is not supported"):
-        opts.get("some_key", list, lambda s: [])
+        opts.get("some_key", return_type=list, factory=lambda s: [])
 
 
 def test_get_strings_returns_correct_data() -> None:
@@ -154,7 +154,7 @@ def test_deserialize_out_of_bounds_offset() -> None:
 
 def test_serialize_after_access_raises() -> None:
     opts = Options({"x": "42"})
-    _ = opts.get("x", int, int)  # Access value.
+    _ = opts.get("x", return_type=int, factory=int)  # Access value.
 
     with pytest.raises(ValueError):
         _ = opts.serialize()
