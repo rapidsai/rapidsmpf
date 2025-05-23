@@ -9,7 +9,7 @@ import pytest
 from rapidsmpf.config import Options
 
 
-def test_get_or_default_with_explicit_values() -> None:
+def test_get_with_explicit_values() -> None:
     opts = Options(
         {
             "debug": "true",
@@ -19,103 +19,26 @@ def test_get_or_default_with_explicit_values() -> None:
             "mode": "fast",
         }
     )
-    assert opts.get_or_assign("debug", bool, default_value=False) is True
-    assert opts.get_or_assign("max_retries", int, default_value=0) == 3
-    assert opts.get_or_assign("int", int, default_value=0) == 2
-    assert opts.get_or_assign("timeout", float, default_value=0.0) == 2.5
-    assert opts.get_or_assign("mode", str, default_value="slow") == "fast"
-
-
-def test_get_or_assign_returns_default_when_key_missing() -> None:
-    opts = Options({})
-    assert opts.get_or_assign("use_gpu", bool, default_value=True) is True
-    assert opts.get_or_assign("workers", int, default_value=4) == 4
-    assert opts.get_or_assign("rate", float, default_value=1.2) == 1.2
-    assert opts.get_or_assign("name", str, default_value="default") == "default"
-
-
-def test_get_or_assign_caches_assigned_value() -> None:
-    opts = Options({})
-    val1 = opts.get_or_assign("threshold", float, default_value=0.75)
-    val2 = opts.get_or_assign("threshold", float, default_value=1.23)
-    assert val1 == val2 == 0.75  # Second call should not override the first
-
-
-def test_get_or_assign_raises_on_unsupported_type() -> None:
-    class Unsupported:
-        pass
-
-    opts = Options({})
-    with pytest.raises(ValueError, match="is not support"):
-        opts.get_or_assign("key", Unsupported, Unsupported())
-
-
-def test_get_or_assign_type_conflict_on_same_key() -> None:
-    opts = Options({"batch_size": "32"})
-
-    # First access with int parser
-    val = opts.get_or_assign("batch_size", int, default_value=16)
-    assert val == 32
-
-    # Now try to access same key with a different type
-    with pytest.raises(ValueError, match="incompatible template type"):
-        opts.get_or_assign("batch_size", float, default_value=32.0)
-
-
-def test_get_or_default_int64_overflow() -> None:
-    opts = Options({"large_int": str(2**65)})
-    with pytest.raises(ValueError, match='cannot parse "36893488147419103232"'):
-        opts.get_or_assign("large_int", int, default_value=0)
-
-    with pytest.raises(
-        OverflowError, match="Python int too large to convert to C long"
-    ):
-        opts.get_or_assign("another_large_int", int, default_value=2**65)
-
-
-def test_get_retrieves_existing_values() -> None:
-    opts = Options(
-        {
-            "debug": "true",
-            "max_retries": "3",
-            "timeout": "2.5",
-            "mode": "fast",
-        }
-    )
     assert opts.get("debug", bool, lambda s: s == "true") is True
     assert opts.get("max_retries", int, int) == 3
     assert opts.get("timeout", float, float) == 2.5
     assert opts.get("mode", str, str) == "fast"
 
 
-def test_get_uses_factory_when_missing() -> None:
+def test_get_uses_factory_when_key_missing() -> None:
     opts = Options({})
-    assert opts.get("feature_enabled", bool, lambda s: True) is True
-    assert opts.get("retries", int, lambda s: 5) == 5
-    assert opts.get("threshold", float, lambda s: 0.85) == 0.85
-    assert opts.get("profile", str, lambda s: "standard") == "standard"
+    assert opts.get("use_gpu", bool, lambda s: True) is True
+    assert opts.get("workers", int, lambda s: 4) == 4
+    assert opts.get("rate", float, lambda s: 1.2) == 1.2
+    assert opts.get("name", str, lambda s: "default") == "default"
 
 
-def test_get_caches_value_after_first_use() -> None:
+def test_get_caches_assigned_value() -> None:
     opts = Options({})
 
-    def factory_1(_: str) -> int:
-        return 42
-
-    def factory_2(_: str) -> int:
-        return 999
-
-    val1 = opts.get("id", int, factory_1)
-    val2 = opts.get("id", int, factory_2)
-    assert val1 == val2 == 42
-
-
-def test_get_raises_on_type_conflict() -> None:
-    opts = Options({"batch_size": "64"})
-
-    assert opts.get("batch_size", int, int) == 64
-    with pytest.raises(ValueError, match="incompatible template type"):
-        opts.get("batch_size", float, float)
+    val1 = opts.get("threshold", float, lambda s: 0.75)
+    val2 = opts.get("threshold", float, lambda s: 1.23)
+    assert val1 == val2 == 0.75  # second call must return the cached value
 
 
 def test_get_raises_on_unsupported_type() -> None:
@@ -124,7 +47,27 @@ def test_get_raises_on_unsupported_type() -> None:
 
     opts = Options({})
     with pytest.raises(ValueError, match="is not supported"):
-        opts.get("weird", Unsupported, lambda s: Unsupported())
+        opts.get("key", Unsupported, lambda s: Unsupported())
+
+
+def test_get_raises_on_type_conflict() -> None:
+    opts = Options({"batch_size": "32"})
+
+    val = opts.get("batch_size", int, int)
+    assert val == 32
+
+    with pytest.raises(ValueError, match="incompatible template type"):
+        opts.get("batch_size", float, float)
+
+
+def test_get_int64_overflow() -> None:
+    opts = Options({"large_int": str(2**65)})
+
+    with pytest.raises(OverflowError, match="too large"):
+        opts.get("large_int", int, int)
+
+    with pytest.raises(OverflowError, match="too large"):
+        opts.get("another_large_int", int, lambda s: 2**65)
 
 
 def test_get_strings_returns_correct_data() -> None:
