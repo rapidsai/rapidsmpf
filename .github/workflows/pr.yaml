@@ -81,6 +81,13 @@ jobs:
       build_command: |
         # Needed until https://github.com/rapidsai/devcontainers/pull/519 merges
         pip install -U rapids-dependency-file-generator
+        if [[ "${PYTHON_PACKAGE_MANAGER}" == "conda" ]]; then
+          rapids-make-conda-env
+          conda activate rapids
+        else
+          rapids-make-pip-env
+          . ~/.local/share/venvs/rapids/bin/activate
+        fi
 
         sccache --zero-stats;
         build-all -DBUILD_BENCHMARKS=ON --verbose 2>&1 | tee telemetry-artifacts/build.log;
