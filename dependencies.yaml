@@ -63,6 +63,7 @@ dependencies:
           - libcudf==25.6.*,>=0.0.0a0
           - libucxx==0.44.*,>=0.0.0a0
           - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+          - benchmark
     specific:
       - output_types: conda
         matrices:

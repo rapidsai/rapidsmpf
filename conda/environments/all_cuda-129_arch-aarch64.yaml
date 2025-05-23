@@ -5,6 +5,7 @@ channels:
 - rapidsai-nightly
 - conda-forge
 dependencies:
+- benchmark
 - c-compiler
 - click >=8.1
 - cmake>=3.26.4,!=3.30.0
