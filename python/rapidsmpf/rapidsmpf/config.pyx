@@ -12,6 +12,8 @@ from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
+from rapidsmpf._detail cimport config_options_get
+
 import os
 import re
 
@@ -86,6 +88,72 @@ cdef class Options:
     def __dealloc__(self):
         with nogil:
             self._handle = cpp_Options()
+
+    def get(self, str key, return_type, factory):
+        """
+        Retrieves a configuration option by key.
+
+        If the option is not present, it is constructed using the provided
+        factory function, which receives the string representation of the
+        option (or an empty string if unset). The option is cached after
+        the first access.
+
+        The option is cast to the specified `return_type`, which must be one
+        of the supported primitive types: `bool`, `int`, `float`, or `str`.
+
+        Once a key has been accessed with a particular `return_type`, subsequent
+        calls to `get` with the same key must use the same `return_type`.
+        Using a different type for the same key will result in a `TypeError`.
+
+        Parameters
+        ----------
+        key
+            The option key. Should be in lowercase.
+        return_type
+            The expected return type. Must be one of: `bool`, `int`, `float`, `str`.
+        factory
+            A factory function that constructs an instance of the desired type
+            from a string representation.
+
+        Returns
+        -------
+        The value of the requested option, cast to the specified `return_type`.
+
+        Raises
+        ------
+        ValueError
+            If the `return_type` is unsupported, or if the stored option type
+            does not match the expected type.
+        TypeError
+            If the option has already been accessed with a different `return_type`.
+
+        Warning
+        -------
+        The factory must not access the `Options` instance, as this may lead
+        to a deadlock due to internal locking.
+
+        Notes
+        -----
+        - This function dispatches internally to type-specific getters.
+        - Support for custom Python object return types (`PyObject`) is not yet
+          implemented.
+        - Only the following types are currently supported: `bool`, `int`, `float`,
+          `str`.
+        """
+        if issubclass(return_type, bool):
+            return config_options_get.get_bool(self, key, factory)
+        elif issubclass(return_type, int):
+            return config_options_get.get_int(self, key, factory)
+        elif issubclass(return_type, float):
+            return config_options_get.get_float(self, key, factory)
+        elif issubclass(return_type, str):
+            return config_options_get.get_str(self, key, factory)
+
+        # TODO: handle PyObject return type.
+        raise ValueError(
+            f"return type ({type(return_type)}) is not supported, "
+            r"supported types: {bool, int, float, str}."
+        )
 
     def get_or_assign(self, str key, parser_type, default_value):
         """
