@@ -5,6 +5,9 @@
 from __future__ import annotations
 
 import re
+from typing import TypeVar
+
+T = TypeVar("T")
 
 
 def format_bytes(nbytes: int | float) -> str:
@@ -113,3 +116,33 @@ def parse_bytes(s: str | int) -> int:
         raise ValueError(f"Unknown unit: '{unit}'")
 
     return int(number * unit_multipliers[unit])
+
+
+def parse_boolean(boolean: str) -> bool:
+    """
+    Parse a string into a boolean value.
+
+    Recognized true values are: "true", "1", "yes", "on"
+    Recognized false values are: "false", "0", "no", "off"
+    Comparison is case-insensitive and ignores leading/trailing whitespace.
+
+    Parameters
+    ----------
+    boolean
+        The string representation of a boolean value.
+
+    Returns
+    -------
+    The parsed boolean value.
+
+    Raises
+    ------
+    ValueError
+        If the input string is not a recognized boolean value.
+    """
+    val = boolean.strip().lower()
+    if val in {"true", "1", "yes", "on"}:
+        return True
+    if val in {"false", "0", "no", "off"}:
+        return False
+    raise ValueError(f"Cannot parse boolean value from '{boolean}'")
