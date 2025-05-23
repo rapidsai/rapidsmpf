@@ -232,20 +232,8 @@ class Shuffler {
      * @param event The event to use for the new chunk.
      */
     [[nodiscard]] detail::Chunk create_chunk(
-        PartID pid,
-        std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<rmm::device_buffer> gpu_data,
-        rmm::cuda_stream_view stream,
-        std::shared_ptr<Buffer::Event> event
-    ) {
-        return detail::Chunk{
-            pid,
-            get_new_cid(),
-            gpu_data ? gpu_data->size() : 0,  // gpu_data_size
-            std::move(metadata),
-            br_->move(std::move(gpu_data), stream, event)
-        };
-    }
+        PartID pid, PackedData&& packed_data, std::shared_ptr<Buffer::Event> event
+    );
 
   public:
     PartID const total_num_partitions;  ///< Total number of partition in the shuffle.

@@ -98,27 +98,35 @@ TEST_P(NumOfPartitions, split_and_pack) {
 }
 
 TEST(MetadataMessage, round_trip) {
+    auto stream = cudf::get_default_stream();
+
     auto metadata = iota_vector<uint8_t>(100);
 
-    rapidsmpf::shuffler::detail::Chunk expect(
-        1, 2, true, std::make_unique<std::vector<uint8_t>>(metadata), nullptr
+    auto expect = rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+        1,  // chunk_id
+        2,  // part_id
+        {std::make_unique<std::vector<uint8_t>>(metadata), nullptr},  // packed_data
+        nullptr,  // event
+        stream,
+        nullptr  // buffer_resource
     );
 
     // Extract the metadata from then chunk.
-    auto msg = expect.to_metadata_message();
-    EXPECT_TRUE(expect.metadata->empty());
+    auto msg = expect.serialize();
+    EXPECT_FALSE(expect.is_metadata_buffer_set());
 
-    // Create a new chunk from the message.
-    auto result = rapidsmpf::shuffler::detail::Chunk::from_metadata_message(msg);
+    // Create a new chunk by deserializing the message.
+    auto result = rapidsmpf::shuffler::detail::Chunk::deserialize(*msg);
 
     // They should be identical.
-    EXPECT_EQ(expect.pid, result.pid);
-    EXPECT_EQ(expect.cid, result.cid);
-    EXPECT_EQ(expect.expected_num_chunks, result.expected_num_chunks);
-    EXPECT_EQ(expect.gpu_data, result.gpu_data);
+    EXPECT_EQ(expect.part_id(0), result.part_id(0));
+    EXPECT_EQ(expect.chunk_id(), result.chunk_id());
+    EXPECT_EQ(expect.expected_num_chunks(0), result.expected_num_chunks(0));
+    EXPECT_EQ(expect.concat_data_size(), result.concat_data_size());
+    EXPECT_EQ(expect.concat_metadata_size(), result.concat_metadata_size());
 
     // The metadata should be identical to the original.
-    EXPECT_EQ(metadata, *result.metadata);
+    EXPECT_EQ(metadata, *result.release_metadata_buffer());
 }
 
 using MemoryAvailableMap =
@@ -541,6 +549,12 @@ TEST(FinishCounterTests, wait_some_with_timeout) {
     ));
 }
 
+namespace rapidsmpf::shuffler::detail {
+Chunk make_dummy_chunk(ChunkID chunk_id, PartID part_id) {
+    return Chunk(chunk_id, {part_id}, {0}, {0}, {0}, nullptr, nullptr);
+}
+}  // namespace rapidsmpf::shuffler::detail
+
 class PostBoxTest : public cudf::test::BaseFixture {
   protected:
     using PostboxType = rapidsmpf::shuffler::detail::PostBox<rapidsmpf::Rank>;
@@ -581,13 +595,10 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
 
     // Insert chunks for rank 0
     for (uint32_t i = 0; i < num_chunks; ++i) {
-        rapidsmpf::shuffler::detail::Chunk chunk{
-            rapidsmpf::shuffler::PartID{i % num_partitions},
+        auto chunk = rapidsmpf::shuffler::detail::make_dummy_chunk(
             rapidsmpf::shuffler::detail::ChunkID{i},
-            0,  // gpu_data_size
-            nullptr,  // metadata
-            nullptr  // gpu_data
-        };
+            rapidsmpf::shuffler::PartID{i % num_partitions}
+        );
         postbox->insert(std::move(chunk));
     }
 
@@ -627,13 +638,10 @@ TEST_F(PostBoxTest, ThreadSafety) {
     for (uint32_t i = 0; i < num_threads; ++i) {
         threads.emplace_back([this, i] {
             for (uint32_t j = 0; j < chunks_per_thread; ++j) {
-                rapidsmpf::shuffler::detail::Chunk chunk{
-                    rapidsmpf::shuffler::PartID{j / chunks_per_partition},
+                auto chunk = rapidsmpf::shuffler::detail::make_dummy_chunk(
                     rapidsmpf::shuffler::detail::ChunkID{i * chunks_per_thread + j},
-                    0,  // gpu_data_size
-                    nullptr,  // metadata
-                    nullptr  // gpu_data
-                };
+                    rapidsmpf::shuffler::PartID{j / chunks_per_partition}
+                );
                 postbox->insert(std::move(chunk));
             }
         });
