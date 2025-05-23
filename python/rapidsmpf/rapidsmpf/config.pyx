@@ -208,9 +208,7 @@ cdef class Options:
         cdef vector[uint8_t] vec
         with nogil:
             vec = self._handle.serialize()
-
-        if vec.size() == 0:
-            return bytes()
+        assert vec.size() > 0, "C++ serialize result corrupted"
         return <bytes>PyBytes_FromStringAndSize(<const char*>&vec[0], vec.size())
 
     @staticmethod
