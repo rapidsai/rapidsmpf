@@ -376,11 +376,10 @@ int main(int argc, char** argv) {
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
         if (args.enable_memory_profiler) {
             auto const counter = stat_enabled_mr->get_bytes_counter();
-            ss << " | device memory peak: "
-               << rapidsmpf::format_nbytes(static_cast<std::uint64_t>(counter.peak))
+            ss << " | device memory peak: " << rapidsmpf::format_nbytes(counter.peak)
                << " | device memory total: "
                << rapidsmpf::format_nbytes(
-                      static_cast<std::uint64_t>(counter.total) / total_num_runs
+                      counter.total / static_cast<double>(total_num_runs)
                   )
                << " (avg)";
         }
