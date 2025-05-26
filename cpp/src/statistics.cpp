@@ -58,6 +58,24 @@ Duration Statistics::add_duration_stat(std::string const& name, Duration seconds
     ));
 }
 
+Statistics::MemoryRecorder::MemoryRecorder(
+    Statistics* stats, rmm_statistics_resource* mr, std::string name
+)
+    : stats_{stats}, mr_{mr}, name_{std::move(name)} {
+    RAPIDSMPF_EXPECTS(stats_ != nullptr, "the statistics cannot be null");
+    RAPIDSMPF_EXPECTS(mr != nullptr, "the memory resource cannot be null");
+    mr_->push_counters();
+}
+
+Statistics::MemoryRecorder::~MemoryRecorder() {
+    std::lock_guard<std::mutex> lock(stats_->mutex_);
+    auto bytes_counter = mr_->pop_counters().first;
+    auto& record = stats_->memory_records_[name_];
+    ++record.num_calls;
+    record.total += bytes_counter.total;
+    record.peak = std::max(record.peak, bytes_counter.peak);
+}
+
 std::string Statistics::report(std::string const& header) const {
     std::stringstream ss;
     ss << header;
@@ -76,6 +94,31 @@ std::string Statistics::report(std::string const& header) const {
         ss << " - " << std::setw(max_length + 3) << std::left << name + ": ";
         stat.formatter()(ss, stat.count(), stat.value());
         ss << "\n";
+    }
+
+    // Print memory profiling.
+    ss << "Memory Profiling\n";
+    ss << "================\n";
+
+    if (memory_records_.empty()) {
+        ss << "No data, maybe memory profiling wasn't enabled?";
+        return ss.str();
+    }
+
+    ss << "Legends:\n"
+       << "  ncalls       - number of times the function or code block was called.\n"
+       << "  peak  - peak memory allocated in function or code block (in bytes).\n"
+       << "  total - total memory allocated in function or code block (in "
+          "bytes).\n";
+
+    ss << "\nOrdered by: "
+       << "TODO"
+       << "\n\n";
+    ss << "ncalls     peak    total  filename:lineno(function)\n";
+    for (auto const& [name, record] : memory_records_) {
+        ss << std::right << std::setw(6) << record.num_calls << " " << std::right
+           << std::setw(15) << record.peak << " " << std::right << std::setw(15)
+           << record.total << "  " << name << "\n";
     }
     return ss.str();
 }

@@ -3,10 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
+#include <algorithm>
 #include <cstddef>
 #include <mutex>
 #include <string>
 #include <utility>
+
+#include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -20,12 +23,34 @@ namespace rapidsmpf {
  */
 class Statistics {
   public:
+    /// @brief Alias for the RMM statistics resource adaptor type.
+    using rmm_statistics_resource =
+        rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource>;
+
     /**
-     * @brief Constructs a new Statistics object.
+     * @brief Constructs a new Statistics.
+     *
+     * @param enabled Whether statistics tracking is enabled.
+     * @param mr Pointer to the memory resource used for memory profiling. May be null if
+     * memory profiling is not needed.
+     */
+    Statistics(bool enabled, rmm_statistics_resource* mr) : enabled_{enabled}, mr_{mr} {}
+
+    /**
+     * @brief Constructs a new Statistics object without memory profiling.
      *
      * @param enabled Whether statistics tracking is enabled.
      */
-    Statistics(bool enabled = true) : enabled_{enabled} {}
+    Statistics(bool enabled = true) : Statistics(enabled, nullptr) {}
+
+    /**
+     * @brief Constructs a new Statistics object with a memory resource.
+     *
+     * Enables statistics and memory profilinf.
+     *
+     * @param mr Pointer to the memory resource used for memory profiling.
+     */
+    Statistics(rmm_statistics_resource* mr) : Statistics(true, mr) {}
 
     ~Statistics() noexcept = default;
     Statistics(const Statistics&) = delete;
@@ -199,9 +224,76 @@ class Statistics {
      */
     Duration add_duration_stat(std::string const& name, Duration seconds);
 
+    /**
+     * @brief Memory profiling data for a single named scope.
+     */
+    struct MemoryRecord {
+        std::int64_t num_calls{0};  ///< Number of times the scope was executed.
+        std::int64_t total{0};  ///< Total memory allocated across all calls (bytes).
+        std::int64_t peak{0};  ///< Peak memory usage across all calls (bytes).
+    };
+
+    /**
+     * @brief RAII-style utility for recording memory usage statistics.
+     *
+     * When an object of this class is created, it captures the current memory
+     * resource counters. Upon destruction, it stores updated counters in the
+     * associated Statistics object under the given name.
+     */
+    class MemoryRecorder {
+      public:
+        /**
+         * @brief Constructs a MemoryRecorder.
+         *
+         * Pushes current memory counters on creation.
+         *
+         * @param stats Pointer to the Statistics object where results will be stored.
+         * @param mr Pointer to the memory resource being profiled.
+         * @param name A name to identify this memory record in the statistics.
+         */
+        MemoryRecorder(Statistics* stats, rmm_statistics_resource* mr, std::string name);
+
+        /**
+         * @brief Destructor.
+         *
+         * Pushes the current memory counters again and stores them in the
+         * Statistics object using the given name.
+         */
+        ~MemoryRecorder();
+
+      private:
+        Statistics* stats_;
+        rmm_statistics_resource* mr_;
+        std::string name_;
+    };
+
+    /**
+     * @brief Create a MemoryRecorder for the current profiling context.
+     *
+     * When the returned object goes out of scope, memory usage will be
+     * recorded under the given name.
+     *
+     * @param name A name under which to store the memory profiling data.
+     * @return A MemoryRecorder instance that tracks memory usage for the given scope.
+     */
+    MemoryRecorder create_memory_recorder(std::string name) {
+        return MemoryRecorder{this, mr_, std::move(name)};
+    }
+
+    /**
+     * @brief Get all memory profiling records collected by this Statistics instance.
+     *
+     * @return A reference to the map of memory profiling data, keyed by record name.
+     */
+    std::unordered_map<std::string, MemoryRecord> const& get_memory_records() const {
+        return memory_records_;
+    }
+
   private:
     mutable std::mutex mutex_;
     bool enabled_;
     std::map<std::string, Stat> stats_;
+    std::unordered_map<std::string, MemoryRecord> memory_records_;
+    rmm_statistics_resource* mr_;
 };
 }  // namespace rapidsmpf

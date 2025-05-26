@@ -43,3 +43,46 @@ TEST(Statistics, Communication) {
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("byte-statistics"));
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("20.00 B"));
 }
+
+TEST(Statistics, MemoryProfiler) {
+    constexpr auto one_MiB{1 << 20};
+
+    Statistics::rmm_statistics_resource mr{rmm::mr::get_current_device_resource()};
+    rapidsmpf::Statistics stats(&mr);
+
+    // Outer scope
+    {
+        auto outer = stats.create_memory_recorder("outer");
+        void* ptr1 = mr.allocate(one_MiB);  // +1 MiB
+        void* ptr2 = mr.allocate(one_MiB);  // +2 MiB
+        mr.deallocate(ptr1, one_MiB);
+        mr.deallocate(ptr2, one_MiB);
+
+        // Nested scope
+        {
+            auto inner = stats.create_memory_recorder("inner");
+            void* ptr3 = mr.allocate(one_MiB);  // +1 MiB
+            mr.deallocate(ptr3, one_MiB);
+        }
+    }
+    auto const& records = stats.get_memory_records();
+
+    // Verify outer
+    EXPECT_EQ(records.at("outer").num_calls, 1);
+    EXPECT_EQ(records.at("outer").peak, 2 * one_MiB);
+    EXPECT_EQ(records.at("outer").total, 3 * one_MiB);
+
+    // Verify inner
+    EXPECT_EQ(records.at("inner").num_calls, 1);
+    EXPECT_EQ(records.at("inner").peak, one_MiB);
+    EXPECT_EQ(records.at("inner").total, one_MiB);
+
+    // We can call the same name multiple times.
+    {
+        auto outer = stats.create_memory_recorder("outer");
+        mr.deallocate(mr.allocate(one_MiB), one_MiB);
+    }
+    EXPECT_EQ(records.at("outer").num_calls, 2);
+    EXPECT_EQ(records.at("outer").peak, 2 * one_MiB);
+    EXPECT_EQ(records.at("outer").total, 4 * one_MiB);
+}
