@@ -296,4 +296,6 @@ class Statistics {
     std::unordered_map<std::string, MemoryRecord> memory_records_;
     rmm_statistics_resource* mr_;
 };
+
+
 }  // namespace rapidsmpf
