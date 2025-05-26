@@ -6,10 +6,10 @@
 
 #include <atomic>
 #include <chrono>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include <cudf/contiguous_split.hpp>
