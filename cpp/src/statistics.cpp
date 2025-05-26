@@ -101,19 +101,16 @@ std::string Statistics::report(std::string const& header) const {
 
     // Print memory profiling.
     ss << "Memory Profiling\n";
-    ss << "================\n";
-
+    ss << "----------------\n";
     if (memory_records_.empty()) {
         ss << "No data, maybe memory profiling wasn't enabled?";
         return ss.str();
     }
-
     ss << "Legends:\n"
        << "  ncalls       - number of times the function or code block was called.\n"
        << "  peak  - peak memory allocated in function or code block (in bytes).\n"
        << "  total - total memory allocated in function or code block (in "
           "bytes).\n";
-
     ss << "\nOrdered by: "
        << "TODO"
        << "\n\n";

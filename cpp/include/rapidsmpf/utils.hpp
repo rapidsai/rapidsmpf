@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -338,5 +339,41 @@ bool parse_string(std::string const& value);
 // Stringify a macro argument
 #define RAPIDSMPF_STRINGIFY_DETAIL_(x) #x
 #define RAPIDSMPF_STRINGIFY(x) RAPIDSMPF_STRINGIFY_DETAIL_(x)
+
+namespace detail {
+
+/**
+ * @brief Returns the raw pointer from a pointer, reference, or smart pointer.
+ *
+ * This utility is useful in macros that accepts any kind of reference.
+ *
+ * @tparam T Type of the object.
+ * @param ptr A raw pointer.
+ * @return T* The same raw pointer.
+ */
+template <typename T>
+constexpr T* to_pointer(T* ptr) noexcept {
+    return ptr;
+}
+
+/** @copydoc to_pointer(T*) */
+template <typename T>
+constexpr T* to_pointer(T& ptr) noexcept {
+    return std::addressof(ptr);
+}
+
+/** @copydoc to_pointer(T*) */
+template <typename T>
+constexpr T* to_pointer(std::unique_ptr<T>& ptr) noexcept {
+    return ptr.get();
+}
+
+/** @copydoc to_pointer(T*) */
+template <typename T>
+constexpr T* to_pointer(std::shared_ptr<T>& ptr) noexcept {
+    return ptr.get();
+}
+
+}  // namespace detail
 
 }  // namespace rapidsmpf

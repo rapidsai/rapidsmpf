@@ -328,17 +328,19 @@ class Statistics {
  * }
  * @endcode
  *
- * @param stats A reference to a `rapidsmpf::Statistics` object used to record memory
- * statistics.
+ * @param stats A reference or (smart) pointer to a Statistics object used to record
+ * memory statistics. If null, this macro is a noop.
  *
  * @note The recorded memory data can be retrieved via `Statistics::get_memory_records()`.
  */
-#define RAPIDSMPF_MEMORY_PROFILE(stats)                                        \
-    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =       \
-        (stats.is_memory_profiling_enabled() ? stats.create_memory_recorder(   \
-             std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
-             + std::string(__func__) + ")"                                     \
-         )                                                                     \
-                                             : rapidsmpf::Statistics::MemoryRecorder{})
+#define RAPIDSMPF_MEMORY_PROFILE(stats)                                            \
+    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =           \
+        ((rapidsmpf::detail::to_pointer(stats)                                     \
+          && rapidsmpf::detail::to_pointer(stats)->is_memory_profiling_enabled())  \
+             ? rapidsmpf::detail::to_pointer(stats)->create_memory_recorder(       \
+                 std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
+                 + std::string(__func__) + ")"                                     \
+             )                                                                     \
+             : rapidsmpf::Statistics::MemoryRecorder{})
 
 }  // namespace rapidsmpf

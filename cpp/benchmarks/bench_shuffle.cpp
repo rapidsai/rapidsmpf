@@ -347,7 +347,7 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == total_num_runs - 1) {
-            stats = std::make_shared<rapidsmpf::Statistics>();
+            stats = std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get());
         }
         auto const elapsed = run(comm, progress_thread, args, stream, &br, stats).count();
         std::stringstream ss;
