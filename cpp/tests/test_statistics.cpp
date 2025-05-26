@@ -90,6 +90,7 @@ TEST(Statistics, MemoryProfiler) {
 TEST(Statistics, MemoryProfilerDisabled) {
     Statistics::rmm_statistics_resource mr{rmm::mr::get_current_device_resource()};
     rapidsmpf::Statistics stats;
+    EXPECT_FALSE(stats.is_memory_profiling_enabled());
 
     // Outer scope
     {

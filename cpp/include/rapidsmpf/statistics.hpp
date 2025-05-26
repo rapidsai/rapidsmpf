@@ -225,6 +225,15 @@ class Statistics {
     Duration add_duration_stat(std::string const& name, Duration seconds);
 
     /**
+     * @brief Check if memory profiling is enabled.
+     *
+     * @return The answer.
+     */
+    bool is_memory_profiling_enabled() const {
+        return mr_ != nullptr;
+    }
+
+    /**
      * @brief Memory profiling data for a single named scope.
      */
     struct MemoryRecord {
