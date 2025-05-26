@@ -31,8 +31,8 @@ class Statistics {
      * @brief Constructs a new Statistics.
      *
      * @param enabled Whether statistics tracking is enabled.
-     * @param mr Pointer to the memory resource used for memory profiling. May be null if
-     * memory profiling is not needed.
+     * @param mr Pointer to the memory resource used for memory profiling. May
+     * be null if memory profiling is not needed.
      */
     Statistics(bool enabled, rmm_statistics_resource* mr) : enabled_{enabled}, mr_{mr} {}
 
@@ -314,5 +314,31 @@ class Statistics {
     rmm_statistics_resource* mr_;
 };
 
+/**
+ * @brief Macro for automatic memory profiling of a code scope.
+ *
+ * This macro creates a scoped memory recorder that records memory usage statistics
+ * upon entering and leaving a code block (if memory profiling is enabled).
+ *
+ * Example usage:
+ * @code
+ * void foo(Statistics& stats) {
+ *     RAPIDSMPF_MEMORY_PROFILE(stats);
+ *     // code whose memory usage is being profiled
+ * }
+ * @endcode
+ *
+ * @param stats A reference to a `rapidsmpf::Statistics` object used to record memory
+ * statistics.
+ *
+ * @note The recorded memory data can be retrieved via `Statistics::get_memory_records()`.
+ */
+#define RAPIDSMPF_MEMORY_PROFILE(stats)                                        \
+    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =       \
+        (stats.is_memory_profiling_enabled() ? stats.create_memory_recorder(   \
+             std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
+             + std::string(__func__) + ")"                                     \
+         )                                                                     \
+                                             : rapidsmpf::Statistics::MemoryRecorder{})
 
 }  // namespace rapidsmpf

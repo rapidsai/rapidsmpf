@@ -110,3 +110,29 @@ TEST(Statistics, MemoryProfilerDisabled) {
     auto const& records = stats.get_memory_records();
     EXPECT_TRUE(records.empty());
 }
+
+TEST(Statistics, MemoryProfilerMacro) {
+    Statistics::rmm_statistics_resource mr{rmm::mr::get_current_device_resource()};
+    rapidsmpf::Statistics stats(&mr);
+    {
+        RAPIDSMPF_MEMORY_PROFILE(stats);
+        mr.deallocate(mr.allocate(one_MiB), one_MiB);
+    }
+    auto const& records = stats.get_memory_records();
+    ASSERT_EQ(records.size(), 1);
+    auto const& entry = *records.begin();
+    EXPECT_TRUE(entry.first.find("test_statistics.cpp") != std::string::npos);
+    EXPECT_EQ(entry.second.num_calls, 1);
+    EXPECT_EQ(entry.second.total, one_MiB);
+}
+
+TEST(Statistics, MemoryProfilerMacroDisabled) {
+    Statistics::rmm_statistics_resource mr{rmm::mr::get_current_device_resource()};
+    rapidsmpf::Statistics stats;
+    {
+        RAPIDSMPF_MEMORY_PROFILE(stats);
+        mr.deallocate(mr.allocate(one_MiB), one_MiB);
+    }
+    auto const& records = stats.get_memory_records();
+    EXPECT_TRUE(records.empty());
+}
