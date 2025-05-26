@@ -68,6 +68,9 @@ Statistics::MemoryRecorder::MemoryRecorder(
 }
 
 Statistics::MemoryRecorder::~MemoryRecorder() {
+    if (stats_ == nullptr) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(stats_->mutex_);
     auto bytes_counter = mr_->pop_counters().first;
     auto& record = stats_->memory_records_[name_];

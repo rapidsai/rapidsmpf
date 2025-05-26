@@ -243,6 +243,11 @@ class Statistics {
     class MemoryRecorder {
       public:
         /**
+         * @brief Constructs an disabled (noop) MemoryRecorder.
+         */
+        MemoryRecorder() = default;
+
+        /**
          * @brief Constructs a MemoryRecorder.
          *
          * Pushes current memory counters on creation.
@@ -262,8 +267,8 @@ class Statistics {
         ~MemoryRecorder();
 
       private:
-        Statistics* stats_;
-        rmm_statistics_resource* mr_;
+        Statistics* stats_{nullptr};
+        rmm_statistics_resource* mr_{nullptr};
         std::string name_;
     };
 
@@ -277,6 +282,9 @@ class Statistics {
      * @return A MemoryRecorder instance that tracks memory usage for the given scope.
      */
     MemoryRecorder create_memory_recorder(std::string name) {
+        if (mr_ == nullptr) {
+            return MemoryRecorder{};
+        }
         return MemoryRecorder{this, mr_, std::move(name)};
     }
 
