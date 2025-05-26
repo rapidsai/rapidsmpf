@@ -98,27 +98,33 @@ std::string Statistics::report(std::string const& header) const {
         stat.formatter()(ss, stat.count(), stat.value());
         ss << "\n";
     }
+    ss << "\n";
 
     // Print memory profiling.
     ss << "Memory Profiling\n";
     ss << "----------------\n";
-    if (memory_records_.empty()) {
-        ss << "No data, maybe memory profiling wasn't enabled?";
+    if (mr_ == nullptr) {
+        ss << "Disabled";
         return ss.str();
     }
     ss << "Legends:\n"
-       << "  ncalls       - number of times the function or code block was called.\n"
-       << "  peak  - peak memory allocated in function or code block (in bytes).\n"
-       << "  total - total memory allocated in function or code block (in "
+       << "  ncalls - number of times the function or code block was called.\n"
+       << "  peak   - peak memory allocated in function or code block (in bytes).\n"
+       << "  total  - total memory allocated in function or code block (in "
           "bytes).\n";
     ss << "\nOrdered by: "
        << "TODO"
        << "\n\n";
-    ss << "ncalls     peak    total  filename:lineno(function)\n";
+    ss << std::right << std::setw(8) << "ncalls" << std::setw(12) << "peak"
+       << std::setw(12) << "total"
+       << "  filename:lineno(function)\n";
+    ss << std::right << std::setw(8) << 1 << std::setw(12)
+       << rapidsmpf::format_nbytes(mr_->get_bytes_counter().peak) << std::setw(12)
+       << rapidsmpf::format_nbytes(mr_->get_bytes_counter().total) << "  main\n";
     for (auto const& [name, record] : memory_records_) {
-        ss << std::right << std::setw(6) << record.num_calls << " " << std::right
-           << std::setw(15) << record.peak << " " << std::right << std::setw(15)
-           << record.total << "  " << name << "\n";
+        ss << std::right << std::setw(8) << record.num_calls << std::setw(12)
+           << rapidsmpf::format_nbytes(record.peak) << std::setw(12)
+           << rapidsmpf::format_nbytes(record.total) << "  " << name << "\n";
     }
     return ss.str();
 }
