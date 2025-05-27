@@ -45,7 +45,7 @@ class Statistics {
     /**
      * @brief Constructs a new Statistics object with a memory resource.
      *
-     * Enables statistics and memory profilinf.
+     * Enables statistics and memory profiling.
      *
      * @param mr Pointer to the memory resource used for memory profiling.
      */
@@ -54,6 +54,19 @@ class Statistics {
     ~Statistics() noexcept = default;
     Statistics(const Statistics&) = delete;
     Statistics& operator=(const Statistics&) = delete;
+
+    /**
+     * @brief Returns a shared pointer to a globally disabled Statistics instance.
+     *
+     * This is a convenience function that provides access to a shared
+     * `Statistics` object with statistics collection disabled.
+     *
+     * @return A `std::shared_ptr<Statistics>` pointing to a disabled statistics instance.
+     */
+    static std::shared_ptr<Statistics> disabled() {
+        static std::shared_ptr<Statistics> ret = std::make_shared<Statistics>(false);
+        return ret;
+    }
 
     /**
      * @brief Move constructor.

@@ -138,7 +138,7 @@ class ProgressThread {
      */
     ProgressThread(
         Communicator::Logger& logger,
-        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false),
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         Duration sleep = std::chrono::microseconds{1}
     );
 
