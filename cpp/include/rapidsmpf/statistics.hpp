@@ -336,16 +336,24 @@ class Statistics {
  * @code
  * void foo(Statistics& stats) {
  *     RAPIDSMPF_MEMORY_PROFILE(stats);
- *     // code whose memory usage is being profiled
+ *     RAPIDSMPF_MEMORY_PROFILE(stats, "custom_name");
  * }
  * @endcode
  *
- * @param stats A reference or (smart) pointer to a Statistics object used to record
- * memory statistics. If null, this macro is a noop.
- *
- * @note The recorded memory data can be retrieved via `Statistics::get_memory_records()`.
+ * @param stats A reference or pointer to a Statistics object.
+ * @param funcname (optional) Custom function name string to use instead of __func__.
  */
-#define RAPIDSMPF_MEMORY_PROFILE(stats)                                            \
+#define RAPIDSMPF_MEMORY_PROFILE(...)                                       \
+    RAPIDSMPF_DETAIL_GET_MACRO(                                             \
+        __VA_ARGS__, RAPIDSMPF_MEMORY_PROFILE_2, RAPIDSMPF_MEMORY_PROFILE_1 \
+    )                                                                       \
+    (__VA_ARGS__)
+
+// Internal macro to choose the correct version based on argument count
+#define RAPIDSMPF_DETAIL_GET_MACRO(_1, _2, NAME, ...) NAME
+
+// Version with default function name (__func__)
+#define RAPIDSMPF_MEMORY_PROFILE_1(stats)                                          \
     auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =           \
         ((rapidsmpf::detail::to_pointer(stats)                                     \
           && rapidsmpf::detail::to_pointer(stats)->is_memory_profiling_enabled())  \
@@ -354,5 +362,17 @@ class Statistics {
                  + std::string(__func__) + ")"                                     \
              )                                                                     \
              : rapidsmpf::Statistics::MemoryRecorder{})
+
+// Version with custom function name
+#define RAPIDSMPF_MEMORY_PROFILE_2(stats, funcname)                                \
+    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =           \
+        ((rapidsmpf::detail::to_pointer(stats)                                     \
+          && rapidsmpf::detail::to_pointer(stats)->is_memory_profiling_enabled())  \
+             ? rapidsmpf::detail::to_pointer(stats)->create_memory_recorder(       \
+                 std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
+                 + std::string(funcname) + ")"                                     \
+             )                                                                     \
+             : rapidsmpf::Statistics::MemoryRecorder{})
+
 
 }  // namespace rapidsmpf
