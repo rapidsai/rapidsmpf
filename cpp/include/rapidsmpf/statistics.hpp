@@ -30,8 +30,8 @@ class Statistics {
      * @brief Constructs a new Statistics.
      *
      * @param enabled Whether statistics tracking is enabled.
-     * @param mr Pointer to the memory resource used for memory profiling. May
-     * be null if memory profiling is not needed.
+     * @param mr Pointer to the memory resource used for memory profiling. If null, memory
+     * profiling is disabled.
      */
     Statistics(bool enabled, rmm_statistics_resource* mr) : enabled_{enabled}, mr_{mr} {}
 

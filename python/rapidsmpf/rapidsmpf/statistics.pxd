@@ -5,6 +5,7 @@ from libc.stddef cimport size_t
 from libcpp cimport bool
 from libcpp.memory cimport shared_ptr
 from libcpp.string cimport string
+from rmm.pylibrmm.memory_resource cimport StatisticsResourceAdaptor
 
 
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
@@ -19,3 +20,4 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
 
 cdef class Statistics:
     cdef shared_ptr[cpp_Statistics] _handle
+    cdef StatisticsResourceAdaptor _mr

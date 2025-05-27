@@ -3,8 +3,11 @@
 
 from cython.operator cimport dereference as deref
 from libcpp cimport bool
+from libcpp.cast cimport dynamic_cast
 from libcpp.memory cimport make_shared
 from libcpp.string cimport string
+from rmm.librmm.memory_resource cimport (device_memory_resource,
+                                         statistics_resource_adaptor)
 
 
 # Since `Statistics::Stat` doesn't have a default ctor, we use the following
@@ -25,6 +28,9 @@ cdef extern from *:
     size_t cpp_get_statistic_count(cpp_Statistics stats, string name) nogil
     double cpp_get_statistic_value(cpp_Statistics stats, string name) nogil
 
+# Alias of a `rmm::mr::statistics_resource_adaptor` pointer.
+ctypedef statistics_resource_adaptor[device_memory_resource]* stats_mr_ptr
+
 cdef class Statistics:
     """
     Track statistics across RapidsMPF operations.
@@ -33,10 +39,20 @@ cdef class Statistics:
     ----------
     enable
         Whether statistics tracking is enabled.
+    mr
+        The statistics memory resource used for memory profiling. If None,
+        memory profiling is disabled.
     """
-    def __cinit__(self, bool enable):
+    def __cinit__(self, bool enable, StatisticsResourceAdaptor mr = None):
+        self._mr = mr
+        if self._mr is None:
+            with nogil:
+                self._handle = make_shared[cpp_Statistics](enable)
+            return
+        cdef stats_mr_ptr m = dynamic_cast[stats_mr_ptr](self._mr.get_mr())
+        assert m  # The dynamic cast should always succeed.
         with nogil:
-            self._handle = make_shared[cpp_Statistics](enable)
+            self._handle = make_shared[cpp_Statistics](enable, m)
 
     def __dealloc__(self):
         with nogil:
