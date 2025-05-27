@@ -47,11 +47,11 @@ cdef class Options:
         option (or an empty string if unset). The option is cached after
         the first access.
 
-        The option is cast to the specified `return_type`, which must be one
+        The option is cast to the specified ``return_type``, which must be one
         of the supported primitive types: `bool`, `int`, `float`, or `str`.
 
-        Once a key has been accessed with a particular `return_type`, subsequent
-        calls to `get` with the same key must use the same `return_type`.
+        Once a key has been accessed with a particular ``return_type``, subsequent
+        calls to `get` with the same key must use the same ``return_type``.
         Using a different type for the same key will result in a `TypeError`.
 
         Parameters
@@ -66,15 +66,15 @@ cdef class Options:
 
         Returns
         -------
-        The value of the requested option, cast to the specified `return_type`.
+        The value of the requested option, cast to the specified ``return_type``.
 
         Raises
         ------
         ValueError
-            If the `return_type` is unsupported, or if the stored option type
+            If the ``return_type`` is unsupported, or if the stored option type
             does not match the expected type.
         TypeError
-            If the option has already been accessed with a different `return_type`.
+            If the option has already been accessed with a different ``return_type``.
 
         Warning
         -------
