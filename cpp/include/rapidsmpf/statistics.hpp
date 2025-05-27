@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
-#include <algorithm>
 #include <cstddef>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -12,7 +12,6 @@
 #include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/communicator/communicator.hpp>
 
 namespace rapidsmpf {
 

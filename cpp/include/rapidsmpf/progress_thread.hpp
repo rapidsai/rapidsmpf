@@ -15,15 +15,14 @@
  */
 #pragma once
 
-#include <atomic>
+
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
-#include <list>
 #include <mutex>
-#include <thread>
 #include <unordered_map>
 
+#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
 #include <rapidsmpf/statistics.hpp>
 

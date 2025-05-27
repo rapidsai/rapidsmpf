@@ -21,8 +21,6 @@
 
 namespace rapidsmpf {
 
-class Statistics;
-
 /**
  * @brief Represents a reservation for future memory allocation.
  *
