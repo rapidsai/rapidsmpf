@@ -8,7 +8,7 @@ package_dir=$2
 
 source rapids-configure-sccache
 source rapids-date-string
-source rapids-pip-init
+source rapids-init-pip
 
 rapids-generate-version > ./VERSION
 

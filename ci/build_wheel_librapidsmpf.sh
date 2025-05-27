@@ -2,7 +2,7 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
 set -euo pipefail
-source rapids-pip-init
+source rapids-init-pip
 
 package_name="librapidsmpf"
 package_dir="python/librapidsmpf"
