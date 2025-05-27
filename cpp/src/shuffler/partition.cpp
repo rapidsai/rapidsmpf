@@ -58,7 +58,8 @@ partition_and_split(
     return std::make_pair(std::move(tbl_partitioned), std::move(partition_table));
 }
 
-static std::unordered_map<PartID, PackedData> pack_tables(
+namespace {
+std::unordered_map<PartID, PackedData> pack_tables(
     std::vector<cudf::table_view> const& tables,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
@@ -71,6 +72,7 @@ static std::unordered_map<PartID, PackedData> pack_tables(
     }
     return ret;
 }
+}  // namespace
 
 std::unordered_map<PartID, PackedData> partition_and_pack(
     cudf::table_view const& table,
