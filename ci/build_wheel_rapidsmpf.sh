@@ -5,14 +5,13 @@ set -euo pipefail
 
 package_name="rapidsmpf"
 package_dir="python/rapidsmpf"
+source rapids-pip-init
 
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
 
 
 LIBRAPIDSMPF_WHEELHOUSE=$(RAPIDS_PY_WHEEL_NAME="librapidsmpf_${RAPIDS_PY_CUDA_SUFFIX}" rapids-download-wheels-from-github cpp)
-echo "librapidsmpf-${RAPIDS_PY_CUDA_SUFFIX} @ file://$(echo "${LIBRAPIDSMPF_WHEELHOUSE}"/librapidsmpf_*.whl)" >> /tmp/constraints.txt
-
-export PIP_CONSTRAINT="/tmp/constraints.txt"
+echo "librapidsmpf-${RAPIDS_PY_CUDA_SUFFIX} @ file://$(echo "${LIBRAPIDSMPF_WHEELHOUSE}"/librapidsmpf_*.whl)" >> "${PIP_CONSTRAINT}"
 
 rapids-logger "Generating build requirements"
 
