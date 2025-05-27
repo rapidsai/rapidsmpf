@@ -108,20 +108,38 @@ std::string Statistics::report(std::string const& header) const {
         return ss.str();
     }
     ss << "Legends:\n"
-       << "  ncalls - number of times the function or code block was called.\n"
-       << "  peak   - peak memory allocated in function or code block (in bytes).\n"
-       << "  total  - total memory allocated in function or code block (in "
-          "bytes).\n";
-    ss << "\nOrdered by: "
-       << "TODO"
-       << "\n\n";
+       << "  ncalls - number of times the code block was called.\n"
+       << "  peak   - peak memory allocated while running code block.\n"
+       << "  total  - total memory allocated while running code block.\n";
+    ss << "\nOrdered by: peak (descending)\n\n";
+
     ss << std::right << std::setw(8) << "ncalls" << std::setw(12) << "peak"
        << std::setw(12) << "total"
-       << "  filename:lineno(function)\n";
-    ss << std::right << std::setw(8) << 1 << std::setw(12)
-       << rapidsmpf::format_nbytes(mr_->get_bytes_counter().peak) << std::setw(12)
-       << rapidsmpf::format_nbytes(mr_->get_bytes_counter().total) << "  main\n";
-    for (auto const& [name, record] : memory_records_) {
+       << "  filename:lineno(name)\n";
+
+    // Insert the memory records in a vector we can sort.
+    std::vector<std::pair<std::string, rapidsmpf::Statistics::MemoryRecord>>
+        sorted_records{memory_records_.begin(), memory_records_.end()};
+
+    // Insert the "main" record, which is the overall statistics from `mr_`.
+    sorted_records.emplace_back(
+        "main",
+        rapidsmpf::Statistics::MemoryRecord{
+            .num_calls = 1,
+            .total = mr_->get_bytes_counter().total,
+            .peak = mr_->get_bytes_counter().peak
+        }
+    );
+
+    // Sort base on peak memory.
+    std::sort(
+        sorted_records.begin(),
+        sorted_records.end(),
+        [](auto const& a, auto const& b) { return a.second.peak > b.second.peak; }
+    );
+
+    // Print the sorted records.
+    for (auto const& [name, record] : sorted_records) {
         ss << std::right << std::setw(8) << record.num_calls << std::setw(12)
            << rapidsmpf::format_nbytes(record.peak) << std::setw(12)
            << rapidsmpf::format_nbytes(record.total) << "  " << name << "\n";
