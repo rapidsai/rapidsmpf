@@ -19,8 +19,10 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.buffer.rmm_fallback_resource import RmmFallbackResource
 from rapidsmpf.buffer.spill_collection import SpillCollection
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
+from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.integrations.dask import _compat
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.statistics import Statistics
@@ -153,7 +155,9 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int) -> bytes:
         The UCXX address of the root node.
     """
     ctx = get_worker_context()
-    ctx.comm = new_communicator(n_ranks, None, None)
+    ctx.comm = new_communicator(
+        n_ranks, None, None, Options(get_environment_variables())
+    )
     ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
     return get_root_ucxx_address(ctx.comm)
 
@@ -174,7 +178,9 @@ async def rapidsmpf_ucxx_rank_setup_node(
     ctx = get_worker_context()
     if ctx.comm is None:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-        ctx.comm = new_communicator(n_ranks, None, root_address)
+        ctx.comm = new_communicator(
+            n_ranks, None, root_address, Options(get_environment_variables())
+        )
         ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
 
     ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier")
@@ -187,6 +193,7 @@ def rmpf_worker_setup(
     *,
     spill_device: float,
     periodic_spill_check: float,
+    oom_protection: bool,
     enable_statistics: bool,
 ) -> None:
     """
@@ -204,6 +211,9 @@ def rmpf_worker_setup(
         by the buffer resource. The value of ``periodic_spill_check`` is used as
         the pause between checks (in seconds). If None, no periodic spill check
         is performed.
+    oom_protection
+        Enable out-of-memory protection by using managed memory when the device
+        memory pool raises OOM errors.
     enable_statistics
         Whether to track shuffler statistics.
 
@@ -236,9 +246,13 @@ def rmpf_worker_setup(
         assert ctx.comm is not None
         ctx.progress_thread = ProgressThread(ctx.comm, ctx.statistics)
 
+        mr = rmm.mr.get_current_device_resource()
+        if oom_protection:
+            mr = RmmFallbackResource(mr, rmm.mr.ManagedMemoryResource())
+
         # Setup a buffer_resource.
         # Wrap the current RMM resource in statistics adaptor.
-        mr = rmm.mr.StatisticsResourceAdaptor(rmm.mr.get_current_device_resource())
+        mr = rmm.mr.StatisticsResourceAdaptor(mr)
         rmm.mr.set_current_device_resource(mr)
         total_memory = rmm.mr.available_device_memory()[1]
         memory_available = {
@@ -307,6 +321,7 @@ def bootstrap_dask_cluster(
     *,
     spill_device: float = 0.50,
     periodic_spill_check: float | None = 1e-3,
+    oom_protection: bool = False,
     enable_statistics: bool = True,
 ) -> None:
     """
@@ -324,6 +339,9 @@ def bootstrap_dask_cluster(
         by the buffer resource. The value of ``periodic_spill_check`` is used as
         the pause between checks (in seconds). If None, no periodic spill
         check is performed.
+    oom_protection
+        Enable out-of-memory protection by using managed memory when the device
+        memory pool raises OOM errors.
     enable_statistics
         Whether to track shuffler statistics.
 
@@ -383,6 +401,7 @@ def bootstrap_dask_cluster(
         rmpf_worker_setup,
         spill_device=spill_device,
         periodic_spill_check=periodic_spill_check,
+        oom_protection=oom_protection,
         enable_statistics=enable_statistics,
     )
 

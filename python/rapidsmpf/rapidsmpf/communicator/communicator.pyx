@@ -141,7 +141,13 @@ cdef class Communicator:
 
     def __cinit__(self):
         self._logger = Logger.__new__(Logger)
+        # TODO: Don't have a refcycle here.
         self._logger._comm = self
+
+    def __dealloc__(self):
+        self._logger = None
+        with nogil:
+            self._handle.reset()
 
     @property
     def rank(self):

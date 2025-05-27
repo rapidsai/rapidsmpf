@@ -33,6 +33,7 @@ jobs:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
+      script: ci/build_cpp.sh
       sha: ${{ inputs.sha }}
       matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   conda-python-build:
@@ -43,6 +44,7 @@ jobs:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
+      script: ci/build_python.sh
       sha: ${{ inputs.sha }}
       matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   upload-conda:
@@ -66,7 +68,7 @@ jobs:
       container_image: "rapidsai/ci-conda:latest"
       date: ${{ inputs.date }}
       node_type: "cpu8"
-      run_script: "ci/build_docs.sh"
+      script: "ci/build_docs.sh"
       sha: ${{ inputs.sha }}
   wheel-build-librapidsmpf:
     secrets: inherit

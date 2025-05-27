@@ -13,6 +13,7 @@ MPI = pytest.importorskip("mpi4py.MPI")
 
 if TYPE_CHECKING:
     from rapidsmpf.communicator.communicator import Communicator
+    from rapidsmpf.config import Options
 
 
 def initialize_ucxx() -> ucx_api.UCXWorker:
@@ -33,7 +34,7 @@ def initialize_ucxx() -> ucx_api.UCXWorker:
     return ucxx_worker
 
 
-def ucxx_mpi_setup(ucxx_worker: ucx_api.UCXWorker) -> Communicator:
+def ucxx_mpi_setup(ucxx_worker: ucx_api.UCXWorker, options: Options) -> Communicator:
     """
     Bootstrap a UCXX communicator within an MPI rank.
 
@@ -41,6 +42,8 @@ def ucxx_mpi_setup(ucxx_worker: ucx_api.UCXWorker) -> Communicator:
     ----------
     ucxx_worker
         An existing UCXX worker to use.
+    options
+        Configuration options.
 
     Returns
     -------
@@ -54,7 +57,7 @@ def ucxx_mpi_setup(ucxx_worker: ucx_api.UCXWorker) -> Communicator:
     )
 
     if MPI.COMM_WORLD.Get_rank() == 0:
-        comm = new_communicator(MPI.COMM_WORLD.size, ucxx_worker, None)
+        comm = new_communicator(MPI.COMM_WORLD.size, ucxx_worker, None, options)
         root_address_bytes = get_root_ucxx_address(comm)
     else:
         root_address_bytes = None
@@ -63,7 +66,7 @@ def ucxx_mpi_setup(ucxx_worker: ucx_api.UCXWorker) -> Communicator:
 
     if MPI.COMM_WORLD.Get_rank() != 0:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-        comm = new_communicator(MPI.COMM_WORLD.size, ucxx_worker, root_address)
+        comm = new_communicator(MPI.COMM_WORLD.size, ucxx_worker, root_address, options)
 
     assert comm.nranks == MPI.COMM_WORLD.size
 

@@ -10,6 +10,7 @@ import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.communicator import COMMUNICATORS
+from rapidsmpf.config import Options, get_environment_variables
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -56,7 +57,7 @@ def _mpi_comm() -> Communicator:
 
     from rapidsmpf.communicator.mpi import new_communicator
 
-    return new_communicator(MPI.COMM_WORLD)
+    return new_communicator(MPI.COMM_WORLD, Options(get_environment_variables()))
 
 
 @pytest.fixture(scope="session")
@@ -71,7 +72,7 @@ def _ucxx_comm() -> Communicator:
     """
     from rapidsmpf.communicator.testing import ucxx_mpi_setup
 
-    return ucxx_mpi_setup(None)
+    return ucxx_mpi_setup(None, Options(get_environment_variables()))
 
 
 @pytest.fixture(

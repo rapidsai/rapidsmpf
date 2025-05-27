@@ -357,7 +357,9 @@ def _extract_partition(
     finally:
         if shuffler.finished():
             ctx = get_worker_context()
-            del ctx.shufflers[shuffle_id]
+            with ctx.lock:
+                if shuffle_id in ctx.shufflers:
+                    del ctx.shufflers[shuffle_id]
 
 
 def rapidsmpf_shuffle_graph(

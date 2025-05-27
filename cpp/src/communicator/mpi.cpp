@@ -89,7 +89,8 @@ void check_mpi_thread_support() {
 }
 }  // namespace
 
-MPI::MPI(MPI_Comm comm) : comm_{comm}, logger_{this} {
+MPI::MPI(MPI_Comm comm, config::Options options)
+    : comm_{comm}, logger_{this, std::move(options)} {
     int rank;
     int nranks;
     RAPIDSMPF_MPI(MPI_Comm_rank(comm_, &rank));

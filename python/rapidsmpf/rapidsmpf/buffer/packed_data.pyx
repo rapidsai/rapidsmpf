@@ -54,3 +54,7 @@ cdef class PackedData:
     def __init__(self):
         """Initialize an empty PackedData instance."""
         pass
+
+    def __dealloc__(self):
+        with nogil:
+            self.c_obj.reset()
