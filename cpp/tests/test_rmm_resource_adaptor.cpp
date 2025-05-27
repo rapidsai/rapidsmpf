@@ -12,10 +12,9 @@
 #include <gtest/gtest.h>
 
 #include <rmm/cuda_stream_view.hpp>
-#include <rmm/detail/error.hpp>
 #include <rmm/device_buffer.hpp>
 
-#include <rapidsmpf/buffer/rmm_fallback_resource.hpp>
+#include <rapidsmpf/rmm_resource_adaptor.hpp>
 
 
 using namespace rapidsmpf;
@@ -48,10 +47,10 @@ struct throw_at_limit_resource final : public rmm::mr::device_memory_resource {
     std::unordered_set<void*> allocs{};
 };
 
-TEST(FailureAlternateTest, TrackBothUpstreams) {
+TEST(RmmResourceAdaptor, FailureAlternateTrackBothUpstreams) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{100};
     throw_at_limit_resource<rmm::out_of_memory> alternate_mr{1000};
-    RmmFallbackResource mr{primary_mr, alternate_mr};
+    RmmResourceAdaptor mr{primary_mr, alternate_mr};
 
     // Check that a small allocation goes to the primary resource.
     {
@@ -78,11 +77,11 @@ TEST(FailureAlternateTest, TrackBothUpstreams) {
     EXPECT_THROW(mr.allocate(2000), rmm::out_of_memory);
 }
 
-TEST(FailureAlternateTest, DifferentExceptionTypes) {
+TEST(FailureAlternateTest, FailureAlternateDifferentExceptionTypes) {
     throw_at_limit_resource<std::invalid_argument> primary_mr{100};
     throw_at_limit_resource<rmm::out_of_memory> alternate_mr{1000};
-    RmmFallbackResource mr{primary_mr, alternate_mr};
+    RmmResourceAdaptor mr{primary_mr, alternate_mr};
 
-    // Check that `RmmFallbackResource` only catch `rmm::out_of_memory` exceptions.
+    // Check that `RmmResourceAdaptor` only catch `rmm::out_of_memory` exceptions.
     EXPECT_THROW(mr.allocate(200), std::invalid_argument);
 }

@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <mutex>
+#include <optional>
 #include <unordered_set>
 
 #include <rmm/error.hpp>
@@ -15,35 +16,44 @@
 
 namespace rapidsmpf {
 
-
 /**
- * @brief A device memory resource that uses an alternate upstream resource when the
- * primary upstream resource throws `rmm::out_of_memory`.
+ * @brief A RMM memory resource adaptor tailored to RapidsMPF.
  *
- * An instance of this resource must be constructed with two upstream resources to satisfy
- * allocation requests.
+ * This resource implements a broad range of features used throughout RapidsMPF.
+ *
+ * Memory Statistics
+ * -----------------
+ *
+ *
+ *
+ * Alternate on OOM
+ * ----------------
+ * If set, uses an alternate upstream resource when the primary upstream resource throws
+ * `rmm::out_of_memory`.
+ *
  *
  */
-class RmmFallbackResource final : public rmm::mr::device_memory_resource {
+class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
   public:
     /**
-     * @brief Construct a new `RmmFallbackResource` that uses `primary_upstream`
+     * @brief Construct a new `RmmResourceAdaptor` that uses `primary_upstream`
      * to satisfy allocation requests and if that fails with `rmm::out_of_memory`,
-     * uses `alternate_upstream`.
+     * uses `alternate_upstream` (if not null).
      *
      * @param primary_upstream The primary resource used for allocating/deallocating
      * device memory
      * @param alternate_upstream The alternate resource used for allocating/deallocating
      * device memory memory
+     *
      */
-    RmmFallbackResource(
+    RmmResourceAdaptor(
         rmm::device_async_resource_ref primary_upstream,
-        rmm::device_async_resource_ref alternate_upstream
+        std::optional<rmm::device_async_resource_ref> alternate_upstream
     )
         : primary_upstream_{primary_upstream}, alternate_upstream_{alternate_upstream} {}
 
-    RmmFallbackResource() = delete;
-    ~RmmFallbackResource() override = default;
+    RmmResourceAdaptor() = delete;
+    ~RmmResourceAdaptor() override = default;
 
     /**
      * @brief Get a reference to the primary upstream resource.
@@ -61,8 +71,8 @@ class RmmFallbackResource final : public rmm::mr::device_memory_resource {
      *
      * @return Reference to the RMM memory resource.
      */
-    [[nodiscard]] rmm::device_async_resource_ref get_alternate_upstream_resource(
-    ) const noexcept {
+    [[nodiscard]] std::optional<rmm::device_async_resource_ref>
+    get_alternate_upstream_resource() const noexcept {
         return alternate_upstream_;
     }
 
@@ -78,17 +88,7 @@ class RmmFallbackResource final : public rmm::mr::device_memory_resource {
      * @param stream Stream on which to perform the allocation
      * @return void* Pointer to the newly allocated memory
      */
-    void* do_allocate(std::size_t bytes, rmm::cuda_stream_view stream) override {
-        void* ret{};
-        try {
-            ret = primary_upstream_.allocate_async(bytes, stream);
-        } catch (rmm::out_of_memory const& e) {
-            ret = alternate_upstream_.allocate_async(bytes, stream);
-            std::lock_guard<std::mutex> lock(mutex_);
-            alternate_allocations_.insert(ret);
-        }
-        return ret;
-    }
+    void* do_allocate(std::size_t bytes, rmm::cuda_stream_view stream) override;
 
     /**
      * @brief Free allocation of size `bytes` pointed to by `ptr`
@@ -98,18 +98,7 @@ class RmmFallbackResource final : public rmm::mr::device_memory_resource {
      * @param stream Stream on which to perform the deallocation
      */
     void do_deallocate(void* ptr, std::size_t bytes, rmm::cuda_stream_view stream)
-        override {
-        std::size_t count{0};
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            count = alternate_allocations_.erase(ptr);
-        }
-        if (count > 0) {
-            alternate_upstream_.deallocate_async(ptr, bytes, stream);
-        } else {
-            primary_upstream_.deallocate_async(ptr, bytes, stream);
-        }
-    }
+        override;
 
     /**
      * @brief Compare the resource to another.
@@ -119,22 +108,11 @@ class RmmFallbackResource final : public rmm::mr::device_memory_resource {
      * @return false If the two resources are not equal
      */
     [[nodiscard]] bool do_is_equal(rmm::mr::device_memory_resource const& other
-    ) const noexcept override {
-        if (this == &other) {
-            return true;
-        }
-        auto cast = dynamic_cast<RmmFallbackResource const*>(&other);
-        if (cast == nullptr) {
-            return false;
-        }
-        return get_upstream_resource() == cast->get_upstream_resource()
-               && get_alternate_upstream_resource()
-                      == cast->get_alternate_upstream_resource();
-    }
+    ) const noexcept override;
 
     std::mutex mutex_;
     rmm::device_async_resource_ref primary_upstream_;
-    rmm::device_async_resource_ref alternate_upstream_;
+    std::optional<rmm::device_async_resource_ref> alternate_upstream_;
     std::unordered_set<void*> alternate_allocations_;
 };
 
