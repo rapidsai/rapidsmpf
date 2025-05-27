@@ -6,7 +6,7 @@ from cython.operator cimport dereference as deref
 from libcpp.memory cimport make_shared
 
 from rapidsmpf.communicator.communicator cimport Communicator
-from rapidsmpf.statistics cimport Statistics
+from rapidsmpf.statistics cimport Statistics, parse_statistic_argument
 
 
 cdef class ProgressThread:
@@ -36,13 +36,10 @@ cdef class ProgressThread:
         Communicator comm,
         Statistics statistics = None,
     ):
-        if statistics is None:
-            statistics = Statistics(enable=False)  # Disables statistics.
-
         with nogil:
             self._handle = make_shared[cpp_ProgressThread](
                 deref(comm._handle).logger(),
-                statistics._handle,
+                parse_statistic_argument(statistics),
             )
 
     def __dealloc__(self):

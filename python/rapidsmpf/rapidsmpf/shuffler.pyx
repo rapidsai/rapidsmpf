@@ -20,7 +20,7 @@ from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
 from rapidsmpf.progress_thread cimport ProgressThread
-from rapidsmpf.statistics cimport Statistics
+from rapidsmpf.statistics cimport Statistics, parse_statistic_argument
 
 
 cdef extern from "<rapidsmpf/shuffler/partition.hpp>" nogil:
@@ -282,8 +282,6 @@ cdef class Shuffler:
         self._br = br
         cdef cpp_BufferResource* br_ = br.ptr()
         cdef cuda_stream_view _stream = self._stream.view()
-        if statistics is None:
-            statistics = Statistics(enable=False)  # Disables statistics.
         with nogil:
             self._handle = make_unique[cpp_Shuffler](
                 comm._handle,
@@ -292,7 +290,7 @@ cdef class Shuffler:
                 total_num_partitions,
                 _stream,
                 br_,
-                statistics._handle,
+                parse_statistic_argument(statistics),
             )
 
     def __dealloc__(self):

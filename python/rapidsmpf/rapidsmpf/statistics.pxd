@@ -18,6 +18,15 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
             double value
         ) except +
 
+        @staticmethod
+        shared_ptr[cpp_Statistics] disabled() noexcept
+
+
 cdef class Statistics:
     cdef shared_ptr[cpp_Statistics] _handle
     cdef StatisticsResourceAdaptor _mr
+
+
+cdef shared_ptr[cpp_Statistics] parse_statistic_argument(
+    Statistics stats
+) noexcept nogil

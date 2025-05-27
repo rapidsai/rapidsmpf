@@ -132,3 +132,29 @@ cdef class Statistics:
         with nogil:
             ret = deref(self._handle).add_stat(name_, value)
         return ret
+
+
+cdef shared_ptr[cpp_Statistics] parse_statistic_argument(
+    Statistics stats
+) noexcept nogil:
+    """
+    Convert a Python `Statistics` object its C++ representation.
+
+    This helper is used to extract the underlying `std::shared_ptr<Statistics>` used
+    by C++ APIs. If the input `stats` is `None` or has no memory recorder, the globally
+    disabled statistics object is returned.
+
+    Parameters
+    ----------
+    stats
+        A Python wrapper around the C++ Statistics object. Can be `None`.
+
+    Returns
+    -------
+    A shared pointer to the underlying C++ Statistics instance. Returns a disabled
+    Statistics instance if `stats` is `None` or not initialized.
+    """
+    if stats is None or stats._mr is None:
+        return cpp_Statistics.disabled()
+    assert stats._handle
+    return stats._handle
