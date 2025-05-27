@@ -233,16 +233,6 @@ def rmpf_worker_setup(
     """
     ctx = get_worker_context(dask_worker)
     with ctx.lock:
-        # Print statistics at worker shutdown.
-        if enable_statistics:
-            ctx.statistics = Statistics(enable=True)
-            weakref.finalize(
-                dask_worker,
-                lambda name, stats: print(name, stats.report()),
-                name=str(dask_worker),
-                stats=ctx.statistics,
-            )
-
         assert ctx.comm is not None
         ctx.progress_thread = ProgressThread(ctx.comm, ctx.statistics)
 
@@ -265,6 +255,16 @@ def rmpf_worker_setup(
             memory_available=memory_available,
             periodic_spill_check=periodic_spill_check,
         )
+
+        # Enable and print statistics at worker shutdown.
+        if enable_statistics:
+            ctx.statistics = Statistics(enable=True, mr=mr)
+            weakref.finalize(
+                dask_worker,
+                lambda name, stats: print(name, stats.report()),
+                name=str(dask_worker),
+                stats=ctx.statistics,
+            )
 
         # Create a spill function that spills the python objects in the spill-
         # collection. This way, we have a central place (the dask worker) to track
