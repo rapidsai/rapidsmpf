@@ -19,6 +19,7 @@ project(
   LANGUAGES CXX CUDA
 )
 
+set(rapidsmpf_DIR $ENV{SITE_PACKAGES}/librapidsmpf/lib64/cmake/rapidsmpf/)
 set(ucxx-python_DIR $ENV{SITE_PACKAGES}/ucxx/lib64/cmake/ucxx-python/)
 include_directories($ENV{SITE_PACKAGES}/ucxx/include)
 
