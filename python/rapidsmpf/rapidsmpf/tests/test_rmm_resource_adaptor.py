@@ -10,7 +10,7 @@ import pytest
 import rmm
 import rmm.mr
 
-from rapidsmpf.buffer.rmm_fallback_resource import RmmFallbackResource
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
@@ -35,36 +35,34 @@ def test_fallback() -> None:
         functools.partial(alloc_cb, track=main_track, limit=200),
         functools.partial(dealloc_cb, track=main_track),
     )
-    alternate_track: list[int] = []
-    alternate_mr = rmm.mr.CallbackMemoryResource(
-        functools.partial(alloc_cb, track=alternate_track, limit=1000),
-        functools.partial(dealloc_cb, track=alternate_track),
+    fallback_track: list[int] = []
+    fallback_mr = rmm.mr.CallbackMemoryResource(
+        functools.partial(alloc_cb, track=fallback_track, limit=1000),
+        functools.partial(dealloc_cb, track=fallback_track),
     )
-    mr = RmmFallbackResource(main_mr, alternate_mr)
-    assert main_mr is mr.get_upstream()
-    assert alternate_mr is mr.get_alternate_upstream()
+    mr = RmmResourceAdaptor(upstream_mr=main_mr, fallback_mr=fallback_mr)
 
     # Delete the upstream memory resources here to check that they are
-    # kept alive by `mr`
+    # kept alive by `mr`.
     del main_mr
-    del alternate_mr
+    del fallback_mr
 
-    # Buffer size within the limit of `main_mr`
+    # Buffer size within the limit of `main_mr`.
     rmm.DeviceBuffer(size=100, mr=mr)
     # we expect an alloc and a dealloc of the same buffer in
-    # `main_track` and an empty `alternate_track`
+    # `main_track` and an empty `fallback_track`.
     assert len(main_track) == 2
     assert main_track[0] == main_track[1]
-    assert len(alternate_track) == 0
+    assert len(fallback_track) == 0
 
     # Buffer size outside the limit of `main_mr`
     rmm.DeviceBuffer(size=500, mr=mr)
     # we expect an alloc and a dealloc of the same buffer in
-    # `alternate_track` and an unchanged `main_mr`
+    # `fallback_track` and an unchanged `main_mr`.
     assert len(main_track) == 2
     assert main_track[0] == main_track[1]
-    assert len(alternate_track) == 2
-    assert alternate_track[0] == alternate_track[1]
+    assert len(fallback_track) == 2
+    assert fallback_track[0] == fallback_track[1]
 
 
 def test_except_type() -> None:
@@ -74,9 +72,10 @@ def test_except_type() -> None:
     def dealloc_cb(ptr: int, size: int, stream: Stream) -> Any:
         return None
 
-    main_mr = rmm.mr.CallbackMemoryResource(alloc_cb, dealloc_cb)
-    alternate_mr = rmm.mr.CudaMemoryResource()
-    mr = RmmFallbackResource(main_mr, alternate_mr)
+    mr = RmmResourceAdaptor(
+        upstream_mr=rmm.mr.CallbackMemoryResource(alloc_cb, dealloc_cb),
+        fallback_mr=rmm.mr.CudaMemoryResource(),
+    )
 
     with pytest.raises(RuntimeError, match="not a MemoryError"):
         mr.allocate(100)

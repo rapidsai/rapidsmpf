@@ -49,38 +49,38 @@ struct throw_at_limit_resource final : public rmm::mr::device_memory_resource {
 
 TEST(RmmResourceAdaptor, FailureAlternateTrackBothUpstreams) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{100};
-    throw_at_limit_resource<rmm::out_of_memory> alternate_mr{1000};
-    RmmResourceAdaptor mr{primary_mr, alternate_mr};
+    throw_at_limit_resource<rmm::out_of_memory> fallback_mr{1000};
+    RmmResourceAdaptor mr{primary_mr, fallback_mr};
 
     // Check that a small allocation goes to the primary resource.
     {
         void* a1 = mr.allocate(10);
         EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{a1});
-        EXPECT_EQ(alternate_mr.allocs, std::unordered_set<void*>{});
+        EXPECT_EQ(fallback_mr.allocs, std::unordered_set<void*>{});
         mr.deallocate(a1, 10);
         EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{});
-        EXPECT_EQ(alternate_mr.allocs, std::unordered_set<void*>{});
+        EXPECT_EQ(fallback_mr.allocs, std::unordered_set<void*>{});
     }
 
-    // Check that a large allocation goes to the alternate resource.
+    // Check that a large allocation goes to the fallback resource.
     {
         void* a1 = mr.allocate(200);
         EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{});
-        EXPECT_EQ(alternate_mr.allocs, std::unordered_set<void*>{a1});
+        EXPECT_EQ(fallback_mr.allocs, std::unordered_set<void*>{a1});
         mr.deallocate(a1, 200);
         EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{});
-        EXPECT_EQ(alternate_mr.allocs, std::unordered_set<void*>{});
+        EXPECT_EQ(fallback_mr.allocs, std::unordered_set<void*>{});
     }
 
     // Check that we get an error when the allocation cannot fit the
-    // primary or the alternate resource.
+    // primary or the fallback resource.
     EXPECT_THROW(mr.allocate(2000), rmm::out_of_memory);
 }
 
 TEST(FailureAlternateTest, FailureAlternateDifferentExceptionTypes) {
     throw_at_limit_resource<std::invalid_argument> primary_mr{100};
-    throw_at_limit_resource<rmm::out_of_memory> alternate_mr{1000};
-    RmmResourceAdaptor mr{primary_mr, alternate_mr};
+    throw_at_limit_resource<rmm::out_of_memory> fallback_mr{1000};
+    RmmResourceAdaptor mr{primary_mr, fallback_mr};
 
     // Check that `RmmResourceAdaptor` only catch `rmm::out_of_memory` exceptions.
     EXPECT_THROW(mr.allocate(200), std::invalid_argument);

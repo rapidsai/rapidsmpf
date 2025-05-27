@@ -12,10 +12,10 @@ void* RmmResourceAdaptor::do_allocate(std::size_t bytes, rmm::cuda_stream_view s
     try {
         ret = primary_upstream_.allocate_async(bytes, stream);
     } catch (rmm::out_of_memory const& e) {
-        if (alternate_upstream_.has_value()) {
-            ret = alternate_upstream_->allocate_async(bytes, stream);
+        if (fallback_upstream_.has_value()) {
+            ret = fallback_upstream_->allocate_async(bytes, stream);
             std::lock_guard<std::mutex> lock(mutex_);
-            alternate_allocations_.insert(ret);
+            fallback_allocations_.insert(ret);
         } else {
             throw;
         }
@@ -26,14 +26,14 @@ void* RmmResourceAdaptor::do_allocate(std::size_t bytes, rmm::cuda_stream_view s
 void RmmResourceAdaptor::do_deallocate(
     void* ptr, std::size_t bytes, rmm::cuda_stream_view stream
 ) {
-    if (alternate_upstream_.has_value()) {
+    if (fallback_upstream_.has_value()) {
         std::size_t count{0};
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            count = alternate_allocations_.erase(ptr);
+            count = fallback_allocations_.erase(ptr);
         }
         if (count > 0) {
-            alternate_upstream_->deallocate_async(ptr, bytes, stream);
+            fallback_upstream_->deallocate_async(ptr, bytes, stream);
             return;
         }
     }
@@ -50,8 +50,7 @@ bool RmmResourceAdaptor::do_is_equal(rmm::mr::device_memory_resource const& othe
         return false;
     }
     return get_upstream_resource() == cast->get_upstream_resource()
-           && get_alternate_upstream_resource()
-                  == cast->get_alternate_upstream_resource();
+           && get_fallback_upstream_resource() == cast->get_fallback_upstream_resource();
 }
 
 }  // namespace rapidsmpf

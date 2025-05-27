@@ -4,15 +4,14 @@
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
 from rmm.pylibrmm.stream import Stream
 
-class RmmFallbackResource:
+class RmmResourceAdaptor:
     def __init__(
         self,
+        *,
         upstream_mr: DeviceMemoryResource,
-        alternate_upstream_mr: DeviceMemoryResource,
+        fallback_mr: DeviceMemoryResource | None = None,
     ): ...
     @property
     def get_upstream(self) -> DeviceMemoryResource: ...
-    @property
-    def get_alternate_upstream(self) -> DeviceMemoryResource: ...
     def allocate(self, nbytes: int, stream: Stream = ...) -> int: ...
     def deallocate(self, ptr: int, nbytes: int, stream: Stream = ...) -> None: ...

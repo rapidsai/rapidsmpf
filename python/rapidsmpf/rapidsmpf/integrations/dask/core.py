@@ -19,12 +19,12 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
-from rapidsmpf.buffer.rmm_fallback_resource import RmmFallbackResource
 from rapidsmpf.buffer.spill_collection import SpillCollection
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.integrations.dask import _compat
 from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 
 if TYPE_CHECKING:
@@ -248,7 +248,9 @@ def rmpf_worker_setup(
 
         mr = rmm.mr.get_current_device_resource()
         if oom_protection:
-            mr = RmmFallbackResource(mr, rmm.mr.ManagedMemoryResource())
+            mr = RmmResourceAdaptor(
+                upstream_mr=mr, fallback_mr=rmm.mr.ManagedMemoryResource()
+            )
 
         # Setup a buffer_resource.
         # Wrap the current RMM resource in statistics adaptor.
