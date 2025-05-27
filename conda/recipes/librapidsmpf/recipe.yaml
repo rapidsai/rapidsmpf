@@ -1,0 +1,154 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.
+schema_version: 1
+
+context:
+  version: ${{ env.get("RAPIDS_PACKAGE_VERSION") }}
+  minor_version: ${{ (version | split("."))[:2] | join(".") }}
+  cuda_version: ${{ (env.get("RAPIDS_CUDA_VERSION") | split("."))[:2] | join(".") }}
+  cuda_major: '${{ (env.get("RAPIDS_CUDA_VERSION") | split("."))[0] }}'
+  date_string: '${{ env.get("RAPIDS_DATE_STRING") }}'
+  head_rev: ${{ git.head_rev(".")[:8] }}
+
+recipe:
+  name: librapidsmpf-split
+
+cache:
+  source:
+    path: ../../..
+
+  build:
+    script:
+      content: |
+        # Remove `-fdebug-prefix-map` line from CFLAGS and CXXFLAGS so the
+        # incrementing version number in the compile line doesn't break the
+        # cache
+        set -x
+        export CFLAGS=$(echo $CFLAGS | sed -E 's@\-fdebug\-prefix\-map[^ ]*@@g')
+        export CXXFLAGS=$(echo $CXXFLAGS | sed -E 's@\-fdebug\-prefix\-map[^ ]*@@g')
+        set +x
+
+        ./build.sh -v -n librapidsmpf
+      secrets:
+        - AWS_ACCESS_KEY_ID
+        - AWS_SECRET_ACCESS_KEY
+        - AWS_SESSION_TOKEN
+      env:
+        CMAKE_C_COMPILER_LAUNCHER: ${{ env.get("CMAKE_C_COMPILER_LAUNCHER") }}
+        CMAKE_CUDA_COMPILER_LAUNCHER: ${{ env.get("CMAKE_CUDA_COMPILER_LAUNCHER") }}
+        CMAKE_CXX_COMPILER_LAUNCHER: ${{ env.get("CMAKE_CXX_COMPILER_LAUNCHER") }}
+        CMAKE_GENERATOR: ${{ env.get("CMAKE_GENERATOR") }}
+        PARALLEL_LEVEL: ${{ env.get("PARALLEL_LEVEL") }}
+        SCCACHE_BUCKET: ${{ env.get("SCCACHE_BUCKET") }}
+        SCCACHE_IDLE_TIMEOUT: ${{ env.get("SCCACHE_IDLE_TIMEOUT") }}
+        SCCACHE_REGION: ${{ env.get("SCCACHE_REGION") }}
+        SCCACHE_S3_USE_SSL: ${{ env.get("SCCACHE_S3_USE_SSL") }}
+        SCCACHE_S3_NO_CREDENTIALS: ${{ env.get("SCCACHE_S3_NO_CREDENTIALS") }}
+        SCCACHE_S3_KEY_PREFIX: librapidsmpf/${{ env.get("RAPIDS_CONDA_ARCH") }}/cuda${{ cuda_major }}
+
+  requirements:
+    build:
+      - ${{ compiler("c") }}
+      - ${{ compiler("cxx") }}
+      - ${{ compiler("cuda") }} =${{ cuda_version }}
+      - cuda-version =${{ cuda_version }}
+      - cmake ${{ cmake_version }}
+      - ninja
+      - ${{ stdlib("c") }}
+    host:
+      - cuda-version =${{ cuda_version }}
+      - cuda-cudart-dev
+      - librmm =${{ minor_version }}
+      - libcudf =${{ minor_version }}
+      - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+      - ucxx ${{ ucxx_version }}
+
+outputs:
+  - package:
+      name: librapidsmpf
+      version: ${{ version }}
+    build:
+      script:
+        content: |
+          cmake --install cpp/build
+          cmake --install cpp/build --component=benchmarking
+      dynamic_linking:
+        overlinking_behavior: "error"
+      prefix_detection:
+        ignore:
+          # See https://github.com/rapidsai/build-planning/issues/160
+          - lib/librapidsmpf.so
+      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+    requirements:
+      build:
+        - cmake ${{ cmake_version }}
+        - ${{ stdlib("c") }}
+      host:
+        - cuda-version =${{ cuda_version }}
+        - cuda-cudart-dev
+        - libcudf =${{ minor_version }}
+        - openmpi
+        - ucxx ${{ ucxx_version }}
+      run:
+        - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
+        - cuda-cudart
+        - librmm =${{ minor_version }}
+        - libcudf =${{ minor_version }}
+        - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+        - ucxx ${{ ucxx_version }}
+      ignore_run_exports:
+        from_package:
+          - ${{ compiler("c") }}
+          - ${{ compiler("cuda") }} =${{ cuda_version }}
+          - ${{ compiler("cxx") }}
+          - ${{ stdlib("c") }}
+        by_name:
+          - cuda-cudart
+          - libcudf
+          - openmpi
+          - librmm
+    about:
+      homepage: https://github.com/rapidsai/rapidsmpf
+      license: Apache-2.0
+      summary: Multi-GPU and distributed-memory algorithms
+
+  - package:
+      name: librapidsmpf-tests
+      version: ${{ version }}
+    build:
+      script:
+        content: |
+          cmake --install cpp/build --component testing
+      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+    requirements:
+      build:
+        - cmake ${{ cmake_version }}
+        - ${{ stdlib("c") }}
+      host:
+        - cuda-cudart-dev
+        - cuda-version =${{ cuda_version }}
+        - libcudf =${{ minor_version }}
+        - librmm =${{ minor_version }}
+        - openmpi
+        - ${{ pin_subpackage("librapidsmpf", exact=True) }}
+      run:
+        - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
+        - cuda-cudart
+        - librmm =${{ minor_version }}
+        - libcudf =${{ minor_version }}
+        - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+        - ucxx ${{ ucxx_version }}
+      ignore_run_exports:
+        from_package:
+          - ${{ compiler("c") }}
+          - ${{ compiler("cxx") }}
+          - ${{ compiler("cuda") }} =${{ cuda_version }}
+          - ${{ stdlib("c") }}
+        by_name:
+          - cuda-cudart
+          - librmm
+          - libcudf
+          - openmpi
+    about:
+      homepage: https://github.com/rapidsai/rapidsmpf
+      license: Apache-2.0
+      summary: librapidsmpf test executables
