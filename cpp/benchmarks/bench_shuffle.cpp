@@ -188,16 +188,20 @@ rapidsmpf::Duration run(
         args.num_local_partitions
         * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
     std::vector<cudf::table> input_partitions;
-    for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
-        input_partitions.push_back(random_table(
-            static_cast<cudf::size_type>(args.num_columns),
-            static_cast<cudf::size_type>(args.num_local_rows),
-            min_val,
-            max_val,
-            stream,
-            br->device_mr()
-        ));
+    {
+        RAPIDSMPF_MEMORY_PROFILE(statistics, "create random tables");
+        for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
+            input_partitions.push_back(random_table(
+                static_cast<cudf::size_type>(args.num_columns),
+                static_cast<cudf::size_type>(args.num_local_rows),
+                min_val,
+                max_val,
+                stream,
+                br->device_mr()
+            ));
+        }
     }
+
     stream.synchronize();
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
@@ -205,6 +209,7 @@ rapidsmpf::Duration run(
     auto const t0_elapsed = rapidsmpf::Clock::now();
     {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
+        RAPIDSMPF_MEMORY_PROFILE(statistics, "shuffling");
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
             progress_thread,
@@ -249,6 +254,7 @@ rapidsmpf::Duration run(
     // Check the shuffle result (this test only works for non-empty partitions
     // thus we only check large shuffles).
     if (args.num_local_rows >= 1000000) {
+        RAPIDSMPF_MEMORY_PROFILE(statistics, "check shuffle result");
         for (const auto& output_partition : output_partitions) {
             auto [parts, owner] = rapidsmpf::shuffler::partition_and_split(
                 output_partition,
