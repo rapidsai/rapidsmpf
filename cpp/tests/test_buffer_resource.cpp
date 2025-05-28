@@ -14,7 +14,6 @@
 #include <cudf_test/table_utilities.hpp>
 #include <rmm/mr/device/limiting_resource_adaptor.hpp>
 #include <rmm/mr/device/owning_wrapper.hpp>
-#include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
@@ -142,11 +141,10 @@ TEST(BufferResource, ReservationReleasing) {
 
 TEST(BufferResource, LimitAvailableMemory) {
     rmm::mr::cuda_memory_resource mr_cuda;
-    rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource> mr{mr_cuda};
+    RmmResourceAdaptor mr{mr_cuda};
     auto stream = cudf::get_default_stream();
 
-    // Create a buffer resource that uses `statistics_resource_adaptor` to limit
-    // available device memory to 10 KiB.
+    // Create a buffer resource that limit available device memory to 10 KiB.
     LimitAvailableMemory dev_mem_available{&mr, 10_KiB};
     BufferResource br{mr, {{MemoryType::DEVICE, dev_mem_available}}};
     EXPECT_EQ(dev_mem_available(), 10_KiB);
@@ -592,22 +590,18 @@ TEST(BufferResource, CopySliceDifferentResources) {
 
     // Setup br1 with statistics for its device memory
     rmm::mr::cuda_memory_resource mr_cuda1;
-    rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource> stats_mr1{
-        mr_cuda1
-    };
+    RmmResourceAdaptor stats_mr1{mr_cuda1};
     BufferResource br1{&stats_mr1};
 
     // Setup br2 with statistics for its device memory
     rmm::mr::cuda_memory_resource mr_cuda2_dev;
-    rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource> stats_mr2{
-        mr_cuda2_dev
-    };
+    RmmResourceAdaptor stats_mr2{mr_cuda2_dev};
     BufferResource br2{&stats_mr2};
 
     // Create source buf1 on br1
-    auto [reserv1, ob1] = br1.reserve(MemoryType::DEVICE, buffer_size, false);
-    auto buf1 = br1.allocate(MemoryType::DEVICE, buffer_size, stream, reserv1);
-    EXPECT_EQ(reserv1.size(), 0);  // reservation should be consumed
+    auto [reserved1, ob1] = br1.reserve(MemoryType::DEVICE, buffer_size, false);
+    auto buf1 = br1.allocate(MemoryType::DEVICE, buffer_size, stream, reserved1);
+    EXPECT_EQ(reserved1.size(), 0);  // reservation should be consumed
     EXPECT_EQ(buf1->size, buffer_size);
 
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
@@ -620,22 +614,22 @@ TEST(BufferResource, CopySliceDifferentResources) {
     buf1->override_event(std::make_shared<Buffer::Event>(stream));
     buf1->wait_for_ready();
 
-    EXPECT_EQ(stats_mr1.get_bytes_counter().total, buffer_size);
+    EXPECT_EQ(stats_mr1.get_record().total(), buffer_size);
 
     // Reserve memory for the slice on br2
-    auto [reserv2, ob2] = br2.reserve(MemoryType::DEVICE, slice_length, false);
+    auto [reserved2, ob2] = br2.reserve(MemoryType::DEVICE, slice_length, false);
 
     // Create slice of buf1 on br2
-    auto buf2 = buf1->copy_slice(slice_offset, slice_length, reserv2, stream);
+    auto buf2 = buf1->copy_slice(slice_offset, slice_length, reserved2, stream);
     EXPECT_EQ(buf2->size, slice_length);
-    EXPECT_EQ(reserv2.size(), 0);  // reservation should be consumed
+    EXPECT_EQ(reserved2.size(), 0);  // reservation should be consumed
     buf2->wait_for_ready();
 
     // Verify br1 hasn't allocated any more memory
-    EXPECT_EQ(stats_mr1.get_bytes_counter().total, buffer_size);
+    EXPECT_EQ(stats_mr1.get_record().total(), buffer_size);
 
     // Verify br2 has allocated the slice
-    EXPECT_EQ(stats_mr2.get_bytes_counter().total, slice_length);
+    EXPECT_EQ(stats_mr2.get_record().total(), slice_length);
 }
 
 TEST(BufferResource, CheckIllegalArgs) {
