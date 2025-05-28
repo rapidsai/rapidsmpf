@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <mutex>
 #include <optional>
@@ -19,35 +20,59 @@ namespace rapidsmpf {
  * @brief Tracks memory statistics for a specific scope.
  */
 struct ScopedMemoryRecord {
-    std::uint64_t num_calls{0};  ///< Number of times the scope was executed.
-    std::uint64_t num_allocs{0};  ///< Total number of allocations in the scope.
-    std::uint64_t current{0};  ///< Current memory allocated in the scope (bytes).
-    std::uint64_t total{0};  ///< Total memory allocated in the scope (bytes).
-    std::uint64_t peak{0};  ///< Peak memory usage in the scope (bytes).
+    /// Allocation source types.
+    enum class AllocType : std::size_t {
+        Primary = 0,
+        Fallback = 1
+    };
+
+    /// Number of times the scope was executed.
+    std::uint64_t num_calls{0};
+
+    /// Number of allocations by allocator type.
+    std::array<std::uint64_t, 2> num_allocs = {0};
+
+    /// Current memory usage (bytes) by allocator type.
+    std::array<std::uint64_t, 2> current = {0};
+
+    /// Total memory allocated (bytes) by allocator type.
+    std::array<std::uint64_t, 2> total = {0};
+
+    /// Peak memory usage (bytes) by allocator type.
+    std::array<std::uint64_t, 2> peak = {0};
+
+    /// Highest combined memory usage (bytes).
+    std::uint64_t highest_peak = {0};
 
     /**
-     * @brief Record a memory allocation.
+     * @brief Records a memory allocation.
      *
-     * Updates allocation counters and peak memory usage.
+     * Increments allocation counters, updates current and total allocations, and tracks
+     * peak usage.
      *
-     * @param nbytes Number of bytes allocated.
+     * @param alloc_type The allocator type.
+     * @param nbytes     Number of bytes allocated.
      */
-    void record_allocation(std::uint64_t nbytes) {
-        ++num_allocs;
-        current += nbytes;
-        total += nbytes;
-        peak = std::max(nbytes, peak);
+    void record_allocation(AllocType alloc_type, std::uint64_t nbytes) {
+        auto at = static_cast<std::size_t>(alloc_type);
+        ++num_allocs[at];
+        current[at] += nbytes;
+        total[at] += nbytes;
+        peak[at] = std::max(peak[at], nbytes);
+        highest_peak = std::max(highest_peak, nbytes);
     }
 
     /**
-     * @brief Record a memory deallocation.
+     * @brief Records a memory deallocation event.
      *
-     * Updates the current memory usage.
+     * Decreases the current memory usage for the specified allocator type.
      *
-     * @param nbytes Number of bytes deallocated.
+     * @param alloc_type The allocator type.
+     * @param nbytes     Number of bytes deallocated.
      */
-    void record_deallocation(std::uint64_t nbytes) {
-        current -= nbytes;
+    void record_deallocation(AllocType alloc_type, std::uint64_t nbytes) {
+        auto at = static_cast<std::size_t>(alloc_type);
+        current[at] -= nbytes;
     }
 };
 
@@ -101,6 +126,15 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      *
      * @return Total number of currently allocated bytes.
      */
+    [[nodiscard]] ScopedMemoryRecord const& get_record() const noexcept {
+        return record_;
+    }
+
+    /**
+     * @brief Get the total current allocated memory from both primary and fallback.
+     *
+     * @return Total number of currently allocated bytes.
+     */
     [[nodiscard]] std::uint64_t current_allocated() const noexcept;
 
   private:
@@ -144,8 +178,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     rmm::device_async_resource_ref primary_mr_;
     std::optional<rmm::device_async_resource_ref> fallback_mr_;
     std::unordered_set<void*> fallback_allocations_;
-    ScopedMemoryRecord primary_record_;
-    ScopedMemoryRecord fallback_record_;
+    ScopedMemoryRecord record_;
 };
 
 

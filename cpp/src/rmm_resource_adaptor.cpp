@@ -9,22 +9,24 @@ namespace rapidsmpf {
 
 
 std::uint64_t RmmResourceAdaptor::current_allocated() const noexcept {
+    auto primary = static_cast<std::size_t>(ScopedMemoryRecord::AllocType::Primary);
+    auto fallback = static_cast<std::size_t>(ScopedMemoryRecord::AllocType::Fallback);
     std::lock_guard<std::mutex> lock(mutex_);
-    return primary_record_.current + fallback_record_.current;
+    return record_.current[primary] + record_.current[fallback];
 }
 
-void* RmmResourceAdaptor::do_allocate(std::size_t bytes, rmm::cuda_stream_view stream) {
+void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view stream) {
     void* ret{};
     try {
-        ret = primary_mr_.allocate_async(bytes, stream);
+        ret = primary_mr_.allocate_async(nbytes, stream);
         std::lock_guard<std::mutex> lock(mutex_);
-        primary_record_.record_allocation(bytes);
+        record_.record_allocation(ScopedMemoryRecord::AllocType::Primary, nbytes);
     } catch (rmm::out_of_memory const& e) {
         if (fallback_mr_.has_value()) {
-            ret = fallback_mr_->allocate_async(bytes, stream);
+            ret = fallback_mr_->allocate_async(nbytes, stream);
             std::lock_guard<std::mutex> lock(mutex_);
             fallback_allocations_.insert(ret);
-            fallback_record_.record_allocation(bytes);
+            record_.record_allocation(ScopedMemoryRecord::AllocType::Fallback, nbytes);
         } else {
             throw;
         }
@@ -49,16 +51,16 @@ bool erase_fallback_allocation(
 }  // namespace
 
 void RmmResourceAdaptor::do_deallocate(
-    void* ptr, std::size_t bytes, rmm::cuda_stream_view stream
+    void* ptr, std::size_t nbytes, rmm::cuda_stream_view stream
 ) {
     if (erase_fallback_allocation(mutex_, fallback_mr_, fallback_allocations_, ptr)) {
-        fallback_mr_->deallocate_async(ptr, bytes, stream);
+        fallback_mr_->deallocate_async(ptr, nbytes, stream);
         std::lock_guard<std::mutex> lock(mutex_);
-        fallback_record_.record_deallocation(bytes);
+        record_.record_deallocation(ScopedMemoryRecord::AllocType::Fallback, nbytes);
     } else {
-        primary_mr_.deallocate_async(ptr, bytes, stream);
+        primary_mr_.deallocate_async(ptr, nbytes, stream);
         std::lock_guard<std::mutex> lock(mutex_);
-        primary_record_.record_deallocation(bytes);
+        record_.record_deallocation(ScopedMemoryRecord::AllocType::Primary, nbytes);
     }
 }
 
