@@ -15,7 +15,9 @@
 #include <rmm/resource_ref.hpp>
 
 namespace rapidsmpf {
-
+/**
+ * @brief Tracks memory statistics for a specific scope.
+ */
 struct ScopedMemoryRecord {
     std::uint64_t num_calls{0};  ///< Number of times the scope was executed.
     std::uint64_t num_allocs{0};  ///< Total number of allocations in the scope.
@@ -23,6 +25,13 @@ struct ScopedMemoryRecord {
     std::uint64_t total{0};  ///< Total memory allocated in the scope (bytes).
     std::uint64_t peak{0};  ///< Peak memory usage in the scope (bytes).
 
+    /**
+     * @brief Record a memory allocation.
+     *
+     * Updates allocation counters and peak memory usage.
+     *
+     * @param nbytes Number of bytes allocated.
+     */
     void record_allocation(std::uint64_t nbytes) {
         ++num_allocs;
         current += nbytes;
@@ -30,6 +39,13 @@ struct ScopedMemoryRecord {
         peak = std::max(nbytes, peak);
     }
 
+    /**
+     * @brief Record a memory deallocation.
+     *
+     * Updates the current memory usage.
+     *
+     * @param nbytes Number of bytes deallocated.
+     */
     void record_deallocation(std::uint64_t nbytes) {
         current -= nbytes;
     }
@@ -38,22 +54,18 @@ struct ScopedMemoryRecord {
 /**
  * @brief A RMM memory resource adaptor tailored to RapidsMPF.
  *
- * This resource implements a broad range of features used throughout RapidsMPF.
- *
- * Memory Statistics
- * -----------------
- * This MR tracks the memory usage
- *
- *
- * Alternate on OOM
- * ----------------
- * If set, uses an fallback upstream resource when the primary upstream resource throws
- * `rmm::out_of_memory`.
- *
- *
+ * This adaptor implements:
+ * - Memory usage tracking (current, total, peak).
+ * - Fallback memory resource support upon out-of-memory in the primary resource.
  */
 class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
   public:
+    /**
+     * @brief Construct with specified primary and optional fallback memory resource.
+     *
+     * @param primary_mr The primary memory resource.
+     * @param fallback_mr Optional fallback memory resource.
+     */
     RmmResourceAdaptor(
         rmm::device_async_resource_ref primary_mr,
         std::optional<rmm::device_async_resource_ref> fallback_mr = std::nullopt
@@ -73,52 +85,59 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     }
 
     /**
-     * @brief Get a reference to the alternative upstream resource.
+     * @brief Get a reference to the fallback upstream resource.
      *
-     * This resource is used when primary upstream resource throws `rmm::out_of_memory`.
+     * This resource is used if the primary resource throws `rmm::out_of_memory`.
      *
-     * @return Reference to the RMM memory resource.
+     * @return Optional reference to the fallback RMM memory resource.
      */
     [[nodiscard]] std::optional<rmm::device_async_resource_ref> get_fallback_resource(
     ) const noexcept {
         return fallback_mr_;
     }
 
-    // both primary and fallback allocations.
+    /**
+     * @brief Get the total current allocated memory from both primary and fallback.
+     *
+     * @return Total number of currently allocated bytes.
+     */
     [[nodiscard]] std::uint64_t current_allocated() const noexcept {
         return primary_main_record_.current + fallback_main_record_.current;
     }
 
   private:
     /**
-     * @brief Allocates memory of size at least `bytes` using the upstream
-     * resource.
+     * @brief Allocates memory of size at least `bytes` using the upstream resource.
      *
-     * @throws any exceptions thrown from the upstream resources, only
-     * `rmm::out_of_memory` thrown by the primary upstream is caught.
+     * Attempts to allocate using the primary resource. If it fails with
+     * `rmm::out_of_memory` and a fallback is provided, retries allocation using the
+     * fallback.
      *
-     * @param bytes The size, in bytes, of the allocation
-     * @param stream Stream on which to perform the allocation
-     * @return void* Pointer to the newly allocated memory
+     * @param bytes Number of bytes to allocate.
+     * @param stream CUDA stream to associate with this allocation.
+     * @return Pointer to the allocated memory.
+     *
+     * @throws rmm::out_of_memory or other exceptions from the upstream resources.
      */
     void* do_allocate(std::size_t bytes, rmm::cuda_stream_view stream) override;
 
     /**
-     * @brief Free allocation of size `bytes` pointed to by `ptr`
+     * @brief Deallocates memory previously allocated via this resource.
      *
-     * @param ptr Pointer to be deallocated
-     * @param bytes Size of the allocation
-     * @param stream Stream on which to perform the deallocation
+     * @param ptr Pointer to the memory to deallocate.
+     * @param bytes Size of the allocation in bytes.
+     * @param stream CUDA stream to associate with this deallocation.
      */
     void do_deallocate(void* ptr, std::size_t bytes, rmm::cuda_stream_view stream)
         override;
 
     /**
-     * @brief Compare the resource to another.
+     * @brief Check if this memory resource is equal to another.
      *
-     * @param other The other resource to compare to
-     * @return true If the two resources are equivalent
-     * @return false If the two resources are not equal
+     * Equality is defined by comparing the primary and fallback resources.
+     *
+     * @param other Another memory resource to compare against.
+     * @return true if both resources are equivalent, false otherwise.
      */
     [[nodiscard]] bool do_is_equal(rmm::mr::device_memory_resource const& other
     ) const noexcept override;
