@@ -8,6 +8,20 @@
 namespace rapidsmpf {
 
 
+void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::uint64_t nbytes) {
+    auto at = static_cast<std::size_t>(alloc_type);
+    ++num_allocs_[at];
+    current_[at] += nbytes;
+    total_[at] += nbytes;
+    peak_[at] = std::max(peak_[at], current_[at]);
+    highest_peak_ = std::max(highest_peak_, current_[at]);
+}
+
+void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::uint64_t nbytes) {
+    auto at = static_cast<std::size_t>(alloc_type);
+    current_[at] -= nbytes;
+}
+
 std::uint64_t RmmResourceAdaptor::current_allocated() const noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     return record_.current(ScopedMemoryRecord::AllocType::Primary)
@@ -75,5 +89,4 @@ bool RmmResourceAdaptor::do_is_equal(rmm::mr::device_memory_resource const& othe
     return get_upstream_resource() == cast->get_upstream_resource()
            && get_fallback_resource() == cast->get_fallback_resource();
 }
-
 }  // namespace rapidsmpf

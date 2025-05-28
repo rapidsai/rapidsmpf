@@ -88,14 +88,7 @@ struct ScopedMemoryRecord {
      * @param alloc_type The allocator type.
      * @param nbytes     Number of bytes allocated.
      */
-    void record_allocation(AllocType alloc_type, std::uint64_t nbytes) {
-        auto at = static_cast<std::size_t>(alloc_type);
-        ++num_allocs_[at];
-        current_[at] += nbytes;
-        total_[at] += nbytes;
-        peak_[at] = std::max(peak_[at], current_[at]);
-        highest_peak_ = std::max(highest_peak_, current_[at]);
-    }
+    void record_allocation(AllocType alloc_type, std::uint64_t nbytes);
 
     /**
      * @brief Records a memory deallocation event.
@@ -105,10 +98,7 @@ struct ScopedMemoryRecord {
      * @param alloc_type The allocator type.
      * @param nbytes     Number of bytes deallocated.
      */
-    void record_deallocation(AllocType alloc_type, std::uint64_t nbytes) {
-        auto at = static_cast<std::size_t>(alloc_type);
-        current_[at] -= nbytes;
-    }
+    void record_deallocation(AllocType alloc_type, std::uint64_t nbytes);
 
   private:
     std::uint64_t num_calls_{0};
