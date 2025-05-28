@@ -9,6 +9,21 @@ from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
 
 
 cdef extern from "<rapidsmpf/rmm_resource_adaptor.hpp>" nogil:
+    cpdef enum class AllocType"rapidsmpf::ScopedMemoryRecord::AllocType"(int):
+        PRIMARY
+        FALLBACK
+        ALL
+
+    cdef cppclass cpp_ScopedMemoryRecord"rapidsmpf::ScopedMemoryRecord":
+        cpp_ScopedMemoryRecord() except +
+        uint64_t num_total_allocs(AllocType alloc_type) noexcept
+        uint64_t num_current_allocs(AllocType alloc_type) noexcept
+        uint64_t current(AllocType alloc_type) noexcept
+        uint64_t total(AllocType alloc_type) noexcept
+        uint64_t peak(AllocType alloc_type) noexcept
+        void record_allocation(AllocType alloc_type, uint64_t nbytes) noexcept
+        void record_deallocation(AllocType alloc_type, uint64_t nbytes) noexcept
+
     cdef cppclass cpp_RmmResourceAdaptor"rapidsmpf::RmmResourceAdaptor"(
         device_memory_resource
     ):

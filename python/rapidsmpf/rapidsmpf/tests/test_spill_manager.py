@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 import pytest
-
-import rmm.mr
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+
+if TYPE_CHECKING:
+    import rmm.mr
 
 
 @pytest.mark.parametrize(

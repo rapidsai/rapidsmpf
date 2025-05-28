@@ -1,8 +1,25 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from enum import IntEnum
+from typing import cast
+
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
 from rmm.pylibrmm.stream import Stream
+
+class AllocType(IntEnum):
+    PRIMARY = cast(int, ...)
+    FALLBACK = cast(int, ...)
+    ALL = cast(int, ...)
+
+class ScopedMemoryRecord:
+    def num_total_allocs(self, alloc_type: AllocType = AllocType.ALL) -> int: ...
+    def num_current_allocs(self, alloc_type: AllocType = AllocType.ALL) -> int: ...
+    def current(self, alloc_type: AllocType = AllocType.ALL) -> int: ...
+    def total(self, alloc_type: AllocType = AllocType.ALL) -> int: ...
+    def peak(self, alloc_type: AllocType = AllocType.ALL) -> int: ...
+    def record_allocation(self, alloc_type: AllocType, nbytes: int) -> None: ...
+    def record_deallocation(self, alloc_type: AllocType, nbytes: int) -> None: ...
 
 class RmmResourceAdaptor:
     def __init__(

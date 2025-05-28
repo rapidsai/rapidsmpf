@@ -53,7 +53,7 @@ void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::uint64_t n
     current_[at] += nbytes;
     total_[at] += nbytes;
     peak_[at] = std::max(peak_[at], current_[at]);
-    highest_peak_ = std::max(highest_peak_, current_[at]);
+    highest_peak_ = std::max(highest_peak_, current());
 }
 
 void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::uint64_t nbytes) {

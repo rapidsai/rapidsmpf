@@ -28,6 +28,7 @@ from rapidsmpf.communicator.ucxx import (
 )
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.string import format_bytes, parse_bytes
