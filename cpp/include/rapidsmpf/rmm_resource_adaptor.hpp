@@ -55,7 +55,7 @@ struct ScopedMemoryRecord {
  * @brief A RMM memory resource adaptor tailored to RapidsMPF.
  *
  * This adaptor implements:
- * - Memory usage tracking (current, total, peak).
+ * - Memory usage tracking.
  * - Fallback memory resource support upon out-of-memory in the primary resource.
  */
 class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
