@@ -19,6 +19,13 @@
 
 using namespace rapidsmpf;
 
+/**
+ * @brief User-defined literal for specifying memory sizes in MiB.
+ */
+constexpr std::size_t operator"" _MiB(unsigned long long val) {
+    return val * (1ull << 20);
+}
+
 template <typename ExceptionType>
 struct throw_at_limit_resource final : public rmm::mr::device_memory_resource {
     throw_at_limit_resource(std::size_t limit) : limit{limit} {}
@@ -47,41 +54,56 @@ struct throw_at_limit_resource final : public rmm::mr::device_memory_resource {
     std::unordered_set<void*> allocs{};
 };
 
-TEST(RmmResourceAdaptor, FailureAlternateTrackBothUpstreams) {
-    throw_at_limit_resource<rmm::out_of_memory> primary_mr{100};
-    throw_at_limit_resource<rmm::out_of_memory> fallback_mr{1000};
+TEST(RmmResourceAdaptor, TracksAllocationsAcrossResources) {
+    throw_at_limit_resource<rmm::out_of_memory> primary_mr{1_MiB};
+    throw_at_limit_resource<rmm::out_of_memory> fallback_mr{4_MiB};
     RmmResourceAdaptor mr{primary_mr, fallback_mr};
 
-    // Check that a small allocation goes to the primary resource.
-    {
-        void* a1 = mr.allocate(10);
-        EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{a1});
-        EXPECT_EQ(fallback_mr.allocs, std::unordered_set<void*>{});
-        mr.deallocate(a1, 10);
-        EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{});
-        EXPECT_EQ(fallback_mr.allocs, std::unordered_set<void*>{});
-    }
+    EXPECT_EQ(mr.current_allocated(), 0);
 
-    // Check that a large allocation goes to the fallback resource.
-    {
-        void* a1 = mr.allocate(200);
-        EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{});
-        EXPECT_EQ(fallback_mr.allocs, std::unordered_set<void*>{a1});
-        mr.deallocate(a1, 200);
-        EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{});
-        EXPECT_EQ(fallback_mr.allocs, std::unordered_set<void*>{});
-    }
+    void* p1 = mr.allocate(1_MiB);
+    EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{p1});
+    EXPECT_TRUE(fallback_mr.allocs.empty());
+    EXPECT_EQ(mr.current_allocated(), 1_MiB);
 
-    // Check that we get an error when the allocation cannot fit the
-    // primary or the fallback resource.
-    EXPECT_THROW(mr.allocate(2000), rmm::out_of_memory);
+    mr.deallocate(p1, 1_MiB);
+    EXPECT_TRUE(primary_mr.allocs.empty());
+    EXPECT_EQ(mr.current_allocated(), 0);
+
+    void* p2 = mr.allocate(2_MiB);
+    EXPECT_TRUE(primary_mr.allocs.empty());
+    EXPECT_EQ(fallback_mr.allocs, std::unordered_set<void*>{p2});
+    EXPECT_EQ(mr.current_allocated(), 2_MiB);
+
+    mr.deallocate(p2, 2_MiB);
+    EXPECT_TRUE(fallback_mr.allocs.empty());
+    EXPECT_EQ(mr.current_allocated(), 0);
 }
 
-TEST(FailureAlternateTest, FailureAlternateDifferentExceptionTypes) {
-    throw_at_limit_resource<std::invalid_argument> primary_mr{100};
-    throw_at_limit_resource<rmm::out_of_memory> fallback_mr{1000};
+TEST(RmmResourceAdaptor, NoFallbackUsedIfNotNecessary) {
+    throw_at_limit_resource<rmm::out_of_memory> primary_mr{4_MiB};
+    throw_at_limit_resource<rmm::out_of_memory> fallback_mr{8_MiB};
     RmmResourceAdaptor mr{primary_mr, fallback_mr};
 
-    // Check that `RmmResourceAdaptor` only catch `rmm::out_of_memory` exceptions.
-    EXPECT_THROW(mr.allocate(200), std::invalid_argument);
+    void* ptr = mr.allocate(1_MiB);
+    EXPECT_EQ(primary_mr.allocs.count(ptr), 1);
+    EXPECT_TRUE(fallback_mr.allocs.empty());
+
+    mr.deallocate(ptr, 1_MiB);
+}
+
+TEST(RmmResourceAdaptor, NoFallbackProvidedThrowsOnOOM) {
+    throw_at_limit_resource<rmm::out_of_memory> primary_mr{1_MiB};
+    RmmResourceAdaptor mr{primary_mr};
+
+    EXPECT_THROW(mr.allocate(8_MiB), rmm::out_of_memory);
+}
+
+TEST(RmmResourceAdaptor, RejectsNonOutOfMemoryExceptions) {
+    throw_at_limit_resource<std::logic_error> primary_mr{1_MiB};
+    throw_at_limit_resource<rmm::out_of_memory> fallback_mr{8_MiB};
+    RmmResourceAdaptor mr{primary_mr, fallback_mr};
+
+    EXPECT_THROW(mr.allocate(2_MiB), std::logic_error);
+    EXPECT_TRUE(fallback_mr.allocs.empty());
 }

@@ -101,9 +101,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      *
      * @return Total number of currently allocated bytes.
      */
-    [[nodiscard]] std::uint64_t current_allocated() const noexcept {
-        return primary_main_record_.current + fallback_main_record_.current;
-    }
+    [[nodiscard]] std::uint64_t current_allocated() const noexcept;
 
   private:
     /**
@@ -142,12 +140,12 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     [[nodiscard]] bool do_is_equal(rmm::mr::device_memory_resource const& other
     ) const noexcept override;
 
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     rmm::device_async_resource_ref primary_mr_;
     std::optional<rmm::device_async_resource_ref> fallback_mr_;
     std::unordered_set<void*> fallback_allocations_;
-    ScopedMemoryRecord primary_main_record_;
-    ScopedMemoryRecord fallback_main_record_;
+    ScopedMemoryRecord primary_record_;
+    ScopedMemoryRecord fallback_record_;
 };
 
 

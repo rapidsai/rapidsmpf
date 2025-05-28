@@ -7,18 +7,24 @@
 
 namespace rapidsmpf {
 
+
+std::uint64_t RmmResourceAdaptor::current_allocated() const noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return primary_record_.current + fallback_record_.current;
+}
+
 void* RmmResourceAdaptor::do_allocate(std::size_t bytes, rmm::cuda_stream_view stream) {
     void* ret{};
     try {
         ret = primary_mr_.allocate_async(bytes, stream);
         std::lock_guard<std::mutex> lock(mutex_);
-        primary_main_record_.record_allocation(bytes);
+        primary_record_.record_allocation(bytes);
     } catch (rmm::out_of_memory const& e) {
         if (fallback_mr_.has_value()) {
             ret = fallback_mr_->allocate_async(bytes, stream);
             std::lock_guard<std::mutex> lock(mutex_);
             fallback_allocations_.insert(ret);
-            fallback_main_record_.record_allocation(bytes);
+            fallback_record_.record_allocation(bytes);
         } else {
             throw;
         }
@@ -48,11 +54,11 @@ void RmmResourceAdaptor::do_deallocate(
     if (erase_fallback_allocation(mutex_, fallback_mr_, fallback_allocations_, ptr)) {
         fallback_mr_->deallocate_async(ptr, bytes, stream);
         std::lock_guard<std::mutex> lock(mutex_);
-        fallback_main_record_.record_deallocation(bytes);
+        fallback_record_.record_deallocation(bytes);
     } else {
         primary_mr_.deallocate_async(ptr, bytes, stream);
         std::lock_guard<std::mutex> lock(mutex_);
-        primary_main_record_.record_deallocation(bytes);
+        primary_record_.record_deallocation(bytes);
     }
 }
 
