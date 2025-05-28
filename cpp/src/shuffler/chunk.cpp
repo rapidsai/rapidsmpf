@@ -264,6 +264,149 @@ bool Chunk::validate_format(std::vector<uint8_t> const& serialized_buf) {
     return true;
 }
 
+Chunk Chunk::concat(
+    std::vector<Chunk>&& chunks,
+    ChunkID chunk_id,
+    rmm::cuda_stream_view stream,
+    BufferResource* br
+) {
+    RAPIDSMPF_EXPECTS(!chunks.empty(), "cannot concatenate empty vector of chunks");
+
+    // If there's only one chunk, just return it with the new chunk ID
+    if (chunks.size() == 1) {
+        return Chunk(
+            chunk_id,
+            std::move(chunks[0].part_ids_),
+            std::move(chunks[0].expected_num_chunks_),
+            std::move(chunks[0].meta_offsets_),
+            std::move(chunks[0].data_offsets_),
+            std::move(chunks[0].metadata_),
+            std::move(chunks[0].data_)
+        );
+    }
+
+    // Calculate total number of messages and sizes
+    size_t total_messages = 0;
+    size_t total_metadata_size = 0;
+    size_t total_data_size = 0;
+    for (const auto& chunk : chunks) {
+        total_messages += chunk.n_messages();
+        if (chunk.is_metadata_buffer_set()) {
+            total_metadata_size += chunk.concat_metadata_size();
+        }
+        if (chunk.is_data_buffer_set()) {
+            total_data_size += chunk.concat_data_size();
+        }
+    }
+
+    // Pre-allocate vectors
+    std::vector<PartID> part_ids(total_messages);
+    std::vector<size_t> expected_num_chunks(total_messages);
+    std::vector<uint32_t> meta_offsets(total_messages);
+    std::vector<uint64_t> data_offsets(total_messages);
+
+    // Create concatenated metadata buffer if needed
+    std::unique_ptr<std::vector<uint8_t>> concat_metadata;
+    if (total_metadata_size > 0) {
+        concat_metadata = std::make_unique<std::vector<uint8_t>>(total_metadata_size);
+    }
+
+    // Create concatenated data buffer if needed
+    std::unique_ptr<Buffer> concat_data;
+    if (total_data_size > 0) {
+        auto reserve = try_reserve_or_fail(br, total_data_size);
+        concat_data = br->allocate(reserve.mem_type(), total_data_size, stream, reserve);
+    } else {  // no data, allocate an empty host buffer
+        auto [res, ob] = br->reserve(MemoryType::HOST, 0, false);
+        concat_data = br->allocate(MemoryType::HOST, 0, stream, res);
+    }
+
+    // if the data buffer is on the device, we need to create an event to track the
+    // async copies
+    bool need_event = (concat_data->mem_type() == MemoryType::DEVICE);
+
+    // Track current offsets
+    uint32_t curr_meta_offset = 0;
+    uint64_t curr_data_offset = 0;
+    size_t curr_msg_offset = 0;
+
+    // Process each chunk
+    for (auto& chunk : chunks) {
+        size_t chunk_messages = chunk.n_messages();
+        // Copy partition IDs and expected number of chunks
+        std::memcpy(
+            part_ids.data() + curr_msg_offset,
+            chunk.part_ids_.data(),
+            chunk_messages * sizeof(PartID)
+        );
+        std::memcpy(
+            expected_num_chunks.data() + curr_msg_offset,
+            chunk.expected_num_chunks_.data(),
+            chunk_messages * sizeof(size_t)
+        );
+
+        // Process metadata
+        if (chunk.is_metadata_buffer_set()) {
+            // Copy metadata
+            std::memcpy(
+                concat_metadata->data() + curr_meta_offset,
+                chunk.metadata_->data(),
+                chunk.metadata_->size()
+            );
+
+            // Update metadata offsets
+            for (size_t i = 0; i < chunk_messages; ++i) {
+                curr_meta_offset += chunk.metadata_size(i);
+                meta_offsets[curr_msg_offset + i] = curr_meta_offset;
+            }
+        } else {
+            // No metadata, add zero offset
+            std::fill(
+                meta_offsets.begin() + int64_t(curr_msg_offset),
+                meta_offsets.begin() + int64_t(curr_msg_offset + chunk_messages),
+                curr_meta_offset
+            );
+        }
+
+        // Process data
+        if (chunk.is_data_buffer_set() && chunk.concat_data_size() > 0) {
+            // Copy data
+            std::ignore = chunk.data_->copy_to(
+                *concat_data, std::ptrdiff_t(curr_data_offset), stream, false
+            );
+            // Update offsets for each message in the chunk
+            for (size_t i = 0; i < chunk_messages; ++i) {
+                curr_data_offset += chunk.data_size(i);
+                data_offsets[curr_msg_offset + i] = curr_data_offset;
+            }
+            // if the staged buffer is on the device, we need an event
+            need_event |= (chunk.data_->mem_type() == MemoryType::DEVICE);
+        } else {
+            // No data, add zero offset
+            std::fill(
+                data_offsets.begin() + int64_t(curr_msg_offset),
+                data_offsets.begin() + int64_t(curr_msg_offset + chunk_messages),
+                curr_data_offset
+            );
+        }
+        curr_msg_offset += chunk_messages;
+    }
+
+    if (need_event) {  // create a new event to track the async copies
+        concat_data->override_event(std::make_shared<Buffer::Event>(stream));
+    }
+
+    return Chunk(
+        chunk_id,
+        std::move(part_ids),
+        std::move(expected_num_chunks),
+        std::move(meta_offsets),
+        std::move(data_offsets),
+        std::move(concat_metadata),
+        std::move(concat_data)
+    );
+}
+
 std::string Chunk::str(std::size_t /*max_nbytes*/, rmm::cuda_stream_view /*stream*/)
     const {
     std::stringstream ss;
@@ -321,138 +464,6 @@ std::unique_ptr<std::vector<uint8_t>> Chunk::serialize() const {
     }
 
     return metadata_buf;
-}
-
-ChunkBuilder::ChunkBuilder(
-    rmm::cuda_stream_view stream, BufferResource* br, size_t num_messages_hint
-)
-    : stream_(stream), br_(br) {
-    if (num_messages_hint > 0) {
-        part_ids_.reserve(num_messages_hint);
-        expected_num_chunks_.reserve(num_messages_hint);
-        meta_offsets_.reserve(num_messages_hint);
-        data_offsets_.reserve(num_messages_hint);
-        staged_metadata_.reserve(num_messages_hint);
-    }
-}
-
-ChunkBuilder& ChunkBuilder::add_control_message(
-    PartID part_id, size_t expected_num_chunks
-) {
-    part_ids_.push_back(part_id);
-    expected_num_chunks_.push_back(expected_num_chunks);
-    // For control messages, we need to add zero offsets since they don't have data
-    if (meta_offsets_.empty() && data_offsets_.empty()) {
-        meta_offsets_.push_back(0);
-        data_offsets_.push_back(0);
-    } else {
-        meta_offsets_.push_back(meta_offsets_.back());
-        data_offsets_.push_back(data_offsets_.back());
-    }
-    return *this;
-}
-
-ChunkBuilder& ChunkBuilder::add_packed_data(PartID part_id, PackedData&& packed_data) {
-    // Calculate metadata offset
-    RAPIDSMPF_EXPECTS(packed_data.metadata != nullptr, "packed_data.metadata is nullptr");
-    uint32_t meta_offset = meta_offsets_.empty() ? 0 : meta_offsets_.back();
-    meta_offset += packed_data.metadata->size();
-    meta_offsets_.push_back(meta_offset);
-
-    // Calculate data offset
-    uint64_t data_offset = data_offsets_.empty() ? 0 : data_offsets_.back();
-    if (packed_data.gpu_data) {
-        data_offset += packed_data.gpu_data->size();
-    }
-    data_offsets_.push_back(data_offset);
-
-    // Add the part id and expected number of chunks
-    part_ids_.push_back(part_id);
-    expected_num_chunks_.push_back(0);  // Data messages have 0 expected chunks
-
-    // Move the packed data into our staged buffers
-    if (packed_data.metadata) {
-        staged_metadata_.emplace_back(std::move(*packed_data.metadata));
-    }
-
-    if (packed_data.gpu_data) {
-        // trivially convert the rmm buffer to a Buffer.
-        // TODO: based on the current Buffer API, we are needlessly create an event for
-        // this operation. rmm buffer is only staged, until the chunk is built. During the
-        // build() method, a new event is created which can guarantee the completion of
-        // all staged operations.
-        staged_data_.emplace_back(
-            br_->move(std::move(packed_data.gpu_data), stream_, nullptr)
-        );
-    }
-
-    return *this;
-}
-
-Chunk ChunkBuilder::build(ChunkID chunk_id) {
-    RAPIDSMPF_EXPECTS(
-        !part_ids_.empty(), "No messages added to the chunk builder", std::runtime_error
-    );
-
-    // Concatenate metadata
-    auto metadata = std::make_unique<std::vector<uint8_t>>(meta_offsets_.back());
-    size_t meta_offset = 0;
-    for (auto&& meta : staged_metadata_) {
-        auto temp = std::move(meta);  // Move the vector to temp and destroy it
-        std::memcpy(metadata->data() + meta_offset, temp.data(), temp.size());
-        meta_offset += temp.size();
-    }
-
-    // Concatenate data
-    std::unique_ptr<Buffer> data;
-    size_t total_data_size = data_offsets_.back();
-    if (total_data_size > 0) {
-        assert(!staged_data_.empty());
-        // TODO(niranda): Handle spiiling
-
-        // try to allocate data buffer from memory types in order [DEVICE, HOST]
-        auto reserve = try_reserve_or_fail(br_, total_data_size);
-        data = br_->allocate(reserve.mem_type(), total_data_size, stream_, reserve);
-        RAPIDSMPF_EXPECTS(reserve.size() == 0, "didn't use all of the reservation");
-
-        // Copy the data from the staged buffers to the data buffer
-        std::ptrdiff_t data_offset = 0;
-        // if the data buffer is on the device, we need to create an event to track the
-        // async copies
-        bool need_event = (data->mem_type() == MemoryType::DEVICE);
-
-        for (auto&& staged_buf : staged_data_) {
-            auto temp = std::move(staged_buf);
-            // if staged buffer is empty, skip it
-            if (temp == nullptr || temp->size == 0) {
-                continue;
-            }
-
-            // copy the staged buffer to the data buffer
-            data_offset += temp->copy_to(*data, data_offset, stream_);
-
-            // if the staged buffer is on the device, we need an event
-            need_event |= (temp->mem_type() == MemoryType::DEVICE);
-        }
-        RAPIDSMPF_EXPECTS(size_t(data_offset) == total_data_size, "didn't copy all data");
-
-        if (need_event) {  // create a new event to track the async copies
-            data->override_event(std::make_shared<Buffer::Event>(stream_));
-        }
-    } else {  // No data messages, so let's allocate an empty host buffer
-        auto [res, size] = br_->reserve(MemoryType::HOST, 0, false);
-        data = br_->allocate(MemoryType::HOST, 0, stream_, res);
-    }
-
-    return {
-        chunk_id,
-        std::move(part_ids_),
-        std::move(expected_num_chunks_),
-        std::move(meta_offsets_),
-        std::move(data_offsets_),
-        std::move(metadata),
-        std::move(data)
-    };
 }
 
 }  // namespace rapidsmpf::shuffler::detail

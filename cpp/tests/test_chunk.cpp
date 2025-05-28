@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
@@ -121,167 +122,175 @@ TEST_F(ChunkTest, FromPackedData) {
     test_chunk(chunk3);
 }
 
-TEST_F(ChunkTest, ChunkBuilderControlMessages) {
+TEST_F(ChunkTest, ChunkConcatControlMessages) {
     ChunkID chunk_id = 123;
-    ChunkBuilder builder(stream, br.get(), 3);  // Hint for 3 messages
+    std::vector<Chunk> chunks;
 
-    // No messages added to the builder -> should throw
-    EXPECT_THROW(std::ignore = builder.build(0), std::runtime_error);
+    // Create three control message chunks
+    chunks.push_back(Chunk::from_finished_partition(0, 1, 10));
+    chunks.push_back(Chunk::from_finished_partition(0, 2, 20));
+    chunks.push_back(Chunk::from_finished_partition(0, 3, 30));
 
-    // Add three control messages
-    builder.add_control_message(1, 10).add_control_message(2, 20).add_control_message(
-        3, 30
-    );
+    auto concat_chunk = Chunk::concat(std::move(chunks), chunk_id, stream, br.get());
 
-    auto chunk = builder.build(chunk_id);
+    // Verify the concatenated chunk properties
+    EXPECT_EQ(concat_chunk.chunk_id(), chunk_id);
+    EXPECT_EQ(concat_chunk.n_messages(), 3);
 
-    // Verify the chunk properties
-    EXPECT_EQ(chunk.chunk_id(), chunk_id);
-    EXPECT_EQ(chunk.n_messages(), 3);
-
-    auto test_chunk = [&](size_t i, PartID part_id, size_t expected_num_chunks) {
-        EXPECT_EQ(chunk.part_id(i), part_id);
-        EXPECT_EQ(chunk.expected_num_chunks(i), expected_num_chunks);
-        EXPECT_TRUE(chunk.is_control_message(i));
-        EXPECT_EQ(chunk.metadata_size(i), 0);
-        EXPECT_EQ(chunk.data_size(i), 0);
-
-        auto chunk_copy = chunk.get_data(chunk_id, i, stream, br.get());
-        EXPECT_EQ(chunk_copy.part_id(0), part_id);
-        EXPECT_EQ(chunk_copy.expected_num_chunks(0), expected_num_chunks);
-        EXPECT_TRUE(chunk_copy.is_control_message(0));
-        EXPECT_EQ(chunk_copy.metadata_size(0), 0);
-        EXPECT_EQ(chunk_copy.data_size(0), 0);
+    // Verify each message in the concatenated chunk
+    auto test_message = [&](size_t i, PartID part_id, size_t expected_chunks) {
+        EXPECT_EQ(concat_chunk.part_id(i), part_id);
+        EXPECT_EQ(concat_chunk.expected_num_chunks(i), expected_chunks);
+        EXPECT_TRUE(concat_chunk.is_control_message(i));
+        EXPECT_EQ(concat_chunk.metadata_size(i), 0);
+        EXPECT_EQ(concat_chunk.data_size(i), 0);
     };
 
-    test_chunk(0, 1, 10);
-    test_chunk(1, 2, 20);
-    test_chunk(2, 3, 30);
-
-    // this is not the intended use of the release_metadata_buffer method, but this
-    EXPECT_EQ(chunk.release_metadata_buffer()->size(), 0);
-    EXPECT_EQ(chunk.release_data_buffer()->size, 0);
-
-    // after building, the builder is empty
-    EXPECT_THROW(std::ignore = builder.build(0), std::runtime_error);
+    test_message(0, 1, 10);
+    test_message(1, 2, 20);
+    test_message(2, 3, 30);
 }
 
-TEST_F(ChunkTest, ChunkBuilderPackedData) {
+TEST_F(ChunkTest, ChunkConcatPackedData) {
     ChunkID chunk_id = 123;
-    ChunkBuilder builder(stream, br.get(), 2);  // Hint for 2 messages
+    std::vector<Chunk> chunks;
 
-    // Create test metadata and data
+    // Create test metadata and data as single concatenated vectors
     std::vector<uint8_t> metadata{1, 2, 3, 7, 8};  // Concatenated metadata
     std::vector<uint8_t> data{4, 5, 6, 9, 10};  // Concatenated data
 
-    // Add the packed data messages using spans
-    builder
-        .add_packed_data(
-            1, create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream)
-        )
-        .add_packed_data(
-            2, create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream)
-        );
+    // Create two chunks with packed data using spans
+    chunks.push_back(Chunk::from_packed_data(
+        0,
+        1,
+        create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream),
+        nullptr,
+        stream,
+        br.get()
+    ));
+    chunks.push_back(Chunk::from_packed_data(
+        0,
+        2,
+        create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream),
+        nullptr,
+        stream,
+        br.get()
+    ));
 
-    auto chunk = builder.build(chunk_id);
+    auto concat_chunk = Chunk::concat(std::move(chunks), chunk_id, stream, br.get());
 
-    // Verify the chunk properties
-    EXPECT_EQ(chunk.chunk_id(), chunk_id);
-    EXPECT_EQ(chunk.n_messages(), 2);
+    // Verify the concatenated chunk properties
+    EXPECT_EQ(concat_chunk.chunk_id(), chunk_id);
+    EXPECT_EQ(concat_chunk.n_messages(), 2);
 
-    auto test_chunk = [&](size_t i, PartID part_id, size_t size) {
-        EXPECT_EQ(chunk.part_id(i), part_id);
-        EXPECT_EQ(chunk.expected_num_chunks(i), 0);
-        EXPECT_FALSE(chunk.is_control_message(i));
-        EXPECT_EQ(chunk.metadata_size(i), size);
-        EXPECT_EQ(chunk.data_size(i), size);
-
-        auto chunk_copy = chunk.get_data(chunk_id, i, stream, br.get());
-        EXPECT_EQ(chunk_copy.part_id(0), part_id);
-        EXPECT_EQ(chunk_copy.expected_num_chunks(0), 0);
-        EXPECT_FALSE(chunk_copy.is_control_message(0));
-        EXPECT_EQ(chunk_copy.metadata_size(0), size);
-        EXPECT_EQ(chunk_copy.data_size(0), size);
+    // Verify each message in the concatenated chunk
+    auto test_message = [&](size_t i, PartID part_id, size_t meta_size, size_t data_size
+                        ) {
+        EXPECT_EQ(concat_chunk.part_id(i), part_id);
+        EXPECT_EQ(concat_chunk.expected_num_chunks(i), 0);
+        EXPECT_FALSE(concat_chunk.is_control_message(i));
+        EXPECT_EQ(concat_chunk.metadata_size(i), meta_size);
+        EXPECT_EQ(concat_chunk.data_size(i), data_size);
     };
 
-    test_chunk(0, 1, 3);
-    test_chunk(1, 2, 2);
+    test_message(0, 1, 3, 3);
+    test_message(1, 2, 2, 2);
 
-    // Release and verify buffers
-    auto released_metadata = chunk.release_metadata_buffer();
-    auto released_data = chunk.release_data_buffer();
+    // Verify the concatenated metadata and data
+    auto released_metadata = concat_chunk.release_metadata_buffer();
+    auto released_data = concat_chunk.release_data_buffer();
 
-    // Verify metadata buffer
     ASSERT_NE(released_metadata, nullptr);
     EXPECT_EQ(released_metadata->size(), 5);  // Total size of both metadata chunks
-    EXPECT_EQ(metadata, *released_metadata);
+    EXPECT_EQ(*released_metadata, metadata);
 
-    // Verify data buffer
     ASSERT_NE(released_data, nullptr);
     EXPECT_EQ(released_data->size, 5);  // Total size of both data chunks
     std::vector<uint8_t> host_data(5);
     RAPIDSMPF_CUDA_TRY(
         cudaMemcpy(host_data.data(), released_data->data(), 5, cudaMemcpyDeviceToHost)
     );
-    EXPECT_EQ(data, host_data);
-
-    // after building, the builder is empty
-    EXPECT_THROW(std::ignore = builder.build(0), std::runtime_error);
+    EXPECT_EQ(host_data, data);
 }
 
-TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
-    ChunkID chunk_id = 123;
-    ChunkBuilder builder(stream, br.get(), 6);  // Hint for 7 messages
+std::tuple<Chunk, std::vector<uint8_t>, std::vector<uint8_t>, size_t> make_mixed_chunk(
+    ChunkID chunk_id, rmm::cuda_stream_view stream, BufferResource* br
+) {
+    std::vector<Chunk> chunks;
 
     // Create test metadata and data
-    std::vector<uint8_t> metadata{1, 2, 3, 4, 5, 6};  // Concatenated metadata
-    std::vector<uint8_t> data{6, 7, 8, 9, 10};  // Concatenated data
+    std::vector<uint8_t> metadata{1, 2, 3, 4, 5, 6};
+    std::vector<uint8_t> data{6, 7, 8, 9, 10};
 
-    // Add messages in sequence
-    builder.add_control_message(1, 10);  // control message 1
-    builder.add_packed_data(
-        2, create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream)
-    );  // packed data 1
-    builder.add_control_message(3, 40);  // control message 2
-    builder.add_packed_data(
-        4, create_packed_data({metadata.data() + 5, 0}, {data.data() + 5, 0}, stream)
-    );  // empty packed data - non-null
-    builder.add_packed_data(
-        5, create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream)
-    );  // packed data 2
-    builder.add_packed_data(
+    // Create chunks with mixed message types
+    chunks.push_back(Chunk::from_finished_partition(0, 1, 10));  // control message
+    chunks.push_back(Chunk::from_packed_data(
+        0,
+        2,
+        create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream),
+        nullptr,
+        stream,
+        br
+    ));  // packed data
+    chunks.push_back(Chunk::from_packed_data(
+        0,
+        3,
+        create_packed_data({metadata.data() + 5, 0}, {data.data() + 5, 0}, stream),
+        nullptr,
+        stream,
+        br
+    ));  // empty packed data - non-null
+    chunks.push_back(Chunk::from_finished_partition(0, 4, 20));  // control message
+    chunks.push_back(Chunk::from_packed_data(
+        0,
+        5,
+        create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream),
+        nullptr,
+        stream,
+        br
+    ));  // packed data
+    chunks.push_back(Chunk::from_packed_data(
+        0,
         6,
         PackedData{
             std::make_unique<std::vector<uint8_t>>(metadata.begin() + 5, metadata.end()),
             nullptr
-        }
-    );  // metadata only packed data
+        },
+        nullptr,
+        stream,
+        br
+    ));  // metadata only packed data
 
-    // Add empty packed data - null should throw a logic error
-    EXPECT_THROW(
-        builder.add_packed_data(7, PackedData{nullptr, nullptr}), std::logic_error
+    return std::make_tuple(
+        Chunk::concat(std::move(chunks), chunk_id, stream, br), metadata, data, 6
     );
+}
 
-    auto chunk = builder.build(chunk_id);
+TEST_F(ChunkTest, ChunkConcatMixedMessages) {
+    ChunkID chunk_id = 123;
 
-    // Verify the chunk properties
-    EXPECT_EQ(chunk.chunk_id(), chunk_id);
-    EXPECT_EQ(chunk.n_messages(), 6);
+    auto [concat_chunk, metadata, data, count] =
+        make_mixed_chunk(chunk_id, stream, br.get());
 
-    // Helper function to verify message properties
+    // Verify the concatenated chunk properties
+    EXPECT_EQ(concat_chunk.chunk_id(), chunk_id);
+    EXPECT_EQ(concat_chunk.n_messages(), count);
+
+    // Verify each message in the concatenated chunk
     auto test_message = [&](size_t i,
                             PartID part_id,
                             size_t expected_chunks,
                             bool is_control,
                             uint32_t meta_size,
                             size_t data_size) {
-        EXPECT_EQ(chunk.part_id(i), part_id);
-        EXPECT_EQ(chunk.expected_num_chunks(i), expected_chunks);
-        EXPECT_EQ(chunk.is_control_message(i), is_control);
-        EXPECT_EQ(chunk.metadata_size(i), meta_size);
-        EXPECT_EQ(chunk.data_size(i), data_size);
+        SCOPED_TRACE("test_message: " + std::to_string(i));
+        EXPECT_EQ(concat_chunk.part_id(i), part_id);
+        EXPECT_EQ(concat_chunk.expected_num_chunks(i), expected_chunks);
+        EXPECT_EQ(concat_chunk.is_control_message(i), is_control);
+        EXPECT_EQ(concat_chunk.metadata_size(i), meta_size);
+        EXPECT_EQ(concat_chunk.data_size(i), data_size);
 
-        auto chunk_copy = chunk.get_data(chunk_id, i, stream, br.get());
+        auto chunk_copy = concat_chunk.get_data(chunk_id, i, stream, br.get());
 
         EXPECT_EQ(chunk_copy.part_id(0), part_id);
         EXPECT_EQ(chunk_copy.expected_num_chunks(0), expected_chunks);
@@ -290,36 +299,129 @@ TEST_F(ChunkTest, ChunkBuilderMixedMessages) {
         EXPECT_EQ(chunk_copy.data_size(0), data_size);
     };
 
-    // Verify each message
-    test_message(0, 1, 10, true, 0, 0);  // control message 1
-    test_message(1, 2, 0, false, 3, 3);  // packed data 1
-    test_message(2, 3, 40, true, 0, 0);  // control message 2
-    test_message(3, 4, 0, false, 0, 0);  // empty packed data - non-null
-    test_message(4, 5, 0, false, 2, 2);  // packed data 2
+    test_message(0, 1, 10, true, 0, 0);  // control message
+    test_message(1, 2, 0, false, 3, 3);  // packed data
+    test_message(2, 3, 0, false, 0, 0);  // empty packed data - non-null
+    test_message(3, 4, 20, true, 0, 0);  // control message
+    test_message(4, 5, 0, false, 2, 2);  // packed data
     test_message(5, 6, 0, false, 1, 0);  // metadata only packed data
 
-    // Release and verify buffers
-    auto released_metadata = chunk.release_metadata_buffer();
-    auto released_data = chunk.release_data_buffer();
+    // Verify the concatenated metadata and data
+    auto released_metadata = concat_chunk.release_metadata_buffer();
+    auto released_data = concat_chunk.release_data_buffer();
 
-    // Verify metadata buffer
     ASSERT_NE(released_metadata, nullptr);
-    EXPECT_EQ(metadata, *released_metadata);
+    EXPECT_EQ(released_metadata->size(), 6);  // Total size of metadata
+    EXPECT_EQ(*released_metadata, metadata);
 
-    // Verify data buffer
     ASSERT_NE(released_data, nullptr);
-    EXPECT_EQ(released_data->size, data.size());  // Total size of data
-    std::vector<uint8_t> host_data(data.size());
-    RAPIDSMPF_CUDA_TRY(cudaMemcpy(
-        host_data.data(), released_data->data(), data.size(), cudaMemcpyDeviceToHost
-    ));
-    EXPECT_EQ(data, host_data);
-
-    // after building, the builder is empty
-    EXPECT_THROW(std::ignore = builder.build(0), std::runtime_error);
+    EXPECT_EQ(released_data->size, 5);  // Total size of data
+    std::vector<uint8_t> host_data(5);
+    RAPIDSMPF_CUDA_TRY(
+        cudaMemcpy(host_data.data(), released_data->data(), 5, cudaMemcpyDeviceToHost)
+    );
+    EXPECT_EQ(host_data, data);
 }
 
-TEST_F(ChunkTest, ChunkWithHostBuffer) {
+TEST_F(ChunkTest, ChunkConcatMixedMessagesMultiple) {
+    auto [concat_chunk1, metadata1, data1, count1] =
+        make_mixed_chunk(0, stream, br.get());
+    auto [concat_chunk2, metadata2, data2, count2] =
+        make_mixed_chunk(1, stream, br.get());
+
+    std::vector<Chunk> chunks;
+    chunks.push_back(std::move(concat_chunk1));
+    chunks.push_back(std::move(concat_chunk2));
+
+    auto concat_chunk = Chunk::concat(std::move(chunks), 2, stream, br.get());
+
+    // Verify the concatenated chunk properties
+    EXPECT_EQ(concat_chunk.chunk_id(), 2);
+    EXPECT_EQ(concat_chunk.n_messages(), count1 + count2);
+
+    // Verify the concatenated metadata and data
+    auto released_metadata = concat_chunk.release_metadata_buffer();
+    auto released_data = concat_chunk.release_data_buffer();
+
+    ASSERT_NE(released_metadata, nullptr);
+    // Total size of metadata
+    EXPECT_EQ(released_metadata->size(), metadata1.size() + metadata2.size());
+    EXPECT_TRUE(std::equal(metadata1.begin(), metadata1.end(), released_metadata->begin())
+    );
+    EXPECT_TRUE(std::equal(
+        metadata2.begin(), metadata2.end(), released_metadata->begin() + metadata1.size()
+    ));
+
+    ASSERT_NE(released_data, nullptr);
+    EXPECT_EQ(released_data->size, data1.size() + data2.size());  // Total size of data
+    std::vector<uint8_t> host_data(data1.size() + data2.size());
+    RAPIDSMPF_CUDA_TRY(cudaMemcpy(
+        host_data.data(),
+        released_data->data(),
+        data1.size() + data2.size(),
+        cudaMemcpyDeviceToHost
+    ));
+    EXPECT_TRUE(std::equal(data1.begin(), data1.end(), host_data.begin()));
+    EXPECT_TRUE(std::equal(data2.begin(), data2.end(), host_data.begin() + data1.size()));
+}
+
+TEST_F(ChunkTest, ChunkConcatSingleChunk) {
+    ChunkID chunk_id = 123;
+    std::vector<Chunk> chunks;
+
+    // Create a single chunk with packed data
+    std::vector<uint8_t> metadata{1, 2, 3};
+    std::vector<uint8_t> data{4, 5, 6};
+
+    auto packed_data = create_packed_data(metadata, data, stream);
+    auto expected_metadata_ptr = packed_data.metadata->data();
+    auto expected_data_ptr = packed_data.gpu_data->data();
+
+    chunks.push_back(
+        Chunk::from_packed_data(0, 1, std::move(packed_data), nullptr, stream, br.get())
+    );
+
+    auto concat_chunk = Chunk::concat(std::move(chunks), chunk_id, stream, br.get());
+
+    // Verify the concatenated chunk properties
+    EXPECT_EQ(concat_chunk.chunk_id(), chunk_id);
+    EXPECT_EQ(concat_chunk.n_messages(), 1);
+
+    // Verify the message in the concatenated chunk
+    EXPECT_EQ(concat_chunk.part_id(0), 1);
+    EXPECT_EQ(concat_chunk.expected_num_chunks(0), 0);
+    EXPECT_FALSE(concat_chunk.is_control_message(0));
+    EXPECT_EQ(concat_chunk.metadata_size(0), 3);
+    EXPECT_EQ(concat_chunk.data_size(0), 3);
+
+    // Verify the metadata and data
+    auto released_metadata = concat_chunk.release_metadata_buffer();
+    auto released_data = concat_chunk.release_data_buffer();
+
+    ASSERT_NE(released_metadata, nullptr);
+    EXPECT_EQ(*released_metadata, metadata);
+    // verify the metadata pointer is the same as the original pointer
+    EXPECT_EQ(released_metadata->data(), expected_metadata_ptr);
+
+    ASSERT_NE(released_data, nullptr);
+    EXPECT_EQ(released_data->size, 3);
+    std::vector<uint8_t> host_data(3);
+    RAPIDSMPF_CUDA_TRY(
+        cudaMemcpy(host_data.data(), released_data->data(), 3, cudaMemcpyDeviceToHost)
+    );
+    EXPECT_EQ(host_data, data);
+    // verify the data pointer is the same as the original pointer
+    EXPECT_EQ(released_data->data(), expected_data_ptr);
+}
+
+TEST_F(ChunkTest, ChunkConcatEmptyVector) {
+    std::vector<Chunk> chunks;
+    EXPECT_THROW(
+        Chunk::concat(std::move(chunks), 123, stream, br.get()), std::logic_error
+    );
+}
+
+TEST_F(ChunkTest, ChunkConcatHostBufferAllocation) {
     // create a new buffer resource with only host memory available
     br = std::make_unique<BufferResource>(
         cudf::get_current_device_resource_ref(),
@@ -329,14 +431,21 @@ TEST_F(ChunkTest, ChunkWithHostBuffer) {
     );
 
     ChunkID chunk_id = 123;
-    ChunkBuilder builder(stream, br.get(), 2);
 
     // Create test metadata and data
     std::vector<uint8_t> metadata{1, 2, 3, 7, 8};  // Concatenated metadata
     std::vector<uint8_t> data{4, 5, 6, 9, 10};  // Concatenated data
 
-    auto chunk = builder.add_packed_data(1, create_packed_data(metadata, data, stream))
-                     .build(chunk_id);
+    // create two chunks with packed data -> this should concatenate the two chunks into a
+    // single chunk
+    std::vector<Chunk> chunks;
+    chunks.push_back(Chunk::from_packed_data(
+        1, 1, create_packed_data(metadata, data, stream), nullptr, stream, br.get()
+    ));
+    chunks.push_back(Chunk::from_packed_data(
+        2, 2, create_packed_data(metadata, data, stream), nullptr, stream, br.get()
+    ));
+    auto chunk = Chunk::concat(std::move(chunks), chunk_id, stream, br.get());
 
     EXPECT_EQ(MemoryType::HOST, chunk.data_memory_type());
 }

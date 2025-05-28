@@ -575,26 +575,6 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     br_->spill_manager().spill_to_make_headroom(0);
 }
 
-std::vector<std::unique_ptr<ChunkBuilder>> remote_chunk_builders(
-    Communicator const& comm,
-    size_t npartitions,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
-) {
-    std::vector<std::unique_ptr<ChunkBuilder>> chunk_builders;
-    chunk_builders.reserve(static_cast<std::size_t>(comm.nranks()));
-    for (Rank rank = 0; rank < comm.nranks(); ++rank) {
-        if (rank == comm.rank()) {  // if a chunk is, local, do not concatenate
-            chunk_builders.emplace_back(nullptr);
-        } else {
-            chunk_builders.emplace_back(std::make_unique<ChunkBuilder>(
-                stream, br, npartitions / size_t(comm.nranks())
-            ));
-        }
-    }
-    return chunk_builders;
-}
-
 void Shuffler::insert_grouped(std::unordered_map<PartID, PackedData>&& chunks) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
@@ -609,23 +589,26 @@ void Shuffler::insert_grouped(std::unordered_map<PartID, PackedData>&& chunks) {
 
     // TODO handle spilling
 
-    // Create a chunk builder for each rank.
-    auto chunk_builders =
-        remote_chunk_builders(*comm_, total_num_partitions, stream_, br_);
+    // Create a chunk group for each rank.
+    std::vector<std::vector<Chunk>> chunk_groups(size_t(comm_->nranks()));
+    // reserve space for each group assuming an even distribution of chunks
+    for (auto&& group : chunk_groups) {
+        group.reserve(chunks.size() / size_t(comm_->nranks()));
+    }
 
     // total size of data staged in all builders
     int64_t total_staged_data_ = 0;
     auto init_event = std::make_shared<Buffer::Event>(stream_);
-    bool all_builders_built = false;
+    bool all_groups_built = false;
 
-    // lambda to build all builders and insert the chunks
-    auto build_all_builders_and_insert = [&]() {
-        for (auto& builder : chunk_builders) {
-            if (builder && !builder->empty()) {
-                insert(builder->build(get_new_cid()));
+    // lambda to build all groups and insert the chunks
+    auto build_all_groups_and_insert = [&]() {
+        for (auto&& group : chunk_groups) {
+            if (!group.empty()) {
+                insert(Chunk::concat(std::move(group), get_new_cid(), stream_, br_));
             }
         }
-        all_builders_built = true;
+        all_groups_built = true;
     };
 
     for (auto& [pid, packed_data] : chunks) {
@@ -634,33 +617,34 @@ void Shuffler::insert_grouped(std::unordered_map<PartID, PackedData>&& chunks) {
         // if the chunk is local, do not concatenate
         if (target_rank == comm_->rank()) {
             // no builder for local chunks
-            assert(chunk_builders[static_cast<size_t>(target_rank)] == nullptr);
             insert(create_chunk(pid, std::move(packed_data), init_event));
             continue;
         }
 
         // if the packed data size + total_staged_data_ > headroom, no room to add more
         // chunks any of the builders. So, call build on all builders.
-        if (!all_builders_built
+        if (!all_groups_built
             && (int64_t(packed_data.gpu_data->size()) + total_staged_data_ > headroom))
         {
-            build_all_builders_and_insert();
+            build_all_groups_and_insert();
         }
 
-        if (all_builders_built) {
+        if (all_groups_built) {
             // insert this chunk without concatenating
             insert(create_chunk(pid, std::move(packed_data), init_event));
         } else {
             // insert this chunk into the builder
             total_staged_data_ += packed_data.gpu_data->ssize();
-            chunk_builders[size_t(target_rank)]->add_packed_data(
-                pid, std::move(packed_data)
+            chunk_groups[size_t(target_rank)].emplace_back(
+                create_chunk(pid, std::move(packed_data), init_event)
             );
         }
     }
 
     // build any remaining chunks
-    build_all_builders_and_insert();
+    if (!all_groups_built) {
+        build_all_groups_and_insert();
+    }
 }
 
 void Shuffler::insert_finished(PartID pid) {
@@ -686,27 +670,30 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
         }
     }
 
-    auto chunk_builders =
-        remote_chunk_builders(*comm_, total_num_partitions, stream_, br_);
+    // Create a chunk group for each rank.
+    std::vector<std::vector<Chunk>> chunk_groups(size_t(comm_->nranks()));
+    // reserve space for each group assuming an even distribution of chunks
+    for (auto&& group : chunk_groups) {
+        group.reserve(pids.size() / size_t(comm_->nranks()));
+    }
 
     for (size_t i = 0; i < pids.size(); ++i) {
         Rank target_rank = partition_owner(comm_, pids[i]);
 
-        if (target_rank == comm_->rank()) {  // no builder for local chunks
-            assert(chunk_builders[static_cast<size_t>(target_rank)] == nullptr);
-            insert(detail::Chunk::from_finished_partition(
+        if (target_rank == comm_->rank()) {  // no group for local chunks
+            insert(Chunk::from_finished_partition(
                 get_new_cid(), pids[i], expected_num_chunks[i] + 1
             ));
         } else {
-            chunk_builders[static_cast<size_t>(target_rank)]->add_control_message(
-                pids[i], expected_num_chunks[i] + 1
-            );
+            chunk_groups[size_t(target_rank)].emplace_back(Chunk::from_finished_partition(
+                get_new_cid(), pids[i], expected_num_chunks[i] + 1
+            ));
         }
     }
 
-    for (auto& builder : chunk_builders) {
-        if (builder && !builder->empty()) {
-            insert(builder->build(get_new_cid()));
+    for (auto&& group : chunk_groups) {
+        if (!group.empty()) {
+            insert(Chunk::concat(std::move(group), get_new_cid(), stream_, br_));
         }
     }
 }
