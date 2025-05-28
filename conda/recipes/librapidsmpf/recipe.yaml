@@ -83,6 +83,7 @@ outputs:
         - cmake ${{ cmake_version }}
         - ${{ stdlib("c") }}
       host:
+        - benchmark
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
         - libcudf =${{ minor_version }}
@@ -124,6 +125,7 @@ outputs:
         - cmake ${{ cmake_version }}
         - ${{ stdlib("c") }}
       host:
+        - benchmark
         - cuda-cudart-dev
         - cuda-version =${{ cuda_version }}
         - libcudf =${{ minor_version }}
