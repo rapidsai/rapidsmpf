@@ -85,6 +85,7 @@ files:
       - build-universal
       - depends_on_libcudf
       - depends_on_librmm
+      - depends_on_libucxx
   py_build_rapidsmpf:
     output: pyproject
     pyproject_dir: python/rapidsmpf
@@ -302,71 +303,6 @@ dependencies:
             packages: &cupy_packages_cu12
               - cupy-cuda12x>=12.0.0
           - {matrix: null, packages: *cupy_packages_cu12}
-  # build_librapidsmpf:
-  #   common:
-  #     - output_types: conda
-  #       packages:
-  #         - &libcudf_unsuffixed libcudf==25.6.*,>=0.0.0a0
-  #         - &librmm_unsuffixed librmm==25.6.*,>=0.0.0a0
-  #         - &ucxx_unsuffixed ucxx==0.44.*,>=0.0.0a0
-  #     - output_types: requirements
-  #       packages:
-  #         # pip recognizes the index as a global option for the requirements.txt file
-  #         # This index is needed for libcudf-cu{11,12}.
-  #         - --extra-index-url=https://pypi.nvidia.com
-  #         - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
-  #   specific:
-  #     - output_types: [requirements, pyproject]
-  #       matrices:
-  #         - matrix:
-  #             cuda: "12.*"
-  #             cuda_suffixed: "true"
-  #           packages:
-  #             - libcudf-cu12==25.6.*,>=0.0.0a0
-  #             - librmm-cu12==25.6.*,>=0.0.0a0
-  #             - libucxx-cu12==0.44.*,>=0.0.0a0
-  #             - libucx-cu12==1.18.*,>=0.0.0a0
-  #         - matrix: null
-  #           packages:
-  #             - *libcudf_unsuffixed
-  #             - *librmm_unsuffixed
-  #             - *ucxx_unsuffixed
-  # build_rapidsmpf:
-  #   common:
-  #     - output_types: conda
-  #       packages:
-  #         - *libcudf_unsuffixed
-  #         - *librmm_unsuffixed
-  #         - &pylibcudf_unsuffixed pylibcudf==25.6.*,>=0.0.0a0
-  #         - rmm=25.6.*,>=0.0.0a0
-  #         - *ucxx_unsuffixed
-  #     - output_types: requirements
-  #       packages:
-  #         # pip recognizes the index as a global option for the requirements.txt file
-  #         # This index is needed for libcudf-cu{11,12}.
-  #         - --extra-index-url=https://pypi.nvidia.com
-  #         - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
-  #   specific:
-  #     - output_types: [requirements, pyproject]
-  #       matrices:
-  #         - matrix:
-  #             cuda: "12.*"
-  #             cuda_suffixed: "true"
-  #           packages:
-  #             - libcudf-cu12==25.6.*,>=0.0.0a0
-  #             - librmm-cu12==25.6.*,>=0.0.0a0
-  #             - pylibcudf-cu12==25.6.*,>=0.0.0a0
-  #             - rmm-cu12==25.6.*,>=0.0.0a0
-  #             - ucxx-cu12==0.44.*,>=0.0.0a0
-  #             - libucxx-cu12==0.44.*,>=0.0.0a0
-  #             - libucx-cu12==1.18.*,>=0.0.0a0
-  #         - matrix: null
-  #           packages:
-  #             - *libcudf_unsuffixed
-  #             - *librmm_unsuffixed
-  #             - *pylibcudf_unsuffixed
-  #             - *rmm_unsuffixed
-  #             - *ucxx_unsuffixed
   depends_on_librapidsmpf:
     common:
       - output_types: conda
