@@ -362,7 +362,8 @@ def bootstrap_dask_cluster(
     enable_statistics
         Whether to track shuffler statistics.
     options
-        Configuration options. Takes precedence over the other function arguments.
+        Configuration options. This argument takes precedence: if not None, the
+        other arguments (beside `client`) are ignored!
         TODO: remove the other arguments beside `client`.
 
     Notes
