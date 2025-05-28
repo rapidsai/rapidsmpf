@@ -344,7 +344,7 @@ def bootstrap_dask_cluster(
     """
     Setup a Dask cluster for RapidsMPF shuffling.
 
-    Calling `bootstrap_dask_cluster` multiple times on the same worker is a
+    Calling ``bootstrap_dask_cluster`` multiple times on the same worker is a
     noop, which also means that any new options values are ignored.
 
     Parameters
@@ -366,8 +366,8 @@ def bootstrap_dask_cluster(
         Whether to track shuffler statistics.
     options
         Configuration options. This argument takes precedence: if not None, the
-        other arguments (beside `client`) are ignored!
-        TODO: remove the other arguments beside `client`.
+        other arguments (beside ``client``) are ignored!
+        TODO: remove the other arguments beside ``client``.
 
     Notes
     -----
