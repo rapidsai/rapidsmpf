@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TypeVar
 
 T = TypeVar("T")
@@ -12,7 +12,10 @@ class Options:
         self,
         options_as_strings: Mapping[str, str] | None = None,
     ) -> None: ...
-    def get_or_assign(self, key: str, parser_type: type[T], default_value: T) -> T: ...
+    def get(
+        self, key: str, *, return_type: type[T], factory: Callable[[str], T]
+    ) -> T: ...
+    def get_or_default(self, key: str, *, default_value: T) -> T: ...
     def get_strings(self) -> dict[str, str]: ...
     def serialize(self) -> bytes: ...
     @staticmethod
