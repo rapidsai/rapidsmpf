@@ -35,22 +35,11 @@ namespace rapidsmpf {
  */
 class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
   public:
-    /**
-     * @brief Construct a new `RmmResourceAdaptor` that uses `primary_upstream`
-     * to satisfy allocation requests and if that fails with `rmm::out_of_memory`,
-     * uses `fallback_mr` (if not null).
-     *
-     * @param primary_upstream The primary resource used for allocating/deallocating
-     * device memory
-     * @param fallback_mr The fallback resource used for allocating/deallocating
-     * device memory memory
-     *
-     */
     RmmResourceAdaptor(
-        rmm::device_async_resource_ref primary_upstream,
+        rmm::device_async_resource_ref primary_mr,
         std::optional<rmm::device_async_resource_ref> fallback_mr = std::nullopt
     )
-        : primary_upstream_{primary_upstream}, fallback_upstream_{fallback_mr} {}
+        : primary_mr_{primary_mr}, fallback_mr_{fallback_mr} {}
 
     RmmResourceAdaptor() = delete;
     ~RmmResourceAdaptor() override = default;
@@ -61,7 +50,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      * @return Reference to the RMM memory resource.
      */
     [[nodiscard]] rmm::device_async_resource_ref get_upstream_resource() const noexcept {
-        return primary_upstream_;
+        return primary_mr_;
     }
 
     /**
@@ -71,9 +60,9 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      *
      * @return Reference to the RMM memory resource.
      */
-    [[nodiscard]] std::optional<rmm::device_async_resource_ref>
-    get_fallback_upstream_resource() const noexcept {
-        return fallback_upstream_;
+    [[nodiscard]] std::optional<rmm::device_async_resource_ref> get_fallback_resource(
+    ) const noexcept {
+        return fallback_mr_;
     }
 
   private:
@@ -111,8 +100,8 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     ) const noexcept override;
 
     std::mutex mutex_;
-    rmm::device_async_resource_ref primary_upstream_;
-    std::optional<rmm::device_async_resource_ref> fallback_upstream_;
+    rmm::device_async_resource_ref primary_mr_;
+    std::optional<rmm::device_async_resource_ref> fallback_mr_;
     std::unordered_set<void*> fallback_allocations_;
 };
 
