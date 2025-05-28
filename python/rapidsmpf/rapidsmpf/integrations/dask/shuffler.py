@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 
     from distributed import Client, Worker
 
+    from rapidsmpf.config import Options
+
 
 # Set of available shuffle IDs
 _shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
@@ -370,6 +372,7 @@ def rapidsmpf_shuffle_graph(
     integration: DaskIntegration,
     options: Any,
     *other_keys: str | tuple[str, int],
+    config_options: Options | None = None,
 ) -> dict[Any, Any]:
     """
     Return the task graph for a RapidsMPF shuffle.
@@ -390,6 +393,8 @@ def rapidsmpf_shuffle_graph(
         Optional key-word arguments.
     *other_keys
         Other keys needed by ``integration.insert_partition``.
+    config_options
+        RapidsMPF configuration options.
 
     Returns
     -------
@@ -455,7 +460,7 @@ def rapidsmpf_shuffle_graph(
     and they must also depend on the second global-barrier task.
     """
     # Get the shuffle id
-    client = get_dask_client()
+    client = get_dask_client(options=config_options)
     shuffle_id = _get_new_shuffle_id(client)
 
     # Check integration argument
