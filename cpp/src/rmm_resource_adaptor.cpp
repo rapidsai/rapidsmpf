@@ -10,8 +10,8 @@ namespace rapidsmpf {
 
 std::uint64_t ScopedMemoryRecord::num_total_allocs(AllocType alloc_type) const noexcept {
     if (alloc_type == AllocType::ALL) {
-        return num_total_allocs(AllocType::Primary)
-               + num_total_allocs(AllocType::Fallback);
+        return num_total_allocs(AllocType::PRIMARY)
+               + num_total_allocs(AllocType::FALLBACK);
     }
     return num_total_allocs_[static_cast<std::size_t>(alloc_type)];
 }
@@ -19,22 +19,22 @@ std::uint64_t ScopedMemoryRecord::num_total_allocs(AllocType alloc_type) const n
 std::uint64_t ScopedMemoryRecord::num_current_allocs(AllocType alloc_type
 ) const noexcept {
     if (alloc_type == AllocType::ALL) {
-        return num_current_allocs(AllocType::Primary)
-               + num_current_allocs(AllocType::Fallback);
+        return num_current_allocs(AllocType::PRIMARY)
+               + num_current_allocs(AllocType::FALLBACK);
     }
     return num_current_allocs_[static_cast<std::size_t>(alloc_type)];
 }
 
 std::uint64_t ScopedMemoryRecord::current(AllocType alloc_type) const noexcept {
     if (alloc_type == AllocType::ALL) {
-        return current(AllocType::Primary) + current(AllocType::Fallback);
+        return current(AllocType::PRIMARY) + current(AllocType::FALLBACK);
     }
     return current_[static_cast<std::size_t>(alloc_type)];
 }
 
 std::uint64_t ScopedMemoryRecord::total(AllocType alloc_type) const noexcept {
     if (alloc_type == AllocType::ALL) {
-        return total(AllocType::Primary) + total(AllocType::Fallback);
+        return total(AllocType::PRIMARY) + total(AllocType::FALLBACK);
     }
     return total_[static_cast<std::size_t>(alloc_type)];
 }
@@ -72,13 +72,13 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
     try {
         ret = primary_mr_.allocate_async(nbytes, stream);
         std::lock_guard<std::mutex> lock(mutex_);
-        record_.record_allocation(ScopedMemoryRecord::AllocType::Primary, nbytes);
+        record_.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, nbytes);
     } catch (rmm::out_of_memory const& e) {
         if (fallback_mr_.has_value()) {
             ret = fallback_mr_->allocate_async(nbytes, stream);
             std::lock_guard<std::mutex> lock(mutex_);
             fallback_allocations_.insert(ret);
-            record_.record_allocation(ScopedMemoryRecord::AllocType::Fallback, nbytes);
+            record_.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, nbytes);
         } else {
             throw;
         }
@@ -108,11 +108,11 @@ void RmmResourceAdaptor::do_deallocate(
     if (erase_fallback_allocation(mutex_, fallback_mr_, fallback_allocations_, ptr)) {
         fallback_mr_->deallocate_async(ptr, nbytes, stream);
         std::lock_guard<std::mutex> lock(mutex_);
-        record_.record_deallocation(ScopedMemoryRecord::AllocType::Fallback, nbytes);
+        record_.record_deallocation(ScopedMemoryRecord::AllocType::FALLBACK, nbytes);
     } else {
         primary_mr_.deallocate_async(ptr, nbytes, stream);
         std::lock_guard<std::mutex> lock(mutex_);
-        record_.record_deallocation(ScopedMemoryRecord::AllocType::Primary, nbytes);
+        record_.record_deallocation(ScopedMemoryRecord::AllocType::PRIMARY, nbytes);
     }
 }
 

@@ -23,8 +23,8 @@ namespace rapidsmpf {
 struct ScopedMemoryRecord {
     /// Allocation source types.
     enum class AllocType : std::size_t {
-        Primary = 0,  ///< The primary allocator (first-choice allocator).
-        Fallback = 1,  ///< The fallback allocator (used when the primary fails).
+        PRIMARY = 0,  ///< The primary allocator (first-choice allocator).
+        FALLBACK = 1,  ///< The fallback allocator (used when the primary fails).
         ALL = 2  ///< Aggregated statistics from both primary and fallback allocators.
     };
 
