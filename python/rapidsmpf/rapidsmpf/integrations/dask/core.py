@@ -344,6 +344,9 @@ def bootstrap_dask_cluster(
     """
     Setup a Dask cluster for RapidsMPF shuffling.
 
+    Calling `bootstrap_dask_cluster` multiple times on the same worker is a
+    noop, which also means that any new options values are ignored.
+
     Parameters
     ----------
     client
@@ -384,11 +387,6 @@ def bootstrap_dask_cluster(
         raise ValueError("Client must be synchronous")
 
     if client.id in _initialized_clusters:
-        if options is not None:
-            raise ValueError(
-                "cannot set RapidsMPF options when the dask cluster has been "
-                "bootstrapping already."
-            )
         return
 
     # TODO: remove when `options` is the only function argument beside `client`.
