@@ -177,6 +177,19 @@ cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
         assert ret  # The dynamic cast should always succeed.
         return ret
 
+    def get_record(self):
+        """Get a copy of the tracked record.
+
+        Returns
+        -------
+        Scoped memory record instance.
+        """
+        cdef cpp_RmmResourceAdaptor* mr = self.get_handle()
+        cdef ScopedMemoryRecord ret = ScopedMemoryRecord.__new__(ScopedMemoryRecord)
+        with nogil:
+            ret._handle = deref(mr).get_record()
+        return ret
+
     @property
     def current_allocated(self) -> int:
         """Get the total number of currently allocated bytes.
