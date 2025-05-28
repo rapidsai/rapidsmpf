@@ -56,16 +56,9 @@ install(
   EXCLUDE_FROM_ALL
 )
 
-# add google benchmark and link statically
-FetchContent_Declare(
-  benchmark
-  GIT_REPOSITORY https://github.com/google/benchmark.git
-  GIT_TAG v1.8.3
-)
-set(BENCHMARK_ENABLE_TESTING OFF)
-set(BENCHMARK_ENABLE_INSTALL OFF)
-set(BUILD_SHARED_LIBS OFF)
-FetchContent_MakeAvailable(benchmark)
+# Find or install GoogleBench
+include(${rapids-cmake-dir}/cpm/gbench.cmake)
+rapids_cpm_gbench(BUILD_STATIC)
 
 add_executable(bench_partition "bench_partition.cpp" ${UTILS_SOURCES})
 set_target_properties(
