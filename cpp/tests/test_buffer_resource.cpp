@@ -599,9 +599,9 @@ TEST(BufferResource, CopySliceDifferentResources) {
     BufferResource br2{&stats_mr2};
 
     // Create source buf1 on br1
-    auto [reserved1, ob1] = br1.reserve(MemoryType::DEVICE, buffer_size, false);
-    auto buf1 = br1.allocate(MemoryType::DEVICE, buffer_size, stream, reserved1);
-    EXPECT_EQ(reserved1.size(), 0);  // reservation should be consumed
+    auto [reserv1, ob1] = br1.reserve(MemoryType::DEVICE, buffer_size, false);
+    auto buf1 = br1.allocate(MemoryType::DEVICE, buffer_size, stream, reserv1);
+    EXPECT_EQ(reserv1.size(), 0);  // reservation should be consumed
     EXPECT_EQ(buf1->size, buffer_size);
 
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
@@ -617,12 +617,12 @@ TEST(BufferResource, CopySliceDifferentResources) {
     EXPECT_EQ(stats_mr1.get_record().total(), buffer_size);
 
     // Reserve memory for the slice on br2
-    auto [reserved2, ob2] = br2.reserve(MemoryType::DEVICE, slice_length, false);
+    auto [reserv2, ob2] = br2.reserve(MemoryType::DEVICE, slice_length, false);
 
     // Create slice of buf1 on br2
-    auto buf2 = buf1->copy_slice(slice_offset, slice_length, reserved2, stream);
+    auto buf2 = buf1->copy_slice(slice_offset, slice_length, reserv2, stream);
     EXPECT_EQ(buf2->size, slice_length);
-    EXPECT_EQ(reserved2.size(), 0);  // reservation should be consumed
+    EXPECT_EQ(reserv2.size(), 0);  // reservation should be consumed
     buf2->wait_for_ready();
 
     // Verify br1 hasn't allocated any more memory
