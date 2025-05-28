@@ -56,7 +56,16 @@ install(
   EXCLUDE_FROM_ALL
 )
 
-find_package(benchmark REQUIRED)
+# add google benchmark and link statically
+FetchContent_Declare(
+  benchmark
+  GIT_REPOSITORY https://github.com/google/benchmark.git
+  GIT_TAG v1.8.3
+)
+set(BENCHMARK_ENABLE_TESTING OFF)
+set(BENCHMARK_ENABLE_INSTALL OFF)
+set(BUILD_SHARED_LIBS OFF)
+FetchContent_MakeAvailable(benchmark)
 
 add_executable(bench_partition "bench_partition.cpp" ${UTILS_SOURCES})
 set_target_properties(
@@ -74,8 +83,9 @@ target_compile_options(
                           "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  bench_partition PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp benchmark::benchmark
-                          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
+  bench_partition
+  PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp benchmark::benchmark benchmark::benchmark_main
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
 )
 install(
   TARGETS bench_partition

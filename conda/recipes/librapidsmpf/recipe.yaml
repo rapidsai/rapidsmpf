@@ -55,7 +55,6 @@ cache:
       - ninja
       - ${{ stdlib("c") }}
     host:
-      - benchmark
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
       - librmm =${{ minor_version }}
@@ -90,7 +89,6 @@ outputs:
         - openmpi
         - ucxx ${{ ucxx_version }}
       run:
-        - benchmark
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cudart
         - librmm =${{ minor_version }}
@@ -133,7 +131,6 @@ outputs:
         - openmpi
         - ${{ pin_subpackage("librapidsmpf", exact=True) }}
       run:
-        - benchmark
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cudart
         - librmm =${{ minor_version }}
