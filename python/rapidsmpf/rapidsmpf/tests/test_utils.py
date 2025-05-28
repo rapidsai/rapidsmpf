@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from rapidsmpf.utils.string import format_bytes, parse_bytes
+from rapidsmpf.utils.string import format_bytes, parse_boolean, parse_bytes
 
 
 def test_format_bytes() -> None:
@@ -25,3 +25,19 @@ def test_parse_bytes() -> None:
         match="Could not parse byte string: '5 foo'",
     ):
         parse_bytes("5 foo")
+
+
+@pytest.mark.parametrize("input_str", ["true", "TRUE", "  yes ", "1", "On"])
+def test_parse_boolean_true(input_str: str) -> None:
+    assert parse_boolean(input_str) is True
+
+
+@pytest.mark.parametrize("input_str", ["false", "FALSE", "  no ", "0", "Off"])
+def test_parse_boolean_false(input_str: str) -> None:
+    assert parse_boolean(input_str) is False
+
+
+@pytest.mark.parametrize("invalid_str", ["maybe", "2", "", "none", "yep"])
+def test_parse_boolean_invalid(invalid_str: str) -> None:
+    with pytest.raises(ValueError, match="Cannot parse boolean"):
+        parse_boolean(invalid_str)
