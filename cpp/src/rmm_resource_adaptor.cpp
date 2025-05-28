@@ -11,11 +11,14 @@ void* RmmResourceAdaptor::do_allocate(std::size_t bytes, rmm::cuda_stream_view s
     void* ret{};
     try {
         ret = primary_mr_.allocate_async(bytes, stream);
+        std::lock_guard<std::mutex> lock(mutex_);
+        primary_main_record_.record_allocation(bytes);
     } catch (rmm::out_of_memory const& e) {
         if (fallback_mr_.has_value()) {
             ret = fallback_mr_->allocate_async(bytes, stream);
             std::lock_guard<std::mutex> lock(mutex_);
             fallback_allocations_.insert(ret);
+            fallback_main_record_.record_allocation(bytes);
         } else {
             throw;
         }
@@ -23,21 +26,34 @@ void* RmmResourceAdaptor::do_allocate(std::size_t bytes, rmm::cuda_stream_view s
     return ret;
 }
 
+namespace {
+// If it exist, erase fallback allocation and return true else return false.
+bool erase_fallback_allocation(
+    std::mutex& mutex,
+    std::optional<rmm::device_async_resource_ref> const& fallback_mr,
+    std::unordered_set<void*>& fallback_allocations,
+    void* ptr
+) {
+    if (fallback_mr.has_value()) {
+        std::lock_guard<std::mutex> lock(mutex);
+        return fallback_allocations.erase(ptr) == 1;
+    }
+    return false;
+}
+}  // namespace
+
 void RmmResourceAdaptor::do_deallocate(
     void* ptr, std::size_t bytes, rmm::cuda_stream_view stream
 ) {
-    if (fallback_mr_.has_value()) {
-        std::size_t count{0};
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            count = fallback_allocations_.erase(ptr);
-        }
-        if (count > 0) {
-            fallback_mr_->deallocate_async(ptr, bytes, stream);
-            return;
-        }
+    if (erase_fallback_allocation(mutex_, fallback_mr_, fallback_allocations_, ptr)) {
+        fallback_mr_->deallocate_async(ptr, bytes, stream);
+        std::lock_guard<std::mutex> lock(mutex_);
+        fallback_main_record_.record_deallocation(bytes);
+    } else {
+        primary_mr_.deallocate_async(ptr, bytes, stream);
+        std::lock_guard<std::mutex> lock(mutex_);
+        primary_main_record_.record_deallocation(bytes);
     }
-    primary_mr_.deallocate_async(ptr, bytes, stream);
 }
 
 bool RmmResourceAdaptor::do_is_equal(rmm::mr::device_memory_resource const& other

@@ -16,6 +16,25 @@
 
 namespace rapidsmpf {
 
+struct ScopedMemoryRecord {
+    std::uint64_t num_calls{0};  ///< Number of times the scope was executed.
+    std::uint64_t num_allocs{0};  ///< Total number of allocations in the scope.
+    std::uint64_t current{0};  ///< Current memory allocated in the scope (bytes).
+    std::uint64_t total{0};  ///< Total memory allocated in the scope (bytes).
+    std::uint64_t peak{0};  ///< Peak memory usage in the scope (bytes).
+
+    void record_allocation(std::uint64_t nbytes) {
+        ++num_allocs;
+        current += nbytes;
+        total += nbytes;
+        peak = std::max(nbytes, peak);
+    }
+
+    void record_deallocation(std::uint64_t nbytes) {
+        current -= nbytes;
+    }
+};
+
 /**
  * @brief A RMM memory resource adaptor tailored to RapidsMPF.
  *
@@ -103,6 +122,8 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     rmm::device_async_resource_ref primary_mr_;
     std::optional<rmm::device_async_resource_ref> fallback_mr_;
     std::unordered_set<void*> fallback_allocations_;
+    ScopedMemoryRecord primary_main_record_;
+    ScopedMemoryRecord fallback_main_record_;
 };
 
 
