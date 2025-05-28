@@ -3,30 +3,15 @@
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint64_t
+from libcpp.cast cimport dynamic_cast
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
-                                           UpstreamResourceAdaptor,
-                                           device_memory_resource)
+                                           UpstreamResourceAdaptor)
 
-
-cdef extern from "<rapidsmpf/rmm_resource_adaptor.hpp>" nogil:
-    cdef cppclass cpp_RmmResourceAdaptor"rapidsmpf::RmmResourceAdaptor"(
-        device_memory_resource
-    ):
-        cpp_RmmResourceAdaptor(
-            device_memory_resource* upstream_mr
-        ) except +
-
-        cpp_RmmResourceAdaptor(
-            device_memory_resource* upstream_mr,
-            device_memory_resource* fallback_mr,
-        ) except +
-
-        uint64_t current_allocated() noexcept
+# Pointer alias used by `dynamic_cast`, which doesn't accept pointer types.
+ctypedef cpp_RmmResourceAdaptor* cpp_RmmResourceAdaptor_ptr
 
 
 cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
-    cdef readonly DeviceMemoryResource fallback_mr
-
     def __cinit__(
         self,
         *,
@@ -69,6 +54,13 @@ cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
         with nogil:
             self.c_obj.reset()
 
+    cdef cpp_RmmResourceAdaptor* get_handle(self):
+        cdef cpp_RmmResourceAdaptor* ret = dynamic_cast[cpp_RmmResourceAdaptor_ptr](
+            self.c_obj.get()
+        )
+        assert ret  # The dynamic cast should always succeed.
+        return ret
+
     @property
     def current_allocated(self) -> int:
         """Get the total number of currently allocated bytes.
@@ -79,7 +71,7 @@ cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
         -------
         Total number of currently allocated bytes.
         """
-        cdef cpp_RmmResourceAdaptor* mr = <cpp_RmmResourceAdaptor*> self.c_obj.get()
+        cdef cpp_RmmResourceAdaptor* mr = self.get_handle()
         cdef uint64_t ret
         with nogil:
             ret = deref(mr).current_allocated()
