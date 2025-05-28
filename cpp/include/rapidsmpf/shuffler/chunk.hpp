@@ -338,7 +338,7 @@ class Chunk {
      * @param stream The CUDA stream to use for copying data.
      * @param br The buffer resource to use for memory allocation.
      * @return Chunk The concatenated chunk.
-     * @throws std::runtime_error if the input vector is empty.
+     * @throws std::logic_error if the input vector is empty.
      */
     static Chunk concat(
         std::vector<Chunk>&& chunks,
