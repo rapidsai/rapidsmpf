@@ -21,6 +21,7 @@ from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler, partition_and_pack, unpack_and_concat
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
@@ -264,7 +265,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
         comm = ucxx_mpi_setup(options)
 
     # Create a RMM stack with both a device pool and statistics.
-    mr = rmm.mr.StatisticsResourceAdaptor(
+    mr = RmmResourceAdaptor(
         rmm.mr.PoolMemoryResource(
             rmm.mr.CudaMemoryResource(),
             initial_pool_size=args.rmm_pool_size,

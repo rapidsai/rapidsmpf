@@ -7,8 +7,8 @@ from rmm.pylibrmm.stream import Stream
 class RmmResourceAdaptor:
     def __init__(
         self,
-        *,
         upstream_mr: DeviceMemoryResource,
+        *,
         fallback_mr: DeviceMemoryResource | None = None,
     ): ...
     @property

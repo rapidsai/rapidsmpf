@@ -10,6 +10,7 @@ import rmm.mr
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 
 
 @pytest.mark.parametrize(
@@ -98,7 +99,7 @@ def test_periodic_spill_check(
 ) -> None:
     # Create a buffer resource with a negative limit to trigger spilling and
     # a periodic spill check enabled.
-    mr = rmm.mr.StatisticsResourceAdaptor(device_mr)
+    mr = RmmResourceAdaptor(device_mr)
     mem_available = LimitAvailableMemory(mr, limit=-100)
     br = BufferResource(
         mr,
@@ -122,7 +123,7 @@ def test_spill_to_make_headroom(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
     # Create a buffer resource with a fixed limit of 100 bytes.
-    mr = rmm.mr.StatisticsResourceAdaptor(device_mr)
+    mr = RmmResourceAdaptor(device_mr)
     mem_available = LimitAvailableMemory(mr, limit=100)
     br = BufferResource(
         mr,

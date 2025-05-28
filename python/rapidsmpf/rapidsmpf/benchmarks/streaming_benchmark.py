@@ -234,7 +234,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     progress_thread = ProgressThread(comm, stats)
 
     # Create a RMM stack with both a device pool and statistics.
-    mr = rmm.mr.StatisticsResourceAdaptor(
+    mr = RmmResourceAdaptor(
         rmm.mr.PoolMemoryResource(
             rmm.mr.CudaMemoryResource(),
             initial_pool_size=args.rmm_pool_size,

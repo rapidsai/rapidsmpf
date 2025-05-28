@@ -14,8 +14,8 @@ ctypedef cpp_RmmResourceAdaptor* cpp_RmmResourceAdaptor_ptr
 cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
     def __cinit__(
         self,
-        *,
         DeviceMemoryResource upstream_mr,
+        *,
         DeviceMemoryResource fallback_mr = None,
     ):
         """

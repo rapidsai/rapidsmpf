@@ -254,7 +254,7 @@ def rmpf_worker_setup(
 
         # Setup a buffer_resource.
         # Wrap the current RMM resource in statistics adaptor.
-        mr = rmm.mr.StatisticsResourceAdaptor(mr)
+        mr = RmmResourceAdaptor(mr)
         rmm.mr.set_current_device_resource(mr)
         total_memory = rmm.mr.available_device_memory()[1]
         memory_available = {

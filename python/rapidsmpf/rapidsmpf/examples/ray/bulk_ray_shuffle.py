@@ -88,7 +88,7 @@ class BulkRayShufflerActor(BaseShufflingActor):
         super().setup_worker(root_address_bytes)
 
         # Initialize the RMM memory resource
-        mr = rmm.mr.StatisticsResourceAdaptor(
+        mr = RmmResourceAdaptor(
             rmm.mr.PoolMemoryResource(
                 rmm.mr.CudaMemoryResource(),
                 initial_pool_size=self.rmm_pool_size,
