@@ -162,9 +162,3 @@ int main(int argc, char** argv) {
     RAPIDSMPF_MPI(MPI_Finalize());
 }
 ```
-
-## Communicator
-
-### MPI
-
-### UCX
