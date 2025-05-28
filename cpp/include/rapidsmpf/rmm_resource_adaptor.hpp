@@ -42,7 +42,7 @@ struct ScopedMemoryRecord {
  *
  * Memory Statistics
  * -----------------
- *
+ * This MR tracks the memory usage
  *
  *
  * Alternate on OOM
@@ -82,6 +82,11 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     [[nodiscard]] std::optional<rmm::device_async_resource_ref> get_fallback_resource(
     ) const noexcept {
         return fallback_mr_;
+    }
+
+    // both primary and fallback allocations.
+    [[nodiscard]] std::uint64_t current_allocated() const noexcept {
+        return primary_main_record_.current + fallback_main_record_.current;
     }
 
   private:
