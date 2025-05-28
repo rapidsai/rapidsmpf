@@ -29,12 +29,27 @@ struct ScopedMemoryRecord {
     };
 
     /**
-     * @brief Returns the number of allocations performed by the specified allocator type.
+     * @brief Returns the total number of allocations performed by the specified allocator
+     * type.
      *
-     * @param alloc_type The allocator type to query. Defaults to the sum of all types.
+     * @param alloc_type The allocator type to query. Use `AllocType::ALL` to return the
+     * sum across all types.
      * @return The number of allocations for the specified type.
      */
-    [[nodiscard]] std::uint64_t num_allocs(AllocType alloc_type = AllocType::ALL)
+    [[nodiscard]] std::uint64_t num_total_allocs(AllocType alloc_type = AllocType::ALL)
+        const noexcept;
+
+    /**
+     * @brief Returns the number of currently active (non-deallocated) allocations
+     *        for the specified allocator type.
+     *
+     * This reflects the number of allocations that have not yet been deallocated.
+     *
+     * @param alloc_type The allocator type to query. Use `AllocType::ALL` to return the
+     * sum across all types.
+     * @return The number of active allocations for the specified type.
+     */
+    [[nodiscard]] std::uint64_t num_current_allocs(AllocType alloc_type = AllocType::ALL)
         const noexcept;
 
     /**
@@ -42,7 +57,8 @@ struct ScopedMemoryRecord {
      *
      * Current usage is the total bytes currently allocated but not yet deallocated.
      *
-     * @param alloc_type The allocator type to query. Defaults to the sum of all types.
+     * @param alloc_type The allocator type to query. Use `AllocType::ALL` to return the
+     * sum across all types.
      * @return The current memory usage in bytes for the specified type.
      */
     [[nodiscard]] std::uint64_t current(AllocType alloc_type = AllocType::ALL)
@@ -54,18 +70,22 @@ struct ScopedMemoryRecord {
      *
      * This value accumulates over time and is not reduced by deallocations.
      *
-     * @param alloc_type The allocator type to query. Defaults to the sum of all types.
+     * @param alloc_type The allocator type to query. Use `AllocType::ALL` to return
+     * the sum across all types.
      * @return The total number of bytes allocated for the specified type.
      */
     [[nodiscard]] std::uint64_t total(AllocType alloc_type = AllocType::ALL)
         const noexcept;
 
     /**
-     * @brief Returns the peak memory usage in bytes for the specified allocator type.
+     * @brief Returns the peak memory usage (in bytes) for the specified allocator type.
      *
-     * The peak represents the highest observed value of current memory usage.
-     * When querying with `AllocType::ALL`, this returns the maximum of all recorded
-     * peaks.
+     * The peak represents the highest value reached by current memory usage over the
+     * lifetime of the allocator. It does not decrease after deallocations.
+     *
+     * When queried with `AllocType::ALL`, this returns the highest combined memory
+     * usage ever observed across both primary and fallback allocators, not the sum of
+     * individual peaks.
      *
      * @param alloc_type The allocator type to query. Defaults to `AllocType::ALL`.
      * @return The peak memory usage in bytes for the specified type.
@@ -95,7 +115,8 @@ struct ScopedMemoryRecord {
     void record_deallocation(AllocType alloc_type, std::uint64_t nbytes);
 
   private:
-    std::array<std::uint64_t, 2> num_allocs_{{0, 0}};
+    std::array<std::uint64_t, 2> num_current_allocs_{{0, 0}};
+    std::array<std::uint64_t, 2> num_total_allocs_{{0, 0}};
     std::array<std::uint64_t, 2> current_{{0, 0}};
     std::array<std::uint64_t, 2> total_{{0, 0}};
     std::array<std::uint64_t, 2> peak_{{0, 0}};

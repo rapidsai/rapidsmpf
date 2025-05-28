@@ -8,11 +8,21 @@
 namespace rapidsmpf {
 
 
-std::uint64_t ScopedMemoryRecord::num_allocs(AllocType alloc_type) const noexcept {
+std::uint64_t ScopedMemoryRecord::num_total_allocs(AllocType alloc_type) const noexcept {
     if (alloc_type == AllocType::ALL) {
-        return num_allocs(AllocType::Primary) + num_allocs(AllocType::Fallback);
+        return num_total_allocs(AllocType::Primary)
+               + num_total_allocs(AllocType::Fallback);
     }
-    return num_allocs_[static_cast<std::size_t>(alloc_type)];
+    return num_total_allocs_[static_cast<std::size_t>(alloc_type)];
+}
+
+std::uint64_t ScopedMemoryRecord::num_current_allocs(AllocType alloc_type
+) const noexcept {
+    if (alloc_type == AllocType::ALL) {
+        return num_current_allocs(AllocType::Primary)
+               + num_current_allocs(AllocType::Fallback);
+    }
+    return num_current_allocs_[static_cast<std::size_t>(alloc_type)];
 }
 
 std::uint64_t ScopedMemoryRecord::current(AllocType alloc_type) const noexcept {
@@ -38,7 +48,8 @@ std::uint64_t ScopedMemoryRecord::peak(AllocType alloc_type) const noexcept {
 
 void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::uint64_t nbytes) {
     auto at = static_cast<std::size_t>(alloc_type);
-    ++num_allocs_[at];
+    ++num_total_allocs_[at];
+    ++num_current_allocs_[at];
     current_[at] += nbytes;
     total_[at] += nbytes;
     peak_[at] = std::max(peak_[at], current_[at]);
@@ -48,6 +59,7 @@ void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::uint64_t n
 void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::uint64_t nbytes) {
     auto at = static_cast<std::size_t>(alloc_type);
     current_[at] -= nbytes;
+    --num_current_allocs_[at];
 }
 
 std::uint64_t RmmResourceAdaptor::current_allocated() const noexcept {
