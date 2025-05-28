@@ -107,3 +107,40 @@ TEST(RmmResourceAdaptor, RejectsNonOutOfMemoryExceptions) {
     EXPECT_THROW(mr.allocate(2_MiB), std::logic_error);
     EXPECT_TRUE(fallback_mr.allocs.empty());
 }
+
+TEST(RmmResourceAdaptor, RecordReflectsCorrectStatistics) {
+    throw_at_limit_resource<rmm::out_of_memory> primary_mr{1_MiB};
+    throw_at_limit_resource<rmm::out_of_memory> fallback_mr{4_MiB};
+    RmmResourceAdaptor mr{primary_mr, fallback_mr};
+
+    auto const& record_before = mr.get_record();
+    EXPECT_EQ(record_before.num_allocs(ScopedMemoryRecord::AllocType::Primary), 0);
+    EXPECT_EQ(record_before.num_allocs(ScopedMemoryRecord::AllocType::Fallback), 0);
+    EXPECT_EQ(record_before.current(ScopedMemoryRecord::AllocType::Primary), 0);
+    EXPECT_EQ(record_before.current(ScopedMemoryRecord::AllocType::Fallback), 0);
+    EXPECT_EQ(record_before.highest_peak(), 0);
+
+    void* p1 = mr.allocate(1_MiB);  // primary
+    auto const& record_after_p1 = mr.get_record();
+    EXPECT_EQ(record_after_p1.num_allocs(ScopedMemoryRecord::AllocType::Primary), 1);
+    EXPECT_EQ(record_after_p1.current(ScopedMemoryRecord::AllocType::Primary), 1_MiB);
+    EXPECT_EQ(record_after_p1.total(ScopedMemoryRecord::AllocType::Primary), 1_MiB);
+    EXPECT_EQ(record_after_p1.peak(ScopedMemoryRecord::AllocType::Primary), 1_MiB);
+    EXPECT_EQ(record_after_p1.highest_peak(), 1_MiB);
+
+    mr.deallocate(p1, 1_MiB);
+    auto const& record_after_d1 = mr.get_record();
+    EXPECT_EQ(record_after_d1.current(ScopedMemoryRecord::AllocType::Primary), 0);
+
+    void* p2 = mr.allocate(2_MiB);  // fallback
+    auto const& record_after_p2 = mr.get_record();
+    EXPECT_EQ(record_after_p2.num_allocs(ScopedMemoryRecord::AllocType::Fallback), 1);
+    EXPECT_EQ(record_after_p2.current(ScopedMemoryRecord::AllocType::Fallback), 2_MiB);
+    EXPECT_EQ(record_after_p2.total(ScopedMemoryRecord::AllocType::Fallback), 2_MiB);
+    EXPECT_EQ(record_after_p2.peak(ScopedMemoryRecord::AllocType::Fallback), 2_MiB);
+    EXPECT_EQ(record_after_p2.highest_peak(), 2_MiB);
+
+    mr.deallocate(p2, 2_MiB);
+    auto const& record_final = mr.get_record();
+    EXPECT_EQ(record_final.current(ScopedMemoryRecord::AllocType::Fallback), 0);
+}

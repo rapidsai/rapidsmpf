@@ -16,8 +16,9 @@
 #include <rmm/resource_ref.hpp>
 
 namespace rapidsmpf {
+
 /**
- * @brief Tracks memory statistics for a specific scope.
+ * @brief Memory statistics for a specific scope.
  */
 struct ScopedMemoryRecord {
     /// Allocation source types.
@@ -26,23 +27,57 @@ struct ScopedMemoryRecord {
         Fallback = 1
     };
 
-    /// Number of times the scope was executed.
-    std::uint64_t num_calls{0};
+    /**
+     * @brief Returns the number of allocations for the specified allocator type.
+     * @param alloc_type The allocator type.
+     * @return Number of allocations for the given allocator type.
+     */
+    [[nodiscard]] std::uint64_t num_allocs(AllocType alloc_type) const noexcept {
+        return num_allocs_[static_cast<std::size_t>(alloc_type)];
+    }
 
-    /// Number of allocations by allocator type.
-    std::array<std::uint64_t, 2> num_allocs = {0};
+    /**
+     * @brief Returns the current memory usage (bytes) for the specified allocator type.
+     * @param alloc_type The allocator type.
+     * @return Current memory usage in bytes for the given allocator type.
+     */
+    [[nodiscard]] std::uint64_t current(AllocType alloc_type) const noexcept {
+        return current_[static_cast<std::size_t>(alloc_type)];
+    }
 
-    /// Current memory usage (bytes) by allocator type.
-    std::array<std::uint64_t, 2> current = {0};
+    /**
+     * @brief Returns the total memory allocated (bytes) for the specified allocator type.
+     * @param alloc_type The allocator type.
+     * @return Total memory allocated in bytes for the given allocator type.
+     */
+    [[nodiscard]] std::uint64_t total(AllocType alloc_type) const noexcept {
+        return total_[static_cast<std::size_t>(alloc_type)];
+    }
 
-    /// Total memory allocated (bytes) by allocator type.
-    std::array<std::uint64_t, 2> total = {0};
+    /**
+     * @brief Returns the peak memory usage (bytes) for the specified allocator type.
+     * @param alloc_type The allocator type.
+     * @return Peak memory usage in bytes for the given allocator type.
+     */
+    [[nodiscard]] std::uint64_t peak(AllocType alloc_type) const noexcept {
+        return peak_[static_cast<std::size_t>(alloc_type)];
+    }
 
-    /// Peak memory usage (bytes) by allocator type.
-    std::array<std::uint64_t, 2> peak = {0};
+    /**
+     * @brief Returns the highest combined memory usage (bytes).
+     * @return Highest combined memory usage in bytes.
+     */
+    [[nodiscard]] std::uint64_t highest_peak() const noexcept {
+        return highest_peak_;
+    }
 
-    /// Highest combined memory usage (bytes).
-    std::uint64_t highest_peak = {0};
+    /**
+     * @brief Returns the number of times the scope was executed.
+     * @return Number of times the scope was executed.
+     */
+    [[nodiscard]] std::uint64_t num_calls() const noexcept {
+        return num_calls_;
+    }
 
     /**
      * @brief Records a memory allocation.
@@ -55,11 +90,11 @@ struct ScopedMemoryRecord {
      */
     void record_allocation(AllocType alloc_type, std::uint64_t nbytes) {
         auto at = static_cast<std::size_t>(alloc_type);
-        ++num_allocs[at];
-        current[at] += nbytes;
-        total[at] += nbytes;
-        peak[at] = std::max(peak[at], nbytes);
-        highest_peak = std::max(highest_peak, nbytes);
+        ++num_allocs_[at];
+        current_[at] += nbytes;
+        total_[at] += nbytes;
+        peak_[at] = std::max(peak_[at], current_[at]);
+        highest_peak_ = std::max(highest_peak_, current_[at]);
     }
 
     /**
@@ -72,8 +107,16 @@ struct ScopedMemoryRecord {
      */
     void record_deallocation(AllocType alloc_type, std::uint64_t nbytes) {
         auto at = static_cast<std::size_t>(alloc_type);
-        current[at] -= nbytes;
+        current_[at] -= nbytes;
     }
+
+  private:
+    std::uint64_t num_calls_{0};
+    std::array<std::uint64_t, 2> num_allocs_{{0, 0}};
+    std::array<std::uint64_t, 2> current_{{0, 0}};
+    std::array<std::uint64_t, 2> total_{{0, 0}};
+    std::array<std::uint64_t, 2> peak_{{0, 0}};
+    std::uint64_t highest_peak_{0};
 };
 
 /**

@@ -9,10 +9,9 @@ namespace rapidsmpf {
 
 
 std::uint64_t RmmResourceAdaptor::current_allocated() const noexcept {
-    auto primary = static_cast<std::size_t>(ScopedMemoryRecord::AllocType::Primary);
-    auto fallback = static_cast<std::size_t>(ScopedMemoryRecord::AllocType::Fallback);
     std::lock_guard<std::mutex> lock(mutex_);
-    return record_.current[primary] + record_.current[fallback];
+    return record_.current(ScopedMemoryRecord::AllocType::Primary)
+           + record_.current(ScopedMemoryRecord::AllocType::Fallback);
 }
 
 void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view stream) {
