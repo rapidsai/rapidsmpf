@@ -8,6 +8,34 @@
 namespace rapidsmpf {
 
 
+std::uint64_t ScopedMemoryRecord::num_allocs(AllocType alloc_type) const noexcept {
+    if (alloc_type == AllocType::ALL) {
+        return num_allocs(AllocType::Primary) + num_allocs(AllocType::Fallback);
+    }
+    return num_allocs_[static_cast<std::size_t>(alloc_type)];
+}
+
+std::uint64_t ScopedMemoryRecord::current(AllocType alloc_type) const noexcept {
+    if (alloc_type == AllocType::ALL) {
+        return current(AllocType::Primary) + current(AllocType::Fallback);
+    }
+    return current_[static_cast<std::size_t>(alloc_type)];
+}
+
+std::uint64_t ScopedMemoryRecord::total(AllocType alloc_type) const noexcept {
+    if (alloc_type == AllocType::ALL) {
+        return total(AllocType::Primary) + total(AllocType::Fallback);
+    }
+    return total_[static_cast<std::size_t>(alloc_type)];
+}
+
+std::uint64_t ScopedMemoryRecord::peak(AllocType alloc_type) const noexcept {
+    if (alloc_type == AllocType::ALL) {
+        return highest_peak_;
+    }
+    return peak_[static_cast<std::size_t>(alloc_type)];
+}
+
 void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::uint64_t nbytes) {
     auto at = static_cast<std::size_t>(alloc_type);
     ++num_allocs_[at];
@@ -24,8 +52,7 @@ void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::uint64_t
 
 std::uint64_t RmmResourceAdaptor::current_allocated() const noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
-    return record_.current(ScopedMemoryRecord::AllocType::Primary)
-           + record_.current(ScopedMemoryRecord::AllocType::Fallback);
+    return record_.current();
 }
 
 void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view stream) {
@@ -89,4 +116,5 @@ bool RmmResourceAdaptor::do_is_equal(rmm::mr::device_memory_resource const& othe
     return get_upstream_resource() == cast->get_upstream_resource()
            && get_fallback_resource() == cast->get_fallback_resource();
 }
+
 }  // namespace rapidsmpf

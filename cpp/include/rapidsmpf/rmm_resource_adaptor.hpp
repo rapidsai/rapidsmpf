@@ -23,85 +23,78 @@ namespace rapidsmpf {
 struct ScopedMemoryRecord {
     /// Allocation source types.
     enum class AllocType : std::size_t {
-        Primary = 0,
-        Fallback = 1
+        Primary = 0,  ///< The primary allocator (first-choice allocator).
+        Fallback = 1,  ///< The fallback allocator (used when the primary fails).
+        ALL = 2  ///< Aggregated statistics from both primary and fallback allocators.
     };
 
     /**
-     * @brief Returns the number of allocations for the specified allocator type.
-     * @param alloc_type The allocator type.
-     * @return Number of allocations for the given allocator type.
-     */
-    [[nodiscard]] std::uint64_t num_allocs(AllocType alloc_type) const noexcept {
-        return num_allocs_[static_cast<std::size_t>(alloc_type)];
-    }
-
-    /**
-     * @brief Returns the current memory usage (bytes) for the specified allocator type.
-     * @param alloc_type The allocator type.
-     * @return Current memory usage in bytes for the given allocator type.
-     */
-    [[nodiscard]] std::uint64_t current(AllocType alloc_type) const noexcept {
-        return current_[static_cast<std::size_t>(alloc_type)];
-    }
-
-    /**
-     * @brief Returns the total memory allocated (bytes) for the specified allocator type.
-     * @param alloc_type The allocator type.
-     * @return Total memory allocated in bytes for the given allocator type.
-     */
-    [[nodiscard]] std::uint64_t total(AllocType alloc_type) const noexcept {
-        return total_[static_cast<std::size_t>(alloc_type)];
-    }
-
-    /**
-     * @brief Returns the peak memory usage (bytes) for the specified allocator type.
-     * @param alloc_type The allocator type.
-     * @return Peak memory usage in bytes for the given allocator type.
-     */
-    [[nodiscard]] std::uint64_t peak(AllocType alloc_type) const noexcept {
-        return peak_[static_cast<std::size_t>(alloc_type)];
-    }
-
-    /**
-     * @brief Returns the highest combined memory usage (bytes).
-     * @return Highest combined memory usage in bytes.
-     */
-    [[nodiscard]] std::uint64_t highest_peak() const noexcept {
-        return highest_peak_;
-    }
-
-    /**
-     * @brief Returns the number of times the scope was executed.
-     * @return Number of times the scope was executed.
-     */
-    [[nodiscard]] std::uint64_t num_calls() const noexcept {
-        return num_calls_;
-    }
-
-    /**
-     * @brief Records a memory allocation.
+     * @brief Returns the number of allocations performed by the specified allocator type.
      *
-     * Increments allocation counters, updates current and total allocations, and tracks
-     * peak usage.
+     * @param alloc_type The allocator type to query. Defaults to the sum of all types.
+     * @return The number of allocations for the specified type.
+     */
+    [[nodiscard]] std::uint64_t num_allocs(AllocType alloc_type = AllocType::ALL)
+        const noexcept;
+
+    /**
+     * @brief Returns the current memory usage in bytes for the specified allocator type.
      *
-     * @param alloc_type The allocator type.
-     * @param nbytes     Number of bytes allocated.
+     * Current usage is the total bytes currently allocated but not yet deallocated.
+     *
+     * @param alloc_type The allocator type to query. Defaults to the sum of all types.
+     * @return The current memory usage in bytes for the specified type.
+     */
+    [[nodiscard]] std::uint64_t current(AllocType alloc_type = AllocType::ALL)
+        const noexcept;
+
+    /**
+     * @brief Returns the total number of bytes allocated over the lifetime of this
+     * record.
+     *
+     * This value accumulates over time and is not reduced by deallocations.
+     *
+     * @param alloc_type The allocator type to query. Defaults to the sum of all types.
+     * @return The total number of bytes allocated for the specified type.
+     */
+    [[nodiscard]] std::uint64_t total(AllocType alloc_type = AllocType::ALL)
+        const noexcept;
+
+    /**
+     * @brief Returns the peak memory usage in bytes for the specified allocator type.
+     *
+     * The peak represents the highest observed value of current memory usage.
+     * When querying with `AllocType::ALL`, this returns the maximum of all recorded
+     * peaks.
+     *
+     * @param alloc_type The allocator type to query. Defaults to `AllocType::ALL`.
+     * @return The peak memory usage in bytes for the specified type.
+     */
+    [[nodiscard]] std::uint64_t peak(AllocType alloc_type = AllocType::ALL)
+        const noexcept;
+
+    /**
+     * @brief Records a memory allocation event.
+     *
+     * Updates the allocation counters and memory usage statistics, and adjusts
+     * peak usage if the new current usage exceeds the previous peak.
+     *
+     * @param alloc_type The allocator that performed the allocation.
+     * @param nbytes     The number of bytes allocated.
      */
     void record_allocation(AllocType alloc_type, std::uint64_t nbytes);
 
     /**
      * @brief Records a memory deallocation event.
      *
-     * Decreases the current memory usage for the specified allocator type.
+     * Reduces the current memory usage for the specified allocator.
      *
-     * @param alloc_type The allocator type.
-     * @param nbytes     Number of bytes deallocated.
+     * @param alloc_type The allocator that performed the deallocation.
+     * @param nbytes     The number of bytes deallocated.
      */
     void record_deallocation(AllocType alloc_type, std::uint64_t nbytes);
 
   private:
-    std::uint64_t num_calls_{0};
     std::array<std::uint64_t, 2> num_allocs_{{0, 0}};
     std::array<std::uint64_t, 2> current_{{0, 0}};
     std::array<std::uint64_t, 2> total_{{0, 0}};
@@ -159,7 +152,8 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      *
      * @return Total number of currently allocated bytes.
      */
-    [[nodiscard]] ScopedMemoryRecord const& get_record() const noexcept {
+    [[nodiscard]] ScopedMemoryRecord get_record() const {
+        std::lock_guard<std::mutex> lock(mutex_);
         return record_;
     }
 
