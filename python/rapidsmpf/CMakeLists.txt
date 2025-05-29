@@ -19,9 +19,6 @@ project(
   LANGUAGES CXX CUDA
 )
 
-set(ucxx-python_DIR $ENV{SITE_PACKAGES}/ucxx/lib64/cmake/ucxx-python/)
-include_directories($ENV{SITE_PACKAGES}/ucxx/include)
-
 find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
 
 rapids_find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
