@@ -1,13 +1,13 @@
 #cpp code owners
-cpp/                     @rapidsai/rapids-multi-gpu-cpp-codeowners
+cpp/                     @rapidsai/rapidsmpf-cpp-codeowners
 
 #python code owners
-python/                  @rapidsai/rapids-multi-gpu-python-codeowners
+python/                  @rapidsai/rapidsmpf-python-codeowners
 
 #cmake code owners
-CMakeLists.txt           @rapidsai/rapids-multi-gpu-cmake-codeowners
-**/cmake/                @rapidsai/rapids-multi-gpu-cmake-codeowners
-*.cmake                  @rapidsai/rapids-multi-gpu-cmake-codeowners
+CMakeLists.txt           @rapidsai/rapidsmpf-cmake-codeowners
+**/cmake/                @rapidsai/rapidsmpf-cmake-codeowners
+*.cmake                  @rapidsai/rapidsmpf-cmake-codeowners
 
 #CI code owners
 /.github/                @rapidsai/ci-codeowners

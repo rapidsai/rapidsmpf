@@ -26,8 +26,8 @@ function(find_and_configure_cudf)
   rapids_cpm_find(
     cudf ${PKG_VERSION} ${cudf_components}
     GLOBAL_TARGETS ${cudf_global_targets}
-    BUILD_EXPORT_SET rapidsmp-exports
-    INSTALL_EXPORT_SET rapidsmp-exports
+    BUILD_EXPORT_SET rapidsmpf-exports
+    INSTALL_EXPORT_SET rapidsmpf-exports
     CPM_ARGS
     GIT_REPOSITORY ${PKG_GIT_REPO}
     GIT_TAG ${PKG_GIT_TAG}

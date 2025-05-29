@@ -59,7 +59,7 @@ IncludeCategories:
     Priority: 40 # CCCL includes
   - Regex: '^<(cudf.*|rmm|cugraph|cuml|cuspatial|raft|kvikio)'
     Priority: 50 # RAPIDS includes
-  - Regex: '^<rapidsmp/'
+  - Regex: '^<rapidsmpf/'
     Priority: 60
   - Regex: '^"'
     Priority: 70 # quoted includes

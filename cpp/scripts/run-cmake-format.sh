@@ -27,26 +27,26 @@
 # bash run-cmake-format.sh {cmake-format,cmake-lint} infile [infile ...]
 
 status=0
-if [ -z ${CUDF_ROOT:+PLACEHOLDER} ]; then
-    CUDF_BUILD_DIR=$(git rev-parse --show-toplevel 2>&1)/cpp/build
+if [ -z ${RAPIDSMPF_ROOT:+PLACEHOLDER} ]; then
+    RAPIDSMPF_BUILD_DIR=$(git rev-parse --show-toplevel 2>&1)/cpp/build
     status=$?
 else
-    CUDF_BUILD_DIR=${CUDF_ROOT}
+    RAPIDSMPF_BUILD_DIR=${RAPIDSMPF_ROOT}
 fi
 
 if ! [ ${status} -eq 0 ]; then
-    if [[ ${CUDF_BUILD_DIR} == *"not a git repository"* ]]; then
-        echo "This script must be run inside the cudf repository, or the CUDF_ROOT environment variable must be set."
+    if [[ ${RAPIDSMPF_BUILD_DIR} == *"not a git repository"* ]]; then
+        echo "This script must be run inside the rapidsmpf repository, or the RAPIDSMPF_ROOT environment variable must be set."
     else
         echo "Script failed with unknown error attempting to determine project root:"
-        echo ${CUDF_BUILD_DIR}
+        echo ${RAPIDSMPF_BUILD_DIR}
     fi
     exit 1
 fi
 
 DEFAULT_FORMAT_FILE_LOCATIONS=(
-  "${CUDF_BUILD_DIR:-${HOME}}/_deps/rapids-cmake-src/cmake-format-rapids-cmake.json"
-  "${CUDF_BUILD_DIR:-cpp/build}/latest/_deps/rapids-cmake-src/cmake-format-rapids-cmake.json"
+  "${RAPIDSMPF_BUILD_DIR:-${HOME}}/_deps/rapids-cmake-src/cmake-format-rapids-cmake.json"
+  "${RAPIDSMPF_BUILD_DIR:-cpp/build}/latest/_deps/rapids-cmake-src/cmake-format-rapids-cmake.json"
 )
 
 if [ -z ${RAPIDS_CMAKE_FORMAT_FILE:+PLACEHOLDER} ]; then

@@ -14,7 +14,7 @@
 #include <rmm/mr/device/pool_memory_resource.hpp>
 #include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
-#include <rapidsmp/error.hpp>
+#include <rapidsmpf/error.hpp>
 
 /**
  * @brief Create and set a RMM stack as the current device memory resource.
@@ -42,7 +42,7 @@ set_current_rmm_stack(std::string const& name) {
             rmm::percent_of_free_device_memory(80)
         );
     } else {
-        RAPIDSMP_FAIL("unknown RMM stack name: " + name);
+        RAPIDSMPF_FAIL("unknown RMM stack name: " + name);
     }
     // Note, RMM maintains two default resources, we set both here.
     rmm::mr::set_current_device_resource(ret.get());

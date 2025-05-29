@@ -7,10 +7,10 @@
 
 #include <cudf/copying.hpp>
 
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 namespace {
 struct str_cudf_column_scalar_fn {
@@ -29,12 +29,12 @@ struct str_cudf_column_scalar_fn {
 
     template <typename T, std::enable_if_t<!cudf::is_numeric<T>()>* = nullptr>
     std::string operator()(
-        cudf::column_view col,
-        cudf::size_type index,
-        rmm::cuda_stream_view stream,
-        rmm::device_async_resource_ref mr
+        cudf::column_view /* col */,
+        cudf::size_type /* index */,
+        rmm::cuda_stream_view /* stream */,
+        rmm::device_async_resource_ref /* mr */
     ) {
-        RAPIDSMP_FAIL("not implemented");
+        RAPIDSMPF_FAIL("not implemented");
     }
 };
 }  // namespace
@@ -117,4 +117,22 @@ std::string to_upper(std::string str) {
     return str;
 }
 
-}  // namespace rapidsmp
+template <>
+bool parse_string(std::string const& value) {
+    try {
+        // Try parsing `value` as a integer.
+        return static_cast<bool>(std::stoi(value));
+    } catch (std::invalid_argument const&) {
+    }
+    std::string str = to_lower(trim(value));
+    if (str == "true" || str == "on" || str == "yes") {
+        return true;
+    }
+    if (str == "false" || str == "off" || str == "no") {
+        return false;
+    }
+    throw std::invalid_argument("cannot parse \"" + std::string{value} + "\"");
+}
+
+
+}  // namespace rapidsmpf

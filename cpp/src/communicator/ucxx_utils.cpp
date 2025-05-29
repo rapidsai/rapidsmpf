@@ -6,10 +6,10 @@
 #include <cuda_device_runtime_api.h>
 #include <ucxx/listener.h>
 
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx_utils.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 namespace ucxx {
 
@@ -27,34 +27,36 @@ namespace {
 void broadcast_listener_address(MPI_Comm mpi_comm, std::string& root_worker_address_str) {
     size_t address_size{root_worker_address_str.size()};
 
-    RAPIDSMP_MPI(MPI_Bcast(&address_size, sizeof(address_size), MPI_UINT8_T, 0, mpi_comm)
+    RAPIDSMPF_MPI(MPI_Bcast(&address_size, sizeof(address_size), MPI_UINT8_T, 0, mpi_comm)
     );
 
     root_worker_address_str.resize(address_size);
 
-    RAPIDSMP_MPI(
+    RAPIDSMPF_MPI(
         MPI_Bcast(root_worker_address_str.data(), address_size, MPI_UINT8_T, 0, mpi_comm)
     );
 }
 
 }  // namespace
 
-std::shared_ptr<UCXX> init_using_mpi(MPI_Comm mpi_comm) {
-    RAPIDSMP_EXPECTS(::rapidsmp::mpi::is_initialized(), "MPI not initialized");
+std::shared_ptr<UCXX> init_using_mpi(
+    MPI_Comm mpi_comm, rapidsmpf::config::Options options
+) {
+    RAPIDSMPF_EXPECTS(::rapidsmpf::mpi::is_initialized(), "MPI not initialized");
 
     // Ensure CUDA context is created before UCX is initialized.
     cudaFree(nullptr);
 
     int rank, nranks;
-    RAPIDSMP_MPI(MPI_Comm_rank(mpi_comm, &rank));
-    RAPIDSMP_MPI(MPI_Comm_size(mpi_comm, &nranks));
+    RAPIDSMPF_MPI(MPI_Comm_rank(mpi_comm, &rank));
+    RAPIDSMPF_MPI(MPI_Comm_size(mpi_comm, &nranks));
 
     auto root_listener_address = ListenerAddress{.rank = 0};
     std::string root_worker_address_str{};
     std::shared_ptr<UCXX> comm;
     if (rank == 0) {
         auto ucxx_initialized_rank = init(nullptr, nranks);
-        comm = std::make_shared<UCXX>(std::move(ucxx_initialized_rank));
+        comm = std::make_shared<UCXX>(std::move(ucxx_initialized_rank), options);
 
         root_listener_address = comm->listener_address();
         root_worker_address_str =
@@ -67,7 +69,7 @@ std::shared_ptr<UCXX> init_using_mpi(MPI_Comm mpi_comm) {
         auto root_worker_address =
             ::ucxx::createAddressFromString(root_worker_address_str);
         auto ucxx_initialized_rank = init(nullptr, nranks, root_worker_address);
-        comm = std::make_shared<UCXX>(std::move(ucxx_initialized_rank));
+        comm = std::make_shared<UCXX>(std::move(ucxx_initialized_rank), options);
     }
 
     // barrier to complete the bootstrapping process
@@ -76,4 +78,4 @@ std::shared_ptr<UCXX> init_using_mpi(MPI_Comm mpi_comm) {
 }
 
 }  // namespace ucxx
-}  // namespace rapidsmp
+}  // namespace rapidsmpf

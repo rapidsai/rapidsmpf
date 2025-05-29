@@ -10,9 +10,9 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <rapidsmp/pausable_thread_loop.hpp>
+#include <rapidsmpf/pausable_thread_loop.hpp>
 
-using rapidsmp::detail::PausableThreadLoop;
+using rapidsmpf::detail::PausableThreadLoop;
 
 TEST(PausableThreadLoop, ResumeAndPause) {
     int counter{0};

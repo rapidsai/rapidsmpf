@@ -32,7 +32,7 @@ DOXYFILE_ENCODING      = UTF-8
 # title of most generated pages and in a few other places.
 # The default value is: My Project.
 
-PROJECT_NAME           = rapidsmp
+PROJECT_NAME           = rapidsmpf
 
 # The PROJECT_NUMBER tag can be used to enter a project or revision number. This
 # could be handy for archiving the generated documentation or if some version
@@ -2226,7 +2226,7 @@ TAGFILES               = rmm.tag=https://docs.rapids.ai/api/librmm/$(RAPIDS_VERS
 # tag file that is based on the input files it reads. See section "Linking to
 # external documentation" for more information about the usage of tag files.
 
-GENERATE_TAGFILE       = html/rapidsmp.tag
+GENERATE_TAGFILE       = html/rapidsmpf.tag
 
 # If the ALLEXTERNALS tag is set to YES, all external class will be listed in
 # the class index. If set to NO, only the inherited external classes will be

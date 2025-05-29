@@ -9,14 +9,14 @@
 #include <mpi.h>
 #include <unistd.h>
 
-#include <rapidsmp/communicator/communicator.hpp>
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/communicator/ucxx_utils.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/nvtx.hpp>
-#include <rapidsmp/shuffler/partition.hpp>
-#include <rapidsmp/shuffler/shuffler.hpp>
-#include <rapidsmp/utils.hpp>
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/shuffler/partition.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/utils.hpp>
 
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"
@@ -25,16 +25,16 @@
 class ArgumentParser {
   public:
     ArgumentParser(int argc, char* const* argv) {
-        RAPIDSMP_EXPECTS(
-            rapidsmp::mpi::is_initialized() == true, "MPI is not initialized"
+        RAPIDSMPF_EXPECTS(
+            rapidsmpf::mpi::is_initialized() == true, "MPI is not initialized"
         );
 
         int rank, nranks;
-        RAPIDSMP_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-        RAPIDSMP_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
+        RAPIDSMPF_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+        RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
         try {
             int option;
-            while ((option = getopt(argc, argv, "hC:r:w:c:n:p:m:l:x")) != -1) {
+            while ((option = getopt(argc, argv, "hC:r:w:c:n:p:o:m:l:x")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -49,6 +49,8 @@ class ArgumentParser {
                            << "  -n <num>   Number of rows per rank (default: 1M)\n"
                            << "  -p <num>   Number of partitions (input tables) per "
                               "rank (default: 1)\n"
+                           << "  -o <num>   Number of output partitions per rank "
+                              "(default: 1)\n"
                            << "  -m <mr>    RMM memory resource {cuda, pool, async, "
                               "managed} "
                               "(default: cuda)\n"
@@ -59,8 +61,9 @@ class ArgumentParser {
                         if (rank == 0) {
                             std::cerr << ss.str();
                         }
-                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
+                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
                     }
+                    break;
                 case 'C':
                     comm_type = std::string{optarg};
                     if (!(comm_type == "mpi" || comm_type == "ucxx")) {
@@ -68,7 +71,7 @@ class ArgumentParser {
                             std::cerr << "-C (Communicator) must be one of {mpi, ucxx}"
                                       << std::endl;
                         }
-                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     }
                     break;
                 case 'r':
@@ -86,6 +89,9 @@ class ArgumentParser {
                 case 'p':
                     parse_integer(num_local_partitions, optarg);
                     break;
+                case 'o':
+                    parse_integer(num_output_partitions, optarg);
+                    break;
                 case 'm':
                     rmm_mr = std::string{optarg};
                     if (!(rmm_mr == "cuda" || rmm_mr == "pool" || rmm_mr == "async"
@@ -96,7 +102,7 @@ class ArgumentParser {
                                          "{cuda, pool, async, managed}"
                                       << std::endl;
                         }
-                        RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     }
                     break;
                 case 'l':
@@ -106,24 +112,25 @@ class ArgumentParser {
                     enable_memory_profiler = true;
                     break;
                 case '?':
-                    RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    break;
                 default:
-                    throw std::runtime_error("Error parsing arguments.");
+                    RAPIDSMPF_FAIL("unknown option", std::invalid_argument);
                 }
             }
             if (optind < argc) {
-                RAPIDSMP_FAIL("unknown option", std::invalid_argument);
+                RAPIDSMPF_FAIL("unknown option", std::invalid_argument);
             }
         } catch (std::exception const& e) {
             if (rank == 0) {
                 std::cerr << "Error parsing arguments: " << e.what() << std::endl;
             }
-            RAPIDSMP_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+            RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
 
         local_nbytes =
             num_columns * num_local_rows * num_local_partitions * sizeof(std::int32_t);
-        total_nbytes = local_nbytes * nranks;
+        total_nbytes = local_nbytes * static_cast<std::uint64_t>(nranks);
         if (rmm_mr == "cuda") {
             if (rank == 0) {
                 std::cout << "WARNING: using the default cuda memory resource "
@@ -135,7 +142,7 @@ class ArgumentParser {
         }
     }
 
-    void pprint(rapidsmp::Communicator& comm) const {
+    void pprint(rapidsmpf::Communicator& comm) const {
         if (comm.rank() > 0) {
             return;
         }
@@ -146,7 +153,10 @@ class ArgumentParser {
         ss << "  -w " << num_warmups << " (number of warmup runs)\n";
         ss << "  -c " << num_columns << " (number of columns)\n";
         ss << "  -n " << num_local_rows << " (number of rows per rank)\n";
-        ss << "  -p " << num_local_partitions << " (number of partitions per rank)\n";
+        ss << "  -p " << num_local_partitions
+           << " (number of input partitions per rank)\n";
+        ss << "  -o " << num_output_partitions
+           << " (number of output partitions per rank)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
         if (device_mem_limit_mb >= 0) {
             ss << "  -l " << device_mem_limit_mb << " (device memory limit in MiB)\n";
@@ -154,8 +164,8 @@ class ArgumentParser {
         if (enable_memory_profiler) {
             ss << "  -x (enable memory profiling)\n";
         }
-        ss << "Local size: " << rapidsmp::format_nbytes(local_nbytes) << "\n";
-        ss << "Total size: " << rapidsmp::format_nbytes(total_nbytes) << "\n";
+        ss << "Local size: " << rapidsmpf::format_nbytes(local_nbytes) << "\n";
+        ss << "Total size: " << rapidsmpf::format_nbytes(total_nbytes) << "\n";
         comm.logger().print(ss.str());
     }
 
@@ -163,7 +173,8 @@ class ArgumentParser {
     std::uint64_t num_warmups{0};
     std::uint32_t num_columns{1};
     std::uint64_t num_local_rows{1 << 20};
-    rapidsmp::shuffler::PartID num_local_partitions{1};
+    rapidsmpf::shuffler::PartID num_local_partitions{1};
+    rapidsmpf::shuffler::PartID num_output_partitions{1};
     std::string rmm_mr{"cuda"};
     std::string comm_type{"mpi"};
     std::uint64_t local_nbytes;
@@ -172,22 +183,26 @@ class ArgumentParser {
     std::int64_t device_mem_limit_mb{-1};
 };
 
-rapidsmp::Duration run(
-    std::shared_ptr<rapidsmp::Communicator> comm,
+rapidsmpf::Duration run(
+    std::shared_ptr<rapidsmpf::Communicator> comm,
+    std::shared_ptr<rapidsmpf::ProgressThread> progress_thread,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
-    rapidsmp::BufferResource* br,
-    std::shared_ptr<rapidsmp::Statistics> statistics
+    rapidsmpf::BufferResource* br,
+    std::shared_ptr<rapidsmpf::Statistics> statistics
 ) {
     std::int32_t const min_val = 0;
     std::int32_t const max_val = args.num_local_rows;
-    rapidsmp::shuffler::PartID const total_num_partitions =
-        args.num_local_partitions * comm->nranks();
+    rapidsmpf::shuffler::PartID const total_num_partitions =
+        args.num_output_partitions
+        * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
+
     std::vector<cudf::table> input_partitions;
-    for (rapidsmp::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
+    input_partitions.reserve(args.num_local_partitions);
+    for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
         input_partitions.push_back(random_table(
-            args.num_columns,
-            args.num_local_rows,
+            static_cast<cudf::size_type>(args.num_columns),
+            static_cast<cudf::size_type>(args.num_local_rows),
             min_val,
             max_val,
             stream,
@@ -195,28 +210,29 @@ rapidsmp::Duration run(
         ));
     }
     stream.synchronize();
-    RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
+    RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
     std::vector<cudf::table> output_partitions;
-    auto const t0_elapsed = rapidsmp::Clock::now();
+    auto const t0_elapsed = rapidsmpf::Clock::now();
     {
-        RAPIDSMP_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
-        rapidsmp::shuffler::Shuffler shuffler(
+        RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
+        rapidsmpf::shuffler::Shuffler shuffler(
             comm,
+            progress_thread,
             0,  // op_id
             total_num_partitions,
             stream,
             br,
             statistics,
-            rapidsmp::shuffler::Shuffler::round_robin
+            rapidsmpf::shuffler::Shuffler::round_robin
         );
 
         for (auto&& partition : input_partitions) {
             // Partition, pack, and insert this partition into the shuffler.
-            shuffler.insert(rapidsmp::shuffler::partition_and_pack(
+            shuffler.insert(rapidsmpf::shuffler::partition_and_pack(
                 partition,
                 {0},
-                total_num_partitions,
+                static_cast<std::int32_t>(total_num_partitions),
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
                 stream,
@@ -225,35 +241,35 @@ rapidsmp::Duration run(
             partition.release();
         }
         // Tell the shuffler that we have no more data.
-        for (rapidsmp::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+        for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
             shuffler.insert_finished(i);
         }
 
         while (!shuffler.finished()) {
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
-            output_partitions.push_back(*rapidsmp::shuffler::unpack_and_concat(
+            output_partitions.push_back(*rapidsmpf::shuffler::unpack_and_concat(
                 std::move(packed_chunks), stream, br->device_mr()
             ));
         }
         stream.synchronize();
     }
-    auto const t1_elapsed = rapidsmp::Clock::now();
+    auto const t1_elapsed = rapidsmpf::Clock::now();
 
     // Check the shuffle result (this test only works for non-empty partitions
     // thus we only check large shuffles).
     if (args.num_local_rows >= 1000000) {
         for (const auto& output_partition : output_partitions) {
-            auto [parts, owner] = rapidsmp::shuffler::partition_and_split(
+            auto [parts, owner] = rapidsmpf::shuffler::partition_and_split(
                 output_partition,
                 {0},
-                total_num_partitions,
+                static_cast<std::int32_t>(args.num_output_partitions),
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
                 stream,
                 br->device_mr()
             );
-            RAPIDSMP_EXPECTS(
+            RAPIDSMPF_EXPECTS(
                 std::count_if(
                     parts.begin(),
                     parts.end(),
@@ -270,24 +286,29 @@ int main(int argc, char** argv) {
     // Explicitly initialize MPI with thread support, as this is needed for both mpi and
     // ucxx communicators.
     int provided;
-    RAPIDSMP_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
+    RAPIDSMPF_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
 
-    RAPIDSMP_EXPECTS(
+    RAPIDSMPF_EXPECTS(
         provided == MPI_THREAD_MULTIPLE,
         "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
     );
 
     ArgumentParser args{argc, argv};
 
-    std::shared_ptr<rapidsmp::Communicator> comm;
+    // Initialize configuration options from environment variables.
+    rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
+
+    std::shared_ptr<rapidsmpf::Communicator> comm;
     if (args.comm_type == "mpi") {
-        rapidsmp::mpi::init(&argc, &argv);
-        comm = std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
+        rapidsmpf::mpi::init(&argc, &argv);
+        comm = std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD, options);
     } else {  // ucxx
-        comm = rapidsmp::ucxx::init_using_mpi(MPI_COMM_WORLD);
+        comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
     }
 
     args.pprint(*comm);
+
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(comm->logger());
 
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
     std::shared_ptr<stats_dev_mem_resource> stat_enabled_mr;
@@ -295,16 +316,16 @@ int main(int argc, char** argv) {
         stat_enabled_mr = set_device_mem_resource_with_stats();
     }
 
-    std::unordered_map<rapidsmp::MemoryType, rapidsmp::BufferResource::MemoryAvailable>
+    std::unordered_map<rapidsmpf::MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
         memory_available{};
     if (args.device_mem_limit_mb >= 0) {
-        memory_available[rapidsmp::MemoryType::DEVICE] = rapidsmp::LimitAvailableMemory{
+        memory_available[rapidsmpf::MemoryType::DEVICE] = rapidsmpf::LimitAvailableMemory{
             stat_enabled_mr.get(), args.device_mem_limit_mb << 20
         };
     }
 
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    rapidsmp::BufferResource br{mr, std::move(memory_available)};
+    rapidsmpf::BufferResource br{mr, std::move(memory_available)};
 
     auto& log = comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
@@ -323,28 +344,28 @@ int main(int argc, char** argv) {
         ss << "    Device number: " << cur_dev << "\n";
         ss << "    PCI Bus ID: " << pci_bus_id.substr(0, pci_bus_id.find('\0')) << "\n";
         ss << "    Total Memory: "
-           << rapidsmp::format_nbytes(properties.totalGlobalMem, 0) << "\n";
+           << rapidsmpf::format_nbytes(properties.totalGlobalMem, 0) << "\n";
         ss << "  Comm: " << *comm << "\n";
         log.print(ss.str());
     }
 
     // We start with disabled statistics.
-    auto stats = std::make_shared<rapidsmp::Statistics>(/* enable = */ false);
+    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
 
     std::vector<double> elapsed_vec;
     std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == total_num_runs - 1) {
-            stats = std::make_shared<rapidsmp::Statistics>();
+            stats = std::make_shared<rapidsmpf::Statistics>();
         }
-        auto const elapsed = run(comm, args, stream, &br, stats).count();
+        auto const elapsed = run(comm, progress_thread, args, stream, &br, stats).count();
         std::stringstream ss;
-        ss << "elapsed: " << rapidsmp::to_precision(elapsed)
+        ss << "elapsed: " << rapidsmpf::to_precision(elapsed)
            << " sec | local throughput: "
-           << rapidsmp::format_nbytes(args.local_nbytes / elapsed)
+           << rapidsmpf::format_nbytes(args.local_nbytes / elapsed)
            << "/s | global throughput: "
-           << rapidsmp::format_nbytes(args.total_nbytes / elapsed) << "/s";
+           << rapidsmpf::format_nbytes(args.total_nbytes / elapsed) << "/s";
         if (i < args.num_warmups) {
             ss << " (warmup run)";
         }
@@ -354,24 +375,31 @@ int main(int argc, char** argv) {
         }
     }
 
-    RAPIDSMP_MPI(MPI_Barrier(MPI_COMM_WORLD));
+    RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
     {
         auto const elapsed_mean = harmonic_mean(elapsed_vec);
         std::stringstream ss;
-        ss << "means: " << rapidsmp::to_precision(elapsed_mean)
+        ss << "means: " << rapidsmpf::to_precision(elapsed_mean)
            << " sec | local throughput: "
-           << rapidsmp::format_nbytes(args.local_nbytes / elapsed_mean)
+           << rapidsmpf::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | global throughput: "
-           << rapidsmp::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
+           << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s"
+           << " | in_parts: " << args.num_local_partitions
+           << " | out_parts: " << args.num_output_partitions
+           << " | nranks: " << comm->nranks();
         if (args.enable_memory_profiler) {
             auto const counter = stat_enabled_mr->get_bytes_counter();
-            ss << " | device memory peak: " << rapidsmp::format_nbytes(counter.peak)
+            ss << " | device memory peak: "
+               << rapidsmpf::format_nbytes(static_cast<std::uint64_t>(counter.peak))
                << " | device memory total: "
-               << rapidsmp::format_nbytes(counter.total / total_num_runs) << " (avg)";
+               << rapidsmpf::format_nbytes(
+                      static_cast<std::uint64_t>(counter.total) / total_num_runs
+                  )
+               << " (avg)";
         }
         log.print(ss.str());
     }
     log.print(stats->report("Statistics (of the last run):"));
-    RAPIDSMP_MPI(MPI_Finalize());
+    RAPIDSMPF_MPI(MPI_Finalize());
     return 0;
 }

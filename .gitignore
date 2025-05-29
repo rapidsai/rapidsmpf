@@ -6,3 +6,4 @@ build
 .mypy_cache
 .hypothesis
 __pycache__
+compile_commands.json
