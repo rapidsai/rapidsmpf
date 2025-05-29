@@ -11,25 +11,22 @@ rapids_cpm_init()
 include(rapids-cuda)
 include(rapids-find)
 
-rapids_cuda_init_architectures(rapidsmpf-python)
+rapids_cuda_init_architectures(librapidsmpf)
 
 project(
-  rapidsmpf-python
+  librapidsmpf
   VERSION "${RAPIDS_VERSION}"
   LANGUAGES CXX CUDA
 )
 
-set(ucxx-python_DIR $ENV{SITE_PACKAGES}/ucxx/lib64/cmake/ucxx-python/)
-include_directories($ENV{SITE_PACKAGES}/ucxx/include)
+find_package(librapidsmpf "${RAPIDS_VERSION}")
 
-find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
+if(librapidsmpf_FOUND)
+  return()
+endif()
 
-rapids_find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
+unset(librapidsmpf_FOUND)
+
+set(CUDA_STATIC_RUNTIME ON)
+add_subdirectory(../../cpp librapidsmpf)
 find_package(CUDAToolkit REQUIRED)
-
-include(rapids-cython-core)
-rapids_cython_init()
-
-set(cython_lib_dir rapidsmpf)
-
-add_subdirectory(rapidsmpf)
