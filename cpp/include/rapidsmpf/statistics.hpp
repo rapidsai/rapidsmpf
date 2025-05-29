@@ -4,12 +4,14 @@
  */
 #pragma once
 #include <cstddef>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <utility>
 
+#include <rmm/mr/device/statistics_resource_adaptor.hpp>
+
 #include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/communicator/communicator.hpp>
 
 namespace rapidsmpf {
 
@@ -20,16 +22,51 @@ namespace rapidsmpf {
  */
 class Statistics {
   public:
+    /// @brief Alias for the RMM statistics resource adaptor type.
+    using rmm_statistics_resource =
+        rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource>;
+
     /**
-     * @brief Constructs a new Statistics object.
+     * @brief Constructs a new Statistics.
+     *
+     * @param enabled Whether statistics tracking is enabled.
+     * @param mr Pointer to the memory resource used for memory profiling. If null, memory
+     * profiling is disabled.
+     */
+    Statistics(bool enabled, rmm_statistics_resource* mr) : enabled_{enabled}, mr_{mr} {}
+
+    /**
+     * @brief Constructs a new Statistics object without memory profiling.
      *
      * @param enabled Whether statistics tracking is enabled.
      */
-    Statistics(bool enabled = true) : enabled_{enabled} {}
+    Statistics(bool enabled = true) : Statistics(enabled, nullptr) {}
+
+    /**
+     * @brief Constructs a new Statistics object with a memory resource.
+     *
+     * Enables statistics and memory profiling.
+     *
+     * @param mr Pointer to the memory resource used for memory profiling.
+     */
+    Statistics(rmm_statistics_resource* mr) : Statistics(true, mr) {}
 
     ~Statistics() noexcept = default;
     Statistics(const Statistics&) = delete;
     Statistics& operator=(const Statistics&) = delete;
+
+    /**
+     * @brief Returns a shared pointer to a globally disabled Statistics instance.
+     *
+     * This is a convenience function that provides access to a shared
+     * `Statistics` object with statistics collection disabled.
+     *
+     * @return A `std::shared_ptr<Statistics>` pointing to a disabled statistics instance.
+     */
+    static std::shared_ptr<Statistics> disabled() {
+        static std::shared_ptr<Statistics> ret = std::make_shared<Statistics>(false);
+        return ret;
+    }
 
     /**
      * @brief Move constructor.
@@ -199,9 +236,143 @@ class Statistics {
      */
     Duration add_duration_stat(std::string const& name, Duration seconds);
 
+    /**
+     * @brief Check if memory profiling is enabled.
+     *
+     * @return The answer.
+     */
+    bool is_memory_profiling_enabled() const {
+        return mr_ != nullptr;
+    }
+
+    /**
+     * @brief Memory profiling data for a single named scope.
+     */
+    struct MemoryRecord {
+        std::int64_t num_calls{0};  ///< Number of times the scope was executed.
+        std::int64_t total{0};  ///< Total memory allocated across all calls (bytes).
+        std::int64_t peak{0};  ///< Peak memory usage across all calls (bytes).
+    };
+
+    /**
+     * @brief RAII-style utility for recording memory usage statistics.
+     *
+     * When an object of this class is created, it captures the current memory
+     * resource counters. Upon destruction, it stores updated counters in the
+     * associated Statistics object under the given name.
+     */
+    class MemoryRecorder {
+      public:
+        /**
+         * @brief Constructs an disabled (noop) MemoryRecorder.
+         */
+        MemoryRecorder() = default;
+
+        /**
+         * @brief Constructs a MemoryRecorder.
+         *
+         * Pushes current memory counters on creation.
+         *
+         * @param stats Pointer to the Statistics object where results will be stored.
+         * @param mr Pointer to the memory resource being profiled.
+         * @param name A name to identify this memory record in the statistics.
+         */
+        MemoryRecorder(Statistics* stats, rmm_statistics_resource* mr, std::string name);
+
+        /**
+         * @brief Destructor.
+         *
+         * Pushes the current memory counters again and stores them in the
+         * Statistics object using the given name.
+         */
+        ~MemoryRecorder();
+
+      private:
+        Statistics* stats_{nullptr};
+        rmm_statistics_resource* mr_{nullptr};
+        std::string name_;
+    };
+
+    /**
+     * @brief Create a MemoryRecorder for the current profiling context.
+     *
+     * When the returned object goes out of scope, memory usage will be
+     * recorded under the given name.
+     *
+     * @param name A name under which to store the memory profiling data.
+     * @return A MemoryRecorder instance that tracks memory usage for the given scope.
+     */
+    MemoryRecorder create_memory_recorder(std::string name) {
+        if (mr_ == nullptr) {
+            return MemoryRecorder{};
+        }
+        return MemoryRecorder{this, mr_, std::move(name)};
+    }
+
+    /**
+     * @brief Get all memory profiling records collected by this Statistics instance.
+     *
+     * @return A reference to the map of memory profiling data, keyed by record name.
+     */
+    std::unordered_map<std::string, MemoryRecord> const& get_memory_records() const {
+        return memory_records_;
+    }
+
   private:
     mutable std::mutex mutex_;
     bool enabled_;
     std::map<std::string, Stat> stats_;
+    std::unordered_map<std::string, MemoryRecord> memory_records_;
+    rmm_statistics_resource* mr_;
 };
+
+/**
+ * @brief Macro for automatic memory profiling of a code scope.
+ *
+ * This macro creates a scoped memory recorder that records memory usage statistics
+ * upon entering and leaving a code block (if memory profiling is enabled).
+ *
+ * Example usage:
+ * @code
+ * void foo(Statistics& stats) {
+ *     RAPIDSMPF_MEMORY_PROFILE(stats);
+ *     RAPIDSMPF_MEMORY_PROFILE(stats, "custom_name");
+ * }
+ * @endcode
+ *
+ * @param stats A reference or pointer to a Statistics object.
+ * @param funcname (optional) Custom function name string to use instead of __func__.
+ */
+#define RAPIDSMPF_MEMORY_PROFILE(...)                                       \
+    RAPIDSMPF_DETAIL_GET_MACRO(                                             \
+        __VA_ARGS__, RAPIDSMPF_MEMORY_PROFILE_2, RAPIDSMPF_MEMORY_PROFILE_1 \
+    )                                                                       \
+    (__VA_ARGS__)
+
+// Internal macro to choose the correct version based on argument count
+#define RAPIDSMPF_DETAIL_GET_MACRO(_1, _2, NAME, ...) NAME
+
+// Version with default function name (__func__)
+#define RAPIDSMPF_MEMORY_PROFILE_1(stats)                                          \
+    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =           \
+        ((rapidsmpf::detail::to_pointer(stats)                                     \
+          && rapidsmpf::detail::to_pointer(stats)->is_memory_profiling_enabled())  \
+             ? rapidsmpf::detail::to_pointer(stats)->create_memory_recorder(       \
+                 std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
+                 + std::string(__func__) + ")"                                     \
+             )                                                                     \
+             : rapidsmpf::Statistics::MemoryRecorder{})
+
+// Version with custom function name
+#define RAPIDSMPF_MEMORY_PROFILE_2(stats, funcname)                                \
+    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =           \
+        ((rapidsmpf::detail::to_pointer(stats)                                     \
+          && rapidsmpf::detail::to_pointer(stats)->is_memory_profiling_enabled())  \
+             ? rapidsmpf::detail::to_pointer(stats)->create_memory_recorder(       \
+                 std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
+                 + std::string(funcname) + ")"                                     \
+             )                                                                     \
+             : rapidsmpf::Statistics::MemoryRecorder{})
+
+
 }  // namespace rapidsmpf

@@ -188,16 +188,20 @@ rapidsmpf::Duration run(
         args.num_local_partitions
         * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
     std::vector<cudf::table> input_partitions;
-    for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
-        input_partitions.push_back(random_table(
-            static_cast<cudf::size_type>(args.num_columns),
-            static_cast<cudf::size_type>(args.num_local_rows),
-            min_val,
-            max_val,
-            stream,
-            br->device_mr()
-        ));
+    {
+        RAPIDSMPF_MEMORY_PROFILE(statistics, "create random tables");
+        for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
+            input_partitions.push_back(random_table(
+                static_cast<cudf::size_type>(args.num_columns),
+                static_cast<cudf::size_type>(args.num_local_rows),
+                min_val,
+                max_val,
+                stream,
+                br->device_mr()
+            ));
+        }
     }
+
     stream.synchronize();
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
@@ -205,6 +209,7 @@ rapidsmpf::Duration run(
     auto const t0_elapsed = rapidsmpf::Clock::now();
     {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
+        RAPIDSMPF_MEMORY_PROFILE(statistics, "shuffling");
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
             progress_thread,
@@ -225,7 +230,8 @@ rapidsmpf::Duration run(
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
                 stream,
-                br->device_mr()
+                br->device_mr(),
+                statistics
             ));
             partition.release();
         }
@@ -238,7 +244,7 @@ rapidsmpf::Duration run(
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
             output_partitions.push_back(*rapidsmpf::shuffler::unpack_and_concat(
-                std::move(packed_chunks), stream, br->device_mr()
+                std::move(packed_chunks), stream, br->device_mr(), statistics
             ));
         }
         stream.synchronize();
@@ -248,6 +254,7 @@ rapidsmpf::Duration run(
     // Check the shuffle result (this test only works for non-empty partitions
     // thus we only check large shuffles).
     if (args.num_local_rows >= 1000000) {
+        RAPIDSMPF_MEMORY_PROFILE(statistics, "check shuffle result");
         for (const auto& output_partition : output_partitions) {
             auto [parts, owner] = rapidsmpf::shuffler::partition_and_split(
                 output_partition,
@@ -347,7 +354,7 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == total_num_runs - 1) {
-            stats = std::make_shared<rapidsmpf::Statistics>();
+            stats = std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get());
         }
         auto const elapsed = run(comm, progress_thread, args, stream, &br, stats).count();
         std::stringstream ss;
@@ -374,16 +381,6 @@ int main(int argc, char** argv) {
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | global throughput: "
            << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
-        if (args.enable_memory_profiler) {
-            auto const counter = stat_enabled_mr->get_bytes_counter();
-            ss << " | device memory peak: "
-               << rapidsmpf::format_nbytes(static_cast<std::uint64_t>(counter.peak))
-               << " | device memory total: "
-               << rapidsmpf::format_nbytes(
-                      static_cast<std::uint64_t>(counter.total) / total_num_runs
-                  )
-               << " (avg)";
-        }
         log.print(ss.str());
     }
     log.print(stats->report("Statistics (of the last run):"));

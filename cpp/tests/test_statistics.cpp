@@ -12,6 +12,8 @@
 
 using namespace rapidsmpf;
 
+constexpr auto one_MiB{1 << 20};
+
 TEST(Statistics, Disabled) {
     rapidsmpf::Statistics stats(false);
     EXPECT_FALSE(stats.enabled());
@@ -42,4 +44,95 @@ TEST(Statistics, Communication) {
     EXPECT_EQ(stats.add_bytes_stat("byte-statistics", 20), 20);
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("byte-statistics"));
     EXPECT_THAT(stats.report(), ::testing::HasSubstr("20.00 B"));
+}
+
+TEST(Statistics, MemoryProfiler) {
+    Statistics::rmm_statistics_resource mr{rmm::mr::get_current_device_resource()};
+    rapidsmpf::Statistics stats(&mr);
+
+    // Outer scope
+    {
+        auto outer = stats.create_memory_recorder("outer");
+        void* ptr1 = mr.allocate(one_MiB);  // +1 MiB
+        void* ptr2 = mr.allocate(one_MiB);  // +2 MiB
+        mr.deallocate(ptr1, one_MiB);
+        mr.deallocate(ptr2, one_MiB);
+
+        // Nested scope
+        {
+            auto inner = stats.create_memory_recorder("inner");
+            void* ptr3 = mr.allocate(one_MiB);  // +1 MiB
+            mr.deallocate(ptr3, one_MiB);
+        }
+    }
+    auto const& records = stats.get_memory_records();
+
+    // Verify outer
+    EXPECT_EQ(records.at("outer").num_calls, 1);
+    EXPECT_EQ(records.at("outer").peak, 2 * one_MiB);
+    EXPECT_EQ(records.at("outer").total, 3 * one_MiB);
+
+    // Verify inner
+    EXPECT_EQ(records.at("inner").num_calls, 1);
+    EXPECT_EQ(records.at("inner").peak, one_MiB);
+    EXPECT_EQ(records.at("inner").total, one_MiB);
+
+    // We can call the same name multiple times.
+    {
+        auto outer = stats.create_memory_recorder("outer");
+        mr.deallocate(mr.allocate(one_MiB), one_MiB);
+    }
+    EXPECT_EQ(records.at("outer").num_calls, 2);
+    EXPECT_EQ(records.at("outer").peak, 2 * one_MiB);
+    EXPECT_EQ(records.at("outer").total, 4 * one_MiB);
+}
+
+TEST(Statistics, MemoryProfilerDisabled) {
+    Statistics::rmm_statistics_resource mr{rmm::mr::get_current_device_resource()};
+    rapidsmpf::Statistics stats;
+    EXPECT_FALSE(stats.is_memory_profiling_enabled());
+
+    // Outer scope
+    {
+        auto outer = stats.create_memory_recorder("outer");
+        void* ptr1 = mr.allocate(one_MiB);  // +1 MiB
+        void* ptr2 = mr.allocate(one_MiB);  // +2 MiB
+        mr.deallocate(ptr1, one_MiB);
+        mr.deallocate(ptr2, one_MiB);
+
+        // Nested scope
+        {
+            auto inner = stats.create_memory_recorder("inner");
+            void* ptr3 = mr.allocate(one_MiB);  // +1 MiB
+            mr.deallocate(ptr3, one_MiB);
+        }
+    }
+    auto const& records = stats.get_memory_records();
+    EXPECT_TRUE(records.empty());
+}
+
+TEST(Statistics, MemoryProfilerMacro) {
+    Statistics::rmm_statistics_resource mr{rmm::mr::get_current_device_resource()};
+    rapidsmpf::Statistics stats(&mr);
+    {
+        RAPIDSMPF_MEMORY_PROFILE(stats);
+        mr.deallocate(mr.allocate(one_MiB), one_MiB);
+    }
+    auto const& records = stats.get_memory_records();
+    ASSERT_EQ(records.size(), 1);
+    auto const& entry = *records.begin();
+    EXPECT_TRUE(entry.first.find("test_statistics.cpp") != std::string::npos);
+    EXPECT_EQ(entry.second.num_calls, 1);
+    EXPECT_EQ(entry.second.total, one_MiB);
+}
+
+TEST(Statistics, MemoryProfilerMacroDisabled) {
+    Statistics::rmm_statistics_resource mr{rmm::mr::get_current_device_resource()};
+    rapidsmpf::Statistics stats;
+    {
+        RAPIDSMPF_MEMORY_PROFILE(stats);
+        mr.deallocate(mr.allocate(one_MiB), one_MiB);
+    }
+    auto const& records = stats.get_memory_records();
+    EXPECT_TRUE(records.empty());
 }

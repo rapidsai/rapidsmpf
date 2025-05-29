@@ -21,8 +21,6 @@
 
 namespace rapidsmpf {
 
-class Statistics;
-
 /**
  * @brief Represents a reservation for future memory allocation.
  *
@@ -155,7 +153,7 @@ class BufferResource {
         rmm::device_async_resource_ref device_mr,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
-        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false)
+        std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
     ~BufferResource() noexcept = default;

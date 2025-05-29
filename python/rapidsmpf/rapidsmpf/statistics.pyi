@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from numbers import Number
 
+from rmm.pylibrmm.memory_resource import StatisticsResourceAdaptor
+
 class Statistics:
     def __init__(
         self,
         enable: bool,
+        mr: StatisticsResourceAdaptor | None = None,
     ) -> None: ...
     @property
     def enabled(self) -> bool: ...

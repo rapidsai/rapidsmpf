@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -89,9 +90,9 @@ std::string to_precision(T value, int precision = 2) {
  * @param precision The number of decimal places to include.
  * @return A string representation of the byte size with the specified precision.
  */
-std::string inline format_nbytes(std::size_t nbytes, int precision = 2) {
+std::string inline format_nbytes(double nbytes, int precision = 2) {
     constexpr std::array<const char*, 6> units = {" B", " KiB", " MiB", " GiB", " TiB"};
-    auto n = static_cast<double>(nbytes);
+    auto n = nbytes;
     for (auto const& unit : units) {
         if (std::abs(n) < 1024.0) {
             return to_precision(n, precision) + unit;
@@ -330,5 +331,49 @@ T parse_string(std::string const& value) {
  */
 template <>
 bool parse_string(std::string const& value);
+
+// Macro to concatenate two tokens x and y.
+#define RAPIDSMPF_CONCAT_DETAIL_(x, y) x##y
+#define RAPIDSMPF_CONCAT(x, y) RAPIDSMPF_CONCAT_DETAIL_(x, y)
+
+// Stringify a macro argument
+#define RAPIDSMPF_STRINGIFY_DETAIL_(x) #x
+#define RAPIDSMPF_STRINGIFY(x) RAPIDSMPF_STRINGIFY_DETAIL_(x)
+
+namespace detail {
+
+/**
+ * @brief Returns the raw pointer from a pointer, reference, or smart pointer.
+ *
+ * This utility is useful in macros that accepts any kind of reference.
+ *
+ * @tparam T Type of the object.
+ * @param ptr A raw pointer.
+ * @return T* The same raw pointer.
+ */
+template <typename T>
+constexpr T* to_pointer(T* ptr) noexcept {
+    return ptr;
+}
+
+/** @copydoc to_pointer(T*) */
+template <typename T>
+constexpr T* to_pointer(T& ptr) noexcept {
+    return std::addressof(ptr);
+}
+
+/** @copydoc to_pointer(T*) */
+template <typename T>
+constexpr T* to_pointer(std::unique_ptr<T>& ptr) noexcept {
+    return ptr.get();
+}
+
+/** @copydoc to_pointer(T*) */
+template <typename T>
+constexpr T* to_pointer(std::shared_ptr<T>& ptr) noexcept {
+    return ptr.get();
+}
+
+}  // namespace detail
 
 }  // namespace rapidsmpf
