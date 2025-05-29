@@ -34,7 +34,7 @@ class ArgumentParser {
         RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
         try {
             int option;
-            while ((option = getopt(argc, argv, "hC:r:w:c:n:p:m:l:x")) != -1) {
+            while ((option = getopt(argc, argv, "hC:r:w:c:n:p:o:m:l:x")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -49,6 +49,8 @@ class ArgumentParser {
                            << "  -n <num>   Number of rows per rank (default: 1M)\n"
                            << "  -p <num>   Number of partitions (input tables) per "
                               "rank (default: 1)\n"
+                           << "  -o <num>   Number of output partitions per rank "
+                              "(default: 1)\n"
                            << "  -m <mr>    RMM memory resource {cuda, pool, async, "
                               "managed} "
                               "(default: cuda)\n"
@@ -86,6 +88,9 @@ class ArgumentParser {
                     break;
                 case 'p':
                     parse_integer(num_local_partitions, optarg);
+                    break;
+                case 'o':
+                    parse_integer(num_output_partitions, optarg);
                     break;
                 case 'm':
                     rmm_mr = std::string{optarg};
@@ -148,7 +153,10 @@ class ArgumentParser {
         ss << "  -w " << num_warmups << " (number of warmup runs)\n";
         ss << "  -c " << num_columns << " (number of columns)\n";
         ss << "  -n " << num_local_rows << " (number of rows per rank)\n";
-        ss << "  -p " << num_local_partitions << " (number of partitions per rank)\n";
+        ss << "  -p " << num_local_partitions
+           << " (number of input partitions per rank)\n";
+        ss << "  -o " << num_output_partitions
+           << " (number of output partitions per rank)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
         if (device_mem_limit_mb >= 0) {
             ss << "  -l " << device_mem_limit_mb << " (device memory limit in MiB)\n";
@@ -166,6 +174,7 @@ class ArgumentParser {
     std::uint32_t num_columns{1};
     std::uint64_t num_local_rows{1 << 20};
     rapidsmpf::shuffler::PartID num_local_partitions{1};
+    rapidsmpf::shuffler::PartID num_output_partitions{1};
     std::string rmm_mr{"cuda"};
     std::string comm_type{"mpi"};
     std::uint64_t local_nbytes;
@@ -185,9 +194,11 @@ rapidsmpf::Duration run(
     std::int32_t const min_val = 0;
     std::int32_t const max_val = args.num_local_rows;
     rapidsmpf::shuffler::PartID const total_num_partitions =
-        args.num_local_partitions
+        args.num_output_partitions
         * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
+
     std::vector<cudf::table> input_partitions;
+    input_partitions.reserve(args.num_local_partitions);
     for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
         input_partitions.push_back(random_table(
             static_cast<cudf::size_type>(args.num_columns),
@@ -209,7 +220,7 @@ rapidsmpf::Duration run(
             comm,
             progress_thread,
             0,  // op_id
-            static_cast<rapidsmpf::shuffler::PartID>(total_num_partitions),
+            total_num_partitions,
             stream,
             br,
             statistics,
@@ -252,7 +263,7 @@ rapidsmpf::Duration run(
             auto [parts, owner] = rapidsmpf::shuffler::partition_and_split(
                 output_partition,
                 {0},
-                static_cast<std::int32_t>(total_num_partitions),
+                static_cast<std::int32_t>(args.num_output_partitions),
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
                 stream,
@@ -297,8 +308,7 @@ int main(int argc, char** argv) {
 
     args.pprint(*comm);
 
-    std::shared_ptr<rapidsmpf::ProgressThread> progress_thread =
-        std::make_shared<rapidsmpf::ProgressThread>(comm->logger());
+    auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(comm->logger());
 
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
     std::shared_ptr<stats_dev_mem_resource> stat_enabled_mr;
@@ -373,7 +383,10 @@ int main(int argc, char** argv) {
            << " sec | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | global throughput: "
-           << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
+           << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s"
+           << " | in_parts: " << args.num_local_partitions
+           << " | out_parts: " << args.num_output_partitions
+           << " | nranks: " << comm->nranks();
         if (args.enable_memory_profiler) {
             auto const counter = stat_enabled_mr->get_bytes_counter();
             ss << " | device memory peak: "
