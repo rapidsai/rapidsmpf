@@ -83,6 +83,17 @@ jobs:
       package-type: cpp
       # build for every combination of arch on CUDA 12 and latest Python
       matrix_filter: group_by([.ARCH]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
+  wheel-publish-librapidsmpf:
+    needs: wheel-build-librapidsmpf
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@branch-25.06
+    with:
+      build_type: ${{ inputs.build_type || 'branch' }}
+      branch: ${{ inputs.branch }}
+      sha: ${{ inputs.sha }}
+      date: ${{ inputs.date }}
+      package-name: librapidsmpf
+      package-type: cpp
   wheel-build-rapidsmpf:
     needs: wheel-build-librapidsmpf
     secrets: inherit
@@ -96,3 +107,14 @@ jobs:
       package-name: rapidsmpf
       package-type: python
       matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
+  wheel-publish-rapidsmpf:
+    needs: wheel-build-rapidsmpf
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@branch-25.06
+    with:
+      build_type: ${{ inputs.build_type || 'branch' }}
+      branch: ${{ inputs.branch }}
+      sha: ${{ inputs.sha }}
+      date: ${{ inputs.date }}
+      package-name: rapidsmpf
+      package-type: python
