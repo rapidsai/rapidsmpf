@@ -34,7 +34,7 @@ class ArgumentParser {
         RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
         try {
             int option;
-            while ((option = getopt(argc, argv, "hC:r:w:c:n:p:m:l:x")) != -1) {
+            while ((option = getopt(argc, argv, "hC:r:w:c:n:p:o:m:l:x")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -49,8 +49,8 @@ class ArgumentParser {
                            << "  -n <num>   Number of rows per rank (default: 1M)\n"
                            << "  -p <num>   Number of partitions (input tables) per "
                               "rank (default: 1)\n"
-                           << "  -o <num>   Number of output partitions (default: "
-                              "n_ranks)\n"
+                           << "  -o <num>   Number of output partitions per rank "
+                              "(default: 1)\n"
                            << "  -m <mr>    RMM memory resource {cuda, pool, async, "
                               "managed} "
                               "(default: cuda)\n"
@@ -140,10 +140,6 @@ class ArgumentParser {
                           << std::endl;
             }
         }
-
-        if (num_output_partitions == 0) {
-            num_output_partitions = static_cast<rapidsmpf::shuffler::PartID>(nranks);
-        }
     }
 
     void pprint(rapidsmpf::Communicator& comm) const {
@@ -159,7 +155,8 @@ class ArgumentParser {
         ss << "  -n " << num_local_rows << " (number of rows per rank)\n";
         ss << "  -p " << num_local_partitions
            << " (number of input partitions per rank)\n";
-        ss << "  -o " << num_output_partitions << " (number of output partitions)\n";
+        ss << "  -o " << num_output_partitions
+           << " (number of output partitions per rank)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
         if (device_mem_limit_mb >= 0) {
             ss << "  -l " << device_mem_limit_mb << " (device memory limit in MiB)\n";
@@ -177,7 +174,7 @@ class ArgumentParser {
     std::uint32_t num_columns{1};
     std::uint64_t num_local_rows{1 << 20};
     rapidsmpf::shuffler::PartID num_local_partitions{1};
-    rapidsmpf::shuffler::PartID num_output_partitions{0};
+    rapidsmpf::shuffler::PartID num_output_partitions{1};
     std::string rmm_mr{"cuda"};
     std::string comm_type{"mpi"};
     std::uint64_t local_nbytes;
@@ -196,6 +193,9 @@ rapidsmpf::Duration run(
 ) {
     std::int32_t const min_val = 0;
     std::int32_t const max_val = args.num_local_rows;
+    rapidsmpf::shuffler::PartID const total_num_partitions =
+        args.num_output_partitions
+        * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
     std::vector<cudf::table> input_partitions;
     input_partitions.reserve(args.num_local_partitions);
@@ -215,12 +215,12 @@ rapidsmpf::Duration run(
     std::vector<cudf::table> output_partitions;
     auto const t0_elapsed = rapidsmpf::Clock::now();
     {
-        RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", args.num_output_partitions);
+        RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
             progress_thread,
             0,  // op_id
-            args.num_output_partitions,
+            total_num_partitions,
             stream,
             br,
             statistics,
@@ -232,7 +232,7 @@ rapidsmpf::Duration run(
             shuffler.insert(rapidsmpf::shuffler::partition_and_pack(
                 partition,
                 {0},
-                static_cast<std::int32_t>(args.num_output_partitions),
+                static_cast<std::int32_t>(total_num_partitions),
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
                 stream,
@@ -241,7 +241,7 @@ rapidsmpf::Duration run(
             partition.release();
         }
         // Tell the shuffler that we have no more data.
-        for (rapidsmpf::shuffler::PartID i = 0; i < args.num_output_partitions; ++i) {
+        for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
             shuffler.insert_finished(i);
         }
 
@@ -383,7 +383,10 @@ int main(int argc, char** argv) {
            << " sec | local throughput: "
            << rapidsmpf::format_nbytes(args.local_nbytes / elapsed_mean)
            << "/s | global throughput: "
-           << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s";
+           << rapidsmpf::format_nbytes(args.total_nbytes / elapsed_mean) << "/s"
+           << " | in_parts: " << args.num_local_partitions
+           << " | out_parts: " << args.num_output_partitions
+           << " | nranks: " << comm->nranks();
         if (args.enable_memory_profiler) {
             auto const counter = stat_enabled_mr->get_bytes_counter();
             ss << " | device memory peak: "
