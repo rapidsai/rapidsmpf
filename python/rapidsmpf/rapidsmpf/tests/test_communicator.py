@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from mpi4py import MPI
 
-from rapidsmpf.communicator.communicator import LOG_LEVEL
-from rapidsmpf.communicator.mpi import new_communicator
-from rapidsmpf.communicator.testing import initialize_ucxx, ucxx_mpi_setup
-from rapidsmpf.config import Options, get_environment_variables
+MPI = pytest.importorskip("mpi4py.MPI")
+from rapidsmpf.communicator.communicator import LOG_LEVEL  # noqa: E402
+from rapidsmpf.communicator.mpi import new_communicator  # noqa: E402
+from rapidsmpf.communicator.testing import initialize_ucxx, ucxx_mpi_setup  # noqa: E402
+from rapidsmpf.config import Options, get_environment_variables  # noqa: E402
 
 
 @pytest.mark.parametrize(
