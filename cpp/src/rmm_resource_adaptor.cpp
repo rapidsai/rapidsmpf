@@ -105,14 +105,15 @@ bool erase_fallback_allocation(
 void RmmResourceAdaptor::do_deallocate(
     void* ptr, std::size_t nbytes, rmm::cuda_stream_view stream
 ) {
-    if (erase_fallback_allocation(mutex_, fallback_mr_, fallback_allocations_, ptr)) {
-        fallback_mr_->deallocate_async(ptr, nbytes, stream);
-        std::lock_guard<std::mutex> lock(mutex_);
+    std::unique_lock lock(mutex);
+    if (fallback_allocations.erase(ptr) == 1) {  // ptr was allocated from fallback mr and fallback mr is available 
         record_.record_deallocation(ScopedMemoryRecord::AllocType::FALLBACK, nbytes);
+        lock.unlock();        
+        fallback_mr_->deallocate_async(ptr, nbytes, stream);
     } else {
-        primary_mr_.deallocate_async(ptr, nbytes, stream);
-        std::lock_guard<std::mutex> lock(mutex_);
         record_.record_deallocation(ScopedMemoryRecord::AllocType::PRIMARY, nbytes);
+        lock.unlock();  
+        primary_mr_.deallocate_async(ptr, nbytes, stream);
     }
 }
 
