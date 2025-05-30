@@ -7,13 +7,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
-from mpi4py import MPI
 
 import cudf
 
 from rapidsmpf.buffer.resource import BufferResource
-from rapidsmpf.examples.bulk_mpi_shuffle import bulk_mpi_shuffle
 from rapidsmpf.testing import assert_eq
+
+MPI = pytest.importorskip("mpi4py.MPI")
+from rapidsmpf.examples.bulk_mpi_shuffle import bulk_mpi_shuffle  # noqa: E402
 
 if TYPE_CHECKING:
     import py.path

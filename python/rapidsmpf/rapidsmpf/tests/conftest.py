@@ -15,9 +15,32 @@ from rapidsmpf.config import Options, get_environment_variables
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from mpi4py import MPI
+
     from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.communicator.communicator import Communicator
+
+
+def _get_mpi_module_or_skip() -> MPI:
+    """
+    Return the `mpi4py.MPI` module if MPI support is available or pytest.skip.
+
+    Returns
+    -------
+    The `mpi4py.MPI` module.
+
+    Raises
+    ------
+    pytest.skip
+        If MPI support is not available.
+    """
+    if "mpi" not in COMMUNICATORS:
+        pytest.skip("No MPI support")
+
+    from mpi4py import MPI
+
+    return MPI
 
 
 @pytest.fixture(scope="session")
