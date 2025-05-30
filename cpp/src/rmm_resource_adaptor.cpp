@@ -89,8 +89,8 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
 void RmmResourceAdaptor::do_deallocate(
     void* ptr, std::size_t nbytes, rmm::cuda_stream_view stream
 ) {
-    std::unique_lock lock(mutex);
-    if (fallback_allocations.erase(ptr) == 1)
+    std::unique_lock lock(mutex_);
+    if (fallback_allocations_.erase(ptr) == 1)
     {  // ptr was allocated from fallback mr and fallback mr is available
         record_.record_deallocation(ScopedMemoryRecord::AllocType::FALLBACK, nbytes);
         lock.unlock();
