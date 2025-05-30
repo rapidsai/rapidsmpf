@@ -8,13 +8,13 @@ from libcpp cimport bool
 from libcpp.memory cimport shared_ptr
 from libcpp.optional cimport optional
 from libcpp.unordered_map cimport unordered_map
-from rmm.librmm.memory_resource cimport (device_memory_resource,
-                                         statistics_resource_adaptor)
-from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
-                                           StatisticsResourceAdaptor)
+from rmm.librmm.memory_resource cimport device_memory_resource
+from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 from rapidsmpf.buffer.buffer cimport MemoryType
 from rapidsmpf.buffer.spill_manager cimport SpillManager, cpp_SpillManager
+from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
+                                             cpp_RmmResourceAdaptor)
 from rapidsmpf.utils.time cimport cpp_Duration
 
 
@@ -45,11 +45,11 @@ cdef class BufferResource:
 cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
     cdef cppclass cpp_LimitAvailableMemory "rapidsmpf::LimitAvailableMemory":
         cpp_LimitAvailableMemory(
-            statistics_resource_adaptor[device_memory_resource] *mr, int64_t limit
+            cpp_RmmResourceAdaptor *mr, int64_t limit
         ) except +
         int64_t operator()() except +
 
 
 cdef class LimitAvailableMemory:
     cdef shared_ptr[cpp_LimitAvailableMemory] _handle
-    cdef StatisticsResourceAdaptor _statistics_mr
+    cdef RmmResourceAdaptor _mr

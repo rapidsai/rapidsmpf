@@ -8,6 +8,7 @@ import rmm.mr
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 
 
 def KiB(x: int) -> int:
@@ -17,11 +18,11 @@ def KiB(x: int) -> int:
 def test_limit_available_memory() -> None:
     with pytest.raises(
         TypeError,
-        match="expected rmm.pylibrmm.memory_resource.StatisticsResourceAdaptor",
+        match="RmmResourceAdaptor",
     ):
         LimitAvailableMemory(rmm.mr.CudaMemoryResource(), limit=KiB(100))
 
-    mr = rmm.mr.StatisticsResourceAdaptor(rmm.mr.CudaMemoryResource())
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
     mem_available = LimitAvailableMemory(mr, limit=KiB(100))
     assert mem_available() == KiB(100)
 
@@ -47,7 +48,7 @@ def test_limit_available_memory() -> None:
 
 
 def test_buffer_resource() -> None:
-    mr = rmm.mr.StatisticsResourceAdaptor(rmm.mr.CudaMemoryResource())
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
 
     with pytest.raises(
         NotImplementedError,

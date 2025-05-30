@@ -12,9 +12,9 @@
 #include <rmm/mr/device/managed_memory_resource.hpp>
 #include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
-#include <rmm/mr/device/statistics_resource_adaptor.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/rmm_resource_adaptor.hpp>
 
 /**
  * @brief Create and set a RMM stack as the current device memory resource.
@@ -50,19 +50,17 @@ set_current_rmm_stack(std::string const& name) {
     return ret;
 }
 
-using stats_dev_mem_resource =
-    rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource>;
-
 /**
  * @brief Create a statistics-enabled device memory resource with on the current RMM
  * stack.
  *
  * @return A owning memory resource, which must be kept alive.
  */
-[[nodiscard]] inline std::shared_ptr<stats_dev_mem_resource>
+[[nodiscard]] inline std::shared_ptr<rapidsmpf::RmmResourceAdaptor>
 set_device_mem_resource_with_stats() {
-    auto ret =
-        std::make_shared<stats_dev_mem_resource>(cudf::get_current_device_resource_ref());
+    auto ret = std::make_shared<rapidsmpf::RmmResourceAdaptor>(
+        cudf::get_current_device_resource_ref()
+    );
     rmm::mr::set_current_device_resource(ret.get());
     rmm::mr::set_current_device_resource_ref(*ret);
     return ret;
