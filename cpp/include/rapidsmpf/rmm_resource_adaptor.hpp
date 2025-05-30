@@ -28,6 +28,9 @@ struct ScopedMemoryRecord {
         ALL = 2  ///< Aggregated statistics from both primary and fallback allocators.
     };
 
+    /// Array type for storing per-allocator statistics.
+    using AllocTypeArray = std::array<std::uint64_t, 2>;
+
     /**
      * @brief Returns the total number of allocations performed by the specified allocator
      * type.
@@ -115,11 +118,11 @@ struct ScopedMemoryRecord {
     void record_deallocation(AllocType alloc_type, std::uint64_t nbytes);
 
   private:
-    std::array<std::uint64_t, 2> num_current_allocs_{{0, 0}};
-    std::array<std::uint64_t, 2> num_total_allocs_{{0, 0}};
-    std::array<std::uint64_t, 2> current_{{0, 0}};
-    std::array<std::uint64_t, 2> total_{{0, 0}};
-    std::array<std::uint64_t, 2> peak_{{0, 0}};
+    AllocTypeArray num_current_allocs_{{0, 0}};
+    AllocTypeArray num_total_allocs_{{0, 0}};
+    AllocTypeArray current_{{0, 0}};
+    AllocTypeArray total_{{0, 0}};
+    AllocTypeArray peak_{{0, 0}};
     std::uint64_t highest_peak_{0};
 };
 
