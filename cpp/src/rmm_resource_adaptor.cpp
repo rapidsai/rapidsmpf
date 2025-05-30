@@ -86,33 +86,18 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
     return ret;
 }
 
-namespace {
-// If it exist, erase fallback allocation and return true else return false.
-bool erase_fallback_allocation(
-    std::mutex& mutex,
-    std::optional<rmm::device_async_resource_ref> const& fallback_mr,
-    std::unordered_set<void*>& fallback_allocations,
-    void* ptr
-) {
-    if (fallback_mr.has_value()) {
-        std::lock_guard<std::mutex> lock(mutex);
-        return fallback_allocations.erase(ptr) == 1;
-    }
-    return false;
-}
-}  // namespace
-
 void RmmResourceAdaptor::do_deallocate(
     void* ptr, std::size_t nbytes, rmm::cuda_stream_view stream
 ) {
     std::unique_lock lock(mutex);
-    if (fallback_allocations.erase(ptr) == 1) {  // ptr was allocated from fallback mr and fallback mr is available 
+    if (fallback_allocations.erase(ptr) == 1)
+    {  // ptr was allocated from fallback mr and fallback mr is available
         record_.record_deallocation(ScopedMemoryRecord::AllocType::FALLBACK, nbytes);
-        lock.unlock();        
+        lock.unlock();
         fallback_mr_->deallocate_async(ptr, nbytes, stream);
     } else {
         record_.record_deallocation(ScopedMemoryRecord::AllocType::PRIMARY, nbytes);
-        lock.unlock();  
+        lock.unlock();
         primary_mr_.deallocate_async(ptr, nbytes, stream);
     }
 }
