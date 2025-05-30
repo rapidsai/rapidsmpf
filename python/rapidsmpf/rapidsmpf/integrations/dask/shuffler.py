@@ -472,6 +472,10 @@ def rapidsmpf_shuffle_graph(
     if not isinstance(integration, DaskIntegration):
         raise TypeError(f"Expected DaskIntegration object, got {integration}.")
 
+    # Note: We've observed high overhead from `Client.run` on some systems with
+    # some networking configurations. Minimize the number of `Client.run` calls
+    # by batching as much work as possible into a single call as possible.
+    # See https://github.com/rapidsai/rapidsmpf/pull/323 for more.
     worker_ranks: dict[int, str] = {
         v: k
         for k, v in client.run(
