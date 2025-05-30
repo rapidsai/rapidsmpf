@@ -29,7 +29,6 @@ libraries.
    :members:
 ```
 
-
 ## Communicator
 
 ```{eval-rst}
@@ -66,3 +65,9 @@ libraries.
 .. automodule:: rapidsmpf.buffer.resource
    :members:
 ```
+
+## Config Options
+
+```{eval-rst}
+.. automodule:: rapidsmpf.config
+   :members:
