@@ -3,40 +3,47 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <numeric>
+
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 
 namespace rapidsmpf {
 
+namespace {
+/**
+ * @brief Retrieves a value from a statistics array or accumulates the total.
+ *
+ * @param arr        The array containing statistics for each allocator type.
+ * @param alloc_type The type of allocator to retrieve data for. If `AllocType::ALL`,
+ *                   the function returns the sum across all entries in the array.
+ * @return The requested statistic value or the accumulated total.
+ */
+std::uint64_t get_or_accumulate(
+    ScopedMemoryRecord::AllocTypeArray const& arr,
+    ScopedMemoryRecord::AllocType alloc_type
+) noexcept {
+    if (alloc_type == ScopedMemoryRecord::AllocType::ALL) {
+        return std::accumulate(arr.begin(), arr.end(), std::uint64_t{0});
+    }
+    return arr[static_cast<std::size_t>(alloc_type)];
+}
+}  // namespace
 
 std::uint64_t ScopedMemoryRecord::num_total_allocs(AllocType alloc_type) const noexcept {
-    if (alloc_type == AllocType::ALL) {
-        return num_total_allocs(AllocType::PRIMARY)
-               + num_total_allocs(AllocType::FALLBACK);
-    }
-    return num_total_allocs_[static_cast<std::size_t>(alloc_type)];
+    return get_or_accumulate(num_total_allocs_, alloc_type);
 }
 
 std::uint64_t ScopedMemoryRecord::num_current_allocs(AllocType alloc_type
 ) const noexcept {
-    if (alloc_type == AllocType::ALL) {
-        return num_current_allocs(AllocType::PRIMARY)
-               + num_current_allocs(AllocType::FALLBACK);
-    }
-    return num_current_allocs_[static_cast<std::size_t>(alloc_type)];
+    return get_or_accumulate(num_current_allocs_, alloc_type);
 }
 
 std::uint64_t ScopedMemoryRecord::current(AllocType alloc_type) const noexcept {
-    if (alloc_type == AllocType::ALL) {
-        return current(AllocType::PRIMARY) + current(AllocType::FALLBACK);
-    }
-    return current_[static_cast<std::size_t>(alloc_type)];
+    return get_or_accumulate(current_, alloc_type);
 }
 
 std::uint64_t ScopedMemoryRecord::total(AllocType alloc_type) const noexcept {
-    if (alloc_type == AllocType::ALL) {
-        return total(AllocType::PRIMARY) + total(AllocType::FALLBACK);
-    }
-    return total_[static_cast<std::size_t>(alloc_type)];
+    return get_or_accumulate(total_, alloc_type);
 }
 
 std::uint64_t ScopedMemoryRecord::peak(AllocType alloc_type) const noexcept {
