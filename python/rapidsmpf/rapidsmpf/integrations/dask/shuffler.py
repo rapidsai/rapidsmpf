@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 
     from distributed import Client, Worker
 
+    from rapidsmpf.config import Options
+
 
 # Set of available shuffle IDs
 _shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
@@ -362,6 +364,16 @@ def _extract_partition(
                     del ctx.shufflers[shuffle_id]
 
 
+def _get_worker_ranks_and_stage_shuffler(
+    shuffle_id: int, partition_count: int, dask_worker: Worker | None = None
+) -> int:
+    rank = get_worker_rank(dask_worker)
+
+    _stage_shuffler(shuffle_id, partition_count, dask_worker)
+
+    return rank
+
+
 def rapidsmpf_shuffle_graph(
     input_name: str,
     output_name: str,
@@ -370,6 +382,7 @@ def rapidsmpf_shuffle_graph(
     integration: DaskIntegration,
     options: Any,
     *other_keys: str | tuple[str, int],
+    config_options: Options | None = None,
 ) -> dict[Any, Any]:
     """
     Return the task graph for a RapidsMPF shuffle.
@@ -390,6 +403,8 @@ def rapidsmpf_shuffle_graph(
         Optional key-word arguments.
     *other_keys
         Other keys needed by ``integration.insert_partition``.
+    config_options
+        RapidsMPF configuration options.
 
     Returns
     -------
@@ -455,17 +470,26 @@ def rapidsmpf_shuffle_graph(
     and they must also depend on the second global-barrier task.
     """
     # Get the shuffle id
-    client = get_dask_client()
+    client = get_dask_client(options=config_options)
     shuffle_id = _get_new_shuffle_id(client)
 
     # Check integration argument
     if not isinstance(integration, DaskIntegration):
         raise TypeError(f"Expected DaskIntegration object, got {integration}.")
 
-    # Extract mapping between ranks and worker addresses
+    # Note: We've observed high overhead from `Client.run` on some systems with
+    # some networking configurations. Minimize the number of `Client.run` calls
+    # by batching as much work as possible into a single call as possible.
+    # See https://github.com/rapidsai/rapidsmpf/pull/323 for more.
     worker_ranks: dict[int, str] = {
-        v: k for k, v in client.run(get_worker_rank).items()
+        v: k
+        for k, v in client.run(
+            _get_worker_ranks_and_stage_shuffler,
+            shuffle_id,
+            partition_count_out,
+        ).items()
     }
+
     n_workers = len(worker_ranks)
     restricted_keys: MutableMapping[Any, str] = {}
 
@@ -474,13 +498,6 @@ def rapidsmpf_shuffle_graph(
     global_barrier_1_name = f"rmpf-global-barrier-1-{output_name}"
     global_barrier_2_name = f"rmpf-global-barrier-2-{output_name}"
     worker_barrier_name = f"rmpf-worker-barrier-{output_name}"
-
-    # Stage a shuffler on every worker for this shuffle id
-    client.run(
-        _stage_shuffler,
-        shuffle_id=shuffle_id,
-        partition_count=partition_count_out,
-    )
 
     # Add tasks to insert each partition into the shuffler
     graph: dict[Any, Any] = {

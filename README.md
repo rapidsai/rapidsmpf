@@ -2,6 +2,8 @@
 
 Collection of multi-gpu, distributed memory algorithms.
 
+See [Configuration Options](CONFIG_OPTIONS.md)
+
 ## Getting started
 
 Currently, there is no conda or pip packages for rapidsmpf thus we have to build from source.
@@ -160,9 +162,3 @@ int main(int argc, char** argv) {
     RAPIDSMPF_MPI(MPI_Finalize());
 }
 ```
-
-## Communicator
-
-### MPI
-
-### UCX
