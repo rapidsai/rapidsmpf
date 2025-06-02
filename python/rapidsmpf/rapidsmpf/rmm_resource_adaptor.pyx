@@ -43,8 +43,7 @@ cdef class ScopedMemoryRecord:
 
         Returns
         -------
-        int
-            Number of active allocations.
+        Number of active allocations.
         """
         return self._handle.num_current_allocs(alloc_type)
 
@@ -102,10 +101,10 @@ cdef class ScopedMemoryRecord:
 
         Parameters
         ----------
-        alloc_type : AllocType
+        alloc_type
             The allocator that performed the allocation.
 
-        nbytes : int
+        nbytes
             The number of bytes allocated.
         """
         self._handle.record_allocation(alloc_type, nbytes)
@@ -118,10 +117,10 @@ cdef class ScopedMemoryRecord:
 
         Parameters
         ----------
-        alloc_type : AllocType
+        alloc_type
             The allocator that performed the deallocation.
 
-        nbytes : int
+        nbytes
             The number of bytes deallocated.
         """
         self._handle.record_deallocation(alloc_type, nbytes)
