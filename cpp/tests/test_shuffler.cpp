@@ -34,7 +34,11 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::Range(1, 10),  // num_partitions
         testing::Range(1, 100, 9)  // num_rows
-    )
+    ),
+    [](auto const& info) {
+        return "nparts_" + std::to_string(std::get<0>(info.param)) + "__nrows_"
+               + std::to_string(std::get<1>(info.param));
+    }
 );
 
 TEST_P(NumOfPartitions, partition_and_pack) {
