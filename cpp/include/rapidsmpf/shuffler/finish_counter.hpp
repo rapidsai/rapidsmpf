@@ -59,7 +59,7 @@ class FinishCounter {
      * @param pid The partition ID the goalpost is assigned to.
      * @param nchunks The number of chunks required.
      *
-     * @throw cudf::logic_error If the goalpost is moved more than once for the same rank
+     * @throw std::logic_error If the goalpost is moved more than once for the same rank
      * and partition.
      */
     void move_goalpost(PartID pid, ChunkID nchunks);
@@ -73,7 +73,7 @@ class FinishCounter {
      *
      * @param pid The partition ID to update.
      *
-     * @throw cudf::logic_error If the partition has already reached the goalpost.
+     * @throw std::logic_error If the partition has already reached the goalpost.
      */
     void add_finished_chunk(PartID pid);
 

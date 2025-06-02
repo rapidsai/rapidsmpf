@@ -12,9 +12,6 @@
 
 #include <cuda/std/span>
 
-#include <cudf/contiguous_split.hpp>
-#include <cudf/table/table.hpp>
-
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/cudf/partition.hpp>
