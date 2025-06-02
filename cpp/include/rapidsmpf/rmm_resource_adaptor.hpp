@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <mutex>
 #include <optional>
+#include <type_traits>
 #include <unordered_set>
 
 #include <rmm/error.hpp>
@@ -19,6 +20,8 @@ namespace rapidsmpf {
 
 /**
  * @brief Memory statistics for a specific scope.
+ *
+ * @note Is trivially copyable.
  */
 struct ScopedMemoryRecord {
     /// Allocation source types.
@@ -104,6 +107,8 @@ struct ScopedMemoryRecord {
      *
      * @param alloc_type The allocator that performed the allocation.
      * @param nbytes     The number of bytes allocated.
+     *
+     * @note Is not thread-safe.
      */
     void record_allocation(AllocType alloc_type, std::uint64_t nbytes);
 
@@ -114,6 +119,8 @@ struct ScopedMemoryRecord {
      *
      * @param alloc_type The allocator that performed the deallocation.
      * @param nbytes     The number of bytes deallocated.
+     *
+     * @note Is not thread-safe.
      */
     void record_deallocation(AllocType alloc_type, std::uint64_t nbytes);
 
@@ -125,6 +132,11 @@ struct ScopedMemoryRecord {
     AllocTypeArray peak_{{0, 0}};
     std::uint64_t highest_peak_{0};
 };
+
+static_assert(
+    std::is_trivially_copyable<ScopedMemoryRecord>::value,
+    "ScopedMemoryRecord must be trivially copyable"
+);
 
 /**
  * @brief A RMM memory resource adaptor tailored to RapidsMPF.
