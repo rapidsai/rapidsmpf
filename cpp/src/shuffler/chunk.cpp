@@ -219,8 +219,7 @@ bool Chunk::validate_format(std::vector<uint8_t> const& serialized_buf) {
     return true;
 }
 
-std::string Chunk::str(std::size_t /*max_nbytes*/, rmm::cuda_stream_view /*stream*/)
-    const {
+std::string Chunk::str() const {
     std::stringstream ss;
     ss << "Chunk(id=" << chunk_id() << ", n=" << n_messages() << ", ";
 

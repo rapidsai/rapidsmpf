@@ -305,13 +305,9 @@ class Chunk {
     /**
      * @brief Returns a description of this chunk.
      *
-     * @param max_nbytes The maximum size of the chunk data to include.
-     * @param stream The CUDA stream.
      * @return The description.
      */
-    [[nodiscard]] std::string str(
-        size_t max_nbytes = 512, rmm::cuda_stream_view stream = cudf::get_default_stream()
-    ) const;
+    [[nodiscard]] std::string str() const;
 
     /**
      * @brief Returns a metadata message that represents this chunk.
