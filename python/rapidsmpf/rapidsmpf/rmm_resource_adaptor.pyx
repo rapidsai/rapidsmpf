@@ -27,8 +27,7 @@ cdef class ScopedMemoryRecord:
 
         Returns
         -------
-        int
-            Number of total allocations.
+        Number of total allocations.
         """
         return self._handle.num_total_allocs(alloc_type)
 
