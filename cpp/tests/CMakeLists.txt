@@ -135,6 +135,17 @@ target_link_libraries(
 )
 disable_sign_conversion_warning(no_env_tests)
 
+include(rapids-test)
+rapids_test_add(
+  NAME no_env_tests
+  COMMAND no_env_tests
+  GPUS 1
+  INSTALL_COMPONENT_SET standalone_testing
+)
+rapids_test_install_relocatable(
+  INSTALL_COMPONENT_SET standalone_testing DESTINATION bin/tests/librapidsmpf/gtests
+)
+
 # Create a list of targets that contains property KEY:VALUE.
 function(rapidsmpf_targets_with_property)
   set(options)
