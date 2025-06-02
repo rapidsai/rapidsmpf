@@ -5,6 +5,7 @@
 
 #include <numeric>
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 
 namespace rapidsmpf {
