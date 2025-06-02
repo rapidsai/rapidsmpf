@@ -14,12 +14,10 @@
 
 #include <rapidsmpf/buffer/packed_data.hpp>
 
-namespace rapidsmpf::shuffler {
-
+namespace rapidsmpf {
 
 /**
- * @brief Partition ID, which goes from 0 to the total number of partitions in the
- * shuffle.
+ * @brief Partition ID, which goes from 0 to the total number of partitions
  *
  * The `PartID` is always referring to a partition globally.
  */
@@ -133,4 +131,4 @@ partition_and_split(
 );
 
 
-}  // namespace rapidsmpf::shuffler
+}  // namespace rapidsmpf

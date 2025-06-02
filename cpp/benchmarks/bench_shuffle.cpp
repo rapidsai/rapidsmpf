@@ -12,9 +12,9 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/cudf/partition.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/nvtx.hpp>
-#include <rapidsmpf/shuffler/partition.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -165,7 +165,7 @@ class ArgumentParser {
     std::uint64_t num_warmups{0};
     std::uint32_t num_columns{1};
     std::uint64_t num_local_rows{1 << 20};
-    rapidsmpf::shuffler::PartID num_local_partitions{1};
+    rapidsmpf::PartID num_local_partitions{1};
     std::string rmm_mr{"cuda"};
     std::string comm_type{"mpi"};
     std::uint64_t local_nbytes;
@@ -184,11 +184,10 @@ rapidsmpf::Duration run(
 ) {
     std::int32_t const min_val = 0;
     std::int32_t const max_val = args.num_local_rows;
-    rapidsmpf::shuffler::PartID const total_num_partitions =
-        args.num_local_partitions
-        * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
+    rapidsmpf::PartID const total_num_partitions =
+        args.num_local_partitions * static_cast<rapidsmpf::PartID>(comm->nranks());
     std::vector<cudf::table> input_partitions;
-    for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
+    for (rapidsmpf::PartID i = 0; i < args.num_local_partitions; ++i) {
         input_partitions.push_back(random_table(
             static_cast<cudf::size_type>(args.num_columns),
             static_cast<cudf::size_type>(args.num_local_rows),
@@ -209,7 +208,7 @@ rapidsmpf::Duration run(
             comm,
             progress_thread,
             0,  // op_id
-            static_cast<rapidsmpf::shuffler::PartID>(total_num_partitions),
+            static_cast<rapidsmpf::PartID>(total_num_partitions),
             stream,
             br,
             statistics,
@@ -218,7 +217,7 @@ rapidsmpf::Duration run(
 
         for (auto&& partition : input_partitions) {
             // Partition, pack, and insert this partition into the shuffler.
-            shuffler.insert(rapidsmpf::shuffler::partition_and_pack(
+            shuffler.insert(rapidsmpf::partition_and_pack(
                 partition,
                 {0},
                 static_cast<std::int32_t>(total_num_partitions),
@@ -230,14 +229,14 @@ rapidsmpf::Duration run(
             partition.release();
         }
         // Tell the shuffler that we have no more data.
-        for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+        for (rapidsmpf::PartID i = 0; i < total_num_partitions; ++i) {
             shuffler.insert_finished(i);
         }
 
         while (!shuffler.finished()) {
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
-            output_partitions.push_back(*rapidsmpf::shuffler::unpack_and_concat(
+            output_partitions.push_back(*rapidsmpf::unpack_and_concat(
                 std::move(packed_chunks), stream, br->device_mr()
             ));
         }
@@ -249,7 +248,7 @@ rapidsmpf::Duration run(
     // thus we only check large shuffles).
     if (args.num_local_rows >= 1000000) {
         for (const auto& output_partition : output_partitions) {
-            auto [parts, owner] = rapidsmpf::shuffler::partition_and_split(
+            auto [parts, owner] = rapidsmpf::partition_and_split(
                 output_partition,
                 {0},
                 static_cast<std::int32_t>(total_num_partitions),

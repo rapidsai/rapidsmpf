@@ -23,12 +23,12 @@ from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics
 
 
-cdef extern from "<rapidsmpf/shuffler/partition.hpp>" nogil:
+cdef extern from "<rapidsmpf/cudf/partition.hpp>" nogil:
     int cpp_HASH_MURMUR3"cudf::hash_id::HASH_MURMUR3"
     uint32_t cpp_DEFAULT_HASH_SEED"cudf::DEFAULT_HASH_SEED",
 
     cdef unordered_map[uint32_t, cpp_PackedData] cpp_partition_and_pack \
-        "rapidsmpf::shuffler::partition_and_pack"(
+        "rapidsmpf::partition_and_pack"(
             const table_view& table,
             const vector[size_type] &columns_to_hash,
             int num_partitions,
@@ -39,7 +39,7 @@ cdef extern from "<rapidsmpf/shuffler/partition.hpp>" nogil:
         ) except +
 
     cdef unordered_map[uint32_t, cpp_PackedData] cpp_split_and_pack \
-        "rapidsmpf::shuffler::split_and_pack"(
+        "rapidsmpf::split_and_pack"(
             const table_view& table,
             const vector[size_type] &splits,
             cuda_stream_view stream,
@@ -173,9 +173,9 @@ cpdef dict split_and_pack(
     return ret
 
 
-cdef extern from "<rapidsmpf/shuffler/partition.hpp>" nogil:
+cdef extern from "<rapidsmpf/cudf/partition.hpp>" nogil:
     cdef unique_ptr[cpp_table] cpp_unpack_and_concat \
-        "rapidsmpf::shuffler::unpack_and_concat"(
+        "rapidsmpf::unpack_and_concat"(
             vector[cpp_PackedData] partition,
             cuda_stream_view stream,
             device_memory_resource *mr,

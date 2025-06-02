@@ -17,7 +17,7 @@
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
-#include <rapidsmpf/shuffler/partition.hpp>
+#include <rapidsmpf/cudf/partition.hpp>
 
 namespace rapidsmpf::shuffler::detail {
 

@@ -62,7 +62,7 @@ Example of a MPI program that uses the shuffler:
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/shuffler/partition.hpp>
+#include <rapidsmpf/cudf/partition.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 
 #include "../benchmarks/utils/random_data.hpp"
@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
     cudf::table local_input = random_table(2, 100, 0, 10, stream, mr);
 
     // The total number of inputs equals the number of ranks, in this case.
-    rapidsmpf::shuffler::PartID const total_num_partitions = comm->nranks();
+    rapidsmpf::PartID const total_num_partitions = comm->nranks();
 
     // We create a new shuffler instance, which represents a single shuffle. It takes
     // a Communicator, the total number of partitions, and a "owner function", which
@@ -108,8 +108,8 @@ int main(int argc, char** argv) {
     // does provide a convenience function that hash partition a cudf table and packs
     // each partition. The result is a mapping of `PartID`, globally unique partition
     // identifiers, to their packed partitions.
-    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> packed_inputs =
-        rapidsmpf::shuffler::partition_and_pack(
+    std::unordered_map<rapidsmpf::PartID, rapidsmpf::PackedData> packed_inputs =
+        rapidsmpf::partition_and_pack(
             local_input,
             {0},
             total_num_partitions,
@@ -129,7 +129,7 @@ int main(int argc, char** argv) {
     // Again, this is non-blocking and should be done as soon as we known that we don't
     // have more inputs for a specific partition. In this case, we are finished with all
     // partitions.
-    for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+    for (rapidsmpf::PartID i = 0; i < total_num_partitions; ++i) {
         shuffler.insert_finished(i);
     }
 
@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
     // Wait for and process the shuffle results for each partition.
     while (!shuffler.finished()) {
         // Block until a partition is ready and retrieve its partition ID.
-        rapidsmpf::shuffler::PartID finished_partition = shuffler.wait_any();
+        rapidsmpf::PartID finished_partition = shuffler.wait_any();
 
         // Extract the finished partition's data from the Shuffler.
         auto packed_chunks = shuffler.extract(finished_partition);
@@ -147,7 +147,7 @@ int main(int argc, char** argv) {
         // Unpack (deserialize) and concatenate the chunks into a single table using a
         // convenience function.
         local_outputs.push_back(
-            rapidsmpf::shuffler::unpack_and_concat(std::move(packed_chunks))
+            rapidsmpf::unpack_and_concat(std::move(packed_chunks))
         );
     }
     // At this point, `local_outputs` contains the local result of the shuffle.

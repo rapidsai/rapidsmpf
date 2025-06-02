@@ -13,12 +13,12 @@
 
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/cudf/partition.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/nvtx.hpp>
-#include <rapidsmpf/shuffler/partition.hpp>
 #include <rapidsmpf/utils.hpp>
 
-namespace rapidsmpf::shuffler {
+namespace rapidsmpf {
 
 std::pair<std::vector<cudf::table_view>, std::unique_ptr<cudf::table>>
 partition_and_split(
@@ -139,4 +139,4 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 }
 
 
-}  // namespace rapidsmpf::shuffler
+}  // namespace rapidsmpf

@@ -109,7 +109,9 @@ endif()
 # ##################################################################################################
 # * library targets --------------------------------------------------------------------------------
 
-file(GLOB SOURCES "src/*.cpp" "src/shuffler/*.cpp" "src/communicator/*.cpp" "src/buffer/*.cpp")
+file(GLOB SOURCES "src/*.cpp" "src/buffer/*.cpp" "src/communicator/*.cpp" "src/cudf/*.cpp"
+     "src/shuffler/*.cpp"
+)
 
 # Without MPI support, remove the MPI communicator from the source list.
 if(NOT RAPIDSMPF_HAVE_MPI)
