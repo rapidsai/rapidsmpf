@@ -45,7 +45,6 @@ file(GLOB NO_ENV_TEST_FILES "test_partition_utils.cpp")
 # MPI tests
 file(GLOB SOURCES "main/mpi.cpp" "*.cpp")
 list(REMOVE_ITEM SOURCES ${NO_ENV_TEST_FILES})
-message(STATUS "MPI tests sources: ${SOURCES}")
 add_executable(mpi_tests ${SOURCES})
 set_target_properties(
   mpi_tests
