@@ -40,7 +40,12 @@ function(rapidsmpf_mpirun_test_add)
   endforeach(np)
 endfunction(rapidsmpf_mpirun_test_add)
 
+file(GLOB NO_ENV_TEST_FILES "test_partition_utils.cpp")
+
+# MPI tests
 file(GLOB SOURCES "main/mpi.cpp" "*.cpp")
+list(REMOVE_ITEM SOURCES ${NO_ENV_TEST_FILES})
+message(STATUS "MPI tests sources: ${SOURCES}")
 add_executable(mpi_tests ${SOURCES})
 set_target_properties(
   mpi_tests
@@ -73,7 +78,9 @@ disable_sign_conversion_warning(mpi_tests)
 
 rapidsmpf_mpirun_test_add(TEST_TARGET mpi_tests)
 
+# UCXX tests
 file(GLOB SOURCES "main/ucxx.cpp" "*.cpp")
+list(REMOVE_ITEM SOURCES ${NO_ENV_TEST_FILES})
 add_executable(ucxx_tests ${SOURCES})
 set_target_properties(
   ucxx_tests
@@ -105,6 +112,29 @@ target_link_libraries(
 disable_sign_conversion_warning(ucxx_tests)
 
 rapidsmpf_mpirun_test_add(TEST_TARGET ucxx_tests)
+
+# No env tests (standalone tests)
+add_executable(no_env_tests "main/no_env.cpp" ${NO_ENV_TEST_FILES})
+set_target_properties(
+  no_env_tests
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+             CXX_STANDARD 17
+             CXX_STANDARD_REQUIRED ON
+             # For std:: support of __int128_t. Can be removed once using cuda::std
+             CXX_EXTENSIONS ON
+             CUDA_STANDARD 17
+             CUDA_STANDARD_REQUIRED ON
+             COMPONENT testing # custom test property, so that this could be searched later
+)
+target_compile_options(
+  no_env_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                       "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+)
+target_link_libraries(
+  no_env_tests PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
+                       GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
+)
+disable_sign_conversion_warning(no_env_tests)
 
 # Create a list of targets that contains property KEY:VALUE.
 function(rapidsmpf_targets_with_property)
