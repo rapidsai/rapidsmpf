@@ -20,9 +20,13 @@ import rapidsmpf.communicator.mpi
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.config import Options, get_environment_variables
+from rapidsmpf.cudf.partition import (
+    partition_and_pack,
+    unpack_and_concat,
+)
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
-from rapidsmpf.shuffler import Shuffler, partition_and_pack, unpack_and_concat
+from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 from rapidsmpf.utils.string import format_bytes, parse_bytes

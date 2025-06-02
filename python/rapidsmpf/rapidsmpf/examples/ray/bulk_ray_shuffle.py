@@ -17,9 +17,12 @@ import rmm.mr
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.cudf.partition import (
+    partition_and_pack,
+    unpack_and_concat,
+)
 from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
-from rapidsmpf.shuffler import partition_and_pack, unpack_and_concat
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import pylibcudf_to_cudf_dataframe
 from rapidsmpf.utils.ray_utils import BaseShufflingActor

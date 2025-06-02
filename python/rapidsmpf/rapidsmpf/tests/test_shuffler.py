@@ -12,12 +12,14 @@ import cudf
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.buffer.resource import BufferResource
-from rapidsmpf.progress_thread import ProgressThread
-from rapidsmpf.shuffler import (
-    Shuffler,
+from rapidsmpf.cudf.partition import (
     partition_and_pack,
     split_and_pack,
     unpack_and_concat,
+)
+from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.shuffler import (
+    Shuffler,
 )
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import (
