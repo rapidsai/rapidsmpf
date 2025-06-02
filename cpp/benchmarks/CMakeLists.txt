@@ -30,33 +30,6 @@ install(
   EXCLUDE_FROM_ALL
 )
 
-add_executable(bench_shuffle_no_partition "bench_shuffle_no_partition.cpp" ${UTILS_SOURCES})
-set_target_properties(
-  bench_shuffle_no_partition
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
-             CXX_STANDARD 17
-             CXX_STANDARD_REQUIRED ON
-             # For std:: support of __int128_t. Can be removed once using cuda::std
-             CXX_EXTENSIONS ON
-             CUDA_STANDARD 17
-             CUDA_STANDARD_REQUIRED ON
-)
-target_compile_options(
-  bench_shuffle_no_partition PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-                                     "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
-)
-target_link_libraries(
-  bench_shuffle_no_partition
-  PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
-          $<TARGET_NAME_IF_EXISTS:conda_env>
-)
-install(
-  TARGETS bench_shuffle_no_partition
-  COMPONENT benchmarking
-  DESTINATION bin/benchmarks/librapidsmpf
-  EXCLUDE_FROM_ALL
-)
-
 add_executable(bench_comm "bench_comm.cpp" ${UTILS_SOURCES})
 set_target_properties(
   bench_comm
