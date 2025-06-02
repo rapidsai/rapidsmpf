@@ -243,12 +243,11 @@ rapidsmpf::Duration do_run(
     // Check the shuffle result (this test only works for non-empty partitions
     // thus we only check large shuffles).
     if (check_result && args.num_local_rows >= 1000000) {
-        std::cout << "Checking result" << std::endl;
         for (const auto& output_partition : output_partitions) {
             auto [parts, owner] = rapidsmpf::shuffler::partition_and_split(
                 output_partition,
                 {0},
-                static_cast<std::int32_t>(args.num_output_partitions),
+                static_cast<std::int32_t>(total_num_partitions),
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
                 stream,
