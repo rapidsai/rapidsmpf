@@ -445,7 +445,7 @@ int main(int argc, char** argv) {
     auto progress_thread = std::make_shared<rapidsmpf::ProgressThread>(comm->logger());
 
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
-    std::shared_ptr<stats_dev_mem_resource> stat_enabled_mr;
+    std::shared_ptr<rapidsmpf::RmmResourceAdaptor> stat_enabled_mr;
     if (args.enable_memory_profiler || args.device_mem_limit_mb >= 0) {
         stat_enabled_mr = set_device_mem_resource_with_stats();
     }
@@ -532,14 +532,10 @@ int main(int argc, char** argv) {
            << " | out_parts: " << args.num_output_partitions
            << " | nranks: " << comm->nranks();
         if (args.enable_memory_profiler) {
-            auto const counter = stat_enabled_mr->get_bytes_counter();
-            ss << " | device memory peak: "
-               << rapidsmpf::format_nbytes(static_cast<std::uint64_t>(counter.peak))
+            auto record = stat_enabled_mr->get_record();
+            ss << " | device memory peak: " << rapidsmpf::format_nbytes(record.peak())
                << " | device memory total: "
-               << rapidsmpf::format_nbytes(
-                      static_cast<std::uint64_t>(counter.total) / total_num_runs
-                  )
-               << " (avg)";
+               << rapidsmpf::format_nbytes(record.total() / total_num_runs) << " (avg)";
         }
         log.print(ss.str());
     }
