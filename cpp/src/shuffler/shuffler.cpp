@@ -621,7 +621,7 @@ void Shuffler::insert_grouped(std::unordered_map<PartID, PackedData>&& chunks) {
 
         // if the packed data size + total_staged_data_ > headroom, no room to add more
         // chunks any of the builders. So, call build on all builders.
-        if (!all_groups_built
+        if (!all_groups_built_flag
             && (int64_t(packed_data.gpu_data->size()) + total_staged_data_ > headroom))
         {
             build_all_groups_and_insert();
@@ -647,17 +647,12 @@ void Shuffler::insert_grouped(std::unordered_map<PartID, PackedData>&& chunks) {
 }
 
 void Shuffler::insert_finished(PartID pid) {
-    detail::ChunkID expected_num_chunks;
-    {
-        std::lock_guard const lock(outbound_chunk_counter_mutex_);
-        expected_num_chunks = outbound_chunk_counter_[pid];
-    }
-    insert(detail::Chunk::from_finished_partition(
-        get_new_cid(), pid, expected_num_chunks + 1
-    ));
+    insert_finished(std::vector<PartID>{pid});
 }
 
 void Shuffler::insert_finished(std::vector<PartID>&& pids) {
+    RAPIDSMPF_EXPECTS(pids.size() > 0, "insert_finished with empty pids");
+
     std::vector<detail::ChunkID> expected_num_chunks;
     expected_num_chunks.reserve(pids.size());
 
@@ -667,6 +662,14 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
         for (auto pid : pids) {
             expected_num_chunks.push_back(outbound_chunk_counter_[pid]);
         }
+    }
+
+    // if pids only contains one element, we can just insert the finished chunk
+    if (pids.size() == 1) {
+        insert(detail::Chunk::from_finished_partition(
+            get_new_cid(), pids[0], expected_num_chunks[0] + 1
+        ));
+        return;
     }
 
     // Create a chunk group for each rank.
