@@ -266,6 +266,25 @@ rapidsmpf::Duration do_run(
     return t1_elapsed - t0_elapsed;
 }
 
+/**
+ * @brief Runs shuffle by partitioning the input tables and inserting them into the
+ * shuffler.
+ *
+ * This function generates random input tables and partitions them into the number of
+ * input partitions specified by the user. It then inserts the partitions into the
+ * shuffler and runs the shuffle. Each input partition will be partitioned into
+ * `num_output_partitions * nranks`, resulting in, `num_local_partitions *
+ * num_output_partitions * nranks` chunks being inserted into the shuffler. Each chunk
+ * size will be `~num_local_rows/(num_output_partitions * nranks)` rows.
+ *
+ * @param comm Communicator for the shuffler
+ * @param progress_thread Progress thread for the shuffler
+ * @param args Command line arguments
+ * @param stream CUDA stream for the shuffler
+ * @param br Buffer resource for the shuffler
+ * @param statistics Statistics for the shuffler
+ * @return Duration of the run
+ */
 rapidsmpf::Duration run_hash_partitioning(
     std::shared_ptr<rapidsmpf::Communicator>& comm,
     std::shared_ptr<rapidsmpf::ProgressThread>& progress_thread,
@@ -320,6 +339,25 @@ rapidsmpf::Duration run_hash_partitioning(
         }
     );
 }
+
+/**
+ * @brief Runs shuffle by generating a single chunk and inserting it into the shuffler.
+ *
+ * This function generates a single chunk and inserts it into the shuffler by replicating
+ * the chunk for the number of output partitions. Similar to the hash partitioning,
+ * `num_local_partitions * num_output_partitions * nranks` chunks will be inserted into
+ * the shuffler. However, only a single chunk of size
+ * `num_local_rows/total_num_partitions` will be generated, and it will be replicated for
+ * each chunk before insertion.
+ *
+ * @param comm Communicator for the shuffler
+ * @param progress_thread Progress thread for the shuffler
+ * @param args Command line arguments
+ * @param stream CUDA stream for the shuffler
+ * @param br Buffer resource for the shuffler
+ * @param statistics Statistics for the shuffler
+ * @return Duration of the run
+ */
 
 rapidsmpf::Duration run_duplicate_input_tables(
     std::shared_ptr<rapidsmpf::Communicator>& comm,
