@@ -145,7 +145,7 @@ cpdef dict split_and_pack(
     --------
     rapidsmpf.integrations.cudf.partition.unpack_and_concat
     pylibcudf.copying.split
-    rapidsmpf.integrations.cudf.partition_and_pack
+    rapidsmpf.integrations.cudf.partition.partition_and_pack
     """
     cdef vector[size_type] _splits = tuple(splits)
     cdef unordered_map[uint32_t, cpp_PackedData] _ret
@@ -203,7 +203,7 @@ cpdef Table unpack_and_concat(
 
     See Also
     --------
-    rapidsmpf.integrations.cudf.partition_and_pack
+    rapidsmpf.integrations.cudf.partition.partition_and_pack
     """
     cdef vector[cpp_PackedData] _partitions
     for part in partitions:
