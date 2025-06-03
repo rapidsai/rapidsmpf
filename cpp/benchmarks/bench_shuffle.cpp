@@ -165,7 +165,7 @@ class ArgumentParser {
     std::uint64_t num_warmups{0};
     std::uint32_t num_columns{1};
     std::uint64_t num_local_rows{1 << 20};
-    rapidsmpf::PartID num_local_partitions{1};
+    rapidsmpf::shuffler::PartID num_local_partitions{1};
     std::string rmm_mr{"cuda"};
     std::string comm_type{"mpi"};
     std::uint64_t local_nbytes;
@@ -184,10 +184,11 @@ rapidsmpf::Duration run(
 ) {
     std::int32_t const min_val = 0;
     std::int32_t const max_val = args.num_local_rows;
-    rapidsmpf::PartID const total_num_partitions =
-        args.num_local_partitions * static_cast<rapidsmpf::PartID>(comm->nranks());
+    rapidsmpf::shuffler::PartID const total_num_partitions =
+        args.num_local_partitions
+        * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
     std::vector<cudf::table> input_partitions;
-    for (rapidsmpf::PartID i = 0; i < args.num_local_partitions; ++i) {
+    for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
         input_partitions.push_back(random_table(
             static_cast<cudf::size_type>(args.num_columns),
             static_cast<cudf::size_type>(args.num_local_rows),
@@ -208,7 +209,7 @@ rapidsmpf::Duration run(
             comm,
             progress_thread,
             0,  // op_id
-            static_cast<rapidsmpf::PartID>(total_num_partitions),
+            static_cast<rapidsmpf::shuffler::PartID>(total_num_partitions),
             stream,
             br,
             statistics,
@@ -229,7 +230,7 @@ rapidsmpf::Duration run(
             partition.release();
         }
         // Tell the shuffler that we have no more data.
-        for (rapidsmpf::PartID i = 0; i < total_num_partitions; ++i) {
+        for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
             shuffler.insert_finished(i);
         }
 

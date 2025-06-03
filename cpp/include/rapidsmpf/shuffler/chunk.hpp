@@ -11,10 +11,19 @@
 #include <cuda/std/span>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
-#include <rapidsmpf/integrations/cudf/partition.hpp>
 
-namespace rapidsmpf::shuffler::detail {
+namespace rapidsmpf::shuffler {
+
+/**
+ * @brief Partition ID, which goes from 0 to the total number of partitions
+ *
+ * The `PartID` is always referring to a partition globally.
+ */
+using PartID = std::uint32_t;
+
+namespace detail {
 
 /**
  * @brief The globally unique ID of a chunk.
@@ -411,4 +420,5 @@ inline std::ostream& operator<<(std::ostream& os, ReadyForDataMessage const& obj
     return os;
 }
 
-}  // namespace rapidsmpf::shuffler::detail
+}  // namespace detail
+}  // namespace rapidsmpf::shuffler

@@ -55,7 +55,8 @@ int main(int argc, char** argv) {
     cudf::table local_input = random_table(2, 100, 0, 10, stream, mr);
 
     // The total number of inputs equals the number of ranks, in this case.
-    auto const total_num_partitions = static_cast<rapidsmpf::PartID>(comm->nranks());
+    auto const total_num_partitions =
+        static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
     // We create a new shuffler instance, which represents a single shuffle. It takes
     // a Communicator, the total number of partitions, and a "owner function", which
@@ -77,7 +78,7 @@ int main(int argc, char** argv) {
     // does provide a convenience function that hash partition a cudf table and packs
     // each partition. The result is a mapping of `PartID`, globally unique partition
     // identifiers, to their packed partitions.
-    std::unordered_map<rapidsmpf::PartID, rapidsmpf::PackedData> packed_inputs =
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> packed_inputs =
         rapidsmpf::partition_and_pack(
             local_input,
             {0},  // columns_to_hash
@@ -98,7 +99,7 @@ int main(int argc, char** argv) {
     // Again, this is non-blocking and should be done as soon as we known that we don't
     // have more inputs for a specific partition. In this case, we are finished with all
     // partitions.
-    for (rapidsmpf::PartID i = 0; i < total_num_partitions; ++i) {
+    for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
         shuffler.insert_finished(i);
     }
 
@@ -108,7 +109,7 @@ int main(int argc, char** argv) {
     // Wait for and process the shuffle results for each partition.
     while (!shuffler.finished()) {
         // Block until a partition is ready and retrieve its partition ID.
-        rapidsmpf::PartID finished_partition = shuffler.wait_any();
+        rapidsmpf::shuffler::PartID finished_partition = shuffler.wait_any();
 
         // Extract the finished partition's data from the Shuffler.
         auto packed_chunks = shuffler.extract(finished_partition);

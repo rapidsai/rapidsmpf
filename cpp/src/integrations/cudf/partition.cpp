@@ -58,21 +58,21 @@ partition_and_split(
     return std::make_pair(std::move(tbl_partitioned), std::move(partition_table));
 }
 
-static std::unordered_map<PartID, PackedData> pack_tables(
+static std::unordered_map<shuffler::PartID, PackedData> pack_tables(
     std::vector<cudf::table_view> const& tables,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
-    std::unordered_map<PartID, PackedData> ret;
+    std::unordered_map<shuffler::PartID, PackedData> ret;
     ret.reserve(tables.size());
-    for (PartID i = 0; static_cast<std::size_t>(i) < tables.size(); ++i) {
+    for (shuffler::PartID i = 0; static_cast<std::size_t>(i) < tables.size(); ++i) {
         auto pack = cudf::detail::pack(tables[i], stream, mr);
         ret.emplace(i, PackedData(std::move(pack.metadata), std::move(pack.gpu_data)));
     }
     return ret;
 }
 
-std::unordered_map<PartID, PackedData> partition_and_pack(
+std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& columns_to_hash,
     int num_partitions,
@@ -88,7 +88,7 @@ std::unordered_map<PartID, PackedData> partition_and_pack(
     return pack_tables(tables, stream, mr);
 }
 
-std::unordered_map<PartID, PackedData> split_and_pack(
+std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& splits,
     rmm::cuda_stream_view stream,
