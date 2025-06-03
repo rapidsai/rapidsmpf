@@ -11,11 +11,10 @@
 #include <unordered_map>
 #include <utility>
 
-#include <rmm/mr/device/statistics_resource_adaptor.hpp>
-
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/spill_manager.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -415,39 +414,35 @@ class BufferResource {
  */
 class LimitAvailableMemory {
   public:
-    /// @brief Alias for the RMM statistics resource adaptor type.
-    using rmm_statistics_resource =
-        rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource>;
-
     /**
      * @brief Constructs a `LimitAvailableMemory` instance.
      *
-     * @param mr A pointer to an RMM statistics resource adaptor. The underlying
-     * resource adaptor must outlive this instance.
+     * @param mr A pointer to an RMM resource adaptor. The underlying resource
+     * adaptor must outlive this instance.
      * @param limit The maximum memory available (in bytes). Used to calculate the
      * remaining memory.
      */
-    constexpr LimitAvailableMemory(rmm_statistics_resource const* mr, std::int64_t limit)
+    constexpr LimitAvailableMemory(RmmResourceAdaptor const* mr, std::int64_t limit)
         : limit{limit}, mr_{mr} {}
 
     /**
      * @brief Returns the remaining available memory within the defined limit.
      *
-     * This operator queries the `rmm_statistics_resource` to determine the
-     * memory currently used and calculates the remaining memory as:
+     * This operator queries the `RmmResourceAdaptor` to determine the memory
+     * currently used and calculates the remaining memory as:
      * `limit - used_memory`.
      *
      * @return The remaining memory in bytes.
      */
     std::int64_t operator()() const {
-        return limit - mr_->get_bytes_counter().value;
+        return limit - static_cast<std::int64_t>(mr_->current_allocated());
     }
 
   public:
     std::int64_t const limit;  ///< The memory limit.
 
   private:
-    rmm_statistics_resource const* mr_;
+    RmmResourceAdaptor const* mr_;
 };
 
 
