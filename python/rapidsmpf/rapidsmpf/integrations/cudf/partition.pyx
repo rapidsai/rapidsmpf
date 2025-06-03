@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
-"""The Shuffler interface for RapidsMPF."""
+"""Partitioning of cuDF tables."""
 
 from cython.operator cimport dereference as deref
 from cython.operator cimport postincrement
@@ -79,10 +79,10 @@ cpdef dict partition_and_pack(
 
     See Also
     --------
-    rapidsmpf.shuffler.unpack_and_concat
+    rapidsmpf.integrations.cudf.partition.unpack_and_concat
     pylibcudf.partitioning.hash_partition
     pylibcudf.contiguous_split.pack
-    rapidsmpf.shuffler.split_and_pack
+    rapidsmpf.integrations.cudf.partition.split_and_pack
     """
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, cpp_PackedData] _ret
@@ -143,9 +143,9 @@ cpdef dict split_and_pack(
 
     See Also
     --------
-    rapidsmpf.shuffler.unpack_and_concat
+    rapidsmpf.integrations.cudf.partition.unpack_and_concat
     pylibcudf.copying.split
-    rapidsmpf.shuffler.partition_and_pack
+    rapidsmpf.integrations.cudf.partition_and_pack
     """
     cdef vector[size_type] _splits = tuple(splits)
     cdef unordered_map[uint32_t, cpp_PackedData] _ret
@@ -203,7 +203,7 @@ cpdef Table unpack_and_concat(
 
     See Also
     --------
-    rapidsmpf.shuffler.partition_and_pack
+    rapidsmpf.integrations.cudf.partition_and_pack
     """
     cdef vector[cpp_PackedData] _partitions
     for part in partitions:
