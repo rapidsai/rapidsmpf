@@ -386,11 +386,7 @@ class BufferResource {
      *
      * @return A unique pointer to the allocated Buffer.
      */
-    std::unique_ptr<Buffer> allocate_empty_host_buffer() const {
-        return std::unique_ptr<Buffer>(new Buffer(
-            std::make_unique<std::vector<uint8_t>>(0), const_cast<BufferResource*>(this)
-        ));
-    }
+    std::unique_ptr<Buffer> allocate_empty_host_buffer() const;
 
   private:
     std::mutex mutex_;
