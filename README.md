@@ -62,7 +62,7 @@ Example of a MPI program that uses the shuffler:
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/cudf/partition.hpp>
+#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 
 #include "../benchmarks/utils/random_data.hpp"

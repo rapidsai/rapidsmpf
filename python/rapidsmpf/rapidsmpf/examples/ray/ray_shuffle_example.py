@@ -12,7 +12,7 @@ import ray
 import cudf
 import rmm
 
-from rapidsmpf.cudf.partition import (
+from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
 )

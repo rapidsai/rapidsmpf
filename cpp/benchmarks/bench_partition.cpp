@@ -17,7 +17,7 @@
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
 
-#include <rapidsmpf/cudf/partition.hpp>
+#include <rapidsmpf/integrations/cudf/partition.hpp>
 
 // Helper function to create a table with a single int column
 std::unique_ptr<cudf::table> create_int_table(

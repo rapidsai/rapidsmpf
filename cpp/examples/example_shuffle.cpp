@@ -10,8 +10,8 @@
 
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
-#include <rapidsmpf/cudf/partition.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 

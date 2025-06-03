@@ -4,9 +4,7 @@
  */
 #pragma once
 
-#include <atomic>
 #include <memory>
-#include <mutex>
 #include <sstream>
 #include <vector>
 
@@ -14,7 +12,7 @@
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
-#include <rapidsmpf/cudf/partition.hpp>
+#include <rapidsmpf/integrations/cudf/partition.hpp>
 
 namespace rapidsmpf::shuffler::detail {
 

@@ -16,5 +16,5 @@ rapids_cython_create_modules(
 add_subdirectory(_detail)
 add_subdirectory(buffer)
 add_subdirectory(communicator)
-add_subdirectory(cudf)
+add_subdirectory(integrations/cudf)
 add_subdirectory(utils)

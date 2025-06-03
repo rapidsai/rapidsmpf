@@ -17,7 +17,7 @@ import rmm.mr
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
-from rapidsmpf.cudf.partition import (
+from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
 )

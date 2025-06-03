@@ -21,7 +21,7 @@ from rmm.pylibrmm.stream cimport Stream
 from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
 
 
-cdef extern from "<rapidsmpf/cudf/partition.hpp>" nogil:
+cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
     int cpp_HASH_MURMUR3"cudf::hash_id::HASH_MURMUR3"
     uint32_t cpp_DEFAULT_HASH_SEED"cudf::DEFAULT_HASH_SEED",
 
@@ -171,7 +171,7 @@ cpdef dict split_and_pack(
     return ret
 
 
-cdef extern from "<rapidsmpf/cudf/partition.hpp>" nogil:
+cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
     cdef unique_ptr[cpp_table] cpp_unpack_and_concat \
         "rapidsmpf::unpack_and_concat"(
             vector[cpp_PackedData] partition,
