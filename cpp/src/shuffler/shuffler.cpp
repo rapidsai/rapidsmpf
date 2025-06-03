@@ -599,7 +599,6 @@ void Shuffler::insert_grouped(std::unordered_map<PartID, PackedData>&& chunks) {
     // total size of data staged in all builders
     int64_t total_staged_data_ = 0;
     auto init_event = std::make_shared<Buffer::Event>(stream_);
-    bool all_groups_built = false;
 
     // lambda to build all groups and insert the chunks
     auto build_all_groups_and_insert = [&]() {
@@ -608,9 +607,8 @@ void Shuffler::insert_grouped(std::unordered_map<PartID, PackedData>&& chunks) {
                 insert(Chunk::concat(std::move(group), get_new_cid(), stream_, br_));
             }
         }
-        all_groups_built = true;
     };
-
+    bool all_groups_built_flag = false;
     for (auto& [pid, packed_data] : chunks) {
         Rank target_rank = partition_owner(comm_, pid);
 
@@ -627,9 +625,10 @@ void Shuffler::insert_grouped(std::unordered_map<PartID, PackedData>&& chunks) {
             && (int64_t(packed_data.gpu_data->size()) + total_staged_data_ > headroom))
         {
             build_all_groups_and_insert();
+            all_groups_built_flag = true;
         }
 
-        if (all_groups_built) {
+        if (all_groups_built_flag) {
             // insert this chunk without concatenating
             insert(create_chunk(pid, std::move(packed_data), init_event));
         } else {
@@ -642,7 +641,7 @@ void Shuffler::insert_grouped(std::unordered_map<PartID, PackedData>&& chunks) {
     }
 
     // build any remaining chunks
-    if (!all_groups_built) {
+    if (!all_groups_built_flag) {
         build_all_groups_and_insert();
     }
 }

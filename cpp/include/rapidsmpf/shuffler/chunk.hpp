@@ -56,8 +56,6 @@ using ChunkID = std::uint64_t;
 class Chunk {
     // friend a method that creates a dummy chunk for testing
     friend Chunk make_dummy_chunk(ChunkID, PartID);
-    // friend the builder class
-    friend class ChunkBuilder;
 
   public:
     /**
@@ -119,7 +117,7 @@ class Chunk {
      * @return True if the message is a control message, false otherwise.
      */
     inline bool is_control_message(size_t i) const {
-        // expected_num_chunks is always non-zero for control messages
+        // We use `expected_num_chunks > 0` to flag a message as a "control message".
         return expected_num_chunks(i) > 0;
     }
 
@@ -136,7 +134,7 @@ class Chunk {
      * Otherwise a new chunk will be created by copying data. If the i'th message is,
      *  - control message, the metadata and data buffers will be nullptr
      *  - data message, both metadata and data buffers will be non-null (for a
-     * metadata-only message, the data buffer will be an empty HOST buffer)
+     *    metadata-only message, the data buffer will be an empty HOST buffer)
      *
      * @throws std::out_of_range if the index is out of bounds.
      */

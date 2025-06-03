@@ -289,7 +289,7 @@ Chunk Chunk::concat(
     size_t total_messages = 0;
     size_t total_metadata_size = 0;
     size_t total_data_size = 0;
-    for (const auto& chunk : chunks) {
+    for (auto const& chunk : chunks) {
         total_messages += chunk.n_messages();
         if (chunk.is_metadata_buffer_set()) {
             total_metadata_size += chunk.concat_metadata_size();
