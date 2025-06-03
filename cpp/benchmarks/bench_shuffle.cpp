@@ -110,7 +110,7 @@ class ArgumentParser {
                 case 'l':
                     parse_integer(device_mem_limit_mb, optarg);
                     break;
-                case 'd':
+                case 'g':
                     hash_partition_with_datagen = true;
                     break;
                 case 'x':
