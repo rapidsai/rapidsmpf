@@ -78,7 +78,7 @@ cdef class Options:
 
         Warning
         -------
-        The factory must not access the `Options` instance, as this may lead
+        The factory must not access the Options instance, as this may lead
         to a deadlock due to internal locking.
 
         Notes
@@ -109,7 +109,7 @@ cdef class Options:
         Retrieve a configuration option by key, using a default value if not present.
 
         This is a convenience wrapper around `get()` that uses the type of the
-        `default_value` as the return type and provides a default factory that
+        ``default_value`` as the return type and provides a default factory that
         parses a string into that type.
 
         Parameters
@@ -123,7 +123,7 @@ cdef class Options:
         Returns
         -------
         The value of the option if it exists and can be parsed to the type of
-        `default_value`, otherwise `default_value`.
+        ``default_value``, otherwise ``default_value``.
 
         Raises
         ------
@@ -134,10 +134,10 @@ cdef class Options:
 
         Notes
         -----
-        - Supported types for `default_value` include: `bool`, `int`, `float`, and
+        - Supported types for ``default_value`` include: `bool`, `int`, `float`, and
           `str`.
-        - This method infers the return type from `type(default_value)`.
-        - If `default_value` is used, it will be cached and reused for subsequent
+        - This method infers the return type from ``type(default_value)``.
+        - If ``default_value`` is used, it will be cached and reused for subsequent
           accesses of the same key.
 
         Examples
@@ -185,7 +185,7 @@ cdef class Options:
 
     def serialize(self) -> bytes:
         """
-        Serialize the `Options` object into a binary buffer.
+        Serialize the Options object into a binary buffer.
 
         This method produces a compact binary representation of the internal
         key-value options. The format is suitable for storage or transmission
@@ -224,9 +224,9 @@ cdef class Options:
     @staticmethod
     def deserialize(bytes serialized_buffer):
         """
-        Deserialize a binary buffer into an `Options` object.
+        Deserialize a binary buffer into an Options object.
 
-        This method reconstructs an `Options` instance from a byte buffer
+        This method reconstructs an Options instance from a byte buffer
         produced by the `Options.serialize()` method.
 
         See `Options.serialize()` for the binary format.
@@ -239,7 +239,7 @@ cdef class Options:
         Returns
         -------
         Options
-            A reconstructed `Options` instance containing the deserialized key-value
+            A reconstructed Options instance containing the deserialized key-value
             pairs.
 
         Raises
@@ -262,12 +262,12 @@ cdef class Options:
         Get the state of the object for pickling.
 
         This method is called by the `pickle` module to retrieve a serialized
-        representation of the `Options` object. It uses the `serialize()`
+        representation of the Options object. It uses the `serialize()`
         method to return the internal state as a `bytes` object.
 
         Returns
         -------
-        A binary representation of the `Options` object, suitable for pickling.
+        A binary representation of the Options object, suitable for pickling.
         """
         return self.serialize()
 
@@ -282,7 +282,7 @@ cdef class Options:
         Parameters
         ----------
         state
-            A `bytes` object representing the serialized state of the `Options` object.
+            A `bytes` object representing the serialized state of the Options object.
         """
         cdef Options options = self.deserialize(state)
         self._handle = options._handle
@@ -297,8 +297,8 @@ def get_environment_variables(str key_regex = "RAPIDSMPF_(.*)"):
     contain exactly one capture group to extract the portion of the environment variable
     key to use as the dictionary key.
 
-    For example, to strip the `RAPIDSMPF_` prefix, use `r"RAPIDSMPF_(.*)"` as the regex.
-    The captured group will be used as the key in the output dictionary.
+    For example, to strip the ``RAPIDSMPF_`` prefix, use ``r"RAPIDSMPF_(.*)"`` as
+    the regex. The captured group will be used as the key in the output dictionary.
 
     Example:
         - Environment variable: RAPIDSMPF_FOO=bar
@@ -319,7 +319,7 @@ def get_environment_variables(str key_regex = "RAPIDSMPF_(.*)"):
     Raises
     ------
     ValueError
-        If `key_regex` does not contain exactly one capture group.
+        If ``key_regex`` does not contain exactly one capture group.
 
     See Also
     --------
