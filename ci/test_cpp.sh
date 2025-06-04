@@ -9,6 +9,9 @@ set -euo pipefail
 RAPIDS_VERSION="$(rapids-version)"
 CPP_CHANNEL=$(rapids-download-conda-from-github cpp)
 
+conda search libcufile
+conda search libkvikio
+
 rapids-logger "Generate C++ testing dependencies"
 rapids-dependency-file-generator \
   --output conda \
