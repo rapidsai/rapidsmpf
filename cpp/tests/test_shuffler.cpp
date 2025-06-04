@@ -17,6 +17,7 @@
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx.hpp>
+#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -48,7 +49,7 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     cudf::table expect =
         random_table_with_index(seed, static_cast<std::size_t>(num_rows), 0, 10);
 
-    auto chunks = rapidsmpf::shuffler::partition_and_pack(
+    auto chunks = rapidsmpf::partition_and_pack(
         expect, {1}, num_partitions, hash_fn, seed, stream, mr
     );
 
@@ -59,8 +60,7 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     }
     EXPECT_EQ(chunks_vector.size(), num_partitions);
 
-    auto result =
-        rapidsmpf::shuffler::unpack_and_concat(std::move(chunks_vector), stream, mr);
+    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, mr);
 
     // Compare the input table with the result. We ignore the row order by
     // sorting by their index (first column).
@@ -81,7 +81,7 @@ TEST_P(NumOfPartitions, split_and_pack) {
         splits.emplace_back(i * num_rows / num_partitions);
     }
 
-    auto chunks = rapidsmpf::shuffler::split_and_pack(expect, splits, stream, mr);
+    auto chunks = rapidsmpf::split_and_pack(expect, splits, stream, mr);
 
     // Convert to a vector (restoring the original order).
     std::vector<rapidsmpf::PackedData> chunks_vector;
@@ -90,35 +90,42 @@ TEST_P(NumOfPartitions, split_and_pack) {
     }
     EXPECT_EQ(chunks_vector.size(), num_partitions);
 
-    auto result =
-        rapidsmpf::shuffler::unpack_and_concat(std::move(chunks_vector), stream, mr);
+    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, mr);
 
     // Compare the input table with the result.
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(expect, *result);
 }
 
 TEST(MetadataMessage, round_trip) {
+    auto stream = cudf::get_default_stream();
+
     auto metadata = iota_vector<uint8_t>(100);
 
-    rapidsmpf::shuffler::detail::Chunk expect(
-        1, 2, true, std::make_unique<std::vector<uint8_t>>(metadata), nullptr
+    auto expect = rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+        1,  // chunk_id
+        2,  // part_id
+        {std::make_unique<std::vector<uint8_t>>(metadata), nullptr},  // packed_data
+        nullptr,  // event
+        stream,
+        nullptr  // buffer_resource
     );
 
     // Extract the metadata from then chunk.
-    auto msg = expect.to_metadata_message();
-    EXPECT_TRUE(expect.metadata->empty());
+    auto msg = expect.serialize();
+    EXPECT_FALSE(expect.is_metadata_buffer_set());
 
-    // Create a new chunk from the message.
-    auto result = rapidsmpf::shuffler::detail::Chunk::from_metadata_message(msg);
+    // Create a new chunk by deserializing the message.
+    auto result = rapidsmpf::shuffler::detail::Chunk::deserialize(*msg);
 
     // They should be identical.
-    EXPECT_EQ(expect.pid, result.pid);
-    EXPECT_EQ(expect.cid, result.cid);
-    EXPECT_EQ(expect.expected_num_chunks, result.expected_num_chunks);
-    EXPECT_EQ(expect.gpu_data, result.gpu_data);
+    EXPECT_EQ(expect.part_id(0), result.part_id(0));
+    EXPECT_EQ(expect.chunk_id(), result.chunk_id());
+    EXPECT_EQ(expect.expected_num_chunks(0), result.expected_num_chunks(0));
+    EXPECT_EQ(expect.concat_data_size(), result.concat_data_size());
+    EXPECT_EQ(expect.concat_metadata_size(), result.concat_metadata_size());
 
     // The metadata should be identical to the original.
-    EXPECT_EQ(metadata, *result.metadata);
+    EXPECT_EQ(metadata, *result.release_metadata_buffer());
 }
 
 using MemoryAvailableMap =
@@ -156,7 +163,7 @@ void test_shuffler(
     // Every rank creates the full input table and all the expected partitions (also
     // partitions this rank might not get after the shuffle).
     cudf::table full_input_table = random_table_with_index(seed, total_num_rows, 0, 10);
-    auto [expect_partitions, owner] = rapidsmpf::shuffler::partition_and_split(
+    auto [expect_partitions, owner] = rapidsmpf::partition_and_split(
         full_input_table,
         {1},
         static_cast<std::int32_t>(total_num_partitions),
@@ -184,7 +191,7 @@ void test_shuffler(
             // Select the partition from the full input table.
             auto slice = cudf::slice(full_input_table, {row_offset, row_end}).at(0);
             // Hash the `slice` into chunks and pack (serialize) them.
-            auto packed_chunks = rapidsmpf::shuffler::partition_and_pack(
+            auto packed_chunks = rapidsmpf::partition_and_pack(
                 slice,
                 {1},
                 static_cast<std::int32_t>(total_num_partitions),
@@ -206,8 +213,7 @@ void test_shuffler(
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any(wait_timeout);
         auto packed_chunks = shuffler.extract(finished_partition);
-        auto result =
-            rapidsmpf::shuffler::unpack_and_concat(std::move(packed_chunks), stream, mr);
+        auto result = rapidsmpf::unpack_and_concat(std::move(packed_chunks), stream, mr);
 
         // We should only receive the partitions assigned to this rank.
         EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
@@ -365,10 +371,8 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
     auto stream = cudf::get_default_stream();
 
-    // Use a statistics memory resource.
-    rmm::mr::statistics_resource_adaptor<rmm::mr::device_memory_resource> mr(
-        cudf::get_current_device_resource_ref()
-    );
+    // Use RapidsMPF's memory resource adaptor.
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
 
     // Create a buffer resource with an availabe device memory we can control
     // through the variable `device_memory_available`.
@@ -401,16 +405,16 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         &br
     );
     cudf::table input_table = random_table_with_index(seed, 1000, 0, 10);
-    auto input_chunks = rapidsmpf::shuffler::partition_and_pack(
+    auto input_chunks = rapidsmpf::partition_and_pack(
         input_table, {1}, total_num_partitions, hash_fn, seed, stream, mr
     );
 
     // Insert spills does nothing when device memory is available, we start
     // with 2 device allocations.
-    EXPECT_EQ(mr.get_allocations_counter().value, 2);
+    EXPECT_EQ(mr.get_record().num_current_allocs(), 2);
     shuffler.insert(std::move(input_chunks));
     // And we end with two 2 device allocations.
-    EXPECT_EQ(mr.get_allocations_counter().value, 2);
+    EXPECT_EQ(mr.get_record().num_current_allocs(), 2);
 
     // Let's force spilling.
     device_memory_available = -1000;
@@ -418,20 +422,20 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     {
         // Now extract triggers spilling of the partition not being extracted.
         std::vector<rapidsmpf::PackedData> output_chunks = shuffler.extract(0);
-        EXPECT_EQ(mr.get_allocations_counter().value, 1);
+        EXPECT_EQ(mr.get_record().num_current_allocs(), 1);
 
         // And insert also triggers spilling. We end up with zero device allocations.
         std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunk;
         chunk.emplace(0, std::move(output_chunks.at(0)));
         shuffler.insert(std::move(chunk));
-        EXPECT_EQ(mr.get_allocations_counter().value, 0);
+        EXPECT_EQ(mr.get_record().num_current_allocs(), 0);
     }
 
     // Extract and unspill both partitions.
     std::vector<rapidsmpf::PackedData> out0 = shuffler.extract(0);
-    EXPECT_EQ(mr.get_allocations_counter().value, 1);
+    EXPECT_EQ(mr.get_record().num_current_allocs(), 1);
     std::vector<rapidsmpf::PackedData> out1 = shuffler.extract(1);
-    EXPECT_EQ(mr.get_allocations_counter().value, 2);
+    EXPECT_EQ(mr.get_record().num_current_allocs(), 2);
 
     // Disable spilling and insert the first partition.
     device_memory_available = 1000;
@@ -440,7 +444,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         chunk.emplace(0, std::move(out0.at(0)));
         shuffler.insert(std::move(chunk));
     }
-    EXPECT_EQ(mr.get_allocations_counter().value, 2);
+    EXPECT_EQ(mr.get_record().num_current_allocs(), 2);
 
     // Enable spilling and insert the second partition, which should trigger spilling
     // of both the first partition already in the shuffler and the second partition
@@ -451,7 +455,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         chunk.emplace(1, std::move(out1.at(0)));
         shuffler.insert(std::move(chunk));
     }
-    EXPECT_EQ(mr.get_allocations_counter().value, 0);
+    EXPECT_EQ(mr.get_record().num_current_allocs(), 0);
 
     shuffler.shutdown();
 }
@@ -541,6 +545,12 @@ TEST(FinishCounterTests, wait_some_with_timeout) {
     ));
 }
 
+namespace rapidsmpf::shuffler::detail {
+Chunk make_dummy_chunk(ChunkID chunk_id, PartID part_id) {
+    return Chunk(chunk_id, {part_id}, {0}, {0}, {0}, nullptr, nullptr);
+}
+}  // namespace rapidsmpf::shuffler::detail
+
 class PostBoxTest : public cudf::test::BaseFixture {
   protected:
     using PostboxType = rapidsmpf::shuffler::detail::PostBox<rapidsmpf::Rank>;
@@ -581,13 +591,10 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
 
     // Insert chunks for rank 0
     for (uint32_t i = 0; i < num_chunks; ++i) {
-        rapidsmpf::shuffler::detail::Chunk chunk{
-            rapidsmpf::shuffler::PartID{i % num_partitions},
+        auto chunk = rapidsmpf::shuffler::detail::make_dummy_chunk(
             rapidsmpf::shuffler::detail::ChunkID{i},
-            0,  // gpu_data_size
-            nullptr,  // metadata
-            nullptr  // gpu_data
-        };
+            rapidsmpf::shuffler::PartID{i % num_partitions}
+        );
         postbox->insert(std::move(chunk));
     }
 
@@ -627,13 +634,10 @@ TEST_F(PostBoxTest, ThreadSafety) {
     for (uint32_t i = 0; i < num_threads; ++i) {
         threads.emplace_back([this, i] {
             for (uint32_t j = 0; j < chunks_per_thread; ++j) {
-                rapidsmpf::shuffler::detail::Chunk chunk{
-                    rapidsmpf::shuffler::PartID{j / chunks_per_partition},
+                auto chunk = rapidsmpf::shuffler::detail::make_dummy_chunk(
                     rapidsmpf::shuffler::detail::ChunkID{i * chunks_per_thread + j},
-                    0,  // gpu_data_size
-                    nullptr,  // metadata
-                    nullptr  // gpu_data
-                };
+                    rapidsmpf::shuffler::PartID{j / chunks_per_partition}
+                );
                 postbox->insert(std::move(chunk));
             }
         });

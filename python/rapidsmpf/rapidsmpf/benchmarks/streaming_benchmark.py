@@ -28,6 +28,7 @@ from rapidsmpf.communicator.ucxx import (
 )
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.string import format_bytes, parse_bytes
@@ -234,7 +235,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     progress_thread = ProgressThread(comm, stats)
 
     # Create a RMM stack with both a device pool and statistics.
-    mr = rmm.mr.StatisticsResourceAdaptor(
+    mr = RmmResourceAdaptor(
         rmm.mr.PoolMemoryResource(
             rmm.mr.CudaMemoryResource(),
             initial_pool_size=args.rmm_pool_size,
@@ -274,7 +275,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     elapsed_time = MPI.Wtime() - start_time
     MPI.COMM_WORLD.barrier()
 
-    mem_peak = format_bytes(mr.allocation_counts.peak_bytes)
+    mem_peak = format_bytes(mr.get_record().peak())
     comm.logger.print(
         f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
     )

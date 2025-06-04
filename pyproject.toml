@@ -116,6 +116,10 @@ parametrize-values-row-type = "tuple"
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
 
+[tool.ruff.lint.flake8-bugbear]
+# Allow default arguments of classes we consider immutable, e.g., `data: Options = Options()`.
+extend-immutable-calls = ["rapidsmpf.config.Options"]
+
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
 

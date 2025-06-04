@@ -6,15 +6,10 @@
 
 #include <atomic>
 #include <chrono>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <vector>
-
-#include <cudf/contiguous_split.hpp>
-#include <cudf/partitioning.hpp>
-#include <cudf/table/table.hpp>
 
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
@@ -32,7 +27,7 @@
  * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
  *
- * A shuffle service for cuDF tables. Use `Shuffler` to perform a single shuffle.
+ * A shuffle service for host and device data. Use `Shuffler` to perform a single shuffle.
  */
 namespace rapidsmpf::shuffler {
 
@@ -105,7 +100,7 @@ class Shuffler {
     /**
      * @brief Shutdown the shuffle, blocking until all inflight communication is done.
      *
-     * @throw cudf::logic_error If the shuffler is already inactive.
+     * @throw std::logic_error If the shuffler is already inactive.
      */
     void shutdown();
 
@@ -232,20 +227,8 @@ class Shuffler {
      * @param event The event to use for the new chunk.
      */
     [[nodiscard]] detail::Chunk create_chunk(
-        PartID pid,
-        std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<rmm::device_buffer> gpu_data,
-        rmm::cuda_stream_view stream,
-        std::shared_ptr<Buffer::Event> event
-    ) {
-        return detail::Chunk{
-            pid,
-            get_new_cid(),
-            gpu_data ? gpu_data->size() : 0,  // gpu_data_size
-            std::move(metadata),
-            br_->move(std::move(gpu_data), stream, event)
-        };
-    }
+        PartID pid, PackedData&& packed_data, std::shared_ptr<Buffer::Event> event
+    );
 
   public:
     PartID const total_num_partitions;  ///< Total number of partition in the shuffle.
