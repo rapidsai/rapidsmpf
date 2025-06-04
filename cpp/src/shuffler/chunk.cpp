@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstring>
+
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
