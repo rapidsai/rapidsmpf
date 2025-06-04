@@ -50,7 +50,7 @@ cdef class Options:
 
         The option is cast to the specified ``return_type``. To be accessible
         from C++, it must be one of: `bool`, `int`, `float`, `str`. Otherwise, it
-        is stored as a `PyObject*`.
+        is stored as a ``PyObject*``.
 
         Once a key has been accessed with a particular ``return_type``, subsequent
         calls to `get` with the same key must use the same ``return_type``.
