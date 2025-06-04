@@ -76,8 +76,8 @@ cdef class Options:
         TypeError
             If the option has already been accessed with a different ``return_type``.
 
-        Warning
-        -------
+        Warnings
+        --------
         The factory must not access the Options instance, as this may lead
         to a deadlock due to internal locking.
 

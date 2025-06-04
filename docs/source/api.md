@@ -22,6 +22,20 @@ libraries.
    :members:
 ```
 
+### cuDF
+
+```{eval-rst}
+.. automodule:: rapidsmpf.integrations.cudf
+   :members:
+```
+
+#### Partition
+
+```{eval-rst}
+.. autofunction:: rapidsmpf.integrations.cudf.partition.split_and_pack
+.. autofunction:: rapidsmpf.integrations.cudf.partition.unpack_and_concat
+```
+
 ## Shuffler
 
 ```{eval-rst}
@@ -63,6 +77,9 @@ libraries.
    :members:
 
 .. automodule:: rapidsmpf.buffer.resource
+   :members:
+
+.. automodule:: rapidsmpf.buffer.packed_data
    :members:
 ```
 
