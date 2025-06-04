@@ -17,6 +17,7 @@
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx.hpp>
+#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -48,7 +49,7 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     cudf::table expect =
         random_table_with_index(seed, static_cast<std::size_t>(num_rows), 0, 10);
 
-    auto chunks = rapidsmpf::shuffler::partition_and_pack(
+    auto chunks = rapidsmpf::partition_and_pack(
         expect, {1}, num_partitions, hash_fn, seed, stream, mr
     );
 
@@ -59,8 +60,7 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     }
     EXPECT_EQ(chunks_vector.size(), num_partitions);
 
-    auto result =
-        rapidsmpf::shuffler::unpack_and_concat(std::move(chunks_vector), stream, mr);
+    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, mr);
 
     // Compare the input table with the result. We ignore the row order by
     // sorting by their index (first column).
@@ -81,7 +81,7 @@ TEST_P(NumOfPartitions, split_and_pack) {
         splits.emplace_back(i * num_rows / num_partitions);
     }
 
-    auto chunks = rapidsmpf::shuffler::split_and_pack(expect, splits, stream, mr);
+    auto chunks = rapidsmpf::split_and_pack(expect, splits, stream, mr);
 
     // Convert to a vector (restoring the original order).
     std::vector<rapidsmpf::PackedData> chunks_vector;
@@ -90,8 +90,7 @@ TEST_P(NumOfPartitions, split_and_pack) {
     }
     EXPECT_EQ(chunks_vector.size(), num_partitions);
 
-    auto result =
-        rapidsmpf::shuffler::unpack_and_concat(std::move(chunks_vector), stream, mr);
+    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, mr);
 
     // Compare the input table with the result.
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(expect, *result);
@@ -171,7 +170,7 @@ void test_shuffler(
     // Every rank creates the full input table and all the expected partitions (also
     // partitions this rank might not get after the shuffle).
     cudf::table full_input_table = random_table_with_index(seed, total_num_rows, 0, 10);
-    auto [expect_partitions, owner] = rapidsmpf::shuffler::partition_and_split(
+    auto [expect_partitions, owner] = rapidsmpf::partition_and_split(
         full_input_table,
         {1},
         static_cast<std::int32_t>(total_num_partitions),
@@ -199,7 +198,7 @@ void test_shuffler(
             // Select the partition from the full input table.
             auto slice = cudf::slice(full_input_table, {row_offset, row_end}).at(0);
             // Hash the `slice` into chunks and pack (serialize) them.
-            auto packed_chunks = rapidsmpf::shuffler::partition_and_pack(
+            auto packed_chunks = rapidsmpf::partition_and_pack(
                 slice,
                 {1},
                 static_cast<std::int32_t>(total_num_partitions),
@@ -219,8 +218,7 @@ void test_shuffler(
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any(wait_timeout);
         auto packed_chunks = shuffler.extract(finished_partition);
-        auto result =
-            rapidsmpf::shuffler::unpack_and_concat(std::move(packed_chunks), stream, mr);
+        auto result = rapidsmpf::unpack_and_concat(std::move(packed_chunks), stream, mr);
 
         // We should only receive the partitions assigned to this rank.
         EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
@@ -754,7 +752,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         &br
     );
     cudf::table input_table = random_table_with_index(seed, 1000, 0, 10);
-    auto input_chunks = rapidsmpf::shuffler::partition_and_pack(
+    auto input_chunks = rapidsmpf::partition_and_pack(
         input_table, {1}, total_num_partitions, hash_fn, seed, stream, mr
     );
 

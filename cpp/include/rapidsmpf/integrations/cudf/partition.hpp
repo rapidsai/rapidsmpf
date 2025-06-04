@@ -13,17 +13,9 @@
 #include <cudf/table/table.hpp>
 
 #include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
 
-namespace rapidsmpf::shuffler {
-
-
-/**
- * @brief Partition ID, which goes from 0 to the total number of partitions in the
- * shuffle.
- *
- * The `PartID` is always referring to a partition globally.
- */
-using PartID = std::uint32_t;
+namespace rapidsmpf {
 
 
 /**
@@ -75,7 +67,7 @@ partition_and_split(
  * @see cudf::hash_partition
  * @see cudf::pack
  */
-[[nodiscard]] std::unordered_map<PartID, PackedData> partition_and_pack(
+[[nodiscard]] std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& columns_to_hash,
     int num_partitions,
@@ -103,7 +95,7 @@ partition_and_split(
  * @see cudf::split
  * @see partition_and_pack
  */
-[[nodiscard]] std::unordered_map<PartID, PackedData> split_and_pack(
+[[nodiscard]] std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& splits,
     rmm::cuda_stream_view stream,
@@ -133,4 +125,4 @@ partition_and_split(
 );
 
 
-}  // namespace rapidsmpf::shuffler
+}  // namespace rapidsmpf

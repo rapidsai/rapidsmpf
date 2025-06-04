@@ -4,22 +4,26 @@
  */
 #pragma once
 
-#include <atomic>
 #include <memory>
-#include <mutex>
 #include <sstream>
 #include <vector>
 
 #include <cuda/std/span>
 
-#include <cudf/contiguous_split.hpp>
-#include <cudf/table/table.hpp>
-
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
-#include <rapidsmpf/shuffler/partition.hpp>
 
-namespace rapidsmpf::shuffler::detail {
+namespace rapidsmpf::shuffler {
+
+/**
+ * @brief Partition ID, which goes from 0 to the total number of partitions
+ *
+ * The `PartID` is always referring to a partition globally.
+ */
+using PartID = std::uint32_t;
+
+namespace detail {
 
 /**
  * @brief The globally unique ID of a chunk.
@@ -312,13 +316,9 @@ class Chunk {
     /**
      * @brief Returns a description of this chunk.
      *
-     * @param max_nbytes The maximum size of the chunk data to include.
-     * @param stream The CUDA stream.
      * @return The description.
      */
-    [[nodiscard]] std::string str(
-        size_t max_nbytes = 512, rmm::cuda_stream_view stream = cudf::get_default_stream()
-    ) const;
+    [[nodiscard]] std::string str() const;
 
     /**
      * @brief Returns a metadata message that represents this chunk.
@@ -446,4 +446,5 @@ inline std::ostream& operator<<(std::ostream& os, ReadyForDataMessage const& obj
     return os;
 }
 
-}  // namespace rapidsmpf::shuffler::detail
+}  // namespace detail
+}  // namespace rapidsmpf::shuffler

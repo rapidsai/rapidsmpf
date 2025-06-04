@@ -6,15 +6,10 @@
 
 #include <atomic>
 #include <chrono>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <vector>
-
-#include <cudf/contiguous_split.hpp>
-#include <cudf/partitioning.hpp>
-#include <cudf/table/table.hpp>
 
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
@@ -35,7 +30,7 @@ class ShuffleInsertGroupedTest;
  * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
  *
- * A shuffle service for cuDF tables. Use `Shuffler` to perform a single shuffle.
+ * A shuffle service for host and device data. Use `Shuffler` to perform a single shuffle.
  */
 namespace rapidsmpf::shuffler {
 
@@ -110,7 +105,7 @@ class Shuffler {
     /**
      * @brief Shutdown the shuffle, blocking until all inflight communication is done.
      *
-     * @throw cudf::logic_error If the shuffler is already inactive.
+     * @throw std::logic_error If the shuffler is already inactive.
      */
     void shutdown();
 

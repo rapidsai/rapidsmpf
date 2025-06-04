@@ -7,9 +7,6 @@
 #include <stdexcept>
 #include <utility>
 
-#include <cudf/concatenate.hpp>
-#include <cudf/detail/contiguous_split.hpp>  // `cudf::detail::pack` (stream ordered version)
-
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
