@@ -337,11 +337,7 @@ _initialized_clusters: set[str] = set()
 def bootstrap_dask_cluster(
     client: distributed.Client,
     *,
-    spill_device: float = 0.50,
-    periodic_spill_check: float | None = 1e-3,
-    oom_protection: bool = False,
-    enable_statistics: bool = True,
-    options: Options | None = None,
+    options: Options = Options(),
 ) -> None:
     """
     Setup a Dask cluster for RapidsMPF shuffling.
@@ -353,23 +349,8 @@ def bootstrap_dask_cluster(
     ----------
     client
         The current Dask client.
-    spill_device
-        GPU memory limit for shuffling.
-    periodic_spill_check
-        Enable periodic spill checks. A dedicated thread continuously checks
-        and perform spilling based on the current available memory as reported
-        by the buffer resource. The value of ``periodic_spill_check`` is used as
-        the pause between checks (in seconds). If None, no periodic spill
-        check is performed.
-    oom_protection
-        Enable out-of-memory protection by using managed memory when the device
-        memory pool raises OOM errors.
-    enable_statistics
-        Whether to track shuffler statistics.
     options
-        Configuration options. This argument takes precedence: if not None, the
-        other arguments (beside ``client``) are ignored!
-        TODO: remove the other arguments beside ``client``.
+        Configuration options.
 
     Notes
     -----
@@ -390,21 +371,6 @@ def bootstrap_dask_cluster(
 
     if client.id in _initialized_clusters:
         return
-
-    # TODO: remove when `options` is the only function argument beside `client`.
-    # For now, we use the arguments if options is None.
-    if options is None:
-        spill_check = (
-            "disable" if periodic_spill_check is None else str(periodic_spill_check)
-        )
-        options = Options(
-            {
-                "dask_spill_device": str(spill_device),
-                "dask_periodic_spill_check": spill_check,
-                "dask_oom_protection": "on" if oom_protection else "off",
-                "dask_statistics": "on" if enable_statistics else "off",
-            }
-        )
 
     # Scheduler stuff
     scheduler_plugin = RMPFSchedulerPlugin()
@@ -510,7 +476,7 @@ class RMPFSchedulerPlugin(SchedulerPlugin):
                     self.scheduler.set_restrictions({ts.key: {worker}})
 
 
-def get_dask_client(options: Options | None = None) -> distributed.Client:
+def get_dask_client(options: Options = Options()) -> distributed.Client:
     """
     Get the current Dask client.
 

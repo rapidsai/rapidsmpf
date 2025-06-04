@@ -62,7 +62,7 @@ Example of a MPI program that uses the shuffler:
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/shuffler/partition.hpp>
+#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 
 #include "../benchmarks/utils/random_data.hpp"
@@ -109,7 +109,7 @@ int main(int argc, char** argv) {
     // each partition. The result is a mapping of `PartID`, globally unique partition
     // identifiers, to their packed partitions.
     std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> packed_inputs =
-        rapidsmpf::shuffler::partition_and_pack(
+        rapidsmpf::partition_and_pack(
             local_input,
             {0},
             total_num_partitions,
@@ -147,7 +147,7 @@ int main(int argc, char** argv) {
         // Unpack (deserialize) and concatenate the chunks into a single table using a
         // convenience function.
         local_outputs.push_back(
-            rapidsmpf::shuffler::unpack_and_concat(std::move(packed_chunks))
+            rapidsmpf::unpack_and_concat(std::move(packed_chunks))
         );
     }
     // At this point, `local_outputs` contains the local result of the shuffle.

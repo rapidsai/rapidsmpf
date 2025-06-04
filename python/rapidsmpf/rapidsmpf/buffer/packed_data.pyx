@@ -20,7 +20,7 @@ cdef class PackedData:
     def from_cudf_packed_columns(cls, PackedColumns packed_columns):
         """
         Constructs a PackedData from CudfPackedColumns by taking the ownership of the
-        data and releasing `packed_columns`.
+        data and releasing ``packed_columns``.
 
         Parameters
         ----------
