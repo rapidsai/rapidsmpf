@@ -11,6 +11,7 @@ from distributed import get_worker
 
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
+from rapidsmpf.config import Options
 from rapidsmpf.integrations.dask.core import (
     DataFrameT,
     get_dask_client,
@@ -24,8 +25,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, MutableMapping
 
     from distributed import Client, Worker
-
-    from rapidsmpf.config import Options
 
 
 # Set of available shuffle IDs
@@ -382,7 +381,7 @@ def rapidsmpf_shuffle_graph(
     integration: DaskIntegration,
     options: Any,
     *other_keys: str | tuple[str, int],
-    config_options: Options | None = None,
+    config_options: Options = Options(),
 ) -> dict[Any, Any]:
     """
     Return the task graph for a RapidsMPF shuffle.
