@@ -143,8 +143,8 @@ cdef get_str(Options options, str key, factory):
     return _ret.decode("UTF-8")
 
 
-# For PyObject support, we implement `PyObjectSharedPtr`, which is wrapper
-# around PyObject that calls `Py_XDECREF` in its deleter.
+# For PyObject support, we implement `PyObjectSharedPtr`, which is
+# a wrapper around a PyObject* that handles reference counting.
 cdef extern from *:
     """
     #include <memory>
@@ -173,8 +173,9 @@ cdef extern from *:
 
 
 cdef PyObjectSharedPtr _make_shared_pyobject(object obj):
-    cdef PyObject* _obj = <PyObject*> obj
-    return cpp_make_shared_pyobject(_obj)
+    # Cython complains if we do this cast as an oneliner in
+    # _invoke_factory_py_obj().
+    return cpp_make_shared_pyobject(<PyObject*> obj)
 
 
 cdef PyObjectSharedPtr _invoke_factory_py_obj(
@@ -191,13 +192,12 @@ cdef PyObjectSharedPtr _invoke_factory_py_obj(
 
 cdef get_py_obj(Options options, str key, factory):
     cdef string _key = str.encode(key)
-    cdef PyObjectSharedPtr _ret
+    cdef PyObjectSharedPtr ret
     with nogil:
-        _ret = cython_to_cpp_closure_lambda[PyObjectSharedPtr](
+        ret = cython_to_cpp_closure_lambda[PyObjectSharedPtr](
             options._handle,
             _key,
             _invoke_factory_py_obj,
             <void *>factory,
         )
-    cdef object ret = <object?>_ret.get()
-    return ret
+    return <object?>ret.get()

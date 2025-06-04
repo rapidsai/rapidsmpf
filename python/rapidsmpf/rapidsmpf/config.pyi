@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TypeVar, overload
 
-CppType = TypeVar("CppType", bool, int, float, str)
 T = TypeVar("T")
+
+# Types also accessible in C++.
+CppType = TypeVar("CppType", bool, int, float, str)
 
 class Options:
     def __init__(
