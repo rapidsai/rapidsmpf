@@ -1,6 +1,16 @@
 # Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
 # See file LICENSE for terms.
 
+[tool.codespell]
+# note: pre-commit passes explicit lists of files here, which this skip file list doesn't override -
+# this is only to allow you to run codespell interactively
+skip = "./.git,./.github,./cpp/build,.*egg-info.*,./.mypy_cache"
+# ignore short words, and typename parameters like OffsetT
+ignore-regex = "\\b(.{1,4}|[A-Z]\\w*T)\\b"
+ignore-words-list = "inout,unparseable,falsy,couldn,Couldn,thirdparty"
+builtin = "clear"
+quiet-level = 3
+
 [tool.mypy]
 exclude = ["_deps/*"]
 ignore_missing_imports = true
