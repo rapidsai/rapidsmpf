@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cpython.ref cimport Py_INCREF, PyObject
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
 from libcpp.string cimport string
@@ -140,3 +141,64 @@ cdef get_str(Options options, str key, factory):
             <void *>factory,
         )
     return _ret.decode("UTF-8")
+
+
+# For PyObject support, we implement `PyObjectSharedPtr`, which is wrapper
+# around PyObject that calls `Py_XDECREF` in its deleter.
+cdef extern from *:
+    """
+    #include <memory>
+    #include <Python.h>
+    struct PyDeleter {
+        void operator()(PyObject* obj) const {
+            if (!obj) return;
+            // Acquire GIL before calling Py_XDECREF
+            PyGILState_STATE state = PyGILState_Ensure();
+            Py_XDECREF(obj);
+            PyGILState_Release(state);
+        }
+    };
+    using PyObjectSharedPtr = std::shared_ptr<PyObject>;
+    inline PyObjectSharedPtr cpp_make_shared_pyobject(PyObject* obj) {
+        Py_INCREF(obj);
+        return PyObjectSharedPtr(obj, PyDeleter());
+    }
+    """
+
+    cdef cppclass PyObjectSharedPtr:
+        PyObjectSharedPtr() except +
+        PyObject* get() const
+
+    PyObjectSharedPtr cpp_make_shared_pyobject(PyObject*)
+
+
+cdef PyObjectSharedPtr _make_shared_pyobject(object obj):
+    cdef PyObject* _obj = <PyObject*> obj
+    return cpp_make_shared_pyobject(_obj)
+
+
+cdef PyObjectSharedPtr _invoke_factory_py_obj(
+    void* py_factory, string value
+) noexcept nogil:
+    cdef CppExcept err
+    with gil:
+        try:
+            return _make_shared_pyobject((<object?>py_factory)(value.decode("UTF-8")))
+        except BaseException as e:
+            err = translate_py_to_cpp_exception(e)
+    throw_py_as_cpp_exception(err)
+
+
+cdef get_py_obj(Options options, str key, factory):
+    cdef string _key = str.encode(key)
+    cdef PyObjectSharedPtr _ret
+    with nogil:
+        _ret = cython_to_cpp_closure_lambda[PyObjectSharedPtr](
+            options._handle,
+            _key,
+            _invoke_factory_py_obj,
+            <void *>factory,
+        )
+    cdef object ret = <object?>_ret.get()
+    Py_INCREF(ret)
+    return ret
