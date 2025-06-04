@@ -41,13 +41,44 @@ def test_get_caches_assigned_value() -> None:
     assert val1 == val2 == 0.75  # second call must return the cached value
 
 
-def test_get_raises_on_unsupported_type() -> None:
-    class Unsupported:
-        pass
+def test_get_accepts_custom_python_type() -> None:
+    class Custom:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    opts = Options({"key": "value"})
+    result = opts.get("key", return_type=Custom, factory=Custom)
+    assert isinstance(result, Custom)
+    assert result.text == "value"
+
+
+def test_get_caches_custom_python_object() -> None:
+    class MyObj:
+        def __init__(self, s: str) -> None:
+            self.s = s
+
+    opts = Options({"thing": "foo"})
+    first = opts.get("thing", return_type=MyObj, factory=MyObj)
+    second = opts.get("thing", return_type=MyObj, factory=lambda s: MyObj("bar"))
+    assert first is second
+    assert first.s == "foo"
+
+
+def test_get_python_object_when_key_missing() -> None:
+    class Token:
+        def __init__(self, val: str) -> None:
+            self.val = val
 
     opts = Options({})
-    with pytest.raises(ValueError, match="is not supported"):
-        opts.get("key", return_type=Unsupported, factory=lambda s: Unsupported())
+    tok = opts.get("auth", return_type=Token, factory=lambda s: Token("generated"))
+    assert isinstance(tok, Token)
+    assert tok.val == "generated"
+
+
+def test_get_list_from_factory() -> None:
+    opts = Options({"mylist": "ignored"})
+    val = opts.get("mylist", return_type=list, factory=lambda s: [1, 2, 3])
+    assert val == [1, 2, 3]
 
 
 def test_get_raises_on_type_conflict() -> None:
@@ -68,12 +99,6 @@ def test_get_int64_overflow() -> None:
 
     with pytest.raises(OverflowError, match="too large"):
         opts.get("another_large_int", return_type=int, factory=lambda s: 2**65)
-
-
-def test_get_raises_on_list_type() -> None:
-    opts = Options({})
-    with pytest.raises(ValueError, match="is not supported"):
-        opts.get("some_key", return_type=list, factory=lambda s: [])
 
 
 def test_get_strings_returns_correct_data() -> None:
