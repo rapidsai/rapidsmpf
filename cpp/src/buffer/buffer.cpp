@@ -6,6 +6,8 @@
 
 #include <cuda_runtime.h>
 
+#include <cuda/std/cstdint>
+
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 

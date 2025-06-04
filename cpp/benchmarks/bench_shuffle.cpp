@@ -13,8 +13,8 @@
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/nvtx.hpp>
-#include <rapidsmpf/shuffler/partition.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -218,7 +218,7 @@ rapidsmpf::Duration run(
 
         for (auto&& partition : input_partitions) {
             // Partition, pack, and insert this partition into the shuffler.
-            shuffler.insert(rapidsmpf::shuffler::partition_and_pack(
+            shuffler.insert(rapidsmpf::partition_and_pack(
                 partition,
                 {0},
                 static_cast<std::int32_t>(total_num_partitions),
@@ -237,7 +237,7 @@ rapidsmpf::Duration run(
         while (!shuffler.finished()) {
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
-            output_partitions.push_back(*rapidsmpf::shuffler::unpack_and_concat(
+            output_partitions.push_back(*rapidsmpf::unpack_and_concat(
                 std::move(packed_chunks), stream, br->device_mr()
             ));
         }
@@ -249,7 +249,7 @@ rapidsmpf::Duration run(
     // thus we only check large shuffles).
     if (args.num_local_rows >= 1000000) {
         for (const auto& output_partition : output_partitions) {
-            auto [parts, owner] = rapidsmpf::shuffler::partition_and_split(
+            auto [parts, owner] = rapidsmpf::partition_and_split(
                 output_partition,
                 {0},
                 static_cast<std::int32_t>(total_num_partitions),
