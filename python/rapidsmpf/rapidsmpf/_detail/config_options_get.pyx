@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from cpython.ref cimport Py_INCREF, PyObject
+from cpython.ref cimport PyObject
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
 from libcpp.string cimport string
@@ -167,7 +167,7 @@ cdef extern from *:
 
     cdef cppclass PyObjectSharedPtr:
         PyObjectSharedPtr() except +
-        PyObject* get() const
+        PyObject* get() noexcept
 
     PyObjectSharedPtr cpp_make_shared_pyobject(PyObject*)
 
@@ -200,5 +200,4 @@ cdef get_py_obj(Options options, str key, factory):
             <void *>factory,
         )
     cdef object ret = <object?>_ret.get()
-    Py_INCREF(ret)
     return ret

@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import gc
 import pickle
+import weakref
 
 import pytest
 
@@ -26,7 +28,7 @@ def test_get_with_explicit_values() -> None:
 
 
 def test_get_uses_factory_when_key_missing() -> None:
-    opts = Options({})
+    opts = Options()
     assert opts.get("use_gpu", return_type=bool, factory=lambda s: True) is True
     assert opts.get("workers", return_type=int, factory=lambda s: 4) == 4
     assert opts.get("rate", return_type=float, factory=lambda s: 1.2) == 1.2
@@ -34,7 +36,7 @@ def test_get_uses_factory_when_key_missing() -> None:
 
 
 def test_get_caches_assigned_value() -> None:
-    opts = Options({})
+    opts = Options()
 
     val1 = opts.get("threshold", return_type=float, factory=lambda s: 0.75)
     val2 = opts.get("threshold", return_type=float, factory=lambda s: 1.23)
@@ -69,7 +71,7 @@ def test_get_python_object_when_key_missing() -> None:
         def __init__(self, val: str) -> None:
             self.val = val
 
-    opts = Options({})
+    opts = Options()
     tok = opts.get("auth", return_type=Token, factory=lambda s: Token("generated"))
     assert isinstance(tok, Token)
     assert tok.val == "generated"
@@ -115,8 +117,25 @@ def test_get_strings_returns_correct_data() -> None:
         assert result[k.lower()] == v
 
 
+def test_get_pyobject_refcount() -> None:
+    class MyObject:
+        def __init__(self, _: str) -> None:
+            pass
+
+    opts = Options()
+    wr = weakref.ref(opts.get("obj", return_type=MyObject, factory=MyObject))
+
+    # `opts` should keep obj alive.
+    assert wr() is not None
+    del opts
+    gc.collect()
+
+    # but without `opts`, no one is keeping obj alive.
+    assert wr() is None
+
+
 def test_get_or_default_returns_default_when_key_missing() -> None:
-    opts = Options({})
+    opts = Options()
     assert opts.get_or_default("debug", default_value=False) is False
     assert opts.get_or_default("workers", default_value=8) == 8
     assert opts.get_or_default("timeout", default_value=1.5) == 1.5
@@ -186,7 +205,7 @@ def test_serialize_deserialize_roundtrip() -> None:
 
 
 def test_serialize_empty_options() -> None:
-    opts = Options({})
+    opts = Options()
     serialized = opts.serialize()
     assert isinstance(serialized, bytes)
     assert len(serialized) == 8  # Only the count (0) as uint64_t.
@@ -242,7 +261,7 @@ def test_pickle_roundtrip() -> None:
 
 
 def test_pickle_empty_options() -> None:
-    opts = Options({})
+    opts = Options()
     pickled = pickle.dumps(opts)
     unpickled = pickle.loads(pickled)
 
