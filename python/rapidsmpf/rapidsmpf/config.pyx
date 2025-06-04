@@ -14,6 +14,7 @@ from rapidsmpf._detail cimport config_options_get
 
 import os
 import re
+import typing
 
 from rapidsmpf.utils.string import parse_boolean
 
@@ -61,7 +62,7 @@ cdef class Options:
             The option key. Should be in lowercase.
         return_type
             The return type. To be accessible from C++, it must be one of: `bool`,
-            `int`, `float`, `str`.
+            `int`, `float`, `str`. Use `object` to indicate any Python type.
         factory
             A factory function that constructs an instance of the desired type
             from a string representation.
