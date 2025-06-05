@@ -657,3 +657,57 @@ TEST_F(PostBoxTest, ThreadSafety) {
 
     EXPECT_TRUE(postbox->empty());
 }
+
+
+class ShufflerProgressThreadHangTest : public cudf::test::BaseFixture {
+  public:
+    void SetUp() override {
+        stream = cudf::get_default_stream();
+
+        progress_thread =
+            std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger()
+            );
+
+        GlobalEnvironment->barrier();
+    }
+
+    void TearDown() override {
+        // resume progress thread - this will guarantee that shuffler progress function is
+        // marked as done. This is important to ensure that the test does not hang.
+        // progress_thread->resume();
+
+        if (shuffler) {
+            shuffler->shutdown();
+        }
+
+        progress_thread->stop();
+        GlobalEnvironment->barrier();
+    }
+
+    std::shared_ptr<rapidsmpf::ProgressThread> progress_thread;
+    std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler;
+    std::unique_ptr<rapidsmpf::BufferResource> br;
+    rmm::cuda_stream_view stream;
+};
+
+TEST_F(ShufflerProgressThreadHangTest, InsertPackedDataNoHeadroom) {
+    br = std::make_unique<rapidsmpf::BufferResource>(
+        mr(),
+        get_memory_available_map(rapidsmpf::MemoryType::HOST),
+        std::nullopt  // disable periodic spill check
+    );
+    
+    shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
+        GlobalEnvironment->comm_, progress_thread, 0, 1, stream, br.get()
+    );
+
+    // pause the progress thread to avoid extracting from outgoing_postbox_
+    progress_thread->pause();
+
+    EXPECT_TRUE(false);
+
+    // resume progress thread - this will guarantee that shuffler progress function is
+    // marked as done. This is important to ensure that the test does not hang.
+    // progress_thread->resume();
+}
+
