@@ -701,7 +701,7 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     // Protect the chunk extraction to make sure we don't get a chunk
     // `Shuffler::spill` is in the process of spilling.
-    std::unique_lock<std::mutex> lock(outbox_spilling_mutex_);
+    std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
     auto chunks = ready_postbox_.extract(pid);
     lock.unlock();
     std::vector<PackedData> ret;
@@ -755,7 +755,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     }
     std::size_t spilled{0};
     if (spill_need > 0) {
-        std::lock_guard<std::mutex> lock(outbox_spilling_mutex_);
+        std::lock_guard<std::mutex> lock(ready_postbox_spilling_mutex_);
         spilled =
             postbox_spilling(br_, comm_->logger(), stream_, ready_postbox_, spill_need);
     }

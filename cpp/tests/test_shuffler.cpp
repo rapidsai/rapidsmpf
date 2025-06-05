@@ -516,7 +516,9 @@ INSTANTIATE_TEST_SUITE_P(
 
 /// test case for `insert_grouped` and `insert_finished`. This test would only test the
 /// insertion logic, so, the progress thread is paused for the duration of the test. This
-/// will prevent the progress thread from extracting from the outgoing_postbox_.
+/// will prevent the progress thread from extracting from the outgoing_postbox_. Also,
+/// we disable periodic spill check to avoid the buffer resource from spilling chunks in
+/// the ready postbox.
 class ShuffleInsertGroupedTest
     : public cudf::test::BaseFixtureWithParam<std::tuple<size_t, size_t>> {
   public:
@@ -527,7 +529,6 @@ class ShuffleInsertGroupedTest
 
         stream = cudf::get_default_stream();
 
-        // pause the progress thread for the duration of the test
         progress_thread =
             std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger()
             );
@@ -662,7 +663,13 @@ class ShuffleInsertGroupedTest
 };
 
 TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
-    br = std::make_unique<rapidsmpf::BufferResource>(mr());
+    // note: we disable periodic spill check to avoid the buffer resource from spilling
+    // chunks in the ready postbox
+    br = std::make_unique<rapidsmpf::BufferResource>(
+        mr(),
+        get_memory_available_map(rapidsmpf::MemoryType::DEVICE),
+        std::nullopt  // disable periodic spill check
+    );
     shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
         GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
     );
@@ -678,8 +685,12 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
 }
 
 TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
+    // note: we disable periodic spill check to avoid the buffer resource from spilling
+    // chunks in the ready postbox
     br = std::make_unique<rapidsmpf::BufferResource>(
-        mr(), get_memory_available_map(rapidsmpf::MemoryType::HOST)
+        mr(),
+        get_memory_available_map(rapidsmpf::MemoryType::HOST),
+        std::nullopt  // disable periodic spill check
     );
     shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
         GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()

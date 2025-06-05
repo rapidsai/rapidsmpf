@@ -273,9 +273,9 @@ class Shuffler {
     std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;
     mutable std::mutex outbound_chunk_counter_mutex_;
 
-    // We protect outbox extraction to avoid returning a chunk that is in the process
-    // of being spilled by `Shuffler::spill`.
-    mutable std::mutex outbox_spilling_mutex_;
+    // We protect ready_postbox extraction to avoid returning a chunk that is in the
+    // process of being spilled by `Shuffler::spill`.
+    mutable std::mutex ready_postbox_spilling_mutex_;
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
