@@ -8,7 +8,6 @@ import logging
 import threading
 import weakref
 from dataclasses import dataclass, field
-from functools import partial
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
 
 import ucxx._lib.libucxx as ucx_api
@@ -22,7 +21,7 @@ from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.buffer.spill_collection import SpillCollection
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
-from rapidsmpf.config import Disableable, Options, parse_disableable_option
+from rapidsmpf.config import Disableable, Options
 from rapidsmpf.integrations.dask import _compat
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
@@ -275,11 +274,9 @@ def rmpf_worker_setup(
         # and trigger spilling of python objects. Additionally, we create a staging
         # device buffer for the spilling to reduce device memory pressure.
         # TODO: maybe have a pool of staging buffers?
-        spill_staging_buffer_size = ctx.options.get(
-            "dask_staging_spill_buffer",
-            return_type=object,
-            factory=partial(parse_disableable_option, default_value=int(2**25)),
-        )
+        spill_staging_buffer_size = ctx.options.get_or_default(
+            "dask_staging_spill_buffer", default_value=Disableable(int(2**25))
+        ).value
         spill_staging_buffer = (
             None
             if spill_staging_buffer_size is None
