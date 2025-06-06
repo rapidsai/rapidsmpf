@@ -40,17 +40,17 @@ ProgressThread::ProgressThread(
     Communicator::Logger& logger, std::shared_ptr<Statistics> statistics, Duration sleep
 )
     : thread_(
-        [this]() {
-            if (!is_thread_initialized_) {
-                // This thread needs to have a cuda context associated with it.
-                // For now, do so by calling cudaFree to initialise the driver.
-                RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
-                is_thread_initialized_ = true;
-            }
-            return event_loop();
-        },
-        sleep
-    ),
+          [this]() {
+              if (!is_thread_initialized_) {
+                  // This thread needs to have a cuda context associated with it.
+                  // For now, do so by calling cudaFree to initialise the driver.
+                  RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
+                  is_thread_initialized_ = true;
+              }
+              return event_loop();
+          },
+          sleep
+      ),
       logger_(logger),
       statistics_(std::move(statistics)) {
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
@@ -91,7 +91,7 @@ void ProgressThread::remove_function(FunctionID function_id) {
     );
 
     // Wait for the function to complete. If the thread is paused, then function will not
-    // be able to complete. So, come out of the wait. Can't use map iterator because it
+    // be able to complete, and therefore do not wait. Can't use map iterator because it
     // can get invalidated, if some other thread erases a function. So, query functions_
     // instead
     cv_.wait(lock, [&]() {
