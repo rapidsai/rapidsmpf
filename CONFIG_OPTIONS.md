@@ -49,6 +49,14 @@ Each configuration option includes:
   the buffer resource. The value of `dask_periodic_spill_check` is used as the pause
   between checks (in seconds). Use `"disabled"` to disable periodic spill checks.
 
+- **`dask_staging_spill_buffer`**
+  - **Environment Variable**: `RAPIDSMPF_DASK_STAGING_SPILL_BUFFER`
+  - **Default**: `33554432` (32 MiB)
+  - **Description**: Size of the intermediate staging buffer (in bytes) used for
+    device-to-host spilling. This temporary buffer is allocated on the device to
+    reduce memory pressure when transferring Python-managed GPU objects during
+    Dask spilling. Use `"disabled"` to skip allocation of the staging buffer.
+
 - **`dask_statistics`**
   - **Environment Variable**: `RAPIDSMPF_DASK_STATISTICS`
   - **Default**: `False`

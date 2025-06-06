@@ -277,8 +277,17 @@ def rmpf_worker_setup(
         # and trigger spilling of python objects. Additionally, we create a staging
         # device buffer for the spilling to reduce device memory pressure.
         # TODO: maybe have a pool of staging buffers?
-        spill_staging_buffer = rmm.DeviceBuffer(
-            size=2**25, stream=DEFAULT_STREAM, mr=mr
+        spill_staging_buffer_size = ctx.options.get(
+            "dask_staging_spill_buffer",
+            return_type=object,
+            factory=partial(parse_disableable_option, default_value=int(2**25)),
+        )
+        spill_staging_buffer = (
+            None
+            if spill_staging_buffer_size is None
+            else rmm.DeviceBuffer(
+                size=spill_staging_buffer_size, stream=DEFAULT_STREAM, mr=mr
+            )
         )
         spill_staging_buffer_lock = threading.Lock()
 
@@ -299,7 +308,9 @@ def rmpf_worker_setup(
             -------
             The actual amount of data spilled, in bytes.
             """
-            if spill_staging_buffer_lock.acquire(blocking=False):
+            if spill_staging_buffer is not None and spill_staging_buffer_lock.acquire(
+                blocking=False
+            ):
                 try:
                     return ctx.spill_collection.spill(
                         amount,
