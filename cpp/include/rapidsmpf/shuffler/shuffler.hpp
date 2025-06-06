@@ -23,6 +23,9 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils.hpp>
 
+
+class ShuffleInsertGroupedTest;
+
 /**
  * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
@@ -39,6 +42,8 @@ namespace rapidsmpf::shuffler {
  * different ranks.
  */
 class Shuffler {
+    friend class ::ShuffleInsertGroupedTest;
+
   public:
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the
@@ -104,13 +109,20 @@ class Shuffler {
      */
     void shutdown();
 
-  public:
     /**
      * @brief Insert a chunk into the shuffle.
      *
      * @param chunk The chunk to insert.
      */
     void insert(detail::Chunk&& chunk);
+
+    /**
+     * @brief Insert a map of packed data, grouping them by destination rank, and
+     * concatenating into a single chunk per rank.
+     *
+     * @param chunks A map of partition IDs and their packed chunks.
+     */
+    void insert_grouped(std::unordered_map<PartID, PackedData>&& chunks);
 
     /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
@@ -127,6 +139,13 @@ class Shuffler {
      * @param pid The partition ID to mark as finished.
      */
     void insert_finished(PartID pid);
+
+    /**
+     * @brief Insert a finish mark for a list of partitions.
+     *
+     * @param pids The list of partition IDs to mark as finished.
+     */
+    void insert_finished(std::vector<PartID>&& pids);
 
     /**
      * @brief Extract all chunks of a specific partition.
@@ -254,9 +273,9 @@ class Shuffler {
     std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;
     mutable std::mutex outbound_chunk_counter_mutex_;
 
-    // We protect outbox extraction to avoid returning a chunk that is in the process
-    // of being spilled by `Shuffler::spill`.
-    mutable std::mutex outbox_spilling_mutex_;
+    // We protect ready_postbox extraction to avoid returning a chunk that is in the
+    // process of being spilled by `Shuffler::spill`.
+    mutable std::mutex ready_postbox_spilling_mutex_;
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
