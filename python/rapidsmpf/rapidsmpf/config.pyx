@@ -400,3 +400,59 @@ def get_environment_variables(str key_regex = "RAPIDSMPF_(.*)"):
         if match:
             ret[match.group(1)] = value
     return ret
+
+
+class Disableable:
+    """
+    Represents an option value that can be explicitly disabled.
+
+    This class wraps an option value and interprets certain strings as
+    indicators that the value is disabled (case-insensitive):
+        - "false"
+        - "no"
+        - "off"
+        - "disable"
+        - "disabled"
+
+    This is typically used to simplify optional or disableable options with
+    `Options.get_or_default()`.
+
+    Parameters
+    ----------
+    value
+        The input value to interpret.
+
+    Attributes
+    ----------
+    value
+        The raw input value, unless it matched a disable keyword, in which case
+        the value is `None`.
+
+    Examples
+    --------
+    >>> from rapidsmpf.config import Disableable, Options
+    >>> Disableable("OFF").value
+    None
+
+    >>> Disableable("no").value
+    None
+
+    >>> Disableable("100").value
+    '100'
+
+    >>> Disableable("").value
+    ''
+
+    >>> opts = Options()
+    >>> opts.get_or_default(
+    ...     "dask_periodic_spill_check",
+    ...     default_value=Disableable(1e-3)
+    ... ).value
+    0.001
+    """
+
+    def __init__(self, value):
+        if str(value).strip().lower() in {"false", "no", "off", "disable", "disabled"}:
+            self.value = None
+        else:
+            self.value = value

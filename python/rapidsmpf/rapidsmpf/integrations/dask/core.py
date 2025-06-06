@@ -22,7 +22,7 @@ from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.buffer.spill_collection import SpillCollection
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
-from rapidsmpf.config import Options, parse_disableable_option
+from rapidsmpf.config import Disableable, Options, parse_disableable_option
 from rapidsmpf.integrations.dask import _compat
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
@@ -265,11 +265,9 @@ def rmpf_worker_setup(
         ctx.br = BufferResource(
             mr,
             memory_available=memory_available,
-            periodic_spill_check=ctx.options.get(
-                "dask_periodic_spill_check",
-                return_type=object,
-                factory=partial(parse_disableable_option, default_value=1e-3),
-            ),
+            periodic_spill_check=ctx.options.get_or_default(
+                "dask_periodic_spill_check", default_value=Disableable(1e-3)
+            ).value,
         )
 
         # Create a spill function that spills the python objects in the spill-
