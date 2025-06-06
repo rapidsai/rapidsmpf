@@ -152,7 +152,7 @@ cdef extern from *:
     struct PyDeleter {
         void operator()(PyObject* obj) const {
             if (obj) {
-                // Acquire GIL before calling Py_XDECREF
+                // Acquire GIL before calling Py_DECREF
                 PyGILState_STATE state = PyGILState_Ensure();
                 Py_DECREF(obj);
                 PyGILState_Release(state);
