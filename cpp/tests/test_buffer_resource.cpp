@@ -614,7 +614,7 @@ TEST(BufferResource, CopySliceDifferentResources) {
     buf1->override_event(std::make_shared<Buffer::Event>(stream));
     buf1->wait_for_ready();
 
-    EXPECT_EQ(mr1.get_record().total(), buffer_size);
+    EXPECT_EQ(mr1.get_main_record().total(), buffer_size);
 
     // Reserve memory for the slice on br2
     auto [reserv2, ob2] = br2.reserve(MemoryType::DEVICE, slice_length, false);
@@ -626,10 +626,10 @@ TEST(BufferResource, CopySliceDifferentResources) {
     buf2->wait_for_ready();
 
     // Verify br1 hasn't allocated any more memory
-    EXPECT_EQ(mr1.get_record().total(), buffer_size);
+    EXPECT_EQ(mr1.get_main_record().total(), buffer_size);
 
     // Verify br2 has allocated the slice
-    EXPECT_EQ(mr2.get_record().total(), slice_length);
+    EXPECT_EQ(mr2.get_main_record().total(), slice_length);
 }
 
 TEST(BufferResource, CheckIllegalArgs) {

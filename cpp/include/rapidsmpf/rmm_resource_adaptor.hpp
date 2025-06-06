@@ -72,7 +72,7 @@ struct ScopedMemoryRecord {
 
     /**
      * @brief Returns the total number of bytes allocated over the lifetime of this
-     * record.
+     * main_record.
      *
      * This value accumulates over time and is not reduced by deallocations.
      *
@@ -110,7 +110,7 @@ struct ScopedMemoryRecord {
      *
      * @note Is not thread-safe.
      */
-    void record_allocation(AllocType alloc_type, std::uint64_t nbytes);
+    void main_record_allocation(AllocType alloc_type, std::uint64_t nbytes);
 
     /**
      * @brief Records a memory deallocation event.
@@ -122,7 +122,7 @@ struct ScopedMemoryRecord {
      *
      * @note Is not thread-safe.
      */
-    void record_deallocation(AllocType alloc_type, std::uint64_t nbytes);
+    void main_record_deallocation(AllocType alloc_type, std::uint64_t nbytes);
 
   private:
     AllocTypeArray num_current_allocs_{{0, 0}};
@@ -184,13 +184,13 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     }
 
     /**
-     * @brief Get a copy of the tracked record.
+     * @brief Get a copy of the tracked main_record.
      *
-     * @return Scoped memory record instance.
+     * @return Scoped memory main_record instance.
      */
-    [[nodiscard]] ScopedMemoryRecord get_record() const {
+    [[nodiscard]] ScopedMemoryRecord get_main_record() const {
         std::lock_guard<std::mutex> lock(mutex_);
-        return record_;
+        return main_record_;
     }
 
     /**
@@ -241,7 +241,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     rmm::device_async_resource_ref primary_mr_;
     std::optional<rmm::device_async_resource_ref> fallback_mr_;
     std::unordered_set<void*> fallback_allocations_;
-    ScopedMemoryRecord record_;
+    ScopedMemoryRecord main_record_;
 };
 
 

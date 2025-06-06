@@ -90,7 +90,7 @@ std::unique_ptr<Buffer> allocate_buffer(
  * To avoid this, the Shuffler uses `outbox_spillling_mutex_` to serialize extractions.
  *
  * @param br Buffer resource for memory allocation.
- * @param log A logger for recording events and debugging information.
+ * @param log A logger for main_recording events and debugging information.
  * @param statistics The statistics instance to use.
  * @param stream CUDA stream to use for memory and kernel operations.
  * @param postbox The PostBox containing buffers to be spilled.

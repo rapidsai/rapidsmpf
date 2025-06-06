@@ -113,53 +113,57 @@ TEST(RmmResourceAdaptor, RecordReflectsCorrectStatistics) {
     throw_at_limit_resource<rmm::out_of_memory> fallback_mr{4_MiB};
     RmmResourceAdaptor mr{primary_mr, fallback_mr};
 
-    auto record_before = mr.get_record();
-    EXPECT_EQ(record_before.num_total_allocs(), 0);
-    EXPECT_EQ(record_before.current(), 0);
-    EXPECT_EQ(record_before.total(), 0);
-    EXPECT_EQ(record_before.peak(), 0);
+    auto main_record_before = mr.get_main_record();
+    EXPECT_EQ(main_record_before.num_total_allocs(), 0);
+    EXPECT_EQ(main_record_before.current(), 0);
+    EXPECT_EQ(main_record_before.total(), 0);
+    EXPECT_EQ(main_record_before.peak(), 0);
 
     // Allocate from primary
     void* p1 = mr.allocate(1_MiB);
-    auto record_after_p1 = mr.get_record();
+    auto main_record_after_p1 = mr.get_main_record();
 
     EXPECT_EQ(
-        record_after_p1.num_total_allocs(ScopedMemoryRecord::AllocType::PRIMARY), 1
+        main_record_after_p1.num_total_allocs(ScopedMemoryRecord::AllocType::PRIMARY), 1
     );
-    EXPECT_EQ(record_after_p1.num_total_allocs(), 1);
-    EXPECT_EQ(record_after_p1.current(ScopedMemoryRecord::AllocType::PRIMARY), 1_MiB);
-    EXPECT_EQ(record_after_p1.current(), 1_MiB);
-    EXPECT_EQ(record_after_p1.total(ScopedMemoryRecord::AllocType::PRIMARY), 1_MiB);
-    EXPECT_EQ(record_after_p1.total(), 1_MiB);
-    EXPECT_EQ(record_after_p1.peak(ScopedMemoryRecord::AllocType::PRIMARY), 1_MiB);
-    EXPECT_EQ(record_after_p1.peak(), 1_MiB);
+    EXPECT_EQ(main_record_after_p1.num_total_allocs(), 1);
+    EXPECT_EQ(
+        main_record_after_p1.current(ScopedMemoryRecord::AllocType::PRIMARY), 1_MiB
+    );
+    EXPECT_EQ(main_record_after_p1.current(), 1_MiB);
+    EXPECT_EQ(main_record_after_p1.total(ScopedMemoryRecord::AllocType::PRIMARY), 1_MiB);
+    EXPECT_EQ(main_record_after_p1.total(), 1_MiB);
+    EXPECT_EQ(main_record_after_p1.peak(ScopedMemoryRecord::AllocType::PRIMARY), 1_MiB);
+    EXPECT_EQ(main_record_after_p1.peak(), 1_MiB);
 
     mr.deallocate(p1, 1_MiB);
-    auto record_after_d1 = mr.get_record();
-    EXPECT_EQ(record_after_d1.current(ScopedMemoryRecord::AllocType::PRIMARY), 0);
-    EXPECT_EQ(record_after_d1.current(), 0);
-    EXPECT_EQ(record_after_d1.peak(), 1_MiB);  // Peak remains
+    auto main_record_after_d1 = mr.get_main_record();
+    EXPECT_EQ(main_record_after_d1.current(ScopedMemoryRecord::AllocType::PRIMARY), 0);
+    EXPECT_EQ(main_record_after_d1.current(), 0);
+    EXPECT_EQ(main_record_after_d1.peak(), 1_MiB);  // Peak remains
 
     // Allocate from fallback
     void* p2 = mr.allocate(2_MiB);
-    auto record_after_p2 = mr.get_record();
+    auto main_record_after_p2 = mr.get_main_record();
 
     EXPECT_EQ(
-        record_after_p2.num_total_allocs(ScopedMemoryRecord::AllocType::FALLBACK), 1
+        main_record_after_p2.num_total_allocs(ScopedMemoryRecord::AllocType::FALLBACK), 1
     );
-    EXPECT_EQ(record_after_p2.num_total_allocs(), 2);  // PRIMARY + FALLBACK
-    EXPECT_EQ(record_after_p2.current(ScopedMemoryRecord::AllocType::FALLBACK), 2_MiB);
-    EXPECT_EQ(record_after_p2.current(), 2_MiB);
-    EXPECT_EQ(record_after_p2.total(ScopedMemoryRecord::AllocType::FALLBACK), 2_MiB);
-    EXPECT_EQ(record_after_p2.total(), 3_MiB);
-    EXPECT_EQ(record_after_p2.peak(ScopedMemoryRecord::AllocType::FALLBACK), 2_MiB);
-    EXPECT_EQ(record_after_p2.peak(), 2_MiB);
+    EXPECT_EQ(main_record_after_p2.num_total_allocs(), 2);  // PRIMARY + FALLBACK
+    EXPECT_EQ(
+        main_record_after_p2.current(ScopedMemoryRecord::AllocType::FALLBACK), 2_MiB
+    );
+    EXPECT_EQ(main_record_after_p2.current(), 2_MiB);
+    EXPECT_EQ(main_record_after_p2.total(ScopedMemoryRecord::AllocType::FALLBACK), 2_MiB);
+    EXPECT_EQ(main_record_after_p2.total(), 3_MiB);
+    EXPECT_EQ(main_record_after_p2.peak(ScopedMemoryRecord::AllocType::FALLBACK), 2_MiB);
+    EXPECT_EQ(main_record_after_p2.peak(), 2_MiB);
 
     mr.deallocate(p2, 2_MiB);
-    auto record_final = mr.get_record();
-    EXPECT_EQ(record_final.current(ScopedMemoryRecord::AllocType::FALLBACK), 0);
-    EXPECT_EQ(record_final.current(), 0);
-    EXPECT_EQ(record_final.num_total_allocs(), 2);
-    EXPECT_EQ(record_final.total(), 3_MiB);
-    EXPECT_EQ(record_final.peak(), 2_MiB);  // Should be the max peak reached
+    auto main_record_final = mr.get_main_record();
+    EXPECT_EQ(main_record_final.current(ScopedMemoryRecord::AllocType::FALLBACK), 0);
+    EXPECT_EQ(main_record_final.current(), 0);
+    EXPECT_EQ(main_record_final.num_total_allocs(), 2);
+    EXPECT_EQ(main_record_final.total(), 3_MiB);
+    EXPECT_EQ(main_record_final.peak(), 2_MiB);  // Should be the max peak reached
 }
