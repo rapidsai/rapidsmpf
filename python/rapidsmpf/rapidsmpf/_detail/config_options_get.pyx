@@ -151,11 +151,12 @@ cdef extern from *:
     #include <Python.h>
     struct PyDeleter {
         void operator()(PyObject* obj) const {
-            if (!obj) return;
-            // Acquire GIL before calling Py_XDECREF
-            PyGILState_STATE state = PyGILState_Ensure();
-            Py_XDECREF(obj);
-            PyGILState_Release(state);
+            if (obj) {
+                // Acquire GIL before calling Py_XDECREF
+                PyGILState_STATE state = PyGILState_Ensure();
+                Py_DECREF(obj);
+                PyGILState_Release(state);
+            }
         }
     };
     using PyObjectSharedPtr = std::shared_ptr<PyObject>;
