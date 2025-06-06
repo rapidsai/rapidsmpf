@@ -124,15 +124,13 @@ cdef class Options:
 
         Notes
         -----
-        - Supported types for ``default_value`` include: `bool`, `int`, `float`, and
-          `str`.
         - This method infers the return type from ``type(default_value)``.
         - If ``default_value`` is used, it will be cached and reused for subsequent
           accesses of the same key.
 
         Examples
         --------
-        >>> opts = Options({})
+        >>> opts = Options()
         >>> opts.get_or_default("debug", default_value=False)
         False
         >>> opts.get_or_default("timeout", default_value=1.5)
