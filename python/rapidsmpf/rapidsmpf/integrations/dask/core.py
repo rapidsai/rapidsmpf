@@ -237,15 +237,19 @@ def rmpf_worker_setup(
         assert ctx.comm is not None
         ctx.progress_thread = ProgressThread(ctx.comm, ctx.statistics)
 
-        mr = rmm.mr.get_current_device_resource()
-        if ctx.options.get_or_default("dask_oom_protection", default_value=False):
-            mr = RmmResourceAdaptor(
-                upstream_mr=mr, fallback_mr=rmm.mr.ManagedMemoryResource()
-            )
-
-        # Setup a buffer_resource.
         # Wrap the current RMM resource in statistics adaptor.
-        mr = RmmResourceAdaptor(mr)
+        mr = rmm.mr.get_current_device_resource()
+        mr = RmmResourceAdaptor(
+            mr,
+            fallback_mr=(
+                # Use a managed memory resource if OOM protection is enabled.
+                rmm.mr.ManagedMemoryResource()
+                if ctx.options.get_or_default(
+                    "dask_oom_protection", default_value=False
+                )
+                else None
+            ),
+        )
         rmm.mr.set_current_device_resource(mr)
         total_memory = rmm.mr.available_device_memory()[1]
         spill_device = ctx.options.get_or_default(
