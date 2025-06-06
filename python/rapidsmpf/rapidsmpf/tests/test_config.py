@@ -5,10 +5,11 @@ from __future__ import annotations
 import gc
 import pickle
 import weakref
+from typing import Any
 
 import pytest
 
-from rapidsmpf.config import Options
+from rapidsmpf.config import Disableable, Options
 
 
 def test_get_with_explicit_values() -> None:
@@ -176,6 +177,59 @@ def test_get_or_default_raises_for_invalid_bool_string() -> None:
 
     with pytest.raises(ValueError, match="Cannot parse boolean"):
         opts.get_or_default("enabled", default_value=True)
+
+
+@pytest.mark.parametrize(
+    "input_value,expected",
+    [
+        ("false", None),
+        ("FALSE", None),
+        ("no", None),
+        ("No", None),
+        ("off", None),
+        ("OFF", None),
+        ("disable", None),
+        ("DISABLE", None),
+        ("disabled", None),
+        ("Disabled", None),
+        (" true ", " true "),  # not a disable keyword, preserves original
+        ("100", "100"),
+        ("", ""),
+        (123, 123),  # non-string input preserved as is
+        (None, None),  # None input preserved as is
+        ("  off  ", None),  # whitespace trimmed before checking
+    ],
+)
+def test_disableable_values(input_value: Any, expected: Any) -> None:
+    d = Disableable(input_value)
+    assert d.value == expected
+
+
+def test_disableable_empty_string() -> None:
+    d = Disableable("")
+    assert d.value == ""
+
+
+def test_disableable_non_string_value() -> None:
+    # Non-string values should be preserved as-is
+    d_int = Disableable(42)
+    assert d_int.value == 42
+
+    d_none = Disableable(None)
+    assert d_none.value is None
+
+
+def test_disableable_strips_whitespace_and_is_case_insensitive() -> None:
+    # Whitespace and case shouldn't affect detection
+    for variant in ["  Off  ", " No ", "DisABLE", "FALSE", "disabled"]:
+        d = Disableable(variant)
+        assert d.value is None
+
+
+def test_disableable_preserves_non_disable_values() -> None:
+    for val in ["true", "enabled", "some value", "0", "123"]:
+        d = Disableable(val)
+        assert d.value == val
 
 
 def test_get_strings_returns_empty_dict_for_empty_options() -> None:
