@@ -8,6 +8,7 @@ import logging
 import threading
 import weakref
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
 
 import ucxx._lib.libucxx as ucx_api
@@ -21,7 +22,7 @@ from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.buffer.spill_collection import SpillCollection
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
-from rapidsmpf.config import Options
+from rapidsmpf.config import Options, parse_disableable_option
 from rapidsmpf.integrations.dask import _compat
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
@@ -261,31 +262,14 @@ def rmpf_worker_setup(
             )
         }
 
-        def get_periodic_spill_check() -> float | None:
-            """
-            Get the `dask_periodic_spill_check` option.
-
-            We define a parser that support both float and the "disable" keyword.
-            """
-
-            def periodic_spill_check_factory(val: str) -> float:
-                if val == "":
-                    return 1e-3  # default
-                elif "disable" in val:
-                    return -1  # TODO: use None, when config support PyObject.
-                return float(val)
-
-            ret = ctx.options.get(
-                "dask_periodic_spill_check",
-                return_type=float,
-                factory=periodic_spill_check_factory,
-            )
-            return None if ret < 0 else ret
-
         ctx.br = BufferResource(
             mr,
             memory_available=memory_available,
-            periodic_spill_check=get_periodic_spill_check(),
+            periodic_spill_check=ctx.options.get(
+                "dask_periodic_spill_check",
+                return_type=object,
+                factory=partial(parse_disableable_option, default_value=1e-3),
+            ),
         )
 
         # Create a spill function that spills the python objects in the spill-

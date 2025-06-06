@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import gc
+import math
 import pickle
 import weakref
 
 import pytest
 
-from rapidsmpf.config import Options
+from rapidsmpf.config import Options, parse_disableable_option
 
 
 def test_get_with_explicit_values() -> None:
@@ -176,6 +177,52 @@ def test_get_or_default_raises_for_invalid_bool_string() -> None:
 
     with pytest.raises(ValueError, match="Cannot parse boolean"):
         opts.get_or_default("enabled", default_value=True)
+
+
+@pytest.mark.parametrize(
+    "input_str,expected",
+    [
+        ("", 1e-3),  # empty string returns default
+        ("0.1", 0.1),  # regular number
+        ("OFF", None),  # disable keyword (case-insensitive)
+        ("disable", None),
+        (" no ", None),
+        ("FALSE", None),
+        ("disabled", None),
+    ],
+)
+def test_parse_disableable_number_floats(
+    input_str: str, expected: float | None
+) -> None:
+    result = parse_disableable_option(input_str, default_value=1e-3)
+    if expected is None:
+        assert result is None
+    else:
+        assert isinstance(result, float)
+        assert math.isclose(result, expected)
+
+
+@pytest.mark.parametrize(
+    "input_str,expected",
+    [
+        ("", 42),
+        ("100", 100),
+        ("off", None),
+    ],
+)
+def test_parse_disableable_number_ints(input_str: str, expected: int | None) -> None:
+    result = parse_disableable_option(input_str, default_value=42)
+    assert result == expected
+
+
+def test_parse_disableable_number_raises_on_invalid_cast() -> None:
+    with pytest.raises(ValueError):
+        parse_disableable_option("not-a-float", default_value=1.0)
+
+    with pytest.raises(ValueError):
+        parse_disableable_option(
+            "NaN", default_value=42
+        )  # this will fail on `int("NaN")`
 
 
 def test_get_strings_returns_empty_dict_for_empty_options() -> None:
