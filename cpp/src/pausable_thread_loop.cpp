@@ -3,13 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <rapidsmp/pausable_thread_loop.hpp>
+#include <rapidsmpf/pausable_thread_loop.hpp>
 
-namespace rapidsmp::detail {
+namespace rapidsmpf::detail {
 
-PausableThreadLoop::PausableThreadLoop(
-    std::function<void()> func, std::chrono::microseconds sleep
-) {
+PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration sleep) {
     thread_ = std::thread([this, f = std::move(func), sleep]() {
         while (true) {
             {
@@ -20,7 +18,7 @@ PausableThreadLoop::PausableThreadLoop(
                 }
             }
             f();
-            if (sleep > std::chrono::microseconds(0)) {
+            if (sleep > std::chrono::seconds{0}) {
                 std::this_thread::sleep_for(sleep);
             } else {
                 std::this_thread::yield();
@@ -67,4 +65,4 @@ void PausableThreadLoop::stop() {
     }
 }
 
-}  // namespace rapidsmp::detail
+}  // namespace rapidsmpf::detail

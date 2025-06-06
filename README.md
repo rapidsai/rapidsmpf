@@ -1,18 +1,18 @@
-# RAPIDSMP
+# RapidsMPF
 
 Collection of multi-gpu, distributed memory algorithms.
 
 ## Getting started
 
-Currently, there is no conda or pip packages for rapidsmp thus we have to build from source.
+Currently, there is no conda or pip packages for rapidsmpf thus we have to build from source.
 
-Clone rapidsmp and install the dependencies in a conda environment:
+Clone rapidsmpf and install the dependencies in a conda environment:
 ```bash
-git clone https://github.com/rapidsai/rapids-multi-gpu.git
-cd rapids-multi-gpu
+git clone https://github.com/rapidsai/rapidsmpf.git
+cd rapidsmpf
 
 # Choose a environment file that match your system.
-mamba env create --name rapidsmp-dev --file conda/environments/all_cuda-128_arch-x86_64.yaml
+mamba env create --name rapidsmpf-dev --file conda/environments/all_cuda-128_arch-x86_64.yaml
 
 # Build
 ./build.sh
@@ -57,24 +57,25 @@ Example of a MPI program that uses the shuffler:
 #include <mpi.h>
 #include <unistd.h>
 
-#include <rapidsmp/communicator/mpi.hpp>
-#include <rapidsmp/error.hpp>
-#include <rapidsmp/shuffler/partition.hpp>
-#include <rapidsmp/shuffler/shuffler.hpp>
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/shuffler/partition.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
 
 #include "../benchmarks/utils/random_data.hpp"
 
 // An example of how to use the shuffler.
 int main(int argc, char** argv) {
-    // In this example we use the MPI backed. For convenience, rapidsmp provides an
+    // In this example we use the MPI backed. For convenience, rapidsmpf provides an
     // optional MPI-init function that initialize MPI with thread support.
-    rapidsmp::mpi::init(&argc, &argv);
+    rapidsmpf::mpi::init(&argc, &argv);
 
     // First, we have to create a Communicator, which we will use throughout the example.
     // Notice, if you want to do multiple shuffles concurrently, each shuffle should use
     // its own Communicator backed by its own MPI communicator.
-    std::shared_ptr<rapidsmp::Communicator> comm =
-        std::make_shared<rapidsmp::MPI>(MPI_COMM_WORLD);
+    std::shared_ptr<rapidsmpf::Communicator> comm =
+        std::make_shared<rapidsmpf::MPI>(MPI_COMM_WORLD);
 
     // The Communicator provides a logger.
     auto& log = comm->logger();
@@ -90,14 +91,14 @@ int main(int argc, char** argv) {
     cudf::table local_input = random_table(2, 100, 0, 10, stream, mr);
 
     // The total number of inputs equals the number of ranks, in this case.
-    rapidsmp::shuffler::PartID const total_num_partitions = comm->nranks();
+    rapidsmpf::shuffler::PartID const total_num_partitions = comm->nranks();
 
     // We create a new shuffler instance, which represents a single shuffle. It takes
     // a Communicator, the total number of partitions, and a "owner function", which
     // map partitions to their destination ranks. All ranks must use the same owner
     // function, in this example we use the included round-robin owner function.
-    rapidsmp::shuffler::Shuffler shuffler(
-        comm, total_num_partitions, rapidsmp::shuffler::Shuffler::round_robin, stream, mr
+    rapidsmpf::shuffler::Shuffler shuffler(
+        comm, total_num_partitions, rapidsmpf::shuffler::Shuffler::round_robin, stream, mr
     );
 
     // It is our own responsibility to partition and pack (serialize) the input for
@@ -105,8 +106,8 @@ int main(int argc, char** argv) {
     // does provide a convenience function that hash partition a cudf table and packs
     // each partition. The result is a mapping of `PartID`, globally unique partition
     // identifiers, to their packed partitions.
-    std::unordered_map<rapidsmp::shuffler::PartID, cudf::packed_columns> packed_inputs =
-        rapidsmp::shuffler::partition_and_pack(
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> packed_inputs =
+        rapidsmpf::shuffler::partition_and_pack(
             local_input,
             {0},
             total_num_partitions,
@@ -126,7 +127,7 @@ int main(int argc, char** argv) {
     // Again, this is non-blocking and should be done as soon as we known that we don't
     // have more inputs for a specific partition. In this case, we are finished with all
     // partitions.
-    for (rapidsmp::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+    for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
         shuffler.insert_finished(i);
     }
 
@@ -136,7 +137,7 @@ int main(int argc, char** argv) {
     // Wait for and process the shuffle results for each partition.
     while (!shuffler.finished()) {
         // Block until a partition is ready and retrieve its partition ID.
-        rapidsmp::shuffler::PartID finished_partition = shuffler.wait_any();
+        rapidsmpf::shuffler::PartID finished_partition = shuffler.wait_any();
 
         // Extract the finished partition's data from the Shuffler.
         auto packed_chunks = shuffler.extract(finished_partition);
@@ -144,7 +145,7 @@ int main(int argc, char** argv) {
         // Unpack (deserialize) and concatenate the chunks into a single table using a
         // convenience function.
         local_outputs.push_back(
-            rapidsmp::shuffler::unpack_and_concat(std::move(packed_chunks))
+            rapidsmpf::shuffler::unpack_and_concat(std::move(packed_chunks))
         );
     }
     // At this point, `local_outputs` contains the local result of the shuffle.
@@ -154,9 +155,9 @@ int main(int argc, char** argv) {
     // Shutdown the Shuffler explicitly or let it go out of scope for cleanup.
     shuffler.shutdown();
 
-    // Finalize the execution, `RAPIDSMP_MPI` is a convenience macro that
+    // Finalize the execution, `RAPIDSMPF_MPI` is a convenience macro that
     // checks for MPI errors.
-    RAPIDSMP_MPI(MPI_Finalize());
+    RAPIDSMPF_MPI(MPI_Finalize());
 }
 ```
 

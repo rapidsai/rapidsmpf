@@ -8,11 +8,11 @@ warn_return_any = true
 warn_unused_configs = true
 
 [[tool.mypy.overrides]]
-module = "rapidsmp.*"
+module = "rapidsmpf.*"
 disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=append" # Dask subprocesses fail to import RAPIDSMP otherwise
+addopts = "--import-mode=append" # Dask subprocesses fail to import RAPIDSMPF otherwise
 
 [tool.ruff]
 line-length = 88
@@ -122,32 +122,15 @@ section-order = [
   "standard-library",
   "third-party",
   "rapids",
-  "rapidsmp",
+  "rapidsmpf",
   "first-party",
   "local-folder"
 ]
 required-imports = ["from __future__ import annotations"]
 
 [tool.ruff.lint.isort.sections]
-rapidsmp = ["rapidsmp"]
+rapidsmpf = ["rapidsmpf"]
 rapids = ["rmm", "pylibcudf", "cudf"]
 
 [tool.ruff.format]
 docstring-code-format = true
-
-[tool.numpydoc_validation]
-checks = [
-    "all",   # report on all checks, except the below
-    "EX01",
-    "SA01",
-    "ES01",
-    "PR04",
-    "SS02",
-    "RT03",
-]
-
-# don't report on objects that match any of these regex
-# remember to use single quotes for regex in TOML
-exclude = [
-    '.*__init__',
-]
