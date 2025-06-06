@@ -126,7 +126,7 @@ def test_get_pyobject_refcount() -> None:
     wr = weakref.ref(opts.get("obj", return_type=MyObject, factory=MyObject))
 
     # `opts` should keep obj alive.
-    assert wr() is not None
+    assert isinstance(wr(), MyObject)
     del opts
     gc.collect()
 
