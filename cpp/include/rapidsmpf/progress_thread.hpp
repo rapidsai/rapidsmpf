@@ -177,16 +177,19 @@ class ProgressThread {
     /**
      * @brief Pause the progress thread.
      */
-    void pause() {
-        thread_.pause();
-    }
+    void pause();
 
     /**
      * @brief Resume the progress thread.
      */
-    void resume() {
-        thread_.resume();
-    }
+    void resume();
+
+    /**
+     * @brief Check if the progress thread is currently running.
+     *
+     * @return true if the thread is running, false otherwise.
+     */
+    bool is_running() const;
 
   private:
     /**

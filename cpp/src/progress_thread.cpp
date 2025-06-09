@@ -106,6 +106,19 @@ void ProgressThread::remove_function(FunctionID function_id) {
     }
 }
 
+void ProgressThread::pause() {
+    thread_.pause();
+    cv_.notify_all();  // notify any thread waiting on thread_.is_running()
+}
+
+void ProgressThread::resume() {
+    thread_.resume();
+}
+
+bool ProgressThread::is_running() const {
+    return thread_.is_running();
+}
+
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
     {
