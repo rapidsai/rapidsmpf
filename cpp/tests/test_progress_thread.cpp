@@ -98,25 +98,24 @@ TEST_P(ProgressThreadEvents, events) {
     }
 }
 
-TEST(ProgressThreadTests, RemoveFunctionWithDelayedPaused) {
-    auto progress_thread =
-        std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger());
+TEST(ProgressThreadTests, RemoveFunctionWithDelayedPause) {
+    ProgressThread progress_thread(GlobalEnvironment->comm_->logger());
 
     // add a function to the progress thread that never completes
-    auto id = progress_thread->add_function([] {
+    auto id = progress_thread.add_function([] {
         return ProgressThread::ProgressState::InProgress;
     });
 
     // pause the progress thread asynchronously after a short delay
     auto future = std::async(std::launch::async, [&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        progress_thread->pause();
-        EXPECT_FALSE(progress_thread->is_running());
+        progress_thread.pause();
+        EXPECT_FALSE(progress_thread.is_running());
     });
 
     // attempt to remove the functio. This will block until the progress thread is paused,
     // because the function will never complete.
-    progress_thread->remove_function(id);
+    progress_thread.remove_function(id);
 
     future.get();
 }
