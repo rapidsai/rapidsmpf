@@ -52,6 +52,24 @@ files:
       - run_rapidsmpf
       - test_python
       - test_rapidsmpf
+  dask_integration:
+    output: pyproject
+    pyproject_dir: python/rapidsmpf
+    extras:
+      table: project.optional-dependencies
+      key: dask
+    includes:
+      - depends_on_dask_cuda
+      - depends_on_ucxx
+  ray_integration:
+    output: pyproject
+    pyproject_dir: python/rapidsmpf
+    extras:
+      table: project.optional-dependencies
+      key: ray
+    includes:
+      - depends_on_ucxx
+      - depends_on_ray
   checks:
     output: none
     includes:
@@ -534,3 +552,11 @@ dependencies:
           - matrix:
             packages:
               - *ucxx_unsuffixed
+  depends_on_ray:
+    common:
+      - output_types: conda
+        packages:
+          - ray-default==2.42.*,>=0.0.0a0
+      - output_types: pyproject
+        packages:
+          - ray==2.45.*,>=0.0.0a0
