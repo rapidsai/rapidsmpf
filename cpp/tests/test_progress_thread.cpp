@@ -113,8 +113,8 @@ TEST(ProgressThreadTests, RemoveFunctionWithDelayedPause) {
         EXPECT_FALSE(progress_thread.is_running());
     });
 
-    // attempt to remove the functio. This will block until the progress thread is paused,
-    // because the function will never complete.
+    // attempt to remove the function. This will block until the progress thread is
+    // paused, because the function will never complete.
     progress_thread.remove_function(id);
 
     future.get();
