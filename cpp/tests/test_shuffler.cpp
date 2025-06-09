@@ -676,6 +676,8 @@ TEST(Shuffler, ShutdownWhilePaused) {
     // sleep this thread for 5ms, so that spill function is also run
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
+    EXPECT_FALSE(progress_thread->is_running());
+
     // shutdown shuffler while progress thread is paused
     shuffler->shutdown();
 }
