@@ -193,6 +193,53 @@ def test_get_strings_is_idempotent() -> None:
     assert result1["key"] == "value"
 
 
+def test_insert_if_absent_inserts_new_keys() -> None:
+    opts = Options()
+    # Insert 2 new keys
+    inserted_count = opts.insert_if_absent({"key1": "1", "key2": "2"})
+
+    assert inserted_count == 2
+    assert opts.get("key1", return_type=int, factory=int) == 1
+    assert opts.get("key2", return_type=int, factory=int) == 2
+
+
+def test_insert_if_absent_skips_existing_keys() -> None:
+    # Initialize with existing key
+    opts = Options({"existing": "old"})
+    # Try inserting 1 existing + 1 new key
+    inserted_count = opts.insert_if_absent({"existing": "new", "newkey": "value"})
+
+    assert inserted_count == 1
+    assert (
+        opts.get("existing", return_type=str, factory=str) == "old"
+    )  # old value preserved
+    assert opts.get("newkey", return_type=str, factory=str) == "value"  # new key added
+
+
+def test_insert_if_absent_returns_zero_for_empty_input() -> None:
+    opts = Options({"existing": "val"})
+    # Empty map should insert nothing
+    inserted_count = opts.insert_if_absent({})
+    assert inserted_count == 0
+
+
+def test_insert_if_absent_normalizes_keys_before_checking() -> None:
+    opts = Options({"lowercase_key": "123"})
+    # Try inserting mixed-case and whitespace-padded keys
+    inserted_count = opts.insert_if_absent(
+        {
+            " Lowercase_KEY ": "456",  # matches existing after normalization
+            "NEW_KEY": "789",  # new key
+        }
+    )
+
+    assert inserted_count == 1
+    assert (
+        opts.get("lowercase_key", return_type=str, factory=str) == "123"
+    )  # original preserved
+    assert opts.get("new_key", return_type=str, factory=str) == "789"  # new key added
+
+
 def test_serialize_deserialize_roundtrip() -> None:
     original_dict = {"alpha": "1", "beta": "two", "Gamma": "3.14"}
     opts = Options(original_dict)
