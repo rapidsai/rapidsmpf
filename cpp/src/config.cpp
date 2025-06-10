@@ -53,6 +53,31 @@ std::unordered_map<std::string, OptionValue> from_options_as_strings(
 Options::Options(std::unordered_map<std::string, std::string> options_as_strings)
     : Options(from_options_as_strings(std::move(options_as_strings))){};
 
+bool Options::insert_if_absent(std::string const& key, std::string option_as_string) {
+    auto new_key = rapidsmpf::to_lower(rapidsmpf::trim(key));
+    std::lock_guard<std::mutex> lock(shared_->mutex);
+    return shared_->options
+        .insert({std::move(new_key), OptionValue(std::move(option_as_string))})
+        .second;
+}
+
+std::size_t Options::insert_if_absent(
+    std::unordered_map<std::string, std::string> options_as_strings
+) {
+    auto& shared = *shared_;
+    std::lock_guard<std::mutex> lock(shared.mutex);
+    std::size_t ret = 0;
+    for (auto&& [key, val] : options_as_strings) {
+        auto new_key = rapidsmpf::to_lower(rapidsmpf::trim(key));
+        if (shared.options.insert({std::move(new_key), OptionValue(std::move(val))})
+                .second)
+        {
+            ++ret;
+        }
+    }
+    return ret;
+}
+
 std::unordered_map<std::string, std::string> Options::get_strings() const {
     auto const& shared = *shared_;
     std::unordered_map<std::string, std::string> ret;

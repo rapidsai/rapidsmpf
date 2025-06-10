@@ -85,7 +85,9 @@ def test_dask_cudf_integration(
 
     with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
-            bootstrap_dask_cluster(client, options=Options({"dask_spill_device": "0.1"}))
+            bootstrap_dask_cluster(
+                client, options=Options({"dask_spill_device": "0.1"})
+            )
             df = (
                 dask.datasets.timeseries(
                     freq="3600s",
@@ -179,7 +181,9 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
 
     with LocalCUDACluster(n_workers=1, loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
-            bootstrap_dask_cluster(client, options=Options({"dask_spill_device": "0.1"}))
+            bootstrap_dask_cluster(
+                client, options=Options({"dask_spill_device": "0.1"})
+            )
             max_num_shuffles = Shuffler.max_concurrent_shuffles
 
             # We can shuffle `max_num_shuffles` consecutive times.
