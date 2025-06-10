@@ -85,7 +85,7 @@ cdef class SpillManager:
         joined without risk of deadlocks if both thread compete for the GIL.
         """
         with nogil:
-            self._handle.reset()
+            self._handle = NULL
 
     @classmethod
     def _create(cls, BufferResource br):
