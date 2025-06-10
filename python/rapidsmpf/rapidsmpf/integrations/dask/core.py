@@ -350,7 +350,8 @@ def bootstrap_dask_cluster(
     client
         The current Dask client.
     options
-        Configuration options.
+        Configuration options. Reads environment variables for any options not set
+        explicitly using `get_environment_variables()`.
 
     Notes
     -----

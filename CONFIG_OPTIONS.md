@@ -8,7 +8,7 @@ Each configuration option includes:
 - **Environment Variable**: The corresponding environment variable name.
 - **Description**: Describes what the option controls, including accepted values.
 
-> **Note**
+> [!NOTE]
 > Environment variable names are always **uppercase** and prefixed with `RAPIDSMPF_`.
 >
 > Typically, it is up to the user to read environment variables using code such as:
