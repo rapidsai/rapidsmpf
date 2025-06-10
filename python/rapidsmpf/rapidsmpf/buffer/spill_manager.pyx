@@ -76,6 +76,17 @@ cdef class SpillManager:
     def __init__(self):
         raise TypeError("Please get a `SpillManager` from a buffer resource instance")
 
+    def __dealloc__(self):
+        """
+        Deallocate resource without holding the GIL.
+
+        This is important to ensure owned resources, like the underlying C++
+        `SpillManager` object is destroyed, ensuring any threads can be
+        joined without risk of deadlocks if both thread compete for the GIL.
+        """
+        with nogil:
+            self._handle.reset()
+
     @classmethod
     def _create(cls, BufferResource br):
         """Construct a SpillManager associated the specified buffer resource.
