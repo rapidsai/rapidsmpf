@@ -9,7 +9,7 @@ Each configuration option includes:
 - **Description**: Describes what the option controls, including accepted values.
 
 > [!NOTE]
-> Environment variable names are always **uppercase** and prefixed with `RAPIDSMPF_`.
+> Environment variable names are always uppercase and prefixed with `RAPIDSMPF_`.
 >
 > Typically, it is up to the user to read environment variables using code such as:
 >
@@ -19,6 +19,11 @@ Each configuration option includes:
 > ```
 >
 > However, Dask automatically reads environment variables for any options not set explicitly when calling `bootstrap_dask_cluster()`.
+>
+> It is always explicit in C++, use something like:
+> ```c++
+>   rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
+> ```
 
 ---
 
