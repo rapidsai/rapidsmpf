@@ -78,6 +78,11 @@ void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::uint64_t
     --num_current_allocs_[at];
 }
 
+ScopedMemoryRecord RmmResourceAdaptor::get_main_record() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return main_record_;
+}
+
 std::uint64_t RmmResourceAdaptor::current_allocated() const noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     return main_record_.current();

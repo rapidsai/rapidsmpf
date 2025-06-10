@@ -191,10 +191,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      *
      * @return Scoped memory main_record instance.
      */
-    [[nodiscard]] ScopedMemoryRecord get_main_record() const {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return main_record_;
-    }
+    [[nodiscard]] ScopedMemoryRecord get_main_record() const;
 
     /**
      * @brief Get the total current allocated memory from both primary and fallback.
