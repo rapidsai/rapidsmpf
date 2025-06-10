@@ -1,14 +1,24 @@
 # RapidsMPF Configuration Options
 
-RapidsMPF can be configured using a dictionary of options, which may be populated via environment variables.
-Environment variable names are always **uppercase** and prefixed with `RAPIDSMPF_`.
-All dictionary keys are automatically converted to **lowercase**.
+RapidsMPF can be configured using a dictionary of options, which may be populated via environment variables. All dictionary keys are automatically converted to **lowercase**.
 
 Each configuration option includes:
 
 - **Name**: The key used in the configuration dictionary.
 - **Environment Variable**: The corresponding environment variable name.
 - **Description**: Describes what the option controls, including accepted values.
+
+> **Note**
+> Environment variable names are always **uppercase** and prefixed with `RAPIDSMPF_`.
+>
+> Typically, it is up to the user to read environment variables using code such as:
+>
+> ```python
+> options = Options()
+> options.insert_if_absent(get_environment_variables())
+> ```
+>
+> However, Dask automatically reads environment variables for any options not set explicitly when calling `bootstrap_dask_cluster()`.
 
 ---
 
