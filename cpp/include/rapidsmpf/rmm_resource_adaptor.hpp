@@ -110,7 +110,7 @@ struct ScopedMemoryRecord {
      *
      * @note Is not thread-safe.
      */
-    void main_record_allocation(AllocType alloc_type, std::uint64_t nbytes);
+    void record_allocation(AllocType alloc_type, std::uint64_t nbytes);
 
     /**
      * @brief Records a memory deallocation event.
@@ -122,7 +122,7 @@ struct ScopedMemoryRecord {
      *
      * @note Is not thread-safe.
      */
-    void main_record_deallocation(AllocType alloc_type, std::uint64_t nbytes);
+    void record_deallocation(AllocType alloc_type, std::uint64_t nbytes);
 
   private:
     AllocTypeArray num_current_allocs_{{0, 0}};
