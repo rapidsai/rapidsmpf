@@ -9,7 +9,10 @@
 #include <cstddef>
 #include <mutex>
 #include <optional>
+#include <stack>
+#include <thread>
 #include <type_traits>
+#include <unordered_map>
 #include <unordered_set>
 
 #include <rmm/error.hpp>
@@ -242,6 +245,8 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     std::optional<rmm::device_async_resource_ref> fallback_mr_;
     std::unordered_set<void*> fallback_allocations_;
     ScopedMemoryRecord main_record_;
+    std::unordered_map<std::thread::id, std::stack<ScopedMemoryRecord>> record_stacks_;
+    std::unordered_map<void*, std::thread::id> allocating_threads_;
 };
 
 

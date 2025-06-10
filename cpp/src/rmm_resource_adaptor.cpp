@@ -84,21 +84,36 @@ std::uint64_t RmmResourceAdaptor::current_allocated() const noexcept {
 }
 
 void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view stream) {
+    constexpr auto PRIMARY = ScopedMemoryRecord::AllocType::PRIMARY;
+    constexpr auto FALLBACK = ScopedMemoryRecord::AllocType::FALLBACK;
+
     void* ret{};
+    auto alloc_type = PRIMARY;
     try {
         ret = primary_mr_.allocate_async(nbytes, stream);
-        std::lock_guard<std::mutex> lock(mutex_);
-        main_record_.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, nbytes);
     } catch (rmm::out_of_memory const& e) {
         if (fallback_mr_.has_value()) {
+            alloc_type = FALLBACK;
             ret = fallback_mr_->allocate_async(nbytes, stream);
             std::lock_guard<std::mutex> lock(mutex_);
             fallback_allocations_.insert(ret);
-            main_record_.record_allocation(
-                ScopedMemoryRecord::AllocType::FALLBACK, nbytes
-            );
         } else {
             throw;
+        }
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // Always record the allocation on the main record.
+    main_record_.record_allocation(alloc_type, nbytes);
+
+    // But only record the allocation on the thread stack, if `record_stacks_`
+    // isn't empty i.e. someone has called `begin_scoped_memory_record`.
+    if (!record_stacks_.empty()) {
+        auto const thread_id = std::this_thread::get_id();
+        auto& record = record_stacks_[thread_id];
+        if (!record.empty()) {
+            record.top().record_allocation(alloc_type, nbytes);
+            allocating_threads_.insert({ret, thread_id});
         }
     }
     return ret;
@@ -107,16 +122,32 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
 void RmmResourceAdaptor::do_deallocate(
     void* ptr, std::size_t nbytes, rmm::cuda_stream_view stream
 ) {
+    constexpr auto PRIMARY = ScopedMemoryRecord::AllocType::PRIMARY;
+    constexpr auto FALLBACK = ScopedMemoryRecord::AllocType::FALLBACK;
+
     std::unique_lock lock(mutex_);
-    if (fallback_allocations_.erase(ptr) == 1)
-    {  // ptr was allocated from fallback mr and fallback mr is available
-        main_record_.record_deallocation(ScopedMemoryRecord::AllocType::FALLBACK, nbytes);
-        lock.unlock();
-        fallback_mr_->deallocate_async(ptr, nbytes, stream);
-    } else {
-        main_record_.record_deallocation(ScopedMemoryRecord::AllocType::PRIMARY, nbytes);
-        lock.unlock();
+    auto const alloc_type = (fallback_allocations_.erase(ptr) == 0) ? PRIMARY : FALLBACK;
+    lock.unlock();
+
+    if (alloc_type == PRIMARY) {
         primary_mr_.deallocate_async(ptr, nbytes, stream);
+    } else {
+        fallback_mr_->deallocate_async(ptr, nbytes, stream);
+    }
+
+    lock.lock();
+    // Always record the deallocation on the main record.
+    main_record_.record_deallocation(alloc_type, nbytes);
+    // But only record it on the thread stack if it exist.
+    if (!allocating_threads_.empty()) {
+        auto const node = allocating_threads_.extract(ptr);
+        if (node) {
+            auto const thread_id = node.mapped();  // `ptr` was allocated by `thread_id`.
+            auto& record = record_stacks_[thread_id];
+            if (!record.empty()) {
+                record.top().record_deallocation(alloc_type, nbytes);
+            }
+        }
     }
 }
 
