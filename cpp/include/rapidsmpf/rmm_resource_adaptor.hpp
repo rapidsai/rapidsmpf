@@ -200,6 +200,11 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      */
     [[nodiscard]] std::uint64_t current_allocated() const noexcept;
 
+
+    void begin_scoped_memory_record();
+
+    ScopedMemoryRecord end_scoped_memory_record();
+
   private:
     /**
      * @brief Allocates memory of size at least `bytes` using the upstream resource.

@@ -88,6 +88,19 @@ std::uint64_t RmmResourceAdaptor::current_allocated() const noexcept {
     return main_record_.current();
 }
 
+void RmmResourceAdaptor::begin_scoped_memory_record() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    record_stacks_[std::this_thread::get_id()].emplace();
+}
+
+ScopedMemoryRecord RmmResourceAdaptor::end_scoped_memory_record() {
+    std::lock_guard lock(mutex_);
+    auto stack = record_stacks_[std::this_thread::get_id()];
+    auto ret = stack.top();
+    stack.pop();
+    return ret;
+}
+
 void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view stream) {
     constexpr auto PRIMARY = ScopedMemoryRecord::AllocType::PRIMARY;
     constexpr auto FALLBACK = ScopedMemoryRecord::AllocType::FALLBACK;
