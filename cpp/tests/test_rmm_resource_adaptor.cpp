@@ -16,15 +16,9 @@
 
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 
+#include "utils.hpp"
 
 using namespace rapidsmpf;
-
-/**
- * @brief User-defined literal for specifying memory sizes in MiB.
- */
-constexpr std::size_t operator"" _MiB(unsigned long long val) {
-    return val * (1ull << 20);
-}
 
 template <typename ExceptionType>
 struct throw_at_limit_resource final : public rmm::mr::device_memory_resource {
