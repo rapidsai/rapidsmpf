@@ -14,6 +14,7 @@ from rapidsmpf._detail cimport config_options_get
 
 import os
 import re
+import typing
 
 from rapidsmpf.utils.string import parse_boolean
 
@@ -38,6 +39,31 @@ cdef class Options:
         with nogil:
             self._handle = cpp_Options()
 
+    def insert_if_absent(self, dict options_as_strings):
+        """Insert multiple options if they are not already present.
+
+        Attempts to insert each key-value pair from the provided dictionary,
+        skipping keys that already exist in the options.
+
+        Parameters
+        ----------
+        options_as_strings
+            Dictionary of option keys mapped to their string representations.
+            Keys are inserted only if they do not already exist. The keys are
+            trimmed and converted to lower case before insertion.
+
+        Returns
+        -------
+        Number of newly inserted options (0 if none were added).
+        """
+        cdef unordered_map[string, string] opts
+        for key, val in options_as_strings.items():
+            opts[str.encode(key)] = str.encode(val)
+        cdef size_t ret
+        with nogil:
+            ret = self._handle.insert_if_absent(move(opts))
+        return ret
+
     def get(self, str key, *, return_type, factory):
         """
         Retrieves a configuration option by key.
@@ -47,8 +73,9 @@ cdef class Options:
         option (or an empty string if unset). The option is cached after
         the first access.
 
-        The option is cast to the specified ``return_type``, which must be one
-        of the supported primitive types: `bool`, `int`, `float`, or `str`.
+        The option is cast to the specified ``return_type``. To be accessible
+        from C++, it must be one of: `bool`, `int`, `float`, `str`. Otherwise, it
+        is stored as a ``PyObject*``.
 
         Once a key has been accessed with a particular ``return_type``, subsequent
         calls to `get` with the same key must use the same ``return_type``.
@@ -59,7 +86,8 @@ cdef class Options:
         key
             The option key. Should be in lowercase.
         return_type
-            The return type. Must be one of: `bool`, `int`, `float`, `str`.
+            The return type. To be accessible from C++, it must be one of: `bool`,
+            `int`, `float`, `str`. Use `object` to indicate any Python type.
         factory
             A factory function that constructs an instance of the desired type
             from a string representation.
@@ -80,14 +108,6 @@ cdef class Options:
         --------
         The factory must not access the Options instance, as this may lead
         to a deadlock due to internal locking.
-
-        Notes
-        -----
-        - This function dispatches internally to type-specific getters.
-        - Support for custom Python object return types (`PyObject`) is not yet
-          implemented.
-        - Only the following types are currently supported: `bool`, `int`, `float`,
-          `str`.
         """
         if issubclass(return_type, bool):
             return config_options_get.get_bool(self, key, factory)
@@ -97,12 +117,7 @@ cdef class Options:
             return config_options_get.get_float(self, key, factory)
         elif issubclass(return_type, str):
             return config_options_get.get_str(self, key, factory)
-
-        # TODO: handle PyObject return type.
-        raise ValueError(
-            f"return type ({type(return_type)}) is not supported, "
-            r"supported types: {bool, int, float, str}."
-        )
+        return config_options_get.get_py_obj(self, key, factory)
 
     def get_or_default(self, str key, *, default_value):
         """

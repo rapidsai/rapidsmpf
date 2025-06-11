@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cpython.ref cimport PyObject
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
 from libcpp.string cimport string
@@ -140,3 +141,64 @@ cdef get_str(Options options, str key, factory):
             <void *>factory,
         )
     return _ret.decode("UTF-8")
+
+
+# For PyObject support, we implement `PyObjectSharedPtr`, which is
+# a wrapper around a PyObject* that handles reference counting.
+cdef extern from *:
+    """
+    #include <memory>
+    #include <Python.h>
+    struct PyDeleter {
+        void operator()(PyObject* obj) const {
+            if (obj) {
+                // Acquire GIL before calling Py_DECREF
+                PyGILState_STATE state = PyGILState_Ensure();
+                Py_DECREF(obj);
+                PyGILState_Release(state);
+            }
+        }
+    };
+    using PyObjectSharedPtr = std::shared_ptr<PyObject>;
+    inline PyObjectSharedPtr cpp_make_shared_pyobject(PyObject* obj) {
+        Py_INCREF(obj);
+        return PyObjectSharedPtr(obj, PyDeleter());
+    }
+    """
+
+    cdef cppclass PyObjectSharedPtr:
+        PyObjectSharedPtr() except +
+        PyObject* get() noexcept
+
+    PyObjectSharedPtr cpp_make_shared_pyobject(PyObject*)
+
+
+cdef PyObjectSharedPtr _make_shared_pyobject(object obj):
+    # Cython complains if we do this cast as an oneliner in
+    # _invoke_factory_py_obj().
+    return cpp_make_shared_pyobject(<PyObject*> obj)
+
+
+cdef PyObjectSharedPtr _invoke_factory_py_obj(
+    void* py_factory, string value
+) noexcept nogil:
+    cdef CppExcept err
+    with gil:
+        try:
+            return _make_shared_pyobject((<object?>py_factory)(value.decode("UTF-8")))
+        except BaseException as e:
+            err = translate_py_to_cpp_exception(e)
+    throw_py_as_cpp_exception(err)
+
+
+cdef get_py_obj(Options options, str key, factory):
+    cdef string _key = str.encode(key)
+    cdef PyObjectSharedPtr ret
+    with nogil:
+        ret = cython_to_cpp_closure_lambda[PyObjectSharedPtr](
+            options._handle,
+            _key,
+            _invoke_factory_py_obj,
+            <void *>factory,
+        )
+    return <object?>ret.get()

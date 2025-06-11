@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import TypeVar
+from typing import TypeVar, overload
 
 T = TypeVar("T")
+
+# Types also accessible in C++.
+CppType = TypeVar("CppType", bool, int, float, str)
 
 class Options:
     def __init__(
         self,
         options_as_strings: Mapping[str, str] | None = None,
     ) -> None: ...
+    def insert_if_absent(self, options_as_strings: Mapping[str, str]) -> int: ...
+    @overload
     def get(
-        self, key: str, *, return_type: type[T], factory: Callable[[str], T]
+        self, key: str, *, return_type: type[CppType], factory: Callable[[str], CppType]
+    ) -> CppType: ...
+    @overload
+    def get(
+        self, key: str, *, return_type: type[object], factory: Callable[[str], T]
     ) -> T: ...
     def get_or_default(self, key: str, *, default_value: T) -> T: ...
     def get_strings(self) -> dict[str, str]: ...

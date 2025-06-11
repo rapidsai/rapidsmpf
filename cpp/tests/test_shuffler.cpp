@@ -657,3 +657,27 @@ TEST_F(PostBoxTest, ThreadSafety) {
 
     EXPECT_TRUE(postbox->empty());
 }
+
+TEST(Shuffler, ShutdownWhilePaused) {
+    auto stream = cudf::get_default_stream();
+    auto progress_thread =
+        std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger());
+    auto mr = cudf::get_current_device_resource_ref();
+
+    auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
+
+    auto shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
+        GlobalEnvironment->comm_, progress_thread, 0, 1, stream, br.get()
+    );
+
+    // pause the progress thread to avoid extracting from outgoing_postbox_
+    progress_thread->pause();
+
+    // sleep this thread for 5ms, so that spill function is also run
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+    EXPECT_FALSE(progress_thread->is_running());
+
+    // shutdown shuffler while progress thread is paused
+    shuffler->shutdown();
+}
