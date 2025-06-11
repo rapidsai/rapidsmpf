@@ -13,6 +13,7 @@
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
+#include <rmm/mr/device/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 
@@ -160,4 +161,71 @@ TEST(RmmResourceAdaptor, RecordReflectsCorrectStatistics) {
     EXPECT_EQ(main_record_final.num_total_allocs(), 2);
     EXPECT_EQ(main_record_final.total(), 3_MiB);
     EXPECT_EQ(main_record_final.peak(), 2_MiB);  // Should be the max peak reached
+}
+
+TEST(ScopedMemoryRecord, AddSubscopeMergesNestedScopeCorrectly) {
+    ScopedMemoryRecord parent;
+    ScopedMemoryRecord subscope;
+
+    // Simulate allocations in subscope
+    subscope.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 100);
+    subscope.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, 200);
+    subscope.record_allocation(
+        ScopedMemoryRecord::AllocType::PRIMARY, 50
+    );  // increase usage
+
+    // Simulate allocations in parent before merging
+    parent.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 300);
+    parent.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, 400);
+
+    // Merge subscope into parent
+    parent.add_subscope(subscope);
+
+    // Peaks should reflect current + subscope peak per allocator
+    EXPECT_GE(parent.peak(ScopedMemoryRecord::AllocType::PRIMARY), 300 + 150);
+    EXPECT_GE(parent.peak(ScopedMemoryRecord::AllocType::FALLBACK), 400 + 200);
+
+    // Totals and currents should accumulate
+    EXPECT_EQ(parent.current(ScopedMemoryRecord::AllocType::PRIMARY), 300 + 150);
+    EXPECT_EQ(parent.current(ScopedMemoryRecord::AllocType::FALLBACK), 400 + 200);
+
+    // Total allocations should also accumulate
+    EXPECT_EQ(parent.num_total_allocs(ScopedMemoryRecord::AllocType::PRIMARY), 3);
+    EXPECT_EQ(parent.num_total_allocs(ScopedMemoryRecord::AllocType::FALLBACK), 2);
+
+    // Overall peak should be updated as well
+    EXPECT_GE(
+        parent.peak(),
+        std::max(
+            parent.peak(ScopedMemoryRecord::AllocType::PRIMARY),
+            parent.peak(ScopedMemoryRecord::AllocType::FALLBACK)
+        )
+    );
+}
+
+TEST(ScopedMemoryRecord, AddScopeMergesSiblingScopesCorrectly) {
+    ScopedMemoryRecord scope1;
+    ScopedMemoryRecord scope2;
+
+    // Simulate allocations in scope1
+    scope1.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 100);
+    scope1.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, 200);
+
+    // Simulate allocations in scope2
+    scope2.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 50);
+    scope2.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, 400);
+
+    // Merge scope2 into scope1 as peers
+    scope1.add_scope(scope2);
+
+    // Peaks should be max of each, not sum of current + peak
+    EXPECT_EQ(scope1.peak(ScopedMemoryRecord::AllocType::PRIMARY), std::max(100, 50));
+    EXPECT_EQ(scope1.peak(ScopedMemoryRecord::AllocType::FALLBACK), std::max(200, 400));
+
+    // Currents and totals should sum
+    EXPECT_EQ(scope1.current(ScopedMemoryRecord::AllocType::PRIMARY), 100 + 50);
+    EXPECT_EQ(scope1.current(ScopedMemoryRecord::AllocType::FALLBACK), 200 + 400);
+
+    EXPECT_EQ(scope1.num_total_allocs(ScopedMemoryRecord::AllocType::PRIMARY), 2);
+    EXPECT_EQ(scope1.num_total_allocs(ScopedMemoryRecord::AllocType::FALLBACK), 2);
 }
