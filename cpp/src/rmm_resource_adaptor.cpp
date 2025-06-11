@@ -56,7 +56,7 @@ std::int64_t ScopedMemoryRecord::peak(AllocType alloc_type) const noexcept {
 void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::int64_t nbytes) {
     RAPIDSMPF_EXPECTS(
         alloc_type != AllocType::ALL,
-        "AllocType::ALL may not be used to main_record allocation"
+        "AllocType::ALL may not be used to record allocation"
     );
     auto at = static_cast<std::size_t>(alloc_type);
     ++num_total_allocs_[at];
@@ -70,7 +70,7 @@ void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::int64_t nb
 void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::int64_t nbytes) {
     RAPIDSMPF_EXPECTS(
         alloc_type != AllocType::ALL,
-        "AllocType::ALL may not be used to main_record deallocation"
+        "AllocType::ALL may not be used to record deallocation"
     );
     auto at = static_cast<std::size_t>(alloc_type);
     current_[at] -= nbytes;
