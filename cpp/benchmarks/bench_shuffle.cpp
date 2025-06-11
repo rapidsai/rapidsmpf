@@ -536,7 +536,9 @@ int main(int argc, char** argv) {
             ss << " | device memory peak: "
                << rapidsmpf::format_nbytes(main_record.peak())
                << " | device memory total: "
-               << rapidsmpf::format_nbytes(main_record.total() / total_num_runs)
+               << rapidsmpf::format_nbytes(
+                      main_record.total() / static_cast<std::int64_t>(total_num_runs)
+                  )
                << " (avg)";
         }
         log.print(ss.str());

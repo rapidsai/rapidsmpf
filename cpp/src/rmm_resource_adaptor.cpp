@@ -19,42 +19,41 @@ namespace {
  *                   the function returns the sum across all entries in the array.
  * @return The requested statistic value or the accumulated total.
  */
-std::uint64_t get_or_accumulate(
+std::int64_t get_or_accumulate(
     ScopedMemoryRecord::AllocTypeArray const& arr,
     ScopedMemoryRecord::AllocType alloc_type
 ) noexcept {
     if (alloc_type == ScopedMemoryRecord::AllocType::ALL) {
-        return std::accumulate(arr.begin(), arr.end(), std::uint64_t{0});
+        return std::accumulate(arr.begin(), arr.end(), std::int64_t{0});
     }
     return arr[static_cast<std::size_t>(alloc_type)];
 }
 }  // namespace
 
-std::uint64_t ScopedMemoryRecord::num_total_allocs(AllocType alloc_type) const noexcept {
+std::int64_t ScopedMemoryRecord::num_total_allocs(AllocType alloc_type) const noexcept {
     return get_or_accumulate(num_total_allocs_, alloc_type);
 }
 
-std::uint64_t ScopedMemoryRecord::num_current_allocs(AllocType alloc_type
-) const noexcept {
+std::int64_t ScopedMemoryRecord::num_current_allocs(AllocType alloc_type) const noexcept {
     return get_or_accumulate(num_current_allocs_, alloc_type);
 }
 
-std::uint64_t ScopedMemoryRecord::current(AllocType alloc_type) const noexcept {
+std::int64_t ScopedMemoryRecord::current(AllocType alloc_type) const noexcept {
     return get_or_accumulate(current_, alloc_type);
 }
 
-std::uint64_t ScopedMemoryRecord::total(AllocType alloc_type) const noexcept {
+std::int64_t ScopedMemoryRecord::total(AllocType alloc_type) const noexcept {
     return get_or_accumulate(total_, alloc_type);
 }
 
-std::uint64_t ScopedMemoryRecord::peak(AllocType alloc_type) const noexcept {
+std::int64_t ScopedMemoryRecord::peak(AllocType alloc_type) const noexcept {
     if (alloc_type == AllocType::ALL) {
         return highest_peak_;
     }
     return peak_[static_cast<std::size_t>(alloc_type)];
 }
 
-void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::uint64_t nbytes) {
+void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::int64_t nbytes) {
     RAPIDSMPF_EXPECTS(
         alloc_type != AllocType::ALL,
         "AllocType::ALL may not be used to main_record allocation"
@@ -68,7 +67,7 @@ void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::uint64_t n
     highest_peak_ = std::max(highest_peak_, current());
 }
 
-void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::uint64_t nbytes) {
+void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::int64_t nbytes) {
     RAPIDSMPF_EXPECTS(
         alloc_type != AllocType::ALL,
         "AllocType::ALL may not be used to main_record deallocation"
@@ -83,7 +82,7 @@ ScopedMemoryRecord RmmResourceAdaptor::get_main_record() const {
     return main_record_;
 }
 
-std::uint64_t RmmResourceAdaptor::current_allocated() const noexcept {
+std::int64_t RmmResourceAdaptor::current_allocated() const noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     return main_record_.current();
 }
@@ -126,7 +125,7 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
     std::lock_guard<std::mutex> lock(mutex_);
 
     // Always record the allocation on the main record.
-    main_record_.record_allocation(alloc_type, nbytes);
+    main_record_.record_allocation(alloc_type, static_cast<std::int64_t>(nbytes));
 
     // But only record the allocation on the thread stack, if `record_stacks_`
     // isn't empty i.e. someone has called `begin_scoped_memory_record`.
@@ -134,7 +133,7 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
         auto const thread_id = std::this_thread::get_id();
         auto& record = record_stacks_[thread_id];
         if (!record.empty()) {
-            record.top().record_allocation(alloc_type, nbytes);
+            record.top().record_allocation(alloc_type, static_cast<std::int64_t>(nbytes));
             allocating_threads_.insert({ret, thread_id});
         }
     }
@@ -159,7 +158,7 @@ void RmmResourceAdaptor::do_deallocate(
 
     lock.lock();
     // Always record the deallocation on the main record.
-    main_record_.record_deallocation(alloc_type, nbytes);
+    main_record_.record_deallocation(alloc_type, static_cast<std::int64_t>(nbytes));
     // But only record it on the thread stack if it exist.
     if (!allocating_threads_.empty()) {
         auto const node = allocating_threads_.extract(ptr);
@@ -167,7 +166,9 @@ void RmmResourceAdaptor::do_deallocate(
             auto const thread_id = node.mapped();  // `ptr` was allocated by `thread_id`.
             auto& record = record_stacks_[thread_id];
             if (!record.empty()) {
-                record.top().record_deallocation(alloc_type, nbytes);
+                record.top().record_deallocation(
+                    alloc_type, static_cast<std::int64_t>(nbytes)
+                );
             }
         }
     }
