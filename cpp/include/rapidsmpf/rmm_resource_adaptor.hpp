@@ -74,8 +74,7 @@ struct ScopedMemoryRecord {
         const noexcept;
 
     /**
-     * @brief Returns the total number of bytes allocated over the lifetime of this
-     * main_record.
+     * @brief Returns the total number of bytes allocated.
      *
      * This value accumulates over time and is not reduced by deallocations.
      *
