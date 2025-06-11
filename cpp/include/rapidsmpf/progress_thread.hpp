@@ -174,6 +174,23 @@ class ProgressThread {
      */
     void remove_function(FunctionID function_id);
 
+    /**
+     * @brief Pause the progress thread.
+     */
+    void pause();
+
+    /**
+     * @brief Resume the progress thread.
+     */
+    void resume();
+
+    /**
+     * @brief Check if the progress thread is currently running.
+     *
+     * @return true if the thread is running, false otherwise.
+     */
+    bool is_running() const;
+
   private:
     /**
      * @brief The event loop progressing each of the functions.

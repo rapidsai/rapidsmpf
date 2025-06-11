@@ -90,10 +90,13 @@ void ProgressThread::remove_function(FunctionID function_id) {
         it != functions_.end(), "Function not registered or already removed"
     );
 
-    // Wait for the function to complete.
-    // iterator it can get invalidated, if some other thread erases a function. So, query
-    // functions_ instead
-    cv_.wait(lock, [&, f_idx = it->first]() { return functions_.at(f_idx).is_done; });
+    // Wait for the function to complete. If the thread is paused, then function will not
+    // be able to complete, and therefore do not wait. Can't use map iterator because it
+    // can get invalidated, if some other thread erases a function. So, query functions_
+    // instead
+    cv_.wait(lock, [&]() {
+        return !thread_.is_running() || functions_.at(function_id.function_index).is_done;
+    });
 
     // Waiting done. Now, mutex_ is locked again
     functions_.erase(function_id.function_index);
@@ -101,6 +104,19 @@ void ProgressThread::remove_function(FunctionID function_id) {
     if (functions_.empty()) {
         thread_.pause();
     }
+}
+
+void ProgressThread::pause() {
+    thread_.pause();
+    cv_.notify_all();  // notify any thread waiting on thread_.is_running()
+}
+
+void ProgressThread::resume() {
+    thread_.resume();
+}
+
+bool ProgressThread::is_running() const {
+    return thread_.is_running();
 }
 
 void ProgressThread::event_loop() {
