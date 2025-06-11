@@ -176,7 +176,7 @@ cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
         return ret
 
     def get_main_record(self):
-        """Get a copy of the tracked record.
+        """Get a copy of the tracked main record.
 
         Returns
         -------

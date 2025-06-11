@@ -187,9 +187,9 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     }
 
     /**
-     * @brief Get a copy of the tracked main_record.
+     * @brief Get a copy of the tracked main record.
      *
-     * @return Scoped memory main_record instance.
+     * @return Scoped memory main record instance.
      */
     [[nodiscard]] ScopedMemoryRecord get_main_record() const;
 
