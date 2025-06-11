@@ -167,40 +167,47 @@ TEST(ScopedMemoryRecord, AddSubscopeMergesNestedScopeCorrectly) {
     ScopedMemoryRecord parent;
     ScopedMemoryRecord subscope;
 
-    // Simulate allocations in subscope
+    // Subscope: Allocate and deallocate
     subscope.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 100);
-    subscope.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, 200);
+    subscope.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 50);  // Peak: 150
     subscope.record_allocation(
-        ScopedMemoryRecord::AllocType::PRIMARY, 50
-    );  // increase usage
+        ScopedMemoryRecord::AllocType::FALLBACK, 200
+    );  // Peak: 200
+    subscope.record_deallocation(
+        ScopedMemoryRecord::AllocType::PRIMARY, 30
+    );  // Current: 120
+    subscope.record_deallocation(
+        ScopedMemoryRecord::AllocType::FALLBACK, 80
+    );  // Current: 120
 
-    // Simulate allocations in parent before merging
-    parent.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 300);
-    parent.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, 400);
+    // Parent: Allocate and deallocate
+    parent.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 300);  // Peak: 300
+    parent.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, 400);  // Peak: 400
+    parent.record_deallocation(
+        ScopedMemoryRecord::AllocType::PRIMARY, 20
+    );  // Current: 280
+    parent.record_deallocation(
+        ScopedMemoryRecord::AllocType::FALLBACK, 50
+    );  // Current: 350
 
     // Merge subscope into parent
     parent.add_subscope(subscope);
 
-    // Peaks should reflect current + subscope peak per allocator
-    EXPECT_GE(parent.peak(ScopedMemoryRecord::AllocType::PRIMARY), 300 + 150);
-    EXPECT_GE(parent.peak(ScopedMemoryRecord::AllocType::FALLBACK), 400 + 200);
+    // Expect current (after merge) is sum of currents
+    EXPECT_EQ(parent.current(ScopedMemoryRecord::AllocType::PRIMARY), 280 + 120);
+    EXPECT_EQ(parent.current(ScopedMemoryRecord::AllocType::FALLBACK), 350 + 120);
 
-    // Totals and currents should accumulate
-    EXPECT_EQ(parent.current(ScopedMemoryRecord::AllocType::PRIMARY), 300 + 150);
-    EXPECT_EQ(parent.current(ScopedMemoryRecord::AllocType::FALLBACK), 400 + 200);
+    // Expect totals to accumulate
+    EXPECT_EQ(parent.total(ScopedMemoryRecord::AllocType::PRIMARY), 300 + 150);
+    EXPECT_EQ(parent.total(ScopedMemoryRecord::AllocType::FALLBACK), 400 + 200);
 
-    // Total allocations should also accumulate
+    // Alloc count
     EXPECT_EQ(parent.num_total_allocs(ScopedMemoryRecord::AllocType::PRIMARY), 3);
     EXPECT_EQ(parent.num_total_allocs(ScopedMemoryRecord::AllocType::FALLBACK), 2);
 
-    // Overall peak should be updated as well
-    EXPECT_GE(
-        parent.peak(),
-        std::max(
-            parent.peak(ScopedMemoryRecord::AllocType::PRIMARY),
-            parent.peak(ScopedMemoryRecord::AllocType::FALLBACK)
-        )
-    );
+    // Corrected peak logic: parent current at time of merge + subscope peak
+    EXPECT_EQ(parent.peak(ScopedMemoryRecord::AllocType::PRIMARY), 280 + 150);
+    EXPECT_EQ(parent.peak(ScopedMemoryRecord::AllocType::FALLBACK), 350 + 200);
 }
 
 TEST(ScopedMemoryRecord, AddScopeMergesSiblingScopesCorrectly) {
@@ -210,22 +217,34 @@ TEST(ScopedMemoryRecord, AddScopeMergesSiblingScopesCorrectly) {
     // Simulate allocations in scope1
     scope1.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 100);
     scope1.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, 200);
+    // Deallocate from scope1
+    scope1.record_deallocation(ScopedMemoryRecord::AllocType::PRIMARY, 30);
+    scope1.record_deallocation(ScopedMemoryRecord::AllocType::FALLBACK, 50);
 
     // Simulate allocations in scope2
     scope2.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 50);
     scope2.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, 400);
+    // Deallocate from scope2 (note: large dealloc triggers negative current)
+    scope2.record_deallocation(ScopedMemoryRecord::AllocType::FALLBACK, 600);
 
-    // Merge scope2 into scope1 as peers
+    // Merge scope2 into scope1 as peer scope
     scope1.add_scope(scope2);
 
-    // Peaks should be max of each, not sum of current + peak
+    // Peaks should be max of peaks from each scope
     EXPECT_EQ(scope1.peak(ScopedMemoryRecord::AllocType::PRIMARY), std::max(100, 50));
     EXPECT_EQ(scope1.peak(ScopedMemoryRecord::AllocType::FALLBACK), std::max(200, 400));
 
-    // Currents and totals should sum
-    EXPECT_EQ(scope1.current(ScopedMemoryRecord::AllocType::PRIMARY), 100 + 50);
-    EXPECT_EQ(scope1.current(ScopedMemoryRecord::AllocType::FALLBACK), 200 + 400);
+    // Currents are summed
+    // PRIMARY: 100 - 30 + 50 = 120
+    EXPECT_EQ(scope1.current(ScopedMemoryRecord::AllocType::PRIMARY), 120);
+    // FALLBACK: 200 - 50 + 400 - 600 = -50
+    EXPECT_EQ(scope1.current(ScopedMemoryRecord::AllocType::FALLBACK), -50);
 
+    // Totals are additive
+    EXPECT_EQ(scope1.total(ScopedMemoryRecord::AllocType::PRIMARY), 100 + 50);
+    EXPECT_EQ(scope1.total(ScopedMemoryRecord::AllocType::FALLBACK), 200 + 400);
+
+    // Allocation counts are summed
     EXPECT_EQ(scope1.num_total_allocs(ScopedMemoryRecord::AllocType::PRIMARY), 2);
     EXPECT_EQ(scope1.num_total_allocs(ScopedMemoryRecord::AllocType::FALLBACK), 2);
 }
