@@ -54,11 +54,7 @@ Options::Options(std::unordered_map<std::string, std::string> options_as_strings
     : Options(from_options_as_strings(std::move(options_as_strings))){};
 
 bool Options::insert_if_absent(std::string const& key, std::string option_as_string) {
-    auto new_key = rapidsmpf::to_lower(rapidsmpf::trim(key));
-    std::lock_guard<std::mutex> lock(shared_->mutex);
-    return shared_->options
-        .insert({std::move(new_key), OptionValue(std::move(option_as_string))})
-        .second;
+    return insert_if_absent({{key, option_as_string}});
 }
 
 std::size_t Options::insert_if_absent(
