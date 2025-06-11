@@ -78,7 +78,7 @@ void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::int64_t 
 }
 
 ScopedMemoryRecord& ScopedMemoryRecord::add_subscope(ScopedMemoryRecord const& subscope) {
-    highest_peak_ = std::max(highest_peak_, subscope.highest_peak_);
+    highest_peak_ = std::max(highest_peak_, current() + subscope.highest_peak_);
     for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
         auto i = static_cast<std::size_t>(type);
         peak_[i] = std::max(peak_[i], current_[i] + subscope.peak_[i]);
@@ -115,12 +115,13 @@ std::int64_t RmmResourceAdaptor::current_allocated() const noexcept {
 
 void RmmResourceAdaptor::begin_scoped_memory_record() {
     std::lock_guard<std::mutex> lock(mutex_);
+    // Push an empty scope on the stack.
     record_stacks_[std::this_thread::get_id()].emplace();
 }
 
 ScopedMemoryRecord RmmResourceAdaptor::end_scoped_memory_record() {
     std::lock_guard lock(mutex_);
-    auto stack = record_stacks_[std::this_thread::get_id()];
+    auto& stack = record_stacks_[std::this_thread::get_id()];
     auto ret = stack.top();
     stack.pop();
     if (!stack.empty()) {

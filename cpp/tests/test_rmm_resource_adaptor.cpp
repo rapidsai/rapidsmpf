@@ -248,3 +248,106 @@ TEST(ScopedMemoryRecord, AddScopeMergesSiblingScopesCorrectly) {
     EXPECT_EQ(scope1.num_total_allocs(ScopedMemoryRecord::AllocType::PRIMARY), 2);
     EXPECT_EQ(scope1.num_total_allocs(ScopedMemoryRecord::AllocType::FALLBACK), 2);
 }
+
+TEST(RmmResourceAdaptor, EmptyScopedMemoryRecord) {
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+
+    mr.begin_scoped_memory_record();
+    auto scope = mr.end_scoped_memory_record();
+    EXPECT_EQ(scope.current(), 0);
+    EXPECT_EQ(scope.total(), 0);
+    EXPECT_EQ(scope.peak(), 0);
+    EXPECT_EQ(scope.num_total_allocs(), 0);
+}
+
+TEST(RmmResourceAdaptorScopedMemory, SingleScopedAllocationTracksCorrectly) {
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+
+    mr.begin_scoped_memory_record();
+    void* p = mr.allocate(1_MiB);
+    auto scope = mr.end_scoped_memory_record();
+
+    EXPECT_GE(scope.current(), 0);  // Some allocators deallocate eagerly
+    EXPECT_GE(scope.total(), 1_MiB);
+    EXPECT_GE(scope.peak(), 1_MiB);
+    EXPECT_EQ(scope.num_total_allocs(), 1);
+
+    mr.deallocate(p, 1_MiB);
+}
+
+TEST(RmmResourceAdaptorScopedMemory, NestedScopedAllocationsMerged) {
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+
+    mr.begin_scoped_memory_record();  // Outer
+
+    void* p1 = mr.allocate(1_MiB);  // Alloc in outer
+
+    mr.begin_scoped_memory_record();  // Inner
+    void* p2 = mr.allocate(2_MiB);  // Alloc in inner
+    auto inner = mr.end_scoped_memory_record();
+
+    auto outer = mr.end_scoped_memory_record();  // Merge inner into outer
+
+    // Inner record
+    EXPECT_EQ(inner.num_total_allocs(), 1);
+    EXPECT_GE(inner.total(), 2_MiB);
+
+    // Outer should reflect both outer + inner allocations
+    EXPECT_EQ(outer.num_total_allocs(), 2);
+    EXPECT_GE(outer.total(), 3_MiB);
+    EXPECT_GE(outer.peak(), 3_MiB);
+
+    mr.deallocate(p2, 2_MiB);
+    mr.deallocate(p1, 1_MiB);
+}
+
+TEST(RmmResourceAdaptorScopedMemory, NestedScopedTracksAllocsAndDeallocs) {
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+
+    mr.begin_scoped_memory_record();  // Outer
+
+    void* p1 = mr.allocate(1_MiB);
+    void* p2 = mr.allocate(2_MiB);
+    mr.deallocate(p2, 2_MiB);
+
+    mr.begin_scoped_memory_record();  // Inner
+    void* p3 = mr.allocate(3_MiB);
+    mr.deallocate(p3, 3_MiB);
+    auto inner = mr.end_scoped_memory_record();
+
+    auto outer = mr.end_scoped_memory_record();
+
+    // Outer: p1 allocated, p2 allocated + deallocated, p3 (via inner)
+    EXPECT_EQ(inner.num_total_allocs(), 1);
+    EXPECT_GE(inner.total(), 3_MiB);
+
+    EXPECT_EQ(outer.num_total_allocs(), 3);
+    EXPECT_GE(outer.total(), 1_MiB + 2_MiB + 3_MiB);
+    EXPECT_LE(outer.current(), 1_MiB);  // Only p1 is left
+
+    mr.deallocate(p1, 1_MiB);
+}
+
+TEST(RmmResourceAdaptorScopedMemory, NestedDeallocationYieldsNegativeStats) {
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+
+    // Allocate in outer scope
+    mr.begin_scoped_memory_record();  // Outer
+    void* p = mr.allocate(1_MiB);
+
+    // Begin nested scope
+    mr.begin_scoped_memory_record();  // Inner
+    mr.deallocate(p, 1_MiB);  // Dealloc done in inner scope
+    auto inner = mr.end_scoped_memory_record();
+
+    auto outer = mr.end_scoped_memory_record();
+
+    // Inner scope should show a negative current value and no allocations
+    EXPECT_EQ(inner.num_total_allocs(), 0);
+    EXPECT_EQ(inner.current(), -static_cast<std::int64_t>(1_MiB));
+    EXPECT_EQ(inner.total(), 0);
+
+    // Outer scope had one alloc, and a dealloc performed by inner
+    EXPECT_EQ(outer.num_total_allocs(), 1);
+    EXPECT_EQ(outer.current(), 0);  // Net usage is zero
+}
