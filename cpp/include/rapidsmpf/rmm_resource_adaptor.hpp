@@ -145,18 +145,7 @@ struct ScopedMemoryRecord {
      *
      * @see add_scope()
      */
-    ScopedMemoryRecord& add_subscope(ScopedMemoryRecord const& subscope) {
-        highest_peak_ = std::max(highest_peak_, subscope.highest_peak_);
-        for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
-            auto i = static_cast<std::size_t>(type);
-            peak_[i] = std::max(peak_[i], current_[i] + subscope.peak_[i]);
-            num_total_allocs_[i] += subscope.num_total_allocs_[i];
-            num_current_allocs_[i] += subscope.num_current_allocs_[i];
-            current_[i] += subscope.current_[i];
-            total_[i] += subscope.total_[i];
-        }
-        return *this;
-    }
+    ScopedMemoryRecord& add_subscope(ScopedMemoryRecord const& subscope);
 
     /**
      * @brief Merge the memory statistics of another scope into this one.
@@ -173,18 +162,7 @@ struct ScopedMemoryRecord {
      *
      * @see add_subscope()
      */
-    ScopedMemoryRecord& add_scope(ScopedMemoryRecord const& scope) {
-        highest_peak_ = std::max(highest_peak_, scope.highest_peak_);
-        for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
-            auto i = static_cast<std::size_t>(type);
-            peak_[i] = std::max(peak_[i], scope.peak_[i]);
-            current_[i] += scope.current_[i];
-            total_[i] += scope.total_[i];
-            num_total_allocs_[i] += scope.num_total_allocs_[i];
-            num_current_allocs_[i] += scope.num_current_allocs_[i];
-        }
-        return *this;
-    }
+    ScopedMemoryRecord& add_scope(ScopedMemoryRecord const& scope);
 
   private:
     AllocTypeArray num_current_allocs_{{0, 0}};

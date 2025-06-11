@@ -77,6 +77,32 @@ void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::int64_t 
     --num_current_allocs_[at];
 }
 
+ScopedMemoryRecord& ScopedMemoryRecord::add_subscope(ScopedMemoryRecord const& subscope) {
+    highest_peak_ = std::max(highest_peak_, subscope.highest_peak_);
+    for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
+        auto i = static_cast<std::size_t>(type);
+        peak_[i] = std::max(peak_[i], current_[i] + subscope.peak_[i]);
+        num_total_allocs_[i] += subscope.num_total_allocs_[i];
+        num_current_allocs_[i] += subscope.num_current_allocs_[i];
+        current_[i] += subscope.current_[i];
+        total_[i] += subscope.total_[i];
+    }
+    return *this;
+}
+
+ScopedMemoryRecord& ScopedMemoryRecord::add_scope(ScopedMemoryRecord const& scope) {
+    highest_peak_ = std::max(highest_peak_, scope.highest_peak_);
+    for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
+        auto i = static_cast<std::size_t>(type);
+        peak_[i] = std::max(peak_[i], scope.peak_[i]);
+        current_[i] += scope.current_[i];
+        total_[i] += scope.total_[i];
+        num_total_allocs_[i] += scope.num_total_allocs_[i];
+        num_current_allocs_[i] += scope.num_current_allocs_[i];
+    }
+    return *this;
+}
+
 ScopedMemoryRecord RmmResourceAdaptor::get_main_record() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return main_record_;
