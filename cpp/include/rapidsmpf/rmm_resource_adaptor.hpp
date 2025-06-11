@@ -127,6 +127,18 @@ struct ScopedMemoryRecord {
      */
     void record_deallocation(AllocType alloc_type, std::uint64_t nbytes);
 
+    ScopedMemoryRecord& add_subscope(ScopedMemoryRecord const& subscope) {
+        highest_peak_ = std::max(highest_peak_, subscope.highest_peak_);
+
+        peak_[0] = std::max(peak_[0], current_[0] + subscope.peak_[0]);
+        num_total_allocs_[0] += subscope.num_total_allocs_[0];
+        num_current_allocs_[0] += subscope.num_current_allocs_[0];
+        current_[0] += subscope.current_[0];
+        total_[0] += subscope.total_[0];
+
+        return *this;
+    }
+
   private:
     AllocTypeArray num_current_allocs_{{0, 0}};
     AllocTypeArray num_total_allocs_{{0, 0}};

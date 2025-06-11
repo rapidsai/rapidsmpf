@@ -98,6 +98,10 @@ ScopedMemoryRecord RmmResourceAdaptor::end_scoped_memory_record() {
     auto stack = record_stacks_[std::this_thread::get_id()];
     auto ret = stack.top();
     stack.pop();
+    if (!stack.empty()) {
+        // Add this ending scope to the new topmost scope.
+        stack.top().add_subscope(ret);
+    }
     return ret;
 }
 
