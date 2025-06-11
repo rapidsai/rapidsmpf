@@ -289,7 +289,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      * a scope includes all allocations made within it, plus those made in its nested
      * regions.
      *
-     * @return The `ScopedMemoryRecord` that was just ended.
+     * @return The scope that was just ended.
      *
      * @throws std::out_of_range if called without a matching
      * `begin_scoped_memory_record()`.
