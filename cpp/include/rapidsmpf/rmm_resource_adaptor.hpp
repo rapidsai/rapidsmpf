@@ -134,6 +134,10 @@ struct ScopedMemoryRecord {
      * record, updating statistics to include the subscope's allocations, peaks,
      * and totals.
      *
+     * This method treats the given record as a child scope nested within this scope,
+     * so peak usage is updated considering the current usage plus the subscope's peak,
+     * reflecting hierarchical (inclusive) memory usage accounting.
+     *
      * This design allows memory scopes to be organized hierarchically, so when querying
      * a parent scope, its statistics are **inclusive of all nested scopes** — similar to
      * hierarchical memory profiling tools.
@@ -159,12 +163,12 @@ struct ScopedMemoryRecord {
     /**
      * @brief Merge the memory statistics of another scope into this one.
      *
-     * Unlike `add_subscope()`, this method treats the other scope as a peer or sibling,
-     * not a nested subscope. It accumulates totals and allocation counts and updates
-     * peak metrics appropriately without assuming hierarchical nesting.
+     * Unlike `add_subscope()`, this method treats the given scope as a peer or sibling,
+     * rather than a nested child. It aggregates totals and allocation counts and
+     * updates peak usage by taking the maximum peaks independently.
      *
-     * This is useful for aggregating memory statistics across multiple independent
-     * scopes, such as from multiple threads or top-level regions.
+     * This is useful for combining memory statistics across multiple independent
+     * scopes, such as from different threads or non-nested regions.
      *
      * @param scope The scope to combine with this one.
      * @return Reference to this object after summing.
