@@ -127,15 +127,60 @@ struct ScopedMemoryRecord {
      */
     void record_deallocation(AllocType alloc_type, std::uint64_t nbytes);
 
+    /**
+     * @brief Merge the memory statistics of a subscope into this record.
+     *
+     * Combines the memory tracking data from a nested scope (subscope) into this
+     * record, updating statistics to include the subscope's allocations, peaks,
+     * and totals.
+     *
+     * This design allows memory scopes to be organized hierarchically, so when querying
+     * a parent scope, its statistics are **inclusive of all nested scopes** — similar to
+     * hierarchical memory profiling tools.
+     *
+     * @param subscope The scoped memory record representing a completed nested region.
+     * @return Reference to this object after merging the subscope.
+     *
+     * @see add_scope()
+     */
     ScopedMemoryRecord& add_subscope(ScopedMemoryRecord const& subscope) {
         highest_peak_ = std::max(highest_peak_, subscope.highest_peak_);
+        for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
+            auto i = static_cast<std::size_t>(type);
+            peak_[i] = std::max(peak_[i], current_[i] + subscope.peak_[i]);
+            num_total_allocs_[i] += subscope.num_total_allocs_[i];
+            num_current_allocs_[i] += subscope.num_current_allocs_[i];
+            current_[i] += subscope.current_[i];
+            total_[i] += subscope.total_[i];
+        }
+        return *this;
+    }
 
-        peak_[0] = std::max(peak_[0], current_[0] + subscope.peak_[0]);
-        num_total_allocs_[0] += subscope.num_total_allocs_[0];
-        num_current_allocs_[0] += subscope.num_current_allocs_[0];
-        current_[0] += subscope.current_[0];
-        total_[0] += subscope.total_[0];
-
+    /**
+     * @brief Merge the memory statistics of another scope into this one.
+     *
+     * Unlike `add_subscope()`, this method treats the other scope as a peer or sibling,
+     * not a nested subscope. It accumulates totals and allocation counts and updates
+     * peak metrics appropriately without assuming hierarchical nesting.
+     *
+     * This is useful for aggregating memory statistics across multiple independent
+     * scopes, such as from multiple threads or top-level regions.
+     *
+     * @param scope The scope to combine with this one.
+     * @return Reference to this object after summing.
+     *
+     * @see add_subscope()
+     */
+    ScopedMemoryRecord& add_scope(ScopedMemoryRecord const& scope) {
+        highest_peak_ = std::max(highest_peak_, scope.highest_peak_);
+        for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
+            auto i = static_cast<std::size_t>(type);
+            peak_[i] = std::max(peak_[i], scope.peak_[i]);
+            current_[i] += scope.current_[i];
+            total_[i] += scope.total_[i];
+            num_total_allocs_[i] += scope.num_total_allocs_[i];
+            num_current_allocs_[i] += scope.num_current_allocs_[i];
+        }
         return *this;
     }
 
@@ -213,8 +258,40 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     [[nodiscard]] std::uint64_t current_allocated() const noexcept;
 
 
+    /**
+     * @brief Begin recording a new scoped memory usage record for the current thread.
+     *
+     * This method pushes a new empty `ScopedMemoryRecord` onto the thread-local
+     * record stack, allowing for nested memory tracking scopes.
+     *
+     * Must be paired with a matching call to `end_scoped_memory_record()`.
+     *
+     * @see end_scoped_memory_record()
+     */
     void begin_scoped_memory_record();
 
+    /**
+     * @brief End the current scoped memory record and return it.
+     *
+     * Pops the top `ScopedMemoryRecord` from the thread-local stack and returns it.
+     * If this scope was nested within another (i.e. if `begin_scoped_memory_record()` was
+     * called multiple times in a row), the returned scope is automatically added as a
+     * subscope to the next scope remaining on the stack.
+     *
+     * This allows nesting of scoped memory tracking, where each scope can contain one or
+     * more subscopes. When analyzing or reporting memory statistics, the memory usage
+     * of each scope can be calculated **inclusive of its subscopes**. This behavior
+     * mimics standard hierarchical memory profilers, where the total memory attributed to
+     * a scope includes all allocations made within it, plus those made in its nested
+     * regions.
+     *
+     * @return The `ScopedMemoryRecord` that was just ended.
+     *
+     * @throws std::out_of_range if called without a matching
+     * `begin_scoped_memory_record()`.
+     *
+     * @see begin_scoped_memory_record()
+     */
     ScopedMemoryRecord end_scoped_memory_record();
 
   private:
