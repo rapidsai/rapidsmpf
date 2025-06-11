@@ -15,6 +15,7 @@ class Options:
         self,
         options_as_strings: Mapping[str, str] | None = None,
     ) -> None: ...
+    def insert_if_absent(self, options_as_strings: Mapping[str, str]) -> int: ...
     @overload
     def get(
         self, key: str, *, return_type: type[CppType], factory: Callable[[str], CppType]

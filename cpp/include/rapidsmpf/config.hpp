@@ -143,6 +143,35 @@ class Options {
     Options(std::unordered_map<std::string, std::string> options_as_strings);
 
     /**
+     * @brief Inserts an option only if it is not already present.
+     *
+     * This method checks whether the given option key exists in the current
+     * set of options. If it does not, the option is inserted in its string
+     * representation.
+     *
+     * @param key The option key to insert. The key is trimmed and converted
+     * to lower case before insertion.
+     * @param option_as_string The string representation of the option value.
+     *
+     * @return `true` if the option was inserted; `false` if it was already present.
+     */
+    bool insert_if_absent(std::string const& key, std::string option_as_string);
+
+    /**
+     * @brief Inserts multiple options if they are not already present.
+     *
+     * This method attempts to insert each option key-value pair from the provided
+     * map into the current set of options. Each insertion is performed only if the
+     * key does not already exist in the options.
+     *
+     * @param options_as_strings A map of option keys to their string representations.
+     * @return Number of newly inserted options (0 if none were added).
+     */
+    std::size_t insert_if_absent(
+        std::unordered_map<std::string, std::string> options_as_strings
+    );
+
+    /**
      * @brief Retrieves a configuration option by key.
      *
      * If the option is not present, it will be constructed using the provided
