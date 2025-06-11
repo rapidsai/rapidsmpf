@@ -284,4 +284,12 @@ T parse_string(std::string const& value) {
 template <>
 bool parse_string(std::string const& value);
 
+// Macro to concatenate two tokens x and y.
+#define RAPIDSMPF_CONCAT_DETAIL_(x, y) x##y
+#define RAPIDSMPF_CONCAT(x, y) RAPIDSMPF_CONCAT_DETAIL_(x, y)
+
+// Stringify a macro argument
+#define RAPIDSMPF_STRINGIFY_DETAIL_(x) #x
+#define RAPIDSMPF_STRINGIFY(x) RAPIDSMPF_STRINGIFY_DETAIL_(x)
+
 }  // namespace rapidsmpf
