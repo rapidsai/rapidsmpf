@@ -21,7 +21,7 @@ from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.buffer.spill_collection import SpillCollection
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
-from rapidsmpf.config import Options
+from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.integrations.dask import _compat
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
@@ -350,7 +350,8 @@ def bootstrap_dask_cluster(
     client
         The current Dask client.
     options
-        Configuration options.
+        Configuration options. Reads environment variables for any options not set
+        explicitly using `get_environment_variables()`.
 
     Notes
     -----
@@ -381,6 +382,9 @@ def bootstrap_dask_cluster(
         kwargs["n_workers"] = -1
     workers = sorted(client.scheduler_info(**kwargs)["workers"])
     n_ranks = len(workers)
+
+    # Insert missing config options from environment variables.
+    options.insert_if_absent(get_environment_variables())
 
     # Set up the comms for the root worker
     root_address_bytes = client.submit(

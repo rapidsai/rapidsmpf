@@ -39,6 +39,31 @@ cdef class Options:
         with nogil:
             self._handle = cpp_Options()
 
+    def insert_if_absent(self, dict options_as_strings):
+        """Insert multiple options if they are not already present.
+
+        Attempts to insert each key-value pair from the provided dictionary,
+        skipping keys that already exist in the options.
+
+        Parameters
+        ----------
+        options_as_strings
+            Dictionary of option keys mapped to their string representations.
+            Keys are inserted only if they do not already exist. The keys are
+            trimmed and converted to lower case before insertion.
+
+        Returns
+        -------
+        Number of newly inserted options (0 if none were added).
+        """
+        cdef unordered_map[string, string] opts
+        for key, val in options_as_strings.items():
+            opts[str.encode(key)] = str.encode(val)
+        cdef size_t ret
+        with nogil:
+            ret = self._handle.insert_if_absent(move(opts))
+        return ret
+
     def get(self, str key, *, return_type, factory):
         """
         Retrieves a configuration option by key.
