@@ -167,28 +167,36 @@ TEST(ScopedMemoryRecord, AddSubscopeMergesNestedScopeCorrectly) {
     ScopedMemoryRecord parent;
     ScopedMemoryRecord subscope;
 
-    // Subscope: Allocate and deallocate
-    subscope.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 100);
-    subscope.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 50);  // Peak: 150
-    subscope.record_allocation(
-        ScopedMemoryRecord::AllocType::FALLBACK, 200
-    );  // Peak: 200
-    subscope.record_deallocation(
-        ScopedMemoryRecord::AllocType::PRIMARY, 30
-    );  // Current: 120
-    subscope.record_deallocation(
-        ScopedMemoryRecord::AllocType::FALLBACK, 80
-    );  // Current: 120
-
     // Parent: Allocate and deallocate
-    parent.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, 300);  // Peak: 300
-    parent.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, 400);  // Peak: 400
+    parent.record_allocation(
+        ScopedMemoryRecord::AllocType::PRIMARY, 300
+    );  // parant-peak: 300
+    parent.record_allocation(
+        ScopedMemoryRecord::AllocType::FALLBACK, 400
+    );  // parant-peak: 400
     parent.record_deallocation(
         ScopedMemoryRecord::AllocType::PRIMARY, 20
-    );  // Current: 280
+    );  // parant-current: 280
     parent.record_deallocation(
         ScopedMemoryRecord::AllocType::FALLBACK, 50
-    );  // Current: 350
+    );  // parant-current: 350
+
+    // Subscope: Allocate and deallocate
+    subscope.record_allocation(
+        ScopedMemoryRecord::AllocType::PRIMARY, 100
+    );  // parant-peak: 280+100, child-peak: 100
+    subscope.record_allocation(
+        ScopedMemoryRecord::AllocType::PRIMARY, 50
+    );  // parant-peak: 280+150, child-peak: 150
+    subscope.record_allocation(
+        ScopedMemoryRecord::AllocType::FALLBACK, 200
+    );  // parant-peak: 350+200, child-peak: 200
+    subscope.record_deallocation(
+        ScopedMemoryRecord::AllocType::PRIMARY, 30
+    );  // child-current: 120
+    subscope.record_deallocation(
+        ScopedMemoryRecord::AllocType::FALLBACK, 80
+    );  // child-current: 120
 
     // Merge subscope into parent
     parent.add_subscope(subscope);
