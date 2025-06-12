@@ -452,3 +452,28 @@ TEST_F(ChunkTest, ChunkConcatHostBufferAllocation) {
 
     EXPECT_EQ(MemoryType::HOST, chunk.data_memory_type());
 }
+
+TEST_F(ChunkTest, ChunkConcatPreferredMemoryType) {
+    ChunkID chunk_id = 123;
+
+    // Create test metadata and data
+    std::vector<uint8_t> metadata{1, 2, 3, 7, 8};  // Concatenated metadata
+    std::vector<uint8_t> data{4, 5, 6, 9, 10};  // Concatenated data
+    auto gen_chunks = [&] {
+        std::vector<Chunk> chunks;
+        chunks.push_back(Chunk::from_packed_data(
+            1, 1, create_packed_data(metadata, data, stream), nullptr, stream, br.get()
+        ));
+        chunks.push_back(Chunk::from_packed_data(
+            2, 2, create_packed_data(metadata, data, stream), nullptr, stream, br.get()
+        ));
+        return chunks;
+    };
+
+    // test with both memory types
+    for (auto mem_type : {MemoryType::HOST, MemoryType::DEVICE}) {
+        SCOPED_TRACE("mem_type: " + std::to_string(static_cast<int>(mem_type)));
+        auto chunk = Chunk::concat(gen_chunks(), chunk_id, stream, br.get(), mem_type);
+        EXPECT_EQ(mem_type, chunk.data_memory_type());
+    }
+}

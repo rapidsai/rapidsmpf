@@ -16,13 +16,25 @@ namespace rapidsmpf::shuffler::detail {
 
 
 /**
- * @brief Try to allocate a buffer from the buffer resource.
+ * @brief Try to make a memory reservation.
+ *
  * @param br The buffer resource.
  * @param size The size of the buffer to allocate.
- * @return A unique pointer to the allocated buffer, or nullptr if no buffer was
- * allocated.
+ * @param preferred_mem_type The preferred memory type to allocate the buffer from.
+ * @return A memory reservation.
+ * @throw RAPIDSMPF_FAIL if no memory reservation was made.
  */
-MemoryReservation try_reserve_or_fail(BufferResource* br, size_t size) {
+MemoryReservation try_reserve_or_fail(
+    BufferResource* br,
+    size_t size,
+    std::optional<MemoryType> const& preferred_mem_type = std::nullopt
+) {
+    if (preferred_mem_type) {
+        auto [res, overbooking] = br->reserve(*preferred_mem_type, size, false);
+        RAPIDSMPF_EXPECTS(res.size() == size, "failed to reserve memory");
+        return std::move(res);
+    }
+
     // try to allocate data buffer from memory types in order [DEVICE, HOST]
     for (auto mem_type : MEMORY_TYPES) {
         auto [res, overbooking] = br->reserve(mem_type, size, false);
@@ -270,7 +282,8 @@ Chunk Chunk::concat(
     std::vector<Chunk>&& chunks,
     ChunkID chunk_id,
     rmm::cuda_stream_view stream,
-    BufferResource* br
+    BufferResource* br,
+    std::optional<MemoryType> preferred_mem_type
 ) {
     RAPIDSMPF_EXPECTS(!chunks.empty(), "cannot concatenate empty vector of chunks");
 
@@ -316,7 +329,7 @@ Chunk Chunk::concat(
     // Create concatenated data buffer if needed
     std::unique_ptr<Buffer> concat_data;
     if (total_data_size > 0) {
-        auto reserve = try_reserve_or_fail(br, total_data_size);
+        auto reserve = try_reserve_or_fail(br, total_data_size, preferred_mem_type);
         concat_data = br->allocate(reserve.mem_type(), total_data_size, stream, reserve);
     } else {  // no data, allocate an empty host buffer
         auto [res, ob] = br->reserve(MemoryType::HOST, 0, false);

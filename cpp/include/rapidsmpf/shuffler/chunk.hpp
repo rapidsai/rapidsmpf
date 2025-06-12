@@ -335,6 +335,8 @@ class Chunk {
      * @param chunk_id The ID for the resulting concatenated chunk.
      * @param stream The CUDA stream to use for copying data.
      * @param br The buffer resource to use for memory allocation.
+     * @param preferred_mem_type The preferred memory type to use for the concatenated
+     * data buffer.
      * @return Chunk The concatenated chunk.
      * @throws std::logic_error if the input vector is empty.
      */
@@ -342,7 +344,8 @@ class Chunk {
         std::vector<Chunk>&& chunks,
         ChunkID chunk_id,
         rmm::cuda_stream_view stream,
-        BufferResource* br
+        BufferResource* br,
+        std::optional<MemoryType> preferred_mem_type = std::nullopt
     );
 
   private:
