@@ -275,9 +275,9 @@ TEST(RmmResourceAdaptorScopedMemory, SingleScopedAllocationTracksCorrectly) {
     void* p = mr.allocate(1_MiB);
     auto scope = mr.end_scoped_memory_record();
 
-    EXPECT_GE(scope.current(), 0);  // Some allocators deallocate eagerly
-    EXPECT_GE(scope.total(), 1_MiB);
-    EXPECT_GE(scope.peak(), 1_MiB);
+    EXPECT_EQ(scope.current(), 1_MiB);
+    EXPECT_EQ(scope.total(), 1_MiB);
+    EXPECT_EQ(scope.peak(), 1_MiB);
     EXPECT_EQ(scope.num_total_allocs(), 1);
 
     mr.deallocate(p, 1_MiB);
@@ -298,12 +298,12 @@ TEST(RmmResourceAdaptorScopedMemory, NestedScopedAllocationsMerged) {
 
     // Inner record
     EXPECT_EQ(inner.num_total_allocs(), 1);
-    EXPECT_GE(inner.total(), 2_MiB);
+    EXPECT_EQ(inner.total(), 2_MiB);
 
     // Outer should reflect both outer + inner allocations
     EXPECT_EQ(outer.num_total_allocs(), 2);
-    EXPECT_GE(outer.total(), 3_MiB);
-    EXPECT_GE(outer.peak(), 3_MiB);
+    EXPECT_EQ(outer.total(), 3_MiB);
+    EXPECT_EQ(outer.peak(), 3_MiB);
 
     mr.deallocate(p2, 2_MiB);
     mr.deallocate(p1, 1_MiB);
@@ -327,11 +327,11 @@ TEST(RmmResourceAdaptorScopedMemory, NestedScopedTracksAllocsAndDeallocs) {
 
     // Outer: p1 allocated, p2 allocated + deallocated, p3 (via inner)
     EXPECT_EQ(inner.num_total_allocs(), 1);
-    EXPECT_GE(inner.total(), 3_MiB);
+    EXPECT_EQ(inner.total(), 3_MiB);
 
     EXPECT_EQ(outer.num_total_allocs(), 3);
-    EXPECT_GE(outer.total(), 1_MiB + 2_MiB + 3_MiB);
-    EXPECT_LE(outer.current(), 1_MiB);  // Only p1 is left
+    EXPECT_EQ(outer.total(), 1_MiB + 2_MiB + 3_MiB);
+    EXPECT_EQ(outer.current(), 1_MiB);  // Only p1 is left
 
     mr.deallocate(p1, 1_MiB);
 }
