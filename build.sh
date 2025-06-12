@@ -17,7 +17,7 @@ ARGS=$*
 
 # NOTE: ensure all dir changes are relative to the location of this
 # script, and that this script resides in the repo dir!
-REPODIR=$(cd $(dirname $0); pwd)
+REPODIR=$(cd "$(dirname "$0")"; pwd)
 
 VALIDARGS="clean librapidsmpf rapidsmpf -v -g -n --pydevelop -h"
 HELP="$0 [clean] [librapidsmpf] [rapidsmpf] [-v] [-g] [-n] [--cmake-args=\"<args>\"] [-h]
@@ -41,7 +41,7 @@ VERBOSE_FLAG=""
 BUILD_TYPE=Release
 INSTALL_TARGET=install
 RAN_CMAKE=0
-PYTHON_ARGS_FOR_INSTALL="-m pip install --no-build-isolation --no-deps --config-settings rapidsai.disable-cuda=true"
+PYTHON_ARGS_FOR_INSTALL=("-m" "pip" "install" "--no-build-isolation" "--no-deps" "--config-settings" "rapidsai.disable-cuda=true")
 
 # Set defaults for vars that may not have been defined externally
 # If INSTALL_PREFIX is not set, check PREFIX, then check
@@ -55,24 +55,26 @@ function hasArg {
 
 function cmakeArgs {
     # Check for multiple cmake args options
-    if [[ $(echo $ARGS | { grep -Eo "\-\-cmake\-args" || true; } | wc -l ) -gt 1 ]]; then
+    if [[ $(echo "$ARGS" | { grep -Eo "\-\-cmake\-args" || true; } | wc -l ) -gt 1 ]]; then
         echo "Multiple --cmake-args options were provided, please provide only one: ${ARGS}"
         exit 1
     fi
 
     # Check for cmake args option
-    if [[ -n $(echo $ARGS | { grep -E "\-\-cmake\-args" || true; } ) ]]; then
+    if [[ -n $(echo "$ARGS" | { grep -E "\-\-cmake\-args" || true; } ) ]]; then
         # There are possible weird edge cases that may cause this regex filter to output nothing and fail silently
         # the true pipe will catch any weird edge cases that may happen and will cause the program to fall back
         # on the invalid option error
-        EXTRA_CMAKE_ARGS=$(echo $ARGS | { grep -Eo "\-\-cmake\-args=\".+\"" || true; })
+        EXTRA_CMAKE_ARGS=$(echo "$ARGS" | { grep -Eo "\-\-cmake\-args=\".+\"" || true; })
         if [[ -n ${EXTRA_CMAKE_ARGS} ]]; then
             # Remove the full  EXTRA_CMAKE_ARGS argument from list of args so that it passes validArgs function
             ARGS=${ARGS//$EXTRA_CMAKE_ARGS/}
             # Filter the full argument down to just the extra string that will be added to cmake call
-            EXTRA_CMAKE_ARGS=$(echo $EXTRA_CMAKE_ARGS | grep -Eo "\".+\"" | sed -e 's/^"//' -e 's/"$//')
+            EXTRA_CMAKE_ARGS=$(echo "$EXTRA_CMAKE_ARGS" | grep -Eo "\".+\"" | sed -e 's/^"//' -e 's/"$//')
         fi
     fi
+
+    read -ra EXTRA_CMAKE_ARGS <<< "$EXTRA_CMAKE_ARGS"
 }
 
 
@@ -80,13 +82,13 @@ function cmakeArgs {
 # LIBRAPIDSMPF_BUILD_DIR
 function ensureCMakeRan {
     mkdir -p "${LIBRAPIDSMPF_BUILD_DIR}"
-    cd ${REPODIR}/cpp
+    cd "${REPODIR}"/cpp
     if (( RAN_CMAKE == 0 )); then
         echo "Executing cmake for librapidsmpf..."
         cmake -B "${LIBRAPIDSMPF_BUILD_DIR}" -S . \
               -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
               -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
-              ${EXTRA_CMAKE_ARGS}
+              "${EXTRA_CMAKE_ARGS[@]}"
         RAN_CMAKE=1
     fi
 }
@@ -97,7 +99,7 @@ if hasArg -h || hasArg --help; then
 fi
 
 # Check for valid usage
-if (( ${NUMARGS} != 0 )); then
+if (( NUMARGS != 0 )); then
     # Check for cmake args
     cmakeArgs
     for a in ${ARGS}; do
@@ -121,7 +123,7 @@ if hasArg -n; then
 fi
 
 if hasArg --pydevelop; then
-    PYTHON_ARGS_FOR_INSTALL="${PYTHON_ARGS_FOR_INSTALL} -e"
+    PYTHON_ARGS_FOR_INSTALL+=("-e")
 fi
 
 # If clean given, run it prior to any other steps
@@ -143,7 +145,7 @@ fi
 if (( NUMARGS == 0 )) || hasArg librapidsmpf; then
     ensureCMakeRan
     echo "building librapidsmpf..."
-    cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" -j${PARALLEL_LEVEL} ${VERBOSE_FLAG}
+    cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" -j"${PARALLEL_LEVEL}" ${VERBOSE_FLAG}
     if [[ ${INSTALL_TARGET} != "" ]]; then
         echo "installing librapidsmpf..."
         cmake --build "${LIBRAPIDSMPF_BUILD_DIR}" --target install ${VERBOSE_FLAG}
@@ -153,7 +155,7 @@ fi
 # Build and install the rapidsmpf Python package
 if (( NUMARGS == 0 )) || hasArg rapidsmpf; then
     echo "building rapidsmpf..."
-    cd ${REPODIR}/python/rapidsmpf
-    SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBRAPIDSMPF_BUILD_DIR};${EXTRA_CMAKE_ARGS}" \
-        python ${PYTHON_ARGS_FOR_INSTALL} ${VERBOSE_FLAG} .
+    cd "${REPODIR}"/python/rapidsmpf
+    SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBRAPIDSMPF_BUILD_DIR};${EXTRA_CMAKE_ARGS[*]// /;}" \
+        python "${PYTHON_ARGS_FOR_INSTALL[@]}" ${VERBOSE_FLAG} .
 fi
