@@ -171,6 +171,7 @@ class Shuffler::Progress {
         // Check for new chunks in the inbox and send off their metadata.
         auto const t0_send_metadata = Clock::now();
         for (auto&& chunk : shuffler_.outgoing_postbox_.extract_all_ready_concat(
+                 size_t(2) << 30,  // max concat size, 2GB
                  [this]() { return shuffler_.get_new_cid(); },
                  shuffler_.stream_,
                  shuffler_.br_

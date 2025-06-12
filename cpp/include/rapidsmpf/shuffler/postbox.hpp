@@ -98,6 +98,7 @@ class PostBox {
      * @return A vector of all ready chunks in the PostBox.
      */
     std::vector<Chunk> extract_all_ready_concat(
+        size_t max_concat_size,
         std::function<ChunkID()> chunk_id_gen,
         rmm::cuda_stream_view stream,
         BufferResource* br

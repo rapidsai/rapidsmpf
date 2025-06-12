@@ -78,6 +78,7 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
 
 template <typename KeyType>
 std::vector<Chunk> PostBox<KeyType>::extract_all_ready_concat(
+    size_t max_concat_size,
     std::function<ChunkID()> chunk_id_gen,
     rmm::cuda_stream_view stream,
     BufferResource* br
@@ -85,6 +86,17 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready_concat(
     std::lock_guard const lock(mutex_);
     std::vector<Chunk> ret;
     ret.reserve(pigeonhole_.size());
+
+    auto concat_and_add_to_ret = [&](std::vector<Chunk>&& chunks) {
+        if (chunks.empty()) {
+            return;
+        } else if (chunks.size() == 1) {
+            ret.emplace_back(std::move(chunks[0]));
+        } else {
+            ret.emplace_back(Chunk::concat(std::move(chunks), chunk_id_gen(), stream, br)
+            );
+        }
+    };
 
     // Iterate through the outer map
     auto pid_it = pigeonhole_.begin();
@@ -94,25 +106,35 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready_concat(
 
         std::vector<Chunk> ready_chunks;
         ready_chunks.reserve(chunks.size());
+        size_t concat_size = 0;
 
         for (auto chunk_it = chunks.begin(); chunk_it != chunks.end();) {
-            if (chunk_it->second.is_ready()) {
-                ready_chunks.push_back(std::move(chunk_it->second));
+            auto& chunk = chunk_it->second;
+            if (chunk.is_ready()) {
+                if (chunk.n_messages() >= 1) {
+                    // chunk has been already concatenated
+                    ret.emplace_back(std::move(chunk));
+                    chunk_it = chunks.erase(chunk_it);
+                    continue;
+                }
+                // if adding current chunk exceeds the max concat size,
+                // concatenate the current chunks and add them to the ret
+                if (concat_size + chunk.concat_data_size() >= max_concat_size) {
+                    concat_and_add_to_ret(std::move(ready_chunks));
+                    concat_size = 0;
+                } else {
+                    // add current chunk to the ready chunks
+                    concat_size += chunk.concat_data_size();
+                    ready_chunks.emplace_back(std::move(chunk));
+                }
+
                 chunk_it = chunks.erase(chunk_it);
             } else {
                 ++chunk_it;
             }
         }
 
-        if (!ready_chunks.empty()) {
-            if (ready_chunks.size() == 1) {
-                ret.emplace_back(std::move(ready_chunks[0]));
-            } else {
-                ret.emplace_back(
-                    Chunk::concat(std::move(ready_chunks), chunk_id_gen(), stream, br)
-                );
-            }
-        }
+        concat_and_add_to_ret(std::move(ready_chunks));
 
         // Remove the pid entry if its chunks map is empty
         if (chunks.empty()) {
