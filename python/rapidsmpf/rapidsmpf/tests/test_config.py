@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from rapidsmpf.config import Disableable, Options
+from rapidsmpf.config import Disableable, DisableableBytes, Options
 
 
 def test_get_with_explicit_values() -> None:
@@ -228,6 +228,13 @@ def test_disableable_default_can_be_none() -> None:
     val = opts.get_or_default("some_key", default_value=Disableable(None))
     assert isinstance(val, Disableable)
     assert val.value is None
+
+
+def test_disableablebytes_with_options() -> None:
+    opts = Options()
+    val = opts.get_or_default("max_transfer", default_value=DisableableBytes("1MiB"))
+    assert isinstance(val, DisableableBytes)
+    assert val.value == 2**20
 
 
 def test_get_strings_returns_empty_dict_for_empty_options() -> None:

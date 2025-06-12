@@ -16,7 +16,7 @@ import os
 import re
 import typing
 
-from rapidsmpf.utils.string import parse_boolean
+from rapidsmpf.utils.string import parse_boolean, parse_bytes
 
 
 cdef class Options:
@@ -405,3 +405,43 @@ class Disableable:
             self.value = None
         else:
             self.value = value
+
+
+class DisableableBytes(Disableable):
+    """
+    Represents a byte-sized option that can be explicitly disabled.
+
+    This class is a specialization of `Disableable` that interprets the input
+    as a human-readable byte size string (e.g., "100 MB", "1KiB", "1e6").
+    If the input is one of the disable keywords (e.g., "off", "no", "false"),
+    the value is treated as disabled (`None`). Otherwise, it is parsed to an
+    integer number of bytes using `rapidsmpf.utils.string.parse_bytes()`.
+
+    This is useful for configuration options that may be set to a size limit
+    or explicitly turned off.
+
+    Parameters
+    ----------
+    value
+        A human-readable byte size (e.g., "1MiB", "100 MB") or a disable
+        keyword (case-insensitive), or an integer number of bytes.
+
+    Attributes
+    ----------
+    value
+        The size in bytes, or `None` if disabled.
+
+    Examples
+    --------
+    >>> from rapidsmpf.config import DisableableBytes
+    >>> DisableableBytes("1KiB").value
+    1024
+
+    >>> DisableableBytes("OFF").value is None
+    True
+
+    >>> DisableableBytes(2048).value
+    2048
+    """
+    def __init__(self, value):
+        super().__init__(parse_bytes(value))
