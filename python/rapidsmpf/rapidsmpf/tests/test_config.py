@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import gc
 import pickle
+import weakref
 
 import pytest
 
@@ -26,7 +28,7 @@ def test_get_with_explicit_values() -> None:
 
 
 def test_get_uses_factory_when_key_missing() -> None:
-    opts = Options({})
+    opts = Options()
     assert opts.get("use_gpu", return_type=bool, factory=lambda s: True) is True
     assert opts.get("workers", return_type=int, factory=lambda s: 4) == 4
     assert opts.get("rate", return_type=float, factory=lambda s: 1.2) == 1.2
@@ -34,20 +36,51 @@ def test_get_uses_factory_when_key_missing() -> None:
 
 
 def test_get_caches_assigned_value() -> None:
-    opts = Options({})
+    opts = Options()
 
     val1 = opts.get("threshold", return_type=float, factory=lambda s: 0.75)
     val2 = opts.get("threshold", return_type=float, factory=lambda s: 1.23)
     assert val1 == val2 == 0.75  # second call must return the cached value
 
 
-def test_get_raises_on_unsupported_type() -> None:
-    class Unsupported:
-        pass
+def test_get_accepts_custom_python_type() -> None:
+    class Custom:
+        def __init__(self, text: str) -> None:
+            self.text = text
 
-    opts = Options({})
-    with pytest.raises(ValueError, match="is not supported"):
-        opts.get("key", return_type=Unsupported, factory=lambda s: Unsupported())
+    opts = Options({"key": "value"})
+    result = opts.get("key", return_type=Custom, factory=Custom)
+    assert isinstance(result, Custom)
+    assert result.text == "value"
+
+
+def test_get_caches_custom_python_object() -> None:
+    class MyObj:
+        def __init__(self, s: str) -> None:
+            self.s = s
+
+    opts = Options({"thing": "foo"})
+    first = opts.get("thing", return_type=MyObj, factory=MyObj)
+    second = opts.get("thing", return_type=MyObj, factory=lambda s: MyObj("bar"))
+    assert first is second
+    assert first.s == "foo"
+
+
+def test_get_python_object_when_key_missing() -> None:
+    class Token:
+        def __init__(self, val: str) -> None:
+            self.val = val
+
+    opts = Options()
+    tok = opts.get("auth", return_type=Token, factory=lambda s: Token("generated"))
+    assert isinstance(tok, Token)
+    assert tok.val == "generated"
+
+
+def test_get_list_from_factory() -> None:
+    opts = Options({"mylist": "ignored"})
+    val = opts.get("mylist", return_type=list, factory=lambda s: [1, 2, 3])
+    assert val == [1, 2, 3]
 
 
 def test_get_raises_on_type_conflict() -> None:
@@ -70,12 +103,6 @@ def test_get_int64_overflow() -> None:
         opts.get("another_large_int", return_type=int, factory=lambda s: 2**65)
 
 
-def test_get_raises_on_list_type() -> None:
-    opts = Options({})
-    with pytest.raises(ValueError, match="is not supported"):
-        opts.get("some_key", return_type=list, factory=lambda s: [])
-
-
 def test_get_strings_returns_correct_data() -> None:
     input_data = {"Alpha": "one", "BETA": "2", "gamma": "THREE"}
 
@@ -90,8 +117,25 @@ def test_get_strings_returns_correct_data() -> None:
         assert result[k.lower()] == v
 
 
+def test_get_pyobject_refcount() -> None:
+    class MyObject:
+        def __init__(self, _: str) -> None:
+            pass
+
+    opts = Options()
+    wr = weakref.ref(opts.get("obj", return_type=MyObject, factory=MyObject))
+
+    # `opts` should keep obj alive.
+    assert isinstance(wr(), MyObject)
+    del opts
+    gc.collect()
+
+    # but without `opts`, no one is keeping obj alive.
+    assert wr() is None
+
+
 def test_get_or_default_returns_default_when_key_missing() -> None:
-    opts = Options({})
+    opts = Options()
     assert opts.get_or_default("debug", default_value=False) is False
     assert opts.get_or_default("workers", default_value=8) == 8
     assert opts.get_or_default("timeout", default_value=1.5) == 1.5
@@ -149,6 +193,53 @@ def test_get_strings_is_idempotent() -> None:
     assert result1["key"] == "value"
 
 
+def test_insert_if_absent_inserts_new_keys() -> None:
+    opts = Options()
+    # Insert 2 new keys
+    inserted_count = opts.insert_if_absent({"key1": "1", "key2": "2"})
+
+    assert inserted_count == 2
+    assert opts.get("key1", return_type=int, factory=int) == 1
+    assert opts.get("key2", return_type=int, factory=int) == 2
+
+
+def test_insert_if_absent_skips_existing_keys() -> None:
+    # Initialize with existing key
+    opts = Options({"existing": "old"})
+    # Try inserting 1 existing + 1 new key
+    inserted_count = opts.insert_if_absent({"existing": "new", "newkey": "value"})
+
+    assert inserted_count == 1
+    assert (
+        opts.get("existing", return_type=str, factory=str) == "old"
+    )  # old value preserved
+    assert opts.get("newkey", return_type=str, factory=str) == "value"  # new key added
+
+
+def test_insert_if_absent_returns_zero_for_empty_input() -> None:
+    opts = Options({"existing": "val"})
+    # Empty map should insert nothing
+    inserted_count = opts.insert_if_absent({})
+    assert inserted_count == 0
+
+
+def test_insert_if_absent_normalizes_keys_before_checking() -> None:
+    opts = Options({"lowercase_key": "123"})
+    # Try inserting mixed-case and whitespace-padded keys
+    inserted_count = opts.insert_if_absent(
+        {
+            " Lowercase_KEY ": "456",  # matches existing after normalization
+            "NEW_KEY": "789",  # new key
+        }
+    )
+
+    assert inserted_count == 1
+    assert (
+        opts.get("lowercase_key", return_type=str, factory=str) == "123"
+    )  # original preserved
+    assert opts.get("new_key", return_type=str, factory=str) == "789"  # new key added
+
+
 def test_serialize_deserialize_roundtrip() -> None:
     original_dict = {"alpha": "1", "beta": "two", "Gamma": "3.14"}
     opts = Options(original_dict)
@@ -161,7 +252,7 @@ def test_serialize_deserialize_roundtrip() -> None:
 
 
 def test_serialize_empty_options() -> None:
-    opts = Options({})
+    opts = Options()
     serialized = opts.serialize()
     assert isinstance(serialized, bytes)
     assert len(serialized) == 8  # Only the count (0) as uint64_t.
@@ -217,7 +308,7 @@ def test_pickle_roundtrip() -> None:
 
 
 def test_pickle_empty_options() -> None:
-    opts = Options({})
+    opts = Options()
     pickled = pickle.dumps(opts)
     unpickled = pickle.loads(pickled)
 
