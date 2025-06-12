@@ -170,7 +170,12 @@ class Shuffler::Progress {
 
         // Check for new chunks in the inbox and send off their metadata.
         auto const t0_send_metadata = Clock::now();
-        for (auto&& chunk : shuffler_.outgoing_postbox_.extract_all_ready()) {
+        for (auto&& chunk : shuffler_.outgoing_postbox_.extract_all_ready_concat(
+                 [this]() { return shuffler_.get_new_cid(); },
+                 shuffler_.stream_,
+                 shuffler_.br_
+             ))
+        {
             // All messages in the chunk maps to the same key (checked by the PostBox)
             // thus we can use the partition ID of the first message in the chunk to
             // determine the source rank of all of them.

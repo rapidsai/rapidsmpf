@@ -77,6 +77,55 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
 }
 
 template <typename KeyType>
+std::vector<Chunk> PostBox<KeyType>::extract_all_ready_concat(
+    std::function<ChunkID()> chunk_id_gen,
+    rmm::cuda_stream_view stream,
+    BufferResource* br
+) {
+    std::lock_guard const lock(mutex_);
+    std::vector<Chunk> ret;
+    ret.reserve(pigeonhole_.size());
+
+    // Iterate through the outer map
+    auto pid_it = pigeonhole_.begin();
+    while (pid_it != pigeonhole_.end()) {
+        // Iterate through the inner map
+        auto& chunks = pid_it->second;
+
+        std::vector<Chunk> ready_chunks;
+        ready_chunks.reserve(chunks.size());
+
+        for (auto chunk_it = chunks.begin(); chunk_it != chunks.end();) {
+            if (chunk_it->second.is_ready()) {
+                ready_chunks.push_back(std::move(chunk_it->second));
+                chunk_it = chunks.erase(chunk_it);
+            } else {
+                ++chunk_it;
+            }
+        }
+
+        if (!ready_chunks.empty()) {
+            if (ready_chunks.size() == 1) {
+                ret.emplace_back(std::move(ready_chunks[0]));
+            } else {
+                ret.emplace_back(
+                    Chunk::concat(std::move(ready_chunks), chunk_id_gen(), stream, br)
+                );
+            }
+        }
+
+        // Remove the pid entry if its chunks map is empty
+        if (chunks.empty()) {
+            pid_it = pigeonhole_.erase(pid_it);
+        } else {
+            ++pid_it;
+        }
+    }
+
+    return ret;
+}
+
+template <typename KeyType>
 bool PostBox<KeyType>::empty() const {
     return pigeonhole_.empty();
 }
