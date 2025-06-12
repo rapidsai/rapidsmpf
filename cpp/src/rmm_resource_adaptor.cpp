@@ -173,9 +173,11 @@ void RmmResourceAdaptor::do_deallocate(
     constexpr auto PRIMARY = ScopedMemoryRecord::AllocType::PRIMARY;
     constexpr auto FALLBACK = ScopedMemoryRecord::AllocType::FALLBACK;
 
-    std::unique_lock lock(mutex_);
-    auto const alloc_type = (fallback_allocations_.erase(ptr) == 0) ? PRIMARY : FALLBACK;
-    lock.unlock();
+    ScopedMemoryRecord::AllocType alloc_type;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        alloc_type = (fallback_allocations_.erase(ptr) == 0) ? PRIMARY : FALLBACK;
+    }
 
     if (alloc_type == PRIMARY) {
         primary_mr_.deallocate_async(ptr, nbytes, stream);
@@ -183,7 +185,7 @@ void RmmResourceAdaptor::do_deallocate(
         fallback_mr_->deallocate_async(ptr, nbytes, stream);
     }
 
-    lock.lock();
+    std::lock_guard<std::mutex> lock(mutex_);
     // Always record the deallocation on the main record.
     main_record_.record_deallocation(alloc_type, static_cast<std::int64_t>(nbytes));
     // But only record it on the thread stack if it exist.
