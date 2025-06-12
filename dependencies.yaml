@@ -169,7 +169,7 @@ dependencies:
 
   build-mpi:
     common:
-      - output_types: [conda]
+      - output_types: [conda, pyproject, requirements]
         packages:
           - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - mpi4py
