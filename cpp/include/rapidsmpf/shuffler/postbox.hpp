@@ -90,6 +90,21 @@ class PostBox {
     std::vector<Chunk> extract_all_ready();
 
     /**
+     * @brief Extracts all ready chunks from the PostBox and concatenates them.
+     *
+     * @param chunk_id_gen A function that generates a new chunk ID.
+     * @param stream The CUDA stream to use for the concatenation.
+     * @param br The buffer resource to use for the concatenation.
+     * @return A vector of all ready chunks in the PostBox.
+     */
+    std::vector<Chunk> extract_all_ready_concat(
+        size_t max_concat_size,
+        std::function<ChunkID()> chunk_id_gen,
+        rmm::cuda_stream_view stream,
+        BufferResource* br
+    );
+
+    /**
      * @brief Checks if the PostBox is empty.
      *
      * @return `true` if the PostBox is empty, `false` otherwise.

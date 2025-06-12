@@ -77,6 +77,77 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
 }
 
 template <typename KeyType>
+std::vector<Chunk> PostBox<KeyType>::extract_all_ready_concat(
+    size_t max_concat_size,
+    std::function<ChunkID()> chunk_id_gen,
+    rmm::cuda_stream_view stream,
+    BufferResource* br
+) {
+    std::lock_guard const lock(mutex_);
+    std::vector<Chunk> ret;
+    ret.reserve(pigeonhole_.size());
+
+    auto concat_and_add_to_ret = [&](std::vector<Chunk>&& chunks) {
+        if (chunks.empty()) {
+            return;
+        } else if (chunks.size() == 1) {
+            ret.emplace_back(std::move(chunks[0]));
+        } else {
+            ret.emplace_back(Chunk::concat(std::move(chunks), chunk_id_gen(), stream, br)
+            );
+        }
+    };
+
+    // Iterate through the outer map
+    auto pid_it = pigeonhole_.begin();
+    while (pid_it != pigeonhole_.end()) {
+        // Iterate through the inner map
+        auto& chunks = pid_it->second;
+
+        std::vector<Chunk> ready_chunks;
+        ready_chunks.reserve(chunks.size());
+        size_t concat_size = 0;
+
+        for (auto chunk_it = chunks.begin(); chunk_it != chunks.end();) {
+            auto& chunk = chunk_it->second;
+            if (chunk.is_ready()) {
+                if (chunk.n_messages() >= 1) {
+                    // chunk has been already concatenated
+                    ret.emplace_back(std::move(chunk));
+                    chunk_it = chunks.erase(chunk_it);
+                    continue;
+                }
+                // if adding current chunk exceeds the max concat size,
+                // concatenate the current chunks and add them to the ret
+                if (concat_size + chunk.concat_data_size() >= max_concat_size) {
+                    concat_and_add_to_ret(std::move(ready_chunks));
+                    concat_size = 0;
+                } else {
+                    // add current chunk to the ready chunks
+                    concat_size += chunk.concat_data_size();
+                    ready_chunks.emplace_back(std::move(chunk));
+                }
+
+                chunk_it = chunks.erase(chunk_it);
+            } else {
+                ++chunk_it;
+            }
+        }
+
+        concat_and_add_to_ret(std::move(ready_chunks));
+
+        // Remove the pid entry if its chunks map is empty
+        if (chunks.empty()) {
+            pid_it = pigeonhole_.erase(pid_it);
+        } else {
+            ++pid_it;
+        }
+    }
+
+    return ret;
+}
+
+template <typename KeyType>
 bool PostBox<KeyType>::empty() const {
     return pigeonhole_.empty();
 }
