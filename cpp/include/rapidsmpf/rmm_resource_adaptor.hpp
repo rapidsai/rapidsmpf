@@ -224,9 +224,11 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     }
 
     /**
-     * @brief Get a copy of the tracked main record.
+     * @brief Returns a copy of the main memory record.
      *
-     * @return Scoped memory main record instance.
+     * The main record tracks memory statistics for the lifetime of the resource.
+     *
+     * @return A copy of the current main memory record.
      */
     [[nodiscard]] ScopedMemoryRecord get_main_record() const;
 
@@ -315,8 +317,12 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     rmm::device_async_resource_ref primary_mr_;
     std::optional<rmm::device_async_resource_ref> fallback_mr_;
     std::unordered_set<void*> fallback_allocations_;
+
+    /// Tracks memory statistics for the lifetime of the resource.
     ScopedMemoryRecord main_record_;
+    /// Per-thread stack of scoped records, used with begin/end scoped memory tracking.
     std::unordered_map<std::thread::id, std::stack<ScopedMemoryRecord>> record_stacks_;
+    /// Maps allocated memory pointers to the thread IDs that allocated them.
     std::unordered_map<void*, std::thread::id> allocating_threads_;
 };
 
