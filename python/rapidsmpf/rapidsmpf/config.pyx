@@ -356,12 +356,8 @@ class Disableable:
     Represents an option value that can be explicitly disabled.
 
     This class wraps an option value and interprets certain strings as
-    indicators that the value is disabled (case-insensitive):
-        - "false"
-        - "no"
-        - "off"
-        - "disable"
-        - "disabled"
+    indicators that the value is disabled (case-insensitive): {"false", "no",
+    "off", "disable", "disabled"}.
 
     This is typically used to simplify optional or disableable options with
     `Options.get_or_default()`.
@@ -415,7 +411,7 @@ class DisableableBytes(Disableable):
     as a human-readable byte size string (e.g., "100 MB", "1KiB", "1e6").
     If the input is one of the disable keywords (e.g., "off", "no", "false"),
     the value is treated as disabled (`None`). Otherwise, it is parsed to an
-    integer number of bytes using `rapidsmpf.utils.string.parse_bytes()`.
+    integer number of bytes using ``rapidsmpf.utils.string.parse_bytes()``.
 
     This is useful for configuration options that may be set to a size limit
     or explicitly turned off.
