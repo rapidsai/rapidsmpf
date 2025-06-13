@@ -7,6 +7,8 @@
 
 #include <stdexcept>  // NOLINT(unused-includes)
 
+#include <rapidsmpf/utils.hpp>
+
 namespace rapidsmpf {
 
 /**
@@ -78,10 +80,6 @@ class out_of_memory : public bad_alloc {
      */
     out_of_memory(std::string const& msg) : out_of_memory{msg.c_str()} {}
 };
-
-// Stringify a macro argument
-#define RAPIDSMPF_STRINGIFY_DETAIL(x) #x
-#define RAPIDSMPF_STRINGIFY(x) RAPIDSMPF_STRINGIFY_DETAIL(x)
 
 /**
  * @brief Macro for checking (pre-)conditions that throws an exception when
