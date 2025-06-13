@@ -178,7 +178,7 @@ dependencies:
 
   build-mpi:
     common:
-      - output_types: [conda]
+      - output_types: [conda, pyproject, requirements]
         packages:
           - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - mpi4py
@@ -336,8 +336,6 @@ dependencies:
       - output_types: [conda]
         packages:
           - *doxygen
-          - rmm==25.8.*,>=0.0.0a0
-          - dask-cuda==25.8.*,>=0.0.0a0
           - make
           - myst-parser
           - numpydoc
@@ -345,7 +343,6 @@ dependencies:
           - sphinx
           - sphinx-autobuild
           - sphinx-copybutton
-          - ucxx==0.45.*,>=0.0.0a0
     specific:
       - output_types: conda
         matrices:

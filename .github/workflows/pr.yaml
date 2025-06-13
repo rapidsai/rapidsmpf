@@ -21,6 +21,7 @@ jobs:
       - wheel-build-librapidsmpf
       - wheel-build-rapidsmpf
       - wheel-test
+      - devcontainer
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-25.08
     if: always()
@@ -103,3 +104,18 @@ jobs:
       arch: "amd64"
       container_image: "rapidsai/ci-conda:latest"
       script: "ci/build_docs.sh"
+  devcontainer:
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@branch-25.08
+    with:
+      arch: '["amd64"]'
+      cuda: '["12.8"]'
+      build_command: |
+        sccache --zero-stats;
+        build-all \
+          --verbose \
+          -DBUILD_TESTS=OFF \
+          -DBUILD_BENCHMARKS=ON \
+          -DCMAKE_PREFIX_PATH="$(python -c 'import os; from importlib.metadata import entry_points; from importlib.resources import files; print(";".join([f"{x}/lib64/cmake" for xs in [[os.fspath(p) for p in path._paths] if hasattr(path, "_path") else [os.fspath(path)] for path in [files(ep.load()) for ep in entry_points(group="cmake.prefix")]] for x in xs]))')" \
+          2>&1 | tee telemetry-artifacts/build.log;
+        sccache --show-adv-stats | tee telemetry-artifacts/sccache-stats.txt;
