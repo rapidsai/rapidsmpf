@@ -138,7 +138,8 @@ struct ScopedMemoryRecord {
      *
      * This design allows memory scopes to be organized hierarchically, so when querying
      * a parent scope, its statistics are **inclusive of all nested scopes** — similar to
-     * hierarchical memory profiling tools.
+     * hierarchical memory profiling tools. However, it assumes that the parent scope's
+     * statistics remain constant during the execution of the subscope.
      *
      * @param subscope The scoped memory record representing a completed nested region.
      * @return Reference to this object after merging the subscope.
