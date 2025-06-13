@@ -20,6 +20,7 @@ RAPIDS_PACKAGE_VERSION=$(head -1 ./VERSION)
 export RAPIDS_PACKAGE_VERSION
 
 # Define this before sourcing `rapids-rattler-channel-string` to prepend
+# shellcheck disable=SC2034
 RAPIDS_PREPENDED_CONDA_CHANNELS=("$CPP_CHANNEL")
 
 # populates `RATTLER_CHANNELS` array and `RATTLER_ARGS` array
