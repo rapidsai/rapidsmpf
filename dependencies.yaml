@@ -116,6 +116,15 @@ files:
     includes:
       - run_rapidsmpf
       - depends_on_librapidsmpf
+  py_run_librapidsmpf:
+    output: pyproject
+    pyproject_dir: python/librapidsmpf
+    extras:
+      table: project
+    includes:
+      - depends_on_libcudf
+      - depends_on_librmm
+      - depends_on_libucxx
 channels:
   - rapidsai
   - rapidsai-nightly
