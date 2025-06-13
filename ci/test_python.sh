@@ -40,4 +40,4 @@ rapids-logger "pytest rapidsmpf"
 ./ci/run_pytests.sh && EXITCODE=$? || EXITCODE=$?;
 
 rapids-logger "Test script exiting with value: $EXITCODE"
-exit ${EXITCODE}
+exit "${EXITCODE}"
