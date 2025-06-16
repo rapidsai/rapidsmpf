@@ -46,7 +46,7 @@ PointerAlignment: Left
 SortIncludes: CaseSensitive
 SpaceBeforeParens: ControlStatementsExceptControlMacros
 UseTab: Never
-Standard: c++17
+Standard: c++20
 AccessModifierOffset: -2
 IncludeCategories:
   - Regex: '^<([a-z0-9_-]+)>$'
