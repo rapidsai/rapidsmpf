@@ -232,3 +232,11 @@ Each configuration option includes:
   - **Default**: `False`
   - **Description**: Enable RapidsMPF statitistics, which will be printed by each Worker
   on shutdown.
+
+- **`dask_staging_spill_buffer`**
+  - **Environment Variable**: `RAPIDSMPF_DASK_STAGING_SPILL_BUFFER`
+  - **Default**: `128 MiB`
+  - **Description**: Size of the intermediate staging buffer (in bytes) used for
+    device-to-host spilling. This temporary buffer is allocated on the device to
+    reduce memory pressure when transferring Python-managed GPU objects during
+    Dask spilling. Use `disabled` to skip allocation of the staging buffer.

@@ -5,10 +5,11 @@ from __future__ import annotations
 import gc
 import pickle
 import weakref
+from typing import Any
 
 import pytest
 
-from rapidsmpf.config import Options
+from rapidsmpf.config import Optional, OptionalBytes, Options
 
 
 def test_get_with_explicit_values() -> None:
@@ -176,6 +177,60 @@ def test_get_or_default_raises_for_invalid_bool_string() -> None:
 
     with pytest.raises(ValueError, match="Cannot parse boolean"):
         opts.get_or_default("enabled", default_value=True)
+
+
+@pytest.mark.parametrize(
+    "input_value,expected",
+    [
+        ("false", None),
+        ("FALSE", None),
+        ("no", None),
+        ("No", None),
+        ("off", None),
+        ("OFF", None),
+        ("disable", None),
+        ("DISABLE", None),
+        ("disabled", None),
+        ("Disabled", None),
+        (" true ", " true "),  # not a disable keyword
+        ("100", "100"),
+        ("", ""),
+        (123, 123),  # non-string input preserved
+        (None, None),  # None input preserved
+        ("  off  ", None),  # whitespace stripped
+    ],
+)
+def test_Optional_values(input_value: Any, expected: Any) -> None:
+    d = Optional(input_value)
+    assert d.value == expected
+
+
+def test_Optional_with_options_returns_default_value() -> None:
+    opts = Options()
+    val = opts.get_or_default("dask_periodic_spill_check", default_value=Optional(42))
+    assert isinstance(val, Optional)
+    assert val.value == 42
+
+
+def test_Optional_overrides_with_disabled_string() -> None:
+    opts = Options({"dask_periodic_spill_check": "off"})
+    val = opts.get_or_default("dask_periodic_spill_check", default_value=Optional(42))
+    assert isinstance(val, Optional)
+    assert val.value is None
+
+
+def test_Optional_default_can_be_none() -> None:
+    opts = Options()
+    val = opts.get_or_default("some_key", default_value=Optional(None))
+    assert isinstance(val, Optional)
+    assert val.value is None
+
+
+def test_Optionalbytes_with_options() -> None:
+    opts = Options()
+    val = opts.get_or_default("max_transfer", default_value=OptionalBytes("1MiB"))
+    assert isinstance(val, OptionalBytes)
+    assert val.value == 2**20
 
 
 def test_get_strings_returns_empty_dict_for_empty_options() -> None:
