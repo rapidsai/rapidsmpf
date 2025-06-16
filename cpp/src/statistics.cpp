@@ -119,20 +119,20 @@ std::string Statistics::report(std::string const& header) const {
         ss << "Disabled";
         return ss.str();
     }
-    ss << "Legends:\n"
-       << "  ncalls - number of times the code block was called.\n"
-       << "  peak   - peak memory allocated while running code block.\n"
-       << "  total  - total memory allocated while running code block.\n";
-    ss << "\nOrdered by: peak (descending)\n\n";
-
-    ss << std::right << std::setw(8) << "ncalls" << std::setw(12) << "peak"
-       << std::setw(12) << "total"
-       << "  filename:lineno(name)\n";
 
     // Insert the memory records in a vector we can sort.
     std::vector<std::pair<std::string, MemoryRecord>> sorted_records{
         memory_records_.begin(), memory_records_.end()
     };
+
+    // Insert the "main" record, which is the overall statistics from `mr_`.
+    auto const main_record = mr_->get_main_record();
+    sorted_records.emplace_back(
+        "main (all allocations using RmmResourceAdaptor)",
+        MemoryRecord{
+            .scoped = main_record, .global_peak = main_record.peak(), .num_calls = 1
+        }
+    );
 
     // Sort base on peak memory.
     std::sort(
@@ -143,12 +143,27 @@ std::string Statistics::report(std::string const& header) const {
         }
     );
 
+    ss << "Legends:\n"
+       << "  ncalls - number of times the scope was executed.\n"
+       << "  peak   - peak memory usage by the scope.\n"
+       << "  g-peak - global peak memory usage during the scope's execution.\n"
+       << "  accum  - total accumulated memory allocations in the scope.\n";
+    ss << "\nOrdered by: peak (descending)\n\n";
+
+    ss << std::right << std::setw(8) << "ncalls" << std::setw(12) << "peak"
+       << std::setw(12) << "g-peak" << std::setw(12) << "accum"
+       << "  filename:lineno(name)\n";
+
     // Print the sorted records.
     for (auto const& [name, record] : sorted_records) {
         ss << std::right << std::setw(8) << record.num_calls << std::setw(12)
            << rapidsmpf::format_nbytes(record.scoped.peak()) << std::setw(12)
+           << rapidsmpf::format_nbytes(record.global_peak) << std::setw(12)
            << rapidsmpf::format_nbytes(record.scoped.total()) << "  " << name << "\n";
     }
+    ss << "\nNote:\n"
+       << "  - Nested scopes are attributed to their parent only if executed on the same "
+          "thread.\n";
     return ss.str();
 }
 
