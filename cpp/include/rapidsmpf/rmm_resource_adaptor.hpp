@@ -9,7 +9,10 @@
 #include <cstddef>
 #include <mutex>
 #include <optional>
+#include <stack>
+#include <thread>
 #include <type_traits>
+#include <unordered_map>
 #include <unordered_set>
 
 #include <rmm/error.hpp>
@@ -32,7 +35,7 @@ struct ScopedMemoryRecord {
     };
 
     /// Array type for storing per-allocator statistics.
-    using AllocTypeArray = std::array<std::uint64_t, 2>;
+    using AllocTypeArray = std::array<std::int64_t, 2>;
 
     /**
      * @brief Returns the total number of allocations performed by the specified allocator
@@ -42,7 +45,7 @@ struct ScopedMemoryRecord {
      * sum across all types.
      * @return The number of allocations for the specified type.
      */
-    [[nodiscard]] std::uint64_t num_total_allocs(AllocType alloc_type = AllocType::ALL)
+    [[nodiscard]] std::int64_t num_total_allocs(AllocType alloc_type = AllocType::ALL)
         const noexcept;
 
     /**
@@ -55,7 +58,7 @@ struct ScopedMemoryRecord {
      * sum across all types.
      * @return The number of active allocations for the specified type.
      */
-    [[nodiscard]] std::uint64_t num_current_allocs(AllocType alloc_type = AllocType::ALL)
+    [[nodiscard]] std::int64_t num_current_allocs(AllocType alloc_type = AllocType::ALL)
         const noexcept;
 
     /**
@@ -67,12 +70,11 @@ struct ScopedMemoryRecord {
      * sum across all types.
      * @return The current memory usage in bytes for the specified type.
      */
-    [[nodiscard]] std::uint64_t current(AllocType alloc_type = AllocType::ALL)
+    [[nodiscard]] std::int64_t current(AllocType alloc_type = AllocType::ALL)
         const noexcept;
 
     /**
-     * @brief Returns the total number of bytes allocated over the lifetime of this
-     * record.
+     * @brief Returns the total number of bytes allocated.
      *
      * This value accumulates over time and is not reduced by deallocations.
      *
@@ -80,7 +82,7 @@ struct ScopedMemoryRecord {
      * the sum across all types.
      * @return The total number of bytes allocated for the specified type.
      */
-    [[nodiscard]] std::uint64_t total(AllocType alloc_type = AllocType::ALL)
+    [[nodiscard]] std::int64_t total(AllocType alloc_type = AllocType::ALL)
         const noexcept;
 
     /**
@@ -96,8 +98,7 @@ struct ScopedMemoryRecord {
      * @param alloc_type The allocator type to query. Defaults to `AllocType::ALL`.
      * @return The peak memory usage in bytes for the specified type.
      */
-    [[nodiscard]] std::uint64_t peak(AllocType alloc_type = AllocType::ALL)
-        const noexcept;
+    [[nodiscard]] std::int64_t peak(AllocType alloc_type = AllocType::ALL) const noexcept;
 
     /**
      * @brief Records a memory allocation event.
@@ -110,7 +111,7 @@ struct ScopedMemoryRecord {
      *
      * @note Is not thread-safe.
      */
-    void record_allocation(AllocType alloc_type, std::uint64_t nbytes);
+    void record_allocation(AllocType alloc_type, std::int64_t nbytes);
 
     /**
      * @brief Records a memory deallocation event.
@@ -122,7 +123,47 @@ struct ScopedMemoryRecord {
      *
      * @note Is not thread-safe.
      */
-    void record_deallocation(AllocType alloc_type, std::uint64_t nbytes);
+    void record_deallocation(AllocType alloc_type, std::int64_t nbytes);
+
+    /**
+     * @brief Merge the memory statistics of a subscope into this record.
+     *
+     * Combines the memory tracking data from a nested scope (subscope) into this
+     * record, updating statistics to include the subscope's allocations, peaks,
+     * and totals.
+     *
+     * This method treats the given record as a child scope nested within this scope,
+     * so peak usage is updated considering the current usage plus the subscope's peak,
+     * reflecting hierarchical (inclusive) memory usage accounting.
+     *
+     * This design allows memory scopes to be organized hierarchically, so when querying
+     * a parent scope, its statistics are **inclusive of all nested scopes** — similar to
+     * hierarchical memory profiling tools. However, it assumes that the parent scope's
+     * statistics remain constant during the execution of the subscope.
+     *
+     * @param subscope The scoped memory record representing a completed nested region.
+     * @return Reference to this object after merging the subscope.
+     *
+     * @see add_scope()
+     */
+    ScopedMemoryRecord& add_subscope(ScopedMemoryRecord const& subscope);
+
+    /**
+     * @brief Merge the memory statistics of another scope into this one.
+     *
+     * Unlike `add_subscope()`, this method treats the given scope as a peer or sibling,
+     * rather than a nested child. It aggregates totals and allocation counts and
+     * updates peak usage by taking the maximum peaks independently.
+     *
+     * This is useful for combining memory statistics across multiple independent
+     * scopes, such as from different threads or non-nested regions.
+     *
+     * @param scope The scope to combine with this one.
+     * @return Reference to this object after summing.
+     *
+     * @see add_subscope()
+     */
+    ScopedMemoryRecord& add_scope(ScopedMemoryRecord const& scope);
 
   private:
     AllocTypeArray num_current_allocs_{{0, 0}};
@@ -130,7 +171,7 @@ struct ScopedMemoryRecord {
     AllocTypeArray current_{{0, 0}};
     AllocTypeArray total_{{0, 0}};
     AllocTypeArray peak_{{0, 0}};
-    std::uint64_t highest_peak_{0};
+    std::int64_t highest_peak_{0};
 };
 
 static_assert(
@@ -184,21 +225,57 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     }
 
     /**
-     * @brief Get a copy of the tracked record.
+     * @brief Returns a copy of the main memory record.
      *
-     * @return Scoped memory record instance.
+     * The main record tracks memory statistics for the lifetime of the resource.
+     *
+     * @return A copy of the current main memory record.
      */
-    [[nodiscard]] ScopedMemoryRecord get_record() const {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return record_;
-    }
+    [[nodiscard]] ScopedMemoryRecord get_main_record() const;
 
     /**
      * @brief Get the total current allocated memory from both primary and fallback.
      *
      * @return Total number of currently allocated bytes.
      */
-    [[nodiscard]] std::uint64_t current_allocated() const noexcept;
+    [[nodiscard]] std::int64_t current_allocated() const noexcept;
+
+
+    /**
+     * @brief Begin recording a new scoped memory usage record for the current thread.
+     *
+     * This method pushes a new empty `ScopedMemoryRecord` onto the thread-local
+     * record stack, allowing for nested memory tracking scopes.
+     *
+     * Must be paired with a matching call to `end_scoped_memory_record()`.
+     *
+     * @see end_scoped_memory_record()
+     */
+    void begin_scoped_memory_record();
+
+    /**
+     * @brief End the current scoped memory record and return it.
+     *
+     * Pops the top `ScopedMemoryRecord` from the thread-local stack and returns it.
+     * If this scope was nested within another (i.e. if `begin_scoped_memory_record()` was
+     * called multiple times in a row), the returned scope is automatically added as a
+     * subscope to the next scope remaining on the stack.
+     *
+     * This allows nesting of scoped memory tracking, where each scope can contain one or
+     * more subscopes. When analyzing or reporting memory statistics, the memory usage
+     * of each scope can be calculated **inclusive of its subscopes**. This behavior
+     * mimics standard hierarchical memory profilers, where the total memory attributed to
+     * a scope includes all allocations made within it, plus those made in its nested
+     * regions.
+     *
+     * @return The scope that was just ended.
+     *
+     * @throws std::out_of_range if called without a matching
+     * `begin_scoped_memory_record()`.
+     *
+     * @see begin_scoped_memory_record()
+     */
+    ScopedMemoryRecord end_scoped_memory_record();
 
   private:
     /**
@@ -241,7 +318,13 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     rmm::device_async_resource_ref primary_mr_;
     std::optional<rmm::device_async_resource_ref> fallback_mr_;
     std::unordered_set<void*> fallback_allocations_;
-    ScopedMemoryRecord record_;
+
+    /// Tracks memory statistics for the lifetime of the resource.
+    ScopedMemoryRecord main_record_;
+    /// Per-thread stack of scoped records, used with begin/end scoped memory tracking.
+    std::unordered_map<std::thread::id, std::stack<ScopedMemoryRecord>> record_stacks_;
+    /// Maps allocated memory pointers to the thread IDs that allocated them.
+    std::unordered_map<void*, std::thread::id> allocating_threads_;
 };
 
 

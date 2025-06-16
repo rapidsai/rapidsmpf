@@ -323,7 +323,7 @@ Shuffle:
     elapsed_time = MPI.Wtime() - start_time
     MPI.COMM_WORLD.barrier()
 
-    mem_peak = format_bytes(mr.get_record().peak())
+    mem_peak = format_bytes(mr.get_main_record().peak())
     comm.logger.print(
         f"elapsed: {elapsed_time:.2f} sec | rmm device memory peak: {mem_peak}"
     )

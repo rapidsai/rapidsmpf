@@ -19,42 +19,41 @@ namespace {
  *                   the function returns the sum across all entries in the array.
  * @return The requested statistic value or the accumulated total.
  */
-std::uint64_t get_or_accumulate(
+std::int64_t get_or_accumulate(
     ScopedMemoryRecord::AllocTypeArray const& arr,
     ScopedMemoryRecord::AllocType alloc_type
 ) noexcept {
     if (alloc_type == ScopedMemoryRecord::AllocType::ALL) {
-        return std::accumulate(arr.begin(), arr.end(), std::uint64_t{0});
+        return std::accumulate(arr.begin(), arr.end(), std::int64_t{0});
     }
     return arr[static_cast<std::size_t>(alloc_type)];
 }
 }  // namespace
 
-std::uint64_t ScopedMemoryRecord::num_total_allocs(AllocType alloc_type) const noexcept {
+std::int64_t ScopedMemoryRecord::num_total_allocs(AllocType alloc_type) const noexcept {
     return get_or_accumulate(num_total_allocs_, alloc_type);
 }
 
-std::uint64_t ScopedMemoryRecord::num_current_allocs(AllocType alloc_type
-) const noexcept {
+std::int64_t ScopedMemoryRecord::num_current_allocs(AllocType alloc_type) const noexcept {
     return get_or_accumulate(num_current_allocs_, alloc_type);
 }
 
-std::uint64_t ScopedMemoryRecord::current(AllocType alloc_type) const noexcept {
+std::int64_t ScopedMemoryRecord::current(AllocType alloc_type) const noexcept {
     return get_or_accumulate(current_, alloc_type);
 }
 
-std::uint64_t ScopedMemoryRecord::total(AllocType alloc_type) const noexcept {
+std::int64_t ScopedMemoryRecord::total(AllocType alloc_type) const noexcept {
     return get_or_accumulate(total_, alloc_type);
 }
 
-std::uint64_t ScopedMemoryRecord::peak(AllocType alloc_type) const noexcept {
+std::int64_t ScopedMemoryRecord::peak(AllocType alloc_type) const noexcept {
     if (alloc_type == AllocType::ALL) {
         return highest_peak_;
     }
     return peak_[static_cast<std::size_t>(alloc_type)];
 }
 
-void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::uint64_t nbytes) {
+void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::int64_t nbytes) {
     RAPIDSMPF_EXPECTS(
         alloc_type != AllocType::ALL,
         "AllocType::ALL may not be used to record allocation"
@@ -68,7 +67,7 @@ void ScopedMemoryRecord::record_allocation(AllocType alloc_type, std::uint64_t n
     highest_peak_ = std::max(highest_peak_, current());
 }
 
-void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::uint64_t nbytes) {
+void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::int64_t nbytes) {
     RAPIDSMPF_EXPECTS(
         alloc_type != AllocType::ALL,
         "AllocType::ALL may not be used to record deallocation"
@@ -78,25 +77,91 @@ void ScopedMemoryRecord::record_deallocation(AllocType alloc_type, std::uint64_t
     --num_current_allocs_[at];
 }
 
-std::uint64_t RmmResourceAdaptor::current_allocated() const noexcept {
+ScopedMemoryRecord& ScopedMemoryRecord::add_subscope(ScopedMemoryRecord const& subscope) {
+    highest_peak_ = std::max(highest_peak_, current() + subscope.highest_peak_);
+    for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
+        auto i = static_cast<std::size_t>(type);
+        peak_[i] = std::max(peak_[i], current_[i] + subscope.peak_[i]);
+        num_total_allocs_[i] += subscope.num_total_allocs_[i];
+        num_current_allocs_[i] += subscope.num_current_allocs_[i];
+        current_[i] += subscope.current_[i];
+        total_[i] += subscope.total_[i];
+    }
+    return *this;
+}
+
+ScopedMemoryRecord& ScopedMemoryRecord::add_scope(ScopedMemoryRecord const& scope) {
+    highest_peak_ = std::max(highest_peak_, scope.highest_peak_);
+    for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
+        auto i = static_cast<std::size_t>(type);
+        peak_[i] = std::max(peak_[i], scope.peak_[i]);
+        current_[i] += scope.current_[i];
+        total_[i] += scope.total_[i];
+        num_total_allocs_[i] += scope.num_total_allocs_[i];
+        num_current_allocs_[i] += scope.num_current_allocs_[i];
+    }
+    return *this;
+}
+
+ScopedMemoryRecord RmmResourceAdaptor::get_main_record() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return record_.current();
+    return main_record_;
+}
+
+std::int64_t RmmResourceAdaptor::current_allocated() const noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return main_record_.current();
+}
+
+void RmmResourceAdaptor::begin_scoped_memory_record() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    // Push an empty scope on the stack.
+    record_stacks_[std::this_thread::get_id()].emplace();
+}
+
+ScopedMemoryRecord RmmResourceAdaptor::end_scoped_memory_record() {
+    std::lock_guard lock(mutex_);
+    auto& stack = record_stacks_[std::this_thread::get_id()];
+    auto ret = stack.top();
+    stack.pop();
+    if (!stack.empty()) {
+        // Add this ending scope to the new topmost scope.
+        stack.top().add_subscope(ret);
+    }
+    return ret;
 }
 
 void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view stream) {
+    constexpr auto PRIMARY = ScopedMemoryRecord::AllocType::PRIMARY;
+    constexpr auto FALLBACK = ScopedMemoryRecord::AllocType::FALLBACK;
+
     void* ret{};
+    auto alloc_type = PRIMARY;
     try {
         ret = primary_mr_.allocate_async(nbytes, stream);
-        std::lock_guard<std::mutex> lock(mutex_);
-        record_.record_allocation(ScopedMemoryRecord::AllocType::PRIMARY, nbytes);
     } catch (rmm::out_of_memory const& e) {
         if (fallback_mr_.has_value()) {
+            alloc_type = FALLBACK;
             ret = fallback_mr_->allocate_async(nbytes, stream);
             std::lock_guard<std::mutex> lock(mutex_);
             fallback_allocations_.insert(ret);
-            record_.record_allocation(ScopedMemoryRecord::AllocType::FALLBACK, nbytes);
         } else {
             throw;
+        }
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // Always record the allocation on the main record.
+    main_record_.record_allocation(alloc_type, static_cast<std::int64_t>(nbytes));
+
+    // But only record the allocation on the thread stack, if `record_stacks_`
+    // isn't empty i.e. someone has called `begin_scoped_memory_record`.
+    if (!record_stacks_.empty()) {
+        auto const thread_id = std::this_thread::get_id();
+        auto& record = record_stacks_[thread_id];
+        if (!record.empty()) {
+            record.top().record_allocation(alloc_type, static_cast<std::int64_t>(nbytes));
+            allocating_threads_.insert({ret, thread_id});
         }
     }
     return ret;
@@ -105,16 +170,36 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
 void RmmResourceAdaptor::do_deallocate(
     void* ptr, std::size_t nbytes, rmm::cuda_stream_view stream
 ) {
-    std::unique_lock lock(mutex_);
-    if (fallback_allocations_.erase(ptr) == 1)
-    {  // ptr was allocated from fallback mr and fallback mr is available
-        record_.record_deallocation(ScopedMemoryRecord::AllocType::FALLBACK, nbytes);
-        lock.unlock();
-        fallback_mr_->deallocate_async(ptr, nbytes, stream);
-    } else {
-        record_.record_deallocation(ScopedMemoryRecord::AllocType::PRIMARY, nbytes);
-        lock.unlock();
+    constexpr auto PRIMARY = ScopedMemoryRecord::AllocType::PRIMARY;
+    constexpr auto FALLBACK = ScopedMemoryRecord::AllocType::FALLBACK;
+
+    ScopedMemoryRecord::AllocType alloc_type;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        alloc_type = (fallback_allocations_.erase(ptr) == 0) ? PRIMARY : FALLBACK;
+    }
+
+    if (alloc_type == PRIMARY) {
         primary_mr_.deallocate_async(ptr, nbytes, stream);
+    } else {
+        fallback_mr_->deallocate_async(ptr, nbytes, stream);
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    // Always record the deallocation on the main record.
+    main_record_.record_deallocation(alloc_type, static_cast<std::int64_t>(nbytes));
+    // But only record it on the thread stack if it exist.
+    if (!allocating_threads_.empty()) {
+        auto const node = allocating_threads_.extract(ptr);
+        if (node) {
+            auto const thread_id = node.mapped();  // `ptr` was allocated by `thread_id`.
+            auto& record = record_stacks_[thread_id];
+            if (!record.empty()) {
+                record.top().record_deallocation(
+                    alloc_type, static_cast<std::int64_t>(nbytes)
+                );
+            }
+        }
     }
 }
 
