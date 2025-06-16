@@ -297,21 +297,14 @@ class Statistics {
      * @param name Name of the scope.
      * @return A MemoryRecorder instance.
      */
-    MemoryRecorder create_memory_recorder(std::string name) {
-        if (mr_ == nullptr) {
-            return MemoryRecorder{};
-        }
-        return MemoryRecorder{this, mr_, std::move(name)};
-    }
+    MemoryRecorder create_memory_recorder(std::string name);
 
     /**
      * @brief Retrieves all memory profiling records stored by this instance.
      *
      * @return A reference to a map from record name to memory usage data.
      */
-    std::unordered_map<std::string, MemoryRecord> const& get_memory_records() const {
-        return memory_records_;
-    }
+    std::unordered_map<std::string, MemoryRecord> const& get_memory_records() const;
 
   private:
     mutable std::mutex mutex_;

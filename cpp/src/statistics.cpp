@@ -91,6 +91,18 @@ Statistics::MemoryRecorder::~MemoryRecorder() {
     record.global_peak = std::max(record.global_peak, scope.peak());
 }
 
+Statistics::MemoryRecorder Statistics::create_memory_recorder(std::string name) {
+    if (mr_ == nullptr) {
+        return MemoryRecorder{};
+    }
+    return MemoryRecorder{this, mr_, std::move(name)};
+}
+
+std::unordered_map<std::string, Statistics::MemoryRecord> const&
+Statistics::get_memory_records() const {
+    return memory_records_;
+}
+
 std::string Statistics::report(std::string const& header) const {
     std::stringstream ss;
     ss << header;
