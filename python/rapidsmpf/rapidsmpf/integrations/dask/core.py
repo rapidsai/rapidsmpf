@@ -22,8 +22,8 @@ from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.buffer.spill_collection import SpillCollection
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
 from rapidsmpf.config import (
-    Disableable,
-    DisableableBytes,
+    Optional,
+    OptionalBytes,
     Options,
     get_environment_variables,
 )
@@ -271,7 +271,7 @@ def rmpf_worker_setup(
             mr,
             memory_available=memory_available,
             periodic_spill_check=ctx.options.get_or_default(
-                "dask_periodic_spill_check", default_value=Disableable(1e-3)
+                "dask_periodic_spill_check", default_value=Optional(1e-3)
             ).value,
         )
 
@@ -280,7 +280,7 @@ def rmpf_worker_setup(
         # TODO: maybe have a pool of staging buffers?
         spill_staging_buffer_size = ctx.options.get_or_default(
             "dask_staging_spill_buffer",
-            default_value=DisableableBytes("32 MiB"),
+            default_value=OptionalBytes("128 MiB"),
         ).value
         spill_staging_buffer = (
             None

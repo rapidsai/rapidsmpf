@@ -351,7 +351,7 @@ def get_environment_variables(str key_regex = "RAPIDSMPF_(.*)"):
     return ret
 
 
-class Disableable:
+class Optional:
     """
     Represents an option value that can be explicitly disabled.
 
@@ -359,7 +359,7 @@ class Disableable:
     indicators that the value is disabled (case-insensitive): {"false", "no",
     "off", "disable", "disabled"}.
 
-    This is typically used to simplify optional or disableable options with
+    This is typically used to simplify optional or Optional options with
     `Options.get_or_default()`.
 
     Parameters
@@ -375,23 +375,23 @@ class Disableable:
 
     Examples
     --------
-    >>> from rapidsmpf.config import Disableable, Options
-    >>> Disableable("OFF").value
+    >>> from rapidsmpf.config import Optional, Options
+    >>> Optional("OFF").value
     None
 
-    >>> Disableable("no").value
+    >>> Optional("no").value
     None
 
-    >>> Disableable("100").value
+    >>> Optional("100").value
     '100'
 
-    >>> Disableable("").value
+    >>> Optional("").value
     ''
 
     >>> opts = Options()
     >>> opts.get_or_default(
     ...     "dask_periodic_spill_check",
-    ...     default_value=Disableable(1e-3)
+    ...     default_value=Optional(1e-3)
     ... ).value
     0.001
     """
@@ -403,11 +403,11 @@ class Disableable:
             self.value = value
 
 
-class DisableableBytes(Disableable):
+class OptionalBytes(Optional):
     """
     Represents a byte-sized option that can be explicitly disabled.
 
-    This class is a specialization of `Disableable` that interprets the input
+    This class is a specialization of `Optional` that interprets the input
     as a human-readable byte size string (e.g., "100 MB", "1KiB", "1e6").
     If the input is one of the disable keywords (e.g., "off", "no", "false"),
     the value is treated as disabled (`None`). Otherwise, it is parsed to an
@@ -429,14 +429,14 @@ class DisableableBytes(Disableable):
 
     Examples
     --------
-    >>> from rapidsmpf.config import DisableableBytes
-    >>> DisableableBytes("1KiB").value
+    >>> from rapidsmpf.config import OptionalBytes
+    >>> OptionalBytes("1KiB").value
     1024
 
-    >>> DisableableBytes("OFF").value is None
+    >>> OptionalBytes("OFF").value is None
     True
 
-    >>> DisableableBytes(2048).value
+    >>> OptionalBytes(2048).value
     2048
     """
     def __init__(self, value):
