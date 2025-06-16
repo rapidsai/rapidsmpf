@@ -769,10 +769,10 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 
     // Insert spills does nothing when device memory is available, we start
     // with 2 device allocations.
-    EXPECT_EQ(mr.get_record().num_current_allocs(), 2);
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
     shuffler.insert(std::move(input_chunks));
     // And we end with two 2 device allocations.
-    EXPECT_EQ(mr.get_record().num_current_allocs(), 2);
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
     // Let's force spilling.
     device_memory_available = -1000;
@@ -780,20 +780,20 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     {
         // Now extract triggers spilling of the partition not being extracted.
         std::vector<rapidsmpf::PackedData> output_chunks = shuffler.extract(0);
-        EXPECT_EQ(mr.get_record().num_current_allocs(), 1);
+        EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
 
         // And insert also triggers spilling. We end up with zero device allocations.
         std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunk;
         chunk.emplace(0, std::move(output_chunks.at(0)));
         shuffler.insert(std::move(chunk));
-        EXPECT_EQ(mr.get_record().num_current_allocs(), 0);
+        EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
     }
 
     // Extract and unspill both partitions.
     std::vector<rapidsmpf::PackedData> out0 = shuffler.extract(0);
-    EXPECT_EQ(mr.get_record().num_current_allocs(), 1);
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
     std::vector<rapidsmpf::PackedData> out1 = shuffler.extract(1);
-    EXPECT_EQ(mr.get_record().num_current_allocs(), 2);
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
     // Disable spilling and insert the first partition.
     device_memory_available = 1000;
@@ -802,7 +802,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         chunk.emplace(0, std::move(out0.at(0)));
         shuffler.insert(std::move(chunk));
     }
-    EXPECT_EQ(mr.get_record().num_current_allocs(), 2);
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
     // Enable spilling and insert the second partition, which should trigger spilling
     // of both the first partition already in the shuffler and the second partition
@@ -813,7 +813,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         chunk.emplace(1, std::move(out1.at(0)));
         shuffler.insert(std::move(chunk));
     }
-    EXPECT_EQ(mr.get_record().num_current_allocs(), 0);
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
 
     shuffler.shutdown();
 }

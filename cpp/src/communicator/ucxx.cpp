@@ -218,7 +218,7 @@ class SharedResources {
         std::lock_guard<std::mutex> lock(listener_mutex_);
         auto worker = std::dynamic_pointer_cast<::ucxx::Worker>(listener->getParent());
         rank_to_listener_address_[rank_] =
-            ListenerAddress{worker->getAddress(), .rank = rank_};
+            ListenerAddress{.address = worker->getAddress(), .rank = rank_};
         listener_ = std::move(listener);
     }
 
@@ -882,7 +882,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
                     auto packed_listener_address_rank = control_pack(
                         ControlMessage::QueryRank,
                         ListenerAddress{
-                            shared_resources->get_worker()->getAddress(),
+                            .address = shared_resources->get_worker()->getAddress(),
                             .rank = shared_resources->rank()
                         }
                     );
@@ -920,7 +920,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 
             // Inform listener address
             ListenerAddress listener_address = ListenerAddress{
-                std::make_pair(listener->getIp(), listener->getPort()),
+                .address = std::make_pair(listener->getIp(), listener->getPort()),
                 .rank = shared_resources->rank()
             };
             auto packed_listener_address =

@@ -16,7 +16,7 @@ import os
 import re
 import typing
 
-from rapidsmpf.utils.string import parse_boolean
+from rapidsmpf.utils.string import parse_boolean, parse_bytes
 
 
 cdef class Options:
@@ -149,15 +149,13 @@ cdef class Options:
 
         Notes
         -----
-        - Supported types for ``default_value`` include: `bool`, `int`, `float`, and
-          `str`.
         - This method infers the return type from ``type(default_value)``.
         - If ``default_value`` is used, it will be cached and reused for subsequent
           accesses of the same key.
 
         Examples
         --------
-        >>> opts = Options({})
+        >>> opts = Options()
         >>> opts.get_or_default("debug", default_value=False)
         False
         >>> opts.get_or_default("timeout", default_value=1.5)
@@ -351,3 +349,95 @@ def get_environment_variables(str key_regex = "RAPIDSMPF_(.*)"):
         if match:
             ret[match.group(1)] = value
     return ret
+
+
+class Optional:
+    """
+    Represents an option value that can be explicitly disabled.
+
+    This class wraps an option value and interprets certain strings as
+    indicators that the value is disabled (case-insensitive): {"false", "no",
+    "off", "disable", "disabled"}.
+
+    This is typically used to simplify optional or Optional options with
+    `Options.get_or_default()`.
+
+    Parameters
+    ----------
+    value
+        The input value to interpret.
+
+    Attributes
+    ----------
+    value
+        The raw input value, unless it matched a disable keyword, in which case
+        the value is `None`.
+
+    Examples
+    --------
+    >>> from rapidsmpf.config import Optional, Options
+    >>> Optional("OFF").value
+    None
+
+    >>> Optional("no").value
+    None
+
+    >>> Optional("100").value
+    '100'
+
+    >>> Optional("").value
+    ''
+
+    >>> opts = Options()
+    >>> opts.get_or_default(
+    ...     "dask_periodic_spill_check",
+    ...     default_value=Optional(1e-3)
+    ... ).value
+    0.001
+    """
+
+    def __init__(self, value):
+        if str(value).strip().lower() in {"false", "no", "off", "disable", "disabled"}:
+            self.value = None
+        else:
+            self.value = value
+
+
+class OptionalBytes(Optional):
+    """
+    Represents a byte-sized option that can be explicitly disabled.
+
+    This class is a specialization of `Optional` that interprets the input
+    as a human-readable byte size string (e.g., "100 MB", "1KiB", "1e6").
+    If the input is one of the disable keywords (e.g., "off", "no", "false"),
+    the value is treated as disabled (`None`). Otherwise, it is parsed to an
+    integer number of bytes using ``rapidsmpf.utils.string.parse_bytes()``.
+
+    This is useful for configuration options that may be set to a size limit
+    or explicitly turned off.
+
+    Parameters
+    ----------
+    value
+        A human-readable byte size (e.g., "1MiB", "100 MB") or a disable
+        keyword (case-insensitive), or an integer number of bytes.
+
+    Attributes
+    ----------
+    value
+        The size in bytes, or `None` if disabled.
+
+    Examples
+    --------
+    >>> from rapidsmpf.config import OptionalBytes
+    >>> OptionalBytes("1KiB").value
+    1024
+
+    >>> OptionalBytes("OFF").value is None
+    True
+
+    >>> OptionalBytes(2048).value
+    2048
+    """
+    def __init__(self, value):
+        super().__init__(parse_bytes(value))

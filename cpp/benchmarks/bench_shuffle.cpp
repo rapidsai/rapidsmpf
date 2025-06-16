@@ -532,10 +532,13 @@ int main(int argc, char** argv) {
            << " | out_parts: " << args.num_output_partitions
            << " | nranks: " << comm->nranks();
         if (args.enable_memory_profiler) {
-            auto record = stat_enabled_mr->get_record();
+            auto record = stat_enabled_mr->get_main_record();
             ss << " | device memory peak: " << rapidsmpf::format_nbytes(record.peak())
                << " | device memory total: "
-               << rapidsmpf::format_nbytes(record.total() / total_num_runs) << " (avg)";
+               << rapidsmpf::format_nbytes(
+                      record.total() / static_cast<std::int64_t>(total_num_runs)
+                  )
+               << " (avg)";
         }
         log.print(ss.str());
     }

@@ -21,7 +21,12 @@ from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.buffer.spill_collection import SpillCollection
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
-from rapidsmpf.config import Options, get_environment_variables
+from rapidsmpf.config import (
+    Optional,
+    OptionalBytes,
+    Options,
+    get_environment_variables,
+)
 from rapidsmpf.integrations.dask import _compat
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
@@ -237,16 +242,22 @@ def rmpf_worker_setup(
         assert ctx.comm is not None
         ctx.progress_thread = ProgressThread(ctx.comm, ctx.statistics)
 
-        mr = rmm.mr.get_current_device_resource()
-        if ctx.options.get_or_default("dask_oom_protection", default_value=False):
-            mr = RmmResourceAdaptor(
-                upstream_mr=mr, fallback_mr=rmm.mr.ManagedMemoryResource()
-            )
-
-        # Setup a buffer_resource.
         # Wrap the current RMM resource in statistics adaptor.
-        mr = RmmResourceAdaptor(mr)
+        mr = rmm.mr.get_current_device_resource()
+        mr = RmmResourceAdaptor(
+            mr,
+            fallback_mr=(
+                # Use a managed memory resource if OOM protection is enabled.
+                rmm.mr.ManagedMemoryResource()
+                if ctx.options.get_or_default(
+                    "dask_oom_protection", default_value=False
+                )
+                else None
+            ),
+        )
         rmm.mr.set_current_device_resource(mr)
+
+        # Create a buffer resource with a limiting availability function.
         total_memory = rmm.mr.available_device_memory()[1]
         spill_device = ctx.options.get_or_default(
             "dask_spill_device", default_value=0.50
@@ -256,44 +267,33 @@ def rmpf_worker_setup(
                 mr, limit=int(total_memory * spill_device)
             )
         }
-
-        def get_periodic_spill_check() -> float | None:
-            """
-            Get the `dask_periodic_spill_check` option.
-
-            We define a parser that support both float and the "disable" keyword.
-            """
-
-            def periodic_spill_check_factory(val: str) -> float:
-                if val == "":
-                    return 1e-3  # default
-                elif "disable" in val:
-                    return -1  # TODO: use None, when config support PyObject.
-                return float(val)
-
-            ret = ctx.options.get(
-                "dask_periodic_spill_check",
-                return_type=float,
-                factory=periodic_spill_check_factory,
-            )
-            return None if ret < 0 else ret
-
         ctx.br = BufferResource(
             mr,
             memory_available=memory_available,
-            periodic_spill_check=get_periodic_spill_check(),
+            periodic_spill_check=ctx.options.get_or_default(
+                "dask_periodic_spill_check", default_value=Optional(1e-3)
+            ).value,
         )
 
-        # Create a spill function that spills the python objects in the spill-
-        # collection. This way, we have a central place (the dask worker) to track
-        # and trigger spilling of python objects. Additionally, we create a staging
-        # device buffer for the spilling to reduce device memory pressure.
+        # If enabled, create a staging device buffer for the spilling to reduce
+        # device memory pressure.
         # TODO: maybe have a pool of staging buffers?
-        spill_staging_buffer = rmm.DeviceBuffer(
-            size=2**25, stream=DEFAULT_STREAM, mr=mr
+        spill_staging_buffer_size = ctx.options.get_or_default(
+            "dask_staging_spill_buffer",
+            default_value=OptionalBytes("128 MiB"),
+        ).value
+        spill_staging_buffer = (
+            None
+            if spill_staging_buffer_size is None
+            else rmm.DeviceBuffer(
+                size=spill_staging_buffer_size, stream=DEFAULT_STREAM, mr=mr
+            )
         )
         spill_staging_buffer_lock = threading.Lock()
 
+        # Create a spill function that spills the python objects in the spill-
+        # collection. This way, we have a central place (the dask worker) to track
+        # and trigger spilling of python objects.
         def spill_func(amount: int) -> int:
             """
             Spill a specified amount of data from the Python object spill collection.
@@ -311,7 +311,9 @@ def rmpf_worker_setup(
             -------
             The actual amount of data spilled, in bytes.
             """
-            if spill_staging_buffer_lock.acquire(blocking=False):
+            if spill_staging_buffer is not None and spill_staging_buffer_lock.acquire(
+                blocking=False
+            ):
                 try:
                     return ctx.spill_collection.spill(
                         amount,

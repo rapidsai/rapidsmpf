@@ -353,7 +353,7 @@ class Communicator {
         /// number returned by `std::this_thread::get_id()`.
         std::uint32_t thread_id_names_counter{0};
 
-        /// Thread name record mapping thread IDs to their shorten names.
+        /// Thread record mapping thread IDs to their shorten names.
         std::unordered_map<std::thread::id, std::uint32_t> thread_id_names;
     };
 

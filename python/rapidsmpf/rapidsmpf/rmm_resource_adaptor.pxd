@@ -36,7 +36,7 @@ cdef extern from "<rapidsmpf/rmm_resource_adaptor.hpp>" nogil:
             device_memory_resource* fallback_mr,
         ) except +
 
-        cpp_ScopedMemoryRecord get_record() except +
+        cpp_ScopedMemoryRecord get_main_record() except +
         uint64_t current_allocated() noexcept
 
 
