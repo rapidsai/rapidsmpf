@@ -234,7 +234,7 @@ rapidsmpf::Duration do_run(
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
             output_partitions.push_back(*rapidsmpf::unpack_and_concat(
-                std::move(packed_chunks), stream, br->device_mr()
+                std::move(packed_chunks), stream, br->device_mr(), statistics
             ));
         }
         stream.synchronize();
@@ -344,7 +344,8 @@ rapidsmpf::Duration run_hash_partition_inline(
                     cudf::hash_id::HASH_MURMUR3,
                     cudf::DEFAULT_HASH_SEED,
                     stream,
-                    br->device_mr()
+                    br->device_mr(),
+                    statistics
                 ));
                 partition.release();
             }
