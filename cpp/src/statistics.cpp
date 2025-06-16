@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <sstream>
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf {

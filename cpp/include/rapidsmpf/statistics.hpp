@@ -5,13 +5,13 @@
 #pragma once
 #include <cstddef>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <string>
 #include <utility>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
 
