@@ -16,6 +16,7 @@
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils.hpp>
 
 #include "utils/misc.hpp"
@@ -209,6 +210,7 @@ rapidsmpf::Duration do_run(
     auto const t0_elapsed = rapidsmpf::Clock::now();
     {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
+        RAPIDSMPF_MEMORY_PROFILE(statistics, "shuffling");
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
             progress_thread,
@@ -491,7 +493,7 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == total_num_runs - 1) {
-            stats = std::make_shared<rapidsmpf::Statistics>();
+            stats = std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get());
         }
         double elapsed;
         if (args.hash_partition_with_datagen) {
