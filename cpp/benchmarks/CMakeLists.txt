@@ -8,11 +8,11 @@ add_executable(bench_shuffle "bench_shuffle.cpp" ${UTILS_SOURCES})
 set_target_properties(
   bench_shuffle
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
-             CXX_STANDARD 17
+             CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              # For std:: support of __int128_t. Can be removed once using cuda::std
              CXX_EXTENSIONS ON
-             CUDA_STANDARD 17
+             CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
 )
 target_compile_options(
@@ -34,11 +34,11 @@ add_executable(bench_comm "bench_comm.cpp" ${UTILS_SOURCES})
 set_target_properties(
   bench_comm
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
-             CXX_STANDARD 17
+             CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              # For std:: support of __int128_t. Can be removed once using cuda::std
              CXX_EXTENSIONS ON
-             CUDA_STANDARD 17
+             CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
 )
 target_compile_options(
@@ -64,11 +64,11 @@ add_executable(bench_partition "bench_partition.cpp" ${UTILS_SOURCES})
 set_target_properties(
   bench_partition
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
-             CXX_STANDARD 17
+             CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              # For std:: support of __int128_t. Can be removed once using cuda::std
              CXX_EXTENSIONS ON
-             CUDA_STANDARD 17
+             CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
 )
 target_compile_options(

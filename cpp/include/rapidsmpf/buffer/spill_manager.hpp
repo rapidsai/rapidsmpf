@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <map>
 #include <mutex>
 #include <optional>
 

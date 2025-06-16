@@ -3,10 +3,11 @@
 
 from collections.abc import Callable, Mapping
 
-from rmm.pylibrmm.memory_resource import DeviceMemoryResource, StatisticsResourceAdaptor
+from rmm.pylibrmm.memory_resource import DeviceMemoryResource
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.spill_manager import SpillManager
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 
 class BufferResource:
     def __init__(
@@ -22,7 +23,7 @@ class BufferResource:
 class LimitAvailableMemory:
     def __init__(
         self,
-        statistics_mr: StatisticsResourceAdaptor,
+        mr: RmmResourceAdaptor,
         limit: int,
     ) -> None: ...
     def __call__(self) -> int: ...

@@ -12,8 +12,11 @@ import ray
 import cudf
 import rmm
 
+from rapidsmpf.integrations.cudf.partition import (
+    partition_and_pack,
+    unpack_and_concat,
+)
 from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
-from rapidsmpf.shuffler import partition_and_pack, unpack_and_concat
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import (
     cudf_to_pylibcudf_table,

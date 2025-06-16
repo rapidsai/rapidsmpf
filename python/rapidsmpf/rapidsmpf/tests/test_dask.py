@@ -9,6 +9,7 @@ import dask.dataframe as dd
 import pytest
 
 from rapidsmpf.communicator import COMMUNICATORS
+from rapidsmpf.config import Options
 from rapidsmpf.examples.dask import DaskCudfIntegration
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
@@ -56,7 +57,7 @@ async def test_dask_ucxx_cluster_sync() -> None:
         Client(cluster) as client,
     ):
         assert len(cluster.workers) == get_n_gpus()
-        bootstrap_dask_cluster(client, spill_device=0.1)
+        bootstrap_dask_cluster(client, options=Options({"dask_spill_device": "0.1"}))
 
         def get_rank(dask_worker: Worker) -> int:
             # TODO: maybe move the cast into rapidsmpf_comm?
@@ -84,7 +85,9 @@ def test_dask_cudf_integration(
 
     with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
-            bootstrap_dask_cluster(client, spill_device=0.1)
+            bootstrap_dask_cluster(
+                client, options=Options({"dask_spill_device": "0.1"})
+            )
             df = (
                 dask.datasets.timeseries(
                     freq="3600s",
@@ -111,20 +114,21 @@ def test_dask_cudf_integration(
 
 
 def test_bootstrap_dask_cluster_idempotent() -> None:
+    options = Options({"dask_spill_device": "0.1"})
     with LocalCUDACluster() as cluster, Client(cluster) as client:
-        bootstrap_dask_cluster(client, spill_device=0.1)
+        bootstrap_dask_cluster(client, options=options)
         before = client.run(
             lambda dask_worker: id(get_worker_context(dask_worker).comm)
         )
 
-        bootstrap_dask_cluster(client, spill_device=0.1)
+        bootstrap_dask_cluster(client, options=options)
         after = client.run(lambda dask_worker: id(get_worker_context(dask_worker).comm))
         assert before == after
 
 
 def test_boostrap_single_node_cluster_no_deadlock() -> None:
     with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
-        bootstrap_dask_cluster(client, spill_device=0.1)
+        bootstrap_dask_cluster(client, options=Options({"dask_spill_device": "0.1"}))
 
 
 def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
@@ -177,7 +181,9 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
 
     with LocalCUDACluster(n_workers=1, loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
-            bootstrap_dask_cluster(client, spill_device=0.1)
+            bootstrap_dask_cluster(
+                client, options=Options({"dask_spill_device": "0.1"})
+            )
             max_num_shuffles = Shuffler.max_concurrent_shuffles
 
             # We can shuffle `max_num_shuffles` consecutive times.

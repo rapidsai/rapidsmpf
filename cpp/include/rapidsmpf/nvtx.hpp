@@ -4,11 +4,12 @@
  */
 #pragma once
 
-#include <limits>
 #include <stdexcept>
 #include <type_traits>
 
 #include <nvtx3/nvtx3.hpp>
+
+#include <rapidsmpf/utils.hpp>
 
 /**
  * @brief Help function to convert value to 64 bit signed integer
@@ -40,10 +41,6 @@ template <typename T, std::enable_if_t<std::is_floating_point_v<T>>* = nullptr>
 struct rapidsmpf_domain {
     static constexpr char const* name{"rapidsmpf"};  ///< nvtx domain name
 };
-
-// Macro to concatenate two tokens x and y.
-#define RAPIDSMPF_CONCAT_HELPER(x, y) x##y
-#define RAPIDSMPF_CONCAT(x, y) RAPIDSMPF_CONCAT_HELPER(x, y)
 
 // Macro to create a static, registered string that will not have a name conflict with any
 // registered string defined in the same scope.

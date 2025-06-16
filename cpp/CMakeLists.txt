@@ -109,7 +109,9 @@ endif()
 # ##################################################################################################
 # * library targets --------------------------------------------------------------------------------
 
-file(GLOB SOURCES "src/*.cpp" "src/shuffler/*.cpp" "src/communicator/*.cpp" "src/buffer/*.cpp")
+file(GLOB SOURCES "src/*.cpp" "src/buffer/*.cpp" "src/communicator/*.cpp"
+     "src/integrations/cudf/*.cpp" "src/shuffler/*.cpp"
+)
 
 # Without MPI support, remove the MPI communicator from the source list.
 if(NOT RAPIDSMPF_HAVE_MPI)
@@ -124,11 +126,11 @@ set_target_properties(
   PROPERTIES BUILD_RPATH "\$ORIGIN"
              INSTALL_RPATH "\$ORIGIN"
              # set target compile options
-             CXX_STANDARD 17
+             CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              # For std:: support of __int128_t. Can be removed once using cuda::std
              CXX_EXTENSIONS ON
-             CUDA_STANDARD 17
+             CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
              POSITION_INDEPENDENT_CODE ON
              INTERFACE_POSITION_INDEPENDENT_CODE ON

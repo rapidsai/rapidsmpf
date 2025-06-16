@@ -86,5 +86,6 @@ nitpick_ignore_regex = [
     ("py:obj", "rapidsmpf.communicator.communicator.LOG_LEVEL.*"),
     ("py:obj", "rapidsmpf.buffer.buffer.MemoryType.*"),
     ("py:obj", "(denominator|imag|numerator|real)"),
-
+    ('py:class', 'rmm.pylibrmm.stream.Stream'),
+    ('py:class', 'rmm.pylibrmm.memory_resource.DeviceMemoryResource'),
 ]

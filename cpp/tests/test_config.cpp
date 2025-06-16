@@ -110,6 +110,65 @@ TEST(OptionsTest, CaseSensitiveKeys) {
     EXPECT_THROW(Options opts(strings), std::invalid_argument);
 }
 
+TEST(OptionsTest, InsertIfAbsentInsertsNewKey) {
+    Options opts;
+    bool inserted = opts.insert_if_absent("somekey", "42");
+
+    EXPECT_TRUE(inserted);
+    int value = opts.get<int>("somekey", make_factory<int>(0, [](auto s) {
+                                  return std::stoi(s);
+                              }));
+    EXPECT_EQ(value, 42);
+}
+
+TEST(OptionsTest, InsertIfAbsentDoesNotOverwriteExistingKey) {
+    std::unordered_map<std::string, std::string> strings = {{"somekey", "123"}};
+    Options opts(strings);
+
+    // This should not overwrite the existing value
+    bool inserted = opts.insert_if_absent("SomeKey", "999");
+    EXPECT_FALSE(inserted);
+
+    int value = opts.get<int>("somekey", make_factory<int>(0, [](auto s) {
+                                  return std::stoi(s);
+                              }));
+    EXPECT_EQ(value, 123);
+}
+
+TEST(OptionsTest, InsertIfAbsentMapInsertsNewKeysOnly) {
+    Options opts;
+    // Add existing key
+    opts.insert_if_absent("existingkey", "111");
+    // Prepare map with existing and new keys
+    std::unordered_map<std::string, std::string> new_options = {
+        {"existingkey", "222"},  // Should NOT be inserted
+        {"newkey1", "333"},  // Should be inserted
+        {"newkey2", "444"}  // Should be inserted
+    };
+    // Insert using map overload
+    std::size_t inserted_count = opts.insert_if_absent(std::move(new_options));
+
+    // Check count: only newkey1 and newkey2 should be inserted
+    EXPECT_EQ(inserted_count, 2);
+
+    // Check existing key remains unchanged
+    int value = opts.get<int>("existingkey", make_factory<int>(0, [](auto s) {
+                                  return std::stoi(s);
+                              }));
+    EXPECT_EQ(value, 111);
+
+    // Check new keys are inserted
+    value = opts.get<int>("newkey1", make_factory<int>(0, [](auto s) {
+                              return std::stoi(s);
+                          }));
+    EXPECT_EQ(value, 333);
+
+    value = opts.get<int>("newkey2", make_factory<int>(0, [](auto s) {
+                              return std::stoi(s);
+                          }));
+    EXPECT_EQ(value, 444);
+}
+
 TEST(OptionsTest, GetStringsReturnsAllStoredOptions) {
     std::unordered_map<std::string, std::string> strings = {
         {"option1", "value1"}, {"option2", "value2"}, {"Option3", "value3"}

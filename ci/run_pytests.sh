@@ -14,14 +14,14 @@ export OMPI_ALLOW_RUN_AS_ROOT=1  # CI runs as root
 export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
 
-EXTRA_ARGS="$@"
+EXTRA_ARGS=("$@")
 run_mpirun_test() {
     local timeout="$1" # Timeout
     local nrank="$2"   # Number of ranks
     echo "Running pytest with $nrank ranks"
-    python ${TIMEOUT_TOOL_PATH} --enable-python "$timeout" \
+    python "${TIMEOUT_TOOL_PATH}" --enable-python "$timeout" \
         mpirun --map-by node --bind-to none -np "$nrank" \
-        python -m pytest --cache-clear --verbose $EXTRA_ARGS tests
+        python -m pytest --cache-clear --verbose "${EXTRA_ARGS[@]}" tests
 }
 
 # Note, we run with many different number of ranks, which we can do as long as
