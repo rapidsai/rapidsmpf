@@ -23,7 +23,7 @@ namespace rapidsmpf {
 class Statistics {
   public:
     /**
-     * @brief Constructs a new Statistics instance.
+     * @brief Constructs a new Statistics object.
      *
      * @param enabled If true, enables tracking of statistics. If false, all operations
      * are no-ops.
