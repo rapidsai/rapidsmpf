@@ -257,7 +257,7 @@ def rmpf_worker_setup(
         )
         rmm.mr.set_current_device_resource(mr)
 
-        # Create a buffer resource with an limiting availability function.
+        # Create a buffer resource with a limiting availability function.
         total_memory = rmm.mr.available_device_memory()[1]
         spill_device = ctx.options.get_or_default(
             "dask_spill_device", default_value=0.50
