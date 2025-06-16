@@ -27,7 +27,7 @@ std::unique_ptr<rmm::mr::host_memory_resource> create_host_memory_resource(
 
 // Benchmark for allocation
 static void BM_Allocate(benchmark::State& state) {
-    const size_t allocation_size = static_cast<size_t>(state.range(0));
+    const auto allocation_size = static_cast<size_t>(state.range(0));
     const std::string resource_type = state.range(1) == 0 ? "new_delete" : "pinned";
 
     auto mr = create_host_memory_resource(resource_type);
@@ -47,7 +47,7 @@ static void BM_Allocate(benchmark::State& state) {
 
 // Benchmark for deallocation
 static void BM_Deallocate(benchmark::State& state) {
-    const size_t allocation_size = static_cast<size_t>(state.range(0));
+    const auto allocation_size = static_cast<size_t>(state.range(0));
     const std::string resource_type = state.range(1) == 0 ? "new_delete" : "pinned";
 
     auto mr = create_host_memory_resource(resource_type);
@@ -64,7 +64,10 @@ static void BM_Deallocate(benchmark::State& state) {
     state.SetLabel("deallocate: " + resource_type);
 }
 
-// Benchmark for device to host transfer
+static constexpr int64_t kNumCopies = 8;
+
+// Benchmark for device to host transfer. This benchmark allocates a device buffer and a
+// host buffer, then copies the device buffer to the host buffer kNumCopies times.
 static void BM_DeviceToHostCopy(benchmark::State& state) {
     const auto transfer_size = static_cast<size_t>(state.range(0));
     const std::string resource_type = state.range(1) == 0 ? "new_delete" : "pinned";
@@ -81,20 +84,30 @@ static void BM_DeviceToHostCopy(benchmark::State& state) {
     // Allocate host memory and copy from device
     void* host_ptr = host_mr->allocate(transfer_size);
 
+    cudaStreamSynchronize(stream);
     for (auto _ : state) {
-        cudaMemcpyAsync(
-            host_ptr, device_buffer.data(), transfer_size, cudaMemcpyDeviceToHost, stream
-        );
+        for (size_t i = 0; i < kNumCopies; ++i) {
+            cudaMemcpyAsync(
+                static_cast<char*>(host_ptr),
+                device_buffer.data(),
+                transfer_size,
+                cudaMemcpyDeviceToHost,
+                stream
+            );
+        }
         cudaStreamSynchronize(stream);
     }
     // Cleanup
     host_mr->deallocate(host_ptr, transfer_size);
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(transfer_size) * kNumCopies
+    );
     state.SetLabel("memcpy device to host: " + resource_type);
 }
 
-// Benchmark for host to device transfer
+// Benchmark for host to device transfer. This benchmark allocates a host buffer and a
+// device buffer, then copies the host buffer to the device buffer kNumCopies times.
 static void BM_HostToDeviceCopy(benchmark::State& state) {
     const auto transfer_size = static_cast<size_t>(state.range(0));
     const std::string resource_type = state.range(1) == 0 ? "new_delete" : "pinned";
@@ -106,28 +119,37 @@ static void BM_HostToDeviceCopy(benchmark::State& state) {
     // Allocate host memory and initialize
     void* host_ptr = host_mr->allocate(transfer_size);
     memset(host_ptr, 0, transfer_size);
-    state.ResumeTiming();
 
     // Allocate device memory and copy from host
     auto device_buffer = rmm::device_buffer(transfer_size, stream, device_mr.get());
 
+    cudaStreamSynchronize(stream);
+
     for (auto _ : state) {
-        cudaMemcpyAsync(
-            device_buffer.data(), host_ptr, transfer_size, cudaMemcpyHostToDevice, stream
-        );
+        for (size_t i = 0; i < kNumCopies; ++i) {
+            cudaMemcpyAsync(
+                static_cast<char*>(device_buffer.data()),
+                host_ptr,
+                transfer_size,
+                cudaMemcpyHostToDevice,
+                stream
+            );
+        }
         cudaStreamSynchronize(stream);
     }
     // Cleanup
     host_mr->deallocate(host_ptr, transfer_size);
 
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(transfer_size));
+    state.SetBytesProcessed(
+        int64_t(state.iterations()) * int64_t(transfer_size) * kNumCopies
+    );
     state.SetLabel("memcpy host to device: " + resource_type);
 }
 
 // Custom argument generator for the benchmark
 void CustomArguments(benchmark::internal::Benchmark* b) {
     // Test different allocation sizes
-    for (auto size : {1<<10, 500<<10, 1<<20, 500<<20, 1<<30}) {
+    for (auto size : {1 << 10, 500 << 10, 1 << 20, 500 << 20, 1 << 30}) {
         // Test both memory resource types
         for (auto resource_type : {0, 1}) {
             b->Args({size, resource_type});
