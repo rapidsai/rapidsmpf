@@ -370,12 +370,12 @@ TEST(RmmResourceAdaptorScopedMemory, MultiThreadedScopedAllocations) {
     std::vector<std::thread> threads;
     std::vector<std::vector<void*>> allocations(num_threads);
     std::vector<rapidsmpf::ScopedMemoryRecord> records(num_threads);
-    std::barrier sync_point(num_threads);
+    std::barrier barrier(num_threads);
 
     for (int i = 0; i < num_threads; ++i) {
         threads.emplace_back([&, i]() {
             // Wait until all threads are ready to start
-            sync_point.arrive_and_wait();
+            barrier.arrive_and_wait();
 
             mr.begin_scoped_memory_record();
 
