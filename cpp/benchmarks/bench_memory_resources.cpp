@@ -90,7 +90,7 @@ static void BM_DeviceToHostCopy(benchmark::State& state) {
     benchmark::DoNotOptimize(device_buffer);
     benchmark::DoNotOptimize(host_ptr);
 
-    cudaStreamSynchronize(stream);
+    RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
     for (auto _ : state) {
         for (size_t i = 0; i < kNumCopies; ++i) {
             cudaMemcpyAsync(
@@ -101,7 +101,7 @@ static void BM_DeviceToHostCopy(benchmark::State& state) {
                 stream
             );
         }
-        cudaStreamSynchronize(stream);
+        RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
     }
     // Cleanup
     host_mr->deallocate(host_ptr, transfer_size);
@@ -132,7 +132,7 @@ static void BM_HostToDeviceCopy(benchmark::State& state) {
     benchmark::DoNotOptimize(device_buffer);
     benchmark::DoNotOptimize(host_ptr);
 
-    cudaStreamSynchronize(stream);
+    RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
 
     for (auto _ : state) {
         for (size_t i = 0; i < kNumCopies; ++i) {
@@ -144,7 +144,7 @@ static void BM_HostToDeviceCopy(benchmark::State& state) {
                 stream
             );
         }
-        cudaStreamSynchronize(stream);
+        RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
     }
     // Cleanup
     host_mr->deallocate(host_ptr, transfer_size);
