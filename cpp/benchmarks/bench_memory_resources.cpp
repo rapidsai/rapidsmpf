@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstring>
 #include <vector>
 
 #include <benchmark/benchmark.h>
@@ -12,6 +13,8 @@
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/host/new_delete_resource.hpp>
 #include <rmm/mr/host/pinned_memory_resource.hpp>
+
+#include <rapidsmpf/error.hpp>
 
 // Helper function to create a memory resource based on type
 std::unique_ptr<rmm::mr::host_memory_resource> create_host_memory_resource(
@@ -79,10 +82,13 @@ static void BM_DeviceToHostCopy(benchmark::State& state) {
     // Allocate device memory
     auto device_buffer = rmm::device_buffer(transfer_size, stream, device_mr.get());
     // Initialize device memory with some data
-    cudaMemset(device_buffer.data(), 0, transfer_size);
+    RAPIDSMPF_CUDA_TRY(cudaMemset(device_buffer.data(), 0, transfer_size));
 
     // Allocate host memory and copy from device
     void* host_ptr = host_mr->allocate(transfer_size);
+
+    benchmark::DoNotOptimize(device_buffer);
+    benchmark::DoNotOptimize(host_ptr);
 
     cudaStreamSynchronize(stream);
     for (auto _ : state) {
@@ -122,6 +128,9 @@ static void BM_HostToDeviceCopy(benchmark::State& state) {
 
     // Allocate device memory and copy from host
     auto device_buffer = rmm::device_buffer(transfer_size, stream, device_mr.get());
+
+    benchmark::DoNotOptimize(device_buffer);
+    benchmark::DoNotOptimize(host_ptr);
 
     cudaStreamSynchronize(stream);
 
