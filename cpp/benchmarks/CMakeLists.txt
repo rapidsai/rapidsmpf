@@ -91,10 +91,10 @@ add_executable(bench_memory_resources "bench_memory_resources.cpp" ${UTILS_SOURC
 set_target_properties(
   bench_memory_resources
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
-             CXX_STANDARD 17
+             CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              CXX_EXTENSIONS ON
-             CUDA_STANDARD 17
+             CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
 )
 target_compile_options(
