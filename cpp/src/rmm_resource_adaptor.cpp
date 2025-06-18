@@ -164,7 +164,10 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
         auto& record = record_stacks_[thread_id];
         if (!record.empty()) {
             record.top().record_allocation(alloc_type, static_cast<std::int64_t>(nbytes));
-            allocating_threads_.insert({ret, thread_id});
+            RAPIDSMPF_EXPECTS(
+                allocating_threads_.insert({ret, thread_id}).second,
+                "duplicate memory pointer"
+            );
         }
     }
     return ret;
