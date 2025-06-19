@@ -28,8 +28,10 @@ partition_and_split(
     cudf::hash_id hash_function,
     uint32_t seed,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    rmm::device_async_resource_ref mr,
+    std::shared_ptr<Statistics> statistics
 ) {
+    RAPIDSMPF_MEMORY_PROFILE(statistics);
     if (table.num_rows() == 0) {
         // Return views of a copy of the empty `table`.
         auto owner = std::make_unique<cudf::table>(table, stream, mr);
@@ -79,9 +81,11 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     cudf::hash_id hash_function,
     uint32_t seed,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    rmm::device_async_resource_ref mr,
+    std::shared_ptr<Statistics> statistics
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    RAPIDSMPF_MEMORY_PROFILE(statistics);
     auto [tables, owner] = partition_and_split(
         table, columns_to_hash, num_partitions, hash_function, seed, stream, mr
     );
@@ -92,9 +96,11 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& splits,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    rmm::device_async_resource_ref mr,
+    std::shared_ptr<Statistics> statistics
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    RAPIDSMPF_MEMORY_PROFILE(statistics);
     std::vector<cudf::table_view> tables;
 
     if (table.num_rows() == 0) {
@@ -116,9 +122,11 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
 std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    rmm::device_async_resource_ref mr,
+    std::shared_ptr<Statistics> statistics
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    RAPIDSMPF_MEMORY_PROFILE(statistics);
     std::vector<cudf::table_view> unpacked;
     std::vector<cudf::packed_columns> references;
     unpacked.reserve(partitions.size());

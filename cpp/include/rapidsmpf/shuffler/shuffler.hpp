@@ -91,7 +91,7 @@ class Shuffler {
         PartID total_num_partitions,
         rmm::cuda_stream_view stream,
         BufferResource* br,
-        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false),
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin
     );
 
