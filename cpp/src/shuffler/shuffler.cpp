@@ -569,9 +569,11 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     // Protect the chunk extraction to make sure we don't get a chunk
     // `Shuffler::spill` is in the process of spilling.
-    std::unique_lock<rapidsmpf_mutex_t> lock(outbox_spilling_mutex_);
-    auto chunks = ready_postbox_.extract(pid);
-    lock.unlock();
+    std::unordered_map<ChunkID, Chunk> chunks;
+    {
+        RAPIDSMPF_LOCK_GUARD(outbox_spilling_mutex_);
+        chunks = ready_postbox_.extract(pid);
+    }
     std::vector<PackedData> ret;
     ret.reserve(chunks.size());
 
@@ -646,7 +648,7 @@ std::string Shuffler::str() const {
 }
 
 std::string detail::FinishCounter::str() const {
-    std::unique_lock<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     std::stringstream ss;
     ss << "FinishCounter(goalposts={";
     for (auto const& [pid, goal] : goalposts_) {

@@ -17,7 +17,7 @@ FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_parti
 }
 
 void FinishCounter::move_goalpost(PartID pid, ChunkID nchunks) {
-    std::unique_lock<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     auto& [rank_counter, chunk_goal] = goalposts_[pid];
     RAPIDSMPF_EXPECTS(
         rank_counter++ < nranks_, "the goalpost was moved more than one per rank"
@@ -26,7 +26,7 @@ void FinishCounter::move_goalpost(PartID pid, ChunkID nchunks) {
 }
 
 void FinishCounter::add_finished_chunk(PartID pid) {
-    std::unique_lock<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     auto& finished_chunk = ++finished_chunk_counters_[pid];
     auto& [rank_counter, chunk_goal] = goalposts_[pid];
 

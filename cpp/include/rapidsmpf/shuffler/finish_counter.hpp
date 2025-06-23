@@ -83,7 +83,7 @@ class FinishCounter {
      * @return True if all partitions are finished, otherwise false.
      */
     [[nodiscard]] bool all_finished() const {
-        std::unique_lock<rapidsmpf_mutex_t> lock(mutex_);
+        RAPIDSMPF_LOCK_GUARD(mutex_);
         return partitions_ready_to_wait_on_.empty();
     }
 

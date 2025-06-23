@@ -84,7 +84,7 @@ void ProgressThread::remove_function(FunctionID function_id) {
         "Function was not registered with this ProgressThread"
     );
 
-    std::unique_lock lock(mutex_);
+    std::unique_lock<rapidsmpf_mutex_t> lock(mutex_);
     auto it = functions_.find(function_id.function_index);
     RAPIDSMPF_EXPECTS(
         it != functions_.end(), "Function not registered or already removed"
