@@ -15,6 +15,8 @@
 
 namespace rapidsmpf {
 
+#define RAPIDSMPF_DEBUG
+
 /**
  * @def rapidsmpf_mutex_t
  * @brief Type alias for mutex used throughout RAPIDSMPF.
