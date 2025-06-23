@@ -21,8 +21,8 @@ namespace rapidsmpf {
  * @def rapidsmpf_mutex_t
  * @brief Type alias for mutex used throughout RAPIDSMPF.
  *
- * Resolves to `std::timed_mutex` in debug builds (for timeout-based deadlock detection),
- * and `std::mutex` in release builds (for performance).
+ * In debug mode, this resolves to `std::timed_mutex` for deadlock detection.
+ * In release mode, this resolves to a standard `std::mutex` for performance.
  */
 #ifdef RAPIDSMPF_DEBUG
 #define rapidsmpf_mutex_t std::timed_mutex
@@ -34,8 +34,8 @@ namespace rapidsmpf {
  * @def rapidsmpf_condition_variable_t
  * @brief Type alias for condition variable used throughout RAPIDSMPF.
  *
- * Resolves to `std::condition_variable_any` in debug builds to support
- * `std::timed_mutex`, and to `std::condition_variable` in release builds.
+ * In debug mode, this resolves to `std::condition_variable_any` for deadlock detection.
+ * In release mode, this resolves to a standard `std::condition_variable` for performance.
  */
 #ifdef RAPIDSMPF_DEBUG
 #define rapidsmpf_condition_variable_t std::condition_variable_any
