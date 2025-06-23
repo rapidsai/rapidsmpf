@@ -332,13 +332,10 @@ class Statistics {
  * @param funcname (optional) Custom function name string to use instead of __func__.
  */
 #define RAPIDSMPF_MEMORY_PROFILE(...)                                       \
-    RAPIDSMPF_DETAIL_GET_MACRO(                                             \
+    RAPIDSMPF_OVERLOAD_BY_ARG_COUNT(                                        \
         __VA_ARGS__, RAPIDSMPF_MEMORY_PROFILE_2, RAPIDSMPF_MEMORY_PROFILE_1 \
     )                                                                       \
     (__VA_ARGS__)
-
-// Internal macro to choose the correct version based on argument count
-#define RAPIDSMPF_DETAIL_GET_MACRO(_1, _2, NAME, ...) NAME
 
 // Version with default function name (__func__)
 #define RAPIDSMPF_MEMORY_PROFILE_1(stats)                                          \

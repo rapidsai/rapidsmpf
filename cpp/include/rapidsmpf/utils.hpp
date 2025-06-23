@@ -289,9 +289,27 @@ bool parse_string(std::string const& value);
 #define RAPIDSMPF_CONCAT_DETAIL_(x, y) x##y
 #define RAPIDSMPF_CONCAT(x, y) RAPIDSMPF_CONCAT_DETAIL_(x, y)
 
-// Stringify a macro argument
+// Stringify a macro argument.
 #define RAPIDSMPF_STRINGIFY_DETAIL_(x) #x
 #define RAPIDSMPF_STRINGIFY(x) RAPIDSMPF_STRINGIFY_DETAIL_(x)
+
+/**
+ * @def RAPIDSMPF_OVERLOAD_BY_ARG_COUNT
+ * @brief Helper macro to select another macro based on the number of arguments.
+ *
+ * Example usage:
+ * @code
+ * #define FOO_1(x)        do_something_with_one(x)
+ * #define FOO_2(x, y)     do_something_with_two(x, y)
+ *
+ * #define FOO(...) RAPIDSMPF_OVERLOAD_BY_ARG_COUNT \
+ *                      (__VA_ARGS__, FOO_2, FOO_1)(__VA_ARGS__)
+ *
+ * FOO(42);        // Expands to FOO_1(42)
+ * FOO(1, 2);      // Expands to FOO_2(1, 2)
+ * @endcode
+ */
+#define RAPIDSMPF_OVERLOAD_BY_ARG_COUNT(_1, _2, NAME, ...) NAME
 
 namespace detail {
 
