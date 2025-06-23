@@ -35,7 +35,8 @@ function(rapidsmpf_mpirun_test_add)
     # add the test using the relative path of the target
     add_test(
       NAME "${_MPIRUN_TEST_TEST_TARGET}_${np}"
-      COMMAND mpirun --map-by=node --bind-to=none -np=${np} "gtests/${_MPIRUN_TEST_TEST_TARGET}"
+      COMMAND mpirun --tag-output --map-by=node --bind-to=none -np=${np}
+              "gtests/${_MPIRUN_TEST_TEST_TARGET}"
     )
   endforeach(np)
 endfunction(rapidsmpf_mpirun_test_add)

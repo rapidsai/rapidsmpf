@@ -13,4 +13,4 @@ export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
 
 # Ensure that benchmarks are runnable
-mpirun --map-by node --bind-to none -np 2 ./example_shuffle
+mpirun --tag-output --map-by node --bind-to none -np 2 ./example_shuffle
