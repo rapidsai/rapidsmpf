@@ -104,23 +104,23 @@ ScopedMemoryRecord& ScopedMemoryRecord::add_scope(ScopedMemoryRecord const& scop
 }
 
 ScopedMemoryRecord RmmResourceAdaptor::get_main_record() const {
-    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     return main_record_;
 }
 
 std::int64_t RmmResourceAdaptor::current_allocated() const noexcept {
-    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     return main_record_.current();
 }
 
 void RmmResourceAdaptor::begin_scoped_memory_record() {
-    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     // Push an empty scope on the stack.
     record_stacks_[std::this_thread::get_id()].emplace();
 }
 
 ScopedMemoryRecord RmmResourceAdaptor::end_scoped_memory_record() {
-    std::lock_guard lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     auto& stack = record_stacks_[std::this_thread::get_id()];
     auto ret = stack.top();
     stack.pop();
@@ -143,13 +143,13 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
         if (fallback_mr_.has_value()) {
             alloc_type = FALLBACK;
             ret = fallback_mr_->allocate_async(nbytes, stream);
-            std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+            RAPIDSMPF_LOCK_GUARD(mutex_);
             fallback_allocations_.insert(ret);
         } else {
             throw;
         }
     }
-    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
 
     // Always record the allocation on the main record.
     main_record_.record_allocation(alloc_type, static_cast<std::int64_t>(nbytes));
@@ -175,7 +175,7 @@ void RmmResourceAdaptor::do_deallocate(
 
     ScopedMemoryRecord::AllocType alloc_type;
     {
-        std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+        RAPIDSMPF_LOCK_GUARD(mutex_);
         alloc_type = (fallback_allocations_.erase(ptr) == 0) ? PRIMARY : FALLBACK;
     }
 
@@ -185,7 +185,7 @@ void RmmResourceAdaptor::do_deallocate(
         fallback_mr_->deallocate_async(ptr, nbytes, stream);
     }
 
-    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     // Always record the deallocation on the main record.
     main_record_.record_deallocation(alloc_type, static_cast<std::int64_t>(nbytes));
     // But only record it on the thread stack if it exist.

@@ -36,18 +36,18 @@ PausableThreadLoop::~PausableThreadLoop() {
 }
 
 bool PausableThreadLoop::is_running() const noexcept {
-    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     return !paused_;
 }
 
 void PausableThreadLoop::pause() {
-    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     paused_ = true;
 }
 
 void PausableThreadLoop::resume() {
     {
-        std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+        RAPIDSMPF_LOCK_GUARD(mutex_);
         paused_ = false;
     }
     cv_.notify_one();
@@ -55,7 +55,7 @@ void PausableThreadLoop::resume() {
 
 void PausableThreadLoop::stop() {
     {
-        std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+        RAPIDSMPF_LOCK_GUARD(mutex_);
         active_ = false;
         paused_ = false;  // Ensure it's not stuck in pause
     }

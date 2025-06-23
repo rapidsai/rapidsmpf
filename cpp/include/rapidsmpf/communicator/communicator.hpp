@@ -331,7 +331,7 @@ class Communicator {
             std::ostringstream full_log_msg;
             full_log_msg << "[" << level_name(level) << ":" << comm_->rank() << ":"
                          << get_thread_id() << "] " << ss.str();
-            std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+            RAPIDSMPF_LOCK_GUARD(mutex_);
             std::cout << full_log_msg.str() << std::endl;
         }
 

@@ -22,32 +22,32 @@ void PostBox<KeyType>::insert(Chunk&& chunk) {
             "PostBox.insert(): all messages in the chunk must map to the same key"
         );
     }
-    std::lock_guard const lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     auto [_, inserted] = pigeonhole_[key].insert({chunk.chunk_id(), std::move(chunk)});
     RAPIDSMPF_EXPECTS(inserted, "PostBox.insert(): chunk already exist");
 }
 
 template <typename KeyType>
 Chunk PostBox<KeyType>::extract(PartID pid, ChunkID cid) {
-    std::lock_guard const lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     return extract_item(pigeonhole_[key_map_fn_(pid)], cid).second;
 }
 
 template <typename KeyType>
 std::unordered_map<ChunkID, Chunk> PostBox<KeyType>::extract(PartID pid) {
-    std::lock_guard const lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     return extract_value(pigeonhole_, key_map_fn_(pid));
 }
 
 template <typename KeyType>
 std::unordered_map<ChunkID, Chunk> PostBox<KeyType>::extract_by_key(KeyType key) {
-    std::lock_guard const lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     return extract_value(pigeonhole_, key);
 }
 
 template <typename KeyType>
 std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
-    std::lock_guard const lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     std::vector<Chunk> ret;
 
     // Iterate through the outer map
@@ -85,7 +85,7 @@ template <typename KeyType>
 std::vector<std::tuple<KeyType, ChunkID, std::size_t>> PostBox<KeyType>::search(
     MemoryType mem_type
 ) const {
-    std::lock_guard const lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     std::vector<std::tuple<KeyType, ChunkID, std::size_t>> ret;
     for (auto& [key, chunks] : pigeonhole_) {
         for (auto& [cid, chunk] : chunks) {

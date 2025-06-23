@@ -37,7 +37,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, bool allow_overbooking
 ) {
     auto const& available = memory_available(mem_type);
-    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     std::size_t& reserved = memory_reserved(mem_type);
 
     // Calculate the available memory _after_ the memory has been reserved.
@@ -64,7 +64,7 @@ std::size_t BufferResource::release(
         "the memory type of MemoryReservation doesn't match",
         std::invalid_argument
     );
-    std::lock_guard const lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     RAPIDSMPF_EXPECTS(
         size <= reservation.size_,
         "MemoryReservation(" + format_nbytes(reservation.size_) + ") isn't big enough ("

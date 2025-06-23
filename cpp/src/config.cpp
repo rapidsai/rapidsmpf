@@ -61,7 +61,7 @@ std::size_t Options::insert_if_absent(
     std::unordered_map<std::string, std::string> options_as_strings
 ) {
     auto& shared = *shared_;
-    std::lock_guard<rapidsmpf_mutex_t> lock(shared.mutex);
+    RAPIDSMPF_LOCK_GUARD(shared.mutex);
     std::size_t ret = 0;
     for (auto&& [key, val] : options_as_strings) {
         auto new_key = rapidsmpf::to_lower(rapidsmpf::trim(key));
@@ -77,7 +77,7 @@ std::size_t Options::insert_if_absent(
 std::unordered_map<std::string, std::string> Options::get_strings() const {
     auto const& shared = *shared_;
     std::unordered_map<std::string, std::string> ret;
-    std::lock_guard<rapidsmpf_mutex_t> lock(shared.mutex);
+    RAPIDSMPF_LOCK_GUARD(shared.mutex);
     for (const auto& [key, option] : shared.options) {
         ret[key] = option.get_value_as_string();
     }
@@ -86,7 +86,7 @@ std::unordered_map<std::string, std::string> Options::get_strings() const {
 
 std::vector<std::uint8_t> Options::serialize() const {
     auto const& shared = *shared_;
-    std::lock_guard<rapidsmpf_mutex_t> lock(shared.mutex);
+    RAPIDSMPF_LOCK_GUARD(shared.mutex);
 
     std::size_t const count = shared.options.size();
     std::size_t const header_size = (1 + 2 * count) * sizeof(uint64_t);

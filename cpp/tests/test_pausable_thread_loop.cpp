@@ -22,7 +22,7 @@ TEST(PausableThreadLoop, ResumeAndPause) {
 
     PausableThreadLoop loop([&]() {
         {
-            std::lock_guard<rapidsmpf_mutex_t> lock(mutex);
+            RAPIDSMPF_LOCK_GUARD(mutex);
             ++counter;
             updated = true;
         }

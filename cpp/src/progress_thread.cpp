@@ -67,7 +67,7 @@ void ProgressThread::stop() {
 }
 
 ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
-    std::lock_guard lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     // We can use `this` as the thread address only because `ProgressThread` isn't
     // moveable or copyable.
     auto id =
@@ -122,7 +122,7 @@ bool ProgressThread::is_running() const {
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
     {
-        std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+        RAPIDSMPF_LOCK_GUARD(mutex_);
         for (auto& [id, function] : functions_) {
             function();
         }

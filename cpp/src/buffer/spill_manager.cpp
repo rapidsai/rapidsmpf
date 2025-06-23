@@ -32,7 +32,7 @@ SpillManager::~SpillManager() {
 SpillManager::SpillFunctionID SpillManager::add_spill_function(
     SpillFunction spill_function, int priority
 ) {
-    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     auto const id = spill_function_id_counter_++;
     RAPIDSMPF_EXPECTS(
         spill_functions_.insert({id, std::move(spill_function)}).second,
@@ -48,7 +48,7 @@ SpillManager::SpillFunctionID SpillManager::add_spill_function(
 }
 
 void SpillManager::remove_spill_function(SpillFunctionID fid) {
-    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     auto& prio = spill_function_priorities_;
     for (auto it = prio.begin(); it != prio.end(); ++it) {
         if (it->second == fid) {

@@ -495,7 +495,7 @@ void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
 
 void Shuffler::insert(detail::Chunk&& chunk) {
     {
-        std::lock_guard const lock(outbound_chunk_counter_mutex_);
+        RAPIDSMPF_LOCK_GUARD(outbound_chunk_counter_mutex_);
         // TODO: There are multiple partitions in the chunk. So, do this for each
         // partition.
         ++outbound_chunk_counter_[chunk.part_id(0)];
@@ -557,7 +557,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
 void Shuffler::insert_finished(PartID pid) {
     detail::ChunkID expected_num_chunks;
     {
-        std::lock_guard const lock(outbound_chunk_counter_mutex_);
+        RAPIDSMPF_LOCK_GUARD(outbound_chunk_counter_mutex_);
         expected_num_chunks = outbound_chunk_counter_[pid];
     }
     insert(detail::Chunk::from_finished_partition(
@@ -623,7 +623,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     }
     std::size_t spilled{0};
     if (spill_need > 0) {
-        std::lock_guard<rapidsmpf_mutex_t> lock(outbox_spilling_mutex_);
+        RAPIDSMPF_LOCK_GUARD(outbox_spilling_mutex_);
         spilled =
             postbox_spilling(br_, comm_->logger(), stream_, ready_postbox_, spill_need);
     }

@@ -194,7 +194,7 @@ class Options {
     template <typename T>
     T const& get(const std::string& key, OptionFactory<T> factory) {
         auto& shared = *shared_;
-        std::lock_guard<rapidsmpf_mutex_t> lock(shared.mutex);
+        RAPIDSMPF_LOCK_GUARD(shared.mutex);
         auto& option = shared.options[key];
         if (!option.get_value().has_value()) {
             option.set_value(std::make_any<T>(factory(option.get_value_as_string())));

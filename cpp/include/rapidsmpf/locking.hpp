@@ -16,4 +16,9 @@ namespace rapidsmpf {
 #define rapidsmpf_condition_variable_t std::condition_variable
 
 
+#define RAPIDSMPF_LOCK_GUARD(mutex)          \
+    std::lock_guard<rapidsmpf_mutex_t> const \
+        RAPIDSMPF_CONCAT(_rapidsmpf_lock_guard_, __LINE__)(mutex);
+
+
 }  // namespace rapidsmpf
