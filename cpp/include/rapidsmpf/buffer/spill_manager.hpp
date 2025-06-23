@@ -113,7 +113,7 @@ class SpillManager {
     std::size_t spill_to_make_headroom(std::int64_t headroom = 0);
 
   private:
-    mutable std::mutex mutex_;
+    mutable rapidsmpf_mutex_t mutex_;
     BufferResource* br_;
     std::size_t spill_function_id_counter_{0};
     std::map<SpillFunctionID, SpillFunction> spill_functions_;

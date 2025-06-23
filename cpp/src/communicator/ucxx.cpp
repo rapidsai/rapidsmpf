@@ -103,10 +103,10 @@ class SharedResources {
     std::vector<std::unique_ptr<HostFuture>> futures_{
     };  ///< Futures to incomplete requests.
     std::vector<std::function<void()>> delayed_progress_callbacks_{};
-    std::mutex endpoints_mutex_{};
-    std::mutex futures_mutex_{};
-    std::mutex listener_mutex_{};
-    std::mutex delayed_progress_callbacks_mutex_{};
+    rapidsmpf_mutex_t endpoints_mutex_{};
+    rapidsmpf_mutex_t futures_mutex_{};
+    rapidsmpf_mutex_t listener_mutex_{};
+    rapidsmpf_mutex_t delayed_progress_callbacks_mutex_{};
     bool endpoint_error_handling_{false
     };  ///< Whether to request UCX endpoint error handling. This is currently disabled
         ///< as it impacts performance very negatively.
@@ -215,7 +215,7 @@ class SharedResources {
      * @param listener The listener to register.
      */
     void register_listener(std::shared_ptr<::ucxx::Listener> listener) {
-        std::lock_guard<std::mutex> lock(listener_mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(listener_mutex_);
         auto worker = std::dynamic_pointer_cast<::ucxx::Worker>(listener->getParent());
         rank_to_listener_address_[rank_] =
             ListenerAddress{.address = worker->getAddress(), .rank = rank_};
@@ -231,7 +231,7 @@ class SharedResources {
      * @param endpoint The endpoint to register.
      */
     void register_endpoint(Rank const rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
-        std::lock_guard<std::mutex> lock(endpoints_mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(endpoints_mutex_);
         rank_to_endpoint_[rank] = endpoint;
         endpoints_[endpoint->getHandle()] = std::move(endpoint);
     }
@@ -245,7 +245,7 @@ class SharedResources {
      * @param endpoint The endpoint to register.
      */
     void register_endpoint(std::shared_ptr<::ucxx::Endpoint> endpoint) {
-        std::lock_guard<std::mutex> lock(endpoints_mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(endpoints_mutex_);
         endpoints_[endpoint->getHandle()] = std::move(endpoint);
     }
 
@@ -258,7 +258,7 @@ class SharedResources {
      * @param endpoint_handle The handle of the endpoint to register.
      */
     void associate_endpoint_rank(Rank const rank, ucp_ep_h const endpoint_handle) {
-        std::lock_guard<std::mutex> lock(endpoints_mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(endpoints_mutex_);
         rank_to_endpoint_[rank] = endpoints_[endpoint_handle];
     }
 
@@ -270,7 +270,7 @@ class SharedResources {
      * @return The registered listener.
      */
     [[nodiscard]] std::shared_ptr<::ucxx::Listener> get_listener() {
-        std::lock_guard<std::mutex> lock(listener_mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(listener_mutex_);
         return listener_;
     }
 
@@ -284,7 +284,7 @@ class SharedResources {
      */
     [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(ucp_ep_h const ep_handle
     ) {
-        std::lock_guard<std::mutex> lock(endpoints_mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(endpoints_mutex_);
         return endpoints_.at(ep_handle);
     }
 
@@ -297,7 +297,7 @@ class SharedResources {
      * @return The endpoint associated with the specified rank.
      */
     [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank const rank) {
-        std::lock_guard<std::mutex> lock(endpoints_mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(endpoints_mutex_);
         return rank_to_endpoint_.at(rank);
     }
 
@@ -310,7 +310,7 @@ class SharedResources {
      * @return The listener address associated with the specified rank.
      */
     [[nodiscard]] ListenerAddress get_listener_address(Rank const rank) {
-        std::lock_guard<std::mutex> lock(listener_mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(listener_mutex_);
         return rank_to_listener_address_.at(rank);
     }
 
@@ -323,7 +323,7 @@ class SharedResources {
      * @param listener_address The listener address to register.
      */
     void register_listener_address(Rank const rank, ListenerAddress listener_address) {
-        std::lock_guard<std::mutex> lock(listener_mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(listener_mutex_);
         rank_to_listener_address_[rank] = std::move(listener_address);
     }
 
@@ -335,7 +335,7 @@ class SharedResources {
      * @param future The future to add.
      */
     void add_future(std::unique_ptr<HostFuture> future) {
-        std::lock_guard<std::mutex> lock(futures_mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(futures_mutex_);
         futures_.push_back(std::move(future));
     }
 
@@ -382,7 +382,7 @@ class SharedResources {
     }
 
     void clear_completed_futures() {
-        std::lock_guard<std::mutex> lock(futures_mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(futures_mutex_);
         futures_.erase(
             std::remove_if(
                 futures_.begin(),
@@ -398,7 +398,7 @@ class SharedResources {
     void progress_worker() {
         decltype(delayed_progress_callbacks_) delayed_progress_callbacks{};
         {
-            std::lock_guard<std::mutex> lock(delayed_progress_callbacks_mutex_);
+            std::lock_guard<rapidsmpf_mutex_t> lock(delayed_progress_callbacks_mutex_);
             std::swap(delayed_progress_callbacks, delayed_progress_callbacks_);
         }
         for (auto& callback : delayed_progress_callbacks)
@@ -419,7 +419,7 @@ class SharedResources {
      * @param future The future to add.
      */
     void add_delayed_progress_callback(std::function<void()> callback) {
-        std::lock_guard<std::mutex> lock(delayed_progress_callbacks_mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(delayed_progress_callbacks_mutex_);
         delayed_progress_callbacks_.emplace_back(std::move(callback));
     }
 

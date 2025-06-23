@@ -381,7 +381,7 @@ class BufferResource {
     std::shared_ptr<Statistics> statistics();
 
   private:
-    std::mutex mutex_;
+    rapidsmpf_mutex_t mutex_;
     rmm::device_async_resource_ref device_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.

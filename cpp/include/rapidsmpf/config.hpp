@@ -14,6 +14,7 @@
 #include <unordered_map>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/locking.hpp>
 
 namespace rapidsmpf::config {
 
@@ -104,7 +105,7 @@ namespace detail {
  * Options and its values are only initialized once.
  */
 struct SharedOptions {
-    mutable std::mutex mutex;  ///< Shared mutex, must be use to guard `options`.
+    mutable rapidsmpf_mutex_t mutex;  ///< Shared mutex, must be use to guard `options`.
     std::unordered_map<std::string, OptionValue> options;  ///< Shared options.
 };
 }  // namespace detail
@@ -193,7 +194,7 @@ class Options {
     template <typename T>
     T const& get(const std::string& key, OptionFactory<T> factory) {
         auto& shared = *shared_;
-        std::lock_guard<std::mutex> lock(shared.mutex);
+        std::lock_guard<rapidsmpf_mutex_t> lock(shared.mutex);
         auto& option = shared.options[key];
         if (!option.get_value().has_value()) {
             option.set_value(std::make_any<T>(factory(option.get_value_as_string())));

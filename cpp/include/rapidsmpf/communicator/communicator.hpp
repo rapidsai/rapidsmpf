@@ -331,7 +331,7 @@ class Communicator {
             std::ostringstream full_log_msg;
             full_log_msg << "[" << level_name(level) << ":" << comm_->rank() << ":"
                          << get_thread_id() << "] " << ss.str();
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
             std::cout << full_log_msg.str() << std::endl;
         }
 
@@ -345,7 +345,7 @@ class Communicator {
         }
 
       private:
-        std::mutex mutex_;
+        rapidsmpf_mutex_t mutex_;
         Communicator* comm_;
         LOG_LEVEL const level_;
 

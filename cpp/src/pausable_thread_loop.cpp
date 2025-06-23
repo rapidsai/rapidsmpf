@@ -11,7 +11,7 @@ PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration slee
     thread_ = std::thread([this, f = std::move(func), sleep]() {
         while (true) {
             {
-                std::unique_lock<std::mutex> lock(mutex_);
+                std::unique_lock<rapidsmpf_mutex_t> lock(mutex_);
                 cv_.wait(lock, [this]() { return !paused_ || !active_; });
                 if (!active_) {
                     return;
@@ -36,18 +36,18 @@ PausableThreadLoop::~PausableThreadLoop() {
 }
 
 bool PausableThreadLoop::is_running() const noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
     return !paused_;
 }
 
 void PausableThreadLoop::pause() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
     paused_ = true;
 }
 
 void PausableThreadLoop::resume() {
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
         paused_ = false;
     }
     cv_.notify_one();
@@ -55,7 +55,7 @@ void PausableThreadLoop::resume() {
 
 void PausableThreadLoop::stop() {
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
         active_ = false;
         paused_ = false;  // Ensure it's not stuck in pause
     }

@@ -16,13 +16,13 @@ using rapidsmpf::detail::PausableThreadLoop;
 
 TEST(PausableThreadLoop, ResumeAndPause) {
     int counter{0};
-    std::mutex mutex;
-    std::condition_variable cv;
+    rapidsmpf_mutex_t mutex;
+    rapidsmpf_condition_variable_t cv;
     bool updated = false;
 
     PausableThreadLoop loop([&]() {
         {
-            std::lock_guard<std::mutex> lock(mutex);
+            std::lock_guard<rapidsmpf_mutex_t> lock(mutex);
             ++counter;
             updated = true;
         }
@@ -36,7 +36,7 @@ TEST(PausableThreadLoop, ResumeAndPause) {
 
     // Wait for the counter to be increased.
     {
-        std::unique_lock<std::mutex> lock(mutex);
+        std::unique_lock<rapidsmpf_mutex_t> lock(mutex);
         cv.wait(lock, [&]() { return updated; });
     }
     EXPECT_GT(counter, 0);

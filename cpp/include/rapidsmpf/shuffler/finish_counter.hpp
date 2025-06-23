@@ -83,7 +83,7 @@ class FinishCounter {
      * @return True if all partitions are finished, otherwise false.
      */
     [[nodiscard]] bool all_finished() const {
-        std::unique_lock<std::mutex> lock(mutex_);
+        std::unique_lock<rapidsmpf_mutex_t> lock(mutex_);
         return partitions_ready_to_wait_on_.empty();
     }
 
@@ -163,8 +163,8 @@ class FinishCounter {
     //   - If it is true, the partition is finished and can be waited on.
     //   - If it is absent, the partition is finished and has already been waited on.
     std::unordered_map<PartID, bool> partitions_ready_to_wait_on_;
-    mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
-    mutable std::condition_variable cv_;
+    mutable rapidsmpf_mutex_t mutex_;  // TODO: use a shared_mutex lock?
+    mutable rapidsmpf_condition_variable_t cv_;
 };
 }  // namespace detail
 

@@ -17,7 +17,7 @@ FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_parti
 }
 
 void FinishCounter::move_goalpost(PartID pid, ChunkID nchunks) {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::unique_lock<rapidsmpf_mutex_t> lock(mutex_);
     auto& [rank_counter, chunk_goal] = goalposts_[pid];
     RAPIDSMPF_EXPECTS(
         rank_counter++ < nranks_, "the goalpost was moved more than one per rank"
@@ -26,7 +26,7 @@ void FinishCounter::move_goalpost(PartID pid, ChunkID nchunks) {
 }
 
 void FinishCounter::add_finished_chunk(PartID pid) {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::unique_lock<rapidsmpf_mutex_t> lock(mutex_);
     auto& finished_chunk = ++finished_chunk_counters_[pid];
     auto& [rank_counter, chunk_goal] = goalposts_[pid];
 
@@ -60,8 +60,8 @@ void FinishCounter::add_finished_chunk(PartID pid) {
  */
 template <typename Pred>
 void wait_for_if_timeout_else_wait(
-    std::unique_lock<std::mutex>& lock,
-    std::condition_variable& cv,
+    std::unique_lock<rapidsmpf_mutex_t>& lock,
+    rapidsmpf_condition_variable_t& cv,
     std::optional<std::chrono::milliseconds>& timeout,
     Pred&& pred
 ) {
@@ -80,7 +80,7 @@ void wait_for_if_timeout_else_wait(
 PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout) {
     PartID finished_key{std::numeric_limits<PartID>::max()};
 
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::unique_lock<rapidsmpf_mutex_t> lock(mutex_);
     wait_for_if_timeout_else_wait(lock, cv_, timeout, [&] {
         return partitions_ready_to_wait_on_.empty()
                || std::any_of(
@@ -109,7 +109,7 @@ PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout)
 void FinishCounter::wait_on(
     PartID pid, std::optional<std::chrono::milliseconds> timeout
 ) {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::unique_lock<rapidsmpf_mutex_t> lock(mutex_);
     wait_for_if_timeout_else_wait(lock, cv_, timeout, [&]() {
         auto it = partitions_ready_to_wait_on_.find(pid);
         RAPIDSMPF_EXPECTS(
@@ -125,7 +125,7 @@ void FinishCounter::wait_on(
 std::vector<PartID> FinishCounter::wait_some(
     std::optional<std::chrono::milliseconds> timeout
 ) {
-    std::unique_lock<std::mutex> lock(mutex_);
+    std::unique_lock<rapidsmpf_mutex_t> lock(mutex_);
     RAPIDSMPF_EXPECTS(
         !partitions_ready_to_wait_on_.empty(),
         "no more partitions to wait on",

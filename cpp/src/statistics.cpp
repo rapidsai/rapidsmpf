@@ -18,7 +18,7 @@ void Statistics::FormatterDefault(std::ostream& os, std::size_t count, double va
 };
 
 Statistics::Stat Statistics::get_stat(std::string const& name) const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
     return stats_.at(name);
 }
 
@@ -28,7 +28,7 @@ double Statistics::add_stat(
     if (!enabled()) {
         return 0;
     }
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
     auto it = stats_.find(name);
     if (it == stats_.end()) {
         it = stats_.insert({name, Stat(formatter)}).first;
@@ -65,7 +65,7 @@ std::string Statistics::report(std::string const& header) const {
         ss << " disabled.";
         return ss.str();
     }
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
 
     std::size_t max_length{0};
     for (auto const& [name, _] : stats_) {

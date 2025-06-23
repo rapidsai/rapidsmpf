@@ -37,7 +37,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, bool allow_overbooking
 ) {
     auto const& available = memory_available(mem_type);
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
     std::size_t& reserved = memory_reserved(mem_type);
 
     // Calculate the available memory _after_ the memory has been reserved.

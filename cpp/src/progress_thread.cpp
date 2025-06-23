@@ -122,7 +122,7 @@ bool ProgressThread::is_running() const {
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<rapidsmpf_mutex_t> lock(mutex_);
         for (auto& [id, function] : functions_) {
             function();
         }

@@ -7,9 +7,9 @@
 
 #include <condition_variable>
 #include <functional>
-#include <mutex>
 #include <thread>
 
+#include <rapidsmpf/locking.hpp>
 #include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf::detail {
@@ -81,8 +81,8 @@ class PausableThreadLoop {
 
   private:
     std::thread thread_;
-    mutable std::mutex mutex_;
-    std::condition_variable cv_;
+    mutable rapidsmpf_mutex_t mutex_;
+    rapidsmpf_condition_variable_t cv_;
     bool active_{true};
     bool paused_{true};
 };

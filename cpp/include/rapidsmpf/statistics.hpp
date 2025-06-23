@@ -200,7 +200,7 @@ class Statistics {
     Duration add_duration_stat(std::string const& name, Duration seconds);
 
   private:
-    mutable std::mutex mutex_;
+    mutable rapidsmpf_mutex_t mutex_;
     bool enabled_;
     std::map<std::string, Stat> stats_;
 };
