@@ -495,9 +495,9 @@ int main(int argc, char** argv) {
         // Enable statistics for the last run.
         if (i == total_num_runs - 1) {
             if (args.enable_memory_profiler) {
-                stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
-            } else {
                 stats = std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get());
+            } else {
+                stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
             }
         }
         double elapsed;
