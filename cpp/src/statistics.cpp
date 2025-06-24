@@ -11,6 +11,17 @@
 
 namespace rapidsmpf {
 
+// Setting `mr_ = nullptr` disables memory profiling.
+Statistics::Statistics(bool enabled) : enabled_{enabled}, mr_{nullptr} {}
+
+Statistics::Statistics(RmmResourceAdaptor* mr) : enabled_{true}, mr_{mr} {
+    RAPIDSMPF_EXPECTS(
+        mr != nullptr,
+        "when enabling memory profiling, `mr` cannot be nullptr",
+        std::invalid_argument
+    );
+}
+
 std::shared_ptr<Statistics> Statistics::disabled() {
     static std::shared_ptr<Statistics> ret = std::make_shared<Statistics>(false);
     return ret;
@@ -178,5 +189,6 @@ std::string Statistics::report(std::string const& header) const {
           "thread.\n";
     return ss.str();
 }
+
 
 }  // namespace rapidsmpf

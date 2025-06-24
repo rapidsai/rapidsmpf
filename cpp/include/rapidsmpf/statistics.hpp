@@ -23,21 +23,12 @@ namespace rapidsmpf {
 class Statistics {
   public:
     /**
-     * @brief Constructs a new Statistics object.
+     * @brief Constructs a Statistics object without memory profiling.
      *
      * @param enabled If true, enables tracking of statistics. If false, all operations
      * are no-ops.
-     * @param mr Optional pointer to a memory resource for enabling memory profiling.
-     *           If nullptr, memory profiling is disabled.
      */
-    Statistics(bool enabled, RmmResourceAdaptor* mr) : enabled_{enabled}, mr_{mr} {}
-
-    /**
-     * @brief Constructs a Statistics object without memory profiling.
-     *
-     * @param enabled If true, enables statistics tracking.
-     */
-    Statistics(bool enabled = true) : Statistics(enabled, nullptr) {}
+    Statistics(bool enabled = true);
 
     /**
      * @brief Constructs a Statistics object with memory profiling enabled.
@@ -45,8 +36,10 @@ class Statistics {
      * Automatically enables both statistics and memory profiling.
      *
      * @param mr Pointer to a memory resource used for memory profiling.
+     *
+     * @throws std::invalid_argument If `mr` is the nullptr.
      */
-    Statistics(RmmResourceAdaptor* mr) : Statistics(true, mr) {}
+    Statistics(RmmResourceAdaptor* mr);
 
     ~Statistics() noexcept = default;
     Statistics(const Statistics&) = delete;
@@ -350,6 +343,5 @@ class Statistics {
                  + std::string(funcname) + ")"                                     \
              )                                                                     \
              : rapidsmpf::Statistics::MemoryRecorder{})
-
 
 }  // namespace rapidsmpf
