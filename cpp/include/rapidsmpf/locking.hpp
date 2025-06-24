@@ -5,11 +5,8 @@
 
 #pragma once
 
-#include <chrono>
 #include <condition_variable>  // NOLINT(unused-includes)
-#include <iostream>
 #include <mutex>
-#include <thread>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -94,16 +91,7 @@ class timeout_lock_guard {
         char const* filename,
         int line_number,
         Duration const& timeout = std::chrono::seconds{60}
-    )
-        : lock_(mutex, std::defer_lock) {
-        while (!lock_.try_lock_for(timeout)) {
-            std::stringstream ss;
-            ss << "[DEADLOCK] timeout(" << timeout.count() << "s): " << filename << ":"
-               << line_number;
-            std::cerr << ss.str() << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(10));
-        }
-    }
+    );
 
     // No move or copy.
     timeout_lock_guard(const timeout_lock_guard&) = delete;
