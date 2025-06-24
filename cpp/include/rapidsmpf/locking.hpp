@@ -7,8 +7,9 @@
 
 #include <chrono>
 #include <condition_variable>  // NOLINT(unused-includes)
-#include <mutex>  // NOLINT(unused-includes)
-#include <stdexcept>
+#include <iostream>
+#include <mutex>
+#include <thread>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -79,7 +80,7 @@ class timeout_lock_guard {
      * @brief Constructs and attempts to acquire a lock with a timeout.
      *
      * If the lock cannot be acquired within the specified timeout, a
-     * `std::runtime_error` is thrown with filename and line number for debugging.
+     * warning is written to stderr.
      *
      * @param mutex The `std::timed_mutex` to lock.
      * @param filename Source file name (used in error message).
@@ -95,11 +96,12 @@ class timeout_lock_guard {
         Duration const& timeout = std::chrono::seconds{60}
     )
         : lock_(mutex, std::defer_lock) {
-        if (!lock_.try_lock_for(timeout)) {
-            throw std::runtime_error(
-                "[DEADLOCK] timeout: " + std::string(filename) + ":"
-                + std::to_string(line_number)
-            );
+        while (!lock_.try_lock_for(timeout)) {
+            std::stringstream ss;
+            ss << "[DEADLOCK] timeout(" << timeout.count() << " sec): " << filename << ":"
+               << line_number;
+            std::cerr << ss.str() << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(10));
         }
     }
 
