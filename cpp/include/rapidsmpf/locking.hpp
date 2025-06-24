@@ -98,7 +98,7 @@ class timeout_lock_guard {
         : lock_(mutex, std::defer_lock) {
         while (!lock_.try_lock_for(timeout)) {
             std::stringstream ss;
-            ss << "[DEADLOCK] timeout(" << timeout.count() << " sec): " << filename << ":"
+            ss << "[DEADLOCK] timeout(" << timeout.count() << "s): " << filename << ":"
                << line_number;
             std::cerr << ss.str() << std::endl;
             std::this_thread::sleep_for(std::chrono::seconds(10));
