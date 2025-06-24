@@ -79,6 +79,9 @@ Statistics::MemoryRecorder::MemoryRecorder(
 }
 
 Statistics::MemoryRecorder::~MemoryRecorder() {
+    if (stats_ == nullptr) {
+        return;
+    }
     auto const scope = mr_->end_scoped_memory_record();
 
     std::lock_guard<std::mutex> lock(stats_->mutex_);
