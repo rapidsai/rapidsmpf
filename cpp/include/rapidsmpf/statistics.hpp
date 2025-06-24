@@ -42,8 +42,8 @@ class Statistics {
     Statistics(RmmResourceAdaptor* mr);
 
     ~Statistics() noexcept = default;
-    Statistics(const Statistics&) = delete;
-    Statistics& operator=(const Statistics&) = delete;
+    Statistics(Statistics const&) = delete;
+    Statistics& operator=(Statistics const&) = delete;
 
     /**
      * @brief Returns a shared pointer to a disabled (no-op) Statistics instance.
