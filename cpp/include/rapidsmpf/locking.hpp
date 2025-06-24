@@ -7,7 +7,6 @@
 
 #include <condition_variable>  // NOLINT(unused-includes)
 #include <mutex>
-#include <vector>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -104,8 +103,7 @@ class timeout_lock_guard {
 
   private:
     std::unique_lock<std::timed_mutex> lock_;
-    static thread_local inline std::vector<std::tuple<uintptr_t, char const*, int>>
-        held_locks_;
+    uintptr_t mid_;
 };
 
 
