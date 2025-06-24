@@ -123,7 +123,9 @@ ScopedMemoryRecord RmmResourceAdaptor::end_scoped_memory_record() {
     std::lock_guard lock(mutex_);
     auto& stack = record_stacks_.at(std::this_thread::get_id());
     RAPIDSMPF_EXPECTS(
-        !stack.empty(), "calling end_scoped_memory_record() on an empty stack."
+        !stack.empty(),
+        "calling end_scoped_memory_record() on an empty stack.",
+        std::out_of_range
     );
     auto ret = stack.top();
     stack.pop();
