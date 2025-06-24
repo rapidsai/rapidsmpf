@@ -494,7 +494,11 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == total_num_runs - 1) {
-            stats = std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get());
+            if (args.enable_memory_profiler) {
+                stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+            } else {
+                stats = std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get());
+            }
         }
         double elapsed;
         if (args.hash_partition_with_datagen) {
