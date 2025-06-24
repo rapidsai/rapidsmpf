@@ -28,7 +28,7 @@ class Statistics {
      * @param enabled If true, enables tracking of statistics. If false, all operations
      * are no-ops.
      * @param mr Optional pointer to a memory resource for enabling memory profiling.
-     *           If null, memory profiling is disabled.
+     *           If nullptr, memory profiling is disabled.
      */
     Statistics(bool enabled, RmmResourceAdaptor* mr) : enabled_{enabled}, mr_{mr} {}
 
@@ -338,15 +338,7 @@ class Statistics {
     (__VA_ARGS__)
 
 // Version with default function name (__func__)
-#define RAPIDSMPF_MEMORY_PROFILE_1(stats)                                          \
-    auto const RAPIDSMPF_CONCAT(_rapidsmpf_memory_recorder_, __LINE__) =           \
-        ((rapidsmpf::detail::to_pointer(stats)                                     \
-          && rapidsmpf::detail::to_pointer(stats)->is_memory_profiling_enabled())  \
-             ? rapidsmpf::detail::to_pointer(stats)->create_memory_recorder(       \
-                 std::string(__FILE__) + ":" + RAPIDSMPF_STRINGIFY(__LINE__) + "(" \
-                 + std::string(__func__) + ")"                                     \
-             )                                                                     \
-             : rapidsmpf::Statistics::MemoryRecorder{})
+#define RAPIDSMPF_MEMORY_PROFILE_1(stats) RAPIDSMPF_MEMORY_PROFILE_2(stats, __func__)
 
 // Version with custom function name
 #define RAPIDSMPF_MEMORY_PROFILE_2(stats, funcname)                                \

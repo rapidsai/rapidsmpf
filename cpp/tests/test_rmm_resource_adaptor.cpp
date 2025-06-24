@@ -413,6 +413,8 @@ TEST(RmmResourceAdaptorScopedMemory, MultiThreadedScopedAllocations) {
         for (int j = num_allocs_per_thread / 2; j < num_allocs_per_thread; ++j) {
             mr.deallocate(allocations[i][j], alloc_size);
         }
+        EXPECT_EQ(rec.current(), 0);  // All allocations have been released
+
     }
 }
 
