@@ -146,7 +146,7 @@ std::string Statistics::report(std::string const& header) const {
         }
     );
 
-    // Sort base on peak memory.
+    // Sort based on peak memory.
     std::sort(
         sorted_records.begin(),
         sorted_records.end(),
