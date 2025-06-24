@@ -159,7 +159,7 @@ std::string Statistics::report(std::string const& header) const {
        << "  ncalls - number of times the scope was executed.\n"
        << "  peak   - peak memory usage by the scope.\n"
        << "  g-peak - global peak memory usage during the scope's execution.\n"
-       << "  accum  - total accumulated memory allocations in the scope.\n";
+       << "  accum  - total accumulated memory allocations by the scope.\n";
     ss << "\nOrdered by: peak (descending)\n\n";
 
     ss << std::right << std::setw(8) << "ncalls" << std::setw(12) << "peak"
