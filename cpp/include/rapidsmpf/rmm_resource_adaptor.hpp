@@ -232,7 +232,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      *
      * @return A copy of the current main memory record.
      */
-    [[nodiscard]] ScopedMemoryRecord get_main_record() const;
+    [[nodiscard]] ScopedMemoryRecord get_main_record() const noexcept;
 
     /**
      * @brief Get the total current allocated memory from both primary and fallback.
@@ -240,7 +240,6 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      * @return Total number of currently allocated bytes.
      */
     [[nodiscard]] std::int64_t current_allocated() const noexcept;
-
 
     /**
      * @brief Begin recording a new scoped memory usage record for the current thread.

@@ -103,7 +103,7 @@ ScopedMemoryRecord& ScopedMemoryRecord::add_scope(ScopedMemoryRecord const& scop
     return *this;
 }
 
-ScopedMemoryRecord RmmResourceAdaptor::get_main_record() const {
+ScopedMemoryRecord RmmResourceAdaptor::get_main_record() const noexcept {
     RAPIDSMPF_LOCK_GUARD(mutex_);
     return main_record_;
 }
