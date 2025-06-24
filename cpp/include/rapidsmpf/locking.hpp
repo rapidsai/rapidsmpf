@@ -7,6 +7,7 @@
 
 #include <condition_variable>  // NOLINT(unused-includes)
 #include <mutex>
+#include <vector>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -90,8 +91,10 @@ class timeout_lock_guard {
         std::timed_mutex& mutex,
         char const* filename,
         int line_number,
-        Duration const& timeout = std::chrono::seconds{60}
+        Duration const& timeout = std::chrono::seconds{1}
     );
+
+    ~timeout_lock_guard();
 
     // No move or copy.
     timeout_lock_guard(const timeout_lock_guard&) = delete;
@@ -101,7 +104,11 @@ class timeout_lock_guard {
 
   private:
     std::unique_lock<std::timed_mutex> lock_;
+    static thread_local inline std::vector<std::tuple<uintptr_t, char const*, int>>
+        held_locks_;
 };
+
+
 }  // namespace detail
 
 }  // namespace rapidsmpf
