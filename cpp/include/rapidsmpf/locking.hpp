@@ -91,7 +91,7 @@ class timeout_lock_guard {
         std::timed_mutex& mutex,
         char const* filename,
         int line_number,
-        Duration const& timeout = std::chrono::seconds{1}
+        Duration const& timeout = std::chrono::seconds{60}
     );
 
     ~timeout_lock_guard();
