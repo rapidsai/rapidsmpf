@@ -110,6 +110,13 @@ endif()
 # ##################################################################################################
 # * library targets --------------------------------------------------------------------------------
 
+add_library(maybe_asan INTERFACE)
+target_compile_options(maybe_asan INTERFACE
+          "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>")
+if(RAPIDSMPF_ASAN)
+  target_link_options(maybe_asan INTERFACE "-fsanitize=address")
+endif()
+
 file(GLOB SOURCES "src/*.cpp" "src/buffer/*.cpp" "src/communicator/*.cpp"
      "src/integrations/cudf/*.cpp" "src/shuffler/*.cpp"
 )
@@ -140,7 +147,6 @@ set_target_properties(
 target_compile_options(
   rapidsmpf
   PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-          "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
           "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 
@@ -153,11 +159,8 @@ target_include_directories(
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf ucxx::ucxx
-  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
+  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
-if(RAPIDSMPF_ASAN)
-  target_link_options(rapidsmpf PRIVATE "-fsanitize=address")
-endif()
 
 target_compile_definitions(rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>)
 

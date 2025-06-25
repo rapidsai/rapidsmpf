@@ -17,16 +17,12 @@ set_target_properties(
 target_compile_options(
   example_shuffle
   PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-          "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
           "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
   example_shuffle PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp
-                          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
+                          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
-if(RAPIDSMPF_ASAN)
-  target_link_options(example_shuffle PRIVATE -fsanitize=address)
-endif()
 install(
   TARGETS example_shuffle
   COMPONENT testing

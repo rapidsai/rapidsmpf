@@ -56,7 +56,6 @@ set_target_properties(
 target_compile_options(
   mpi_tests
   PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-          "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
           "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
@@ -70,10 +69,8 @@ target_link_libraries(
           ucx::ucp
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
           $<TARGET_NAME_IF_EXISTS:conda_env>
+          maybe_asan
 )
-if(RAPIDSMPF_ASAN)
-  target_link_options(mpi_tests PRIVATE "-fsanitize=address")
-endif()
 disable_sign_conversion_warning(mpi_tests)
 
 rapidsmpf_mpirun_test_add(TEST_TARGET mpi_tests)
