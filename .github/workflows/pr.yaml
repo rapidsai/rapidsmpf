@@ -14,6 +14,7 @@ jobs:
     needs:
       - checks
       - conda-cpp-build
+      - conda-cpp-linters
       - conda-cpp-tests
       - conda-python-build
       - conda-python-tests
@@ -67,6 +68,14 @@ jobs:
       build_type: pull-request
       matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
       script: ci/build_cpp.sh
+  conda-cpp-linters:
+    secrets: inherit
+    needs: checks
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-25.08
+    with:
+      build_type: pull-request
+      script: "ci/cpp_linters.sh"
+      node_type: "cpu16"
   conda-cpp-tests:
     needs: conda-cpp-build
     secrets: inherit

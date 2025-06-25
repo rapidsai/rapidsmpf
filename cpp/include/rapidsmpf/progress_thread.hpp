@@ -64,7 +64,7 @@ class ProgressThread {
      * Composed of the ProgressThread address and a sequential function index.
      */
     struct FunctionID {
-        ProgressThreadAddress thread_address{ProgressThreadAddress(nullptr)
+        ProgressThreadAddress thread_address{ProgressThreadAddress(0)
         };  ///< The address of the ProgressThread instance
         FunctionIndex function_index{0};  ///< The sequential index of the function
 
@@ -93,7 +93,7 @@ class ProgressThread {
          * @return True if the FunctionID is valid, false otherwise.
          */
         [[nodiscard]] constexpr bool is_valid() const {
-            return thread_address != ProgressThreadAddress(nullptr);
+            return thread_address != ProgressThreadAddress(0);
         }
     };
 

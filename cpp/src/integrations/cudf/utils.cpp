@@ -12,7 +12,8 @@ namespace rapidsmpf {
 
 namespace {
 struct str_cudf_column_scalar_fn {
-    template <typename T, std::enable_if_t<cudf::is_numeric<T>()>* = nullptr>
+    template <typename T>
+        requires(cudf::is_numeric<T>())
     std::string operator()(
         cudf::column_view col,
         cudf::size_type index,
@@ -25,7 +26,8 @@ struct str_cudf_column_scalar_fn {
         return std::to_string(val);
     }
 
-    template <typename T, std::enable_if_t<!cudf::is_numeric<T>()>* = nullptr>
+    template <typename T>
+        requires(!cudf::is_numeric<T>())
     std::string operator()(
         cudf::column_view /* col */,
         cudf::size_type /* index */,

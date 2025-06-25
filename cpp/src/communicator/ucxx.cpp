@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -126,7 +127,7 @@ class SharedResources {
      * @param nranks The number of ranks requested for the cluster.
      */
     SharedResources(std::shared_ptr<::ucxx::Worker> worker, bool root, Rank nranks)
-        : worker_{worker}, rank_{Rank(root ? 0 : -1)}, nranks_{nranks} {}
+        : worker_{std::move(worker)}, rank_{Rank(root ? 0 : -1)}, nranks_{nranks} {}
 
     SharedResources(SharedResources&&) = delete;  ///< Not movable.
     SharedResources(SharedResources&) = delete;  ///< Not copyable.
@@ -353,46 +354,48 @@ class SharedResources {
                 auto& endpoint = rank_to_endpoint.second;
                 requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
             }
-            while (std::any_of(requests.cbegin(), requests.cend(), [](auto const& req) {
+            while (std::ranges::any_of(requests, [](auto const& req) {
                 return !req->isCompleted();
             }))
+            {
                 progress_worker();
-
+            }
             requests.clear();
 
             for (auto& rank_to_endpoint : rank_to_endpoint_) {
                 auto& endpoint = rank_to_endpoint.second;
                 requests.push_back(endpoint->amRecv());
             }
-            while (std::any_of(requests.cbegin(), requests.cend(), [](auto const& req) {
+            while (std::ranges::any_of(requests, [](auto const& req) {
                 return !req->isCompleted();
             }))
+            {
                 progress_worker();
+            }
         } else {
             auto endpoint = get_endpoint(0);
 
             auto req = endpoint->amRecv();
-            while (!req->isCompleted())
+            while (!req->isCompleted()) {
                 progress_worker();
+            }
 
             req = endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST);
-            while (!req->isCompleted())
+            while (!req->isCompleted()) {
                 progress_worker();
+            }
         }
     }
 
     void clear_completed_futures() {
         std::lock_guard<std::mutex> lock(futures_mutex_);
-        futures_.erase(
-            std::remove_if(
-                futures_.begin(),
-                futures_.end(),
-                [](std::unique_ptr<HostFuture> const& element) {
-                    return element->completed();
-                }
-            ),
-            futures_.end()
+        auto new_end = std::ranges::remove_if(
+            futures_,
+            [](std::unique_ptr<HostFuture> const& element) {
+                return element->completed();
+            }
         );
+        futures_.erase(new_end.begin(), new_end.end());
     }
 
     void progress_worker() {

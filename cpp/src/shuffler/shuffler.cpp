@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -346,7 +347,7 @@ class Shuffler::Progress {
                 shuffler_.comm_->test_some(fire_and_forget_);
             if (!finished.empty()) {
                 // Sort the indexes into `fire_and_forget` in descending order.
-                std::sort(finished.begin(), finished.end(), std::greater<>());
+                std::ranges::sort(finished, std::greater<>());
                 // And erase from the right.
                 for (auto i : finished) {
                     fire_and_forget_.erase(

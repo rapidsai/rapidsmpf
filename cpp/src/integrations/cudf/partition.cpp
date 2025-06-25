@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <utility>
 
 #include <cudf/concatenate.hpp>
@@ -100,7 +101,7 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     if (table.num_rows() == 0) {
         // Work around cudf::split() not supporting empty tables.
         RAPIDSMPF_EXPECTS(
-            std::all_of(splits.begin(), splits.end(), [](auto val) { return val == 0; }),
+            std::ranges::all_of(splits, [](auto val) { return val == 0; }),
             "split point != 0 is invalid for empty table",
             std::out_of_range
         );
