@@ -175,7 +175,7 @@ struct ScopedMemoryRecord {
 };
 
 static_assert(
-    std::is_trivially_copyable<ScopedMemoryRecord>::value,
+    std::is_trivially_copyable_v<ScopedMemoryRecord>,
     "ScopedMemoryRecord must be trivially copyable"
 );
 

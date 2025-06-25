@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/shuffler/finish_counter.hpp>
 
@@ -83,9 +85,8 @@ PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout)
     std::unique_lock<std::mutex> lock(mutex_);
     wait_for_if_timeout_else_wait(lock, cv_, timeout, [&] {
         return partitions_ready_to_wait_on_.empty()
-               || std::any_of(
-                   partitions_ready_to_wait_on_.cbegin(),
-                   partitions_ready_to_wait_on_.cend(),
+               || std::ranges::any_of(
+                   partitions_ready_to_wait_on_,
                    [&](auto const& item) {
                        auto done = item.second;
                        if (done) {
@@ -133,11 +134,9 @@ std::vector<PartID> FinishCounter::wait_some(
     );
 
     wait_for_if_timeout_else_wait(lock, cv_, timeout, [&]() {
-        return std::any_of(
-            partitions_ready_to_wait_on_.begin(),
-            partitions_ready_to_wait_on_.end(),
-            [](auto const& item) { return item.second; }
-        );
+        return std::ranges::any_of(partitions_ready_to_wait_on_, [](auto const& item) {
+            return item.second;
+        });
     });
 
     std::vector<PartID> result{};

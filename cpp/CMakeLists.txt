@@ -40,7 +40,7 @@ option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
 option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
-option(RAPIDSMPF_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
+option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
@@ -161,7 +161,7 @@ add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
 
 # ##################################################################################################
 # * linter configuration ---------------------------------------------------------------------------
-if(RAPIDSMPF_STATIC_LINTERS)
+if(RAPIDSMPF_CLANG_TIDY)
   if(CMAKE_EXPORT_COMPILE_COMMANDS)
     set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
   endif()
@@ -187,7 +187,7 @@ if(RAPIDSMPF_STATIC_LINTERS)
   # versions are skipped so we don't want to constrain to a patch version that the user can't
   # install.
   set(LLVM_VERSION "${CMAKE_MATCH_1}")
-  set(expected_clang_tidy_version 19.1)
+  set(expected_clang_tidy_version 20.1)
   if(NOT expected_clang_tidy_version VERSION_EQUAL LLVM_VERSION)
     message(
       FATAL_ERROR
