@@ -19,6 +19,9 @@ project(
   LANGUAGES CXX CUDA
 )
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
 
 rapids_find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
