@@ -23,10 +23,11 @@ project(
 option(RAPIDSMPF_PYTHON_ASAN "Enable Address Sanitizer for Python build" OFF)
 add_library(maybe_asan INTERFACE)
 target_compile_options(
-  maybe_asan INTERFACE "$<$<COMPILE_LANGUAGE:C>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
-                       "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
+  maybe_asan
+  INTERFACE "$<$<COMPILE_LANGUAGE:C>:$<$<BOOL:${RAPIDSMPF_PYTHON_ASAN}>:-fsanitize=address>>"
+            "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_PYTHON_ASAN}>:-fsanitize=address>>"
 )
-target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>")
+target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_PYTHON_ASAN}>:-fsanitize=address>")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
