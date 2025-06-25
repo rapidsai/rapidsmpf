@@ -120,7 +120,8 @@ class Chunk {
      * @param i The index of the message.
      * @return True if the message is a control message, false otherwise.
      */
-    [[nodiscard]] bool is_control_message(size_t i) const {
+    [[nodiscard]] inline bool is_control_message(size_t i) const {
+        // We use `expected_num_chunks > 0` to flag a message as a "control message".
         return expected_num_chunks(i) > 0;
     }
 
@@ -129,15 +130,21 @@ class Chunk {
      *
      * @param new_chunk_id The ID of the new chunk.
      * @param i The index of the message.
-     * @param stream The CUDA stream.
+     * @param stream The CUDA stream to use for copying the data.
+     * @param br The buffer resource to use for copying the data.
      * @return A new chunk containing the data of the i-th message.
      * @note This will create a copy of the packed data. If there is only one message and
      * the message is a data message, the buffers will be moved to the new chunk.
-     * Otherwise a new chunk will be created by copying data.
+     * Otherwise a new chunk will be created by copying data. If the i'th message is,
+     *  - control message, the metadata and data buffers will be nullptr
+     *  - data message, both metadata and data buffers will be non-null (for a
+     *    metadata-only message, the data buffer will be an empty HOST buffer)
      *
      * @throws std::out_of_range if the index is out of bounds.
      */
-    Chunk get_data(ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view stream);
+    Chunk get_data(
+        ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view stream, BufferResource* br
+    );
 
     /**
      * @brief Get the size of the metadata of the i-th message.
@@ -320,6 +327,27 @@ class Chunk {
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> serialize() const;
 
+    /**
+     * @brief Concatenate multiple chunks into a single chunk.
+     *
+     * @param chunks Vector of chunks to concatenate. The chunks will be moved from this
+     * vector.
+     * @param chunk_id The ID for the resulting concatenated chunk.
+     * @param stream The CUDA stream to use for copying data.
+     * @param br The buffer resource to use for memory allocation.
+     * @param preferred_mem_type The preferred memory type to use for the concatenated
+     * data buffer.
+     * @return Chunk The concatenated chunk.
+     * @throws std::logic_error if the input vector is empty.
+     */
+    static Chunk concat(
+        std::vector<Chunk>&& chunks,
+        ChunkID chunk_id,
+        rmm::cuda_stream_view stream,
+        BufferResource* br,
+        std::optional<MemoryType> preferred_mem_type = std::nullopt
+    );
+
   private:
     // constructor
     Chunk(
@@ -354,7 +382,6 @@ class Chunk {
  */
 class ReadyForDataMessage {
   public:
-    PartID pid;  ///< Partition ID associated with the message.
     ChunkID cid;  ///< Chunk ID associated with the message.
 
     /**
@@ -363,8 +390,8 @@ class ReadyForDataMessage {
      * @return A serialized byte vector representing the message.
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> pack() {
-        auto msg = std::make_unique<std::vector<uint8_t>>(sizeof(ReadyForDataMessage));
-        *reinterpret_cast<ReadyForDataMessage*>(msg->data()) = {.pid = pid, .cid = cid};
+        auto msg = std::make_unique<std::vector<uint8_t>>(sizeof(ChunkID));
+        std::memcpy(msg->data(), &cid, sizeof(cid));
         return msg;
     }
 
@@ -377,7 +404,9 @@ class ReadyForDataMessage {
     [[nodiscard]] static ReadyForDataMessage unpack(
         std::unique_ptr<std::vector<uint8_t>> const& msg
     ) {
-        return *reinterpret_cast<ReadyForDataMessage const*>(msg->data());
+        ChunkID cid;
+        std::memcpy(&cid, msg->data(), sizeof(cid));
+        return ReadyForDataMessage{cid};
     }
 
     /**
@@ -386,7 +415,7 @@ class ReadyForDataMessage {
      */
     [[nodiscard]] std::string str() const {
         std::stringstream ss;
-        ss << "ReadyForDataMessage(pid=" << pid << ", cid=" << cid << ")";
+        ss << "ReadyForDataMessage(cid=" << cid << ")";
         return ss.str();
     }
 };
