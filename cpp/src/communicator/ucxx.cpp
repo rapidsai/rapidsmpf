@@ -126,7 +126,7 @@ class SharedResources {
      * @param nranks The number of ranks requested for the cluster.
      */
     SharedResources(std::shared_ptr<::ucxx::Worker> worker, bool root, Rank nranks)
-        : worker_{worker}, rank_{Rank(root ? 0 : -1)}, nranks_{nranks} {}
+        : worker_{std::move(worker)}, rank_{Rank(root ? 0 : -1)}, nranks_{nranks} {}
 
     SharedResources(SharedResources&&) = delete;  ///< Not movable.
     SharedResources(SharedResources&) = delete;  ///< Not copyable.
