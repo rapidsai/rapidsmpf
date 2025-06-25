@@ -24,7 +24,7 @@ option(RAPIDSMPF_PYTHON_ASAN "Enable Address Sanitizer for Python build" OFF)
 add_library(maybe_asan INTERFACE)
 target_compile_options(
   maybe_asan INTERFACE "$<$<COMPILE_LANGUAGE:C>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
-  maybe_asan INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
+                       "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
 )
 target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>")
 
