@@ -20,8 +20,8 @@ target_compile_options(
 )
 target_link_libraries(
   example_shuffle
-  PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp
-          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+  PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 install(
   TARGETS example_shuffle
