@@ -348,8 +348,8 @@ dependencies:
     common:
       - output_types: conda
         packages:
-          - clang==19.1
-          - clang-tools==19.1
+          - clang==20.1.4
+          - clang-tools==20.1.4
   docs:
     common:
       - output_types: [conda]
