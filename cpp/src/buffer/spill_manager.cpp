@@ -32,7 +32,7 @@ SpillManager::~SpillManager() {
 SpillManager::SpillFunctionID SpillManager::add_spill_function(
     SpillFunction spill_function, int priority
 ) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     auto const id = spill_function_id_counter_++;
     RAPIDSMPF_EXPECTS(
         spill_functions_.insert({id, std::move(spill_function)}).second,
@@ -48,7 +48,7 @@ SpillManager::SpillFunctionID SpillManager::add_spill_function(
 }
 
 void SpillManager::remove_spill_function(SpillFunctionID fid) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    RAPIDSMPF_LOCK_GUARD(mutex_);
     auto& prio = spill_function_priorities_;
     for (auto it = prio.begin(); it != prio.end(); ++it) {
         if (it->second == fid) {
@@ -67,16 +67,17 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
 std::size_t SpillManager::spill(std::size_t amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     std::size_t spilled{0};
-    std::unique_lock<std::mutex> lock(mutex_);
     auto const t0_elapsed = Clock::now();
-    for (auto const [_, fid] : spill_function_priorities_) {
-        if (spilled >= amount) {
-            break;
+    {
+        RAPIDSMPF_LOCK_GUARD(mutex_);
+        for (auto const [_, fid] : spill_function_priorities_) {
+            if (spilled >= amount) {
+                break;
+            }
+            spilled += spill_functions_.at(fid)(amount - spilled);
         }
-        spilled += spill_functions_.at(fid)(amount - spilled);
     }
     auto const t1_elapsed = Clock::now();
-    lock.unlock();
     auto& stats = *br_->statistics();
     stats.add_duration_stat("spill-time-device-to-host", t1_elapsed - t0_elapsed);
     stats.add_bytes_stat("spill-bytes-device-to-host", spilled);

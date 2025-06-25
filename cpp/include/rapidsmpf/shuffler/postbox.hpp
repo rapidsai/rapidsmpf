@@ -115,7 +115,7 @@ class PostBox {
 
   private:
     // TODO: more fine-grained locking e.g. by locking each partition individually.
-    mutable std::mutex mutex_;
+    mutable rapidsmpf_mutex_t mutex_;
     std::function<key_type(PartID)>
         key_map_fn_;  ///< Function to map partition IDs to keys.
     std::unordered_map<key_type, std::unordered_map<ChunkID, Chunk>>

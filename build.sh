@@ -117,6 +117,8 @@ if hasArg -v; then
 fi
 if hasArg -g; then
     BUILD_TYPE=Debug
+    # By default, skbuild strip symbols.
+    export SKBUILD_INSTALL_STRIP=${SKBUILD_INSTALL_STRIP:-false}
 fi
 if hasArg -n; then
     INSTALL_TARGET=""

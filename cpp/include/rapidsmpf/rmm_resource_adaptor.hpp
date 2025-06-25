@@ -7,7 +7,6 @@
 
 #include <array>
 #include <cstddef>
-#include <mutex>
 #include <optional>
 #include <stack>
 #include <thread>
@@ -18,6 +17,8 @@
 #include <rmm/error.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
+
+#include <rapidsmpf/locking.hpp>
 
 namespace rapidsmpf {
 
@@ -231,7 +232,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      *
      * @return A copy of the current main memory record.
      */
-    [[nodiscard]] ScopedMemoryRecord get_main_record() const;
+    [[nodiscard]] ScopedMemoryRecord get_main_record() const noexcept;
 
     /**
      * @brief Get the total current allocated memory from both primary and fallback.
@@ -239,7 +240,6 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      * @return Total number of currently allocated bytes.
      */
     [[nodiscard]] std::int64_t current_allocated() const noexcept;
-
 
     /**
      * @brief Begin recording a new scoped memory usage record for the current thread.
@@ -314,7 +314,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
     [[nodiscard]] bool do_is_equal(rmm::mr::device_memory_resource const& other
     ) const noexcept override;
 
-    mutable std::mutex mutex_;
+    mutable rapidsmpf_mutex_t mutex_;
     rmm::device_async_resource_ref primary_mr_;
     std::optional<rmm::device_async_resource_ref> fallback_mr_;
     std::unordered_set<void*> fallback_allocations_;

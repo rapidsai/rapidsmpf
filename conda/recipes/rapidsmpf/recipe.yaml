@@ -34,7 +34,7 @@ build:
     ignore_binary_files: True
   script:
     content: |
-      ./build.sh -v rapidsmpf
+      ./build.sh -v -g rapidsmpf
     secrets:
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY
