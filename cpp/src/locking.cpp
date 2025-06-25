@@ -19,11 +19,11 @@ std::map<std::thread::id, std::unique_ptr<held_locks_t>> held_locks_by_thread{};
 
 held_locks_t& get_locks_held_by_thread() {
     std::lock_guard<std::mutex> const lock(held_locks_by_thread_mutex);
-    auto& held_ptr = held_locks_by_thread[std::this_thread::get_id()];
-    if (!held_ptr) {
-        held_ptr = std::make_unique<held_locks_t>();
+    if (!held_locks_by_thread[std::this_thread::get_id()]) {
+        held_locks_by_thread[std::this_thread::get_id()] =
+            std::make_unique<held_locks_t>();
     }
-    return *held_ptr;
+    return *held_locks_by_thread[std::this_thread::get_id()];
 }
 
 };  // namespace
