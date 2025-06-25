@@ -80,7 +80,7 @@ class Chunk {
      *
      * @return The ID of the chunk.
      */
-    constexpr ChunkID chunk_id() const {
+    [[nodiscard]] constexpr ChunkID chunk_id() const {
         return chunk_id_;
     }
 
@@ -89,7 +89,7 @@ class Chunk {
      *
      * @return The number of messages in the chunk.
      */
-    inline size_t n_messages() const {
+    [[nodiscard]] size_t n_messages() const {
         return part_ids_.size();
     }
 
@@ -99,7 +99,7 @@ class Chunk {
      * @param i The index of the message.
      * @return The ID of the partition.
      */
-    inline PartID part_id(size_t i) const {
+    [[nodiscard]] PartID part_id(size_t i) const {
         return part_ids_.at(i);
     }
 
@@ -110,7 +110,7 @@ class Chunk {
      * @return The expected number of chunks for the message. Non-zero when the message
      * is a control message, otherwise zero (data message).
      */
-    inline size_t expected_num_chunks(size_t i) const {
+    [[nodiscard]] size_t expected_num_chunks(size_t i) const {
         return expected_num_chunks_.at(i);
     }
 
@@ -120,7 +120,7 @@ class Chunk {
      * @param i The index of the message.
      * @return True if the message is a control message, false otherwise.
      */
-    inline bool is_control_message(size_t i) const {
+    [[nodiscard]] bool is_control_message(size_t i) const {
         return expected_num_chunks(i) > 0;
     }
 
@@ -146,7 +146,7 @@ class Chunk {
      * @return The size of the metadata of the message. Zero when the message is a
      * control message, otherwise the size of `PackedData::metadata`.
      */
-    inline uint32_t metadata_size(size_t i) const {
+    [[nodiscard]] uint32_t metadata_size(size_t i) const {
         return i == 0 ? meta_offsets_.at(0)
                       : meta_offsets_.at(i) - meta_offsets_.at(i - 1);
     }
@@ -158,7 +158,7 @@ class Chunk {
      * @return The size of the packed data of the message. Zero when the message is a
      * control message, otherwise the size of `PackedData::gpu_data` of the message.
      */
-    inline size_t data_size(size_t i) const {
+    [[nodiscard]] size_t data_size(size_t i) const {
         return i == 0 ? data_offsets_.at(0)
                       : data_offsets_.at(i) - data_offsets_.at(i - 1);
     }
@@ -178,7 +178,7 @@ class Chunk {
      *
      * @return True if the data buffer is set, false otherwise.
      */
-    inline bool is_data_buffer_set() const {
+    [[nodiscard]] bool is_data_buffer_set() const {
         return data_ != nullptr;
     }
 
@@ -187,7 +187,7 @@ class Chunk {
      *
      * @return True if the metadata buffer is set, false otherwise.
      */
-    inline bool is_metadata_buffer_set() const {
+    [[nodiscard]] bool is_metadata_buffer_set() const {
         return metadata_ != nullptr && !metadata_->empty();
     }
 
@@ -196,7 +196,7 @@ class Chunk {
      *
      * @return The memory type of the data buffer.
      */
-    MemoryType data_memory_type() const {
+    [[nodiscard]] MemoryType data_memory_type() const {
         RAPIDSMPF_EXPECTS(data_, "data buffer is not set");
         return data_->mem_type();
     }
@@ -206,7 +206,7 @@ class Chunk {
      *
      * @return The size of the concatenated data.
      */
-    inline size_t concat_data_size() const {
+    [[nodiscard]] size_t concat_data_size() const {
         return data_offsets_[n_messages() - 1];
     }
 
@@ -215,7 +215,7 @@ class Chunk {
      *
      * @return The size of the concatenated metadata.
      */
-    inline size_t concat_metadata_size() const {
+    [[nodiscard]] size_t concat_metadata_size() const {
         return meta_offsets_[n_messages() - 1];
     }
 
@@ -364,7 +364,7 @@ class ReadyForDataMessage {
      */
     [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> pack() {
         auto msg = std::make_unique<std::vector<uint8_t>>(sizeof(ReadyForDataMessage));
-        *reinterpret_cast<ReadyForDataMessage*>(msg->data()) = {pid, cid};
+        *reinterpret_cast<ReadyForDataMessage*>(msg->data()) = {.pid = pid, .cid = cid};
         return msg;
     }
 

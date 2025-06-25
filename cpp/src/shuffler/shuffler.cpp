@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -271,7 +272,8 @@ class Shuffler::Progress {
                 // Tell the source of the chunk that we are ready to receive it.
                 // TODO: all partition IDs in the chunk must map to the same key (rank).
                 fire_and_forget_.push_back(shuffler_.comm_->send(
-                    ReadyForDataMessage{chunk.part_id(0), chunk.chunk_id()}.pack(),
+                    ReadyForDataMessage{.pid = chunk.part_id(0), .cid = chunk.chunk_id()}
+                        .pack(),
                     src,
                     ready_for_data_tag,
                     shuffler_.br_
@@ -341,7 +343,7 @@ class Shuffler::Progress {
                 shuffler_.comm_->test_some(fire_and_forget_);
             if (!finished.empty()) {
                 // Sort the indexes into `fire_and_forget` in descending order.
-                std::sort(finished.begin(), finished.end(), std::greater<>());
+                std::ranges::sort(finished, std::greater<>());
                 // And erase from the right.
                 for (auto i : finished) {
                     fire_and_forget_.erase(

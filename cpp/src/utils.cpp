@@ -39,7 +39,7 @@ std::string to_lower(std::string str) {
     //   addressable and does not have this problem, but the following item still applies.
     // - To avoid UB in std::tolower() or ::tolower(), the character must be cast to
     // unsigned char.
-    std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c) {
+    std::ranges::transform(str, str.begin(), [](unsigned char c) {
         return std::tolower(c);
     });
     return str;
@@ -47,7 +47,7 @@ std::string to_lower(std::string str) {
 
 std::string to_upper(std::string str) {
     // Special considerations regarding the case conversion, see to_lower().
-    std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c) {
+    std::ranges::transform(str, str.begin(), [](unsigned char c) {
         return std::toupper(c);
     });
     return str;
