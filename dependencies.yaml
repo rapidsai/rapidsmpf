@@ -11,6 +11,7 @@ files:
       - build-python
       - build-mpi
       - checks
+      - clang_tidy
       - cuda
       - cuda_version
       - depends_on_cudf
@@ -56,6 +57,18 @@ files:
     output: none
     includes:
       - checks
+      - py_version
+  clang_tidy:
+    output: none
+    includes:
+      - build-cpp
+      - build-universal
+      - depends_on_libcudf
+      - depends_on_librmm
+      - depends_on_libucxx
+      - clang_tidy
+      - cuda
+      - cuda_version
       - py_version
   docs:
     output: none
@@ -331,6 +344,12 @@ dependencies:
             packages:
               - librapidsmpf-cu12==25.8.*,>=0.0.0a0
           - {matrix: null, packages: [*librapidsmpf_unsuffixed]}
+  clang_tidy:
+    common:
+      - output_types: conda
+        packages:
+          - clang==19.1
+          - clang-tools==19.1
   docs:
     common:
       - output_types: [conda]
