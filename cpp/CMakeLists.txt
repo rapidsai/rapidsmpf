@@ -41,6 +41,7 @@ option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
+option(RAPIDSMPF_ASAN "Enable Address Sanitizer" OFF)
 
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
@@ -139,7 +140,7 @@ set_target_properties(
 target_compile_options(
   rapidsmpf
   PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-          "$<$<COMPILE_LANGUAGE:CXX>:-fsanitize=address>"
+          "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
           "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 
@@ -154,7 +155,9 @@ target_link_libraries(
   PUBLIC rmm::rmm cudf::cudf ucxx::ucxx
   PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
 )
-target_link_options(rapidsmpf PRIVATE "-fsanitize=address")
+if(RAPIDSMPF_ASAN)
+  target_link_options(rapidsmpf PRIVATE "-fsanitize=address")
+endif()
 
 target_compile_definitions(rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>)
 
