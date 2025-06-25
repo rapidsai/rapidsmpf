@@ -26,10 +26,3 @@ if(RAPIDSMPF_HAVE_MPI)
     LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE MPI::MPI_CXX
   )
 endif()
-
-# Add Address Sanitizer to the generated targets
-target_link_options(communicator PRIVATE "-fsanitize=address")
-target_link_options(ucxx PRIVATE "-fsanitize=address")
-if(RAPIDSMPF_HAVE_MPI)
-  target_link_options(mpi PRIVATE "-fsanitize=address")
-endif()

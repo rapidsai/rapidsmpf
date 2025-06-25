@@ -19,6 +19,11 @@ project(
   LANGUAGES CXX CUDA
 )
 
+# Add global Address Sanitizer flags
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
+
 find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
 
 rapids_find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
