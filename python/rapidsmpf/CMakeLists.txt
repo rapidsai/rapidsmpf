@@ -28,6 +28,9 @@ if(RAPIDSMPF_PYTHON_ASAN)
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
 endif()
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
 
 rapids_find_package(ucxx-python REQUIRED "${UCXX_VERSION}")

@@ -69,6 +69,11 @@ cdef class BufferResource:
         if periodic_spill_check is not None:
             period = cpp_Duration(periodic_spill_check)
 
+        # Keep MR alive because the C++ BufferResource stores a raw pointer.
+        # TODO: once RMM is migrating to CCCL (copyable) any_resource,
+        # rather than the any_resource_ref reference type, we don't
+        # need to keep this alive here.
+        self._mr = device_mr
         with nogil:
             self._handle = make_shared[cpp_BufferResource](
                 device_mr.get_mr(),

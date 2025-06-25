@@ -14,7 +14,8 @@
 /**
  * @brief Help function to convert value to 64 bit signed integer
  */
-template <typename T, std::enable_if_t<std::is_integral_v<T>>* = nullptr>
+template <typename T>
+    requires std::is_integral_v<T>
 [[nodiscard]] std::int64_t convert_to_64bit(T value) {
     if constexpr (std::numeric_limits<T>::max() > std::numeric_limits<std::int64_t>::max())
     {
@@ -30,7 +31,8 @@ template <typename T, std::enable_if_t<std::is_integral_v<T>>* = nullptr>
 /**
  * @brief Help function to convert value to 64 bit float
  */
-template <typename T, std::enable_if_t<std::is_floating_point_v<T>>* = nullptr>
+template <typename T>
+    requires std::is_floating_point_v<T>
 [[nodiscard]] double convert_to_64bit(T value) {
     return double(value);
 }
