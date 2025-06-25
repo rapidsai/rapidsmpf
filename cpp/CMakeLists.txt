@@ -41,7 +41,7 @@ option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
-option(RAPIDSMPF_ASAN "Enable Address Sanitizer" OFF)
+option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
 
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})

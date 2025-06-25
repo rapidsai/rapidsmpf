@@ -29,7 +29,7 @@ HELP="$0 [clean] [librapidsmpf] [rapidsmpf] [-v] [-g] [-n] [--cmake-args=\"<args
    -n                          - no install step
    --pydevelop                 - Install Python packages in editable mode
    --cmake-args=\\\"<args>\\\" - pass arbitrary list of CMake configuration options (escape all quotes in argument)
-   --asan                      - enable address sanitizer for C++ and Python builds
+   --asan                      - enable AddressSanitizer for C++ and Python builds
    -h                          - print this text
    default action (no args) is to build and install the 'librapidsmpf' then 'rapidsmpf' targets
 "

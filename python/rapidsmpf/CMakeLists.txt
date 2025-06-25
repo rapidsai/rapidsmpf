@@ -19,8 +19,8 @@ project(
   LANGUAGES CXX CUDA
 )
 
-# Add global Address Sanitizer flags only if explicitly requested
-option(RAPIDSMPF_PYTHON_ASAN "Enable Address Sanitizer for Python build" OFF)
+# Add global AddressSanitizer flags only if explicitly requested
+option(RAPIDSMPF_PYTHON_ASAN "Enable AddressSanitizer for Python build" OFF)
 add_library(maybe_asan INTERFACE)
 target_compile_options(
   maybe_asan
