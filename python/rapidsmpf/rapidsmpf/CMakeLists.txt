@@ -13,6 +13,13 @@ rapids_cython_create_modules(
   LINKED_LIBRARIES rapidsmpf::rapidsmpf
 )
 
+# Add Address Sanitizer to the generated targets
+target_link_options(config PRIVATE "-fsanitize=address")
+target_link_options(progress_thread PRIVATE "-fsanitize=address")
+target_link_options(rmm_resource_adaptor PRIVATE "-fsanitize=address")
+target_link_options(shuffler PRIVATE "-fsanitize=address")
+target_link_options(statistics PRIVATE "-fsanitize=address")
+
 add_subdirectory(_detail)
 add_subdirectory(buffer)
 add_subdirectory(communicator)

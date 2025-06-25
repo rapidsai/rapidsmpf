@@ -10,3 +10,9 @@ rapids_cython_create_modules(
   SOURCE_FILES "${cython_modules}"
   LINKED_LIBRARIES rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
 )
+
+# Add Address Sanitizer to the generated targets
+target_link_options(buffer PRIVATE "-fsanitize=address")
+target_link_options(packed_data PRIVATE "-fsanitize=address")
+target_link_options(resource PRIVATE "-fsanitize=address")
+target_link_options(spill_manager PRIVATE "-fsanitize=address")

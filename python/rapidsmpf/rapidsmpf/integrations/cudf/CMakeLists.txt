@@ -10,3 +10,6 @@ rapids_cython_create_modules(
   SOURCE_FILES "${cython_modules}"
   LINKED_LIBRARIES rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
 )
+
+# Add Address Sanitizer to the generated target
+target_link_options(partition PRIVATE "-fsanitize=address")

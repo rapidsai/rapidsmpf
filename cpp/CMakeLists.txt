@@ -137,8 +137,10 @@ set_target_properties(
 )
 
 target_compile_options(
-  rapidsmpf PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-                    "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+  rapidsmpf
+  PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+          "$<$<COMPILE_LANGUAGE:CXX>:-fsanitize=address>"
+          "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 
 target_include_directories(
@@ -152,6 +154,7 @@ target_link_libraries(
   PUBLIC rmm::rmm cudf::cudf ucxx::ucxx
   PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
 )
+target_link_options(rapidsmpf PRIVATE "-fsanitize=address")
 
 target_compile_definitions(rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>)
 

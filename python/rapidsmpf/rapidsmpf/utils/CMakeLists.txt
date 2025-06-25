@@ -10,3 +10,6 @@ rapids_cython_create_modules(
   SOURCE_FILES "${cython_modules}"
   LINKED_LIBRARIES rapidsmpf::rapidsmpf
 )
+
+# Add Address Sanitizer to the generated target
+target_link_options(time PRIVATE "-fsanitize=address")
