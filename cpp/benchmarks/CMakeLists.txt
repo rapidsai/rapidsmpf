@@ -43,18 +43,13 @@ set_target_properties(
              CUDA_STANDARD_REQUIRED ON
 )
 target_compile_options(
-  bench_comm
-  PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-          "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
-          "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+  bench_comm PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                     "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
   bench_comm PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
-                     $<TARGET_NAME_IF_EXISTS:conda_env>
+                     $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
-if(RAPIDSMPF_ASAN)
-  target_link_options(bench_comm PRIVATE "-fsanitize=address")
-endif()
 install(
   TARGETS bench_comm
   COMPONENT benchmarking
@@ -78,19 +73,14 @@ set_target_properties(
              CUDA_STANDARD_REQUIRED ON
 )
 target_compile_options(
-  bench_partition
-  PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-          "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
-          "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+  bench_partition PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                          "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
   bench_partition
   PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp benchmark::benchmark benchmark::benchmark_main
-          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
-if(RAPIDSMPF_ASAN)
-  target_link_options(bench_partition PRIVATE "-fsanitize=address")
-endif()
 install(
   TARGETS bench_partition
   COMPONENT benchmarking
@@ -109,18 +99,13 @@ set_target_properties(
              CUDA_STANDARD_REQUIRED ON
 )
 target_compile_options(
-  bench_memory_resources
-  PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-          "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
-          "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+  bench_memory_resources PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                                 "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
   bench_memory_resources PRIVATE rapidsmpf::rapidsmpf rmm::rmm benchmark::benchmark
-                                 benchmark::benchmark_main $<TARGET_NAME_IF_EXISTS:conda_env>
+                                 benchmark::benchmark_main $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
-if(RAPIDSMPF_ASAN)
-  target_link_options(bench_memory_resources PRIVATE "-fsanitize=address")
-endif()
 install(
   TARGETS bench_memory_resources
   COMPONENT benchmarking
