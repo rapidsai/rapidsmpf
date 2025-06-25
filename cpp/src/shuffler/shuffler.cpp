@@ -510,8 +510,6 @@ void Shuffler::insert(detail::Chunk&& chunk) {
     Rank p0_target_rank = partition_owner(comm_, chunk.part_id(0));
     if (p0_target_rank == comm_->rank()) {
         // this is a local chunk, so we can insert it into the ready postbox
-        assert(chunk.n_messages() == 1);
-
         if (chunk.is_data_buffer_set()) {
             statistics_->add_bytes_stat("shuffle-payload-send", chunk.concat_data_size());
             statistics_->add_bytes_stat("shuffle-payload-recv", chunk.concat_data_size());
@@ -598,7 +596,6 @@ void Shuffler::insert_grouped(std::unordered_map<PartID, PackedData>&& chunks) {
     int64_t total_staged_data_ = 0;
     auto init_event = std::make_shared<Buffer::Event>(stream_);
 
-    // lambda to build all groups and insert the chunks
     auto build_all_groups_and_insert = [&]() {
         for (auto&& group : chunk_groups) {
             if (!group.empty()) {
@@ -606,6 +603,7 @@ void Shuffler::insert_grouped(std::unordered_map<PartID, PackedData>&& chunks) {
             }
         }
     };
+
     bool all_groups_built_flag = false;
     for (auto& [pid, packed_data] : chunks) {
         Rank target_rank = partition_owner(comm_, pid);

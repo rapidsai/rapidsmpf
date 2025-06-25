@@ -181,7 +181,7 @@ MemoryReservation reserve_or_fail(
     BufferResource* br, size_t size, std::optional<MemoryType> const& preferred_mem_type
 ) {
     if (preferred_mem_type) {
-        auto [res, overbooking] = br->reserve(*preferred_mem_type, size, false);
+        auto [res, _] = br->reserve(*preferred_mem_type, size, false);
         RAPIDSMPF_EXPECTS(
             res.size() == size, "failed to reserve memory", std::runtime_error
         );
@@ -190,7 +190,7 @@ MemoryReservation reserve_or_fail(
 
     // try to allocate data buffer from memory types in order [DEVICE, HOST]
     for (auto mem_type : MEMORY_TYPES) {
-        auto [res, overbooking] = br->reserve(mem_type, size, false);
+        auto [res, _] = br->reserve(mem_type, size, false);
         if (res.size() == size) {
             return std::move(res);
         }
