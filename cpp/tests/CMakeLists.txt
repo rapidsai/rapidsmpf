@@ -102,7 +102,7 @@ target_link_libraries(
           ucx::ucp
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
           $<TARGET_NAME_IF_EXISTS:conda_env>
-          mayb_asan
+          maybe_asan
 )
 disable_sign_conversion_warning(ucxx_tests)
 
