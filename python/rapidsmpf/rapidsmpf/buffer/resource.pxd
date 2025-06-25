@@ -40,6 +40,7 @@ cdef class BufferResource:
     cdef shared_ptr[cpp_BufferResource] _handle
     cdef readonly SpillManager spill_manager
     cdef cpp_BufferResource* ptr(self)
+    cdef DeviceMemoryResource _mr
 
 
 cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
