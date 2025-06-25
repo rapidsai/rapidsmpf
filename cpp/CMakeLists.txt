@@ -114,9 +114,7 @@ add_library(maybe_asan INTERFACE)
 target_compile_options(
   maybe_asan INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
 )
-if(RAPIDSMPF_ASAN)
-  target_link_options(maybe_asan INTERFACE "-fsanitize=address")
-endif()
+target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>")
 
 file(GLOB SOURCES "src/*.cpp" "src/buffer/*.cpp" "src/communicator/*.cpp"
      "src/integrations/cudf/*.cpp" "src/shuffler/*.cpp"
