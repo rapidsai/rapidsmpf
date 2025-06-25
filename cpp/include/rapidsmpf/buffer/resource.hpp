@@ -380,6 +380,13 @@ class BufferResource {
      */
     std::shared_ptr<Statistics> statistics();
 
+    /**
+     * @brief Allocate an empty host buffer.
+     *
+     * @return A unique pointer to the allocated Buffer.
+     */
+    std::unique_ptr<Buffer> allocate_empty_host_buffer() const;
+
   private:
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
@@ -438,5 +445,19 @@ class LimitAvailableMemory {
     RmmResourceAdaptor const* mr_;
 };
 
+/**
+ * @brief Make a memory reservation or fail.
+ *
+ * @param br The buffer resource.
+ * @param size The size of the buffer to allocate.
+ * @param preferred_mem_type The preferred memory type to allocate the buffer from.
+ * @return A memory reservation.
+ * @throw std::runtime_error if no memory reservation was made.
+ */
+MemoryReservation reserve_or_fail(
+    BufferResource* br,
+    size_t size,
+    std::optional<MemoryType> const& preferred_mem_type = std::nullopt
+);
 
 }  // namespace rapidsmpf
