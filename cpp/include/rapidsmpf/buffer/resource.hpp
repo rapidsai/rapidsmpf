@@ -452,7 +452,7 @@ class LimitAvailableMemory {
  * @param size The size of the buffer to allocate.
  * @param preferred_mem_type The preferred memory type to allocate the buffer from.
  * @return A memory reservation.
- * @throw RAPIDSMPF_FAIL if no memory reservation was made.
+ * @throw std::runtime_error if no memory reservation was made.
  */
 MemoryReservation reserve_or_fail(
     BufferResource* br,
