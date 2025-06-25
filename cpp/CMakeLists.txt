@@ -111,8 +111,9 @@ endif()
 # * library targets --------------------------------------------------------------------------------
 
 add_library(maybe_asan INTERFACE)
-target_compile_options(maybe_asan INTERFACE
-          "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>")
+target_compile_options(
+  maybe_asan INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
+)
 if(RAPIDSMPF_ASAN)
   target_link_options(maybe_asan INTERFACE "-fsanitize=address")
 endif()
@@ -145,9 +146,8 @@ set_target_properties(
 )
 
 target_compile_options(
-  rapidsmpf
-  PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-          "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+  rapidsmpf PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                    "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 
 target_include_directories(

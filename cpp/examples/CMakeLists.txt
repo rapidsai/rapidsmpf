@@ -15,13 +15,13 @@ set_target_properties(
              CUDA_STANDARD_REQUIRED ON
 )
 target_compile_options(
-  example_shuffle
-  PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-          "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+  example_shuffle PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                          "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  example_shuffle PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp
-                          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+  example_shuffle
+  PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 install(
   TARGETS example_shuffle
