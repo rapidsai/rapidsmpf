@@ -6,6 +6,9 @@ from libcpp cimport bool
 from libcpp.memory cimport make_shared
 from libcpp.string cimport string
 
+from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
+                                             cpp_RmmResourceAdaptor)
+
 
 # Since `Statistics::Stat` doesn't have a default ctor, we use the following
 # getters.
@@ -33,10 +36,19 @@ cdef class Statistics:
     ----------
     enable
         Whether statistics tracking is enabled.
+    mr
+        Enable memory profiling by providing a RMM resource adaptor.
     """
-    def __cinit__(self, *, bool enable):
-        with nogil:
-            self._handle = make_shared[cpp_Statistics](enable)
+    def __cinit__(self, *, bool enable, RmmResourceAdaptor mr = None):
+        cdef cpp_RmmResourceAdaptor* mr_handle
+        self._mr = mr  # Keep mr alive.
+        if enable and mr is not None:
+            mr_handle = mr.get_handle()
+            with nogil:
+                self._handle = make_shared[cpp_Statistics](mr_handle)
+        else:
+            with nogil:
+                self._handle = make_shared[cpp_Statistics](enable)
 
     def __dealloc__(self):
         with nogil:
@@ -51,7 +63,7 @@ cdef class Statistics:
 
         Returns
         -------
-        True if the object is enabled, otherwise false.
+        True if statistics is enabled, otherwise false.
         """
         return deref(self._handle).enabled()
 
@@ -116,3 +128,14 @@ cdef class Statistics:
         with nogil:
             ret = deref(self._handle).add_stat(name_, value)
         return ret
+
+    @property
+    def memory_profiling_enabled(self):
+        """
+        Checks if memory profiling is enabled.
+
+        Returns
+        -------
+        True if memory profiling is enabled, otherwise false.
+        """
+        return deref(self._handle).is_memory_profiling_enabled()

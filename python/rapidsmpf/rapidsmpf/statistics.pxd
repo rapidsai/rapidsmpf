@@ -6,6 +6,8 @@ from libcpp cimport bool
 from libcpp.memory cimport shared_ptr
 from libcpp.string cimport string
 
+from rapidsmpf.rmm_resource_adaptor cimport RmmResourceAdaptor
+
 
 cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
     cdef cppclass cpp_Statistics "rapidsmpf::Statistics":
@@ -16,6 +18,8 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
             string name,
             double value
         ) except +
+        bool is_memory_profiling_enabled() except +
 
 cdef class Statistics:
     cdef shared_ptr[cpp_Statistics] _handle
+    cdef RmmResourceAdaptor _mr
