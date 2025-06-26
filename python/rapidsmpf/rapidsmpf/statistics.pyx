@@ -3,7 +3,7 @@
 
 from cython.operator cimport dereference as deref
 from libcpp cimport bool
-from libcpp.memory cimport make_shared
+from libcpp.memory cimport make_shared, make_unique
 from libcpp.string cimport string
 
 from dataclasses import dataclass
@@ -163,6 +163,9 @@ cdef class Statistics:
             ret[name] = create_memory_record_from_cpp(deref(it).second)
         return ret
 
+    def memory_profiling(self, name):
+        return MemoryRecorder(self, self._mr, name)
+
 
 @dataclass
 class MemoryRecord:
@@ -178,3 +181,25 @@ cdef create_memory_record_from_cpp(cpp_MemoryRecord handle):
         global_peak = handle.global_peak,
         num_calls = handle.num_calls
     )
+
+
+cdef class MemoryRecorder:
+    def __cinit__(self, Statistics stats, RmmResourceAdaptor mr, name):
+        self._stats = stats
+        self._mr = mr
+        self._name = str.encode(name)
+
+    def __enter__(self):
+        if self._mr is None:
+            return
+
+        cdef cpp_RmmResourceAdaptor* mr = self._mr.get_handle()
+        with nogil:
+            self._handle = make_unique[cpp_MemoryRecorder](
+                self._stats._handle.get(), mr, self._name
+            )
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self._mr is not None:
+            with nogil:
+                self._handle.reset()

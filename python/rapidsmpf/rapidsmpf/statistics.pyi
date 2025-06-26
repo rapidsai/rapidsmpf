@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from numbers import Number
+from typing import Any
 
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor, ScopedMemoryRecord
 
@@ -22,9 +23,19 @@ class Statistics:
     @property
     def memory_profiling_enabled(self) -> bool: ...
     def get_memory_records(self) -> MemoryRecord: ...
+    def memory_profiling(self, name: str) -> MemoryRecorder: ...
 
 @dataclass
 class MemoryRecord:
     scoped: ScopedMemoryRecord
     global_peak: int
     num_calls: int
+
+class MemoryRecorder:
+    def __enter__(self) -> None: ...
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: Any | None,
+    ) -> bool: ...

@@ -40,3 +40,9 @@ def test_enable_memory_profiling(device_mr: rmm.mr.CudaMemoryResource) -> None:
 def test_get_empty_memory_records(device_mr: rmm.mr.CudaMemoryResource) -> None:
     stats = Statistics(enable=True, mr=RmmResourceAdaptor(device_mr))
     assert stats.get_memory_records() == {}
+
+
+def test_memory_profiling(device_mr: rmm.mr.CudaMemoryResource) -> None:
+    stats = Statistics(enable=True, mr=RmmResourceAdaptor(device_mr))
+    with stats.memory_profiling("test-scope"):
+        pass
