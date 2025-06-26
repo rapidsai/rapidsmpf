@@ -7,6 +7,7 @@ from numbers import Number
 class Statistics:
     def __init__(
         self,
+        *,
         enable: bool,
     ) -> None: ...
     @property

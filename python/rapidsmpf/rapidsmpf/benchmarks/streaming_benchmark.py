@@ -230,7 +230,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     elif args.comm == "ucxx":
         comm = ucxx_mpi_setup(options)
 
-    stats = Statistics(args.statistics)
+    stats = Statistics(enable=args.statistics)
 
     progress_thread = ProgressThread(comm, stats)
 
