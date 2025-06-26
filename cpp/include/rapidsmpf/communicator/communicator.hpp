@@ -483,7 +483,11 @@ class Communicator {
 };
 
 /// @brief Whether RapidsMPF was built with the UCXX Communicator.
+#ifdef RAPIDSMPF_HAVE_UCXX
 constexpr bool COMM_HAVE_UCXX = true;
+#else
+constexpr bool COMM_HAVE_UCXX = false;
+#endif
 
 /// @brief Whether RapidsMPF was built with the MPI Communicator.
 #ifdef RAPIDSMPF_HAVE_MPI

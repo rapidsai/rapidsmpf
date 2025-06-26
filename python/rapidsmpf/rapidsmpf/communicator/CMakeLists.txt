@@ -13,11 +13,13 @@ rapids_cython_create_modules(
   LINKED_LIBRARIES rapidsmpf::rapidsmpf
 )
 
-rapids_cython_create_modules(
-  CXX
-  SOURCE_FILES "${modules_need_ucxx}"
-  LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE ucxx::ucxx ucxx::python ucx::ucp
-)
+if(RAPIDSMPF_HAVE_UCXX)
+  rapids_cython_create_modules(
+    CXX
+    SOURCE_FILES "${modules_need_ucxx}"
+    LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE ucxx::ucxx ucxx::python ucx::ucp
+  )
+endif()
 
 if(RAPIDSMPF_HAVE_MPI)
   rapids_cython_create_modules(

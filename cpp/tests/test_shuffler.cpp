@@ -15,8 +15,6 @@
 
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
-#include <rapidsmpf/communicator/mpi.hpp>
-#include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
