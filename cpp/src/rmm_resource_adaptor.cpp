@@ -121,7 +121,12 @@ void RmmResourceAdaptor::begin_scoped_memory_record() {
 
 ScopedMemoryRecord RmmResourceAdaptor::end_scoped_memory_record() {
     std::lock_guard lock(mutex_);
-    auto& stack = record_stacks_[std::this_thread::get_id()];
+    auto& stack = record_stacks_.at(std::this_thread::get_id());
+    RAPIDSMPF_EXPECTS(
+        !stack.empty(),
+        "calling end_scoped_memory_record() on an empty stack.",
+        std::out_of_range
+    );
     auto ret = stack.top();
     stack.pop();
     if (!stack.empty()) {
@@ -161,7 +166,10 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
         auto& record = record_stacks_[thread_id];
         if (!record.empty()) {
             record.top().record_allocation(alloc_type, static_cast<std::int64_t>(nbytes));
-            allocating_threads_.insert({ret, thread_id});
+            RAPIDSMPF_EXPECTS(
+                allocating_threads_.insert({ret, thread_id}).second,
+                "duplicate memory pointer"
+            );
         }
     }
     return ret;
@@ -177,29 +185,27 @@ void RmmResourceAdaptor::do_deallocate(
     {
         std::lock_guard<std::mutex> lock(mutex_);
         alloc_type = (fallback_allocations_.erase(ptr) == 0) ? PRIMARY : FALLBACK;
-    }
 
+        // Always record the deallocation on the main record.
+        main_record_.record_deallocation(alloc_type, static_cast<std::int64_t>(nbytes));
+        // But only record it on the thread stack if it exist.
+        if (!allocating_threads_.empty()) {
+            auto const node = allocating_threads_.extract(ptr);
+            if (node) {
+                auto thread_id = node.mapped();  // `ptr` was allocated by `thread_id`.
+                auto& record = record_stacks_[thread_id];
+                if (!record.empty()) {
+                    record.top().record_deallocation(
+                        alloc_type, static_cast<std::int64_t>(nbytes)
+                    );
+                }
+            }
+        }
+    }
     if (alloc_type == PRIMARY) {
         primary_mr_.deallocate_async(ptr, nbytes, stream);
     } else {
         fallback_mr_->deallocate_async(ptr, nbytes, stream);
-    }
-
-    std::lock_guard<std::mutex> lock(mutex_);
-    // Always record the deallocation on the main record.
-    main_record_.record_deallocation(alloc_type, static_cast<std::int64_t>(nbytes));
-    // But only record it on the thread stack if it exist.
-    if (!allocating_threads_.empty()) {
-        auto const node = allocating_threads_.extract(ptr);
-        if (node) {
-            auto const thread_id = node.mapped();  // `ptr` was allocated by `thread_id`.
-            auto& record = record_stacks_[thread_id];
-            if (!record.empty()) {
-                record.top().record_deallocation(
-                    alloc_type, static_cast<std::int64_t>(nbytes)
-                );
-            }
-        }
     }
 }
 
