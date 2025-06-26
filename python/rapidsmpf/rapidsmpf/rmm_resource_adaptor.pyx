@@ -11,10 +11,24 @@ from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
 ctypedef cpp_RmmResourceAdaptor* cpp_RmmResourceAdaptor_ptr
 
 cdef class ScopedMemoryRecord:
-    cdef cpp_ScopedMemoryRecord _handle
+    @staticmethod
+    cdef ScopedMemoryRecord from_handle(cpp_ScopedMemoryRecord handle):
+        """Create a new scoped memory record from a C++ handle
 
-    def __cinit__(self):
-        self._handle = cpp_ScopedMemoryRecord()
+        This is copying `handle`, which is a POD struct.
+
+        Parameters
+        ----------
+        handle
+            C++ handle of a ScopedMemoryRecord.
+
+        Returns
+        -------
+            Python copy of the coped memory record.
+        """
+        cdef ScopedMemoryRecord ret = ScopedMemoryRecord.__new__(ScopedMemoryRecord)
+        ret._handle = handle
+        return ret
 
     def num_total_allocs(self, AllocType alloc_type=AllocType.ALL):
         """
@@ -185,10 +199,10 @@ cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
         A copy of the current main memory record.
         """
         cdef cpp_RmmResourceAdaptor* mr = self.get_handle()
-        cdef ScopedMemoryRecord ret = ScopedMemoryRecord.__new__(ScopedMemoryRecord)
+        cdef cpp_ScopedMemoryRecord ret
         with nogil:
-            ret._handle = deref(mr).get_main_record()
-        return ret
+            ret = deref(mr).get_main_record()
+        return ScopedMemoryRecord.from_handle(ret)
 
     @property
     def current_allocated(self) -> int:
