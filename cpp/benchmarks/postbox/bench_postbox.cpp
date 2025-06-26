@@ -62,20 +62,18 @@ constexpr size_t nranks = 8;
 constexpr size_t nparts = 100;
 
 template <typename T>
-struct KeyMapFn {};
+T KeyMapFn(PartID pid) {
+    return {};
+}
 
 template <>
-struct KeyMapFn<Rank> {
-    Rank operator()(PartID pid) const {
-        return pid % nranks;
-    }
+Rank KeyMapFn<Rank>(PartID pid) {
+    return pid % nranks;
 };
 
 template <>
-struct KeyMapFn<PartID> {
-    PartID operator()(PartID pid) const {
-        return pid;
-    }
+PartID KeyMapFn<PartID>(PartID pid) {
+    return pid;
 };
 
 // Benchmark template for PostBox
@@ -94,7 +92,7 @@ static void BM_PostBoxMultiThreaded(benchmark::State& state) {
     auto stream = cudf::get_default_stream();
 
     // Create PostBox with identity key mapping
-    PostBoxType postbox(KeyMapFn<typename PostBoxType::key_type>(), num_chunks);
+    PostBoxType postbox(KeyMapFn<typename PostBoxType::key_type>, num_chunks);
 
     // Synchronization primitives
     std::atomic<size_t> chunks_inserted{0};
@@ -186,6 +184,12 @@ static void BM_PostBoxMultiThreaded(benchmark::State& state) {
     );
     state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(num_chunks));
 }
+
+// Warm up run 
+BENCHMARK_TEMPLATE(BM_PostBoxMultiThreaded, PostBox<PartID>)
+    ->Args({10000, 1024})  // 10k chunks, 1KB each
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
 
 // Register benchmarks for PostBox
 BENCHMARK_TEMPLATE(BM_PostBoxMultiThreaded, PostBox<PartID>)

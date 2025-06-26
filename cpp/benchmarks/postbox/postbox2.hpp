@@ -126,9 +126,8 @@ class PostBox2 {
         std::vector<Chunk> ret;
 
         for (auto& bucket : pigeonhole_buckets_) {
-            // std::lock_guard const lock(bucket.mtx);
-            std::unique_lock lock(bucket.mtx, std::defer_lock);
-            if (!lock.try_lock()) {
+            std::unique_lock lock(bucket.mtx, std::try_to_lock);
+            if (!lock.owns_lock()) {
                 continue;
             }
 
@@ -231,7 +230,7 @@ class PostBox2 {
     }
 
   private:
-    static constexpr size_t kNumBuckets = 16;  ///< Number of buckets.
+    static constexpr size_t kNumBuckets = 8;  ///< Number of buckets.
 
     /// Get the index of the bucket for a given key.
     constexpr inline size_t bucket_index(KeyType key) {
