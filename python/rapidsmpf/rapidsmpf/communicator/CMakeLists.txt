@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # =================================================================================
 
-set(modules_only_rapidsmpf communicator.pyx)
+set(modules_only_rapidsmpf communicator.pyx single.pyx)
 set(modules_need_ucxx ucxx.pyx)
 set(modules_need_mpi mpi.pyx)
 
