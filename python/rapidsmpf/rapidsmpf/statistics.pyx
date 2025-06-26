@@ -6,7 +6,10 @@ from libcpp cimport bool
 from libcpp.memory cimport make_shared
 from libcpp.string cimport string
 
+from dataclasses import dataclass
+
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
+                                             ScopedMemoryRecord,
                                              cpp_RmmResourceAdaptor)
 
 
@@ -139,3 +142,39 @@ cdef class Statistics:
         True if memory profiling is enabled, otherwise false.
         """
         return deref(self._handle).is_memory_profiling_enabled()
+
+    def get_memory_records(self):
+        """
+        Retrieves all memory profiling records stored by this instance.
+
+        Returns
+        -------
+        Dictionary mapping record names to memory usage data.
+        """
+
+        cdef unordered_map[string, cpp_MemoryRecord] records
+        with nogil:
+            records = deref(self._handle).get_memory_records()
+
+        cdef unordered_map[string, cpp_MemoryRecord].iterator it = records.begin()
+        ret = {}
+        while it != records.end():
+            name = deref(it).first.decode("utf-8")
+            ret[name] = create_memory_record_from_cpp(deref(it).second)
+        return ret
+
+
+@dataclass
+class MemoryRecord:
+    scoped: ScopedMemoryRecord
+    global_peak: int
+    num_calls: int
+
+
+cdef create_memory_record_from_cpp(cpp_MemoryRecord handle):
+    """Help function to create a MemoryRecord from a cpp_MemoryRecord"""
+    return MemoryRecord(
+        scoped = ScopedMemoryRecord.from_handle(handle.scoped),
+        global_peak = handle.global_peak,
+        num_calls = handle.num_calls
+    )

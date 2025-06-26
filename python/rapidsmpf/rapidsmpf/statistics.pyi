@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+from dataclasses import dataclass
 from numbers import Number
 
-from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor, ScopedMemoryRecord
 
 class Statistics:
     def __init__(
@@ -20,3 +21,10 @@ class Statistics:
     def add_stat(self, name: str, value: float) -> float: ...
     @property
     def memory_profiling_enabled(self) -> bool: ...
+    def get_memory_records(self) -> MemoryRecord: ...
+
+@dataclass
+class MemoryRecord:
+    scoped: ScopedMemoryRecord
+    global_peak: int
+    num_calls: int
