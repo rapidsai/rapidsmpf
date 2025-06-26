@@ -26,7 +26,7 @@ namespace rapidsmpf::shuffler::detail {
  *
  * @tparam KeyType The type of the key used to map chunks.
  */
-template <typename KeyType>
+template <typename KeyType, size_t kNumBuckets = 8>
 class PostBox2 {
   public:
     using key_type = KeyType;  ///< The type of the key used to map chunks.
@@ -230,8 +230,6 @@ class PostBox2 {
     }
 
   private:
-    static constexpr size_t kNumBuckets = 8;  ///< Number of buckets.
-
     /// Get the index of the bucket for a given key.
     constexpr inline size_t bucket_index(KeyType key) {
         return static_cast<size_t>(key) % kNumBuckets;

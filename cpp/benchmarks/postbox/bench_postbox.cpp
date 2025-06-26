@@ -185,7 +185,7 @@ static void BM_PostBoxMultiThreaded(benchmark::State& state) {
     state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(num_chunks));
 }
 
-// Warm up run 
+// Warm up run
 BENCHMARK_TEMPLATE(BM_PostBoxMultiThreaded, PostBox<PartID>)
     ->Args({10000, 1024})  // 10k chunks, 1KB each
     ->UseRealTime()
@@ -206,16 +206,43 @@ BENCHMARK_TEMPLATE(BM_PostBoxMultiThreaded, PostBox<Rank>)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
 
-
 // Register benchmarks for PostBox2
-BENCHMARK_TEMPLATE(BM_PostBoxMultiThreaded, PostBox2<PartID>)
+BENCHMARK_TEMPLATE(BM_PostBoxMultiThreaded, PostBox2<PartID, 2>)
     ->Args({10000, 1024})  // 10k chunks, 1KB each
     ->Args({100000, 1024})  // 100k chunks, 1KB each
     ->Args({1000000, 1024})  // 1M chunks, 1KB each
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_TEMPLATE(BM_PostBoxMultiThreaded, PostBox2<Rank>)
+BENCHMARK_TEMPLATE(BM_PostBoxMultiThreaded, PostBox2<Rank, 2>)
+    ->Args({10000, 1024})  // 10k chunks, 1KB each
+    ->Args({100000, 1024})  // 100k chunks, 1KB each
+    ->Args({1000000, 1024})  // 1M chunks, 1KB each
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(BM_PostBoxMultiThreaded, PostBox2<PartID, 4>)
+    ->Args({10000, 1024})  // 10k chunks, 1KB each
+    ->Args({100000, 1024})  // 100k chunks, 1KB each
+    ->Args({1000000, 1024})  // 1M chunks, 1KB each
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(BM_PostBoxMultiThreaded, PostBox2<Rank, 4>)
+    ->Args({10000, 1024})  // 10k chunks, 1KB each
+    ->Args({100000, 1024})  // 100k chunks, 1KB each
+    ->Args({1000000, 1024})  // 1M chunks, 1KB each
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(BM_PostBoxMultiThreaded, PostBox2<PartID, 8>)
+    ->Args({10000, 1024})  // 10k chunks, 1KB each
+    ->Args({100000, 1024})  // 100k chunks, 1KB each
+    ->Args({1000000, 1024})  // 1M chunks, 1KB each
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(BM_PostBoxMultiThreaded, PostBox2<Rank, 8>)
     ->Args({10000, 1024})  // 10k chunks, 1KB each
     ->Args({100000, 1024})  // 100k chunks, 1KB each
     ->Args({1000000, 1024})  // 1M chunks, 1KB each
