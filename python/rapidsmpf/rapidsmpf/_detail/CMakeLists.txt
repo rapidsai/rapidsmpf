@@ -8,5 +8,5 @@ set(cython_modules config_options_get.pyx exception_handling.pyx)
 rapids_cython_create_modules(
   CXX
   SOURCE_FILES "${cython_modules}"
-  LINKED_LIBRARIES rapidsmpf::rapidsmpf
+  LINKED_LIBRARIES rapidsmpf::rapidsmpf maybe_asan
 )

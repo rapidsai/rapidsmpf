@@ -4,7 +4,9 @@ Collection of multi-gpu, distributed memory algorithms.
 
 ## Getting started
 
-Currently, there is no conda or pip packages for rapidsmpf thus we have to build from source.
+Building rapidsmpf from source is recommended when running a nightly/upstream versions, since dependencies on non-ABI-stable libraries (e.g., pylibcudf) could cause temporary breakage leading to issues such as segmentation faults. Stable versions can be installed from conda or pip packages.
+
+### Build from source
 
 Clone rapidsmpf and install the dependencies in a conda environment:
 ```bash
@@ -17,6 +19,36 @@ mamba env create --name rapidsmpf-dev --file conda/environments/all_cuda-128_arc
 # Build
 ./build.sh
 ```
+
+#### Debug build
+
+Debug builds can be produced by adding the `-g` flag:
+
+```bash
+./build.sh -g
+```
+
+##### AddressSanitizer-enabled build
+
+Enabling the [AddressSanitizer](https://github.com/google/sanitizers/wiki/AddressSanitizer) is also possible with the `--asan` flag:
+
+```bash
+./build.sh -g --asan
+```
+
+C++ code built with AddressSanitizer should simply work, but there are caveats for CUDA and Python code. Any CUDA code executing with AddressSanitizer requires `protect_shadow_gap=0`, which can be set via an environment variable:
+
+```bash
+ASAN_OPTIONS=protect_shadow_gap=0
+```
+
+On the other hand, Python may require `LD_PRELOAD` to be set so that the AddressSanitizer is loaded before Python. On a conda environment, for example, there is usually a `$CONDA_PREFIX/lib/libasan.so`, and thus the application may be launched as follows:
+
+```bash
+LD_PRELOAD=$CONDA_PREFIX/lib/libasan.so python ...
+```
+
+Python applications using CUDA will require setting both environment variables described above
 
 ### MPI
 

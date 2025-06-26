@@ -19,8 +19,8 @@ ARGS=$*
 # script, and that this script resides in the repo dir!
 REPODIR=$(cd "$(dirname "$0")"; pwd)
 
-VALIDARGS="clean librapidsmpf rapidsmpf -v -g -n --pydevelop -h"
-HELP="$0 [clean] [librapidsmpf] [rapidsmpf] [-v] [-g] [-n] [--cmake-args=\"<args>\"] [-h]
+VALIDARGS="clean librapidsmpf rapidsmpf -v -g -n --pydevelop --asan -h"
+HELP="$0 [clean] [librapidsmpf] [rapidsmpf] [-v] [-g] [-n] [--cmake-args=\"<args>\"] [--asan] [-h]
    clean                       - remove all existing build artifacts and configuration (start over)
    librapidsmpf                - build and install the librapidsmpf C++ code
    rapidsmpf                   - build the rapidsmpf Python package
@@ -29,6 +29,7 @@ HELP="$0 [clean] [librapidsmpf] [rapidsmpf] [-v] [-g] [-n] [--cmake-args=\"<args
    -n                          - no install step
    --pydevelop                 - Install Python packages in editable mode
    --cmake-args=\\\"<args>\\\" - pass arbitrary list of CMake configuration options (escape all quotes in argument)
+   --asan                      - enable AddressSanitizer for C++ and Python builds
    -h                          - print this text
    default action (no args) is to build and install the 'librapidsmpf' then 'rapidsmpf' targets
 "
@@ -85,10 +86,16 @@ function ensureCMakeRan {
     cd "${REPODIR}"/cpp
     if (( RAN_CMAKE == 0 )); then
         echo "Executing cmake for librapidsmpf..."
-        cmake -B "${LIBRAPIDSMPF_BUILD_DIR}" -S . \
+        CMAKE_ARGS=(-B "${LIBRAPIDSMPF_BUILD_DIR}" -S . \
               -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
-              -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
-              "${EXTRA_CMAKE_ARGS[@]}"
+              -DCMAKE_BUILD_TYPE="${BUILD_TYPE}")
+
+        if hasArg --asan; then
+            CMAKE_ARGS+=(-DRAPIDSMPF_ASAN=ON)
+        fi
+
+        CMAKE_ARGS+=("${EXTRA_CMAKE_ARGS[@]}")
+        cmake "${CMAKE_ARGS[@]}"
         RAN_CMAKE=1
     fi
 }
@@ -156,6 +163,17 @@ fi
 if (( NUMARGS == 0 )) || hasArg rapidsmpf; then
     echo "building rapidsmpf..."
     cd "${REPODIR}"/python/rapidsmpf
-    SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBRAPIDSMPF_BUILD_DIR};${EXTRA_CMAKE_ARGS[*]// /;}" \
+
+    SKBUILD_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=${INSTALL_PREFIX};-DCMAKE_LIBRARY_PATH=${LIBRAPIDSMPF_BUILD_DIR}"
+
+    if hasArg --asan; then
+        SKBUILD_CMAKE_ARGS="${SKBUILD_CMAKE_ARGS};-DRAPIDSMPF_PYTHON_ASAN=ON"
+    fi
+
+    if [[ -n "${EXTRA_CMAKE_ARGS[*]}" ]]; then
+        SKBUILD_CMAKE_ARGS="${SKBUILD_CMAKE_ARGS};${EXTRA_CMAKE_ARGS[*]// /;}"
+    fi
+
+    SKBUILD_CMAKE_ARGS="${SKBUILD_CMAKE_ARGS}" \
         python "${PYTHON_ARGS_FOR_INSTALL[@]}" ${VERBOSE_FLAG} .
 fi
