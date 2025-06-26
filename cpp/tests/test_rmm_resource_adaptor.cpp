@@ -4,6 +4,7 @@
  */
 
 
+#include <barrier>
 #include <cstddef>
 #include <stdexcept>
 #include <unordered_set>
@@ -358,4 +359,100 @@ TEST(RmmResourceAdaptorScopedMemory, NestedDeallocationYieldsNegativeStats) {
     // Outer scope had one alloc, and a dealloc performed by inner
     EXPECT_EQ(outer.num_total_allocs(), 1);
     EXPECT_EQ(outer.current(), 0);  // Net usage is zero
+}
+
+TEST(RmmResourceAdaptorScopedMemory, MultiThreadedScopedAllocations) {
+    constexpr int num_threads = 8;
+    constexpr int num_allocs_per_thread = 8;
+    constexpr std::size_t alloc_size = 1_MiB;
+
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    std::vector<std::thread> threads;
+    std::vector<std::vector<void*>> allocations(num_threads);
+    std::vector<rapidsmpf::ScopedMemoryRecord> records(num_threads);
+    std::barrier barrier(num_threads);
+
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back([&, i]() {
+            // Wait until all threads are ready to start
+            barrier.arrive_and_wait();
+
+            mr.begin_scoped_memory_record();
+
+            // Perform multiple allocations
+            for (int j = 0; j < num_allocs_per_thread; ++j) {
+                void* ptr = mr.allocate(alloc_size);
+                allocations[i].push_back(ptr);
+            }
+
+            // Deallocate some (but not all) to test `current()` accounting
+            for (int j = 0; j < num_allocs_per_thread / 2; ++j) {
+                mr.deallocate(allocations[i][j], alloc_size);
+            }
+
+            records[i] = mr.end_scoped_memory_record();
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    // Check that each thread's memory record matches expectations
+    for (int i = 0; i < num_threads; ++i) {
+        const auto& rec = records[i];
+
+        EXPECT_EQ(rec.num_total_allocs(), num_allocs_per_thread);
+        EXPECT_EQ(rec.total(), alloc_size * num_allocs_per_thread);
+        EXPECT_EQ(rec.peak(), alloc_size * num_allocs_per_thread);
+        EXPECT_EQ(
+            rec.current(), alloc_size * (num_allocs_per_thread / 2)
+        );  // Half still allocated
+
+        // Now deallocate the remaining allocations
+        for (int j = num_allocs_per_thread / 2; j < num_allocs_per_thread; ++j) {
+            mr.deallocate(allocations[i][j], alloc_size);
+        }
+    }
+    EXPECT_EQ(mr.current_allocated(), 0);  // All allocations have been released
+}
+
+TEST(RmmResourceAdaptorScopedMemory, CrossThreadNestedScopesNotMerged) {
+    constexpr std::size_t outer_alloc_size = 1_MiB;
+    constexpr std::size_t inner_alloc_size = 2_MiB;
+
+    rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
+    void* outer_alloc = nullptr;
+    void* inner_alloc = nullptr;
+    rapidsmpf::ScopedMemoryRecord inner_record;
+
+    mr.begin_scoped_memory_record();  // Outer scope in main thread
+
+    outer_alloc = mr.allocate(outer_alloc_size);
+
+    std::thread t([&]() {
+        mr.begin_scoped_memory_record();  // Inner scope in different thread
+        inner_alloc = mr.allocate(inner_alloc_size);
+        inner_record = mr.end_scoped_memory_record();
+    });
+
+    t.join();
+
+    auto outer_record = mr.end_scoped_memory_record();  // End outer scope
+
+    // Outer scope should not include inner thread's allocation
+    EXPECT_EQ(outer_record.num_total_allocs(), 1);
+    EXPECT_EQ(outer_record.total(), outer_alloc_size);
+    EXPECT_EQ(outer_record.current(), outer_alloc_size);
+    EXPECT_EQ(outer_record.peak(), outer_alloc_size);
+
+    // Inner record should reflect its own allocation
+    EXPECT_EQ(inner_record.num_total_allocs(), 1);
+    EXPECT_EQ(inner_record.total(), inner_alloc_size);
+    EXPECT_EQ(inner_record.current(), inner_alloc_size);
+    EXPECT_EQ(inner_record.peak(), inner_alloc_size);
+
+    // Clean up
+    mr.deallocate(inner_alloc, inner_alloc_size);
+    mr.deallocate(outer_alloc, outer_alloc_size);
 }

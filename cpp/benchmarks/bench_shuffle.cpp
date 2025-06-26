@@ -16,6 +16,7 @@
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils.hpp>
 
 #include "utils/misc.hpp"
@@ -209,6 +210,7 @@ rapidsmpf::Duration do_run(
     auto const t0_elapsed = rapidsmpf::Clock::now();
     {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
+        RAPIDSMPF_MEMORY_PROFILE(statistics, "shuffling");
         rapidsmpf::shuffler::Shuffler shuffler(
             comm,
             progress_thread,
@@ -232,7 +234,7 @@ rapidsmpf::Duration do_run(
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
             output_partitions.push_back(*rapidsmpf::unpack_and_concat(
-                std::move(packed_chunks), stream, br->device_mr()
+                std::move(packed_chunks), stream, br->device_mr(), statistics
             ));
         }
         stream.synchronize();
@@ -342,7 +344,8 @@ rapidsmpf::Duration run_hash_partition_inline(
                     cudf::hash_id::HASH_MURMUR3,
                     cudf::DEFAULT_HASH_SEED,
                     stream,
-                    br->device_mr()
+                    br->device_mr(),
+                    statistics
                 ));
                 partition.release();
             }
@@ -491,7 +494,11 @@ int main(int argc, char** argv) {
     for (std::uint64_t i = 0; i < total_num_runs; ++i) {
         // Enable statistics for the last run.
         if (i == total_num_runs - 1) {
-            stats = std::make_shared<rapidsmpf::Statistics>();
+            if (args.enable_memory_profiler) {
+                stats = std::make_shared<rapidsmpf::Statistics>(stat_enabled_mr.get());
+            } else {
+                stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
+            }
         }
         double elapsed;
         if (args.hash_partition_with_datagen) {
