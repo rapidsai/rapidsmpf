@@ -15,6 +15,8 @@ from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
 from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics
 
+from collections.abc import Iterable
+
 
 cdef class Shuffler:
     """
@@ -154,29 +156,9 @@ cdef class Shuffler:
             else:
                 deref(self._handle).insert(move(_chunks))
 
-    def insert_finished(self, uint32_t pid):
+    def insert_finished(self, pids):
         """
-        Mark a partition as finished.
-
-        This informs the shuffler that no more chunks for the specified partition
-        will be inserted.
-
-        Parameters
-        ----------
-        pid
-            The partition ID to mark as finished.
-
-        Notes
-        -----
-        Once a partition is marked as finished, it is considered complete and no
-        further chunks will be accepted for that partition.
-        """
-        with nogil:
-            deref(self._handle).insert_finished(pid)
-
-    def insert_finished(self, list[uint32_t] pids):
-        """
-        Mark a list of partitions as finished.
+        Mark partitions as finished.
 
         This informs the shuffler that no more chunks for the specified partitions
         will be inserted.
@@ -184,7 +166,7 @@ cdef class Shuffler:
         Parameters
         ----------
         pids
-            A list of partition IDs to mark as finished.
+            Partition IDs to mark as finished (int or an iterable of ints).
 
         Notes
         -----
@@ -192,11 +174,14 @@ cdef class Shuffler:
         further chunks will be accepted for that partition.
         """
         cdef vector[uint32_t] _pids
-        
-        # Reserve space and populate vector
-        _pids.reserve(len(pids))
-        for pid in pids:
-            _pids.push_back(pid)
+
+        if isinstance(pids, Iterable):
+            # Reserve space and populate vector
+            _pids.reserve(len(pids))
+            for pid in pids:
+                _pids.push_back(pid)
+        else:
+            _pids.push_back(pids)
 
         with nogil:
             deref(self._handle).insert_finished(move(_pids))
