@@ -193,17 +193,18 @@ cdef class Statistics:
 
         Examples
         --------
+        >>> import rmm
+        >>> mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
         >>> stats = Statistics(enable=True, mr=mr)
         >>> with stats.memory_profiling("outer"):
-        ...     buf1 = mr.allocate(1024)
+        ...     b1 = rmm.DeviceBuffer(size=1024, mr=mr)
         ...     with stats.memory_profiling("inner"):
-        ...         mr.deallocate(mr.allocate(1024), 1024)
-        ...     mr.deallocate(buf1, 1024)
+        ...         b2 = rmm.DeviceBuffer(size=1024, mr=mr)
         >>> inner = stats.get_memory_records()["inner"]
-        >>> inner.scoped.peak()
+        >>> print(inner.scoped.peak())
         1024
         >>> outer = stats.get_memory_records()["outer"]
-        >>> outer.scoped.peak()
+        >>> print(outer.scoped.peak())
         2048
         """
         return MemoryRecorder(self, self._mr, name)
