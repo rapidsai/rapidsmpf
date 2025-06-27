@@ -646,6 +646,7 @@ class ShuffleInsertGroupedTest
         }
         EXPECT_TRUE(shuffler.ready_postbox_.empty());
 
+        EXPECT_EQ(outbound_chunks.size(), shuffler.outbound_chunk_counter_.size());
         EXPECT_EQ(outbound_chunks, shuffler.outbound_chunk_counter_);
 
         EXPECT_EQ(pids.size(), n_control_messages);
@@ -674,10 +675,11 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
         GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
     );
 
-    // simply mark the shuffler as shutdown to avoid extracting from outgoing_postbox_
-    shuffler->shutdown();
-    // since shuffler is shutdown, progress thread should be paused
-    ASSERT_FALSE(progress_thread->is_running());
+    // pause the progress thread to avoid extracting from outgoing_postbox_
+    progress_thread->pause();
+    // sleep for 1ms to ensure that the progress thread is paused, because it could be in
+    // the middle of an iteration.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
     auto chunks = generate_packed_data();
     shuffler->insert_grouped(std::move(chunks));
@@ -698,10 +700,11 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
         GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
     );
 
-    // simply mark the shuffler as shutdown to avoid extracting from outgoing_postbox_
-    shuffler->shutdown();
-    // since shuffler is shutdown, progress thread should be paused
-    ASSERT_FALSE(progress_thread->is_running());
+    // pause the progress thread to avoid extracting from outgoing_postbox_
+    progress_thread->pause();
+    // sleep for 1ms to ensure that the progress thread is paused, because it could be in
+    // the middle of an iteration.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
     auto chunks = generate_packed_data();
     shuffler->insert_grouped(std::move(chunks));
