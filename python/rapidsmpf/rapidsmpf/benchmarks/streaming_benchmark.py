@@ -230,10 +230,6 @@ def setup_and_run(args: argparse.Namespace) -> None:
     elif args.comm == "ucxx":
         comm = ucxx_mpi_setup(options)
 
-    stats = Statistics(enable=args.statistics)
-
-    progress_thread = ProgressThread(comm, stats)
-
     # Create a RMM stack with both a device pool and statistics.
     mr = RmmResourceAdaptor(
         rmm.mr.PoolMemoryResource(
@@ -243,6 +239,9 @@ def setup_and_run(args: argparse.Namespace) -> None:
         )
     )
     rmm.mr.set_current_device_resource(mr)
+
+    stats = Statistics(enable=args.statistics, mr=mr)
+    progress_thread = ProgressThread(comm, stats)
 
     # Create a buffer resource that limits device memory if `--spill-device`
     # is not None.

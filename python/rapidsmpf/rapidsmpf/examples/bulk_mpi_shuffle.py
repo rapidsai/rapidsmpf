@@ -287,7 +287,7 @@ def setup_and_run(args: argparse.Namespace) -> None:
     )
     br = BufferResource(mr, memory_available)
 
-    stats = Statistics(enable=args.statistics)
+    stats = Statistics(enable=args.statistics, mr=mr)
 
     if comm.rank == 0:
         spill_device = (
