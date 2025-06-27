@@ -192,10 +192,9 @@ cdef class Shuffler:
         further chunks will be accepted for that partition.
         """
         cdef vector[uint32_t] _pids
-        cdef size_t _len = len(pids)
-        with nogil:
-            _pids.reserve(_len)
-
+        
+        # Reserve space and populate vector
+        _pids.reserve(len(pids))
         for pid in pids:
             _pids.push_back(pid)
 
