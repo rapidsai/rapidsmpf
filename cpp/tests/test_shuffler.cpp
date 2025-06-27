@@ -646,6 +646,7 @@ class ShuffleInsertGroupedTest
         }
         EXPECT_TRUE(shuffler.ready_postbox_.empty());
 
+        EXPECT_EQ(outbound_chunks.size(), shuffler.outbound_chunk_counter_.size());
         EXPECT_EQ(outbound_chunks, shuffler.outbound_chunk_counter_);
 
         EXPECT_EQ(pids.size(), n_control_messages);
@@ -676,6 +677,9 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
 
     // pause the progress thread to avoid extracting from outgoing_postbox_
     progress_thread->pause();
+    // sleep for 1ms to ensure that the progress thread is paused, because it could be in
+    // the middle of an iteration.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
     auto chunks = generate_packed_data();
     shuffler->insert_grouped(std::move(chunks));
@@ -698,16 +702,15 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
 
     // pause the progress thread to avoid extracting from outgoing_postbox_
     progress_thread->pause();
+    // sleep for 1ms to ensure that the progress thread is paused, because it could be in
+    // the middle of an iteration.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
     auto chunks = generate_packed_data();
     shuffler->insert_grouped(std::move(chunks));
     shuffler->insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
 
     ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(*shuffler));
-
-    // resume progress thread - this will guarantee that shuffler progress function is
-    // marked as done. This is important to ensure that the test does not hang.
-    progress_thread->resume();
 }
 
 INSTANTIATE_TEST_SUITE_P(
