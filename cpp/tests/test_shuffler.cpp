@@ -674,8 +674,10 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
         GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
     );
 
-    // pause the progress thread to avoid extracting from outgoing_postbox_
-    progress_thread->pause();
+    // simply mark the shuffler as shutdown to avoid extracting from outgoing_postbox_
+    shuffler->shutdown();
+    // since shuffler is shutdown, progress thread should be paused
+    ASSERT_FALSE(progress_thread->is_running());
 
     auto chunks = generate_packed_data();
     shuffler->insert_grouped(std::move(chunks));
@@ -696,18 +698,16 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
         GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
     );
 
-    // pause the progress thread to avoid extracting from outgoing_postbox_
-    progress_thread->pause();
+    // simply mark the shuffler as shutdown to avoid extracting from outgoing_postbox_
+    shuffler->shutdown();
+    // since shuffler is shutdown, progress thread should be paused
+    ASSERT_FALSE(progress_thread->is_running());
 
     auto chunks = generate_packed_data();
     shuffler->insert_grouped(std::move(chunks));
     shuffler->insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
 
     ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(*shuffler));
-
-    // resume progress thread - this will guarantee that shuffler progress function is
-    // marked as done. This is important to ensure that the test does not hang.
-    progress_thread->resume();
 }
 
 INSTANTIATE_TEST_SUITE_P(
