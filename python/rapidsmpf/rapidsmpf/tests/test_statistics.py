@@ -43,6 +43,26 @@ def test_get_empty_memory_records(device_mr: rmm.mr.CudaMemoryResource) -> None:
 
 
 def test_memory_profiling(device_mr: rmm.mr.CudaMemoryResource) -> None:
-    stats = Statistics(enable=True, mr=RmmResourceAdaptor(device_mr))
-    with stats.memory_profiling("test-scope"):
-        pass
+    mr = RmmResourceAdaptor(device_mr)
+    stats = Statistics(enable=True, mr=mr)
+    with stats.memory_profiling("outer"):
+        b1 = mr.allocate(1024)
+        with stats.memory_profiling("inner"):
+            mr.deallocate(mr.allocate(512), 512)
+            mr.deallocate(mr.allocate(512), 512)
+        mr.deallocate(b1, 1024)
+        mr.deallocate(mr.allocate(1024), 1024)
+
+    inner = stats.get_memory_records()["inner"]
+    assert inner.scoped.num_total_allocs() == 2
+    assert inner.scoped.peak() == 512
+    assert inner.scoped.total() == 512 + 512
+    assert inner.global_peak == 512
+    assert inner.num_calls == 1
+
+    outer = stats.get_memory_records()["outer"]
+    assert outer.scoped.num_total_allocs() == 2 + 2
+    assert outer.scoped.peak() == 1024 + 512
+    assert outer.scoped.total() == 1024 + 1024 + 512 + 512
+    assert outer.global_peak == 1024 + 512
+    assert outer.num_calls == 1
