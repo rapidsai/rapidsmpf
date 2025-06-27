@@ -234,9 +234,9 @@ class MemoryRecord:
 cdef create_memory_record_from_cpp(cpp_MemoryRecord handle):
     """Help function to create a MemoryRecord from a cpp_MemoryRecord"""
     return MemoryRecord(
-        scoped = ScopedMemoryRecord.from_handle(handle.scoped),
-        global_peak = handle.global_peak,
-        num_calls = handle.num_calls
+        scoped=ScopedMemoryRecord.from_handle(handle.scoped),
+        global_peak=handle.global_peak,
+        num_calls=handle.num_calls,
     )
 
 

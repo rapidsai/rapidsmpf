@@ -24,7 +24,7 @@ cdef class ScopedMemoryRecord:
 
         Returns
         -------
-            Python copy of the coped memory record.
+            Python copy of the scoped memory record.
         """
         cdef ScopedMemoryRecord ret = ScopedMemoryRecord.__new__(ScopedMemoryRecord)
         ret._handle = handle
