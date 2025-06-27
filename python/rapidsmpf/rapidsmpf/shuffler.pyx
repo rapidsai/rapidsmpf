@@ -176,8 +176,6 @@ cdef class Shuffler:
         cdef vector[uint32_t] _pids
 
         if isinstance(pids, Iterable):
-            # Reserve space and populate vector
-            _pids.reserve(len(pids))
             for pid in pids:
                 _pids.push_back(pid)
         else:
