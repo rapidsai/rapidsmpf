@@ -15,6 +15,8 @@ from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
 from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics
 
+from collections.abc import Iterable
+
 
 cdef class Shuffler:
     """
@@ -122,7 +124,7 @@ cdef class Shuffler:
         """
         return self._comm
 
-    def insert_chunks(self, chunks):
+    def insert_chunks(self, chunks, bool grouped = False):
         """
         Insert a batch of packed (serialized) chunks into the shuffle.
 
@@ -131,41 +133,61 @@ cdef class Shuffler:
         chunks
             A map where keys are partition IDs (``int``) and values are packed
             data (``PackedData``).
+        grouped
+            If ``True``, the chunks are grouped by the destination rank of the
+            partition ID. See Notes for more details.
 
         Notes
         -----
         This method adds the given chunks to the shuffle, associating them with their
         respective partition IDs.
+
+        There are some considerations for using `grouped=True`:
+        - The chunks are grouped by the destination rank of the partition ID and
+        concatenated on device memory.
+        - Caller thread will perform the concatenation, and hence it will be blocked.
+        - Concatenation may cause device memory pressure.
         """
         # Convert python mapping to an `unordered_map`.
         cdef unordered_map[uint32_t, cpp_PackedData] _chunks
+        cdef bint _grouped = grouped  # Convert Python bool to C bool
         for pid, chunk in chunks.items():
             if not (<PackedData?>chunk).c_obj:
                 raise ValueError("PackedData was empty")
             _chunks[<uint32_t?>pid] = move(deref((<PackedData?>chunk).c_obj))
 
         with nogil:
-            deref(self._handle).insert(move(_chunks))
+            if _grouped:
+                deref(self._handle).insert_grouped(move(_chunks))
+            else:
+                deref(self._handle).insert(move(_chunks))
 
-    def insert_finished(self, uint32_t pid):
+    def insert_finished(self, pids):
         """
-        Mark a partition as finished.
+        Mark partitions as finished.
 
-        This informs the shuffler that no more chunks for the specified partition
+        This informs the shuffler that no more chunks for the specified partitions
         will be inserted.
 
         Parameters
         ----------
-        pid
-            The partition ID to mark as finished.
+        pids
+            Partition IDs to mark as finished (int or an iterable of ints).
 
         Notes
         -----
         Once a partition is marked as finished, it is considered complete and no
         further chunks will be accepted for that partition.
         """
+        cdef vector[uint32_t] _pids
+
+        if isinstance(pids, Iterable):
+            _pids = pids
+        else:
+            _pids.push_back(pids)
+
         with nogil:
-            deref(self._handle).insert_finished(pid)
+            deref(self._handle).insert_finished(move(_pids))
 
     def extract(self, uint32_t pid):
         """
