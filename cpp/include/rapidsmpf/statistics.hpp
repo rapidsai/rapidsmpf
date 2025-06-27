@@ -80,7 +80,7 @@ class Statistics {
      *
      * @return True if statistics tracking is active, otherwise False.
      */
-    bool enabled() const noexcept {
+    [[nodiscard]] constexpr bool enabled() const noexcept {
         return enabled_;
     }
 

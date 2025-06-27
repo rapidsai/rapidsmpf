@@ -5,9 +5,9 @@
 
 #pragma once
 
-#include <condition_variable>
+#include <atomic>
+#include <chrono>
 #include <functional>
-#include <mutex>
 #include <thread>
 
 #include <rapidsmpf/utils.hpp>
@@ -37,9 +37,31 @@ class PausableThreadLoop {
      * @param sleep The duration to sleep between executions of the task. By default, the
      * thread yields execution instead of sleeping.
      */
-    PausableThreadLoop(
-        std::function<void()> func, Duration sleep = std::chrono::seconds{0}
-    );
+    template <typename Func>
+    PausableThreadLoop(Func&& func, Duration sleep = std::chrono::seconds{0})
+        : thread_([this, f = std::forward<Func>(func), sleep]() {
+              while (true) {
+                  // Wait while paused and active using atomic::wait
+                  paused_.wait(true, std::memory_order_acquire);
+
+                  if (!active_.load(std::memory_order_acquire)) {
+                      return;
+                  }
+
+                  f();
+
+                  if (sleep > std::chrono::seconds{0}) {
+                      std::this_thread::sleep_for(sleep);
+                  } else {
+                      std::this_thread::yield();
+                  }
+                  // Add a short sleep to avoid other threads starving under Valgrind.
+                  if (is_running_under_valgrind()) {
+                      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                  }
+              }
+          }) {}
+
     ~PausableThreadLoop();
 
     /**
@@ -81,10 +103,8 @@ class PausableThreadLoop {
 
   private:
     std::thread thread_;
-    mutable std::mutex mutex_;
-    std::condition_variable cv_;
-    bool active_{true};
-    bool paused_{true};
+    std::atomic<bool> active_{true};
+    std::atomic<bool> paused_{true};
 };
 
 }  // namespace rapidsmpf::detail
