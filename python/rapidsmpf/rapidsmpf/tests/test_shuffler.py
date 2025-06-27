@@ -105,11 +105,13 @@ def test_split_and_pack_unpack_out_of_range(
 
 @pytest.mark.parametrize("wait_on", [False, True])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
+@pytest.mark.parametrize("grouped", [False, True])
 def test_shuffler_single_nonempty_partition(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
     total_num_partitions: int,
     wait_on: bool,  # noqa: FBT001
+    grouped: bool,  # noqa: FBT001
 ) -> None:
     br = BufferResource(device_mr)
 
@@ -132,13 +134,16 @@ def test_shuffler_single_nonempty_partition(
         stream=DEFAULT_STREAM,
         device_mr=device_mr,
     )
-    shuffler.insert_chunks(packed_inputs)
+    shuffler.insert_chunks(packed_inputs, grouped=grouped)
 
-    my_partitions = set()
-    for pid in range(total_num_partitions):
-        shuffler.insert_finished(pid)
-        if (pid % comm.nranks) == comm.rank:
-            my_partitions.add(pid)
+    my_partitions = {
+        p for p in range(total_num_partitions) if (p % comm.nranks) == comm.rank
+    }
+    if grouped:
+        shuffler.insert_finished(list(range(total_num_partitions)))
+    else:
+        for pid in range(total_num_partitions):
+            shuffler.insert_finished(pid)
 
     local_outputs = []
     while not shuffler.finished():
