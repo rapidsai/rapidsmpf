@@ -165,11 +165,66 @@ cdef class Statistics:
         return ret
 
     def memory_profiling(self, name):
+        """
+        Create a scoped memory profiling context for a named code region.
+
+        Returns a context manager that tracks memory allocations and
+        deallocations made through the associated memory resource while
+        the context is active. The profiling data is aggregated under
+        the provided `name` and made available via `get_memory_records()`.
+
+        The statistics include:
+        - Total and peak memory allocated within the scope (`scoped`)
+        - Global peak memory usage during the scope (`global_peak`)
+        - Number of times the named scope was entered (`num_calls`)
+
+        If memory profiling is disabled or the memory resource is `None`,
+        this is a no-op.
+
+        Parameters
+        ----------
+        name
+            A unique identifier for the profiling scope. Used as a key
+            when accessing profiling data via `get_memory_records()`.
+
+        Returns
+        -------
+        A context manager that collects memory profiling data.
+
+        Examples
+        --------
+        >>> stats = Statistics(enable=True, mr=mr)
+        >>> with stats.memory_profiling("outer"):
+        ...     buf1 = mr.allocate(1024)
+        ...     with stats.memory_profiling("inner"):
+        ...         mr.deallocate(mr.allocate(1024), 1024)
+        ...     mr.deallocate(buf1, 1024)
+        >>> inner = stats.get_memory_records()["inner"]
+        >>> inner.scoped.peak()
+        1024
+        >>> outer = stats.get_memory_records()["outer"]
+        >>> outer.scoped.peak()
+        2048
+        """
         return MemoryRecorder(self, self._mr, name)
 
 
 @dataclass
 class MemoryRecord:
+    """
+    Holds memory profiling statistics for a named scope.
+
+    Attributes
+    ----------
+    scoped
+        Memory statistics collected while the scope was active, including
+        number of allocations, peak bytes allocated, and total allocated bytes.
+    global_peak
+        The maximum global memory usage observed during the scope,
+        including allocations from other threads or nested scopes.
+    num_calls
+        Number of times the profiling context with this name was entered.
+    """
     scoped: ScopedMemoryRecord
     global_peak: int
     num_calls: int
@@ -185,6 +240,22 @@ cdef create_memory_record_from_cpp(cpp_MemoryRecord handle):
 
 
 cdef class MemoryRecorder:
+    """
+    A context manager for recording memory allocation statistics within a code block.
+
+    This class is not intended to be used directly by end users. Instead, use
+    `Statistics.memory_profiling(name)`, which creates and manages an instance
+    of this class.
+
+    Parameters
+    ----------
+    stats
+        The statistics object responsible for aggregating memory profiling data.
+    mr
+        The memory resource through which allocations are tracked.
+    name
+        The name of the profiling scope. Used as a key in the statistics record.
+    """
     def __cinit__(self, Statistics stats, RmmResourceAdaptor mr, name):
         self._stats = stats
         self._mr = mr
