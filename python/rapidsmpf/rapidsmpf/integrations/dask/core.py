@@ -229,23 +229,9 @@ def rmpf_worker_setup(
     with ctx.lock:
         ctx.options = options
 
-        # Print statistics at worker shutdown.
-        if ctx.options.get_or_default("dask_statistics", default_value=False):
-            ctx.statistics = Statistics(enable=True)
-            weakref.finalize(
-                dask_worker,
-                lambda name, stats: print(name, stats.report()),
-                name=str(dask_worker),
-                stats=ctx.statistics,
-            )
-
-        assert ctx.comm is not None
-        ctx.progress_thread = ProgressThread(ctx.comm, ctx.statistics)
-
-        # Wrap the current RMM resource in statistics adaptor.
-        mr = rmm.mr.get_current_device_resource()
+        # Insert RMM resource adaptor on top of the current RMM resource stack.
         mr = RmmResourceAdaptor(
-            mr,
+            upstream_mr=rmm.mr.get_current_device_resource(),
             fallback_mr=(
                 # Use a managed memory resource if OOM protection is enabled.
                 rmm.mr.ManagedMemoryResource()
@@ -256,6 +242,19 @@ def rmpf_worker_setup(
             ),
         )
         rmm.mr.set_current_device_resource(mr)
+
+        # Print statistics at worker shutdown.
+        if ctx.options.get_or_default("dask_statistics", default_value=False):
+            ctx.statistics = Statistics(enable=True, mr=mr)
+            weakref.finalize(
+                dask_worker,
+                lambda name, stats: print(name, stats.report()),
+                name=str(dask_worker),
+                stats=ctx.statistics,
+            )
+
+        assert ctx.comm is not None
+        ctx.progress_thread = ProgressThread(ctx.comm, ctx.statistics)
 
         # Create a buffer resource with a limiting availability function.
         total_memory = rmm.mr.available_device_memory()[1]

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 
@@ -158,14 +159,9 @@ std::string Statistics::report(std::string const& header) const {
     );
 
     // Sort based on peak memory.
-    std::sort(
-        sorted_records.begin(),
-        sorted_records.end(),
-        [](auto const& a, auto const& b) {
-            return a.second.scoped.peak() > b.second.scoped.peak();
-        }
-    );
-
+    std::ranges::sort(sorted_records, [](auto const& a, auto const& b) {
+        return a.second.scoped.peak() > b.second.scoped.peak();
+    });
     ss << "Legends:\n"
        << "  ncalls - number of times the scope was executed.\n"
        << "  peak   - peak memory usage by the scope.\n"
@@ -184,9 +180,8 @@ std::string Statistics::report(std::string const& header) const {
            << rapidsmpf::format_nbytes(record.global_peak) << std::setw(12)
            << rapidsmpf::format_nbytes(record.scoped.total()) << "  " << name << "\n";
     }
-    ss << "\nNote:\n"
-       << "  - Nested scopes are attributed to their parent only if executed on the same "
-          "thread.\n";
+    ss << "\nLimitation:\n"
+       << "  - A scope only tracks allocations made by the thread that entered it.\n";
     return ss.str();
 }
 
