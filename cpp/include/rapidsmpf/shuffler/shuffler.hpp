@@ -158,7 +158,7 @@ class Shuffler {
     /**
      * @brief Check if all partitions are finished.
      *
-     * @return True if all partitions are finished, otherwise false.
+     * @return True if all partitions are finished, otherwise False.
      */
     [[nodiscard]] bool finished() const {
         return finish_counter_.all_finished();

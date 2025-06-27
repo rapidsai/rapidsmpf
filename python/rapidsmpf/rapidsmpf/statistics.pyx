@@ -67,7 +67,7 @@ cdef class Statistics:
 
         Returns
         -------
-        True if statistics is enabled, otherwise false.
+        True if statistics is enabled, otherwise False.
         """
         return deref(self._handle).enabled()
 
@@ -140,7 +140,7 @@ cdef class Statistics:
 
         Returns
         -------
-        True if memory profiling is enabled, otherwise false.
+        True if memory profiling is enabled, otherwise False.
         """
         return deref(self._handle).is_memory_profiling_enabled()
 
