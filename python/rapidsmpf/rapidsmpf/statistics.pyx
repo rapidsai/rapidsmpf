@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
+from cython.operator cimport preincrement
 from libcpp cimport bool
 from libcpp.memory cimport make_shared, make_unique
 from libcpp.string cimport string
@@ -151,7 +152,6 @@ cdef class Statistics:
         -------
         Dictionary mapping record names to memory usage data.
         """
-
         cdef unordered_map[string, cpp_MemoryRecord] records
         with nogil:
             records = deref(self._handle).get_memory_records()
@@ -161,6 +161,7 @@ cdef class Statistics:
         while it != records.end():
             name = deref(it).first.decode("utf-8")
             ret[name] = create_memory_record_from_cpp(deref(it).second)
+            preincrement(it)
         return ret
 
     def memory_profiling(self, name):
