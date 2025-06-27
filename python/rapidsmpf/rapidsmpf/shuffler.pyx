@@ -122,7 +122,7 @@ cdef class Shuffler:
         """
         return self._comm
 
-    def insert_chunks(self, chunks):
+    def insert_chunks(self, chunks, bool grouped = False):
         """
         Insert a batch of packed (serialized) chunks into the shuffle.
 
@@ -131,6 +131,9 @@ cdef class Shuffler:
         chunks
             A map where keys are partition IDs (``int``) and values are packed
             data (``PackedData``).
+        grouped
+            If ``True``, the chunks are grouped by the destination rank of the
+            partition ID.
 
         Notes
         -----
@@ -139,13 +142,17 @@ cdef class Shuffler:
         """
         # Convert python mapping to an `unordered_map`.
         cdef unordered_map[uint32_t, cpp_PackedData] _chunks
+        cdef bint _grouped = grouped  # Convert Python bool to C bool
         for pid, chunk in chunks.items():
             if not (<PackedData?>chunk).c_obj:
                 raise ValueError("PackedData was empty")
             _chunks[<uint32_t?>pid] = move(deref((<PackedData?>chunk).c_obj))
 
         with nogil:
-            deref(self._handle).insert(move(_chunks))
+            if _grouped:
+                deref(self._handle).insert_grouped(move(_chunks))
+            else:
+                deref(self._handle).insert(move(_chunks))
 
     def insert_finished(self, uint32_t pid):
         """
@@ -166,6 +173,34 @@ cdef class Shuffler:
         """
         with nogil:
             deref(self._handle).insert_finished(pid)
+
+    def insert_finished(self, list[uint32_t] pids):
+        """
+        Mark a list of partitions as finished.
+
+        This informs the shuffler that no more chunks for the specified partitions
+        will be inserted.
+
+        Parameters
+        ----------
+        pids
+            A list of partition IDs to mark as finished.
+
+        Notes
+        -----
+        Once a partition is marked as finished, it is considered complete and no
+        further chunks will be accepted for that partition.
+        """
+        cdef vector[uint32_t] _pids
+        cdef size_t _len = len(pids)
+        with nogil:
+            _pids.reserve(_len)
+
+        for pid in pids:
+            _pids.push_back(pid)
+
+        with nogil:
+            deref(self._handle).insert_finished(move(_pids))
 
     def extract(self, uint32_t pid):
         """
