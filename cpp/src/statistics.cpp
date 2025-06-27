@@ -184,9 +184,8 @@ std::string Statistics::report(std::string const& header) const {
            << rapidsmpf::format_nbytes(record.global_peak) << std::setw(12)
            << rapidsmpf::format_nbytes(record.scoped.total()) << "  " << name << "\n";
     }
-    ss << "\nNote:\n"
-       << "  - Nested scopes are attributed to their parent only if executed on the same "
-          "thread.\n";
+    ss << "\nLimitation:\n"
+       << "  - A scope only tracks allocations made by the thread that entered it.\n";
     return ss.str();
 }
 
