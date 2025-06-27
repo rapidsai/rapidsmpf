@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Iterable
+from collections.abc import Iterable, Mapping
 
 from rmm.pylibrmm.stream import Stream
 

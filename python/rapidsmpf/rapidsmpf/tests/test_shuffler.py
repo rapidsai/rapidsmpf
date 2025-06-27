@@ -172,11 +172,13 @@ def test_shuffler_single_nonempty_partition(
 
 @pytest.mark.parametrize("batch_size", [None, 10])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
+@pytest.mark.parametrize("grouped", [False, True])
 def test_shuffler_uniform(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
     batch_size: int | None,
     total_num_partitions: int,
+    grouped: bool,  # noqa: FBT001
 ) -> None:
     br = BufferResource(device_mr)
 
@@ -238,11 +240,14 @@ def test_shuffler_uniform(
             stream=DEFAULT_STREAM,
             device_mr=device_mr,
         )
-        shuffler.insert_chunks(packed_inputs)
+        shuffler.insert_chunks(packed_inputs, grouped=grouped)
 
     # Tell shuffler we are done adding data
-    for pid in range(total_num_partitions):
-        shuffler.insert_finished(pid)
+    if grouped:
+        shuffler.insert_finished(list(range(total_num_partitions)))
+    else:
+        for pid in range(total_num_partitions):
+            shuffler.insert_finished(pid)
 
     # Extract and check shuffled partitions
     while not shuffler.finished():
