@@ -72,6 +72,8 @@ class Single final : public Communicator {
     // clang-format off
     /**
      * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, Rank rank, Tag tag)
+     *
+     * @throws std::runtime_error if called (single-process communicators should never send messages).
      */
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
@@ -80,6 +82,9 @@ class Single final : public Communicator {
 
     /**
      * @copydoc Communicator::recv
+     *
+     * @throws std::runtime_error if called (single-process communicators should never
+     * send messages).
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> recv(
         Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
@@ -87,12 +92,18 @@ class Single final : public Communicator {
 
     /**
      * @copydoc Communicator::recv_any
+     *
+     * @note Always returns a nullptr for the received message, indicating that no message
+     * is available.
      */
     [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(Tag tag
     ) override;
 
     /**
      * @copydoc Communicator::test_some
+     *
+     * @throws std::runtime_error if called (single-process communicators should never
+     * send messages).
      */
     std::vector<std::size_t> test_some(
         std::vector<std::unique_ptr<Communicator::Future>> const& future_vector
@@ -101,6 +112,8 @@ class Single final : public Communicator {
     // clang-format off
     /**
      * @copydoc Communicator::test_some(std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const& future_map)
+     *
+     * @throws std::runtime_error if called (single-process communicators should never send messages).
      */
     // clang-format on
     std::vector<std::size_t> test_some(
@@ -110,6 +123,9 @@ class Single final : public Communicator {
 
     /**
      * @copydoc Communicator::get_gpu_data
+     *
+     * @throws std::runtime_error if called (single-process communicators should never
+     * send messages).
      */
     [[nodiscard]] std::unique_ptr<Buffer> get_gpu_data(
         std::unique_ptr<Communicator::Future> future
