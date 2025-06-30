@@ -682,6 +682,10 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
     shuffler->insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
 
     ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(*shuffler));
+
+    // resume progress thread - this will guarantee that shuffler progress function is
+    // marked as done. This is important to ensure that the test does not hang.
+    progress_thread->resume();
 }
 
 TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {

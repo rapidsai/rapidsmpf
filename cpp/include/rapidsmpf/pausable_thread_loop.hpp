@@ -6,6 +6,7 @@
 #pragma once
 
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -59,6 +60,25 @@ class PausableThreadLoop {
      *
      * @note This function is non-blocking and will let the loop function finish its
      * current execution asynchronously.
+     *
+     * @warning After calling `pause_nb` the thread is not paused
+     * until the state has changed to `State::PAUSED`, so immediately
+     * notifying a thread that is waiting on `is_running` will not
+     * necessarily wake it.
+     */
+    void pause_nb();
+
+    /**
+     * @brief Pauses the execution of the thread.
+     *
+     * The thread will stop executing the loop function until
+     * `resume()` is called.
+     *
+     * @note Pausing the thread does not interrupt the current iteration.
+     *
+     * @note This function blocks until the thread is actually paused.
+     * Behaviour is undefined if multiple threads attempt to change
+     * the state without synchronization.
      */
     void pause();
 
@@ -80,11 +100,21 @@ class PausableThreadLoop {
     void stop();
 
   private:
+    /**
+     * @brief The state of the thread loop.
+     */
+    enum State : std::uint8_t {
+        Stopped,
+        Stopping,
+        Paused,
+        Pausing,
+        Running,
+    };
+
     std::thread thread_;
     mutable std::mutex mutex_;
     std::condition_variable cv_;
-    bool active_{true};
-    bool paused_{true};
+    State state_{State::Paused};
 };
 
 }  // namespace rapidsmpf::detail

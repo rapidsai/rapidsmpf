@@ -12,8 +12,22 @@ PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration slee
         while (true) {
             {
                 std::unique_lock<std::mutex> lock(mutex_);
-                cv_.wait(lock, [this]() { return !paused_ || !active_; });
-                if (!active_) {
+                cv_.wait(lock, [this]() { return state_ != State::Paused; });
+                // Note: state changes here must notify any waiters.
+                switch (state_) {
+                case State::Running:
+                    break;
+                case State::Pausing:
+                    state_ = State::Paused;
+                    lock.unlock();
+                    cv_.notify_one();
+                case State::Paused:
+                    continue;
+                case State::Stopping:
+                    state_ = State::Stopped;
+                    lock.unlock();
+                    cv_.notify_one();
+                case State::Stopped:
                     return;
                 }
             }
@@ -37,18 +51,30 @@ PausableThreadLoop::~PausableThreadLoop() {
 
 bool PausableThreadLoop::is_running() const noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
-    return !paused_;
+    return state_ != State::Paused;
+}
+
+void PausableThreadLoop::pause_nb() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        state_ = State::Pausing;
+    }
+    cv_.notify_one();
 }
 
 void PausableThreadLoop::pause() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    paused_ = true;
+    pause_nb();
+    // And wait for the loop to flip to paused state. Behaviour is
+    // undefined if someone else called resume/stop while we're in
+    // this function.
+    std::unique_lock lock(mutex_);
+    cv_.wait(lock, [this]() { return state_ == State::Paused; });
 }
 
 void PausableThreadLoop::resume() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        paused_ = false;
+        state_ = State::Running;
     }
     cv_.notify_one();
 }
@@ -56,8 +82,7 @@ void PausableThreadLoop::resume() {
 void PausableThreadLoop::stop() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        active_ = false;
-        paused_ = false;  // Ensure it's not stuck in pause
+        state_ = State::Stopping;
     }
     cv_.notify_one();  // Wake up thread to exit
     if (thread_.joinable()) {

@@ -174,6 +174,8 @@ class ProgressThread {
 
     /**
      * @brief Pause the progress thread.
+     *
+     * @note This blocks until the thread is actually paused.
      */
     void pause();
 
