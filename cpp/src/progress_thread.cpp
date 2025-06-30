@@ -102,10 +102,6 @@ void ProgressThread::remove_function(FunctionID function_id) {
     functions_.erase(function_id.function_index);
 
     if (functions_.empty()) {
-        // Pausing the thread is not atomic, and so `event_loop` may
-        // run, needing the lock, we must therefore drop the lock before
-        // pausing.
-        lock.unlock();
         thread_.pause_nb();
     }
 }

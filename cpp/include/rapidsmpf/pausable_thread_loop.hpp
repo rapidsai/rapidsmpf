@@ -104,11 +104,11 @@ class PausableThreadLoop {
      * @brief The state of the thread loop.
      */
     enum State : std::uint8_t {
-        Stopped,
-        Stopping,
-        Paused,
-        Pausing,
-        Running,
+        Stopped,  ///< Thread stopped (cannot be resumed)
+        Stopping,  ///< Thread is stopping (transitioning to Stopped)
+        Paused,  ///< Thread is paused (can be resumed)
+        Pausing,  ///< Thread is pausing (transitioning to Paused)
+        Running,  ///< Thread is running
     };
 
     std::thread thread_;

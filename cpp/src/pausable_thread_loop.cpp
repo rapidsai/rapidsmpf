@@ -57,7 +57,9 @@ bool PausableThreadLoop::is_running() const noexcept {
 void PausableThreadLoop::pause_nb() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        state_ = State::Pausing;
+        if (state_ == State::Running) {
+            state_ = State::Pausing;
+        }
     }
     cv_.notify_one();
 }
