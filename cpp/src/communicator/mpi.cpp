@@ -181,14 +181,6 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
         static_cast<std::size_t>(size) == msg->size(),
         "incorrect size of the MPI_Recv message"
     );
-    if (msg->size() > 2048) {  // TODO: use the actual eager threshold.
-        log.warn(
-            "block-receiving a messager larger than the normal ",
-            "eager threshold (",
-            msg->size(),
-            " bytes)"
-        );
-    }
     return {std::move(msg), probe_status.MPI_SOURCE};
 }
 
