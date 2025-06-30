@@ -165,6 +165,7 @@ cdef class Shuffler:
         Notes
         -----
         There are some considerations for using this method:
+        
         - The chunks are grouped by the destination rank of the partition ID and
         concatenated on device memory.
         - The caller thread will perform the concatenation, and hence it will be
