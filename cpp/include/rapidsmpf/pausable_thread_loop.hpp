@@ -39,30 +39,28 @@ class PausableThreadLoop {
      */
     template <typename Func>
     PausableThreadLoop(Func&& func, Duration sleep = std::chrono::seconds{0})
-        : active_(true), paused_(true) {
-        thread_ = std::thread([this, f = std::forward<Func>(func), sleep]() {
-            while (true) {
-                // Wait while paused and active using atomic::wait
-                paused_.wait(true, std::memory_order_acquire);
+        : thread_([this, f = std::forward<Func>(func), sleep]() {
+              while (true) {
+                  // Wait while paused and active using atomic::wait
+                  paused_.wait(true, std::memory_order_acquire);
 
-                if (!active_.load(std::memory_order_acquire)) {
-                    return;
-                }
+                  if (!active_.load(std::memory_order_acquire)) {
+                      return;
+                  }
 
-                f();
+                  f();
 
-                if (sleep > std::chrono::seconds{0}) {
-                    std::this_thread::sleep_for(sleep);
-                } else {
-                    std::this_thread::yield();
-                }
-                // Add a short sleep to avoid other threads starving under Valgrind.
-                if (is_running_under_valgrind()) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                }
-            }
-        });
-    }
+                  if (sleep > std::chrono::seconds{0}) {
+                      std::this_thread::sleep_for(sleep);
+                  } else {
+                      std::this_thread::yield();
+                  }
+                  // Add a short sleep to avoid other threads starving under Valgrind.
+                  if (is_running_under_valgrind()) {
+                      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                  }
+              }
+          }) {}
 
     ~PausableThreadLoop();
 
@@ -104,9 +102,9 @@ class PausableThreadLoop {
     void stop();
 
   private:
+    std::atomic<bool> active_{true};
+    std::atomic<bool> paused_{true};
     std::thread thread_;
-    std::atomic<bool> active_;
-    std::atomic<bool> paused_;
 };
 
 }  // namespace rapidsmpf::detail
