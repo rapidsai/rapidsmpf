@@ -310,7 +310,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip_both_grouped) {
         GlobalEnvironment->comm_,
         *shuffler,
         total_num_partitions,
-        [&](auto&& packed_chunks) { shuffler->insert_grouped(std::move(packed_chunks)); },
+        [&](auto&& packed_chunks) { shuffler->concat_insert(std::move(packed_chunks)); },
         [&]() {
             shuffler->insert_finished(
                 iota_vector<rapidsmpf::shuffler::PartID>(total_num_partitions)
@@ -330,7 +330,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip_insert_grouped) {
         GlobalEnvironment->comm_,
         *shuffler,
         total_num_partitions,
-        [&](auto&& packed_chunks) { shuffler->insert_grouped(std::move(packed_chunks)); },
+        [&](auto&& packed_chunks) { shuffler->concat_insert(std::move(packed_chunks)); },
         [&]() {
             for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
                 shuffler->insert_finished(i);
@@ -462,7 +462,7 @@ TEST_P(ConcurrentShuffleTest, round_trip) {
 TEST_P(ConcurrentShuffleTest, round_trip_both_grouped) {
     ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
         [&](auto& shuffler, auto&& packed_chunks) {
-            shuffler.insert_grouped(std::move(packed_chunks));
+            shuffler.concat_insert(std::move(packed_chunks));
         },
         [&](auto& shuffler) {
             shuffler.insert_finished(
@@ -476,7 +476,7 @@ TEST_P(ConcurrentShuffleTest, round_trip_both_grouped) {
 TEST_P(ConcurrentShuffleTest, round_trip_insert_grouped) {
     ASSERT_NO_FATAL_FAILURE(RunTestTemplate(
         [&](auto& shuffler, auto&& packed_chunks) {
-            shuffler.insert_grouped(std::move(packed_chunks));
+            shuffler.concat_insert(std::move(packed_chunks));
         },
         [&](auto& shuffler) {
             for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
@@ -514,7 +514,7 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
-/// test case for `insert_grouped` and `insert_finished`. This test would only test the
+/// test case for `concat_insert` and `insert_finished`. This test would only test the
 /// insertion logic, so, the progress thread is paused for the duration of the test. This
 /// will prevent the progress thread from extracting from the outgoing_postbox_. Also,
 /// we disable periodic spill check to avoid the buffer resource from spilling chunks in
@@ -678,7 +678,7 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
     progress_thread->pause();
 
     auto chunks = generate_packed_data();
-    shuffler->insert_grouped(std::move(chunks));
+    shuffler->concat_insert(std::move(chunks));
     shuffler->insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
 
     ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(*shuffler));
@@ -700,7 +700,7 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
     progress_thread->pause();
 
     auto chunks = generate_packed_data();
-    shuffler->insert_grouped(std::move(chunks));
+    shuffler->concat_insert(std::move(chunks));
     shuffler->insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
 
     ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(*shuffler));

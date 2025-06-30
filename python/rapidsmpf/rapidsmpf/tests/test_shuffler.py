@@ -105,13 +105,13 @@ def test_split_and_pack_unpack_out_of_range(
 
 @pytest.mark.parametrize("wait_on", [False, True])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-@pytest.mark.parametrize("grouped", [False, True])
+@pytest.mark.parametrize("concat", [False, True])
 def test_shuffler_single_nonempty_partition(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
     total_num_partitions: int,
     wait_on: bool,  # noqa: FBT001
-    grouped: bool,  # noqa: FBT001
+    concat: bool,  # noqa: FBT001
 ) -> None:
     br = BufferResource(device_mr)
 
@@ -134,12 +134,15 @@ def test_shuffler_single_nonempty_partition(
         stream=DEFAULT_STREAM,
         device_mr=device_mr,
     )
-    shuffler.insert_chunks(packed_inputs, grouped=grouped)
+    if concat:
+        shuffler.concat_insert(packed_inputs)
+    else:
+        shuffler.insert_chunks(packed_inputs)
 
     my_partitions = {
         p for p in range(total_num_partitions) if (p % comm.nranks) == comm.rank
     }
-    if grouped:
+    if concat:
         shuffler.insert_finished(list(range(total_num_partitions)))
     else:
         for pid in range(total_num_partitions):
@@ -177,13 +180,13 @@ def test_shuffler_single_nonempty_partition(
 
 @pytest.mark.parametrize("batch_size", [None, 10])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
-@pytest.mark.parametrize("grouped", [False, True])
+@pytest.mark.parametrize("concat", [False, True])
 def test_shuffler_uniform(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
     batch_size: int | None,
     total_num_partitions: int,
-    grouped: bool,  # noqa: FBT001
+    concat: bool,  # noqa: FBT001
 ) -> None:
     br = BufferResource(device_mr)
 
@@ -245,10 +248,13 @@ def test_shuffler_uniform(
             stream=DEFAULT_STREAM,
             device_mr=device_mr,
         )
-        shuffler.insert_chunks(packed_inputs, grouped=grouped)
+        if concat:
+            shuffler.concat_insert(packed_inputs)
+        else:
+            shuffler.insert_chunks(packed_inputs)
 
     # Tell shuffler we are done adding data
-    if grouped:
+    if concat:
         shuffler.insert_finished(list(range(total_num_partitions)))
     else:
         for pid in range(total_num_partitions):

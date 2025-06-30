@@ -16,6 +16,7 @@ from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics
 
 from collections.abc import Iterable
+from typing import Mapping
 
 
 cdef class Shuffler:
@@ -124,7 +125,7 @@ cdef class Shuffler:
         """
         return self._comm
 
-    def insert_chunks(self, chunks, bool grouped = False):
+    def insert_chunks(self, chunks: Mapping[int, PackedData]):
         """
         Insert a batch of packed (serialized) chunks into the shuffle.
 
@@ -133,9 +134,6 @@ cdef class Shuffler:
         chunks
             A map where keys are partition IDs (``int``) and values are packed
             data (``PackedData``).
-        grouped
-            If ``True``, the chunks are grouped by the destination rank of the
-            partition ID. See Notes for more details.
 
         Notes
         -----
@@ -148,21 +146,51 @@ cdef class Shuffler:
         - Caller thread will perform the concatenation, and hence it will be blocked.
         - Concatenation may cause device memory pressure.
         """
-        # Convert python mapping to an `unordered_map`.
         cdef unordered_map[uint32_t, cpp_PackedData] _chunks
-        cdef bint _grouped = grouped  # Convert Python bool to C bool
+
+        _chunks.reserve(len(chunks))
         for pid, chunk in chunks.items():
             if not (<PackedData?>chunk).c_obj:
                 raise ValueError("PackedData was empty")
             _chunks[<uint32_t?>pid] = move(deref((<PackedData?>chunk).c_obj))
 
         with nogil:
-            if _grouped:
-                deref(self._handle).insert_grouped(move(_chunks))
-            else:
-                deref(self._handle).insert(move(_chunks))
+            deref(self._handle).insert(move(_chunks))
 
-    def insert_finished(self, pids):
+    def concat_insert(self, chunks: Mapping[int, PackedData]):
+        """
+        Insert a batch of packed (serialized) chunks into the shuffle while
+        concatenating the chunks based on the destination rank.
+
+        Parameters
+        ----------
+        chunks
+            A map where keys are partition IDs (``int``) and values are packed
+            data (``PackedData``).
+
+        Notes
+        -----
+        This method adds the given chunks to the shuffle, associating them with their
+        respective partition IDs.
+
+        There are some considerations for using this method:
+        - The chunks are grouped by the destination rank of the partition ID and
+        concatenated on device memory.
+        - Caller thread will perform the concatenation, and hence it will be blocked.
+        - Concatenation may cause device memory pressure.
+        """
+        cdef unordered_map[uint32_t, cpp_PackedData] _chunks
+
+        _chunks.reserve(len(chunks))
+        for pid, chunk in chunks.items():
+            if not (<PackedData?>chunk).c_obj:
+                raise ValueError("PackedData was empty")
+            _chunks[<uint32_t?>pid] = move(deref((<PackedData?>chunk).c_obj))
+
+        with nogil:
+            deref(self._handle).concat_insert(move(_chunks))
+
+    def insert_finished(self, pids: int | Iterable[int]):
         """
         Mark partitions as finished.
 
@@ -181,10 +209,11 @@ cdef class Shuffler:
         """
         cdef vector[uint32_t] _pids
 
-        if isinstance(pids, Iterable):
-            _pids = pids
-        else:
+        if isinstance(pids, int):
             _pids.push_back(pids)
+        else:
+            for pid in pids:
+                _pids.push_back(pid)
 
         with nogil:
             deref(self._handle).insert_finished(move(_pids))

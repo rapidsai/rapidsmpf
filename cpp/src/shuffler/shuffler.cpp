@@ -571,7 +571,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     br_->spill_manager().spill_to_make_headroom(0);
 }
 
-void Shuffler::insert_grouped(std::unordered_map<PartID, PackedData>&& chunks) {
+void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
 
