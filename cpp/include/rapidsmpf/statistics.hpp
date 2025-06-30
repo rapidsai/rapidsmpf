@@ -78,7 +78,7 @@ class Statistics {
     /**
      * @brief Checks if statistics tracking is enabled.
      *
-     * @return True if statistics tracking is active, otherwise false.
+     * @return True if statistics tracking is active, otherwise False.
      */
     bool enabled() const noexcept {
         return enabled_;
@@ -228,7 +228,7 @@ class Statistics {
     /**
      * @brief Checks whether memory profiling is enabled.
      *
-     * @return True if memory profiling is active, otherwise false.
+     * @return True if memory profiling is active, otherwise False.
      */
     bool is_memory_profiling_enabled() const;
 
