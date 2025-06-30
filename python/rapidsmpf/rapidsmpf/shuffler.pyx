@@ -170,7 +170,8 @@ cdef class Shuffler:
         There are some considerations for using this method:
         - The chunks are grouped by the destination rank of the partition ID and
           concatenated on device memory.
-        - The caller thread will perform the concatenation, and hence it will be blocked.
+        - The caller thread will perform the concatenation, and hence it will be
+          blocked.
         - Concatenation may cause device memory pressure.
         """
         cdef unordered_map[uint32_t, cpp_PackedData] _chunks
