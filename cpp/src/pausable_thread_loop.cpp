@@ -76,7 +76,9 @@ void PausableThreadLoop::pause() {
 void PausableThreadLoop::resume() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        state_ = State::Running;
+        if (state_ != State::Stopping) {
+            state_ = State::Running;
+        }
     }
     cv_.notify_one();
 }
