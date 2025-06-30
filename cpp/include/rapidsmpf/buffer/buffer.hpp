@@ -307,7 +307,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] HostStorageT& host() {
+    [[nodiscard]] constexpr HostStorageT& host() {
         if (auto ref = std::get_if<HostStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -322,7 +322,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] DeviceStorageT& device() {
+    [[nodiscard]] constexpr DeviceStorageT& device() {
         if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
             return *ref;
         } else {

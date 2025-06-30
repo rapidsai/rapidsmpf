@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <stack>
 #include <thread>
@@ -18,6 +19,8 @@
 #include <rmm/error.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
+
+#include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf {
 
@@ -45,8 +48,11 @@ struct ScopedMemoryRecord {
      * sum across all types.
      * @return The number of allocations for the specified type.
      */
-    [[nodiscard]] std::int64_t num_total_allocs(AllocType alloc_type = AllocType::ALL)
-        const noexcept;
+    [[nodiscard]] constexpr std::int64_t num_total_allocs(
+        AllocType alloc_type = AllocType::ALL
+    ) const noexcept {
+        return get_or_accumulate(num_total_allocs_, alloc_type);
+    }
 
     /**
      * @brief Returns the number of currently active (non-deallocated) allocations
@@ -58,8 +64,11 @@ struct ScopedMemoryRecord {
      * sum across all types.
      * @return The number of active allocations for the specified type.
      */
-    [[nodiscard]] std::int64_t num_current_allocs(AllocType alloc_type = AllocType::ALL)
-        const noexcept;
+    [[nodiscard]] constexpr std::int64_t num_current_allocs(
+        AllocType alloc_type = AllocType::ALL
+    ) const noexcept {
+        return get_or_accumulate(num_current_allocs_, alloc_type);
+    }
 
     /**
      * @brief Returns the current memory usage in bytes for the specified allocator type.
@@ -70,8 +79,10 @@ struct ScopedMemoryRecord {
      * sum across all types.
      * @return The current memory usage in bytes for the specified type.
      */
-    [[nodiscard]] std::int64_t current(AllocType alloc_type = AllocType::ALL)
-        const noexcept;
+    [[nodiscard]] constexpr std::int64_t current(AllocType alloc_type = AllocType::ALL)
+        const noexcept {
+        return get_or_accumulate(current_, alloc_type);
+    }
 
     /**
      * @brief Returns the total number of bytes allocated.
@@ -82,8 +93,10 @@ struct ScopedMemoryRecord {
      * the sum across all types.
      * @return The total number of bytes allocated for the specified type.
      */
-    [[nodiscard]] std::int64_t total(AllocType alloc_type = AllocType::ALL)
-        const noexcept;
+    [[nodiscard]] constexpr std::int64_t total(AllocType alloc_type = AllocType::ALL)
+        const noexcept {
+        return get_or_accumulate(total_, alloc_type);
+    }
 
     /**
      * @brief Returns the peak memory usage (in bytes) for the specified allocator type.
@@ -98,7 +111,13 @@ struct ScopedMemoryRecord {
      * @param alloc_type The allocator type to query. Defaults to `AllocType::ALL`.
      * @return The peak memory usage in bytes for the specified type.
      */
-    [[nodiscard]] std::int64_t peak(AllocType alloc_type = AllocType::ALL) const noexcept;
+    [[nodiscard]] constexpr std::int64_t peak(AllocType alloc_type = AllocType::ALL)
+        const noexcept {
+        if (alloc_type == AllocType::ALL) {
+            return highest_peak_;
+        }
+        return peak_[static_cast<std::size_t>(alloc_type)];
+    }
 
     /**
      * @brief Records a memory allocation event.
@@ -111,7 +130,19 @@ struct ScopedMemoryRecord {
      *
      * @note Is not thread-safe.
      */
-    void record_allocation(AllocType alloc_type, std::int64_t nbytes);
+    constexpr void record_allocation(AllocType alloc_type, std::int64_t nbytes) {
+        RAPIDSMPF_EXPECTS(
+            alloc_type != AllocType::ALL,
+            "AllocType::ALL may not be used to record allocation"
+        );
+        auto at = static_cast<std::size_t>(alloc_type);
+        ++num_total_allocs_[at];
+        ++num_current_allocs_[at];
+        current_[at] += nbytes;
+        total_[at] += nbytes;
+        peak_[at] = std::max(peak_[at], current_[at]);
+        highest_peak_ = std::max(highest_peak_, current());
+    }
 
     /**
      * @brief Records a memory deallocation event.
@@ -123,7 +154,15 @@ struct ScopedMemoryRecord {
      *
      * @note Is not thread-safe.
      */
-    void record_deallocation(AllocType alloc_type, std::int64_t nbytes);
+    constexpr void record_deallocation(AllocType alloc_type, std::int64_t nbytes) {
+        RAPIDSMPF_EXPECTS(
+            alloc_type != AllocType::ALL,
+            "AllocType::ALL may not be used to record deallocation"
+        );
+        auto at = static_cast<std::size_t>(alloc_type);
+        current_[at] -= nbytes;
+        --num_current_allocs_[at];
+    }
 
     /**
      * @brief Merge the memory statistics of a subscope into this record.
@@ -146,7 +185,18 @@ struct ScopedMemoryRecord {
      *
      * @see add_scope()
      */
-    ScopedMemoryRecord& add_subscope(ScopedMemoryRecord const& subscope);
+    constexpr ScopedMemoryRecord& add_subscope(ScopedMemoryRecord const& subscope) {
+        highest_peak_ = std::max(highest_peak_, current() + subscope.highest_peak_);
+        for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
+            auto i = static_cast<std::size_t>(type);
+            peak_[i] = std::max(peak_[i], current_[i] + subscope.peak_[i]);
+            num_total_allocs_[i] += subscope.num_total_allocs_[i];
+            num_current_allocs_[i] += subscope.num_current_allocs_[i];
+            current_[i] += subscope.current_[i];
+            total_[i] += subscope.total_[i];
+        }
+        return *this;
+    }
 
     /**
      * @brief Merge the memory statistics of another scope into this one.
@@ -163,7 +213,18 @@ struct ScopedMemoryRecord {
      *
      * @see add_subscope()
      */
-    ScopedMemoryRecord& add_scope(ScopedMemoryRecord const& scope);
+    constexpr ScopedMemoryRecord& add_scope(ScopedMemoryRecord const& scope) {
+        highest_peak_ = std::max(highest_peak_, scope.highest_peak_);
+        for (AllocType type : {AllocType::PRIMARY, AllocType::FALLBACK}) {
+            auto i = static_cast<std::size_t>(type);
+            peak_[i] = std::max(peak_[i], scope.peak_[i]);
+            current_[i] += scope.current_[i];
+            total_[i] += scope.total_[i];
+            num_total_allocs_[i] += scope.num_total_allocs_[i];
+            num_current_allocs_[i] += scope.num_current_allocs_[i];
+        }
+        return *this;
+    }
 
   private:
     AllocTypeArray num_current_allocs_{{0, 0}};
@@ -172,6 +233,23 @@ struct ScopedMemoryRecord {
     AllocTypeArray total_{{0, 0}};
     AllocTypeArray peak_{{0, 0}};
     std::int64_t highest_peak_{0};
+
+    /**
+     * @brief Retrieves a value from a statistics array or accumulates the total.
+     *
+     * @param arr        The array containing statistics for each allocator type.
+     * @param alloc_type The type of allocator to retrieve data for. If `AllocType::ALL`,
+     *                   the function returns the sum across all entries in the array.
+     * @return The requested statistic value or the accumulated total.
+     */
+    static constexpr std::int64_t get_or_accumulate(
+        AllocTypeArray const& arr, AllocType alloc_type
+    ) noexcept {
+        if (alloc_type == AllocType::ALL) {
+            return std::accumulate(arr.begin(), arr.end(), std::int64_t{0});
+        }
+        return arr[static_cast<std::size_t>(alloc_type)];
+    }
 };
 
 static_assert(
