@@ -171,6 +171,7 @@ cdef class Shuffler:
         - The caller thread will perform the concatenation, and hence it will be
         blocked.
         - Concatenation may cause device memory pressure.
+
         """
         cdef unordered_map[uint32_t, cpp_PackedData] _chunks
 
