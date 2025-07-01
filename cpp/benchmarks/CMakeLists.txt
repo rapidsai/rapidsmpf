@@ -20,8 +20,9 @@ target_compile_options(
                         "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  bench_shuffle PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp
-                        $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
+  bench_shuffle
+  PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 install(
   TARGETS bench_shuffle
@@ -47,7 +48,7 @@ target_compile_options(
 )
 target_link_libraries(
   bench_comm PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
-                     $<TARGET_NAME_IF_EXISTS:conda_env>
+                     $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 install(
   TARGETS bench_comm
@@ -78,7 +79,7 @@ target_compile_options(
 target_link_libraries(
   bench_partition
   PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp benchmark::benchmark benchmark::benchmark_main
-          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 install(
   TARGETS bench_partition
@@ -102,8 +103,9 @@ target_compile_options(
                                  "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  bench_memory_resources PRIVATE rapidsmpf::rapidsmpf rmm::rmm benchmark::benchmark
-                                 benchmark::benchmark_main $<TARGET_NAME_IF_EXISTS:conda_env>
+  bench_memory_resources
+  PRIVATE rapidsmpf::rapidsmpf rmm::rmm benchmark::benchmark benchmark::benchmark_main
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 install(
   TARGETS bench_memory_resources
