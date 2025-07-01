@@ -1119,7 +1119,6 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
 }
 
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
-    Logger& log = logger();
     auto probe = shared_resources_->get_worker()->tagProbe(
         ::ucxx::Tag(static_cast<int>(tag)), UserTagMask
     );

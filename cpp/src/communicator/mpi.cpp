@@ -149,7 +149,6 @@ std::unique_ptr<Communicator::Future> MPI::recv(
 }
 
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
-    Logger& log = logger();
     int msg_available;
     MPI_Status probe_status;
     RAPIDSMPF_MPI(MPI_Iprobe(MPI_ANY_SOURCE, tag, comm_, &msg_available, &probe_status));
