@@ -122,7 +122,7 @@ class Shuffler {
      *
      * @param chunks A map of partition IDs and their packed chunks.
      */
-    void insert_grouped(std::unordered_map<PartID, PackedData>&& chunks);
+    void concat_insert(std::unordered_map<PartID, PackedData>&& chunks);
 
     /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.

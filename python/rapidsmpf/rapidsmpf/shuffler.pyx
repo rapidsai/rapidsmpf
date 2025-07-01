@@ -15,6 +15,9 @@ from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
 from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics
 
+from collections.abc import Iterable
+from typing import Mapping
+
 
 cdef class Shuffler:
     """
@@ -122,7 +125,7 @@ cdef class Shuffler:
         """
         return self._comm
 
-    def insert_chunks(self, chunks):
+    def insert_chunks(self, chunks: Mapping[int, PackedData]):
         """
         Insert a batch of packed (serialized) chunks into the shuffle.
 
@@ -137,8 +140,9 @@ cdef class Shuffler:
         This method adds the given chunks to the shuffle, associating them with their
         respective partition IDs.
         """
-        # Convert python mapping to an `unordered_map`.
         cdef unordered_map[uint32_t, cpp_PackedData] _chunks
+
+        _chunks.reserve(len(chunks))
         for pid, chunk in chunks.items():
             if not (<PackedData?>chunk).c_obj:
                 raise ValueError("PackedData was empty")
@@ -147,25 +151,66 @@ cdef class Shuffler:
         with nogil:
             deref(self._handle).insert(move(_chunks))
 
-    def insert_finished(self, uint32_t pid):
+    def concat_insert(self, chunks: Mapping[int, PackedData]):
         """
-        Mark a partition as finished.
+        Insert a batch of packed (serialized) chunks into the shuffle while
+        concatenating the chunks based on the destination rank.
 
-        This informs the shuffler that no more chunks for the specified partition
+        Parameters
+        ----------
+        chunks
+            A map where keys are partition IDs (``int``) and values are packed
+            data (``PackedData``).
+
+        Notes
+        -----
+        There are some considerations for using this method:
+
+        - The chunks are grouped by the destination rank of the partition ID and
+          concatenated on device memory.
+        - The caller thread will perform the concatenation, and hence it will be
+          blocked.
+        - Concatenation may cause device memory pressure.
+
+        """
+        cdef unordered_map[uint32_t, cpp_PackedData] _chunks
+
+        _chunks.reserve(len(chunks))
+        for pid, chunk in chunks.items():
+            if not (<PackedData?>chunk).c_obj:
+                raise ValueError("PackedData was empty")
+            _chunks[<uint32_t?>pid] = move(deref((<PackedData?>chunk).c_obj))
+
+        with nogil:
+            deref(self._handle).concat_insert(move(_chunks))
+
+    def insert_finished(self, pids: int | Iterable[int]):
+        """
+        Mark partitions as finished.
+
+        This informs the shuffler that no more chunks for the specified partitions
         will be inserted.
 
         Parameters
         ----------
-        pid
-            The partition ID to mark as finished.
+        pids
+            Partition IDs to mark as finished (int or an iterable of ints).
 
         Notes
         -----
         Once a partition is marked as finished, it is considered complete and no
         further chunks will be accepted for that partition.
         """
+        cdef vector[uint32_t] _pids
+
+        if isinstance(pids, int):
+            _pids.push_back(pids)
+        else:
+            for pid in pids:
+                _pids.push_back(pid)
+
         with nogil:
-            deref(self._handle).insert_finished(pid)
+            deref(self._handle).insert_finished(move(_pids))
 
     def extract(self, uint32_t pid):
         """
