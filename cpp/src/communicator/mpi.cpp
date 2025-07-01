@@ -149,7 +149,6 @@ std::unique_ptr<Communicator::Future> MPI::recv(
 }
 
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
-    Logger& log = logger();
     int msg_available;
     MPI_Status probe_status;
     RAPIDSMPF_MPI(MPI_Iprobe(MPI_ANY_SOURCE, tag, comm_, &msg_available, &probe_status));
@@ -181,14 +180,6 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
         static_cast<std::size_t>(size) == msg->size(),
         "incorrect size of the MPI_Recv message"
     );
-    if (msg->size() > 2048) {  // TODO: use the actual eager threshold.
-        log.warn(
-            "block-receiving a messager larger than the normal ",
-            "eager threshold (",
-            msg->size(),
-            " bytes)"
-        );
-    }
     return {std::move(msg), probe_status.MPI_SOURCE};
 }
 

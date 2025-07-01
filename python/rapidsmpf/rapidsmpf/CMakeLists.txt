@@ -10,7 +10,7 @@ set(cython_modules config.pyx progress_thread.pyx rmm_resource_adaptor.pyx shuff
 rapids_cython_create_modules(
   CXX
   SOURCE_FILES "${cython_modules}"
-  LINKED_LIBRARIES rapidsmpf::rapidsmpf
+  LINKED_LIBRARIES rapidsmpf::rapidsmpf maybe_asan
 )
 
 add_subdirectory(_detail)
