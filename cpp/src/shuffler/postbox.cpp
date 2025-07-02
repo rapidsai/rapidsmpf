@@ -46,9 +46,10 @@ std::unordered_map<ChunkID, Chunk> PostBox<KeyType>::extract_by_key(KeyType key)
 }
 
 template <typename KeyType>
-std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
+std::vector<Chunk> PostBox<KeyType>::extract_all_ready(size_t limit) {
     std::lock_guard const lock(mutex_);
     std::vector<Chunk> ret;
+    ret.reserve(limit);
 
     // Iterate through the outer map
     auto pid_it = pigeonhole_.begin();
@@ -58,8 +59,11 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
         auto chunk_it = chunks.begin();
         while (chunk_it != chunks.end()) {
             if (chunk_it->second.is_ready()) {
-                ret.push_back(std::move(chunk_it->second));
+                ret.emplace_back(std::move(chunk_it->second));
                 chunk_it = chunks.erase(chunk_it);
+                if (ret.size() >= limit) {  // limit is reached
+                    return ret;
+                }
             } else {
                 ++chunk_it;
             }
