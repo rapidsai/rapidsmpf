@@ -356,7 +356,7 @@ class Shuffler::Progress {
         // Check if any data in transit is finished.
         {
             auto const t0_check_future_finish = Clock::now();
-            RAPIDSMPF_NVTX_SCOPED_RANGE("check_fut_finish", in_transit_futures_);
+            RAPIDSMPF_NVTX_SCOPED_RANGE("check_fut_finish", in_transit_futures_.size());
             if (!in_transit_futures_.empty()) {
                 std::vector<ChunkID> finished =
                     shuffler_.comm_->test_some(in_transit_futures_);
