@@ -207,6 +207,7 @@ class Shuffler::Progress {
         {
             auto const t0_metadata_recv = Clock::now();
             RAPIDSMPF_NVTX_SCOPED_RANGE("meta_recv", -1);
+            int i = 0;
             while (true) {
                 auto const [msg, src] = shuffler_.comm_->recv_any(metadata_tag);
                 if (msg) {
@@ -224,10 +225,12 @@ class Shuffler::Progress {
                 } else {
                     break;
                 }
+                i++;
             }
             stats.add_duration_stat(
                 "event-loop-metadata-recv", Clock::now() - t0_metadata_recv
             );
+            RAPIDSMPF_NVTX_MARKER("meta_recv_iters", i);
         }
 
         // Post receives for incoming chunks
@@ -319,6 +322,7 @@ class Shuffler::Progress {
         {
             auto const t0_init_gpu_data_send = Clock::now();
             RAPIDSMPF_NVTX_SCOPED_RANGE("init_gpu_send", -1);
+            int i = 0;
             while (true) {
                 auto const [msg, src] = shuffler_.comm_->recv_any(ready_for_data_tag);
                 if (msg) {
@@ -341,16 +345,18 @@ class Shuffler::Progress {
                 } else {
                     break;
                 }
+                i++;
             }
             stats.add_duration_stat(
                 "event-loop-init-gpu-data-send", Clock::now() - t0_init_gpu_data_send
             );
+            RAPIDSMPF_NVTX_MARKER("init_gpu_send_iters", i);
         }
 
         // Check if any data in transit is finished.
         {
             auto const t0_check_future_finish = Clock::now();
-            RAPIDSMPF_NVTX_SCOPED_RANGE("check_fut_finish", in_transit_futures_.size());
+            RAPIDSMPF_NVTX_SCOPED_RANGE("check_fut_finish", in_transit_futures_);
             if (!in_transit_futures_.empty()) {
                 std::vector<ChunkID> finished =
                     shuffler_.comm_->test_some(in_transit_futures_);
