@@ -55,22 +55,6 @@ struct rapidsmpf_domain {
 // Macro overloads of RAPIDSMPF_NVTX_FUNC_RANGE
 #define RAPIDSMPF_NVTX_FUNC_RANGE_IMPL() NVTX3_FUNC_RANGE_IN(rapidsmpf_domain)
 
-#define RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL(msg, val)             \
-    nvtx3::scoped_range_in<rapidsmpf_domain> RAPIDSMPF_CONCAT( \
-        _rapidsmpf_nvtx_range, __LINE__                        \
-    ) {                                                        \
-        nvtx3::event_attributes {                              \
-            RAPIDSMPF_REGISTER_STRING(msg), nvtx3::payload {   \
-                convert_to_64bit(val)                          \
-            }                                                  \
-        }                                                      \
-    }
-
-#define RAPIDSMPF_NVTX_MARKER_IMPL(msg, val)                                  \
-    nvtx3::mark_in<rapidsmpf_domain>(nvtx3::event_attributes{                 \
-        RAPIDSMPF_REGISTER_STRING(msg), nvtx3::payload{convert_to_64bit(val)} \
-    })
-
 /**
  * @brief Convenience macro for generating an NVTX range in the `rapidsmpf` domain
  * from the lifetime of a function.
@@ -88,21 +72,61 @@ struct rapidsmpf_domain {
  */
 #define RAPIDSMPF_NVTX_FUNC_RANGE() RAPIDSMPF_NVTX_FUNC_RANGE_IMPL()
 
+// implement the scoped range macro with a value
+#define RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL_WITH_VAL(msg, val)    \
+    nvtx3::scoped_range_in<rapidsmpf_domain> RAPIDSMPF_CONCAT( \
+        _rapidsmpf_nvtx_range, __LINE__                        \
+    ) {                                                        \
+        nvtx3::event_attributes {                              \
+            RAPIDSMPF_REGISTER_STRING(msg), nvtx3::payload {   \
+                convert_to_64bit(val)                          \
+            }                                                  \
+        }                                                      \
+    }
+
+// implement the scoped range macro without a value
+#define RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL_WITHOUT_VAL(msg)      \
+    nvtx3::scoped_range_in<rapidsmpf_domain> RAPIDSMPF_CONCAT( \
+        _rapidsmpf_nvtx_range, __LINE__                        \
+    ) {                                                        \
+        nvtx3::event_attributes {                              \
+            RAPIDSMPF_REGISTER_STRING(msg)                     \
+        }                                                      \
+    }
+
+// Macro to detect number of arguments (1 or 2)
+#define RAPIDSMPF_GET_MACRO(_1, _2, NAME, ...) NAME
+
+// unwrap the arguments and call the appropriate macro
+#define RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL(...)        \
+    RAPIDSMPF_GET_MACRO(                             \
+        __VA_ARGS__,                                 \
+        RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL_WITH_VAL,   \
+        RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL_WITHOUT_VAL \
+    )                                                \
+    (__VA_ARGS__)
+
 /**
  * @brief Convenience macro for generating an NVTX scoped range in the `rapidsmpf` domain
  * to annotate a time duration.
  *
- * Takes two arguments (message, payload).
+ * Takes one or two arguments (message, [optional] payload).
  *
  * Example:
  * ```
  * void some_function(){
- *    RAPIDSMPF_NVTX_SCOPED_RANGE("my function", 42);
+ *    RAPIDSMPF_NVTX_SCOPED_RANGE("my function");        // Without payload
+ *    RAPIDSMPF_NVTX_SCOPED_RANGE("my function", 42);    // With payload
  *    ...
  * }
  * ```
  */
-#define RAPIDSMPF_NVTX_SCOPED_RANGE(msg, val) RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL(msg, val)
+#define RAPIDSMPF_NVTX_SCOPED_RANGE(...) RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL(__VA_ARGS__)
+
+#define RAPIDSMPF_NVTX_MARKER_IMPL(msg, val)                                  \
+    nvtx3::mark_in<rapidsmpf_domain>(nvtx3::event_attributes{                 \
+        RAPIDSMPF_REGISTER_STRING(msg), nvtx3::payload{convert_to_64bit(val)} \
+    })
 
 /**
  * @brief Convenience macro for generating an NVTX marker in the `rapidsmpf` domain to

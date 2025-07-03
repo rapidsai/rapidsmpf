@@ -206,7 +206,7 @@ class Shuffler::Progress {
         // `incoming_chunks_`.
         {
             auto const t0_metadata_recv = Clock::now();
-            RAPIDSMPF_NVTX_SCOPED_RANGE("meta_recv", -1);
+            RAPIDSMPF_NVTX_SCOPED_RANGE("meta_recv");
             int i = 0;
             while (true) {
                 auto const [msg, src] = shuffler_.comm_->recv_any(metadata_tag);
@@ -321,7 +321,7 @@ class Shuffler::Progress {
         // requested data.
         {
             auto const t0_init_gpu_data_send = Clock::now();
-            RAPIDSMPF_NVTX_SCOPED_RANGE("init_gpu_send", -1);
+            RAPIDSMPF_NVTX_SCOPED_RANGE("init_gpu_send");
             int i = 0;
             while (true) {
                 auto const [msg, src] = shuffler_.comm_->recv_any(ready_for_data_tag);
