@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <functional>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -35,7 +37,7 @@ class ArgumentParser {
         RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
         try {
             int option;
-            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:gxh")) != -1) {
+            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:igxh")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -57,6 +59,8 @@ class ArgumentParser {
                               "(default: cuda)\n"
                            << "  -l <num>   Device memory limit in MiB (default:-1, "
                               "disabled)\n"
+                           << "  -i         Use `concat_insert` method, instead of "
+                              "`insert`.\n"
                            << "  -g         Do hash partitining during data generation "
                               "(default: unset, hash partitioning during insertion)\n"
                            << "  -x         Enable memory profiler (default: disabled)\n"
@@ -110,6 +114,9 @@ class ArgumentParser {
                     break;
                 case 'l':
                     parse_integer(device_mem_limit_mb, optarg);
+                    break;
+                case 'i':
+                    use_concat_insert = true;
                     break;
                 case 'g':
                     hash_partition_with_datagen = true;
@@ -173,6 +180,9 @@ class ArgumentParser {
         if (hash_partition_with_datagen) {
             ss << "  -g (hash partitioning during data generation)\n";
         }
+        if (use_concat_insert) {
+            ss << "  -i (use concat insert)\n";
+        }
         ss << "Local size: " << rapidsmpf::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmpf::format_nbytes(total_nbytes) << "\n";
         comm.logger().print(ss.str());
@@ -190,6 +200,7 @@ class ArgumentParser {
     std::uint64_t total_nbytes;
     bool enable_memory_profiler{false};
     bool hash_partition_with_datagen{false};
+    bool use_concat_insert{false};
     std::int64_t device_mem_limit_mb{-1};
 };
 
@@ -224,11 +235,6 @@ rapidsmpf::Duration do_run(
 
         // insert partitions into the shuffler
         shuffle_insert_fn(shuffler);
-
-        // Tell the shuffler that we have no more data.
-        for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-            shuffler.insert_finished(i);
-        }
 
         while (!shuffler.finished()) {
             auto finished_partition = shuffler.wait_any();
@@ -291,6 +297,43 @@ std::vector<cudf::table> generate_input_partitions(
     return input_partitions;
 }
 
+template <typename MakeChunkFn>
+void do_concat_insert(
+    rapidsmpf::shuffler::Shuffler& shuffler,
+    auto&& input_partitions,
+    rapidsmpf::shuffler::PartID const total_num_partitions,
+    MakeChunkFn&& make_chunk_fn
+) {
+    for (auto&& partition : input_partitions) {
+        // Partition, pack, and insert this partition into the shuffler.
+        shuffler.concat_insert(std::move(make_chunk_fn(partition)));
+    }
+
+    // Tell the shuffler that we have no more data.
+    std::vector<rapidsmpf::shuffler::PartID> finished;
+    finished.reserve(total_num_partitions);
+    std::iota(finished.begin(), finished.end(), 0);
+    shuffler.insert_finished(std::move(finished));
+}
+
+template <typename MakeChunkFn>
+void do_insert(
+    rapidsmpf::shuffler::Shuffler& shuffler,
+    auto&& input_partitions,
+    rapidsmpf::shuffler::PartID const total_num_partitions,
+    MakeChunkFn&& make_chunk_fn
+) {
+    for (auto&& partition : input_partitions) {
+        // Partition, pack, and insert this partition into the shuffler.
+        shuffler.insert(std::move(make_chunk_fn(partition)));
+    }
+
+    // Tell the shuffler that we have no more data.
+    for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+        shuffler.insert_finished(i);
+    }
+}
+
 /**
  * @brief Runs shuffle by partitioning the input tables and inserting them into the
  * shuffler.
@@ -318,16 +361,29 @@ rapidsmpf::Duration run_hash_partition_inline(
     rapidsmpf::BufferResource* br,
     std::shared_ptr<rapidsmpf::Statistics>& statistics
 ) {
-    rapidsmpf::shuffler::PartID const total_num_partitions =
+    rapidsmpf::shuffler::PartID const total_nparts =
         args.num_output_partitions
         * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
-    auto input_partitions = generate_input_partitions(args, stream, br->device_mr());
+    auto in_parts = generate_input_partitions(args, stream, br->device_mr());
 
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
+    auto make_chunk_fn = [&](cudf::table const& partition) {
+        return rapidsmpf::partition_and_pack(
+            partition,
+            {0},
+            static_cast<std::int32_t>(total_nparts),
+            cudf::hash_id::HASH_MURMUR3,
+            cudf::DEFAULT_HASH_SEED,
+            stream,
+            br->device_mr(),
+            statistics
+        );
+    };
+
     return do_run(
-        total_num_partitions,
+        total_nparts,
         comm,
         progress_thread,
         args,
@@ -335,19 +391,14 @@ rapidsmpf::Duration run_hash_partition_inline(
         br,
         statistics,
         [&](auto& shuffler) {
-            for (auto&& partition : input_partitions) {
-                // Partition, pack, and insert this partition into the shuffler.
-                shuffler.insert(rapidsmpf::partition_and_pack(
-                    partition,
-                    {0},
-                    static_cast<std::int32_t>(total_num_partitions),
-                    cudf::hash_id::HASH_MURMUR3,
-                    cudf::DEFAULT_HASH_SEED,
-                    stream,
-                    br->device_mr(),
-                    statistics
-                ));
-                partition.release();
+            if (args.use_concat_insert) {
+                do_concat_insert(
+                    shuffler, std::move(in_parts), total_nparts, std::move(make_chunk_fn)
+                );
+            } else {
+                do_insert(
+                    shuffler, std::move(in_parts), total_nparts, std::move(make_chunk_fn)
+                );
             }
         }
     );
@@ -376,21 +427,21 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
     rapidsmpf::BufferResource* br,
     std::shared_ptr<rapidsmpf::Statistics>& statistics
 ) {
-    rapidsmpf::shuffler::PartID const total_num_partitions =
+    rapidsmpf::shuffler::PartID const total_nparts =
         args.num_output_partitions
         * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
-    auto input_partitions = generate_input_partitions(args, stream, br->device_mr());
+    auto in_parts = generate_input_partitions(args, stream, br->device_mr());
 
     // generate input chunks
     std::vector<std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData>>
-        input_chunks;
-    input_chunks.reserve(args.num_local_partitions);
-    for (auto&& partition : input_partitions) {
-        input_chunks.emplace_back(rapidsmpf::partition_and_pack(
+        in_chunks;
+    in_chunks.reserve(args.num_local_partitions);
+    for (auto&& partition : in_parts) {
+        in_chunks.emplace_back(rapidsmpf::partition_and_pack(
             partition,
             {0},
-            static_cast<std::int32_t>(total_num_partitions),
+            static_cast<std::int32_t>(total_nparts),
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
             stream,
@@ -399,12 +450,12 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
         partition.release();
     }
 
-    input_partitions.clear();
+    in_parts.clear();
     stream.synchronize();
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
     return do_run(
-        total_num_partitions,
+        total_nparts,
         comm,
         progress_thread,
         args,
@@ -412,8 +463,12 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
         br,
         statistics,
         [&](auto& shuffler) {
-            for (auto&& chunk : input_chunks) {
-                shuffler.insert(std::move(chunk));
+            if (args.use_concat_insert) {
+                do_concat_insert(
+                    shuffler, std::move(in_chunks), total_nparts, std::identity{}
+                );
+            } else {
+                do_insert(shuffler, std::move(in_chunks), total_nparts, std::identity{});
             }
         }
     );
