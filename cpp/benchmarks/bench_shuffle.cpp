@@ -310,8 +310,7 @@ void do_concat_insert(
     }
 
     // Tell the shuffler that we have no more data.
-    std::vector<rapidsmpf::shuffler::PartID> finished;
-    finished.reserve(total_num_partitions);
+    std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
     std::iota(finished.begin(), finished.end(), 0);
     shuffler.insert_finished(std::move(finished));
 }
