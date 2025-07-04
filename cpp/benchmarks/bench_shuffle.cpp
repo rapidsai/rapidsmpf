@@ -204,7 +204,7 @@ rapidsmpf::Duration do_run(
     std::shared_ptr<rapidsmpf::Statistics>& statistics,
     ShuffleInsertFn&& shuffle_insert_fn
 ) {
-    std::vector<cudf::table> output_partitions;
+    std::vector<std::unique_ptr<cudf::table>> output_partitions;
     output_partitions.reserve(total_num_partitions);
 
     auto const t0_elapsed = rapidsmpf::Clock::now();
@@ -233,7 +233,7 @@ rapidsmpf::Duration do_run(
         while (!shuffler.finished()) {
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
-            output_partitions.push_back(*rapidsmpf::unpack_and_concat(
+            output_partitions.emplace_back(rapidsmpf::unpack_and_concat(
                 std::move(packed_chunks), stream, br->device_mr(), statistics
             ));
         }
@@ -246,7 +246,7 @@ rapidsmpf::Duration do_run(
     if (args.num_local_rows >= 1000000) {
         for (const auto& output_partition : output_partitions) {
             auto [parts, owner] = rapidsmpf::partition_and_split(
-                output_partition,
+                output_partition->view(),
                 {0},
                 static_cast<std::int32_t>(total_num_partitions),
                 cudf::hash_id::HASH_MURMUR3,
