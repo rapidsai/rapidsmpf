@@ -59,7 +59,7 @@ struct rapidsmpf_domain {
  * @brief Convenience macro for generating an NVTX range in the `rapidsmpf` domain
  * from the lifetime of a function.
  *
- * Takes no argument. The name of the immediately enclosing function returned by
+ * Takes no arguments. The name of the immediately enclosing function returned by
  * `__func__` is used as the message.
  *
  * Example:
@@ -110,7 +110,8 @@ struct rapidsmpf_domain {
  * @brief Convenience macro for generating an NVTX scoped range in the `rapidsmpf` domain
  * to annotate a time duration.
  *
- * Takes one or two arguments (message, [optional] payload).
+ * @param message The message to annotate.
+ * @param payload (optional) The payload to annotate.
  *
  * Example:
  * ```
@@ -132,8 +133,10 @@ struct rapidsmpf_domain {
  * @brief Convenience macro for generating an NVTX marker in the `rapidsmpf` domain to
  * annotate a certain time point.
  *
- * Takes two arguments (message, payload). Use this macro to annotate asynchronous
- * operations.
+ * @param message The message to annotate.
+ * @param payload The payload to annotate.
+ *
+ * Use this macro to annotate asynchronous operations.
  */
 #define RAPIDSMPF_NVTX_MARKER(message, payload) \
     RAPIDSMPF_NVTX_MARKER_IMPL(message, payload)
