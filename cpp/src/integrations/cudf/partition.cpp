@@ -9,6 +9,7 @@
 #include <cudf/concatenate.hpp>
 #include <cudf/contiguous_split.hpp>
 #include <cudf/copying.hpp>
+#include <cudf/types.hpp>
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/buffer/packed_data.hpp>
@@ -74,7 +75,10 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     RAPIDSMPF_EXPECTS(num_partitions > 0, "Need to split to at least one partition");
     if (table.num_rows() == 0) {
-        return {};
+        auto splits = std::vector<cudf::size_type>(
+            static_cast<std::uint64_t>(num_partitions - 1), 0
+        );
+        return split_and_pack(table, splits, stream, mr);
     }
     auto [reordered, split_points] = cudf::hash_partition(
         table, columns_to_hash, num_partitions, hash_function, seed, stream, mr
@@ -92,15 +96,6 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
-    if (table.num_rows() == 0) {
-        // Work around cudf::contiguous_split() not supporting empty tables.
-        RAPIDSMPF_EXPECTS(
-            std::ranges::all_of(splits, [](auto val) { return val == 0; }),
-            "split point != 0 is invalid for empty table",
-            std::out_of_range
-        );
-        return {};
-    }
     std::unordered_map<shuffler::PartID, PackedData> ret;
     auto packed = cudf::contiguous_split(table, splits, stream, mr);
     for (shuffler::PartID i = 0; static_cast<std::size_t>(i) < packed.size(); i++) {
