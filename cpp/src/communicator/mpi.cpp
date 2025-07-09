@@ -156,7 +156,10 @@ std::unique_ptr<Communicator::Future> MPI::recv(
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     int msg_available;
     MPI_Status probe_status;
-    RAPIDSMPF_MPI(MPI_Iprobe(MPI_ANY_SOURCE, tag, comm_, &msg_available, &probe_status));
+    MPI_Message matched_msg;
+    RAPIDSMPF_MPI(MPI_Improbe(
+        MPI_ANY_SOURCE, tag, comm_, &msg_available, &matched_msg, &probe_status
+    ));
     if (!msg_available) {
         return {nullptr, 0};
     }
@@ -171,15 +174,9 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     auto msg = std::make_unique<std::vector<uint8_t>>(size);  // TODO: uninitialize
 
     MPI_Status msg_status;
-    RAPIDSMPF_MPI(MPI_Recv(
-        msg->data(),
-        msg->size(),
-        MPI_UINT8_T,
-        probe_status.MPI_SOURCE,
-        probe_status.MPI_TAG,
-        comm_,
-        &msg_status
-    ));
+    RAPIDSMPF_MPI(
+        MPI_Mrecv(msg->data(), msg->size(), MPI_UINT8_T, &matched_msg, &msg_status)
+    );
     RAPIDSMPF_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
     RAPIDSMPF_EXPECTS(
         static_cast<std::size_t>(size) == msg->size(),
