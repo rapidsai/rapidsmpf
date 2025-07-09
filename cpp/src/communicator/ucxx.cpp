@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -1142,18 +1143,30 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     return {std::move(msg), sender_rank};
 }
 
-std::vector<std::size_t> UCXX::test_some(
-    std::vector<std::unique_ptr<Communicator::Future>> const& future_vector
+std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
+    std::vector<std::unique_ptr<Communicator::Future>>& future_vector
 ) {
     progress_worker();
-    std::vector<size_t> completed;
+    std::vector<size_t> indices;
+    indices.reserve(future_vector.size());
     for (size_t i = 0; i < future_vector.size(); i++) {
         auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
-            completed.push_back(i);
+            indices.push_back(i);
         }
     }
+    if (indices.size() == 0) {
+        return {};
+    }
+    std::vector<std::unique_ptr<Communicator::Future>> completed;
+    completed.reserve(indices.size());
+    std::ranges::transform(indices, std::back_inserter(completed), [&](std::size_t i) {
+        std::unique_ptr<Communicator::Future> fut{nullptr};
+        std::swap(fut, future_vector[i]);
+        return fut;
+    });
+    std::erase(future_vector, nullptr);
     return completed;
 }
 

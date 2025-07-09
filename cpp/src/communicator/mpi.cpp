@@ -3,7 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <array>
+#include <memory>
+#include <utility>
+
+#include <mpi.h>
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
@@ -183,10 +188,11 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     return {std::move(msg), probe_status.MPI_SOURCE};
 }
 
-std::vector<std::size_t> MPI::test_some(
-    std::vector<std::unique_ptr<Communicator::Future>> const& future_vector
+std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
+    std::vector<std::unique_ptr<Communicator::Future>>& future_vector
 ) {
     std::vector<MPI_Request> reqs;
+    reqs.reserve(future_vector.size());
     for (auto const& future : future_vector) {
         auto mpi_future = dynamic_cast<Future const*>(future.get());
         RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
@@ -194,19 +200,31 @@ std::vector<std::size_t> MPI::test_some(
     }
 
     // Get completed requests as indices into `future_vector` (and `reqs`).
-    std::vector<int> completed(reqs.size());
-    {
-        int num_completed{0};
-        RAPIDSMPF_MPI(MPI_Testsome(
-            reqs.size(),
-            reqs.data(),
-            &num_completed,
-            completed.data(),
-            MPI_STATUSES_IGNORE
-        ));
-        completed.resize(static_cast<std::size_t>(num_completed));
+    std::vector<int> indices(reqs.size());
+    int num_completed{0};
+    RAPIDSMPF_MPI(MPI_Testsome(
+        reqs.size(), reqs.data(), &num_completed, indices.data(), MPI_STATUSES_IGNORE
+    ));
+    RAPIDSMPF_EXPECTS(
+        num_completed != MPI_UNDEFINED, "Expected at least one active handle."
+    );
+    if (num_completed == 0) {
+        return {};
     }
-    return std::vector<std::size_t>(completed.begin(), completed.end());
+    std::vector<std::unique_ptr<Communicator::Future>> completed;
+    completed.reserve(static_cast<std::size_t>(num_completed));
+    std::ranges::transform(
+        indices.begin(),
+        indices.begin() + num_completed,
+        std::back_inserter(completed),
+        [&](std::size_t i) {
+            std::unique_ptr<Communicator::Future> fut{nullptr};
+            std::swap(fut, future_vector[i]);
+            return fut;
+        }
+    );
+    std::erase(future_vector, nullptr);
+    return completed;
 }
 
 std::vector<std::size_t> MPI::test_some(
