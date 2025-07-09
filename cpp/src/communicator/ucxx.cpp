@@ -1162,9 +1162,7 @@ std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
     std::vector<std::unique_ptr<Communicator::Future>> completed;
     completed.reserve(indices.size());
     std::ranges::transform(indices, std::back_inserter(completed), [&](std::size_t i) {
-        std::unique_ptr<Communicator::Future> fut{nullptr};
-        std::swap(fut, future_vector[i]);
-        return fut;
+        return std::move(future_vector[i]);
     });
     std::erase(future_vector, nullptr);
     return completed;

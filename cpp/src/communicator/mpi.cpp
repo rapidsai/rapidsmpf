@@ -214,11 +214,7 @@ std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
         indices.begin(),
         indices.begin() + num_completed,
         std::back_inserter(completed),
-        [&](std::size_t i) {
-            std::unique_ptr<Communicator::Future> fut{nullptr};
-            std::swap(fut, future_vector[i]);
-            return fut;
-        }
+        [&](std::size_t i) { return std::move(future_vector[i]); }
     );
     std::erase(future_vector, nullptr);
     return completed;
