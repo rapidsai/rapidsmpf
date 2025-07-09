@@ -200,9 +200,9 @@ class Shuffler::Progress {
                     ready_ack_receives_.push_back(shuffler_.comm_->recv(
                         dst,
                         ready_for_data_tag,
-                        shuffler_.br_->move(
-                            std::make_unique<std::vector<std::uint8_t>>(sizeof(ChunkID))
-                        )
+                        shuffler_.br_->move(std::make_unique<std::vector<std::uint8_t>>(
+                            sizeof(ReadyForDataMessage)
+                        ))
                     ));
                 }
             }
@@ -330,15 +330,14 @@ class Shuffler::Progress {
         // requested data.
         {
             auto const t0_init_gpu_data_send = Clock::now();
-            RAPIDSMPF_NVTX_SCOPED_RANGE("init_gpu_send");
+            RAPIDSMPF_NVTX_SCOPED_RANGE("init_gpu_send", ready_ack_receives_.size());
             if (!ready_ack_receives_.empty()) {
                 auto finished = shuffler_.comm_->test_some(ready_ack_receives_);
                 for (auto&& future : finished) {
+                    auto const msg_data =
+                        shuffler_.comm_->get_gpu_data(std::move(future));
                     auto msg = ReadyForDataMessage::unpack(
-                        static_cast<std::unique_ptr<Buffer const>>(
-                            shuffler_.comm_->get_gpu_data(std::move(future))
-                        )
-                            ->host()
+                        const_cast<Buffer const&>(*msg_data).host()
                     );
                     auto chunk = extract_value(outgoing_chunks_, msg.cid);
                     auto dst =
@@ -395,6 +394,7 @@ class Shuffler::Progress {
                     fire_and_forget_.empty() && incoming_chunks_.empty()
                     && outgoing_chunks_.empty() && in_transit_chunks_.empty()
                     && in_transit_futures_.empty() && shuffler_.outgoing_postbox_.empty()
+                    && ready_ack_receives_.empty()
                 ))
                    ? ProgressThread::ProgressState::InProgress
                    : ProgressThread::ProgressState::Done;
