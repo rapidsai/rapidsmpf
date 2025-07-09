@@ -85,10 +85,9 @@ class PostBox {
     /**
      * @brief Extracts all ready chunks from the PostBox.
      *
-     * @param limit The maximum number of chunks to extract.
      * @return A vector of all ready chunks in the PostBox.
      */
-    std::vector<Chunk> extract_all_ready(size_t limit = 256);
+    std::vector<Chunk> extract_all_ready();
 
     /**
      * @brief Checks if the PostBox is empty.
