@@ -379,7 +379,7 @@ class Shuffler::Progress {
 
             // Check if we can free some of the outstanding futures.
             if (!fire_and_forget_.empty()) {
-                shuffler_.comm_->test_some(fire_and_forget_);
+                std::ignore = shuffler_.comm_->test_some(fire_and_forget_);
             }
             stats.add_duration_stat(
                 "event-loop-check-future-finish", Clock::now() - t0_check_future_finish

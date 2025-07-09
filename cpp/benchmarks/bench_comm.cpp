@@ -190,7 +190,7 @@ Duration run(
     }
 
     while (!futures.empty()) {
-        comm->test_some(futures);
+        std::ignore = comm->test_some(futures);
     }
 
     return Clock::now() - t0_elapsed;

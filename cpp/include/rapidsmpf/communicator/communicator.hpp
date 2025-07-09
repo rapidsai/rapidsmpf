@@ -443,7 +443,7 @@ class Communicator {
      * futures are erased from the vector.
      * @return Completed futures.
      */
-    std::vector<std::unique_ptr<Future>> virtual test_some(
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Future>> test_some(
         std::vector<std::unique_ptr<Future>>& future_vector
     ) = 0;
 
