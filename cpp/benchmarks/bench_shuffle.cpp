@@ -61,8 +61,8 @@ class ArgumentParser {
                               "disabled)\n"
                            << "  -i         Use `concat_insert` method, instead of "
                               "`insert`.\n"
-                           << "  -g         Do hash partitining during data generation "
-                              "(default: unset, hash partitioning during insertion)\n"
+                           << "  -g         Use pre-partitioned (hash) input tables "
+                              "(default: unset, hash partition during insertion)\n"
                            << "  -x         Enable memory profiler (default: disabled)\n"
                            << "  -h         Display this help message\n";
                         if (rank == 0) {
@@ -178,7 +178,7 @@ class ArgumentParser {
             ss << "  -x (enable memory profiling)\n";
         }
         if (hash_partition_with_datagen) {
-            ss << "  -g (hash partitioning during data generation)\n";
+            ss << "  -g (use pre-partitioned input tables)\n";
         }
         if (use_concat_insert) {
             ss << "  -i (use concat insert)\n";
@@ -204,7 +204,6 @@ class ArgumentParser {
     std::int64_t device_mem_limit_mb{-1};
 };
 
-template <typename ShuffleInsertFn>
 rapidsmpf::Duration do_run(
     rapidsmpf::shuffler::PartID const total_num_partitions,
     std::shared_ptr<rapidsmpf::Communicator>& comm,
@@ -213,7 +212,7 @@ rapidsmpf::Duration do_run(
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br,
     std::shared_ptr<rapidsmpf::Statistics>& statistics,
-    ShuffleInsertFn&& shuffle_insert_fn
+    auto&& shuffle_insert_fn
 ) {
     std::vector<std::unique_ptr<cudf::table>> output_partitions;
     output_partitions.reserve(total_num_partitions);
@@ -273,63 +272,78 @@ rapidsmpf::Duration do_run(
     return t1_elapsed - t0_elapsed;
 }
 
-std::vector<cudf::table> generate_input_partitions(
+// generate input partitions by applying a transform function to each table
+template <
+    typename TransformFn,
+    typename InputPartitionsT =
+        std::remove_reference_t<std::invoke_result_t<TransformFn, cudf::table&&>>>
+std::vector<InputPartitionsT> generate_input_partitions(
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    rmm::device_async_resource_ref mr,
+    TransformFn&& transform_fn
 ) {
     std::int32_t const min_val = 0;
     std::int32_t const max_val = args.num_local_rows;
 
-    std::vector<cudf::table> input_partitions;
+    std::vector<InputPartitionsT> input_partitions;
     input_partitions.reserve(args.num_local_partitions);
     for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
-        input_partitions.push_back(random_table(
+        cudf::table table = random_table(
             static_cast<cudf::size_type>(args.num_columns),
             static_cast<cudf::size_type>(args.num_local_rows),
             min_val,
             max_val,
             stream,
             mr
-        ));
+        );
+        input_partitions.emplace_back(transform_fn(std::move(table)));
     }
     stream.synchronize();
     return input_partitions;
 }
 
-template <typename MakeChunkFn>
-void do_concat_insert(
-    rapidsmpf::shuffler::Shuffler& shuffler,
-    auto&& input_partitions,
-    rapidsmpf::shuffler::PartID const total_num_partitions,
-    MakeChunkFn&& make_chunk_fn
-) {
-    for (auto&& partition : input_partitions) {
-        // Partition, pack, and insert this partition into the shuffler.
-        shuffler.concat_insert(std::move(make_chunk_fn(partition)));
-    }
-
-    // Tell the shuffler that we have no more data.
-    std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
-    std::iota(finished.begin(), finished.end(), 0);
-    shuffler.insert_finished(std::move(finished));
-}
-
-template <typename MakeChunkFn>
+/// Helper function to iterate over input partitions and insert them into the shuffler by
+/// branching on use_concat_insert.
+///
+/// @param shuffler Shuffler to insert the partitions into.
+/// @param input_partitions This is either a vector<cudf::table> or
+/// vector<unordered_map<PartID, PackedData>>. Former will be forwarded to to
+/// partition_and_pack to generate a unordered_map<PartID, PackedData> for each table.
+/// @param total_num_partitions Total number of partitions in the shuffler.
+/// @param make_chunk_fn Function to make a chunk from a partition.
+/// @param use_concat_insert Whether to use concat insert.
 void do_insert(
     rapidsmpf::shuffler::Shuffler& shuffler,
     auto&& input_partitions,
     rapidsmpf::shuffler::PartID const total_num_partitions,
-    MakeChunkFn&& make_chunk_fn
+    auto&& make_chunk_fn,
+    bool use_concat_insert
 ) {
-    for (auto&& partition : input_partitions) {
-        // Partition, pack, and insert this partition into the shuffler.
-        shuffler.insert(std::move(make_chunk_fn(partition)));
-    }
+    if (use_concat_insert) {
+        // following methods were introduced by concat_insert
 
-    // Tell the shuffler that we have no more data.
-    for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-        shuffler.insert_finished(i);
+        for (auto&& partition : input_partitions) {
+            // Partition, pack, and insert this partition into the shuffler.
+            shuffler.concat_insert(std::move(make_chunk_fn(partition)));
+        }
+
+        // Tell the shuffler that we have no more data.
+        std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
+        std::iota(finished.begin(), finished.end(), 0);
+        shuffler.insert_finished(std::move(finished));
+    } else {
+        // following methods are the original ones
+
+        for (auto&& partition : input_partitions) {
+            // Partition, pack, and insert this partition into the shuffler.
+            shuffler.insert(std::move(make_chunk_fn(partition)));
+        }
+
+        // Tell the shuffler that we have no more data.
+        for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
+            shuffler.insert_finished(i);
+        }
     }
 }
 
@@ -360,19 +374,21 @@ rapidsmpf::Duration run_hash_partition_inline(
     rapidsmpf::BufferResource* br,
     std::shared_ptr<rapidsmpf::Statistics>& statistics
 ) {
-    rapidsmpf::shuffler::PartID const total_nparts =
+    rapidsmpf::shuffler::PartID const total_num_partitions =
         args.num_output_partitions
         * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
-    auto in_parts = generate_input_partitions(args, stream, br->device_mr());
+    std::vector<cudf::table> input_partitions =
+        generate_input_partitions(args, stream, br->device_mr(), std::identity{});
 
+    stream.synchronize();
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
     auto make_chunk_fn = [&](cudf::table const& partition) {
         return rapidsmpf::partition_and_pack(
             partition,
             {0},
-            static_cast<std::int32_t>(total_nparts),
+            static_cast<std::int32_t>(total_num_partitions),
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
             stream,
@@ -382,7 +398,7 @@ rapidsmpf::Duration run_hash_partition_inline(
     };
 
     return do_run(
-        total_nparts,
+        total_num_partitions,
         comm,
         progress_thread,
         args,
@@ -390,21 +406,19 @@ rapidsmpf::Duration run_hash_partition_inline(
         br,
         statistics,
         [&](auto& shuffler) {
-            if (args.use_concat_insert) {
-                do_concat_insert(
-                    shuffler, std::move(in_parts), total_nparts, std::move(make_chunk_fn)
-                );
-            } else {
-                do_insert(
-                    shuffler, std::move(in_parts), total_nparts, std::move(make_chunk_fn)
-                );
-            }
+            do_insert(
+                shuffler,
+                std::move(input_partitions),
+                total_num_partitions,
+                std::move(make_chunk_fn),
+                args.use_concat_insert
+            );
         }
     );
 }
 
 /**
- * @brief Runs shuffle by using already partitioned input tables.
+ * @brief Runs shuffle by using pre-partitioned input tables.
  *
  * This is similar to the hash partitioning, but the input tables are already
  * partitioned before being inserted into the shuffler.
@@ -417,7 +431,6 @@ rapidsmpf::Duration run_hash_partition_inline(
  * @param statistics Statistics for the shuffler
  * @return Duration of the run
  */
-
 rapidsmpf::Duration run_hash_partition_with_datagen(
     std::shared_ptr<rapidsmpf::Communicator>& comm,
     std::shared_ptr<rapidsmpf::ProgressThread>& progress_thread,
@@ -426,35 +439,28 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
     rapidsmpf::BufferResource* br,
     std::shared_ptr<rapidsmpf::Statistics>& statistics
 ) {
-    rapidsmpf::shuffler::PartID const total_nparts =
+    rapidsmpf::shuffler::PartID const total_num_partitions =
         args.num_output_partitions
         * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
-    auto in_parts = generate_input_partitions(args, stream, br->device_mr());
-
-    // generate input chunks
     std::vector<std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData>>
-        in_chunks;
-    in_chunks.reserve(args.num_local_partitions);
-    for (auto&& partition : in_parts) {
-        in_chunks.emplace_back(rapidsmpf::partition_and_pack(
-            partition,
-            {0},
-            static_cast<std::int32_t>(total_nparts),
-            cudf::hash_id::HASH_MURMUR3,
-            cudf::DEFAULT_HASH_SEED,
-            stream,
-            br->device_mr()
-        ));
-        partition.release();
-    }
-
-    in_parts.clear();
+        input_partitions =
+            generate_input_partitions(args, stream, br->device_mr(), [&](auto&& table) {
+                return rapidsmpf::partition_and_pack(
+                    table,
+                    {0},
+                    static_cast<std::int32_t>(total_num_partitions),
+                    cudf::hash_id::HASH_MURMUR3,
+                    cudf::DEFAULT_HASH_SEED,
+                    stream,
+                    br->device_mr()
+                );
+            });
     stream.synchronize();
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
     return do_run(
-        total_nparts,
+        total_num_partitions,
         comm,
         progress_thread,
         args,
@@ -462,20 +468,20 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
         br,
         statistics,
         [&](auto& shuffler) {
-            if (args.use_concat_insert) {
-                do_concat_insert(
-                    shuffler, std::move(in_chunks), total_nparts, std::identity{}
-                );
-            } else {
-                do_insert(shuffler, std::move(in_chunks), total_nparts, std::identity{});
-            }
+            do_insert(
+                shuffler,
+                std::move(input_partitions),
+                total_num_partitions,
+                std::identity{},
+                args.use_concat_insert
+            );
         }
     );
 }
 
 int main(int argc, char** argv) {
-    // Explicitly initialize MPI with thread support, as this is needed for both mpi and
-    // ucxx communicators.
+    // Explicitly initialize MPI with thread support, as this is needed for both mpi
+    // and ucxx communicators.
     int provided;
     RAPIDSMPF_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
 
