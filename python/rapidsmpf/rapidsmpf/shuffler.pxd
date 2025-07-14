@@ -30,7 +30,8 @@ cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
         ) except +
         void shutdown() except +
         void insert(unordered_map[uint32_t, cpp_PackedData] chunks) except +
-        void insert_finished(uint32_t pid) except +
+        void concat_insert(unordered_map[uint32_t, cpp_PackedData] chunks) except +
+        void insert_finished(vector[uint32_t] pids) except +
         vector[cpp_PackedData] extract(uint32_t pid)  except +
         bool finished() except +
         uint32_t wait_any() except +

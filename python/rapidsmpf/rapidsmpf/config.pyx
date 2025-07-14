@@ -3,7 +3,7 @@
 
 from cpython.bytes cimport PyBytes_FromStringAndSize
 from cython.operator cimport dereference as deref
-from cython.operator cimport preincrement as inc
+from cython.operator cimport preincrement
 from libc.string cimport memcpy
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
@@ -193,7 +193,7 @@ cdef class Options:
             k = deref(it).first.decode("utf-8")
             v = deref(it).second.decode("utf-8")
             ret[k] = v
-            inc(it)
+            preincrement(it)
         return ret
 
     def serialize(self) -> bytes:

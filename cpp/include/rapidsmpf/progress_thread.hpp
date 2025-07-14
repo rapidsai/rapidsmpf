@@ -15,15 +15,13 @@
  */
 #pragma once
 
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
-#include <list>
 #include <mutex>
-#include <thread>
 #include <unordered_map>
 
+#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -139,7 +137,7 @@ class ProgressThread {
      */
     ProgressThread(
         Communicator::Logger& logger,
-        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false),
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         Duration sleep = std::chrono::microseconds{1}
     );
 
@@ -176,6 +174,8 @@ class ProgressThread {
 
     /**
      * @brief Pause the progress thread.
+     *
+     * @note This blocks until the thread is actually paused.
      */
     void pause();
 

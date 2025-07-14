@@ -96,7 +96,7 @@ class Shuffler {
         PartID total_num_partitions,
         rmm::cuda_stream_view stream,
         BufferResource* br,
-        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false),
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin
     );
 
@@ -122,7 +122,7 @@ class Shuffler {
      *
      * @param chunks A map of partition IDs and their packed chunks.
      */
-    void insert_grouped(std::unordered_map<PartID, PackedData>&& chunks);
+    void concat_insert(std::unordered_map<PartID, PackedData>&& chunks);
 
     /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
@@ -158,7 +158,7 @@ class Shuffler {
     /**
      * @brief Check if all partitions are finished.
      *
-     * @return True if all partitions are finished, otherwise false.
+     * @return True if all partitions are finished, otherwise False.
      */
     [[nodiscard]] bool finished() const {
         return finish_counter_.all_finished();

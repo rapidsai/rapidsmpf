@@ -42,6 +42,7 @@ option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
+option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
 
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_HAVE_UCXX ${BUILD_UCXX_SUPPORT})
@@ -115,6 +116,12 @@ endif()
 # ##################################################################################################
 # * library targets --------------------------------------------------------------------------------
 
+add_library(maybe_asan INTERFACE)
+target_compile_options(
+  maybe_asan INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
+)
+target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>")
+
 file(GLOB SOURCES "src/*.cpp" "src/buffer/*.cpp" "src/communicator/*.cpp"
      "src/integrations/cudf/*.cpp" "src/shuffler/*.cpp"
 )
@@ -161,7 +168,7 @@ target_include_directories(
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
-  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
+  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
 target_compile_definitions(

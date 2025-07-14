@@ -43,3 +43,10 @@ cdef extern from "<rapidsmpf/rmm_resource_adaptor.hpp>" nogil:
 cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
     cdef readonly DeviceMemoryResource fallback_mr
     cdef cpp_RmmResourceAdaptor* get_handle(self)
+
+
+cdef class ScopedMemoryRecord:
+    cdef cpp_ScopedMemoryRecord _handle
+
+    @staticmethod
+    cdef ScopedMemoryRecord from_handle(cpp_ScopedMemoryRecord handle)

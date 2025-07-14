@@ -8,5 +8,5 @@ set(cython_modules buffer.pyx packed_data.pyx resource.pyx spill_manager.pyx)
 rapids_cython_create_modules(
   CXX
   SOURCE_FILES "${cython_modules}"
-  LINKED_LIBRARIES rapidsmpf::rapidsmpf
+  LINKED_LIBRARIES rapidsmpf::rapidsmpf maybe_asan
 )

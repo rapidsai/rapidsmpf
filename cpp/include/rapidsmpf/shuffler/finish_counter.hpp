@@ -80,7 +80,7 @@ class FinishCounter {
     /**
      * @brief Returns whether all partitions are finished (non-blocking).
      *
-     * @return True if all partitions are finished, otherwise false.
+     * @return True if all partitions are finished, otherwise False.
      */
     [[nodiscard]] bool all_finished() const {
         std::unique_lock<std::mutex> lock(mutex_);
