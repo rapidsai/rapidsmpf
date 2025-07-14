@@ -25,11 +25,6 @@ function(rapidsmpf_mpirun_test_add)
     message(FATAL_ERROR "rapidsmpf_mpirun_test_add called without a test prefix")
   endif()
 
-  # test targets are located in ${RAPIDSMPF_BINARY_DIR}/gtests, but ctest working directory would be
-  # ${RAPIDSMPF_BINARY_DIR}/tests. Therefore, a symlink (${RAPIDSMPF_BINARY_DIR}/tests/gtests ->
-  # ${RAPIDSMPF_BINARY_DIR}/gtests) is created to seamlessly run ctest from ${RAPIDSMPF_BINARY_DIR}.
-  file(CREATE_LINK "${RAPIDSMPF_BINARY_DIR}/gtests" "${CMAKE_CURRENT_BINARY_DIR}/gtests" SYMBOLIC)
-
   message(STATUS "Adding mpirun test: ${_MPIRUN_TEST_TEST_TARGET} nranks: ${nranks_to_run}")
   foreach(np IN ITEMS ${nranks_to_run})
     # add the test using the relative path of the target
@@ -40,10 +35,84 @@ function(rapidsmpf_mpirun_test_add)
   endforeach(np)
 endfunction(rapidsmpf_mpirun_test_add)
 
-file(GLOB SOURCES "main/mpi.cpp" "*.cpp")
-add_executable(mpi_tests ${SOURCES})
+# test targets are located in ${RAPIDSMPF_BINARY_DIR}/gtests, but ctest working directory would be
+# ${RAPIDSMPF_BINARY_DIR}/tests. Therefore, a symlink (${RAPIDSMPF_BINARY_DIR}/tests/gtests ->
+# ${RAPIDSMPF_BINARY_DIR}/gtests) is created to seamlessly run ctest from ${RAPIDSMPF_BINARY_DIR}.
+file(CREATE_LINK "${RAPIDSMPF_BINARY_DIR}/gtests" "${CMAKE_CURRENT_BINARY_DIR}/gtests" SYMBOLIC)
+
+if(RAPIDSMPF_HAVE_MPI)
+  file(GLOB SOURCES "main/mpi.cpp" "*.cpp")
+  add_executable(mpi_tests ${SOURCES})
+  set_target_properties(
+    mpi_tests
+    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+               CXX_STANDARD 20
+               CXX_STANDARD_REQUIRED ON
+               # For std:: support of __int128_t. Can be removed once using cuda::std
+               CXX_EXTENSIONS ON
+               CUDA_STANDARD 20
+               CUDA_STANDARD_REQUIRED ON
+               COMPONENT testing # custom test property, so that this could be searched later
+  )
+  target_compile_options(
+    mpi_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                      "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+  )
+  target_link_libraries(
+    mpi_tests
+    PRIVATE rapidsmpf::rapidsmpf
+            cudf::cudftestutil
+            cudf::cudftestutil_impl
+            GTest::gmock
+            GTest::gtest
+            $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+            $<TARGET_NAME_IF_EXISTS:conda_env>
+            maybe_asan
+  )
+  disable_sign_conversion_warning(mpi_tests)
+
+  rapidsmpf_mpirun_test_add(TEST_TARGET mpi_tests)
+
+  if(RAPIDSMPF_HAVE_UCXX)
+    file(GLOB SOURCES "main/ucxx.cpp" "*.cpp")
+    add_executable(ucxx_tests ${SOURCES})
+    set_target_properties(
+      ucxx_tests
+      PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
+                 CXX_STANDARD 20
+                 CXX_STANDARD_REQUIRED ON
+                 # For std:: support of __int128_t. Can be removed once using cuda::std
+                 CXX_EXTENSIONS ON
+                 CUDA_STANDARD 20
+                 CUDA_STANDARD_REQUIRED ON
+                 COMPONENT testing # custom test property, so that this could be searched later
+    )
+    target_compile_options(
+      ucxx_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                         "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+    )
+    target_link_libraries(
+      ucxx_tests
+      PRIVATE rapidsmpf::rapidsmpf
+              cudf::cudftestutil
+              cudf::cudftestutil_impl
+              GTest::gmock
+              GTest::gtest
+              ucxx::ucxx
+              ucx::ucp
+              $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+              $<TARGET_NAME_IF_EXISTS:conda_env>
+              maybe_asan
+    )
+    disable_sign_conversion_warning(ucxx_tests)
+
+    rapidsmpf_mpirun_test_add(TEST_TARGET ucxx_tests)
+  endif()
+endif()
+file(GLOB SOURCES "main/single.cpp" "*.cpp")
+add_executable(single_tests ${SOURCES})
 set_target_properties(
-  mpi_tests
+  single_tests
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
              CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
@@ -54,59 +123,15 @@ set_target_properties(
              COMPONENT testing # custom test property, so that this could be searched later
 )
 target_compile_options(
-  mpi_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-                    "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+  single_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                       "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  mpi_tests
-  PRIVATE rapidsmpf::rapidsmpf
-          cudf::cudftestutil
-          cudf::cudftestutil_impl
-          GTest::gmock
-          GTest::gtest
-          ucxx::ucxx
-          ucx::ucp
-          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
-          $<TARGET_NAME_IF_EXISTS:conda_env>
-          maybe_asan
+  single_tests PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
+                       GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
-disable_sign_conversion_warning(mpi_tests)
-
-rapidsmpf_mpirun_test_add(TEST_TARGET mpi_tests)
-
-file(GLOB SOURCES "main/ucxx.cpp" "*.cpp")
-add_executable(ucxx_tests ${SOURCES})
-set_target_properties(
-  ucxx_tests
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
-             CXX_STANDARD 20
-             CXX_STANDARD_REQUIRED ON
-             # For std:: support of __int128_t. Can be removed once using cuda::std
-             CXX_EXTENSIONS ON
-             CUDA_STANDARD 20
-             CUDA_STANDARD_REQUIRED ON
-             COMPONENT testing # custom test property, so that this could be searched later
-)
-target_compile_options(
-  ucxx_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
-                     "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
-)
-target_link_libraries(
-  ucxx_tests
-  PRIVATE rapidsmpf::rapidsmpf
-          cudf::cudftestutil
-          cudf::cudftestutil_impl
-          GTest::gmock
-          GTest::gtest
-          ucxx::ucxx
-          ucx::ucp
-          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
-          $<TARGET_NAME_IF_EXISTS:conda_env>
-          maybe_asan
-)
-disable_sign_conversion_warning(ucxx_tests)
-
-rapidsmpf_mpirun_test_add(TEST_TARGET ucxx_tests)
+disable_sign_conversion_warning(single_tests)
+add_test(NAME single_tests COMMAND "gtests/single_tests")
 
 # Create a list of targets that contains property KEY:VALUE.
 function(rapidsmpf_targets_with_property)

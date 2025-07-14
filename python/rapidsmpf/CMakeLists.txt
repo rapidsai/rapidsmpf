@@ -33,7 +33,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
 
-rapids_find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
+if(RAPIDSMPF_HAVE_UCXX)
+  rapids_find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
+endif()
 find_package(CUDAToolkit REQUIRED)
 
 include(rapids-cython-core)

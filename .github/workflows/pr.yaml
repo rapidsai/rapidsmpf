@@ -21,6 +21,7 @@ jobs:
       - docs-build
       - wheel-build-librapidsmpf
       - wheel-build-rapidsmpf
+      - wheel-build-rapidsmpf-singlecomm
       - wheel-test
       - devcontainer
     secrets: inherit
@@ -50,6 +51,15 @@ jobs:
       build_type: pull-request
       script: ci/build_wheel_rapidsmpf.sh
       package-name: rapidsmpf
+      package-type: python
+  wheel-build-rapidsmpf-singlecomm:
+    needs: [checks, wheel-build-librapidsmpf]
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.08
+    with:
+      build_type: pull-request
+      script: ci/build_wheel_singlecomm.sh
+      package-name: rapidsmpf-singlecomm
       package-type: python
   wheel-test:
     needs: wheel-build-rapidsmpf
