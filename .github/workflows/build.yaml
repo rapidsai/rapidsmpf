@@ -125,6 +125,7 @@ jobs:
       package-name: rapidsmpf
       package-type: python
   wheel-build-rapidsmpf-singlecomm:
+    needs: wheel-build-rapidsmpf
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.08
     with:
