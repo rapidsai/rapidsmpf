@@ -62,7 +62,6 @@ jobs:
       script: ci/build_wheel_singlecomm.sh
       package-name: rapidsmpf-singlecomm
       package-type: python
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   wheel-test:
     needs: wheel-build-rapidsmpf
     secrets: inherit
