@@ -34,6 +34,7 @@ rapids_cmake_build_type(Release)
 # * build options ---------------------------------------------------------------------------------
 
 option(BUILD_MPI_SUPPORT "Build RapidsMPF with MPI support" ON)
+option(BUILD_UCXX_SUPPORT "Build RapidsMPF with UCXX support" ON)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
@@ -44,19 +45,22 @@ option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
 
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
+set(RAPIDSMPF_HAVE_UCXX ${BUILD_UCXX_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
 
-if(NOT RAPIDSMPF_HAVE_MPI)
-  if(RAPIDSMPF_BUILD_TESTS)
-    message(FATAL_ERROR "BUILD_TESTS cannot be ON when BUILD_MPI_SUPPORT is OFF")
-  endif()
+if(NOT (RAPIDSMPF_HAVE_MPI AND RAPIDSMPF_HAVE_UCXX))
   if(RAPIDSMPF_BUILD_BENCHMARKS)
-    message(FATAL_ERROR "BUILD_BENCHMARKS cannot be ON when BUILD_MPI_SUPPORT is OFF")
+    message(
+      FATAL_ERROR
+        "BUILD_BENCHMARKS cannot be ON when BUILD_MPI_SUPPORT or BUILD_UCXX_SUPPORT is OFF"
+    )
   endif()
   if(RAPIDSMPF_BUILD_EXAMPLES)
-    message(FATAL_ERROR "BUILD_EXAMPLES cannot be ON when BUILD_MPI_SUPPORT is OFF")
+    message(
+      FATAL_ERROR "BUILD_EXAMPLES cannot be ON when BUILD_MPI_SUPPORT or BUILD_UCXX_SUPPORT is OFF"
+    )
   endif()
 endif()
 
@@ -86,16 +90,18 @@ rapids_find_package(
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
-rapids_find_package(
-  UCX REQUIRED
-  BUILD_EXPORT_SET rapidsmpf-exports
-  INSTALL_EXPORT_SET rapidsmpf-exports
-)
-rapids_find_package(
-  ucxx REQUIRED
-  BUILD_EXPORT_SET rapidsmpf-exports
-  INSTALL_EXPORT_SET rapidsmpf-exports
-)
+if(RAPIDSMPF_HAVE_UCXX)
+  rapids_find_package(
+    UCX REQUIRED
+    BUILD_EXPORT_SET rapidsmpf-exports
+    INSTALL_EXPORT_SET rapidsmpf-exports
+  )
+  rapids_find_package(
+    ucxx REQUIRED
+    BUILD_EXPORT_SET rapidsmpf-exports
+    INSTALL_EXPORT_SET rapidsmpf-exports
+  )
+endif()
 if(RAPIDSMPF_HAVE_MPI)
   rapids_find_package(
     MPI REQUIRED
@@ -120,6 +126,11 @@ file(GLOB SOURCES "src/*.cpp" "src/buffer/*.cpp" "src/communicator/*.cpp"
      "src/integrations/cudf/*.cpp" "src/shuffler/*.cpp"
 )
 
+# Without UCXX support, remove the UCXX communicator from the source list.
+if(NOT RAPIDSMPF_HAVE_UCXX)
+  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx.cpp")
+  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx_utils.cpp")
+endif()
 # Without MPI support, remove the MPI communicator from the source list.
 if(NOT RAPIDSMPF_HAVE_MPI)
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/mpi.cpp")
@@ -156,11 +167,14 @@ target_include_directories(
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf ucxx::ucxx
+  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
   PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
-target_compile_definitions(rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>)
+target_compile_definitions(
+  rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>
+                   $<$<BOOL:${RAPIDSMPF_HAVE_UCXX}>:RAPIDSMPF_HAVE_UCXX>
+)
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
 
@@ -263,8 +277,10 @@ RAPIDSMPF.
     ]=]
 )
 
-# Export `RAPIDSMPF_HAVE_MPI` to let downstream projects know if MPI is supported.
-set(final_code_string "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_MPI}]=])")
+# Export `RAPIDSMPF_HAVE_MPI/UCXX` to let downstream projects know if MPI/UCXX is supported.
+string(JOIN "\n" final_code_string "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_MPI}]=])"
+       "set(RAPIDSMPF_HAVE_UCXX [=[${RAPIDSMPF_HAVE_UCXX}]=])"
+)
 
 rapids_export(
   INSTALL rapidsmpf

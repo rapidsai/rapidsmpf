@@ -7,6 +7,9 @@ import pytest
 MPI = pytest.importorskip("mpi4py.MPI")
 from rapidsmpf.communicator.communicator import LOG_LEVEL  # noqa: E402
 from rapidsmpf.communicator.mpi import new_communicator  # noqa: E402
+from rapidsmpf.communicator.single import (  # noqa: E402
+    new_communicator as single_process_comm,
+)
 from rapidsmpf.communicator.testing import initialize_ucxx, ucxx_mpi_setup  # noqa: E402
 from rapidsmpf.config import Options, get_environment_variables  # noqa: E402
 
@@ -49,3 +52,9 @@ def test_ucxx() -> None:
     assert comm.nranks == MPI.COMM_WORLD.size
 
     ucxx_worker.stop_progress_thread()
+
+
+def test_single_process() -> None:
+    comm = single_process_comm(Options(get_environment_variables()))
+    assert comm.nranks == 1
+    assert comm.rank == 0
