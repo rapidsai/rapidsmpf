@@ -133,6 +133,5 @@ jobs:
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
       script: ci/build_wheel_singlecomm.sh
-      package-name: rapidsmpf
-      package-type: python
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
+      # build for every combination of arch on CUDA 12 and latest Python
+      matrix_filter: group_by([.ARCH]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
