@@ -1,6 +1,10 @@
 #!/bin/bash
 # Copyright (c) 2025, NVIDIA CORPORATION.
 
+# Tests building without MPI and without UCXX. This script only ensures the build
+# process succeeds even when both MPI and UCXX are disabled, in which case the
+# `Single` communicator may be used.
+
 set -euo pipefail
 source rapids-init-pip
 
@@ -9,6 +13,7 @@ package_dir="python/librapidsmpf"
 package_name_py="rapidsmpf"
 package_dir_py="python/rapidsmpf"
 
+# Stage 1: build librapidsmpf
 rapids-logger "Generating build requirements for ${package_name}"
 
 rapids-dependency-file-generator \
@@ -41,7 +46,7 @@ python -m auditwheel repair \
 
 ./ci/validate_wheel.sh "${package_dir}" "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}"
 
-
+# Stage 2: build rapidsmpf using librapidsmpf's local build
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
 
 rapids-logger "Generating build requirements for ${package_name_py}"
