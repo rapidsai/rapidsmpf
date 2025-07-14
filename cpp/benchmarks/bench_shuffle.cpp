@@ -303,16 +303,18 @@ std::vector<InputPartitionsT> generate_input_partitions(
     return input_partitions;
 }
 
-/// Helper function to iterate over input partitions and insert them into the shuffler by
-/// branching on use_concat_insert.
-///
-/// @param shuffler Shuffler to insert the partitions into.
-/// @param input_partitions This is either a vector<cudf::table> or
-/// vector<unordered_map<PartID, PackedData>>. Former will be forwarded to to
-/// partition_and_pack to generate a unordered_map<PartID, PackedData> for each table.
-/// @param total_num_partitions Total number of partitions in the shuffler.
-/// @param make_chunk_fn Function to make a chunk from a partition.
-/// @param use_concat_insert Whether to use concat insert.
+/**
+ * Helper function to iterate over input partitions and insert them into the shuffler by
+ * branching on use_concat_insert.
+ *
+ * @param shuffler Shuffler to insert the partitions into.
+ * @param input_partitions This is either a vector<cudf::table> or
+ * vector<unordered_map<PartID, PackedData>>. Former will be forwarded to to
+ * partition_and_pack to generate a unordered_map<PartID, PackedData> for each table.
+ * @param total_num_partitions Total number of partitions in the shuffler.
+ * @param make_chunk_fn Function to make a chunk from a partition.
+ * @param use_concat_insert Whether to use concat insert.
+ */
 void do_insert(
     rapidsmpf::shuffler::Shuffler& shuffler,
     auto&& input_partitions,
@@ -320,31 +322,21 @@ void do_insert(
     auto&& make_chunk_fn,
     bool use_concat_insert
 ) {
+    // Convert a partition into chunks and insert into the shuffler.
     if (use_concat_insert) {
-        // following methods were introduced by concat_insert
-
         for (auto&& partition : input_partitions) {
-            // Partition, pack, and insert this partition into the shuffler.
             shuffler.concat_insert(std::move(make_chunk_fn(partition)));
         }
-
-        // Tell the shuffler that we have no more data.
-        std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
-        std::iota(finished.begin(), finished.end(), 0);
-        shuffler.insert_finished(std::move(finished));
     } else {
-        // following methods are the original ones
-
         for (auto&& partition : input_partitions) {
-            // Partition, pack, and insert this partition into the shuffler.
             shuffler.insert(std::move(make_chunk_fn(partition)));
         }
-
-        // Tell the shuffler that we have no more data.
-        for (rapidsmpf::shuffler::PartID i = 0; i < total_num_partitions; ++i) {
-            shuffler.insert_finished(i);
-        }
     }
+
+    // Tell the shuffler that we have no more data.
+    std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
+    std::iota(finished.begin(), finished.end(), 0);
+    shuffler.insert_finished(std::move(finished));
 }
 
 /**
@@ -443,8 +435,11 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
         * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
     std::vector<std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData>>
-        input_partitions =
-            generate_input_partitions(args, stream, br->device_mr(), [&](auto&& table) {
+        input_partitions = generate_input_partitions(
+            args,
+            stream,
+            br->device_mr(),
+            [&](cudf::table&& table) {
                 return rapidsmpf::partition_and_pack(
                     table,
                     {0},
@@ -454,7 +449,8 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
                     stream,
                     br->device_mr()
                 );
-            });
+            }
+        );
 
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
