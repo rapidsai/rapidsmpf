@@ -381,7 +381,6 @@ rapidsmpf::Duration run_hash_partition_inline(
     std::vector<cudf::table> input_partitions =
         generate_input_partitions(args, stream, br->device_mr(), std::identity{});
 
-    stream.synchronize();
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
     auto make_chunk_fn = [&](cudf::table const& partition) {
@@ -456,7 +455,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
                     br->device_mr()
                 );
             });
-    stream.synchronize();
+
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
     return do_run(
