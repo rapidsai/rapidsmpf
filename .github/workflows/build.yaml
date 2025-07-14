@@ -41,7 +41,6 @@ jobs:
       date: ${{ inputs.date }}
       script: ci/build_cpp.sh
       sha: ${{ inputs.sha }}
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   conda-python-build:
     needs: [conda-cpp-build]
     secrets: inherit
@@ -52,7 +51,6 @@ jobs:
       date: ${{ inputs.date }}
       script: ci/build_python.sh
       sha: ${{ inputs.sha }}
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   upload-conda:
     needs: [conda-cpp-build, conda-python-build]
     secrets: inherit
@@ -112,7 +110,6 @@ jobs:
       script: ci/build_wheel_rapidsmpf.sh
       package-name: rapidsmpf
       package-type: python
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   wheel-publish-rapidsmpf:
     needs: wheel-build-rapidsmpf
     secrets: inherit
