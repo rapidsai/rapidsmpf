@@ -431,6 +431,8 @@ class Communicator {
      * @param tag Message tag for identification.
      * @return A pair containing the message data (host memory) and the rank of the
      * sender.
+     * @note If no message is available this is indicated by returning
+     * a `nullptr` in the first slot of the pair.
      */
     [[nodiscard]] virtual std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
         Tag tag
@@ -481,7 +483,11 @@ class Communicator {
 };
 
 /// @brief Whether RapidsMPF was built with the UCXX Communicator.
+#ifdef RAPIDSMPF_HAVE_UCXX
 constexpr bool COMM_HAVE_UCXX = true;
+#else
+constexpr bool COMM_HAVE_UCXX = false;
+#endif
 
 /// @brief Whether RapidsMPF was built with the MPI Communicator.
 #ifdef RAPIDSMPF_HAVE_MPI

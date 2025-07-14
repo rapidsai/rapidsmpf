@@ -195,7 +195,7 @@ cdef class Communicator:
 
 
 def _available_communicators():
-    ret = []
+    ret = ["single"]
     if COMM_HAVE_UCXX:
         ret.append("ucxx")
     if COMM_HAVE_MPI:
