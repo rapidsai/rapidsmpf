@@ -83,8 +83,8 @@ class AllGatherer {
      * @brief Wait for all ranks to finish and extract all gathered data.
      *
      * @param timeout Optional timeout (ms) to wait.
-     * @return A vector of packed data containing all gathered data from all ranks. 
-     * 
+     * @return A vector of packed data containing all gathered data from all ranks.
+     *
      * @note There are no guarantees on the order of the data across ranks.
      */
     [[nodiscard]] std::vector<PackedData> wait_and_extract(

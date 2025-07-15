@@ -97,7 +97,7 @@ class AllGatherer::Impl {
     std::vector<PackedData> wait_and_extract(
         std::optional<std::chrono::milliseconds> timeout
     ) {
-        // wait for the local partition data 
+        // wait for the local partition data
         auto pid = static_cast<shuffler::PartID>(comm_->rank());
         shuffler_->wait_on(pid, timeout);
         return shuffler_->extract(pid);
@@ -119,13 +119,13 @@ AllGatherer::AllGatherer(
     std::shared_ptr<Statistics> statistics
 )
     : pimpl_(std::make_unique<Impl>(
-          std::move(comm),
-          std::move(progress_thread),
-          op_id,
-          stream,
-          br,
-          std::move(statistics)
-      )) {}
+        std::move(comm),
+        std::move(progress_thread),
+        op_id,
+        stream,
+        br,
+        std::move(statistics)
+    )) {}
 
 AllGatherer::~AllGatherer() {
     shutdown();
