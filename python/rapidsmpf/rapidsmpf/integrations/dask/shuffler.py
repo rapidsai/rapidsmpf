@@ -5,15 +5,15 @@
 from __future__ import annotations
 
 import threading
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any
 
 from distributed import get_worker
 
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.config import Options
+from rapidsmpf.integrations.common import ShuffleIntegration
 from rapidsmpf.integrations.dask.core import (
-    DataFrameT,
     get_dask_client,
     get_worker_context,
     get_worker_rank,
@@ -26,10 +26,17 @@ if TYPE_CHECKING:
 
     from distributed import Client, Worker
 
+    from rapidsmpf.integrations.common import DataFrameT
+
 
 # Set of available shuffle IDs
 _shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
 _shuffle_id_vacancy_lock: threading.Lock = threading.Lock()
+
+
+# Backward compatibility.
+# TODO: Move to more-general `ShuffleIntegration` language everywhere.
+DaskIntegration = ShuffleIntegration
 
 
 def _get_new_shuffle_id(client: Client) -> int:
@@ -108,7 +115,7 @@ def get_shuffler(
     Notes
     -----
     Whenever a new :class:`Shuffler` object is created, it is
-    saved as ``DaskWorkerContext.shufflers[shuffle_id]``.
+    saved as ``WorkerContext.shufflers[shuffle_id]``.
 
     This function is expected to run on a Dask worker.
     """
@@ -134,68 +141,6 @@ def get_shuffler(
                 statistics=ctx.statistics,
             )
     return ctx.shufflers[shuffle_id]
-
-
-@runtime_checkable
-class DaskIntegration(Protocol[DataFrameT]):
-    """
-    dask-integration protocol.
-
-    This protocol can be used to implement a RapidsMPF-shuffle
-    operation using a Dask task graph.
-    """
-
-    @staticmethod
-    def insert_partition(
-        df: DataFrameT,
-        partition_id: int,
-        partition_count: int,
-        shuffler: Shuffler,
-        options: Any,
-        *other: Any,
-    ) -> None:
-        """
-        Add a partition to a RapidsMPF Shuffler.
-
-        Parameters
-        ----------
-        df
-            DataFrame partition to add to a RapidsMPF shuffler.
-        partition_id
-            The input partition id of ``df``.
-        partition_count
-            Number of output partitions for the current shuffle.
-        shuffler
-            The RapidsMPF Shuffler object to extract from.
-        options
-            Additional options.
-        *other
-            Other data needed for partitioning. For example,
-            this may be boundary values needed for sorting.
-        """
-
-    @staticmethod
-    def extract_partition(
-        partition_id: int,
-        shuffler: Shuffler,
-        options: Any,
-    ) -> DataFrameT:
-        """
-        Extract a DataFrame partition from a RapidsMPF Shuffler.
-
-        Parameters
-        ----------
-        partition_id
-            Partition id to extract.
-        shuffler
-            The RapidsMPF Shuffler object to extract from.
-        options
-            Additional options.
-
-        Returns
-        -------
-        A shuffled DataFrame partition.
-        """
 
 
 def _worker_rmpf_barrier(

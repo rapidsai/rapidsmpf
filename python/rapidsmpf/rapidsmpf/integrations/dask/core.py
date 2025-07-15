@@ -7,8 +7,7 @@ from __future__ import annotations
 import logging
 import threading
 import weakref
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import ucxx._lib.libucxx as ucx_api
 from distributed import get_client, get_worker, wait
@@ -19,7 +18,6 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
-from rapidsmpf.buffer.spill_collection import SpillCollection
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
 from rapidsmpf.config import (
     Optional,
@@ -27,6 +25,7 @@ from rapidsmpf.config import (
     Options,
     get_environment_variables,
 )
+from rapidsmpf.integrations.common import WorkerContext
 from rapidsmpf.integrations.dask import _compat
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
@@ -38,55 +37,15 @@ if TYPE_CHECKING:
     import distributed
     from distributed.scheduler import Scheduler, TaskState
 
-    from rapidsmpf.communicator.communicator import Communicator
-    from rapidsmpf.shuffler import Shuffler
-
 
 _dask_logger = logging.getLogger("distributed.worker")
-DataFrameT = TypeVar("DataFrameT")
-
-
-@dataclass
-class DaskWorkerContext:
-    """
-    RapidsMPF specific attributes for a Dask worker.
-
-    Attributes
-    ----------
-    lock
-        The global worker lock. Must be acquired before accessing attributes
-        that might be modified while the worker is running such as the shufflers.
-    br
-        The buffer resource used by the worker exclusively.
-    progress_thread
-        The progress thread used by the worker.
-    comm
-        The UCXX communicator connected to all other workers in the Dask cluster.
-    spill_collection
-        A collection of Python objects that can be spilled to free up device memory.
-    statistics
-        The statistics used by the worker. If None, statistics is disabled.
-    shufflers
-        A mapping from shuffler IDs to active shuffler instances.
-    options
-        Configuration options.
-    """
-
-    lock: ClassVar[threading.RLock] = threading.RLock()
-    br: BufferResource | None = None
-    progress_thread: ProgressThread | None = None
-    comm: Communicator | None = None
-    spill_collection: SpillCollection = field(default_factory=SpillCollection)
-    statistics: Statistics | None = None
-    shufflers: dict[int, Shuffler] = field(default_factory=dict)
-    options: Options = field(default_factory=Options)
 
 
 def get_worker_context(
     dask_worker: distributed.Worker | None = None,
-) -> DaskWorkerContext:
+) -> WorkerContext:
     """
-    Retrieve the `DaskWorkerContext` associated with a Dask worker.
+    Retrieve the `WorkerContext` associated with a Dask worker.
 
     If the worker context does not already exist on the worker, it will be created
     and attached to the worker under the attribute `_rapidsmpf_worker_context`.
@@ -101,11 +60,11 @@ def get_worker_context(
     -------
     The existing or newly initialized worker context.
     """
-    with DaskWorkerContext.lock:
+    with WorkerContext.lock:
         dask_worker = dask_worker or get_worker()
         if not hasattr(dask_worker, "_rapidsmpf_worker_context"):
-            dask_worker._rapidsmpf_worker_context = DaskWorkerContext()
-        return cast(DaskWorkerContext, dask_worker._rapidsmpf_worker_context)
+            dask_worker._rapidsmpf_worker_context = WorkerContext()
+        return cast(WorkerContext, dask_worker._rapidsmpf_worker_context)
 
 
 def get_worker_rank(dask_worker: distributed.Worker | None = None) -> int:

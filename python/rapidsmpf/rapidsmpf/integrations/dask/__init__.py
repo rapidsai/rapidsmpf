@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
+from rapidsmpf.integrations.common import DataFrameT
 from rapidsmpf.integrations.dask.core import (
-    DataFrameT,
     bootstrap_dask_cluster,
 )
 from rapidsmpf.integrations.dask.shuffler import (
