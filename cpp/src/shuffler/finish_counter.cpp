@@ -15,7 +15,10 @@ FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_parti
     // Initially, none of the partitions are ready to wait on.
     for (auto pid : local_partitions) {
         // partitions_ready_to_wait_on_.insert({pid, false});
-        goalposts_.emplace(pid, PartitionInfo{0, 0, 0});
+        goalposts_.emplace(
+            pid,
+            PartitionInfo{.rank_count = 0, .chunk_goal = 0, .finished_chunk_count = 0}
+        );
     }
 }
 
