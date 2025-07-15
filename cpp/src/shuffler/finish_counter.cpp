@@ -80,13 +80,16 @@ PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout)
     std::unique_lock<std::mutex> lock(mutex_);
     wait_for_if_timeout_else_wait(lock, cv_, timeout, [&] {
         return goalposts_.empty()
-               || std::ranges::any_of(goalposts_, [&](auto const& item) {
-                      auto done = item.second.is_finished(nranks_);
-                      if (done) {
-                          finished_key = item.first;
-                      }
-                      return done;
-                  });
+               || std::ranges::any_of(
+                   goalposts_,
+                   [&, nranks = nranks_](auto const& item) {
+                       auto done = item.second.is_finished(nranks);
+                       if (done) {
+                           finished_key = item.first;
+                       }
+                       return done;
+                   }
+               );
     });
 
     RAPIDSMPF_EXPECTS(
@@ -104,12 +107,12 @@ void FinishCounter::wait_on(
     PartID pid, std::optional<std::chrono::milliseconds> timeout
 ) {
     std::unique_lock<std::mutex> lock(mutex_);
-    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&]() {
+    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&, nranks = nranks_] {
         auto it = goalposts_.find(pid);
         RAPIDSMPF_EXPECTS(
             it != goalposts_.end(), "PartID has already been extracted", std::out_of_range
         );
-        return it->second.is_finished(nranks_);
+        return it->second.is_finished(nranks);
     });
     goalposts_.erase(pid);
 }
@@ -123,8 +126,8 @@ std::vector<PartID> FinishCounter::wait_some(
     );
 
     wait_for_if_timeout_else_wait(lock, cv_, timeout, [&]() {
-        return std::ranges::any_of(goalposts_, [&](auto const& item) {
-            return item.second.is_finished(nranks_);
+        return std::ranges::any_of(goalposts_, [nranks = nranks_](auto const& item) {
+            return item.second.is_finished(nranks);
         });
     });
 
