@@ -1041,3 +1041,36 @@ TEST(Shuffler, ShutdownWhilePaused) {
     // shutdown shuffler while progress thread is paused
     shuffler->shutdown();
 }
+
+TEST(Shuffler, ExtractEmptyPartition) {
+    // TODO: fix this https://github.com/rapidsai/rapidsmpf/issues/376 and re-enable this
+    // test
+    GTEST_SKIP();
+
+    auto stream = cudf::get_default_stream();
+    auto mr = cudf::get_current_device_resource_ref();
+    auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
+    rapidsmpf::shuffler::PartID const nparts = 100;
+
+    std::chrono::milliseconds const wait_timeout(30 * 1000);
+
+    auto shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
+        GlobalEnvironment->comm_,
+        GlobalEnvironment->progress_thread_,
+        0,
+        nparts,
+        stream,
+        br.get()
+    );
+
+    auto pids = iota_vector<rapidsmpf::shuffler::PartID>(nparts);
+    shuffler->insert_finished(std::move(pids));
+
+    while (!shuffler->finished()) {
+        auto pid = shuffler->wait_any(wait_timeout);
+        auto chunks = shuffler->extract(pid);
+        EXPECT_TRUE(chunks.empty());
+    }
+
+    shuffler->shutdown();
+}

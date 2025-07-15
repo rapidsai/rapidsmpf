@@ -13,8 +13,9 @@ namespace rapidsmpf::shuffler::detail {
 FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions)
     : nranks_{nranks} {
     // Initially, none of the partitions are ready to wait on.
+    partitions_ready_to_wait_on_.reserve(local_partitions.size());
     for (auto pid : local_partitions) {
-        partitions_ready_to_wait_on_.insert({pid, false});
+        partitions_ready_to_wait_on_.emplace(pid, false);
     }
 }
 
@@ -104,6 +105,7 @@ PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout)
     );
 
     // We extract the partition to avoid returning the same partition twice.
+    std::cout << "extracting partition " << finished_key << std::endl;
     return extract_key(partitions_ready_to_wait_on_, finished_key);
 }
 
