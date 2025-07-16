@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
-"""Shuffler integration for local pylibcudf execution."""
+"""Shuffler integration for single-worker pylibcudf execution."""
 
 from __future__ import annotations
 
@@ -29,33 +29,33 @@ if TYPE_CHECKING:
 _shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
 _shuffle_id_vacancy_lock: threading.Lock = threading.Lock()
 
-# Local worker context
-_local_rapidsmpf_worker_context: WorkerContext | None = None
-_local_rapidsmpf_worker_initialized: bool = False
+# Local single-worker context
+_single_rapidsmpf_worker_context: WorkerContext | None = None
+_single_rapidsmpf_worker_initialized: bool = False
 
 
-def get_local_worker_context() -> WorkerContext:
+def get_single_worker_context() -> WorkerContext:
     """
-    Retrieve the local `WorkerContext`.
+    Retrieve the single `WorkerContext`.
 
     If the worker context does not already exist on the worker, it
-    will be created and attached to `_local_rapidsmpf_worker_context`.
+    will be created and attached to `_single_rapidsmpf_worker_context`.
 
     Returns
     -------
     The existing or newly initialized worker context.
     """
-    global _local_rapidsmpf_worker_context  # noqa: PLW0603
+    global _single_rapidsmpf_worker_context  # noqa: PLW0603
 
     with WorkerContext.lock:
-        if _local_rapidsmpf_worker_context is None:
-            _local_rapidsmpf_worker_context = WorkerContext()
-        return cast(WorkerContext, _local_rapidsmpf_worker_context)
+        if _single_rapidsmpf_worker_context is None:
+            _single_rapidsmpf_worker_context = WorkerContext()
+        return cast(WorkerContext, _single_rapidsmpf_worker_context)
 
 
-def setup_local_worker(options: Options = Options()) -> None:
+def setup_single_worker(options: Options = Options()) -> None:
     """
-    Attach RapidsMPF shuffling attributes to a local worker.
+    Attach RapidsMPF shuffling attributes to a single worker.
 
     Parameters
     ----------
@@ -67,17 +67,17 @@ def setup_local_worker(options: Options = Options()) -> None:
     This function creates a new RMM memory pool, and
     sets it as the current device resource.
     """
-    global _local_rapidsmpf_worker_initialized  # noqa: PLW0603
+    global _single_rapidsmpf_worker_initialized  # noqa: PLW0603
 
-    if _local_rapidsmpf_worker_initialized:
+    if _single_rapidsmpf_worker_initialized:
         return
 
-    ctx = get_local_worker_context()
+    ctx = get_single_worker_context()
     with ctx.lock:
         ctx.options = options
 
         ctx.comm = new_communicator(options)
-        ctx.comm.logger.trace("Local communicator created.")
+        ctx.comm.logger.trace("single communicator created.")
 
         # Insert RMM resource adaptor on top of the current RMM resource stack.
         mr = RmmResourceAdaptor(
@@ -98,7 +98,7 @@ def setup_local_worker(options: Options = Options()) -> None:
         # Create a buffer resource with a limiting availability function.
         total_memory = rmm.mr.available_device_memory()[1]
         spill_device = ctx.options.get_or_default(
-            "local_spill_device", default_value=0.50
+            "single_spill_device", default_value=0.50
         )
         memory_available = {
             MemoryType.DEVICE: LimitAvailableMemory(
@@ -109,7 +109,7 @@ def setup_local_worker(options: Options = Options()) -> None:
             mr,
             memory_available=memory_available,
             periodic_spill_check=ctx.options.get_or_default(
-                "local_periodic_spill_check", default_value=Optional(1e-3)
+                "single_periodic_spill_check", default_value=Optional(1e-3)
             ).value,
         )
 
@@ -171,7 +171,7 @@ def setup_local_worker(options: Options = Options()) -> None:
         ctx.br.spill_manager.add_spill_function(func=spill_func, priority=-10)
 
     # Mark the worker as "initialized"
-    _local_rapidsmpf_worker_initialized = True
+    _single_rapidsmpf_worker_initialized = True
 
 
 def _get_new_shuffle_id() -> int:
@@ -200,7 +200,7 @@ def _get_new_shuffle_id() -> int:
         if not _shuffle_id_vacancy:
 
             def get_occupied_ids() -> set[int]:
-                ctx = get_local_worker_context()
+                ctx = get_single_worker_context()
                 with ctx.lock:
                     return set(ctx.shufflers.keys())
 
@@ -217,7 +217,7 @@ def _get_new_shuffle_id() -> int:
         return _shuffle_id_vacancy.pop()
 
 
-def get_local_shuffler(
+def get_single_shuffler(
     shuffle_id: int,
     partition_count: int | None = None,
 ) -> Shuffler:
@@ -241,7 +241,7 @@ def get_local_shuffler(
     Whenever a new :class:`Shuffler` object is created, it is
     saved as ``WorkerContext.shufflers[shuffle_id]``.
     """
-    ctx = get_local_worker_context()
+    ctx = get_single_worker_context()
     with ctx.lock:
         if shuffle_id not in ctx.shufflers:
             if partition_count is None:
@@ -265,20 +265,20 @@ def get_local_shuffler(
     return ctx.shufflers[shuffle_id]
 
 
-def _local_worker_barrier(
+def _single_worker_barrier(
     shuffle_ids: tuple[int, ...],
     partition_count: int,
     dependencies: Sequence[None],
 ) -> None:
     """
-    Local worker barrier for RapidsMPF shuffle.
+    Single worker barrier for RapidsMPF shuffle.
 
     Parameters
     ----------
     shuffle_ids
         Tuple of shuffle ids associated with the current
         task graph. This tuple will only contain a single
-        integer when `local_rapidsmpf_shuffle_graph` is
+        integer when `single_rapidsmpf_shuffle_graph` is
         used for graph generation.
     partition_count
         Number of output partitions for the current shuffle.
@@ -286,12 +286,12 @@ def _local_worker_barrier(
         Null sequence used to enforce barrier dependencies.
     """
     for shuffle_id in shuffle_ids:
-        shuffler = get_local_shuffler(shuffle_id)
+        shuffler = get_single_shuffler(shuffle_id)
         for pid in range(partition_count):
             shuffler.insert_finished(pid)
 
 
-def _stage_local_shuffler(shuffle_id: int, partition_count: int) -> None:
+def _stage_single_shuffler(shuffle_id: int, partition_count: int) -> None:
     """
     Stage a shuffler object without returning it.
 
@@ -302,10 +302,10 @@ def _stage_local_shuffler(shuffle_id: int, partition_count: int) -> None:
     partition_count
         Output partition count for the shuffle operation.
     """
-    get_local_shuffler(shuffle_id, partition_count=partition_count)
+    get_single_shuffler(shuffle_id, partition_count=partition_count)
 
 
-def _insert_local_partition(
+def _insert_partition_single(
     callback: Callable[
         [
             DataFrameT,
@@ -347,19 +347,19 @@ def _insert_local_partition(
         Other keys needed by ``callback``.
     """
     if callback is None:
-        raise ValueError("callback missing in _insert_local_partition.")
+        raise ValueError("callback missing in _insert_partition_single.")
 
     callback(
         df,
         partition_id,
         partition_count,
-        get_local_shuffler(shuffle_id),
+        get_single_shuffler(shuffle_id),
         options,
         *other_keys,
     )
 
 
-def _extract_local_partition(
+def _extract_partition_single(
     callback: Callable[
         [int, Shuffler, Any],
         DataFrameT,
@@ -392,7 +392,7 @@ def _extract_local_partition(
     -------
     Extracted DataFrame partition.
     """
-    shuffler = get_local_shuffler(shuffle_id)
+    shuffler = get_single_shuffler(shuffle_id)
     try:
         return callback(
             partition_id,
@@ -401,13 +401,13 @@ def _extract_local_partition(
         )
     finally:
         if shuffler.finished():
-            ctx = get_local_worker_context()
+            ctx = get_single_worker_context()
             with ctx.lock:
                 if shuffle_id in ctx.shufflers:
                     del ctx.shufflers[shuffle_id]
 
 
-def local_rapidsmpf_shuffle_graph(
+def single_rapidsmpf_shuffle_graph(
     input_name: str,
     output_name: str,
     partition_count_in: int,
@@ -441,14 +441,14 @@ def local_rapidsmpf_shuffle_graph(
 
     Returns
     -------
-    A valid task graph for local execution.
+    A valid task graph for single-worker execution.
     """
-    # Make sure local worker is initialized
-    setup_local_worker(config_options)
+    # Make sure single worker is initialized
+    setup_single_worker(config_options)
 
     # Get the shuffle id
     shuffle_id = _get_new_shuffle_id()
-    _stage_local_shuffler(shuffle_id, partition_count_out)
+    _stage_single_shuffler(shuffle_id, partition_count_out)
 
     # Check integration argument
     if not isinstance(integration, ShuffleIntegration):
@@ -461,7 +461,7 @@ def local_rapidsmpf_shuffle_graph(
     # Add tasks to insert each partition into the shuffler
     graph: dict[Any, Any] = {
         (insert_name, pid): (
-            _insert_local_partition,
+            _insert_partition_single,
             integration.insert_partition,
             (input_name, pid),
             pid,
@@ -475,7 +475,7 @@ def local_rapidsmpf_shuffle_graph(
 
     # Add global barrier task
     graph[(worker_barrier_name, 0)] = (
-        _local_worker_barrier,
+        _single_worker_barrier,
         (shuffle_id,),
         partition_count_out,
         list(graph.keys()),
@@ -486,7 +486,7 @@ def local_rapidsmpf_shuffle_graph(
     for part_id in range(partition_count_out):
         output_keys.append((output_name, part_id))
         graph[output_keys[-1]] = (
-            _extract_local_partition,
+            _extract_partition_single,
             integration.extract_partition,
             shuffle_id,
             part_id,

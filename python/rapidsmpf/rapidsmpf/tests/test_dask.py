@@ -115,13 +115,13 @@ def test_dask_cudf_integration(
 
 @pytest.mark.parametrize("partition_count", [None, 3])
 @pytest.mark.parametrize("sort", [True, False])
-@pytest.mark.parametrize("cluster_kind", ["auto", "none"])
-def test_dask_cudf_integration_local(
+@pytest.mark.parametrize("cluster_kind", ["auto", "single"])
+def test_dask_cudf_integration_single(
     partition_count: int,
     sort: bool,  # noqa: FBT001
     cluster_kind: str,
 ) -> None:
-    # Test local cuDF integration with Dask-cuDF
+    # Test single-worker cuDF integration with Dask-cuDF
     pytest.importorskip("dask_cudf")
 
     import dask.dataframe as dd
@@ -154,7 +154,7 @@ def test_dask_cudf_integration_local(
     dd.assert_eq(expect, got, check_index=False)
 
 
-def test_dask_cudf_integration_local_raises() -> None:
+def test_dask_cudf_integration_single_raises() -> None:
     pytest.importorskip("dask_cudf")
 
     from rapidsmpf.examples.dask import dask_cudf_shuffle

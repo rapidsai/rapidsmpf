@@ -14,12 +14,12 @@ from dask.utils import M
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-from rapidsmpf.integrations.cudf.local import local_rapidsmpf_shuffle_graph
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     split_and_pack,
     unpack_and_concat,
 )
+from rapidsmpf.integrations.single import single_rapidsmpf_shuffle_graph
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
@@ -156,7 +156,7 @@ def dask_cudf_shuffle(
         the input partition count.
     cluster_kind
         What kind of Dask cluster to shuffle on. Available
-        options are ``{'distributed', 'none', 'auto'}``.
+        options are ``{'distributed', 'single', 'auto'}``.
         If 'auto' (the default), 'distributed' will be
         used if a global Dask client is found.
 
@@ -164,9 +164,9 @@ def dask_cudf_shuffle(
     -------
     Shuffled Dask-cuDF DataFrame collection.
     """
-    if cluster_kind not in ("distributed", "none", "auto"):
+    if cluster_kind not in ("distributed", "single", "auto"):
         raise ValueError(
-            f"Expected one of 'distributed', 'none', or 'auto'. Got {cluster_kind}"
+            f"Expected one of 'distributed', 'single', or 'auto'. Got {cluster_kind}"
         )
 
     df0 = df.optimize()
@@ -196,8 +196,8 @@ def dask_cudf_shuffle(
         {"on": on, "column_names": list(df0.columns)},
         *sort_boundary_names,
     )
-    if cluster_kind == "none":
-        graph = local_rapidsmpf_shuffle_graph(*shuffle_graph_args)
+    if cluster_kind == "single":
+        graph = single_rapidsmpf_shuffle_graph(*shuffle_graph_args)
     else:
         try:
             from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
@@ -205,11 +205,11 @@ def dask_cudf_shuffle(
             graph = rapidsmpf_shuffle_graph(*shuffle_graph_args)
         except (ImportError, ValueError):
             # Failed to import distributed/dask-cuda or find a Dask client.
-            # Use local shuffle instead.
+            # Use single shuffle instead.
             if cluster_kind == "distributed":
                 raise
             assert cluster_kind == "auto"  # Sanity check
-            graph = local_rapidsmpf_shuffle_graph(*shuffle_graph_args)
+            graph = single_rapidsmpf_shuffle_graph(*shuffle_graph_args)
 
     # Add df0 dependencies to the task graph
     graph.update(df0.dask)
