@@ -10,6 +10,8 @@
 
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/error.hpp>
+
 namespace rapidsmpf {
 
 /**
@@ -19,10 +21,10 @@ namespace rapidsmpf {
  * the data should be interpreted.
  */
 struct PackedData {
-    std::unique_ptr<std::vector<std::uint8_t>> metadata{nullptr};  ///< The metadata
-    std::unique_ptr<rmm::device_buffer> gpu_data{nullptr};  ///< The gpu data
+    std::unique_ptr<std::vector<std::uint8_t>> metadata;  ///< The metadata
+    std::unique_ptr<rmm::device_buffer> gpu_data;  ///< The gpu data
 
-    PackedData() : metadata{nullptr}, gpu_data{nullptr} {}
+    PackedData() = delete;
 
     /**
      * @brief Construct packed data from metadata and gpu data, taking ownership.
@@ -34,7 +36,12 @@ struct PackedData {
         std::unique_ptr<std::vector<std::uint8_t>>&& meta,
         std::unique_ptr<rmm::device_buffer>&& data
     )
-        : metadata{std::move(meta)}, gpu_data{std::move(data)} {}
+        : metadata{std::move(meta)}, gpu_data{std::move(data)} {
+        RAPIDSMPF_EXPECTS(
+            metadata != nullptr || gpu_data != nullptr,
+            "Metadata or GPU data must be non-null"
+        );
+    }
 
     ~PackedData() = default;
     /// @brief PackedData is moveable
