@@ -1061,68 +1061,101 @@ TEST(EmptyPartitions, cudf_pack) {
     EXPECT_EQ(0, packed.gpu_data->size());
 }
 
-// class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
-//   protected:
-//     static constexpr rapidsmpf::shuffler::PartID nparts = 100;
-//     static constexpr std::chrono::milliseconds wait_timeout =
-//         std::chrono::milliseconds(30 * 1000);
+class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
+  protected:
+    static constexpr rapidsmpf::shuffler::PartID nparts = 10;
+    static constexpr std::chrono::milliseconds wait_timeout =
+        std::chrono::milliseconds(30 * 1000);
 
-//     void SetUp() override {
-//         stream = cudf::get_default_stream();
-//         br = std::make_unique<rapidsmpf::BufferResource>(mr());
+    void SetUp() override {
+        stream = cudf::get_default_stream();
+        br = std::make_unique<rapidsmpf::BufferResource>(mr());
 
-//         shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-//             GlobalEnvironment->comm_,
-//             GlobalEnvironment->progress_thread_,
-//             0,
-//             nparts,
-//             stream,
-//             br.get()
-//         );
+        shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
+            GlobalEnvironment->comm_,
+            GlobalEnvironment->progress_thread_,
+            0,
+            nparts,
+            stream,
+            br.get()
+        );
 
-//         GlobalEnvironment->barrier();
-//     }
+        GlobalEnvironment->barrier();
+    }
 
-//     void TearDown() override {
-//         if (shuffler) {
-//             shuffler->shutdown();
-//         }
-//         GlobalEnvironment->barrier();
-//     }
+    void insert_chunks(
+        std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData>&& chunks
+    ) {
+        if (!chunks.empty()) {
+            shuffler->insert(std::move(chunks));
+        }
+        auto pids = iota_vector<rapidsmpf::shuffler::PartID>(nparts);
+        shuffler->insert_finished(std::move(pids));
+    }
 
-//     rmm::cuda_stream_view stream;
-//     std::unique_ptr<rapidsmpf::BufferResource> br;
-//     std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler;
-// };
+    void TearDown() override {
+        if (shuffler) {
+            shuffler->shutdown();
+        }
+        GlobalEnvironment->barrier();
+    }
 
-// TEST_F(ExtractEmptyPartitionsTest, NoInsertions) {
-//     auto pids = iota_vector<rapidsmpf::shuffler::PartID>(nparts);
-//     shuffler->insert_finished(std::move(pids));
+    rmm::cuda_stream_view stream;
+    std::unique_ptr<rapidsmpf::BufferResource> br;
+    std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler;
+};
 
-//     while (!shuffler->finished()) {
-//         auto pid = shuffler->wait_any(wait_timeout);
-//         auto chunks = shuffler->extract(pid);
-//         EXPECT_TRUE(chunks.empty());
-//     }
-// }
+TEST_F(ExtractEmptyPartitionsTest, NoInsertions) {
+    insert_chunks({});
 
-// TEST_F(ExtractEmptyPartitionsTest, AllEmptyInsertions) {
-//     std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
-//     for (rapidsmpf::shuffler::PartID pid = 0; pid < nparts; ++pid) {
-//         chunks.emplace(
-//             pid, rapidsmpf::PackedData{std::make_unique<std::vector<uint8_t>>(),
-//             nullptr}
-//         );
-//     }
+    while (!shuffler->finished()) {
+        auto pid = shuffler->wait_any(wait_timeout);
+        auto chunks = shuffler->extract(pid);
+        EXPECT_TRUE(chunks.empty());
+    }
+}
 
-//     shuffler->insert(std::move(chunks));
+TEST_F(ExtractEmptyPartitionsTest, AllEmptyInsertions) {
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < nparts; ++pid) {
+        chunks.emplace(
+            pid,
+            rapidsmpf::PackedData{
+                std::make_unique<std::vector<uint8_t>>(),
+                std::make_unique<rmm::device_buffer>()
+            }
+        );
+    }
 
-//     auto pids = iota_vector<rapidsmpf::shuffler::PartID>(nparts);
-//     shuffler->insert_finished(std::move(pids));
+    insert_chunks(std::move(chunks));
 
-//     while (!shuffler->finished()) {
-//         auto pid = shuffler->wait_any(wait_timeout);
-//         auto chunks = shuffler->extract(pid);
-//         EXPECT_TRUE(chunks.empty());
-//     }
-// }
+    while (!shuffler->finished()) {
+        auto pid = shuffler->wait_any(wait_timeout);
+        SCOPED_TRACE("pid: " + std::to_string(pid));
+        auto chunks = shuffler->extract(pid);
+        EXPECT_TRUE(chunks.empty());
+    }
+}
+
+TEST_F(ExtractEmptyPartitionsTest, SomeEmptyInsertions) {
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < nparts; ++pid) {
+        if (pid % 2 == 0) {
+            chunks.emplace(
+                pid,
+                rapidsmpf::PackedData{
+                    std::make_unique<std::vector<uint8_t>>(10),
+                    std::make_unique<rmm::device_buffer>(10, stream)
+                }
+            );
+        }
+    }
+
+    insert_chunks(std::move(chunks));
+
+    while (!shuffler->finished()) {
+        auto pid = shuffler->wait_any(wait_timeout);
+        SCOPED_TRACE("pid: " + std::to_string(pid));
+        EXPECT_NO_THROW(std::ignore = shuffler->extract(pid));
+    }
+}
