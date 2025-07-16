@@ -57,7 +57,7 @@ IncludeCategories:
     Priority: 30 # CUDA includes
   - Regex: '^<(thrust|cub|cuda)/'
     Priority: 40 # CCCL includes
-  - Regex: '^<(cudf.*|rmm|cugraph|cuml|cuspatial|raft|kvikio)'
+  - Regex: '^<(cudf.*|rmm|cugraph|cuml|raft|kvikio)'
     Priority: 50 # RAPIDS includes
   - Regex: '^<rapidsmpf/'
     Priority: 60
