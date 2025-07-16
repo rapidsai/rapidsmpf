@@ -29,9 +29,15 @@ if TYPE_CHECKING:
 _shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
 _shuffle_id_vacancy_lock: threading.Lock = threading.Lock()
 
+
 # Local single-worker context
-_single_rapidsmpf_worker_context: WorkerContext | None = None
-_single_rapidsmpf_worker_initialized: bool = False
+class _SingleWorker:
+    """Mutable single-worker utility class."""
+
+    context: WorkerContext | None = None
+
+
+_single_rapidsmpf_worker: _SingleWorker = _SingleWorker()
 
 
 def get_single_worker_context() -> WorkerContext:
@@ -45,12 +51,10 @@ def get_single_worker_context() -> WorkerContext:
     -------
     The existing or newly initialized worker context.
     """
-    global _single_rapidsmpf_worker_context  # noqa: PLW0603
-
     with WorkerContext.lock:
-        if _single_rapidsmpf_worker_context is None:
-            _single_rapidsmpf_worker_context = WorkerContext()
-        return cast(WorkerContext, _single_rapidsmpf_worker_context)
+        if _single_rapidsmpf_worker.context is None:
+            _single_rapidsmpf_worker.context = WorkerContext()
+        return cast(WorkerContext, _single_rapidsmpf_worker.context)
 
 
 def setup_single_worker(options: Options = Options()) -> None:
@@ -67,15 +71,12 @@ def setup_single_worker(options: Options = Options()) -> None:
     This function creates a new RMM memory pool, and
     sets it as the current device resource.
     """
-    global _single_rapidsmpf_worker_initialized  # noqa: PLW0603
-
-    if _single_rapidsmpf_worker_initialized:
-        return
-
     ctx = get_single_worker_context()
     with ctx.lock:
-        ctx.options = options
+        if ctx.comm is not None:
+            return  # Single worker already set up
 
+        ctx.options = options
         ctx.comm = new_communicator(options)
         ctx.comm.logger.trace("single communicator created.")
 
@@ -169,9 +170,6 @@ def setup_single_worker(options: Options = Options()) -> None:
         # of internal shuffle buffers (non-python objects) have higher priority than
         # spilling of the Python objects in the collection.
         ctx.br.spill_manager.add_spill_function(func=spill_func, priority=-10)
-
-    # Mark the worker as "initialized"
-    _single_rapidsmpf_worker_initialized = True
 
 
 def _get_new_shuffle_id() -> int:

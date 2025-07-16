@@ -146,7 +146,7 @@ def test_dask_cudf_integration_single(
         cluster_kind=cluster_kind,
     )
     assert shuffled.npartitions == (partition_count or partition_count_in)
-    got = shuffled.compute()
+    got = shuffled.compute()  # scheduler="synchronous")
     if sort:
         assert got["id"].is_monotonic_increasing
     got = got.sort_values(["id", "name", "x", "y"])
