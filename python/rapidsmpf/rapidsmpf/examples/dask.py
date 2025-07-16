@@ -14,12 +14,12 @@ from dask.utils import M
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
+from rapidsmpf.integrations.cudf.local import local_rapidsmpf_shuffle_graph
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     split_and_pack,
     unpack_and_concat,
 )
-from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
@@ -136,6 +136,7 @@ def dask_cudf_shuffle(
     *,
     sort: bool = False,
     partition_count: int | None = None,
+    cluster_kind: str = "auto",
 ) -> dask_cudf.DataFrame:
     """
     Shuffle a dask_cudf.DataFrame with RapidsMPF.
@@ -153,11 +154,21 @@ def dask_cudf_shuffle(
     partition_count
         Output partition count. Default will preserve
         the input partition count.
+    cluster_kind
+        What kind of Dask cluster to shuffle on. Available
+        options are ``{'distributed', 'none', 'auto'}``.
+        If 'auto' (the default), 'distributed' will be
+        used if a global Dask client is found.
 
     Returns
     -------
     Shuffled Dask-cuDF DataFrame collection.
     """
+    if cluster_kind not in ("distributed", "none", "auto"):
+        raise ValueError(
+            f"Expected one of 'distributed', 'none', or 'auto'. Got {cluster_kind}"
+        )
+
     df0 = df.optimize()
     count_in = df0.npartitions
     count_out = partition_count or count_in
@@ -175,7 +186,8 @@ def dask_cudf_shuffle(
         sort_boundary_names = ((boundaries._name, 0),)
     else:
         sort_boundary_names = ()
-    graph = rapidsmpf_shuffle_graph(
+
+    shuffle_graph_args = (
         name_in,
         name_out,
         count_in,
@@ -184,6 +196,20 @@ def dask_cudf_shuffle(
         {"on": on, "column_names": list(df0.columns)},
         *sort_boundary_names,
     )
+    if cluster_kind == "none":
+        graph = local_rapidsmpf_shuffle_graph(*shuffle_graph_args)
+    else:
+        try:
+            from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
+
+            graph = rapidsmpf_shuffle_graph(*shuffle_graph_args)
+        except (ImportError, ValueError):
+            # Failed to import distributed/dask-cuda or find a Dask client.
+            # Use local shuffle instead.
+            if cluster_kind == "distributed":
+                raise
+            assert cluster_kind == "auto"  # Sanity check
+            graph = local_rapidsmpf_shuffle_graph(*shuffle_graph_args)
 
     # Add df0 dependencies to the task graph
     graph.update(df0.dask)

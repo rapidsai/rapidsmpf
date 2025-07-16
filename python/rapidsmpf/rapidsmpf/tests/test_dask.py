@@ -113,6 +113,59 @@ def test_dask_cudf_integration(
             dd.assert_eq(expect, got, check_index=False)
 
 
+@pytest.mark.parametrize("partition_count", [None, 3])
+@pytest.mark.parametrize("sort", [True, False])
+@pytest.mark.parametrize("cluster_kind", ["auto", "none"])
+def test_dask_cudf_integration_local(
+    partition_count: int,
+    sort: bool,  # noqa: FBT001
+    cluster_kind: str,
+) -> None:
+    # Test local cuDF integration with Dask-cuDF
+    pytest.importorskip("dask_cudf")
+
+    import dask.dataframe as dd
+
+    from rapidsmpf.examples.dask import dask_cudf_shuffle
+
+    df = (
+        dask.datasets.timeseries(
+            freq="3600s",
+            partition_freq="2D",
+        )
+        .reset_index(drop=True)
+        .to_backend("cudf")
+    )
+    partition_count_in = df.npartitions
+    expect = df.compute().sort_values(["id", "name", "x", "y"])
+    shuffled = dask_cudf_shuffle(
+        df,
+        ["id", "name"],
+        sort=sort,
+        partition_count=partition_count,
+        cluster_kind=cluster_kind,
+    )
+    assert shuffled.npartitions == (partition_count or partition_count_in)
+    got = shuffled.compute()
+    if sort:
+        assert got["id"].is_monotonic_increasing
+    got = got.sort_values(["id", "name", "x", "y"])
+
+    dd.assert_eq(expect, got, check_index=False)
+
+
+def test_dask_cudf_integration_local_raises() -> None:
+    pytest.importorskip("dask_cudf")
+
+    from rapidsmpf.examples.dask import dask_cudf_shuffle
+
+    df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
+    with pytest.raises(ValueError, match="No global client"):
+        dask_cudf_shuffle(df, ["id", "name"], cluster_kind="distributed")
+    with pytest.raises(ValueError, match="Expected one of"):
+        dask_cudf_shuffle(df, ["id", "name"], cluster_kind="foo")
+
+
 def test_bootstrap_dask_cluster_idempotent() -> None:
     options = Options({"dask_spill_device": "0.1"})
     with LocalCUDACluster() as cluster, Client(cluster) as client:
