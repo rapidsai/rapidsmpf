@@ -23,8 +23,9 @@ void Environment::SetUp() {
 }
 
 void Environment::TearDown() {
-    comm_ = nullptr;
-    split_comm_ = nullptr;
+    progress_thread_ = nullptr;  // Stop the progress thread.
+    split_comm_ = nullptr;  // Clean up the split communicator.
+    comm_ = nullptr;  // Clean up the communicator.
 }
 
 void Environment::barrier() {}
