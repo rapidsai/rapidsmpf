@@ -25,17 +25,17 @@ jobs:
       - wheel-test
       - devcontainer
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-25.10
     if: always()
     with:
       needs: ${{ toJSON(needs) }}
   checks:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@branch-25.10
   wheel-build-librapidsmpf:
     needs: checks
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.10
     with:
       build_type: pull-request
       script: ci/build_wheel_librapidsmpf.sh
@@ -46,7 +46,7 @@ jobs:
   wheel-build-rapidsmpf:
     needs: [checks, wheel-build-librapidsmpf]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.10
     with:
       build_type: pull-request
       script: ci/build_wheel_rapidsmpf.sh
@@ -55,7 +55,7 @@ jobs:
   wheel-build-rapidsmpf-singlecomm:
     needs: [checks, wheel-build-librapidsmpf]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.10
     with:
       build_type: pull-request
       script: ci/build_wheel_singlecomm.sh
@@ -64,7 +64,7 @@ jobs:
   wheel-test:
     needs: wheel-build-rapidsmpf
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@branch-25.10
     with:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
@@ -72,14 +72,14 @@ jobs:
   conda-cpp-build:
     needs: checks
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@branch-25.10
     with:
       build_type: pull-request
       script: ci/build_cpp.sh
   conda-cpp-linters:
     secrets: inherit
     needs: checks
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-25.10
     with:
       build_type: pull-request
       script: "ci/cpp_linters.sh"
@@ -87,7 +87,7 @@ jobs:
   conda-cpp-tests:
     needs: conda-cpp-build
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@branch-25.10
     with:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
@@ -95,14 +95,14 @@ jobs:
   conda-python-build:
     needs: conda-cpp-build
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@branch-25.10
     with:
       build_type: pull-request
       script: ci/build_python.sh
   conda-python-tests:
     needs: conda-python-build
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@branch-25.10
     with:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
@@ -111,7 +111,7 @@ jobs:
   docs-build:
     needs: conda-python-build
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-25.10
     with:
       build_type: pull-request
       node_type: "cpu8"
@@ -120,7 +120,7 @@ jobs:
       script: "ci/build_docs.sh"
   devcontainer:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@branch-25.10
     with:
       arch: '["amd64"]'
       cuda: '["12.9"]'
