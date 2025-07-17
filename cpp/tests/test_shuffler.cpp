@@ -1128,9 +1128,14 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
         shuffler->insert_finished(std::move(pids));
     }
 
-    void verify_extracted_chunks() {
+    void verify_extracted_chunks(auto skip_pid_fn) {
         while (!shuffler->finished()) {
             auto pid = shuffler->wait_any(wait_timeout);
+
+            if (skip_pid_fn(pid)) {
+                continue;
+            }
+
             SCOPED_TRACE("pid: " + std::to_string(pid));
             std::vector<rapidsmpf::PackedData> chunks;
             EXPECT_NO_THROW({ chunks = shuffler->extract(pid); });
@@ -1147,6 +1152,13 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
         };
     }
 
+    auto non_empty_packed_data() {
+        return rapidsmpf::PackedData{
+            std::make_unique<std::vector<uint8_t>>(10),
+            std::make_unique<rmm::device_buffer>(10, stream)
+        };
+    }
+
     rmm::cuda_stream_view stream;
     std::unique_ptr<rapidsmpf::BufferResource> br;
     std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler;
@@ -1154,7 +1166,7 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
 
 TEST_F(ExtractEmptyPartitionsTest, NoInsertions) {
     insert_chunks({});
-    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks());
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto) { return false; }));
 }
 
 TEST_F(ExtractEmptyPartitionsTest, AllEmptyInsertions) {
@@ -1164,7 +1176,7 @@ TEST_F(ExtractEmptyPartitionsTest, AllEmptyInsertions) {
     }
 
     insert_chunks(std::move(chunks));
-    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks());
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto) { return false; }));
 }
 
 TEST_F(ExtractEmptyPartitionsTest, SomeEmptyInsertions) {
@@ -1176,5 +1188,20 @@ TEST_F(ExtractEmptyPartitionsTest, SomeEmptyInsertions) {
     }
 
     insert_chunks(std::move(chunks));
-    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks());
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto) { return false; }));
+}
+
+TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < nparts; ++pid) {
+        if (pid % 3 == 0) {
+            chunks.emplace(pid, empty_packed_data());
+        } else {
+            chunks.emplace(pid, non_empty_packed_data());
+        }
+    }
+
+    insert_chunks(std::move(chunks));
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto pid) { return pid % 3 != 0; })
+    );
 }
