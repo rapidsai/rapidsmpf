@@ -573,6 +573,10 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
 
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_data] : chunks) {
+        if (packed_data.empty()) {  // skip empty packed data
+            continue;
+        }
+        
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
         if (headroom < 0 && packed_data.gpu_data) {
@@ -775,6 +779,26 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     );
     statistics_->add_bytes_stat("spill-bytes-host-to-device", total_unspilled);
     return ret;
+}
+
+bool Shuffler::finished() const {
+    return finish_counter_.all_finished();
+}
+
+PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    return finish_counter_.wait_any(std::move(timeout));
+}
+
+void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    finish_counter_.wait_on(pid, std::move(timeout));
+}
+
+std::vector<PartID> Shuffler::wait_some(std::optional<std::chrono::milliseconds> timeout
+) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    return finish_counter_.wait_some(std::move(timeout));
 }
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {

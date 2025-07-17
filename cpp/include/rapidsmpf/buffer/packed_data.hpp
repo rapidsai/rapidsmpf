@@ -24,8 +24,6 @@ struct PackedData {
     std::unique_ptr<std::vector<std::uint8_t>> metadata;  ///< The metadata
     std::unique_ptr<rmm::device_buffer> gpu_data;  ///< The gpu data
 
-    PackedData() = delete;
-
     /**
      * @brief Construct packed data from metadata and gpu data, taking ownership.
      *
@@ -41,11 +39,19 @@ struct PackedData {
             metadata != nullptr || gpu_data != nullptr,
             "Metadata or GPU data must be non-null"
         );
+
+        RAPIDSMPF_EXPECTS(
+            (metadata->size() > 0 || gpu_data->size() == 0),
+            "Empty Metadata and non-empty GPU data is not allowed"
+        );
     }
 
+    PackedData() = delete;
     ~PackedData() = default;
+
     /// @brief PackedData is moveable
     PackedData(PackedData&&) = default;
+
     /**
      * @brief Move assignment
      *
@@ -54,6 +60,15 @@ struct PackedData {
     PackedData& operator=(PackedData&&) = default;
     PackedData(PackedData const&) = delete;
     PackedData& operator=(PackedData&) = delete;
+
+    /**
+     * @brief Check if the packed data is empty.
+     *
+     * @return True if the packed data is empty, false otherwise.
+     */
+    [[nodiscard]] inline bool empty() const {
+        return metadata->empty() && gpu_data->size() == 0;
+    }
 };
 
 }  // namespace rapidsmpf
