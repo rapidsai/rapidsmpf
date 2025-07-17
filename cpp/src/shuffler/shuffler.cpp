@@ -466,8 +466,7 @@ Shuffler::Shuffler(
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
       finish_counter_{
-          static_cast<Rank>(comm_->nranks()),
-          local_partitions(comm_, total_num_partitions, partition_owner)
+          comm_->nranks(), local_partitions(comm_, total_num_partitions, partition_owner)
       },
       statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
@@ -833,28 +832,6 @@ std::string Shuffler::str() const {
     std::stringstream ss;
     ss << "Shuffler(outgoing=" << outgoing_postbox_ << ", received=" << ready_postbox_
        << ", " << finish_counter_;
-    return ss.str();
-}
-
-std::string detail::FinishCounter::str() const {
-    std::unique_lock<std::mutex> lock(mutex_);
-    std::stringstream ss;
-    ss << "FinishCounter(goalposts={";
-    for (auto const& [pid, goal] : goalposts_) {
-        ss << "p" << pid << ": (" << goal.first << ", " << goal.second << "), ";
-    }
-    ss << (goalposts_.empty() ? "}" : "\b\b}");
-    ss << ", finished={";
-    for (auto const& [pid, counter] : finished_chunk_counters_) {
-        ss << "p" << pid << ": " << counter << ", ";
-    }
-    ss << (finished_chunk_counters_.empty() ? "}" : "\b\b}");
-    ss << ", partitions_ready_to_wait_on={";
-    for (auto const& [pid, finished] : partitions_ready_to_wait_on_) {
-        ss << "p" << pid << ": " << finished << ", ";
-    }
-    ss << (partitions_ready_to_wait_on_.empty() ? "}" : "\b\b}");
-    ss << ")";
     return ss.str();
 }
 

@@ -26,9 +26,11 @@ void Environment::SetUp() {
 }
 
 void Environment::TearDown() {
+    progress_thread_ = nullptr;  // Stop the progress thread.
+    split_comm_ = nullptr;  // Clean up the split communicator.
+    comm_ = nullptr;  // Clean up the communicator.
+
     RAPIDSMPF_MPI(MPI_Comm_free(&mpi_comm_));
-    // Clean up the split handle.
-    split_comm_ = nullptr;
     RAPIDSMPF_MPI(MPI_Finalize());
 }
 

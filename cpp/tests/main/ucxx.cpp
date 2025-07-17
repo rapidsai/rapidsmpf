@@ -37,8 +37,9 @@ void Environment::SetUp() {
 void Environment::TearDown() {
     // Ensure UCXX cleanup before MPI. If this is not done failures related to
     // accessing the CUDA context may be thrown during shutdown.
-    comm_ = nullptr;
-    split_comm_ = nullptr;
+    progress_thread_ = nullptr;  // Stop the progress thread.
+    split_comm_ = nullptr;  // Clean up the split communicator.
+    comm_ = nullptr;  // Clean up the communicator.
     RAPIDSMPF_MPI(MPI_Finalize());
 }
 
