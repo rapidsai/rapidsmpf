@@ -94,13 +94,16 @@ class FinishCounter {
      *
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @return The partition ID of a finished partition.
+     * @return The partition ID of a finished partition and the number of data chunks that
+     * have been finished.
      *
      * @throw std::out_of_range If all partitions have already been waited on.
      * std::runtime_error If timeout was set and no partitions have been finished by the
      * expiration.
      */
-    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
+    std::pair<PartID, ChunkID> wait_any(
+        std::optional<std::chrono::milliseconds> timeout = {}
+    );
 
     /**
      * @brief Wait for a specific partition to be finished (blocking). Optionally a
@@ -113,11 +116,13 @@ class FinishCounter {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
+     * @return The number of data chunks that have been finished.
+     *
      * @throw std::out_of_range If the desired partition is unavailable.
      * std::runtime_error If timeout was set and requested partition has been finished by
      * the expiration.
      */
-    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
+    ChunkID wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Returns a vector of partition ids that are finished and haven't been waited
@@ -131,13 +136,16 @@ class FinishCounter {
      *
      * @note It is the caller's responsibility to process all returned partition IDs.
      *
-     * @return vector of finished partitions.
+     * @return A pair of vectors of finished partitions and the number of data chunks
+     * that have been finished for each partition.
      *
      * @throw std::out_of_range If all partitions have been waited on.
      * std::runtime_error If timeout was set and no partitions have been finished by the
      * expiration.
      */
-    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
+    std::pair<std::vector<PartID>, std::vector<ChunkID>> wait_some(
+        std::optional<std::chrono::milliseconds> timeout = {}
+    );
 
     /**
      * @brief Returns a description of this instance.
@@ -159,6 +167,7 @@ class FinishCounter {
                                        ///< reached when its counter equals the goalpost.
 
         constexpr void move_goalpost(ChunkID nchunks, Rank nranks) {
+            RAPIDSMPF_EXPECTS(nchunks != 0, "the goalpost was moved by 0 chunks");
             RAPIDSMPF_EXPECTS(
                 ++rank_count <= nranks, "the goalpost was moved more than one per rank"
             );
@@ -178,6 +187,12 @@ class FinishCounter {
         // and the number of finished chunks has reached the goal.
         [[nodiscard]] constexpr bool is_finished(Rank nranks) const {
             return rank_count == nranks && finished_chunk_count == chunk_goal;
+        }
+
+        [[nodiscard]] constexpr ChunkID data_chunk_goal() const {
+            // there will always be a control message from each rank indicating how many
+            // chunks its sending. Chunk goal contains this control message for each rank.
+            return chunk_goal - static_cast<ChunkID>(rank_count);
         }
     };
 

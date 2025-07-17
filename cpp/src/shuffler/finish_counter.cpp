@@ -77,7 +77,9 @@ void wait_for_if_timeout_else_wait(
     }
 }
 
-PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout) {
+std::pair<PartID, ChunkID> FinishCounter::wait_any(
+    std::optional<std::chrono::milliseconds> timeout
+) {
     PartID finished_key{std::numeric_limits<PartID>::max()};
 
     std::unique_lock<std::mutex> lock(mutex_);
@@ -99,11 +101,11 @@ PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout)
     );
 
     // We extract the partition to avoid returning the same partition twice.
-    goalposts_.erase(finished_key);
-    return finished_key;
+    auto p_info = goalposts_.extract(finished_key);
+    return {finished_key, p_info.mapped().data_chunk_goal()};
 }
 
-void FinishCounter::wait_on(
+ChunkID FinishCounter::wait_on(
     PartID pid, std::optional<std::chrono::milliseconds> timeout
 ) {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -114,10 +116,11 @@ void FinishCounter::wait_on(
         );
         return it->second.is_finished(nranks_);
     });
-    goalposts_.erase(pid);
+    auto p_info = goalposts_.extract(pid);
+    return p_info.mapped().data_chunk_goal();
 }
 
-std::vector<PartID> FinishCounter::wait_some(
+std::pair<std::vector<PartID>, std::vector<ChunkID>> FinishCounter::wait_some(
     std::optional<std::chrono::milliseconds> timeout
 ) {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -131,17 +134,19 @@ std::vector<PartID> FinishCounter::wait_some(
         });
     });
 
-    std::vector<PartID> result{};
+    std::vector<PartID> pids{};
+    std::vector<ChunkID> n_data_chunks{};
     for (auto it = goalposts_.begin(); it != goalposts_.end();) {
         auto& [pid, p_info] = *it;
         if (p_info.is_finished(nranks_)) {
-            result.push_back(pid);
+            pids.push_back(pid);
+            n_data_chunks.push_back(p_info.data_chunk_goal());
             it = goalposts_.erase(it);
         } else {
             ++it;
         }
     }
-    return result;
+    return {std::move(pids), std::move(n_data_chunks)};
 }
 
 std::string detail::FinishCounter::str() const {

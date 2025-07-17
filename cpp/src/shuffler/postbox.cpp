@@ -28,6 +28,20 @@ void PostBox<KeyType>::insert(Chunk&& chunk) {
 }
 
 template <typename KeyType>
+void PostBox<KeyType>::mark_empty(PartID pid) {
+    std::lock_guard const lock(mutex_);
+    KeyType key = key_map_fn_(pid);
+    auto it = pigeonhole_.find(key);
+
+    if (it == pigeonhole_.end()) {
+        // this partition is not in the postbox.
+        pigeonhole_.emplace(key, std::unordered_map<ChunkID, Chunk>{});
+    } else if (!it->second.empty()) {
+        RAPIDSMPF_FAIL("Attempting to mark a non-empty partition as empty");
+    }  // else, the partition is already marked as empty.
+}
+
+template <typename KeyType>
 Chunk PostBox<KeyType>::extract(PartID pid, ChunkID cid) {
     std::lock_guard const lock(mutex_);
     return extract_item(pigeonhole_[key_map_fn_(pid)], cid).second;

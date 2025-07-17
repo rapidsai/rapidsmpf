@@ -113,6 +113,10 @@ std::size_t postbox_spilling(
     auto const chunk_info = postbox.search(MemoryType::DEVICE);
     std::size_t total_spilled{0};
     for (auto [pid, cid, size] : chunk_info) {
+        if (size == 0) {  // skip empty data buffers
+            continue;
+        }
+
         // TODO: Use a clever strategy to decide which chunks to spill. For now, we
         // just spill the chunks in an arbitrary order.
         auto [host_reservation, host_overbooking] =
@@ -575,7 +579,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         if (packed_data.empty()) {  // skip empty packed data
             continue;
         }
-        
+
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
         if (headroom < 0 && packed_data.gpu_data) {
@@ -786,18 +790,35 @@ bool Shuffler::finished() const {
 
 PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    return finish_counter_.wait_any(std::move(timeout));
+    auto [pid, n_data_chunks] = finish_counter_.wait_any(std::move(timeout));
+    if (n_data_chunks == 0) {
+        // there will be no data chunks for this pid in the ready postbox. Therefore,
+        // insert an empty container for this partition.
+        ready_postbox_.mark_empty(pid);
+    }
+    return pid;
 }
 
 void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    finish_counter_.wait_on(pid, std::move(timeout));
+    auto n_data_chunks = finish_counter_.wait_on(pid, std::move(timeout));
+    if (n_data_chunks == 0) {
+        // there will be no data chunks for this pid in the ready postbox. Therefore,
+        // insert an empty container for this partition.
+        ready_postbox_.mark_empty(pid);
+    }
 }
 
 std::vector<PartID> Shuffler::wait_some(std::optional<std::chrono::milliseconds> timeout
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    return finish_counter_.wait_some(std::move(timeout));
+    auto [pids, n_data_chunks] = finish_counter_.wait_some(std::move(timeout));
+    for (size_t i = 0; i < pids.size(); ++i) {
+        if (n_data_chunks[i] == 0) {
+            ready_postbox_.mark_empty(pids[i]);
+        }
+    }
+    return std::move(pids);
 }
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
