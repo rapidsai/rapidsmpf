@@ -83,16 +83,13 @@ PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout)
     std::unique_lock<std::mutex> lock(mutex_);
     wait_for_if_timeout_else_wait(lock, cv_, timeout, [&] {
         return goalposts_.empty()
-               || std::ranges::any_of(
-                   goalposts_,
-                   [&, nranks = nranks_](auto const& item) {
-                       auto done = item.second.is_finished(nranks);
-                       if (done) {
-                           finished_key = item.first;
-                       }
-                       return done;
-                   }
-               );
+               || std::ranges::any_of(goalposts_, [&](auto const& item) {
+                      auto done = item.second.is_finished(nranks_);
+                      if (done) {
+                          finished_key = item.first;
+                      }
+                      return done;
+                  });
     });
 
     RAPIDSMPF_EXPECTS(
@@ -110,12 +107,12 @@ void FinishCounter::wait_on(
     PartID pid, std::optional<std::chrono::milliseconds> timeout
 ) {
     std::unique_lock<std::mutex> lock(mutex_);
-    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&, nranks = nranks_] {
+    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&] {
         auto it = goalposts_.find(pid);
         RAPIDSMPF_EXPECTS(
             it != goalposts_.end(), "PartID has already been extracted", std::out_of_range
         );
-        return it->second.is_finished(nranks);
+        return it->second.is_finished(nranks_);
     });
     goalposts_.erase(pid);
 }
@@ -135,11 +132,7 @@ std::vector<PartID> FinishCounter::wait_some(
     });
 
     std::vector<PartID> result{};
-    // TODO: hand-writing iteration rather than range-for to avoid
-    // needing to rehash the key during extract_key. Needs
-    // std::ranges, I think.
     for (auto it = goalposts_.begin(); it != goalposts_.end();) {
-        // extract_key invalidates the iterator
         auto& [pid, p_info] = *it;
         if (p_info.is_finished(nranks_)) {
             result.push_back(pid);
