@@ -1019,7 +1019,11 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
     EXPECT_EQ(all_chunks.size(), num_chunks);
 }
 
-TEST_F(PostBoxTest, MarkEmpty) {
+TEST(ReadyPostBoxTest, MarkEmpty) {
+    auto postbox = std::make_unique<
+        rapidsmpf::shuffler::detail::PostBox<rapidsmpf::shuffler::PartID>>(std::identity{}
+    );
+
     rapidsmpf::shuffler::PartID pid = 0, pid1 = 1;
     postbox->mark_empty(pid);
     EXPECT_NO_THROW(postbox->mark_empty(pid));  // should not raise an error
