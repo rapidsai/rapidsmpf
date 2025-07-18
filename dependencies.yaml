@@ -329,7 +329,7 @@ dependencies:
     common:
       - output_types: conda
         packages:
-          - &librapidsmpf_unsuffixed librapidsmpf==25.8.*,>=0.0.0a0
+          - &librapidsmpf_unsuffixed librapidsmpf==25.10.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
@@ -342,7 +342,7 @@ dependencies:
               cuda: "12.*"
               cuda_suffixed: "true"
             packages:
-              - librapidsmpf-cu12==25.8.*,>=0.0.0a0
+              - librapidsmpf-cu12==25.10.*,>=0.0.0a0
           - {matrix: null, packages: [*librapidsmpf_unsuffixed]}
   clang_tidy:
     common:
@@ -479,7 +479,7 @@ dependencies:
     common:
       - output_types: conda
         packages:
-          - &librmm_unsuffixed librmm==25.8.*,>=0.0.0a0
+          - &librmm_unsuffixed librmm==25.10.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
@@ -492,7 +492,7 @@ dependencies:
               cuda: "12.*"
               cuda_suffixed: "true"
             packages:
-              - librmm-cu12==25.8.*,>=0.0.0a0
+              - librmm-cu12==25.10.*,>=0.0.0a0
           - matrix:
             packages:
               - *librmm_unsuffixed

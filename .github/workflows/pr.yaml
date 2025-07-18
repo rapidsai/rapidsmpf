@@ -32,7 +32,7 @@ jobs:
       needs: ${{ toJSON(needs) }}
   changed-files:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@branch-25.08
+    uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@branch-25.10
     with:
       files_yaml: |
         test_cpp:
@@ -146,7 +146,7 @@ jobs:
       build_type: pull-request
       node_type: "cpu8"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:25.08-latest"
+      container_image: "rapidsai/ci-conda:25.10-latest"
       script: "ci/build_docs.sh"
   devcontainer:
     secrets: inherit
