@@ -31,14 +31,14 @@ template <typename KeyType>
 void PostBox<KeyType>::mark_empty(PartID pid) {
     std::lock_guard const lock(mutex_);
     KeyType key = key_map_fn_(pid);
-    auto it = pigeonhole_.find(key);
 
-    if (it == pigeonhole_.end()) {
-        // this partition is not in the postbox.
-        pigeonhole_.emplace(key, std::unordered_map<ChunkID, Chunk>{});
-    } else if (!it->second.empty()) {
-        RAPIDSMPF_FAIL("Attempting to mark a non-empty partition as empty");
-    }  // else, the partition is already marked as empty.
+    auto [it, inserted] = pigeonhole_.emplace(key, std::unordered_map<ChunkID, Chunk>{});
+    // if insertion failed, then the parititon in the pigenhole needs to be empty.
+    // (ex: a pid that has already been marked as empty). Else raise an error.
+    RAPIDSMPF_EXPECTS(
+        inserted || it->second.empty(),
+        "Attempting to mark a non-empty partition as empty"
+    );
 }
 
 template <typename KeyType>

@@ -1019,6 +1019,21 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
     EXPECT_EQ(all_chunks.size(), num_chunks);
 }
 
+TEST_F(PostBoxTest, MarkEmpty) {
+    rapidsmpf::shuffler::PartID pid = 0, pid1 = 1;
+    postbox->mark_empty(pid);
+    EXPECT_NO_THROW(postbox->mark_empty(pid));  // should not raise an error
+
+    postbox->insert(rapidsmpf::shuffler::detail::make_dummy_chunk(
+        rapidsmpf::shuffler::detail::ChunkID{0}, pid1
+    ));
+    EXPECT_THROW(postbox->mark_empty(pid1), std::logic_error);  // should raise an error
+
+    EXPECT_EQ(0, postbox->extract_by_key(pid).size());
+    EXPECT_EQ(1, postbox->extract_by_key(pid1).size());
+    EXPECT_TRUE(postbox->empty());
+}
+
 TEST_F(PostBoxTest, ThreadSafety) {
     constexpr uint32_t num_threads = 4;
     constexpr uint32_t chunks_per_thread = 100;
