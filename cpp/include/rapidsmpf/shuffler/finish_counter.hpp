@@ -82,10 +82,7 @@ class FinishCounter {
      *
      * @return True if all partitions are finished, otherwise False.
      */
-    [[nodiscard]] bool all_finished() const {
-        std::unique_lock<std::mutex> lock(mutex_);
-        return partitions_ready_to_wait_on_.empty();
-    }
+    [[nodiscard]] bool all_finished() const;
 
     /**
      * @brief Returns the partition ID of a finished partition that hasn't been waited on
@@ -151,18 +148,44 @@ class FinishCounter {
 
   private:
     Rank const nranks_;
+
+    /// @brief Information about a local partition.
+    struct PartitionInfo {
+        Rank rank_count;  ///< number of ranks that have reported their chunk count.
+        ChunkID chunk_goal;  ///< the goal of a partition. This keeps increasing until all
+                             ///< ranks have reported their chunk count.
+        ChunkID finished_chunk_count;  ///< The finished chunk counter of each partition.
+                                       ///< The goal of a partition has been
+                                       ///< reached when its counter equals the goalpost.
+
+        constexpr void move_goalpost(ChunkID nchunks, Rank nranks) {
+            RAPIDSMPF_EXPECTS(
+                ++rank_count <= nranks, "the goalpost was moved more than one per rank"
+            );
+            chunk_goal += nchunks;
+        }
+
+        constexpr void add_finished_chunk(Rank nranks) {
+            finished_chunk_count++;
+            // only throw if rank_count == nranks
+            RAPIDSMPF_EXPECTS(
+                (rank_count < nranks) || (finished_chunk_count <= chunk_goal),
+                "finished chunk exceeds the goal"
+            );
+        }
+
+        // The partition is finished if the goalpost has been set by all ranks
+        // and the number of finished chunks has reached the goal.
+        [[nodiscard]] constexpr bool is_finished(Rank nranks) const {
+            return rank_count == nranks && finished_chunk_count == chunk_goal;
+        }
+    };
+
     // The goalpost of each partition. The goal is a rank counter to track how many ranks
     // has reported their goal, and a chunk counter that specifies the goal. It is only
     // when all ranks has reported their goal that the goalpost is final.
-    std::unordered_map<PartID, std::pair<Rank, ChunkID>> goalposts_;
-    // The finished chunk counter of each partition. The goal of a partition has been
-    // reach when its counter equals the goalpost.
-    std::unordered_map<PartID, ChunkID> finished_chunk_counters_;
-    // A partition has three states:
-    //   - If it is false, the partition isn't finished.
-    //   - If it is true, the partition is finished and can be waited on.
-    //   - If it is absent, the partition is finished and has already been waited on.
-    std::unordered_map<PartID, bool> partitions_ready_to_wait_on_;
+    std::unordered_map<PartID, PartitionInfo> goalposts_;
+
     mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
     mutable std::condition_variable cv_;
 };
