@@ -46,7 +46,16 @@ struct PackedData {
         );
     }
 
-    PackedData() = delete;
+    /**
+     * @brief Construct an empty PackedData object.
+     *
+     * This constructor initializes both the metadata and GPU data to empty
+     * buffers.
+     */
+    PackedData()
+        : metadata{std::make_unique<std::vector<std::uint8_t>>()},
+          gpu_data{std::make_unique<rmm::device_buffer>()} {}
+
     ~PackedData() = default;
 
     /// @brief PackedData is moveable
