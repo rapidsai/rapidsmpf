@@ -15,6 +15,7 @@
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf::experimental::all_gatherer {
@@ -92,8 +93,10 @@ class AllGatherer {
     );
 
   private:
-    class Impl;  ///< Pimpl idiom
-    std::unique_ptr<Impl> pimpl_;
+    Communicator const* comm_;
+    std::unique_ptr<shuffler::Shuffler> shuffler_;
+    rmm::cuda_stream_view stream_;
+    BufferResource* br_;
 };
 
 }  // namespace rapidsmpf::experimental::all_gatherer

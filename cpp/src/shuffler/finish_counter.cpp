@@ -105,7 +105,6 @@ PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout)
     );
 
     // We extract the partition to avoid returning the same partition twice.
-    std::cout << "extracting partition " << finished_key << std::endl;
     return extract_key(partitions_ready_to_wait_on_, finished_key);
 }
 
