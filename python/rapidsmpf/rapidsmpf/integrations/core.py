@@ -59,13 +59,8 @@ class WorkerContext:
 
 
 @runtime_checkable
-class ShuffleIntegration(Protocol[DataFrameT]):
-    """
-    dask-integration protocol.
-
-    This protocol can be used to implement a RapidsMPF-shuffle
-    operation using a Dask task graph.
-    """
+class ShufflerIntegration(Protocol[DataFrameT]):
+    """Shuffle-integration protocol."""
 
     @staticmethod
     def insert_partition(

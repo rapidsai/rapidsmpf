@@ -25,7 +25,7 @@ from rapidsmpf.config import (
     Options,
     get_environment_variables,
 )
-from rapidsmpf.integrations.common import WorkerContext
+from rapidsmpf.integrations.core import WorkerContext
 from rapidsmpf.integrations.dask import _compat
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor

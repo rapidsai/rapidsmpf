@@ -14,7 +14,7 @@ from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.communicator.single import new_communicator
 from rapidsmpf.config import Optional, OptionalBytes, Options
-from rapidsmpf.integrations.common import ShuffleIntegration, WorkerContext
+from rapidsmpf.integrations.core import ShufflerIntegration, WorkerContext
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
@@ -22,7 +22,7 @@ from rapidsmpf.shuffler import Shuffler
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from rapidsmpf.integrations.common import DataFrameT
+    from rapidsmpf.integrations.core import DataFrameT
 
 
 # Set of available shuffle IDs
@@ -329,7 +329,7 @@ def _insert_partition_single(
     ----------
     callback
         Insertion callback function. This function must be
-        the `insert_partition` attribute of a `ShuffleIntegration`
+        the `insert_partition` attribute of a `ShufflerIntegration`
         protocol.
     df
         DataFrame partition to add to a RapidsMPF shuffler.
@@ -374,7 +374,7 @@ def _extract_partition_single(
     ----------
     callback
         Insertion callback function. This function must be
-        the `extract_partition` attribute of a `ShuffleIntegration`
+        the `extract_partition` attribute of a `ShufflerIntegration`
         protocol.
     shuffle_id
         The RapidsMPF shuffle id.
@@ -410,7 +410,7 @@ def single_rapidsmpf_shuffle_graph(
     output_name: str,
     partition_count_in: int,
     partition_count_out: int,
-    integration: ShuffleIntegration,
+    integration: ShufflerIntegration,
     options: Any,
     *other_keys: str | tuple[str, int],
     config_options: Options = Options(),
@@ -449,8 +449,8 @@ def single_rapidsmpf_shuffle_graph(
     _stage_single_shuffler(shuffle_id, partition_count_out)
 
     # Check integration argument
-    if not isinstance(integration, ShuffleIntegration):
-        raise TypeError(f"Expected ShuffleIntegration object, got {integration}.")
+    if not isinstance(integration, ShufflerIntegration):
+        raise TypeError(f"Expected ShufflerIntegration object, got {integration}.")
 
     # Define task names for each phase of the shuffle
     insert_name = f"rmpf-insert-{output_name}"

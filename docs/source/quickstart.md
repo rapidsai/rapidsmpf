@@ -33,6 +33,6 @@ with LocalCUDACluster(rmm_pool_size=0.8) as cluster:
 ```
 
 After shuffling on `name`, all of the records with a particular name will be in
-the same partition. See [Dask Integration](#api-integration-dask) for more.
+the same partition. See [Dask examples](#integration-examples-dask) for more.
 
 [Dask-cuDF]: https://docs.rapids.ai/api/dask-cudf/stable/

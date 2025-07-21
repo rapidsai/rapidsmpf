@@ -12,7 +12,7 @@ from distributed import get_worker
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.config import Options
-from rapidsmpf.integrations.common import ShuffleIntegration
+from rapidsmpf.integrations.core import ShufflerIntegration
 from rapidsmpf.integrations.dask.core import (
     get_dask_client,
     get_worker_context,
@@ -26,17 +26,12 @@ if TYPE_CHECKING:
 
     from distributed import Client, Worker
 
-    from rapidsmpf.integrations.common import DataFrameT
+    from rapidsmpf.integrations.core import DataFrameT
 
 
 # Set of available shuffle IDs
 _shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
 _shuffle_id_vacancy_lock: threading.Lock = threading.Lock()
-
-
-# Backward compatibility.
-# TODO: Move to more-general `ShuffleIntegration` language everywhere.
-DaskIntegration = ShuffleIntegration
 
 
 def _get_new_shuffle_id(client: Client) -> int:
@@ -231,7 +226,7 @@ def _insert_partition(
     ----------
     callback
         Insertion callback function. This function must be
-        the `insert_partition` attribute of a `DaskIntegration`
+        the `insert_partition` attribute of a `ShufflerIntegration`
         protocol.
     df
         DataFrame partition to add to a RapidsMPF shuffler.
@@ -277,7 +272,7 @@ def _extract_partition(
     ----------
     callback
         Insertion callback function. This function must be
-        the `extract_partition` attribute of a `DaskIntegration`
+        the `extract_partition` attribute of a `ShufflerIntegration`
         protocol.
     shuffle_id
         The RapidsMPF shuffle id.
@@ -323,7 +318,7 @@ def rapidsmpf_shuffle_graph(
     output_name: str,
     partition_count_in: int,
     partition_count_out: int,
-    integration: DaskIntegration,
+    integration: ShufflerIntegration,
     options: Any,
     *other_keys: str | tuple[str, int],
     config_options: Options = Options(),
@@ -418,8 +413,8 @@ def rapidsmpf_shuffle_graph(
     shuffle_id = _get_new_shuffle_id(client)
 
     # Check integration argument
-    if not isinstance(integration, DaskIntegration):
-        raise TypeError(f"Expected DaskIntegration object, got {integration}.")
+    if not isinstance(integration, ShufflerIntegration):
+        raise TypeError(f"Expected ShufflerIntegration object, got {integration}.")
 
     # Note: We've observed high overhead from `Client.run` on some systems with
     # some networking configurations. Minimize the number of `Client.run` calls
