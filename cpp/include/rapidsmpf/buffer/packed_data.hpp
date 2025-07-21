@@ -75,7 +75,7 @@ struct PackedData {
      *
      * @return True if the packed data is empty, false otherwise.
      */
-    [[nodiscard]] inline bool empty() const {
+    [[nodiscard]] bool empty() const {
         return metadata->empty() && gpu_data->size() == 0;
     }
 };
