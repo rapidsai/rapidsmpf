@@ -77,7 +77,7 @@ void wait_for_if_timeout_else_wait(
     }
 }
 
-std::pair<PartID, ChunkID> FinishCounter::wait_any(
+std::pair<PartID, bool> FinishCounter::wait_any(
     std::optional<std::chrono::milliseconds> timeout
 ) {
     PartID finished_key{std::numeric_limits<PartID>::max()};
@@ -102,10 +102,10 @@ std::pair<PartID, ChunkID> FinishCounter::wait_any(
 
     // We extract the partition to avoid returning the same partition twice.
     auto p_info = goalposts_.extract(finished_key);
-    return {finished_key, p_info.mapped().data_chunk_goal()};
+    return {finished_key, p_info.mapped().data_chunk_goal() != 0};
 }
 
-ChunkID FinishCounter::wait_on(
+bool FinishCounter::wait_on(
     PartID pid, std::optional<std::chrono::milliseconds> timeout
 ) {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -117,10 +117,10 @@ ChunkID FinishCounter::wait_on(
         return it->second.is_finished(nranks_);
     });
     auto p_info = goalposts_.extract(pid);
-    return p_info.mapped().data_chunk_goal();
+    return p_info.mapped().data_chunk_goal() != 0;
 }
 
-std::pair<std::vector<PartID>, std::vector<ChunkID>> FinishCounter::wait_some(
+std::pair<std::vector<PartID>, std::vector<bool>> FinishCounter::wait_some(
     std::optional<std::chrono::milliseconds> timeout
 ) {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -135,18 +135,18 @@ std::pair<std::vector<PartID>, std::vector<ChunkID>> FinishCounter::wait_some(
     });
 
     std::vector<PartID> pids{};
-    std::vector<ChunkID> n_data_chunks{};
+    std::vector<bool> contains_data{};
     for (auto it = goalposts_.begin(); it != goalposts_.end();) {
         auto& [pid, p_info] = *it;
         if (p_info.is_finished(nranks_)) {
             pids.push_back(pid);
-            n_data_chunks.push_back(p_info.data_chunk_goal());
+            contains_data.push_back(p_info.data_chunk_goal() != 0);
             it = goalposts_.erase(it);
         } else {
             ++it;
         }
     }
-    return {std::move(pids), std::move(n_data_chunks)};
+    return {std::move(pids), std::move(contains_data)};
 }
 
 std::string detail::FinishCounter::str() const {

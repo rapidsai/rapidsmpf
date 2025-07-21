@@ -94,14 +94,14 @@ class FinishCounter {
      *
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @return The partition ID of a finished partition and the number of data chunks that
-     * have been finished.
+     * @return The partition ID of a finished partition and a boolean indicating if the
+     * partition contains data.
      *
      * @throw std::out_of_range If all partitions have already been waited on.
      * std::runtime_error If timeout was set and no partitions have been finished by the
      * expiration.
      */
-    std::pair<PartID, ChunkID> wait_any(
+    std::pair<PartID, bool> wait_any(
         std::optional<std::chrono::milliseconds> timeout = {}
     );
 
@@ -116,13 +116,13 @@ class FinishCounter {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @return The number of data chunks that have been finished.
+     * @return A boolean indicating if the partition contains data.
      *
      * @throw std::out_of_range If the desired partition is unavailable.
      * std::runtime_error If timeout was set and requested partition has been finished by
      * the expiration.
      */
-    ChunkID wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
+    bool wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Returns a vector of partition ids that are finished and haven't been waited
@@ -136,14 +136,14 @@ class FinishCounter {
      *
      * @note It is the caller's responsibility to process all returned partition IDs.
      *
-     * @return A pair of vectors of finished partitions and the number of data chunks
-     * that have been finished for each partition.
+     * @return A pair of vectors of finished partitions and a boolean indicating if the
+     * partition contains data for each partition.
      *
      * @throw std::out_of_range If all partitions have been waited on.
      * std::runtime_error If timeout was set and no partitions have been finished by the
      * expiration.
      */
-    std::pair<std::vector<PartID>, std::vector<ChunkID>> wait_some(
+    std::pair<std::vector<PartID>, std::vector<bool>> wait_some(
         std::optional<std::chrono::milliseconds> timeout = {}
     );
 
