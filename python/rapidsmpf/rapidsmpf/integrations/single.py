@@ -232,7 +232,7 @@ def get_single_shuffler(
     Returns
     -------
     The active RapidsMPF :class:`Shuffler` object associated with
-    the specified ``shuffle_id`` and ``partition_count`.
+    the specified ``shuffle_id`` and ``partition_count``.
 
     Notes
     -----
