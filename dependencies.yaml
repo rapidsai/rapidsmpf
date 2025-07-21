@@ -555,7 +555,7 @@ dependencies:
               cuda: "12.*"
               cuda_suffixed: "true"
             packages:
-              - ucxx-cu12==0.45.*,>=0.0.0a0
+              - ucxx-cu12==0.46.*,>=0.0.0a0
           - matrix:
             packages:
               - *ucxx_unsuffixed
