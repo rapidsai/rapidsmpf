@@ -22,8 +22,8 @@ namespace rapidsmpf::experimental::all_gatherer {
  * @brief A naive implementation of the all-gather operation.
  *
  * The implementation creates a copy of the data for each peer during insertion and assign
- * the peer's rank as the partition ID, ie. there will only be one partition per rank.
- * `partition_owner` lambda function is an identity function. These enables the data
+ * the peer's rank as the partition ID, i.e., there will only be one partition per rank.
+ * `partition_owner` lambda function is an identity function. These enable the data
  * copies to be sent to the corresponding rank using the Shuffler.
  *
  * @note This implementation might not be scalable, as it makes a copy of the data for
