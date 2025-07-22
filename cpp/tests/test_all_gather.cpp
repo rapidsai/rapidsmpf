@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,7 +12,7 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/table_utilities.hpp>
 
-#include <rapidsmpf/all_gatherer/all_gatherer.hpp>
+#include <rapidsmpf/all_gather/all_gather.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -23,7 +23,7 @@
 #include "environment.hpp"
 #include "utils.hpp"
 
-using namespace rapidsmpf::experimental::all_gatherer;
+using namespace rapidsmpf::all_gather;
 
 extern Environment* GlobalEnvironment;
 
@@ -74,7 +74,7 @@ void validate_packed_data(
     EXPECT_EQ(metadata, copied_data);
 }
 
-class AllGathererTest
+class AllGatherTest
     : public cudf::test::BaseFixtureWithParam<std::tuple<size_t, size_t>> {
   protected:
     void SetUp() override {
@@ -83,7 +83,7 @@ class AllGathererTest
         br = std::make_unique<rapidsmpf::BufferResource>(mr());
         comm = GlobalEnvironment->comm_.get();
 
-        all_gatherer = std::make_unique<AllGatherer>(
+        all_gather = std::make_unique<AllGather>(
             GlobalEnvironment->comm_,
             GlobalEnvironment->progress_thread_,
             0,
@@ -96,7 +96,7 @@ class AllGathererTest
     void TearDown() override {
         GlobalEnvironment->barrier();
 
-        all_gatherer.reset();
+        all_gather.reset();
         br.reset();
     }
 
@@ -105,43 +105,43 @@ class AllGathererTest
 
     rmm::cuda_stream_view stream;
     rapidsmpf::Communicator* comm;
-    std::unique_ptr<AllGatherer> all_gatherer;
+    std::unique_ptr<AllGather> all_gather;
     std::unique_ptr<rapidsmpf::BufferResource> br;
 };
 
 // Parameterized test for different element counts
 INSTANTIATE_TEST_SUITE_P(
-    AllGatherer,
-    AllGathererTest,
+    AllGather,
+    AllGatherTest,
     ::testing::Combine(
         ::testing::Values(0, 10, 100),  // n_elements
         ::testing::Values(1, 10)  // n_inserts
     ),
-    [](const ::testing::TestParamInfo<AllGathererTest::ParamType>& info) {
+    [](const ::testing::TestParamInfo<AllGatherTest::ParamType>& info) {
         return "n_elements_" + std::to_string(std::get<0>(info.param)) + "_n_inserts_"
                + std::to_string(std::get<1>(info.param));
     }
 );
 
 // Test simple shutdown
-TEST_P(AllGathererTest, shutdown) {
-    all_gatherer->shutdown();
+TEST_P(AllGatherTest, shutdown) {
+    all_gather->shutdown();
 }
 
 // Test basic all-gather
-TEST_P(AllGathererTest, basic_all_gather) {
+TEST_P(AllGatherTest, basic_all_gather) {
     for (size_t i = 0; i < n_inserts; i++) {
         auto packed_data = generate_packed_data(
             n_elements, static_cast<size_t>(comm->rank()), stream, mr()
         );
-        all_gatherer->insert(std::move(packed_data));
+        all_gather->insert(std::move(packed_data));
     }
 
-    all_gatherer->insert_finished();
+    all_gather->insert_finished();
 
-    auto results = all_gatherer->wait_and_extract();
+    auto results = all_gather->wait_and_extract();
 
-    EXPECT_TRUE(all_gatherer->finished());
+    EXPECT_TRUE(all_gather->finished());
     EXPECT_EQ(n_inserts * static_cast<size_t>(comm->nranks()), results.size());
     if (n_elements > 0) {  // only validate if there is data
         for (auto const& result : results) {

@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include <rapidsmpf/all_gatherer/all_gatherer.hpp>
+#include <rapidsmpf/all_gather/all_gather.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -16,7 +16,7 @@
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 
-namespace rapidsmpf::experimental::all_gatherer {
+namespace rapidsmpf::all_gather {
 
 /**
  * @brief A naive implementation of the all-gather operation.
@@ -30,7 +30,7 @@ namespace rapidsmpf::experimental::all_gatherer {
  * each peer during insertion.
  */
 
-AllGatherer::AllGatherer(
+AllGather::AllGather(
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
@@ -55,18 +55,18 @@ AllGatherer::AllGatherer(
       stream_(stream),
       br_(br) {}
 
-AllGatherer::~AllGatherer() {
+AllGather::~AllGather() {
     shutdown();
 }
 
-void AllGatherer::shutdown() {
+void AllGather::shutdown() {
     if (shuffler_) {
         shuffler_->shutdown();
         shuffler_.reset();
     }
 }
 
-void AllGatherer::insert(PackedData&& data) {
+void AllGather::insert(PackedData&& data) {
     std::unordered_map<shuffler::PartID, PackedData> chunks;
     chunks.reserve(static_cast<size_t>(comm_->nranks()));
 
@@ -89,18 +89,18 @@ void AllGatherer::insert(PackedData&& data) {
     shuffler_->insert(std::move(chunks));
 }
 
-void AllGatherer::insert_finished() {
+void AllGather::insert_finished() {
     // there will be n_ranks partitions
     std::vector<shuffler::PartID> pids(static_cast<size_t>(comm_->nranks()));
     std::iota(pids.begin(), pids.end(), 0);
     shuffler_->insert_finished(std::move(pids));
 }
 
-bool AllGatherer::finished() const {
+bool AllGather::finished() const {
     return shuffler_->finished();
 }
 
-std::vector<PackedData> AllGatherer::wait_and_extract(
+std::vector<PackedData> AllGather::wait_and_extract(
     std::optional<std::chrono::milliseconds> timeout
 ) {
     // wait for the local partition data
@@ -109,4 +109,4 @@ std::vector<PackedData> AllGatherer::wait_and_extract(
     return shuffler_->extract(pid);
 }
 
-}  // namespace rapidsmpf::experimental::all_gatherer
+}  // namespace rapidsmpf::all_gather

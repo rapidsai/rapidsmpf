@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -18,30 +18,30 @@
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 
-namespace rapidsmpf::experimental::all_gatherer {
+namespace rapidsmpf::all_gather {
 
 /**
  * @brief All-gather service for cuDF tables.
  *
- * The `AllGatherer` class provides an interface for performing an all-gather operation
+ * The `AllGather` class provides an interface for performing an all-gather operation
  * on cuDF tables, collecting data from all ranks and distributing the complete dataset
  * to all ranks.
  */
-class AllGatherer {
+class AllGather {
   public:
     /**
-     * @brief Construct a new all-gatherer for a single all-gather operation.
+     * @brief Construct a new all-gather for a single all-gather operation.
      *
      * @param comm The communicator to use.
      * @param progress_thread The progress thread to use.
      * @param op_id The operation ID of the all-gather. This ID is unique for this
      * operation, and should not be reused until all nodes has called
-     * `AllGatherer::shutdown()`.
+     * `AllGather::shutdown()`.
      * @param stream The CUDA stream for memory operations.
      * @param br Buffer resource used to allocate temporary and the all-gather result.
      * @param statistics The statistics instance to use (disabled by default).
      */
-    AllGatherer(
+    AllGather(
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
@@ -51,9 +51,9 @@ class AllGatherer {
     );
 
     /**
-     * @brief Destructor.
+     * @brief Destructor, which calls shutdown.
      */
-    ~AllGatherer();
+    ~AllGather();
 
     /**
      * @brief Shutdown the all-gather, blocking until all inflight communication is done.
@@ -87,6 +87,8 @@ class AllGatherer {
      * @return A vector of packed data containing all gathered data from all ranks.
      *
      * @note There are no guarantees on the order of the data across ranks.
+     *
+     * @throw std::runtime_error if the timeout is reached.
      */
     [[nodiscard]] std::vector<PackedData> wait_and_extract(
         std::optional<std::chrono::milliseconds> timeout = {}
@@ -99,4 +101,4 @@ class AllGatherer {
     BufferResource* br_;
 };
 
-}  // namespace rapidsmpf::experimental::all_gatherer
+}  // namespace rapidsmpf::all_gather
