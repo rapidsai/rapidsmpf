@@ -57,10 +57,10 @@ class FinishCounter {
      * rank and partition. It should only be called once per rank and partition.
      *
      * @param pid The partition ID the goalpost is assigned to.
-     * @param nchunks The number of chunks required.
+     * @param nchunks The number of chunks required. (Requires nchunks > 0)
      *
      * @throw std::logic_error If the goalpost is moved more than once for the same rank
-     * and partition.
+     * and partition, or if nchunks is 0.
      */
     void move_goalpost(PartID pid, ChunkID nchunks);
 
@@ -166,6 +166,9 @@ class FinishCounter {
                                        ///< The goal of a partition has been
                                        ///< reached when its counter equals the goalpost.
 
+        constexpr PartitionInfo()
+            : rank_count(0), chunk_goal(0), finished_chunk_count(0) {}
+
         constexpr void move_goalpost(ChunkID nchunks, Rank nranks) {
             RAPIDSMPF_EXPECTS(nchunks != 0, "the goalpost was moved by 0 chunks");
             RAPIDSMPF_EXPECTS(
@@ -191,7 +194,9 @@ class FinishCounter {
 
         [[nodiscard]] constexpr ChunkID data_chunk_goal() const {
             // there will always be a control message from each rank indicating how many
-            // chunks it's sending. Chunk goal contains this control message for each rank.
+            // chunks it's sending. Chunk goal contains this control message for each
+            // rank. Therefore, to get the data chunk goal, we need to subtract the number
+            // of ranks that have reported their chunk count from the chunk goal.
             return chunk_goal - static_cast<ChunkID>(rank_count);
         }
     };
