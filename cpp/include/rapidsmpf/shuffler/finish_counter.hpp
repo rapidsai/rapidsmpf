@@ -159,15 +159,14 @@ class FinishCounter {
 
     /// @brief Information about a local partition.
     struct PartitionInfo {
-        Rank rank_count;  ///< number of ranks that have reported their chunk count.
-        ChunkID chunk_goal;  ///< the goal of a partition. This keeps increasing until all
-                             ///< ranks have reported their chunk count.
-        ChunkID finished_chunk_count;  ///< The finished chunk counter of each partition.
-                                       ///< The goal of a partition has been
-                                       ///< reached when its counter equals the goalpost.
+        Rank rank_count{0};  ///< number of ranks that have reported their chunk count.
+        ChunkID chunk_goal{0};  ///< the goal of a partition. This keeps increasing until
+                                ///< all ranks have reported their chunk count.
+        ChunkID finished_chunk_count{0
+        };  ///< The finished chunk counter of each partition. The goal of a partition has
+            ///< been reached when its counter equals the goalpost.
 
-        constexpr PartitionInfo()
-            : rank_count(0), chunk_goal(0), finished_chunk_count(0) {}
+        constexpr PartitionInfo() = default;
 
         constexpr void move_goalpost(ChunkID nchunks, Rank nranks) {
             RAPIDSMPF_EXPECTS(nchunks != 0, "the goalpost was moved by 0 chunks");
