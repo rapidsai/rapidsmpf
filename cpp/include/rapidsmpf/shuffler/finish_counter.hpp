@@ -191,7 +191,7 @@ class FinishCounter {
 
         [[nodiscard]] constexpr ChunkID data_chunk_goal() const {
             // there will always be a control message from each rank indicating how many
-            // chunks its sending. Chunk goal contains this control message for each rank.
+            // chunks it's sending. Chunk goal contains this control message for each rank.
             return chunk_goal - static_cast<ChunkID>(rank_count);
         }
     };
