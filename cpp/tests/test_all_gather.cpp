@@ -95,9 +95,6 @@ class AllGatherTest
 
     void TearDown() override {
         GlobalEnvironment->barrier();
-
-        all_gather.reset();
-        br.reset();
     }
 
     size_t n_elements;
@@ -105,8 +102,8 @@ class AllGatherTest
 
     rmm::cuda_stream_view stream;
     rapidsmpf::Communicator* comm;
-    std::unique_ptr<AllGather> all_gather;
     std::unique_ptr<rapidsmpf::BufferResource> br;
+    std::unique_ptr<AllGather> all_gather;
 };
 
 // Parameterized test for different element counts
@@ -151,4 +148,6 @@ TEST_P(AllGatherTest, basic_all_gather) {
             );
         }
     }
+
+    all_gather->shutdown();
 }
