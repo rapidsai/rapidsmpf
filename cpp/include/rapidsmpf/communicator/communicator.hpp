@@ -4,12 +4,14 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <rapidsmpf/buffer/buffer.hpp>
@@ -405,6 +407,24 @@ class Communicator {
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
+    ) = 0;
+
+    /**
+     * @brief Sends a message (device or host) to multiple destination ranks.
+     *
+     * @param msg Unique pointer to the message data (Buffer).
+     * @param ranks Set of destination ranks.
+     * @param tag Message tag for identification.
+     * @return A unique pointer to a `Future` representing the asynchronous operation.
+     *
+     * @warning The caller is responsible to ensure the underlying `Buffer` allocation
+     * and data are already valid before calling, for example, when a CUDA allocation
+     * and/or copy are done asynchronously. Specifically, the caller should ensure
+     * `Buffer::is_ready()` returns true before calling this function, if not, a
+     * warning is printed and the application will terminate.
+     */
+    [[nodiscard]] virtual std::unique_ptr<Future> send(
+        std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag
     ) = 0;
 
     /**

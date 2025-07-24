@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <unordered_set>
 #include <utility>
 
 #include <rapidsmpf/communicator/ucxx.hpp>
@@ -1100,6 +1101,14 @@ std::unique_ptr<Communicator::Future> UCXX::send(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
     );
     return std::make_unique<Future>(req, std::move(msg));
+}
+
+std::unique_ptr<Communicator::Future> UCXX::send(
+    std::unique_ptr<Buffer> /* msg */,
+    std::unordered_set<Rank> const& /* ranks */,
+    Tag /* tag */
+) {
+    RAPIDSMPF_FAIL("UCXX send to multiple ranks not implemented", std::runtime_error);
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv(

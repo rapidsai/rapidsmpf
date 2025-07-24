@@ -4,6 +4,7 @@
  */
 
 #include <array>
+#include <unordered_set>
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
@@ -128,6 +129,14 @@ std::unique_ptr<Communicator::Future> MPI::send(
     MPI_Request req;
     RAPIDSMPF_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
     return std::make_unique<Future>(req, std::move(msg));
+}
+
+std::unique_ptr<Communicator::Future> MPI::send(
+    std::unique_ptr<Buffer> /* msg */,
+    std::unordered_set<Rank> const& /* ranks */,
+    Tag /* tag */
+) {
+    RAPIDSMPF_FAIL("MPI send to multiple ranks not implemented", std::runtime_error);
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(

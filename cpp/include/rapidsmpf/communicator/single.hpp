@@ -80,6 +80,17 @@ class Single final : public Communicator {
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
     ) override;
 
+    // clang-format off
+    /**
+     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag)
+     *
+     * @throws std::runtime_error if called (single-process communicators should never send messages).
+     */
+    // clang-format on
+    [[nodiscard]] std::unique_ptr<Communicator::Future> send(
+        std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag
+    ) override;
+
     /**
      * @copydoc Communicator::recv
      *
