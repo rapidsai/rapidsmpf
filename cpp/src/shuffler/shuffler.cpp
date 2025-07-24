@@ -201,7 +201,7 @@ class Shuffler::Progress {
                         dst,
                         ready_for_data_tag,
                         shuffler_.br_->move(std::make_unique<std::vector<std::uint8_t>>(
-                            sizeof(ReadyForDataMessage)
+                            ReadyForDataMessage::byte_size
                         ))
                     ));
                 }
