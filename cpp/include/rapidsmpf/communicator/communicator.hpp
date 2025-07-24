@@ -487,7 +487,7 @@ class Communicator {
      * @param future The batch future to test.
      * @return True if the batch future is completed, false otherwise.
      *
-     * @throws std::bad_cast if the future is not a batch future.
+     * @throws std::runtime_error if the future is not a batch future.
      */
     [[nodiscard]] virtual bool test_batch(BatchFuture& future) = 0;
 

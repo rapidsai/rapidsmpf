@@ -93,6 +93,24 @@ void check_mpi_thread_support() {
             + " isn't sufficient, need MPI_THREAD_MULTIPLE"
     );
 }
+
+std::vector<int> mpi_testsome(std::vector<MPI_Request>& reqs) {
+    std::vector<int> indices(reqs.size());
+    int num_completed{0};
+    RAPIDSMPF_MPI(MPI_Testsome(
+        reqs.size(), reqs.data(), &num_completed, indices.data(), MPI_STATUSES_IGNORE
+    ));
+    RAPIDSMPF_EXPECTS(
+        num_completed != MPI_UNDEFINED, "Expected at least one active handle."
+    );
+    if (num_completed == 0) {
+        return {};
+    }
+
+    indices.resize(static_cast<std::size_t>(num_completed));
+    return indices;
+}
+
 }  // namespace
 
 MPI::MPI(MPI_Comm comm, config::Options options)
@@ -130,11 +148,25 @@ std::unique_ptr<Communicator::Future> MPI::send(
 }
 
 std::unique_ptr<Communicator::BatchFuture> MPI::send(
-    std::unique_ptr<Buffer> /* msg */,
-    std::unordered_set<Rank> const& /* ranks */,
-    Tag /* tag */
+    std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag
 ) {
-    RAPIDSMPF_FAIL("MPI send to multiple ranks not implemented", std::runtime_error);
+    RAPIDSMPF_EXPECTS(
+        msg != nullptr && !ranks.empty(), "malformed arguments passed to batch send"
+    );
+    RAPIDSMPF_EXPECTS(
+        msg->size <= std::numeric_limits<int>::max(),
+        "send buffer size exceeds MPI max count"
+    );
+    std::vector<MPI_Request> reqs;
+    reqs.reserve(ranks.size());
+    for (auto rank : ranks) {
+        MPI_Request req;
+        RAPIDSMPF_MPI(
+            MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req)
+        );
+        reqs.emplace_back(req);
+    }
+    return std::make_unique<BatchFuture>(std::move(reqs), std::move(msg));
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
@@ -199,22 +231,12 @@ std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
     }
 
     // Get completed requests as indices into `future_vector` (and `reqs`).
-    std::vector<int> indices(reqs.size());
-    int num_completed{0};
-    RAPIDSMPF_MPI(MPI_Testsome(
-        reqs.size(), reqs.data(), &num_completed, indices.data(), MPI_STATUSES_IGNORE
-    ));
-    RAPIDSMPF_EXPECTS(
-        num_completed != MPI_UNDEFINED, "Expected at least one active handle."
-    );
-    if (num_completed == 0) {
-        return {};
-    }
+    auto indices = mpi_testsome(reqs);
     std::vector<std::unique_ptr<Communicator::Future>> completed;
-    completed.reserve(static_cast<std::size_t>(num_completed));
+    completed.reserve(indices.size());
     std::ranges::transform(
         indices.begin(),
-        indices.begin() + num_completed,
+        indices.end(),
         std::back_inserter(completed),
         [&](std::size_t i) { return std::move(future_vector[i]); }
     );
@@ -266,8 +288,24 @@ std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> 
     return std::move(mpi_future->data_);
 }
 
-bool MPI::test_batch(BatchFuture& /* future */) {
-    RAPIDSMPF_FAIL("MPI test_batch not implemented", std::runtime_error);
+bool MPI::test_batch(Communicator::BatchFuture& future) {
+    auto mpi_batch_future = dynamic_cast<MPI::BatchFuture*>(&future);
+    RAPIDSMPF_EXPECTS(mpi_batch_future != nullptr, "future isn't a MPI::BatchFuture");
+
+    auto& reqs = mpi_batch_future->reqs_;
+    if (reqs.empty()) {
+        return true;  // No requests to test, consider it complete
+    }
+
+    // Test all requests in the batch
+    auto indices = mpi_testsome(reqs);
+    std::ranges::transform(indices.begin(), indices.end(), reqs.begin(), [&](int i) {
+        return reqs[static_cast<size_t>(i)] = nullptr;
+    });
+    std::erase(reqs, nullptr);
+
+    // Return true if all requests are completed
+    return reqs.empty();
 }
 
 std::string MPI::str() const {

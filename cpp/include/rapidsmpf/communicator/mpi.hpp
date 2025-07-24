@@ -103,7 +103,7 @@ class MPI final : public Communicator {
      * This class is used to handle the result of multiple MPI operations
      * asynchronously.
      */
-    class MultiReqFuture : public Communicator::Future {
+    class BatchFuture : public Communicator::BatchFuture {
         friend class MPI;
 
       public:
@@ -113,10 +113,10 @@ class MPI final : public Communicator {
          * @param reqs Vector of MPI request handles for the operations.
          * @param data A unique pointer to the data buffer.
          */
-        MultiReqFuture(std::vector<MPI_Request> reqs, std::unique_ptr<Buffer> data)
+        BatchFuture(std::vector<MPI_Request> reqs, std::unique_ptr<Buffer> data)
             : reqs_{std::move(reqs)}, data_{std::move(data)} {}
 
-        ~MultiReqFuture() noexcept override = default;
+        ~BatchFuture() noexcept override = default;
 
       private:
         std::vector<MPI_Request>
@@ -213,7 +213,7 @@ class MPI final : public Communicator {
     /**
      * @copydoc Communicator::test_batch
      */
-    [[nodiscard]] bool test_batch(BatchFuture& future) override;
+    [[nodiscard]] bool test_batch(Communicator::BatchFuture& future) override;
 
     /**
      * @copydoc Communicator::logger
