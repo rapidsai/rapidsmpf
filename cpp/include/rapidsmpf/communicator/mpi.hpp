@@ -98,6 +98,32 @@ class MPI final : public Communicator {
     };
 
     /**
+     * @brief Represents the future result of multiple MPI operations.
+     *
+     * This class is used to handle the result of multiple MPI operations
+     * asynchronously.
+     */
+    class MultiReqFuture : public Communicator::Future {
+        friend class MPI;
+
+      public:
+        /**
+         * @brief Construct a MultiReqFuture.
+         *
+         * @param reqs Vector of MPI request handles for the operations.
+         * @param data A unique pointer to the data buffer.
+         */
+        MultiReqFuture(std::vector<MPI_Request> reqs, std::unique_ptr<Buffer> data)
+            : reqs_{std::move(reqs)}, data_{std::move(data)} {}
+
+        ~MultiReqFuture() noexcept override = default;
+
+      private:
+        std::vector<MPI_Request> reqs_;  ///< The MPI requests associated with the operations.
+        std::unique_ptr<Buffer> data_;  ///< The data buffer.
+    };
+
+    /**
      * @brief Construct an MPI communicator.
      *
      * @param comm The MPI communicator to be used for communication.
