@@ -105,14 +105,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
 ) {
     RAPIDSMPF_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
-    RAPIDSMPF_EXPECTS(
-        msg->size() <= std::numeric_limits<int>::max(),
-        "send buffer size exceeds MPI max count"
-    );
-    MPI_Request req;
-    RAPIDSMPF_MPI(MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
-    );
-    return std::make_unique<Future>(req, br->move(std::move(msg)));
+    return send(br->move(std::move(msg)), rank, tag);
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
