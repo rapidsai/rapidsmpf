@@ -266,6 +266,10 @@ std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> 
     return std::move(mpi_future->data_);
 }
 
+bool MPI::test_batch(BatchFuture& /* future */) {
+    RAPIDSMPF_FAIL("MPI test_batch not implemented", std::runtime_error);
+}
+
 std::string MPI::str() const {
     int version, subversion;
     RAPIDSMPF_MPI(MPI_Get_version(&version, &subversion));

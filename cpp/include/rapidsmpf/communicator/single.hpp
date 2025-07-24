@@ -143,6 +143,14 @@ class Single final : public Communicator {
     ) override;
 
     /**
+     * @copydoc Communicator::test_batch
+     *
+     * @throws std::runtime_error if called (single-process communicators should never
+     * send messages).
+     */
+    [[nodiscard]] bool test_batch(BatchFuture& future) override;
+
+    /**
      * @copydoc Communicator::logger
      */
     [[nodiscard]] Logger& logger() override {

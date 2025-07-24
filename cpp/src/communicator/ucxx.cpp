@@ -1207,6 +1207,10 @@ std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future>
     return std::move(ucxx_future->data_);
 }
 
+bool UCXX::test_batch(BatchFuture& /* future */) {
+    RAPIDSMPF_FAIL("UCXX test_batch not implemented", std::runtime_error);
+}
+
 std::string UCXX::str() const {
     unsigned major, minor, release;
     ucp_get_version(&major, &minor, &release);

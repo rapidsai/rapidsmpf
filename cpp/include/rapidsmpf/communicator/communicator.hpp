@@ -482,6 +482,16 @@ class Communicator {
     ) = 0;
 
     /**
+     * @brief Tests for completion of a batch future.
+     *
+     * @param future The batch future to test.
+     * @return True if the batch future is completed, false otherwise.
+     *
+     * @throws std::bad_cast if the future is not a batch future.
+     */
+    [[nodiscard]] virtual bool test_batch(BatchFuture& future) = 0;
+
+    /**
      * @brief Tests for completion of multiple futures in a map.
      *
      * @param future_map Map of futures identified by keys.

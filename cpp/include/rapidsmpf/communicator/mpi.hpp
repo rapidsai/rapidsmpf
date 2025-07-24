@@ -211,6 +211,11 @@ class MPI final : public Communicator {
     ) override;
 
     /**
+     * @copydoc Communicator::test_batch
+     */
+    [[nodiscard]] bool test_batch(BatchFuture& future) override;
+
+    /**
      * @copydoc Communicator::logger
      */
     [[nodiscard]] Logger& logger() override {

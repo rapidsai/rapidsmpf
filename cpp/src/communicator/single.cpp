@@ -53,6 +53,10 @@ std::unique_ptr<Buffer> Single::get_gpu_data(std::unique_ptr<Communicator::Futur
     RAPIDSMPF_FAIL("Unexpected get_gpu_data from self", std::runtime_error);
 }
 
+bool Single::test_batch(BatchFuture& /* future */) {
+    RAPIDSMPF_FAIL("Unexpected test_batch from self", std::runtime_error);
+}
+
 std::string Single::str() const {
     std::stringstream ss;
     ss << "Uni(rank=0, nranks: 1)";
