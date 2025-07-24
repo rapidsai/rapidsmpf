@@ -13,9 +13,12 @@ namespace rapidsmpf::shuffler::detail {
 FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions)
     : nranks_{nranks} {
     // Initially, none of the partitions are ready to wait on.
-    goalposts_.reserve(local_partitions.size());
     for (auto pid : local_partitions) {
-        goalposts_.emplace(pid, PartitionInfo{});
+        // partitions_ready_to_wait_on_.insert({pid, false});
+        goalposts_.emplace(
+            pid,
+            PartitionInfo{.rank_count = 0, .chunk_goal = 0, .finished_chunk_count = 0}
+        );
     }
 }
 
@@ -74,9 +77,7 @@ void wait_for_if_timeout_else_wait(
     }
 }
 
-std::pair<PartID, bool> FinishCounter::wait_any(
-    std::optional<std::chrono::milliseconds> timeout
-) {
+PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout) {
     PartID finished_key{std::numeric_limits<PartID>::max()};
 
     std::unique_lock<std::mutex> lock(mutex_);
@@ -98,11 +99,11 @@ std::pair<PartID, bool> FinishCounter::wait_any(
     );
 
     // We extract the partition to avoid returning the same partition twice.
-    auto p_info = goalposts_.extract(finished_key);
-    return {finished_key, p_info.mapped().data_chunk_goal() != 0};
+    goalposts_.erase(finished_key);
+    return finished_key;
 }
 
-bool FinishCounter::wait_on(
+void FinishCounter::wait_on(
     PartID pid, std::optional<std::chrono::milliseconds> timeout
 ) {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -113,11 +114,10 @@ bool FinishCounter::wait_on(
         );
         return it->second.is_finished(nranks_);
     });
-    auto p_info = goalposts_.extract(pid);
-    return p_info.mapped().data_chunk_goal() != 0;
+    goalposts_.erase(pid);
 }
 
-std::pair<std::vector<PartID>, std::vector<bool>> FinishCounter::wait_some(
+std::vector<PartID> FinishCounter::wait_some(
     std::optional<std::chrono::milliseconds> timeout
 ) {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -131,19 +131,17 @@ std::pair<std::vector<PartID>, std::vector<bool>> FinishCounter::wait_some(
         });
     });
 
-    std::vector<PartID> pids{};
-    std::vector<bool> contains_data{};
+    std::vector<PartID> result{};
     for (auto it = goalposts_.begin(); it != goalposts_.end();) {
         auto& [pid, p_info] = *it;
         if (p_info.is_finished(nranks_)) {
-            pids.push_back(pid);
-            contains_data.push_back(p_info.data_chunk_goal() != 0);
+            result.push_back(pid);
             it = goalposts_.erase(it);
         } else {
             ++it;
         }
     }
-    return {std::move(pids), std::move(contains_data)};
+    return result;
 }
 
 std::string detail::FinishCounter::str() const {

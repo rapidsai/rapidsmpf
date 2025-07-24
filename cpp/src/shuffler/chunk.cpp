@@ -101,19 +101,25 @@ Chunk Chunk::from_packed_data(
     rmm::cuda_stream_view stream,
     BufferResource* br
 ) {
+    std::vector<uint32_t> meta_offsets{0};
     RAPIDSMPF_EXPECTS(packed_data.metadata != nullptr, "packed_data.metadata is nullptr");
-    RAPIDSMPF_EXPECTS(packed_data.gpu_data != nullptr, "packed_data.gpu_data is nullptr");
+    meta_offsets[0] = static_cast<uint32_t>(packed_data.metadata->size());
+
+    std::vector<uint64_t> data_offsets{0};
+    if (packed_data.gpu_data) {
+        data_offsets[0] = packed_data.gpu_data->size();
+    }
 
     return {
         chunk_id,
         {part_id},
         {0},  // expected_num_chunks
-        {static_cast<uint32_t>(packed_data.metadata->size())},
-        {packed_data.gpu_data->size()},
+        std::move(meta_offsets),
+        std::move(data_offsets),
         std::move(packed_data.metadata),
-        packed_data.gpu_data->size() > 0
+        packed_data.gpu_data
             ? br->move(std::move(packed_data.gpu_data), stream, std::move(event))
-            : br->allocate_empty_host_buffer()
+            : nullptr
     };
 }
 

@@ -255,9 +255,10 @@ std::tuple<Chunk, std::vector<uint8_t>, std::vector<uint8_t>, size_t> make_mixed
     chunks.push_back(Chunk::from_packed_data(
         0,
         6,
-        create_packed_data(
-            {metadata.begin() + 5, metadata.end()}, {data.data(), 0}, stream
-        ),
+        PackedData{
+            std::make_unique<std::vector<uint8_t>>(metadata.begin() + 5, metadata.end()),
+            nullptr
+        },
         nullptr,
         stream,
         br
