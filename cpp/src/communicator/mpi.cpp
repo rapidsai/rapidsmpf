@@ -129,7 +129,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
     return std::make_unique<Future>(req, std::move(msg));
 }
 
-std::unique_ptr<Communicator::Future> MPI::send(
+std::unique_ptr<Communicator::BatchFuture> MPI::send(
     std::unique_ptr<Buffer> /* msg */,
     std::unordered_set<Rank> const& /* ranks */,
     Tag /* tag */

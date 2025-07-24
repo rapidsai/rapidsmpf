@@ -23,7 +23,7 @@ std::unique_ptr<Communicator::Future> Single::send(std::unique_ptr<Buffer>, Rank
     RAPIDSMPF_FAIL("Unexpected send to self", std::runtime_error);
 }
 
-std::unique_ptr<Communicator::Future> Single::send(
+std::unique_ptr<Communicator::BatchFuture> Single::send(
     std::unique_ptr<Buffer>, std::unordered_set<Rank> const&, Tag
 ) {
     RAPIDSMPF_FAIL("Unexpected send to self", std::runtime_error);

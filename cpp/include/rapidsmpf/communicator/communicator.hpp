@@ -157,6 +157,17 @@ class Communicator {
     };
 
     /**
+     * @brief A batch future is a future that represents a batch of operations.
+     */
+    class BatchFuture {
+      public:
+        BatchFuture() = default;
+        virtual ~BatchFuture() noexcept = default;
+        BatchFuture(BatchFuture&&) = default;  ///< Movable.
+        BatchFuture(BatchFuture&) = delete;  ///< Not copyable.
+    };
+
+    /**
      * @brief A logger base class for handling different levels of log messages.
      *
      * The logger class provides various logging methods with different verbosity levels.
@@ -415,7 +426,8 @@ class Communicator {
      * @param msg Unique pointer to the message data (Buffer).
      * @param ranks Set of destination ranks.
      * @param tag Message tag for identification.
-     * @return A unique pointer to a `Future` representing the asynchronous operation.
+     * @return A unique pointer to a `BatchFuture` representing the asynchronous
+     * operation.
      *
      * @warning The caller is responsible to ensure the underlying `Buffer` allocation
      * and data are already valid before calling, for example, when a CUDA allocation
@@ -423,7 +435,7 @@ class Communicator {
      * `Buffer::is_ready()` returns true before calling this function, if not, a
      * warning is printed and the application will terminate.
      */
-    [[nodiscard]] virtual std::unique_ptr<Future> send(
+    [[nodiscard]] virtual std::unique_ptr<BatchFuture> send(
         std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag
     ) = 0;
 

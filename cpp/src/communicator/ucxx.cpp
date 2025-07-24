@@ -1104,7 +1104,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     return std::make_unique<Future>(req, std::move(msg));
 }
 
-std::unique_ptr<Communicator::Future> UCXX::send(
+std::unique_ptr<Communicator::BatchFuture> UCXX::send(
     std::unique_ptr<Buffer> /* msg */,
     std::unordered_set<Rank> const& /* ranks */,
     Tag /* tag */

@@ -166,7 +166,7 @@ class UCXX final : public Communicator {
      * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag)
      */
     // clang-format on
-    [[nodiscard]] std::unique_ptr<Communicator::Future> send(
+    [[nodiscard]] std::unique_ptr<Communicator::BatchFuture> send(
         std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag
     ) override;
 
