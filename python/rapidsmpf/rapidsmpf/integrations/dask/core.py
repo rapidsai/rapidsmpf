@@ -42,7 +42,7 @@ _dask_logger = logging.getLogger("distributed.worker")
 
 
 def get_worker_context(
-    dask_worker: distributed.Worker | None = None,
+    worker: distributed.Worker | None = None,
 ) -> WorkerContext:
     """
     Retrieve the `WorkerContext` associated with a Dask worker.
@@ -52,7 +52,7 @@ def get_worker_context(
 
     Parameters
     ----------
-    dask_worker
+    worker
         An optional Dask worker instance. If not provided, the current worker
         is retrieved using `get_worker()`.
 
@@ -61,10 +61,10 @@ def get_worker_context(
     The existing or newly initialized worker context.
     """
     with WorkerContext.lock:
-        dask_worker = dask_worker or get_worker()
-        if not hasattr(dask_worker, "_rapidsmpf_worker_context"):
-            dask_worker._rapidsmpf_worker_context = WorkerContext()
-        return cast(WorkerContext, dask_worker._rapidsmpf_worker_context)
+        worker = worker or get_worker()
+        if not hasattr(worker, "_rapidsmpf_worker_context"):
+            worker._rapidsmpf_worker_context = WorkerContext()
+        return cast(WorkerContext, worker._rapidsmpf_worker_context)
 
 
 def get_worker_rank(dask_worker: distributed.Worker | None = None) -> int:

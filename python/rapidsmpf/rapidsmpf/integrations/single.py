@@ -40,7 +40,7 @@ class _SingleWorker:
 _single_rapidsmpf_worker: _SingleWorker = _SingleWorker()
 
 
-def get_single_worker_context() -> WorkerContext:
+def get_single_worker_context(worker: _SingleWorker | None = None) -> WorkerContext:
     """
     Retrieve the single `WorkerContext`.
 
@@ -52,9 +52,10 @@ def get_single_worker_context() -> WorkerContext:
     The existing or newly initialized worker context.
     """
     with WorkerContext.lock:
-        if _single_rapidsmpf_worker.context is None:
-            _single_rapidsmpf_worker.context = WorkerContext()
-        return cast(WorkerContext, _single_rapidsmpf_worker.context)
+        worker = worker or _single_rapidsmpf_worker
+        if worker.context is None:
+            worker.context = WorkerContext()
+        return cast(WorkerContext, worker.context)
 
 
 def setup_single_worker(options: Options = Options()) -> None:
