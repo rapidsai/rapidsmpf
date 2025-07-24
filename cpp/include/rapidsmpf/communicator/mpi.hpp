@@ -119,7 +119,8 @@ class MPI final : public Communicator {
         ~MultiReqFuture() noexcept override = default;
 
       private:
-        std::vector<MPI_Request> reqs_;  ///< The MPI requests associated with the operations.
+        std::vector<MPI_Request>
+            reqs_;  ///< The MPI requests associated with the operations.
         std::unique_ptr<Buffer> data_;  ///< The data buffer.
     };
 
