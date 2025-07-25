@@ -256,6 +256,6 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
             # But we cannot shuffle more than `max_num_shuffles` times in a single compute.
             with pytest.raises(
                 ValueError,
-                match=f"Cannot shuffle more than {max_num_shuffles} times in a single Dask compute",
+                match=f"Cannot shuffle more than {max_num_shuffles} times in a single query",
             ):
                 do_shuffle(seed=3, num_shuffles=257)

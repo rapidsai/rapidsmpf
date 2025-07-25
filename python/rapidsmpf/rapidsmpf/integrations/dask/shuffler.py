@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-import threading
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from distributed import get_worker
@@ -12,6 +12,7 @@ from distributed import get_worker
 from rapidsmpf.config import Options
 from rapidsmpf.integrations.core import (
     extract_partition,
+    get_new_shuffle_id,
     get_shuffler,
     insert_partition,
 )
@@ -21,7 +22,6 @@ from rapidsmpf.integrations.dask.core import (
     get_dask_worker_rank,
     global_rmpf_barrier,
 )
-from rapidsmpf.shuffler import Shuffler
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
@@ -31,59 +31,13 @@ if TYPE_CHECKING:
     from rapidsmpf.integrations.core import ShufflerIntegration
 
 
-# Set of available shuffle IDs
-_shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
-_shuffle_id_vacancy_lock: threading.Lock = threading.Lock()
+def _get_occupied_ids_dask(client: Client) -> tuple[int, ...]:
+    def _get_occupied_ids(dask_worker: Worker) -> set[int]:
+        ctx = get_dask_worker_context(dask_worker)
+        with ctx.lock:
+            return set(ctx.shufflers.keys())
 
-
-def _get_new_shuffle_id(client: Client) -> int:
-    """
-    Get a new available shuffle ID.
-
-    Since RapidsMPF only supports a limited number of shuffler instances at
-    any given time, this function maintains a shared pool of shuffle IDs.
-
-    If no IDs are available locally, it queries all workers for IDs in use,
-    updates the vacancy set accordingly, and retries. If all IDs are in use
-    across the cluster, an error is raised.
-
-    Parameters
-    ----------
-    client
-        A Dask distributed client used to query workers for active shuffle IDs.
-
-    Returns
-    -------
-    A unique shuffle ID not currently in use.
-
-    Raises
-    ------
-    ValueError
-        If all shuffle IDs are currently in use across the cluster.
-    """
-    global _shuffle_id_vacancy  # noqa: PLW0603
-
-    with _shuffle_id_vacancy_lock:
-        if not _shuffle_id_vacancy:
-
-            def get_occupied_ids(dask_worker: Worker) -> set[int]:
-                ctx = get_dask_worker_context(dask_worker)
-                with ctx.lock:
-                    return set(ctx.shufflers.keys())
-
-            # We start with setting all IDs as vacant and then subtract all
-            # IDs occupied on any one worker.
-            _shuffle_id_vacancy = set(range(Shuffler.max_concurrent_shuffles))
-            _shuffle_id_vacancy.difference_update(
-                *client.run(get_occupied_ids).values()
-            )
-            if not _shuffle_id_vacancy:
-                raise ValueError(
-                    f"Cannot shuffle more than {Shuffler.max_concurrent_shuffles} "
-                    "times in a single Dask compute."
-                )
-
-        return _shuffle_id_vacancy.pop()
+    return tuple(client.run(_get_occupied_ids).values())
 
 
 def _worker_rmpf_barrier(
@@ -111,7 +65,6 @@ def _worker_rmpf_barrier(
     A worker barrier task DOES need to be restricted
     to a specific Dask worker.
     """
-    # from rapidsmpf.integrations.dask.shuffler import get_shuffler
     for shuffle_id in shuffle_ids:
         shuffler = get_shuffler(get_dask_worker_context, shuffle_id)
         for pid in range(partition_count):
@@ -255,7 +208,7 @@ def rapidsmpf_shuffle_graph(
     """
     # Get the shuffle id
     client = get_dask_client(options=config_options)
-    shuffle_id = _get_new_shuffle_id(client)
+    shuffle_id = get_new_shuffle_id(partial(_get_occupied_ids_dask, client))
 
     # Note: We've observed high overhead from `Client.run` on some systems with
     # some networking configurations. Minimize the number of `Client.run` calls

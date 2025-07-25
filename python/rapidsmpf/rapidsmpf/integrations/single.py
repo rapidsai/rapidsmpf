@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import threading
 from typing import TYPE_CHECKING, Any, cast
 
 from rapidsmpf.communicator.single import new_communicator
@@ -12,21 +11,16 @@ from rapidsmpf.config import Options
 from rapidsmpf.integrations.core import (
     WorkerContext,
     extract_partition,
+    get_new_shuffle_id,
     get_shuffler,
     insert_partition,
     rmpf_worker_setup,
 )
-from rapidsmpf.shuffler import Shuffler
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from rapidsmpf.integrations.core import ShufflerIntegration
-
-
-# Set of available shuffle IDs
-_shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
-_shuffle_id_vacancy_lock: threading.Lock = threading.Lock()
 
 
 # Local single-worker context
@@ -76,59 +70,22 @@ def setup_single_worker(options: Options = Options()) -> None:
         if ctx.comm is not None:
             return  # Single worker already set up
 
-        # Set up "single" communicator
-        ctx.comm = new_communicator(options)
-        ctx.comm.logger.trace("single communicator created.")
+    # Set up "single" communicator
+    ctx.comm = new_communicator(options)
+    ctx.comm.logger.trace("single communicator created.")
 
-        rmpf_worker_setup(
-            get_single_worker_context,
-            None,
-            "single",
-            options=options,
-        )
+    rmpf_worker_setup(
+        get_single_worker_context,
+        None,
+        "single",
+        options=options,
+    )
 
 
-def _get_new_shuffle_id() -> int:
-    """
-    Get a new available shuffle ID.
-
-    Since RapidsMPF only supports a limited number of shuffler instances at
-    any given time, this function maintains a shared pool of shuffle IDs.
-
-    If no IDs are available locally, it queries all workers for IDs in use,
-    updates the vacancy set accordingly, and retries. If all IDs are in use
-    across the cluster, an error is raised.
-
-    Returns
-    -------
-    A unique shuffle ID not currently in use.
-
-    Raises
-    ------
-    ValueError
-        If all shuffle IDs are currently in use.
-    """
-    global _shuffle_id_vacancy  # noqa: PLW0603
-
-    with _shuffle_id_vacancy_lock:
-        if not _shuffle_id_vacancy:
-
-            def get_occupied_ids() -> set[int]:
-                ctx = get_single_worker_context()
-                with ctx.lock:
-                    return set(ctx.shufflers.keys())
-
-            # We start with setting all IDs as vacant and then subtract all
-            # IDs occupied on any one worker.
-            _shuffle_id_vacancy = set(range(Shuffler.max_concurrent_shuffles))
-            _shuffle_id_vacancy.difference_update(get_occupied_ids())
-            if not _shuffle_id_vacancy:
-                raise ValueError(
-                    f"Cannot manage more than {Shuffler.max_concurrent_shuffles} "
-                    "shuffles at once."
-                )
-
-        return _shuffle_id_vacancy.pop()
+def _get_occupied_ids_single() -> tuple[int, ...]:
+    ctx = get_single_worker_context()
+    with ctx.lock:
+        return tuple(ctx.shufflers.keys())
 
 
 def _single_worker_barrier(
@@ -215,7 +172,7 @@ def single_rapidsmpf_shuffle_graph(
     setup_single_worker(config_options)
 
     # Get the shuffle id
-    shuffle_id = _get_new_shuffle_id()
+    shuffle_id = get_new_shuffle_id(_get_occupied_ids_single)
     _stage_single_shuffler(shuffle_id, partition_count_out)
 
     # Define task names for each phase of the shuffle

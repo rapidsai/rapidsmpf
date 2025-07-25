@@ -34,6 +34,53 @@ if TYPE_CHECKING:
 DataFrameT = TypeVar("DataFrameT")
 
 
+# Set of available shuffle IDs
+_shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
+_shuffle_id_vacancy_lock: threading.Lock = threading.Lock()
+
+
+def get_new_shuffle_id(get_occupied_ids: Callable[[], tuple[int, ...]]) -> int:
+    """
+    Get a new available shuffle ID.
+
+    Since RapidsMPF only supports a limited number of shuffler instances at
+    any given time, this function maintains a shared pool of shuffle IDs.
+
+    If no IDs are available locally, it calls get_occupied_ids to query all
+    workers for IDs in use, updates the vacancy set accordingly, and retries.
+    If all IDs are in use across all workers, an error is raised.
+
+    Parameters
+    ----------
+    get_occupied_ids
+        Callable funcition that returns the set of occupied shuffle IDs.
+
+    Returns
+    -------
+    A unique shuffle ID not currently in use.
+
+    Raises
+    ------
+    ValueError
+        If all shuffle IDs are currently in use.
+    """
+    global _shuffle_id_vacancy  # noqa: PLW0603
+
+    with _shuffle_id_vacancy_lock:
+        if not _shuffle_id_vacancy:
+            # We start with setting all IDs as vacant and then subtract all
+            # IDs occupied on any one worker.
+            _shuffle_id_vacancy = set(range(Shuffler.max_concurrent_shuffles))
+            _shuffle_id_vacancy.difference_update(*get_occupied_ids())  # type: ignore
+            if not _shuffle_id_vacancy:
+                raise ValueError(
+                    f"Cannot shuffle more than {Shuffler.max_concurrent_shuffles} "
+                    "times in a single query."
+                )
+
+        return _shuffle_id_vacancy.pop()
+
+
 @dataclass
 class WorkerContext:
     """
