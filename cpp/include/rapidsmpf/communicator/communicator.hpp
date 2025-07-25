@@ -441,12 +441,11 @@ class Communicator {
     /**
      * @brief Tests for completion of multiple futures.
      *
-     * @param[inout] future_vector Vector of Future objects. Completed
-     * futures are erased from the vector.
-     * @return Completed futures.
+     * @param future_vector Vector of Future objects.
+     * @return Indices of completed futures.
      */
-    [[nodiscard]] virtual std::vector<std::unique_ptr<Future>> test_some(
-        std::vector<std::unique_ptr<Future>>& future_vector
+    std::vector<std::size_t> virtual test_some(
+        std::vector<std::unique_ptr<Future>> const& future_vector
     ) = 0;
 
     /**
