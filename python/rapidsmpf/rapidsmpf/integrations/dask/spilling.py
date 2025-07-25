@@ -17,7 +17,7 @@ from distributed.protocol.serialize import dask_dumps, dask_loads
 from distributed.utils import log_errors
 
 from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.integrations.dask.core import get_worker_context
+from rapidsmpf.integrations.dask.core import get_dask_worker_context
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -80,7 +80,7 @@ class SpillableWrapper(Generic[WrappedType]):
             # which makes it available for spilling on demand.
             try:
                 spill_collection: SpillCollection = (
-                    get_worker_context().spill_collection
+                    get_dask_worker_context().spill_collection
                 )
             except ValueError:
                 pass

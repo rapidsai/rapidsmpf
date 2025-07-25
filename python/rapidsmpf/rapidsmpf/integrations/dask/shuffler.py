@@ -18,8 +18,8 @@ from rapidsmpf.integrations.core import (
 )
 from rapidsmpf.integrations.dask.core import (
     get_dask_client,
-    get_worker_context,
-    get_worker_rank,
+    get_dask_worker_context,
+    get_dask_worker_rank,
     global_rmpf_barrier,
 )
 from rapidsmpf.shuffler import Shuffler
@@ -66,7 +66,7 @@ def _get_new_shuffle_id(client: Client) -> int:
         if not _shuffle_id_vacancy:
 
             def get_occupied_ids(dask_worker: Worker) -> set[int]:
-                ctx = get_worker_context(dask_worker)
+                ctx = get_dask_worker_context(dask_worker)
                 with ctx.lock:
                     return set(ctx.shufflers.keys())
 
@@ -83,66 +83,6 @@ def _get_new_shuffle_id(client: Client) -> int:
                 )
 
         return _shuffle_id_vacancy.pop()
-
-
-# def get_shuffler_base(
-#     get_context: Callable[..., WorkerContext],
-#     shuffle_id: int,
-#     partition_count: int | None = None,
-#     #worker: Worker | None = None,
-#     worker: Any = None,
-# ) -> Shuffler:
-#     """
-#     Return the appropriate :class:`Shuffler` object.
-
-#     Parameters
-#     ----------
-#     shuffle_id
-#         Unique ID for the shuffle operation.
-#     partition_count
-#         Output partition count for the shuffle operation.
-#     worker
-#         The current dask worker.
-
-#     Returns
-#     -------
-#     The active RapidsMPF :class:`Shuffler` object associated with
-#     the specified ``shuffle_id``, ``partition_count`` and
-#     ``worker``.
-
-#     Notes
-#     -----
-#     Whenever a new :class:`Shuffler` object is created, it is
-#     saved as ``WorkerContext.shufflers[shuffle_id]``.
-
-#     This function is expected to run on a Dask worker.
-#     """
-#     #ctx = get_worker_context(worker)
-#     ctx = get_context(worker)
-#     with ctx.lock:
-#         if shuffle_id not in ctx.shufflers:
-#             if partition_count is None:
-#                 raise ValueError(
-#                     "Need partition_count to create new shuffler."
-#                     f" shuffle_id: {shuffle_id}\n"
-#                     f" Shufflers: {ctx.shufflers}"
-#                 )
-#             assert ctx.br is not None
-#             assert ctx.comm is not None
-#             assert ctx.progress_thread is not None
-#             ctx.shufflers[shuffle_id] = Shuffler(
-#                 ctx.comm,
-#                 ctx.progress_thread,
-#                 op_id=shuffle_id,
-#                 total_num_partitions=partition_count,
-#                 stream=DEFAULT_STREAM,
-#                 br=ctx.br,
-#                 statistics=ctx.statistics,
-#             )
-#     return ctx.shufflers[shuffle_id]
-
-
-# get_shuffler = partial(get_shuffler_base, get_worker_context)
 
 
 def _worker_rmpf_barrier(
@@ -172,7 +112,7 @@ def _worker_rmpf_barrier(
     """
     # from rapidsmpf.integrations.dask.shuffler import get_shuffler
     for shuffle_id in shuffle_ids:
-        shuffler = get_shuffler(get_worker_context, shuffle_id)
+        shuffler = get_shuffler(get_dask_worker_context, shuffle_id)
         for pid in range(partition_count):
             shuffler.insert_finished(pid)
 
@@ -200,17 +140,17 @@ def _stage_shuffler(
     """
     worker = worker or get_worker()
     get_shuffler(
-        get_worker_context,
+        get_dask_worker_context,
         shuffle_id,
         partition_count=partition_count,
         worker=worker,
     )
 
 
-def _get_worker_ranks_and_stage_shuffler(
+def _get_dask_worker_ranks_and_stage_shuffler(
     shuffle_id: int, partition_count: int, dask_worker: Worker | None = None
 ) -> int:
-    rank = get_worker_rank(dask_worker)
+    rank = get_dask_worker_rank(dask_worker)
 
     _stage_shuffler(shuffle_id, partition_count, dask_worker)
 
@@ -327,7 +267,7 @@ def rapidsmpf_shuffle_graph(
     worker_ranks: dict[int, str] = {
         v: k
         for k, v in client.run(
-            _get_worker_ranks_and_stage_shuffler,
+            _get_dask_worker_ranks_and_stage_shuffler,
             shuffle_id,
             partition_count_out,
         ).items()
@@ -346,7 +286,7 @@ def rapidsmpf_shuffle_graph(
     graph: dict[Any, Any] = {
         (insert_name, pid): (
             insert_partition,
-            get_worker_context,
+            get_dask_worker_context,
             integration.insert_partition,
             (input_name, pid),
             pid,
@@ -390,7 +330,7 @@ def rapidsmpf_shuffle_graph(
         output_keys.append((output_name, part_id))
         graph[output_keys[-1]] = (
             extract_partition,
-            get_worker_context,
+            get_dask_worker_context,
             integration.extract_partition,
             shuffle_id,
             part_id,

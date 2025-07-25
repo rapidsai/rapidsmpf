@@ -5,22 +5,30 @@
 from __future__ import annotations
 
 import threading
+import weakref
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, TypeVar, runtime_checkable
 
+import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
+from rapidsmpf.buffer.buffer import MemoryType
+from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.buffer.spill_collection import SpillCollection
-from rapidsmpf.config import Options
+from rapidsmpf.config import (
+    Optional,
+    OptionalBytes,
+    Options,
+)
+from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
+from rapidsmpf.statistics import Statistics
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from rapidsmpf.buffer.resource import BufferResource
     from rapidsmpf.communicator.communicator import Communicator
-    from rapidsmpf.progress_thread import ProgressThread
-    from rapidsmpf.statistics import Statistics
 
 
 DataFrameT = TypeVar("DataFrameT")
@@ -278,3 +286,138 @@ def extract_partition(
             with ctx.lock:
                 if shuffle_id in ctx.shufflers:
                     del ctx.shufflers[shuffle_id]
+
+
+def rmpf_worker_setup(
+    get_context: Callable[..., WorkerContext],
+    worker: Any,
+    option_prefix: str,
+    *,
+    options: Options,
+) -> None:
+    """
+    Attach RapidsMPF shuffling attributes to a worker process.
+
+    Parameters
+    ----------
+    get_context
+        Callable function to fetch the worker context.
+    worker
+        The current worker process.
+    option_prefix
+        Prefix for config-option names.
+    options
+        Configuration options.
+
+    Warnings
+    --------
+    This function creates a new RMM memory pool, and
+    sets it as the current device resource.
+    """
+    ctx = get_context(worker)
+    with ctx.lock:
+        ctx.options = options
+
+        # Insert RMM resource adaptor on top of the current RMM resource stack.
+        mr = RmmResourceAdaptor(
+            upstream_mr=rmm.mr.get_current_device_resource(),
+            fallback_mr=(
+                # Use a managed memory resource if OOM protection is enabled.
+                rmm.mr.ManagedMemoryResource()
+                if ctx.options.get_or_default(
+                    f"{option_prefix}_oom_protection", default_value=False
+                )
+                else None
+            ),
+        )
+        rmm.mr.set_current_device_resource(mr)
+
+        # Print statistics at worker shutdown.
+        if ctx.options.get_or_default(
+            f"{option_prefix}_statistics", default_value=False
+        ):
+            ctx.statistics = Statistics(enable=True, mr=mr)
+            weakref.finalize(
+                worker,
+                lambda name, stats: print(name, stats.report()),
+                name=str(worker),
+                stats=ctx.statistics,
+            )
+
+        assert ctx.comm is not None
+        ctx.progress_thread = ProgressThread(ctx.comm, ctx.statistics)
+
+        # Create a buffer resource with a limiting availability function.
+        total_memory = rmm.mr.available_device_memory()[1]
+        spill_device = ctx.options.get_or_default(
+            f"{option_prefix}_spill_device", default_value=0.50
+        )
+        memory_available = {
+            MemoryType.DEVICE: LimitAvailableMemory(
+                mr, limit=int(total_memory * spill_device)
+            )
+        }
+        ctx.br = BufferResource(
+            mr,
+            memory_available=memory_available,
+            periodic_spill_check=ctx.options.get_or_default(
+                f"{option_prefix}_periodic_spill_check", default_value=Optional(1e-3)
+            ).value,
+        )
+
+        # If enabled, create a staging device buffer for the spilling to reduce
+        # device memory pressure.
+        # TODO: maybe have a pool of staging buffers?
+        spill_staging_buffer_size = ctx.options.get_or_default(
+            f"{option_prefix}_staging_spill_buffer",
+            default_value=OptionalBytes("128 MiB"),
+        ).value
+        spill_staging_buffer = (
+            None
+            if spill_staging_buffer_size is None
+            else rmm.DeviceBuffer(
+                size=spill_staging_buffer_size, stream=DEFAULT_STREAM, mr=mr
+            )
+        )
+        spill_staging_buffer_lock = threading.Lock()
+
+        # Create a spill function that spills the python objects in the spill-
+        # collection. This way, we have a central place (the dask worker) to track
+        # and trigger spilling of python objects.
+        def spill_func(amount: int) -> int:
+            """
+            Spill a specified amount of data from the Python object spill collection.
+
+            This function attempts to use a preallocated staging device buffer to
+            spill Python objects from the spill collection. If the staging buffer
+            is currently in use, it will fall back to spilling without it.
+
+            Parameters
+            ----------
+            amount
+                The amount of data to spill, in bytes.
+
+            Returns
+            -------
+            The actual amount of data spilled, in bytes.
+            """
+            if spill_staging_buffer is not None and spill_staging_buffer_lock.acquire(
+                blocking=False
+            ):
+                try:
+                    return ctx.spill_collection.spill(
+                        amount,
+                        stream=DEFAULT_STREAM,
+                        device_mr=mr,
+                        staging_device_buffer=spill_staging_buffer,
+                    )
+                finally:
+                    spill_staging_buffer_lock.release()
+            return ctx.spill_collection.spill(
+                amount, stream=DEFAULT_STREAM, device_mr=mr
+            )
+
+        # Add the spill function using a negative priority (-10) such that spilling
+        # of internal shuffle buffers (non-python objects) have higher priority than
+        # spilling of the Python objects in the collection.
+        ctx.br.spill_manager.add_spill_function(func=spill_func, priority=-10)
