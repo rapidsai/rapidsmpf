@@ -31,13 +31,13 @@ struct throw_at_limit_resource final : public rmm::mr::device_memory_resource {
             throw ExceptionType{"foo"};
         }
         void* ptr{nullptr};
-        RMM_CUDA_TRY_ALLOC(cudaMallocAsync(&ptr, bytes, stream));
+        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMallocAsync(&ptr, bytes, stream));
         allocs.insert(ptr);
         return ptr;
     }
 
     void do_deallocate(void* ptr, std::size_t, rmm::cuda_stream_view) override {
-        RMM_ASSERT_CUDA_SUCCESS(cudaFree(ptr));
+        RAPIDSMPF_CUDA_TRY(cudaFree(ptr));
         allocs.erase(ptr);
     }
 
