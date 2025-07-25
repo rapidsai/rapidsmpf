@@ -82,10 +82,9 @@ def setup_single_worker(options: Options = Options()) -> None:
     )
 
 
-def _get_occupied_ids_single() -> tuple[int, ...]:
+def _get_occupied_ids_single() -> list[set[int]]:
     ctx = get_single_worker_context()
-    with ctx.lock:
-        return tuple(ctx.shufflers.keys())
+    return [set(ctx.shufflers.keys())]
 
 
 def _single_worker_barrier(

@@ -13,6 +13,11 @@ from rapidsmpf.config import Options
 from rapidsmpf.examples.dask import DaskCudfIntegration
 from rapidsmpf.integrations.dask.core import get_dask_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
+from rapidsmpf.integrations.single import (
+    get_single_worker_context,
+    setup_single_worker,
+    single_rapidsmpf_shuffle_graph,
+)
 from rapidsmpf.shuffler import Shuffler
 
 dask_cuda = pytest.importorskip("dask_cuda")
@@ -144,6 +149,7 @@ def test_dask_cudf_integration_single(
         sort=sort,
         partition_count=partition_count,
         cluster_kind=cluster_kind,
+        config_options=Options({"single_spill_device": "0.1"}),
     )
     assert shuffled.npartitions == (partition_count or partition_count_in)
     got = shuffled.compute()  # scheduler="synchronous")
@@ -234,7 +240,7 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
             check_index=False,
         )
 
-    with LocalCUDACluster(n_workers=1, loop=loop) as cluster:  # noqa: SIM117
+    with LocalCUDACluster(n_workers=2, loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
             bootstrap_dask_cluster(
                 client, options=Options({"dask_spill_device": "0.1"})
@@ -259,3 +265,71 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
                 match=f"Cannot shuffle more than {max_num_shuffles} times in a single query",
             ):
                 do_shuffle(seed=3, num_shuffles=257)
+
+
+def test_many_shuffles_single() -> None:
+    pytest.importorskip("dask_cudf")
+
+    def do_shuffle(seed: int, num_shuffles: int) -> None:
+        """Shuffle a dataframe `num_shuffles` consecutive times and check the result"""
+        expect = (
+            dask.datasets.timeseries(
+                freq="3600s",
+                partition_freq="2D",
+                seed=seed,
+            )
+            .reset_index(drop=True)
+            .to_backend("cudf")
+        )
+        df0 = expect.optimize()
+        partition_count_in = df0.npartitions
+        partition_count_out = partition_count_in
+        column_names = list(df0.columns)
+        shuffle_on = ["name", "id"]
+
+        graph = df0.dask.copy()
+        name_in = df0._name
+        for i in range(num_shuffles):
+            name_out = f"test_many_shuffles-output-{i}"
+            graph.update(
+                single_rapidsmpf_shuffle_graph(
+                    input_name=name_in,
+                    output_name=name_out,
+                    partition_count_in=partition_count_in,
+                    partition_count_out=partition_count_out,
+                    integration=DaskCudfIntegration,
+                    options={"on": shuffle_on, "column_names": column_names},
+                )
+            )
+            name_in = name_out
+        got = dd.from_graph(
+            graph,
+            df0._meta,
+            (None,) * (partition_count_out + 1),
+            [(name_out, pid) for pid in range(partition_count_out)],
+            "rapidsmpf",
+        )
+        dd.assert_eq(
+            expect.compute().sort_values(["x", "y"]),
+            got.compute().sort_values(["x", "y"]),
+            check_index=False,
+        )
+
+    setup_single_worker(options=Options({"single_spill_device": "0.1"}))
+    max_num_shuffles = Shuffler.max_concurrent_shuffles
+
+    # We can shuffle `max_num_shuffles` consecutive times.
+    do_shuffle(seed=1, num_shuffles=max_num_shuffles)
+    # And more times after a compute.
+    do_shuffle(seed=2, num_shuffles=10)
+
+    # Check that all shufflers has been cleaned up.
+    ctx = get_single_worker_context()
+    assert len(ctx.shufflers) == 0
+
+    # But we cannot shuffle more than `max_num_shuffles` times in a single compute.
+    with pytest.raises(
+        ValueError,
+        match=f"Cannot shuffle more than {max_num_shuffles} times in a single query",
+    ):
+        do_shuffle(seed=3, num_shuffles=257)

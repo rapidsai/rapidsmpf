@@ -14,6 +14,7 @@ from dask.utils import M
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
+from rapidsmpf.config import Options
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     split_and_pack,
@@ -137,6 +138,7 @@ def dask_cudf_shuffle(
     sort: bool = False,
     partition_count: int | None = None,
     cluster_kind: Literal["distributed", "single", "auto"] = "auto",
+    config_options: Options = Options(),
 ) -> dask_cudf.DataFrame:
     """
     Shuffle a dask_cudf.DataFrame with RapidsMPF.
@@ -159,6 +161,8 @@ def dask_cudf_shuffle(
         options are ``{'distributed', 'single', 'auto'}``.
         If 'auto' (the default), 'distributed' will be
         used if a global Dask client is found.
+    config_options
+        RapidsMPF configuration options.
 
     Returns
     -------
@@ -202,18 +206,24 @@ def dask_cudf_shuffle(
         *sort_boundary_names,
     )
     if cluster_kind == "single":
-        graph = single_rapidsmpf_shuffle_graph(*shuffle_graph_args)
+        graph = single_rapidsmpf_shuffle_graph(
+            *shuffle_graph_args, config_options=config_options
+        )
     else:
         try:
             from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
 
-            graph = rapidsmpf_shuffle_graph(*shuffle_graph_args)
+            graph = rapidsmpf_shuffle_graph(
+                *shuffle_graph_args, config_options=config_options
+            )
         except (ImportError, ValueError):
             # Failed to import distributed/dask-cuda or find a Dask client.
             # Use single shuffle instead.
             if cluster_kind == "distributed":
                 raise
-            graph = single_rapidsmpf_shuffle_graph(*shuffle_graph_args)
+            graph = single_rapidsmpf_shuffle_graph(
+                *shuffle_graph_args, config_options=config_options
+            )
 
     # Add df0 dependencies to the task graph
     graph.update(df0.dask)

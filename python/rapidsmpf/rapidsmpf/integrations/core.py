@@ -26,7 +26,7 @@ from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from rapidsmpf.communicator.communicator import Communicator
 
@@ -39,7 +39,7 @@ _shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
 _shuffle_id_vacancy_lock: threading.Lock = threading.Lock()
 
 
-def get_new_shuffle_id(get_occupied_ids: Callable[[], tuple[int, ...]]) -> int:
+def get_new_shuffle_id(get_occupied_ids: Callable[[], Sequence[set[int]]]) -> int:
     """
     Get a new available shuffle ID.
 
@@ -53,7 +53,7 @@ def get_new_shuffle_id(get_occupied_ids: Callable[[], tuple[int, ...]]) -> int:
     Parameters
     ----------
     get_occupied_ids
-        Callable funcition that returns the set of occupied shuffle IDs.
+        Callable function that returns the occupied shuffle IDs.
 
     Returns
     -------
@@ -71,7 +71,7 @@ def get_new_shuffle_id(get_occupied_ids: Callable[[], tuple[int, ...]]) -> int:
             # We start with setting all IDs as vacant and then subtract all
             # IDs occupied on any one worker.
             _shuffle_id_vacancy = set(range(Shuffler.max_concurrent_shuffles))
-            _shuffle_id_vacancy.difference_update(*get_occupied_ids())  # type: ignore
+            _shuffle_id_vacancy.difference_update(*get_occupied_ids())
             if not _shuffle_id_vacancy:
                 raise ValueError(
                     f"Cannot shuffle more than {Shuffler.max_concurrent_shuffles} "
