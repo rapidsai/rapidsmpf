@@ -190,7 +190,13 @@ Duration run(
     }
 
     while (!futures.empty()) {
-        std::ignore = comm->test_some(futures);
+        std::vector<std::size_t> finished = comm->test_some(futures);
+        // Sort the indexes into descending order.
+        std::sort(finished.begin(), finished.end(), std::greater<>());
+        // And erase from the right.
+        for (auto i : finished) {
+            futures.erase(futures.begin() + static_cast<std::ptrdiff_t>(i));
+        }
     }
 
     return Clock::now() - t0_elapsed;
