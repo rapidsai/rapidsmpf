@@ -77,7 +77,7 @@ def setup_single_worker(options: Options = Options()) -> None:
     rmpf_worker_setup(
         get_single_worker_context,
         None,
-        "single",
+        "single_",
         options=options,
     )
 

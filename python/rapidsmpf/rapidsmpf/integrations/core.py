@@ -257,8 +257,8 @@ def insert_partition(
     get_context
         Callable function to fetch the worker context.
     callback
-        Insertion callback function. This function must be
-        the `insert_partition` attribute of a `DaskIntegration`
+        Insertion callback function. This function must be the
+        `insert_partition` attribute of a `ShufflerIntegration`
         protocol.
     df
         DataFrame partition to add to a RapidsMPF shuffler.
@@ -302,8 +302,8 @@ def extract_partition(
     get_context
         Callable function to fetch the worker context.
     callback
-        Insertion callback function. This function must be
-        the `extract_partition` attribute of a `DaskIntegration`
+        Insertion callback function. This function must be the
+        `extract_partition` attribute of a `ShufflerIntegration`
         protocol.
     shuffle_id
         The RapidsMPF shuffle id.
@@ -371,7 +371,7 @@ def rmpf_worker_setup(
                 # Use a managed memory resource if OOM protection is enabled.
                 rmm.mr.ManagedMemoryResource()
                 if ctx.options.get_or_default(
-                    f"{option_prefix}_oom_protection", default_value=False
+                    f"{option_prefix}oom_protection", default_value=False
                 )
                 else None
             ),
@@ -380,7 +380,7 @@ def rmpf_worker_setup(
 
         # Print statistics at worker shutdown.
         if ctx.options.get_or_default(
-            f"{option_prefix}_statistics", default_value=False
+            f"{option_prefix}statistics", default_value=False
         ):
             ctx.statistics = Statistics(enable=True, mr=mr)
             weakref.finalize(
@@ -396,7 +396,7 @@ def rmpf_worker_setup(
         # Create a buffer resource with a limiting availability function.
         total_memory = rmm.mr.available_device_memory()[1]
         spill_device = ctx.options.get_or_default(
-            f"{option_prefix}_spill_device", default_value=0.50
+            f"{option_prefix}spill_device", default_value=0.50
         )
         memory_available = {
             MemoryType.DEVICE: LimitAvailableMemory(
@@ -407,7 +407,7 @@ def rmpf_worker_setup(
             mr,
             memory_available=memory_available,
             periodic_spill_check=ctx.options.get_or_default(
-                f"{option_prefix}_periodic_spill_check", default_value=Optional(1e-3)
+                f"{option_prefix}periodic_spill_check", default_value=Optional(1e-3)
             ).value,
         )
 
@@ -415,7 +415,7 @@ def rmpf_worker_setup(
         # device memory pressure.
         # TODO: maybe have a pool of staging buffers?
         spill_staging_buffer_size = ctx.options.get_or_default(
-            f"{option_prefix}_staging_spill_buffer",
+            f"{option_prefix}staging_spill_buffer",
             default_value=OptionalBytes("128 MiB"),
         ).value
         spill_staging_buffer = (
@@ -428,7 +428,7 @@ def rmpf_worker_setup(
         spill_staging_buffer_lock = threading.Lock()
 
         # Create a spill function that spills the python objects in the spill-
-        # collection. This way, we have a central place (the dask worker) to track
+        # collection. This way, we have a central place (the worker) to track
         # and trigger spilling of python objects.
         def spill_func(amount: int) -> int:
             """

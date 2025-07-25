@@ -175,7 +175,7 @@ def dask_worker_setup(
     rmpf_worker_setup(
         get_dask_worker_context,
         dask_worker,
-        "dask",
+        "dask_",
         options=options,
     )
 
