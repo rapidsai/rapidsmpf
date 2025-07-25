@@ -152,7 +152,7 @@ def test_dask_cudf_integration_single(
         config_options=Options({"single_spill_device": "0.1"}),
     )
     assert shuffled.npartitions == (partition_count or partition_count_in)
-    got = shuffled.compute()  # scheduler="synchronous")
+    got = shuffled.compute()
     if sort:
         assert got["id"].is_monotonic_increasing
     got = got.sort_values(["id", "name", "x", "y"])
