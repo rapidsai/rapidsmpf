@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, cast
 from rapidsmpf.communicator.single import new_communicator
 from rapidsmpf.config import Options
 from rapidsmpf.integrations.core import (
-    ShufflerIntegration,
     WorkerContext,
     extract_partition,
     get_shuffler,
@@ -21,6 +20,8 @@ from rapidsmpf.shuffler import Shuffler
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from rapidsmpf.integrations.core import ShufflerIntegration
 
 
 # Set of available shuffle IDs
@@ -216,10 +217,6 @@ def single_rapidsmpf_shuffle_graph(
     # Get the shuffle id
     shuffle_id = _get_new_shuffle_id()
     _stage_single_shuffler(shuffle_id, partition_count_out)
-
-    # Check integration argument
-    if not isinstance(integration, ShufflerIntegration):
-        raise TypeError(f"Expected ShufflerIntegration object, got {integration}.")
 
     # Define task names for each phase of the shuffle
     insert_name = f"rmpf-insert-{output_name}"

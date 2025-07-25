@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import dask.dataframe as dd
 import numpy as np
@@ -42,7 +42,7 @@ class DaskCudfIntegration:
     See Also
     --------
     rapidsmpf.integrations.core.ShufflerIntegration
-        Base Dask-integration protocol definition.
+        Base shuffler-integration protocol definition.
     """
 
     @staticmethod
@@ -136,7 +136,7 @@ def dask_cudf_shuffle(
     *,
     sort: bool = False,
     partition_count: int | None = None,
-    cluster_kind: str = "auto",
+    cluster_kind: Literal["distributed", "single", "auto"] = "auto",
 ) -> dask_cudf.DataFrame:
     """
     Shuffle a dask_cudf.DataFrame with RapidsMPF.
@@ -163,6 +163,11 @@ def dask_cudf_shuffle(
     Returns
     -------
     Shuffled Dask-cuDF DataFrame collection.
+
+    Notes
+    -----
+    This API is currently intended for demonstration and
+    testing purposes only.
     """
     if cluster_kind not in ("distributed", "single", "auto"):
         raise ValueError(
@@ -208,7 +213,6 @@ def dask_cudf_shuffle(
             # Use single shuffle instead.
             if cluster_kind == "distributed":
                 raise
-            assert cluster_kind == "auto"  # Sanity check
             graph = single_rapidsmpf_shuffle_graph(*shuffle_graph_args)
 
     # Add df0 dependencies to the task graph

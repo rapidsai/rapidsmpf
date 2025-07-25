@@ -11,7 +11,6 @@ from distributed import get_worker
 
 from rapidsmpf.config import Options
 from rapidsmpf.integrations.core import (
-    ShufflerIntegration,
     extract_partition,
     get_shuffler,
     insert_partition,
@@ -28,6 +27,8 @@ if TYPE_CHECKING:
     from collections.abc import MutableMapping
 
     from distributed import Client, Worker
+
+    from rapidsmpf.integrations.core import ShufflerIntegration
 
 
 # Set of available shuffle IDs
@@ -255,10 +256,6 @@ def rapidsmpf_shuffle_graph(
     # Get the shuffle id
     client = get_dask_client(options=config_options)
     shuffle_id = _get_new_shuffle_id(client)
-
-    # Check integration argument
-    if not isinstance(integration, ShufflerIntegration):
-        raise TypeError(f"Expected ShufflerIntegration object, got {integration}.")
 
     # Note: We've observed high overhead from `Client.run` on some systems with
     # some networking configurations. Minimize the number of `Client.run` calls

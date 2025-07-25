@@ -7,7 +7,7 @@ from __future__ import annotations
 import threading
 import weakref
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, TypeVar
 
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
@@ -70,7 +70,6 @@ class WorkerContext:
     options: Options = field(default_factory=Options)
 
 
-@runtime_checkable
 class ShufflerIntegration(Protocol[DataFrameT]):
     """Shuffle-integration protocol."""
 

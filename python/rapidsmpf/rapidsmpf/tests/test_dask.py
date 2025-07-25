@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import dask
 import dask.dataframe as dd
@@ -119,7 +119,7 @@ def test_dask_cudf_integration(
 def test_dask_cudf_integration_single(
     partition_count: int,
     sort: bool,  # noqa: FBT001
-    cluster_kind: str,
+    cluster_kind: Literal["distributed", "single", "auto"],
 ) -> None:
     # Test single-worker cuDF integration with Dask-cuDF
     pytest.importorskip("dask_cudf")
@@ -163,7 +163,7 @@ def test_dask_cudf_integration_single_raises() -> None:
     with pytest.raises(ValueError, match="No global client"):
         dask_cudf_shuffle(df, ["id", "name"], cluster_kind="distributed")
     with pytest.raises(ValueError, match="Expected one of"):
-        dask_cudf_shuffle(df, ["id", "name"], cluster_kind="foo")
+        dask_cudf_shuffle(df, ["id", "name"], cluster_kind="foo")  # type: ignore
 
 
 def test_bootstrap_dask_cluster_idempotent() -> None:
