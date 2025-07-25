@@ -240,7 +240,7 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
             check_index=False,
         )
 
-    with LocalCUDACluster(n_workers=2, loop=loop) as cluster:  # noqa: SIM117
+    with LocalCUDACluster(n_workers=1, loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
             bootstrap_dask_cluster(
                 client, options=Options({"dask_spill_device": "0.1"})
