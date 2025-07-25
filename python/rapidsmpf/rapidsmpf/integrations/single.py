@@ -123,7 +123,7 @@ def _get_new_shuffle_id() -> int:
             _shuffle_id_vacancy.difference_update(get_occupied_ids())
             if not _shuffle_id_vacancy:
                 raise ValueError(
-                    f"Cannot manage moret than {Shuffler.max_concurrent_shuffles} "
+                    f"Cannot manage more than {Shuffler.max_concurrent_shuffles} "
                     "shuffles at once."
                 )
 
