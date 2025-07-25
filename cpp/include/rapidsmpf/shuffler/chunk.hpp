@@ -385,6 +385,13 @@ class ReadyForDataMessage {
     ChunkID cid;  ///< Chunk ID associated with the message.
 
     /**
+     * @brief The size of the message in bytes when serialized.
+     *
+     * @return The size of the message in bytes.
+     */
+    static constexpr size_t byte_size = sizeof(ChunkID);
+
+    /**
      * @brief Serializes the message into a byte array.
      *
      * @return A serialized byte vector representing the message.
