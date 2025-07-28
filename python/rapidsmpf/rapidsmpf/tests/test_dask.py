@@ -15,7 +15,7 @@ from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
 from rapidsmpf.integrations.single import (
     _get_single_worker_context,
-    setup_single_worker,
+    _setup_single_worker,
     single_rapidsmpf_shuffle_graph,
 )
 from rapidsmpf.shuffler import Shuffler
@@ -313,7 +313,7 @@ def test_many_shuffles_single() -> None:
             check_index=False,
         )
 
-    setup_single_worker(options=Options({"single_spill_device": "0.1"}))
+    _setup_single_worker(options=Options({"single_spill_device": "0.1"}))
     max_num_shuffles = Shuffler.max_concurrent_shuffles
 
     # We can shuffle `max_num_shuffles` consecutive times.
