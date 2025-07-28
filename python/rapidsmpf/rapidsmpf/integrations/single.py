@@ -52,7 +52,7 @@ def _get_single_worker_context(worker: _SingleWorker | None = None) -> WorkerCon
         return cast(WorkerContext, worker.context)
 
 
-def _setup_single_worker(options: Options = Options()) -> None:
+def setup_single_worker(options: Options = Options()) -> None:
     """
     Attach RapidsMPF shuffling attributes to a single worker.
 
@@ -171,7 +171,7 @@ def single_rapidsmpf_shuffle_graph(
     A valid task graph for single-worker execution.
     """
     # Make sure single worker is initialized
-    _setup_single_worker(config_options)
+    setup_single_worker(config_options)
 
     # Get the shuffle id
     shuffle_id = get_new_shuffle_id(_get_occupied_ids_single)
