@@ -14,7 +14,7 @@ from rapidsmpf.examples.dask import DaskCudfIntegration
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
 from rapidsmpf.integrations.single import (
-    get_single_worker_context,
+    _get_single_worker_context,
     setup_single_worker,
     single_rapidsmpf_shuffle_graph,
 )
@@ -322,7 +322,7 @@ def test_many_shuffles_single() -> None:
     do_shuffle(seed=2, num_shuffles=10)
 
     # Check that all shufflers has been cleaned up.
-    ctx = get_single_worker_context()
+    ctx = _get_single_worker_context()
     assert len(ctx.shufflers) == 0
 
     # But we cannot shuffle more than `max_num_shuffles` times in a single compute.

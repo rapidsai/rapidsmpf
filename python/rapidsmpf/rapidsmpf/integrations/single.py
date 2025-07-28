@@ -33,12 +33,13 @@ class _SingleWorker:
 _single_rapidsmpf_worker: _SingleWorker = _SingleWorker()
 
 
-def get_single_worker_context(worker: _SingleWorker | None = None) -> WorkerContext:
+def _get_single_worker_context(worker: _SingleWorker | None = None) -> WorkerContext:
     """
-    Retrieve the single `WorkerContext`.
+    Retrieve the single :class:`rapidsmpf.integrations.core.WorkerContext`.
 
     If the worker context does not already exist on the worker, it
-    will be created and attached to `_single_rapidsmpf_worker_context`.
+    will be created and attached to the ``_single_rapidsmpf_worker``
+    singleton.
 
     Returns
     -------
@@ -65,7 +66,7 @@ def setup_single_worker(options: Options = Options()) -> None:
     This function creates a new RMM memory pool, and
     sets it as the current device resource.
     """
-    ctx = get_single_worker_context()
+    ctx = _get_single_worker_context()
     with ctx.lock:
         if ctx.comm is not None:
             return  # Single worker already set up
@@ -75,7 +76,7 @@ def setup_single_worker(options: Options = Options()) -> None:
     ctx.comm.logger.trace("single communicator created.")
 
     rmpf_worker_setup(
-        get_single_worker_context,
+        _get_single_worker_context,
         None,
         "single_",
         options=options,
@@ -83,7 +84,7 @@ def setup_single_worker(options: Options = Options()) -> None:
 
 
 def _get_occupied_ids_single() -> list[set[int]]:
-    ctx = get_single_worker_context()
+    ctx = _get_single_worker_context()
     return [set(ctx.shufflers.keys())]
 
 
@@ -108,7 +109,7 @@ def _single_worker_barrier(
         Null sequence used to enforce barrier dependencies.
     """
     for shuffle_id in shuffle_ids:
-        shuffler = get_shuffler(get_single_worker_context, shuffle_id)
+        shuffler = get_shuffler(_get_single_worker_context, shuffle_id)
         for pid in range(partition_count):
             shuffler.insert_finished(pid)
 
@@ -125,7 +126,7 @@ def _stage_single_shuffler(shuffle_id: int, partition_count: int) -> None:
         Output partition count for the shuffle operation.
     """
     get_shuffler(
-        get_single_worker_context,
+        _get_single_worker_context,
         shuffle_id,
         partition_count=partition_count,
     )
@@ -182,7 +183,7 @@ def single_rapidsmpf_shuffle_graph(
     graph: dict[Any, Any] = {
         (insert_name, pid): (
             insert_partition,
-            get_single_worker_context,
+            _get_single_worker_context,
             integration.insert_partition,
             (input_name, pid),
             pid,
@@ -208,7 +209,7 @@ def single_rapidsmpf_shuffle_graph(
         output_keys.append((output_name, part_id))
         graph[output_keys[-1]] = (
             extract_partition,
-            get_single_worker_context,
+            _get_single_worker_context,
             integration.extract_partition,
             shuffle_id,
             part_id,
