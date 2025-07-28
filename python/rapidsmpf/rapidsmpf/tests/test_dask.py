@@ -264,7 +264,7 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
                 ValueError,
                 match=f"Cannot shuffle more than {max_num_shuffles} times in a single query",
             ):
-                do_shuffle(seed=3, num_shuffles=257)
+                do_shuffle(seed=3, num_shuffles=max_num_shuffles + 1)
 
 
 def test_many_shuffles_single() -> None:
@@ -332,4 +332,4 @@ def test_many_shuffles_single() -> None:
         ValueError,
         match=f"Cannot shuffle more than {max_num_shuffles} times in a single query",
     ):
-        do_shuffle(seed=3, num_shuffles=257)
+        do_shuffle(seed=3, num_shuffles=max_num_shuffles + 1)

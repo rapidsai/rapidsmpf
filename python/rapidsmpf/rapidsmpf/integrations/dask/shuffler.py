@@ -31,13 +31,14 @@ if TYPE_CHECKING:
     from rapidsmpf.integrations.core import ShufflerIntegration
 
 
-def _get_occupied_ids_dask(client: Client) -> list[set[int]]:
-    def _get_occupied_ids(dask_worker: Worker) -> set[int]:
-        ctx = get_dask_worker_context(dask_worker)
-        with ctx.lock:
-            return set(ctx.shufflers.keys())
+def _get_occupied_ids_local(dask_worker: Worker) -> set[int]:
+    ctx = get_dask_worker_context(dask_worker)
+    with ctx.lock:
+        return set(ctx.shufflers.keys())
 
-    return list(client.run(_get_occupied_ids).values())
+
+def _get_occupied_ids_dask(client: Client) -> list[set[int]]:
+    return list(client.run(_get_occupied_ids_local).values())
 
 
 def _worker_rmpf_barrier(
