@@ -9,46 +9,11 @@
 
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
-#include <rapidsmpf/communicator/single.hpp>
-
-#ifdef RAPIDSMPF_HAVE_MPI
-#include <rapidsmpf/communicator/mpi.hpp>
-#endif
-
-#ifdef RAPIDSMPF_HAVE_UCXX
-#include <rapidsmpf/communicator/ucxx.hpp>
-#endif
 
 #include "environment.hpp"
 #include "utils.hpp"
 
 using namespace rapidsmpf;
-
-namespace {
-enum class CommunicatorType {
-    MPI,
-    UCXX,
-    SINGLE
-};
-
-CommunicatorType get_communicator_type(Communicator* comm) {
-#ifdef RAPIDSMPF_HAVE_MPI
-    if (dynamic_cast<MPI*>(comm) != nullptr) {
-        return CommunicatorType::MPI;
-    }
-#endif
-#ifdef RAPIDSMPF_HAVE_UCXX
-    if (dynamic_cast<rapidsmpf::ucxx::UCXX*>(comm) != nullptr) {
-        return CommunicatorType::UCXX;
-    }
-#endif
-    if (dynamic_cast<Single*>(comm) != nullptr) {
-        return CommunicatorType::SINGLE;
-    }
-
-    RAPIDSMPF_FAIL("Unknown communicator type");
-}
-}  // namespace
 
 class CommunicatorTest : public cudf::test::BaseFixtureWithParam<size_t> {
   protected:
@@ -78,7 +43,7 @@ INSTANTIATE_TEST_CASE_P(
 
 // Test for the new multi-destination send method
 TEST_P(CommunicatorTest, MultiDestinationSend) {
-    if (get_communicator_type(comm) != CommunicatorType::MPI) {
+    if (GlobalEnvironment->type() != TestEnvironmentType::MPI) {
         GTEST_SKIP() << "Non-MPI communicators do not support multi-destination send";
     }
 

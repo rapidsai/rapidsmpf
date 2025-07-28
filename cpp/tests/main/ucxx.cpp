@@ -16,8 +16,11 @@ Environment* GlobalEnvironment = nullptr;
 
 Environment::Environment(int argc, char** argv) : argc_(argc), argv_(argv) {}
 
+TestEnvironmentType Environment::type() const {
+    return TestEnvironmentType::UCXX;
+}
+
 void Environment::SetUp() {
-    // Ensure CUDA context is created before UCX is initialized.
     cudaFree(nullptr);
 
     // Explicitly initialize MPI. We can not use rapidsmpf::mpi::init as it checks some

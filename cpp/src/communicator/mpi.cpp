@@ -299,8 +299,8 @@ bool MPI::test_batch(Communicator::BatchFuture& future) {
 
     // Test all requests in the batch
     auto indices = mpi_testsome(reqs);
-    std::ranges::transform(indices.begin(), indices.end(), reqs.begin(), [&](int i) {
-        return reqs[static_cast<size_t>(i)] = nullptr;
+    std::ranges::for_each(indices.begin(), indices.end(), [&](int i) {
+        reqs[static_cast<size_t>(i)] = nullptr;
     });
     std::erase(reqs, nullptr);
 
