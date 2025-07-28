@@ -15,6 +15,13 @@ libraries.
    :members:
 ```
 
+### Single-process
+
+```{eval-rst}
+.. automodule:: rapidsmpf.integrations.single
+   :members:
+```
+
 ### Ray
 
 ```{eval-rst}
