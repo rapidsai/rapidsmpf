@@ -145,6 +145,8 @@ def single_rapidsmpf_shuffle_graph(
     """
     Return the task graph for a RapidsMPF shuffle.
 
+    This shuffle will use the single-process RapidsMPF Communicator.
+
     Parameters
     ----------
     input_name
