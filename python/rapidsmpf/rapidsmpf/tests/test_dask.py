@@ -11,7 +11,7 @@ import pytest
 from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options
 from rapidsmpf.examples.dask import DaskCudfIntegration
-from rapidsmpf.integrations.dask.core import get_dask_worker_context
+from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
 from rapidsmpf.integrations.single import (
     get_single_worker_context,
@@ -66,7 +66,7 @@ async def test_dask_ucxx_cluster_sync() -> None:
 
         def get_rank(dask_worker: Worker) -> int:
             # TODO: maybe move the cast into rapidsmpf_comm?
-            comm = get_dask_worker_context(dask_worker).comm
+            comm = get_worker_context(dask_worker).comm
             assert comm is not None
             return comm.rank
 
@@ -177,13 +177,11 @@ def test_bootstrap_dask_cluster_idempotent() -> None:
     with LocalCUDACluster() as cluster, Client(cluster) as client:
         bootstrap_dask_cluster(client, options=options)
         before = client.run(
-            lambda dask_worker: id(get_dask_worker_context(dask_worker).comm)
+            lambda dask_worker: id(get_worker_context(dask_worker).comm)
         )
 
         bootstrap_dask_cluster(client, options=options)
-        after = client.run(
-            lambda dask_worker: id(get_dask_worker_context(dask_worker).comm)
-        )
+        after = client.run(lambda dask_worker: id(get_worker_context(dask_worker).comm))
         assert before == after
 
 
@@ -254,7 +252,7 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
 
             # Check that all shufflers has been cleaned up.
             def check_worker(dask_worker: Worker) -> None:
-                ctx = get_dask_worker_context(dask_worker)
+                ctx = get_worker_context(dask_worker)
                 assert len(ctx.shufflers) == 0
 
             client.run(check_worker)

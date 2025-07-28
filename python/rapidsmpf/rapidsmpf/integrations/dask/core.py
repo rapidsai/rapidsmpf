@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 _dask_logger = logging.getLogger("distributed.worker")
 
 
-def get_dask_worker_context(
+def get_worker_context(
     worker: distributed.Worker | None = None,
 ) -> WorkerContext:
     """
@@ -72,7 +72,7 @@ def get_dask_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
     -----
     This function is expected to run on a Dask worker.
     """
-    comm = get_dask_worker_context(dask_worker).comm
+    comm = get_worker_context(dask_worker).comm
     assert comm is not None
     return comm.rank
 
@@ -111,7 +111,7 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int, options: Options) -> byte
     bytes
         The UCXX address of the root node.
     """
-    ctx = get_dask_worker_context()
+    ctx = get_worker_context()
     ctx.comm = new_communicator(n_ranks, None, None, options)
     ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
     return get_root_ucxx_address(ctx.comm)
@@ -132,7 +132,7 @@ async def rapidsmpf_ucxx_rank_setup_node(
     options
         Configuration options.
     """
-    ctx = get_dask_worker_context()
+    ctx = get_worker_context()
     if ctx.comm is None:
         root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
         ctx.comm = new_communicator(n_ranks, None, root_address, options)
@@ -173,7 +173,7 @@ def dask_worker_setup(
     This function is expected to run on a Dask worker.
     """
     rmpf_worker_setup(
-        get_dask_worker_context,
+        get_worker_context,
         dask_worker,
         "dask_",
         options=options,

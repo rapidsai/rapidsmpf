@@ -18,8 +18,8 @@ from rapidsmpf.integrations.core import (
 )
 from rapidsmpf.integrations.dask.core import (
     get_dask_client,
-    get_dask_worker_context,
     get_dask_worker_rank,
+    get_worker_context,
     global_rmpf_barrier,
 )
 
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 
 def _get_occupied_ids_local(dask_worker: Worker) -> set[int]:
-    ctx = get_dask_worker_context(dask_worker)
+    ctx = get_worker_context(dask_worker)
     with ctx.lock:
         return set(ctx.shufflers.keys())
 
@@ -67,7 +67,7 @@ def _worker_rmpf_barrier(
     to a specific Dask worker.
     """
     for shuffle_id in shuffle_ids:
-        shuffler = get_shuffler(get_dask_worker_context, shuffle_id)
+        shuffler = get_shuffler(get_worker_context, shuffle_id)
         for pid in range(partition_count):
             shuffler.insert_finished(pid)
 
@@ -95,7 +95,7 @@ def _stage_shuffler(
     """
     worker = worker or get_worker()
     get_shuffler(
-        get_dask_worker_context,
+        get_worker_context,
         shuffle_id,
         partition_count=partition_count,
         worker=worker,
@@ -237,7 +237,7 @@ def rapidsmpf_shuffle_graph(
     graph: dict[Any, Any] = {
         (insert_name, pid): (
             insert_partition,
-            get_dask_worker_context,
+            get_worker_context,
             integration.insert_partition,
             (input_name, pid),
             pid,
@@ -281,7 +281,7 @@ def rapidsmpf_shuffle_graph(
         output_keys.append((output_name, part_id))
         graph[output_keys[-1]] = (
             extract_partition,
-            get_dask_worker_context,
+            get_worker_context,
             integration.extract_partition,
             shuffle_id,
             part_id,
