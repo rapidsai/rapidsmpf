@@ -1,17 +1,6 @@
-/*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+/**
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <thrust/random.h>
@@ -33,7 +22,7 @@ rmm::device_uvector<std::int32_t> random_device_vector(
     rmm::device_async_resource_ref mr
 ) {
     // Fill vector with random data.
-    rmm::device_uvector<std::int32_t> vec(nelem, stream, mr);
+    rmm::device_uvector<std::int32_t> vec(static_cast<std::size_t>(nelem), stream, mr);
     thrust::transform(
         rmm::exec_policy(stream),
         thrust::make_counting_iterator(0),
@@ -77,12 +66,12 @@ cudf::table random_table(
 }
 
 void random_fill(
-    rapidsmp::Buffer& buffer,
+    rapidsmpf::Buffer& buffer,
     rmm::cuda_stream_view stream,
     rmm::device_async_resource_ref mr
 ) {
-    switch (buffer.mem_type) {
-    case rapidsmp::MemoryType::DEVICE:
+    switch (buffer.mem_type()) {
+    case rapidsmpf::MemoryType::DEVICE:
         {
             auto vec = random_device_vector(
                 buffer.size / sizeof(std::int32_t) + sizeof(std::int32_t),
@@ -91,12 +80,12 @@ void random_fill(
                 stream,
                 mr
             );
-            RAPIDSMP_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+            RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
                 buffer.data(), vec.data(), buffer.size, cudaMemcpyDeviceToDevice, stream
             ));
             break;
         }
     default:
-        RAPIDSMP_FAIL("unsupported memory type", std::invalid_argument);
+        RAPIDSMPF_FAIL("unsupported memory type", std::invalid_argument);
     }
 }

@@ -12,43 +12,154 @@ concurrency:
 jobs:
   pr-builder:
     needs:
+      - changed-files
       - checks
       - conda-cpp-build
+      - conda-cpp-linters
       - conda-cpp-tests
       - conda-python-build
       - conda-python-tests
+      - docs-build
+      - wheel-build-librapidsmpf
+      - wheel-build-rapidsmpf
+      - wheel-build-rapidsmpf-singlecomm
+      - wheel-test
+      - devcontainer
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-25.04
+    uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@branch-25.10
     if: always()
     with:
       needs: ${{ toJSON(needs) }}
+  changed-files:
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/changed-files.yaml@branch-25.10
+    with:
+      files_yaml: |
+        test_cpp:
+          - '**'
+          - '!.devcontainer/**'
+          - '!.pre-commit-config.yaml'
+          - '!.shellcheckrc'
+          - '!CONTRIBUTING.md'
+          - '!README.md'
+          - '!ci/release/update-version.sh'
+          - '!docs/**'
+          - '!python/**'
+        test_python:
+          - '**'
+          - '!.clang-tidy'
+          - '!.devcontainer/**'
+          - '!.pre-commit-config.yaml'
+          - '!.shellcheckrc'
+          - '!CONTRIBUTING.md'
+          - '!README.md'
+          - '!ci/release/update-version.sh'
+          - '!cpp/.clang-format'
+          - '!docs/**'
   checks:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@branch-25.04
-  conda-cpp-build:
+    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@branch-25.10
+  wheel-build-librapidsmpf:
     needs: checks
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@branch-25.04
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.10
     with:
       build_type: pull-request
-  conda-cpp-tests:
-    needs: conda-cpp-build
+      script: ci/build_wheel_librapidsmpf.sh
+      package-name: librapidsmpf
+      package-type: cpp
+      # build for every combination of arch on CUDA 12 and latest Python
+      matrix_filter: group_by([.ARCH]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
+  wheel-build-rapidsmpf:
+    needs: [checks, wheel-build-librapidsmpf]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@branch-25.04
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.10
+    with:
+      build_type: pull-request
+      script: ci/build_wheel_rapidsmpf.sh
+      package-name: rapidsmpf
+      package-type: python
+  wheel-build-rapidsmpf-singlecomm:
+    needs: [checks, wheel-build-librapidsmpf]
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.10
+    with:
+      build_type: pull-request
+      script: ci/build_wheel_singlecomm.sh
+      package-name: rapidsmpf-singlecomm
+      package-type: python
+  wheel-test:
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python
+    needs: [changed-files, wheel-build-rapidsmpf]
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@branch-25.10
     with:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
+      script: ci/test_wheel.sh
+  conda-cpp-build:
+    needs: checks
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@branch-25.10
+    with:
+      build_type: pull-request
+      script: ci/build_cpp.sh
+  conda-cpp-linters:
+    secrets: inherit
+    needs: checks
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-25.10
+    with:
+      build_type: pull-request
+      script: "ci/cpp_linters.sh"
+      node_type: "cpu16"
+  conda-cpp-tests:
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
+    needs: [changed-files, conda-cpp-build]
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@branch-25.10
+    with:
+      build_type: pull-request
+      container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
+      script: ci/test_cpp.sh
   conda-python-build:
     needs: conda-cpp-build
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@branch-25.04
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@branch-25.10
     with:
       build_type: pull-request
+      script: ci/build_python.sh
   conda-python-tests:
-    needs: conda-python-build
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python
+    needs: [changed-files, conda-python-build]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@branch-25.04
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@branch-25.10
     with:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       run_codecov: false
+      script: ci/test_python.sh
+  docs-build:
+    needs: conda-python-build
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-25.10
+    with:
+      build_type: pull-request
+      node_type: "cpu8"
+      arch: "amd64"
+      container_image: "rapidsai/ci-conda:25.10-latest"
+      script: "ci/build_docs.sh"
+  devcontainer:
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@branch-25.10
+    with:
+      arch: '["amd64"]'
+      cuda: '["12.9"]'
+      build_command: |
+        sccache --zero-stats;
+        build-all \
+          --verbose \
+          -DBUILD_TESTS=OFF \
+          -DBUILD_BENCHMARKS=ON \
+          -DCMAKE_PREFIX_PATH="$(python -c 'import os; from importlib.metadata import entry_points; from importlib.resources import files; print(";".join([f"{x}/lib64/cmake" for xs in [[os.fspath(p) for p in path._paths] if hasattr(path, "_path") else [os.fspath(path)] for path in [files(ep.load()) for ep in entry_points(group="cmake.prefix")]] for x in xs]))')" \
+          2>&1 | tee telemetry-artifacts/build.log;
+        sccache --show-adv-stats | tee telemetry-artifacts/sccache-stats.txt;

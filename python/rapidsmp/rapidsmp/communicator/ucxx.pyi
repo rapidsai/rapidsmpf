@@ -3,9 +3,8 @@
 from enum import IntEnum
 from typing import cast
 
-from ucxx._lib.libucxx import UCXAddress, UCXWorker
-
 from rapidsmp.communicator.communicator import Communicator
+from ucxx._lib.libucxx import UCXAddress, UCXWorker
 
 class ProgressMode(IntEnum):
     Blocking = cast(int, ...)

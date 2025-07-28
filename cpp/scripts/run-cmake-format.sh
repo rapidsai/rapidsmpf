@@ -1,5 +1,7 @@
 #!/bin/bash
-# Copyright (c) 2021-2024, NVIDIA CORPORATION.
+
+# SPDX-FileCopyrightText: Copyright (c) 2021-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
 
 # This script is a wrapper for cmakelang that may be used with pre-commit. The
 # wrapping is necessary because RAPIDS libraries split configuration for
@@ -25,31 +27,31 @@
 # bash run-cmake-format.sh {cmake-format,cmake-lint} infile [infile ...]
 
 status=0
-if [ -z ${CUDF_ROOT:+PLACEHOLDER} ]; then
-    CUDF_BUILD_DIR=$(git rev-parse --show-toplevel 2>&1)/cpp/build
+if [ -z ${RAPIDSMPF_ROOT:+PLACEHOLDER} ]; then
+    RAPIDSMPF_BUILD_DIR=$(git rev-parse --show-toplevel 2>&1)/cpp/build
     status=$?
 else
-    CUDF_BUILD_DIR=${CUDF_ROOT}
+    RAPIDSMPF_BUILD_DIR=${RAPIDSMPF_ROOT}
 fi
 
 if ! [ ${status} -eq 0 ]; then
-    if [[ ${CUDF_BUILD_DIR} == *"not a git repository"* ]]; then
-        echo "This script must be run inside the cudf repository, or the CUDF_ROOT environment variable must be set."
+    if [[ ${RAPIDSMPF_BUILD_DIR} == *"not a git repository"* ]]; then
+        echo "This script must be run inside the rapidsmpf repository, or the RAPIDSMPF_ROOT environment variable must be set."
     else
         echo "Script failed with unknown error attempting to determine project root:"
-        echo ${CUDF_BUILD_DIR}
+        echo "${RAPIDSMPF_BUILD_DIR}"
     fi
     exit 1
 fi
 
 DEFAULT_FORMAT_FILE_LOCATIONS=(
-  "${CUDF_BUILD_DIR:-${HOME}}/_deps/rapids-cmake-src/cmake-format-rapids-cmake.json"
-  "${CUDF_BUILD_DIR:-cpp/build}/latest/_deps/rapids-cmake-src/cmake-format-rapids-cmake.json"
+  "${RAPIDSMPF_BUILD_DIR:-${HOME}}/_deps/rapids-cmake-src/cmake-format-rapids-cmake.json"
+  "${RAPIDSMPF_BUILD_DIR:-cpp/build}/latest/_deps/rapids-cmake-src/cmake-format-rapids-cmake.json"
 )
 
 if [ -z ${RAPIDS_CMAKE_FORMAT_FILE:+PLACEHOLDER} ]; then
-    for file_path in ${DEFAULT_FORMAT_FILE_LOCATIONS[@]}; do
-        if [ -f ${file_path} ]; then
+    for file_path in "${DEFAULT_FORMAT_FILE_LOCATIONS[@]}"; do
+        if [ -f "${file_path}" ]; then
             RAPIDS_CMAKE_FORMAT_FILE=${file_path}
             break
         fi
@@ -68,12 +70,12 @@ else
 fi
 
 if [[ $1 == "cmake-format" ]]; then
-  cmake-format -i --config-files cmake/config.json ${RAPIDS_CMAKE_FORMAT_FILE} -- ${@:2}
+  cmake-format -i --config-files cmake/config.json "${RAPIDS_CMAKE_FORMAT_FILE}" -- "${@:2}"
 elif [[ $1 == "cmake-lint" ]]; then
   # Since the pre-commit hook is verbose, we have to be careful to only
   # present cmake-lint's output (which is quite verbose) if we actually
   # observe a failure.
-  OUTPUT=$(cmake-lint --config-files cmake/config.json ${RAPIDS_CMAKE_FORMAT_FILE} -- ${@:2})
+  OUTPUT=$(cmake-lint --config-files cmake/config.json "${RAPIDS_CMAKE_FORMAT_FILE}" -- "${@:2}")
   status=$?
 
   if ! [ ${status} -eq 0 ]; then

@@ -1,66 +1,115 @@
-# =============================================================================
-# Copyright (c) 2024-2025, NVIDIA CORPORATION.
-#
-# Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
-# in compliance with the License. You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software distributed under the License
-# is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
-# or implied. See the License for the specific language governing permissions and limitations under
-# the License.
-# =============================================================================
+# =================================================================================
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
+# =================================================================================
 
 file(GLOB UTILS_SOURCES "utils/*.cpp" "utils/*.cu")
 add_executable(bench_shuffle "bench_shuffle.cpp" ${UTILS_SOURCES})
 set_target_properties(
   bench_shuffle
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMP_BINARY_DIR}/benchmarks>"
-             CXX_STANDARD 17
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
+             CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              # For std:: support of __int128_t. Can be removed once using cuda::std
              CXX_EXTENSIONS ON
-             CUDA_STANDARD 17
+             CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
 )
 target_compile_options(
-  bench_shuffle PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMP_CXX_FLAGS}>"
-                        "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMP_CUDA_FLAGS}>"
+  bench_shuffle PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                        "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  bench_shuffle PRIVATE rapidsmp::rapidsmp MPI::MPI_C ucxx::ucxx ucx::ucp
-                        $<TARGET_NAME_IF_EXISTS:conda_env>
+  bench_shuffle
+  PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 install(
   TARGETS bench_shuffle
-  COMPONENT testing
-  DESTINATION bin/benchmarks/librapidsmp
+  COMPONENT benchmarking
+  DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL
 )
 
 add_executable(bench_comm "bench_comm.cpp" ${UTILS_SOURCES})
 set_target_properties(
   bench_comm
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMP_BINARY_DIR}/benchmarks>"
-             CXX_STANDARD 17
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
+             CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              # For std:: support of __int128_t. Can be removed once using cuda::std
              CXX_EXTENSIONS ON
-             CUDA_STANDARD 17
+             CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
 )
 target_compile_options(
-  bench_comm PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMP_CXX_FLAGS}>"
-                     "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMP_CUDA_FLAGS}>"
+  bench_comm PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                     "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  bench_comm PRIVATE rapidsmp::rapidsmp MPI::MPI_C ucxx::ucxx ucx::ucp
-                     $<TARGET_NAME_IF_EXISTS:conda_env>
+  bench_comm PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+                     $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 install(
   TARGETS bench_comm
-  COMPONENT testing
-  DESTINATION bin/benchmarks/librapidsmp
+  COMPONENT benchmarking
+  DESTINATION bin/benchmarks/librapidsmpf
+  EXCLUDE_FROM_ALL
+)
+
+# Find or install GoogleBench
+include(${rapids-cmake-dir}/cpm/gbench.cmake)
+rapids_cpm_gbench(BUILD_STATIC)
+
+add_executable(bench_partition "bench_partition.cpp" ${UTILS_SOURCES})
+set_target_properties(
+  bench_partition
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             # For std:: support of __int128_t. Can be removed once using cuda::std
+             CXX_EXTENSIONS ON
+             CUDA_STANDARD 20
+             CUDA_STANDARD_REQUIRED ON
+)
+target_compile_options(
+  bench_partition PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                          "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+)
+target_link_libraries(
+  bench_partition
+  PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp benchmark::benchmark benchmark::benchmark_main
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+)
+install(
+  TARGETS bench_partition
+  COMPONENT benchmarking
+  DESTINATION bin/benchmarks/librapidsmpf
+  EXCLUDE_FROM_ALL
+)
+
+add_executable(bench_memory_resources "bench_memory_resources.cpp" ${UTILS_SOURCES})
+set_target_properties(
+  bench_memory_resources
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             CXX_EXTENSIONS ON
+             CUDA_STANDARD 20
+             CUDA_STANDARD_REQUIRED ON
+)
+target_compile_options(
+  bench_memory_resources PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                                 "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+)
+target_link_libraries(
+  bench_memory_resources
+  PRIVATE rapidsmpf::rapidsmpf rmm::rmm benchmark::benchmark benchmark::benchmark_main
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+)
+install(
+  TARGETS bench_memory_resources
+  COMPONENT benchmarking
+  DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL
 )

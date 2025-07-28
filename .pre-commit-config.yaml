@@ -1,4 +1,5 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -63,8 +64,8 @@ repos:
     rev: 'v1.14.1'
     hooks:
       - id: mypy
-        args: ["--config-file=python/rapidsmp/pyproject.toml",
-               "python/rapidsmp/"]
+        args: ["--config-file=pyproject.toml",
+               "python/rapidsmpf/"]
         pass_filenames: false
   - repo: https://github.com/PyCQA/isort
     rev: 5.13.2
@@ -74,11 +75,6 @@ repos:
         args: ["--config-root=python/", "--resolve-all-configs"]
         files: python/.*
         types_or: [cython]
-  - repo: https://github.com/numpy/numpydoc
-    rev: v1.8.0
-    hooks:
-      - id: numpydoc-validation
-        exclude: python/rapidsmp/rapidsmp/tests/
   - repo: https://github.com/codespell-project/codespell
     rev: v2.2.6
     hooks:
@@ -95,12 +91,16 @@ repos:
         args: [--fix, --main-branch=main]
       - id: verify-alpha-spec
       - id: verify-codeowners
-        args: [--fix, --project-prefix=rapids-multi-gpu]
+        args: [--fix, --project-prefix=rapidsmpf]
   - repo: https://github.com/rapidsai/dependency-file-generator
     rev: v1.16.0
     hooks:
       - id: rapids-dependency-file-generator
         args: ["--clean"]
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
 
 default_language_version:
       python: python3

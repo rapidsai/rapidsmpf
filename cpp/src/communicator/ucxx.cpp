@@ -1,29 +1,19 @@
-/*
- * Copyright (c) 2025, NVIDIA CORPORATION.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+/**
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <utility>
 
-#include <rapidsmp/communicator/ucxx.hpp>
-#include <rapidsmp/error.hpp>
+#include <rapidsmpf/communicator/ucxx.hpp>
+#include <rapidsmpf/error.hpp>
 
-namespace rapidsmp {
+namespace rapidsmpf {
 
 namespace ucxx {
 
@@ -56,10 +46,10 @@ enum class ListenerAddressType {
     Undefined
 };
 
-using Rank = rapidsmp::Rank;
-using HostPortPair = rapidsmp::ucxx::HostPortPair;
-using RemoteAddress = rapidsmp::ucxx::RemoteAddress;
-using ListenerAddress = rapidsmp::ucxx::ListenerAddress;
+using Rank = rapidsmpf::Rank;
+using HostPortPair = rapidsmpf::ucxx::HostPortPair;
+using RemoteAddress = rapidsmpf::ucxx::RemoteAddress;
+using ListenerAddress = rapidsmpf::ucxx::ListenerAddress;
 using ControlData = std::variant<Rank, ListenerAddress>;
 using EndpointsMap = std::unordered_map<ucp_ep_h, std::shared_ptr<::ucxx::Endpoint>>;
 using RankToEndpointMap = std::unordered_map<Rank, std::shared_ptr<::ucxx::Endpoint>>;
@@ -102,7 +92,7 @@ class SharedResources {
     std::shared_ptr<::ucxx::Worker> worker_{nullptr};  ///< UCXX Listener
     std::shared_ptr<::ucxx::Listener> listener_{nullptr};  ///< UCXX Listener
     Rank rank_{Rank(-1)};  ///< Rank of the current process
-    std::uint32_t nranks_{0};  ///< Number of ranks in the communicator
+    Rank nranks_{0};  ///< Number of ranks in the communicator
     std::atomic<Rank> next_rank_{1
     };  ///< Rank to assign for the next client that connects (root only)
     EndpointsMap endpoints_{};  ///< Map of UCP handle to UCXX endpoints of known ranks
@@ -110,7 +100,7 @@ class SharedResources {
     RankToListenerAddressMap rank_to_listener_address_{
     };  ///< Map of rank to listener addresses
     const ::ucxx::AmReceiverCallbackInfo control_callback_info_{
-        "rapidsmp", 0
+        "rapidsmpf", 0
     };  ///< UCXX callback info for control messages
     std::vector<std::unique_ptr<HostFuture>> futures_{
     };  ///< Futures to incomplete requests.
@@ -122,6 +112,10 @@ class SharedResources {
     };  ///< Mutex to control access to `listener_` and `rank_to_listener_address_`
     std::mutex delayed_progress_callbacks_mutex_{
     };  ///< Mutex to control access to `delayed_progress_callbacks_`
+    bool endpoint_error_handling_{false
+    };  ///< Whether to request UCX endpoint error handling. This is currently disabled
+        ///< as it impacts performance very negatively.
+        ///< See https://github.com/rapidsai/rapidsmpf/issues/140.
     std::atomic<std::uint64_t> progress_count{0
     };  ///< Counts how many times `maybe_progress_worker` has been called
 
@@ -138,8 +132,8 @@ class SharedResources {
      * @param root Whether the rank is the root rank.
      * @param nranks The number of ranks requested for the cluster.
      */
-    SharedResources(std::shared_ptr<::ucxx::Worker> worker, bool root, uint32_t nranks)
-        : worker_{worker}, rank_{Rank(root ? 0 : -1)}, nranks_{nranks} {}
+    SharedResources(std::shared_ptr<::ucxx::Worker> worker, bool root, Rank nranks)
+        : worker_{std::move(worker)}, rank_{Rank(root ? 0 : -1)}, nranks_{nranks} {}
 
     SharedResources(SharedResources&&) = delete;  ///< Not movable.
     SharedResources(SharedResources&) = delete;  ///< Not copyable.
@@ -173,7 +167,7 @@ class SharedResources {
      *
      * @return The number of ranks in the cluster.
      */
-    [[nodiscard]] std::uint32_t nranks() const {
+    [[nodiscard]] Rank nranks() const {
         return nranks_;
     }
 
@@ -187,7 +181,7 @@ class SharedResources {
      * @throws std::logic_error If called by rank other than 0.
      */
     [[nodiscard]] Rank get_next_worker_rank() {
-        RAPIDSMP_EXPECTS(rank_ == 0, "This method can only be called by rank 0");
+        RAPIDSMPF_EXPECTS(rank_ == 0, "This method can only be called by rank 0");
         return next_rank_++;
     }
 
@@ -200,6 +194,20 @@ class SharedResources {
      */
     [[nodiscard]] std::shared_ptr<::ucxx::Worker> get_worker() {
         return worker_;
+    }
+
+    /**
+     * @brief Gets the UCXX context.
+     *
+     * Returns the UCXX context from the worker.
+     *
+     * @return The UCXX context.
+     * @throws std::logic_error if the context cannot be obtained from the worker.
+     */
+    [[nodiscard]] std::shared_ptr<::ucxx::Context> get_context() {
+        auto context = std::dynamic_pointer_cast<::ucxx::Context>(worker_->getParent());
+        RAPIDSMPF_EXPECTS(context != nullptr, "Failed to get UCXX context from worker");
+        return context;
     }
 
     [[nodiscard]] ::ucxx::AmReceiverCallbackInfo get_control_callback_info() const {
@@ -217,7 +225,7 @@ class SharedResources {
         std::lock_guard<std::mutex> lock(listener_mutex_);
         auto worker = std::dynamic_pointer_cast<::ucxx::Worker>(listener->getParent());
         rank_to_listener_address_[rank_] =
-            ListenerAddress{worker->getAddress(), .rank = rank_};
+            ListenerAddress{.address = worker->getAddress(), .rank = rank_};
         listener_ = std::move(listener);
     }
 
@@ -352,46 +360,48 @@ class SharedResources {
                 auto& endpoint = rank_to_endpoint.second;
                 requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
             }
-            while (std::any_of(requests.cbegin(), requests.cend(), [](auto const& req) {
+            while (std::ranges::any_of(requests, [](auto const& req) {
                 return !req->isCompleted();
             }))
+            {
                 progress_worker();
-
+            }
             requests.clear();
 
             for (auto& rank_to_endpoint : rank_to_endpoint_) {
                 auto& endpoint = rank_to_endpoint.second;
                 requests.push_back(endpoint->amRecv());
             }
-            while (std::any_of(requests.cbegin(), requests.cend(), [](auto const& req) {
+            while (std::ranges::any_of(requests, [](auto const& req) {
                 return !req->isCompleted();
             }))
+            {
                 progress_worker();
+            }
         } else {
             auto endpoint = get_endpoint(0);
 
             auto req = endpoint->amRecv();
-            while (!req->isCompleted())
+            while (!req->isCompleted()) {
                 progress_worker();
+            }
 
             req = endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST);
-            while (!req->isCompleted())
+            while (!req->isCompleted()) {
                 progress_worker();
+            }
         }
     }
 
     void clear_completed_futures() {
         std::lock_guard<std::mutex> lock(futures_mutex_);
-        futures_.erase(
-            std::remove_if(
-                futures_.begin(),
-                futures_.end(),
-                [](std::unique_ptr<HostFuture> const& element) {
-                    return element->completed();
-                }
-            ),
-            futures_.end()
+        auto new_end = std::ranges::remove_if(
+            futures_,
+            [](std::unique_ptr<HostFuture> const& element) {
+                return element->completed();
+            }
         );
+        futures_.erase(new_end.begin(), new_end.end());
     }
 
     void ensure_progress_thread_progress() {
@@ -448,6 +458,15 @@ class SharedResources {
     void add_delayed_progress_callback(std::function<void()> callback) {
         std::lock_guard<std::mutex> lock(delayed_progress_callbacks_mutex_);
         delayed_progress_callbacks_.emplace_back(std::move(callback));
+    }
+
+    /**
+     * @brief Whether endpoint error handling should be enabled.
+     *
+     * @return `true` if endpoint error handling should be enabled, `false` otherwise.
+     */
+    bool endpoint_error_handling() {
+        return endpoint_error_handling_;
     }
 };
 
@@ -521,7 +540,7 @@ std::unique_ptr<std::vector<uint8_t>> listener_address_pack(
                 encode_(&listener_address.rank, sizeof(listener_address.rank));
                 return packed;
             } else {
-                RAPIDSMP_EXPECTS(false, "Unknown argument type");
+                RAPIDSMPF_EXPECTS(false, "Unknown argument type");
             }
         },
         listener_address.address
@@ -573,7 +592,7 @@ ListenerAddress listener_address_unpack(std::unique_ptr<std::vector<uint8_t>> pa
 
         return ListenerAddress{std::make_pair(host, port), rank};
     } else {
-        RAPIDSMP_EXPECTS(false, "Wrong type");
+        RAPIDSMPF_EXPECTS(false, "Wrong type");
     }
 }
 
@@ -626,7 +645,7 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
 
         return packed;
     } else {
-        RAPIDSMP_EXPECTS(false, "Invalid control type");
+        RAPIDSMPF_EXPECTS(false, "Invalid control type");
     }
 };
 
@@ -654,7 +673,7 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
 void control_unpack(
     std::shared_ptr<::ucxx::Buffer> buffer,
     ucp_ep_h ep,
-    std::shared_ptr<rapidsmp::ucxx::SharedResources> shared_resources
+    std::shared_ptr<rapidsmpf::ucxx::SharedResources> shared_resources
 ) {
     size_t offset{0};
 
@@ -697,7 +716,7 @@ void control_unpack(
             );
             auto endpoint =
                 shared_resources->get_worker()->createEndpointFromWorkerAddress(
-                    worker_address, true
+                    worker_address, shared_resources->endpoint_error_handling()
                 );
             shared_resources->register_endpoint(client_rank, endpoint);
 
@@ -767,7 +786,7 @@ void control_unpack(
  * associated with the new endpoint.
  */
 void listener_callback(ucp_conn_request_h conn_request, void* arg) {
-    auto shared_resources = reinterpret_cast<rapidsmp::ucxx::SharedResources*>(arg);
+    auto shared_resources = reinterpret_cast<rapidsmpf::ucxx::SharedResources*>(arg);
 
     ucp_conn_request_attr_t attr{};
     attr.field_mask = UCP_CONN_REQUEST_ATTR_FIELD_CLIENT_ADDR;
@@ -793,7 +812,7 @@ void listener_callback(ucp_conn_request_h conn_request, void* arg) {
         );
 
     auto endpoint = shared_resources->get_listener()->createEndpointFromConnRequest(
-        conn_request, true
+        conn_request, shared_resources->endpoint_error_handling()
     );
 
     if (shared_resources->rank() == 0) {
@@ -820,20 +839,20 @@ void listener_callback(ucp_conn_request_h conn_request, void* arg) {
 /**
  * @brief Callback executed by UCXX progress thread to create/acquire CUDA context.
  */
-void create_cuda_context_callback(void* callbackArg) {
+void create_cuda_context_callback(void* /* callbackArg */) {
     cudaFree(nullptr);
 }
 
 }  // namespace
 
 InitializedRank::InitializedRank(
-    std::shared_ptr<rapidsmp::ucxx::SharedResources> shared_resources
+    std::shared_ptr<rapidsmpf::ucxx::SharedResources> shared_resources
 )
     : shared_resources_(std::move(shared_resources)) {}
 
-std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
+std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
-    std::uint32_t nranks,
+    Rank nranks,
     std::optional<RemoteAddress> remote_address,
     ProgressMode progress_mode
 ) {
@@ -861,7 +880,7 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
             worker = create_worker();
         }
         auto shared_resources =
-            std::make_shared<rapidsmp::ucxx::SharedResources>(worker, false, nranks);
+            std::make_shared<rapidsmpf::ucxx::SharedResources>(worker, false, nranks);
 
         // Create listener
         shared_resources->register_listener(
@@ -881,8 +900,8 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
         );
 
         // Connect to root
-        // TODO: Enable when Logger can be created before the UCXX communicator
-        // object. See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
+        // TODO: Enable when Logger can be created before the UCXX communicator object.
+        // See https://github.com/rapidsai/rapidsmpf/issues/65 .
         //
         // log.debug(
         //     "Connecting to root node at ",
@@ -897,19 +916,21 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
                 using T = std::decay_t<decltype(remote_address)>;
                 if constexpr (std::is_same_v<T, HostPortPair>) {
                     return shared_resources->get_worker()->createEndpointFromHostname(
-                        remote_address.first, remote_address.second, true
+                        remote_address.first,
+                        remote_address.second,
+                        shared_resources->endpoint_error_handling()
                     );
                 } else if constexpr (std::is_same_v<T, std::shared_ptr<::ucxx::Address>>)
                 {
                     auto root_endpoint =
                         shared_resources->get_worker()->createEndpointFromWorkerAddress(
-                            remote_address, true
+                            remote_address, shared_resources->endpoint_error_handling()
                         );
 
                     auto packed_listener_address_rank = control_pack(
                         ControlMessage::QueryRank,
                         ListenerAddress{
-                            shared_resources->get_worker()->getAddress(),
+                            .address = shared_resources->get_worker()->getAddress(),
                             .rank = shared_resources->rank()
                         }
                     );
@@ -925,7 +946,7 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
 
                     return root_endpoint;
                 } else {
-                    RAPIDSMP_EXPECTS(false, "Unknown argument type");
+                    RAPIDSMPF_EXPECTS(false, "Unknown argument type");
                 }
             },
             *remote_address
@@ -936,18 +957,18 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
         while (shared_resources->rank() == Rank(-1)) {
             shared_resources->progress_worker();
         }
-        // TODO: Enable when Logger can be created before the UCXX communicator
-        // object. See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
+        // TODO: Enable when Logger can be created before the UCXX communicator object.
+        // See https://github.com/rapidsai/rapidsmpf/issues/65 .
         // log.debug("Assigned rank: ", shared_resources->rank());
 
         if (const HostPortPair* host_port_pair =
                 std::get_if<HostPortPair>(&*remote_address))
         {
-            RAPIDSMP_EXPECTS(host_port_pair != nullptr, "Invalid pointer");
+            RAPIDSMPF_EXPECTS(host_port_pair != nullptr, "Invalid pointer");
 
             // Inform listener address
             ListenerAddress listener_address = ListenerAddress{
-                std::make_pair(listener->getIp(), listener->getPort()),
+                .address = std::make_pair(listener->getIp(), listener->getPort()),
                 .rank = shared_resources->rank()
             };
             auto packed_listener_address =
@@ -961,13 +982,13 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
             while (!req->isCompleted())
                 shared_resources->progress_worker();
         }
-        return std::make_unique<rapidsmp::ucxx::InitializedRank>(shared_resources);
+        return std::make_unique<rapidsmpf::ucxx::InitializedRank>(shared_resources);
     } else {
         if (worker == nullptr) {
             worker = create_worker();
         }
         auto shared_resources =
-            std::make_shared<rapidsmp::ucxx::SharedResources>(worker, true, nranks);
+            std::make_shared<rapidsmpf::ucxx::SharedResources>(worker, true, nranks);
 
         // Create listener
         shared_resources->register_listener(
@@ -975,8 +996,8 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
         );
         auto listener = shared_resources->get_listener();
 
-        // TODO: Enable when Logger can be created before the UCXX communicator
-        // object. See https://github.com/rapidsai/rapids-multi-gpu/issues/65 .
+        // TODO: Enable when Logger can be created before the UCXX communicator object.
+        // See https://github.com/rapidsai/rapidsmpf/issues/65 .
         // log.info("Root running at address ", listener->getIp(), ":",
         // listener->getPort());
 
@@ -990,12 +1011,16 @@ std::unique_ptr<rapidsmp::ucxx::InitializedRank> init(
             shared_resources->get_control_callback_info(), control_callback
         );
 
-        return std::make_unique<rapidsmp::ucxx::InitializedRank>(shared_resources);
+        return std::make_unique<rapidsmpf::ucxx::InitializedRank>(shared_resources);
     }
 }
 
-UCXX::UCXX(std::unique_ptr<InitializedRank> ucxx_initialized_rank)
-    : shared_resources_(ucxx_initialized_rank->shared_resources_), logger_(this) {
+UCXX::UCXX(
+    std::unique_ptr<InitializedRank> ucxx_initialized_rank, config::Options options
+)
+    : shared_resources_(ucxx_initialized_rank->shared_resources_),
+      options_{std::move(options)},
+      logger_(this, options_) {
     shared_resources_->logger = &logger_;
 }
 
@@ -1003,19 +1028,19 @@ UCXX::UCXX(std::unique_ptr<InitializedRank> ucxx_initialized_rank)
     return shared_resources_->rank();
 }
 
-[[nodiscard]] int UCXX::nranks() const {
+[[nodiscard]] Rank UCXX::nranks() const {
     return shared_resources_->nranks();
 }
 
 constexpr ::ucxx::Tag tag_with_rank(Rank rank, int tag) {
-    // The rapidsmp::ucxx::Communicator API uses 32-bit `int` for user tags to match
+    // The rapidsmpf::ucxx::Communicator API uses 32-bit `int` for user tags to match
     // MPI's standard. We can thus pack the rank in the higher 32-bit of UCX's
     // 64-bit tags as aid in identifying the sender of a message. Since we're
     // currently limited to 26-bits for ranks (see
-    // `rapidsmp::ucxx::shuffler::Shuffler::get_new_cid()`), we are essentially using
+    // `rapidsmpf::ucxx::shuffler::Shuffler::get_new_cid()`), we are essentially using
     // 58-bits for the tags and the remaining 6-bits may be used in the future,
     // such as to identify groups.
-    return ::ucxx::Tag(static_cast<uint64_t>(rank) << 32 | tag);
+    return ::ucxx::Tag(static_cast<uint64_t>(rank) << 32 | static_cast<uint64_t>(tag));
 }
 
 constexpr ::ucxx::TagMask UserTagMask{std::numeric_limits<uint32_t>::max()};
@@ -1060,14 +1085,18 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
                 using T = std::decay_t<decltype(remote_address)>;
                 if constexpr (std::is_same_v<T, HostPortPair>) {
                     return shared_resources_->get_worker()->createEndpointFromHostname(
-                        remote_address.first, remote_address.second, true
+                        remote_address.first,
+                        remote_address.second,
+                        shared_resources_->endpoint_error_handling()
                     );
                 } else if constexpr (std::is_same_v<T, std::shared_ptr<::ucxx::Address>>)
                 {
                     return shared_resources_->get_worker()
-                        ->createEndpointFromWorkerAddress(remote_address, true);
+                        ->createEndpointFromWorkerAddress(
+                            remote_address, shared_resources_->endpoint_error_handling()
+                        );
                 } else {
-                    RAPIDSMP_EXPECTS(false, "Unknown argument type");
+                    RAPIDSMPF_EXPECTS(false, "Unknown argument type");
                 }
             },
             listener_address.address
@@ -1095,23 +1124,23 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
-    std::unique_ptr<std::vector<uint8_t>> msg,
-    Rank rank,
-    Tag tag,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
+    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
 ) {
     auto req = get_endpoint(rank)->tagSend(
         msg->data(),
         msg->size(),
         tag_with_rank(shared_resources_->rank(), static_cast<int>(tag))
     );
-    return std::make_unique<Future>(req, br->move(std::move(msg), stream));
+    return std::make_unique<Future>(req, br->move(std::move(msg)));
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
-    std::unique_ptr<Buffer> msg, Rank rank, Tag tag, rmm::cuda_stream_view stream
+    std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
+    if (!msg->is_ready()) {
+        logger().warn("msg is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
     auto req = get_endpoint(rank)->tagSend(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
     );
@@ -1119,8 +1148,12 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv(
-    Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer, rmm::cuda_stream_view stream
+    Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
+    if (!recv_buffer->is_ready()) {
+        logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
     auto req = get_endpoint(rank)->tagRecv(
         recv_buffer->data(),
         recv_buffer->size,
@@ -1131,7 +1164,6 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
 }
 
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
-    Logger& log = logger();
     auto probe = shared_resources_->get_worker()->tagProbe(
         ::ucxx::Tag(static_cast<int>(tag)), UserTagMask
     );
@@ -1149,12 +1181,6 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     );
 
     while (!req->isCompleted()) {
-        log.warn(
-            "block-receiving a messager larger than the normal ",
-            "eager threshold (",
-            msg->size(),
-            " bytes)"
-        );
         progress_worker();
     }
 
@@ -1168,7 +1194,7 @@ std::vector<std::size_t> UCXX::test_some(
     std::vector<size_t> completed;
     for (size_t i = 0; i < future_vector.size(); i++) {
         auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
-        RAPIDSMP_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
             completed.push_back(i);
         }
@@ -1184,7 +1210,7 @@ std::vector<std::size_t> UCXX::test_some(
     std::vector<size_t> completed;
     for (auto const& [key, future] : future_map) {
         auto ucxx_future = dynamic_cast<Future const*>(future.get());
-        RAPIDSMP_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
             completed.push_back(key);
         }
@@ -1201,8 +1227,8 @@ void UCXX::barrier() {
 
 std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
-    RAPIDSMP_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-    RAPIDSMP_EXPECTS(ucxx_future->data_ != nullptr, "future has no data");
+    RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    RAPIDSMPF_EXPECTS(ucxx_future->data_ != nullptr, "future has no data");
     return std::move(ucxx_future->data_);
 }
 
@@ -1232,6 +1258,42 @@ ListenerAddress UCXX::listener_address() {
     return shared_resources_->get_listener_address(shared_resources_->rank());
 }
 
+std::shared_ptr<UCXX> UCXX::split() {
+    Logger& log = logger();
+    log.trace("Splitting communicator on rank ", shared_resources_->rank());
+
+    // Get the context from shared resources
+    auto context = shared_resources_->get_context();
+
+    // Create a new worker using the same context
+    auto worker = context->createWorker(false);
+    worker->setProgressThreadStartCallback(create_cuda_context_callback, nullptr);
+    worker->startProgressThread(true);
+
+    // Create new shared resources with nranks=1
+    auto shared_resources = std::make_shared<SharedResources>(worker, true, 1);
+
+    // Create listener
+    shared_resources->register_listener(
+        worker->createListener(0, listener_callback, shared_resources.get())
+    );
+
+    // Set up control callback
+    auto control_callback = ::ucxx::AmReceiverCallbackType(
+        [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
+            control_unpack(req->getRecvBuffer(), ep, shared_resources);
+        }
+    );
+
+    worker->registerAmReceiverCallback(
+        shared_resources->get_control_callback_info(), control_callback
+    );
+
+    // Create the new UCXX instance
+    auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
+    return std::make_shared<UCXX>(std::move(initialized_rank), options_);
+}
+
 }  // namespace ucxx
 
-}  // namespace rapidsmp
+}  // namespace rapidsmpf
