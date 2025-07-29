@@ -106,8 +106,8 @@ class Single final : public Communicator {
      * @throws std::runtime_error if called (single-process communicators should never
      * send messages).
      */
-    std::vector<std::size_t> test_some(
-        std::vector<std::unique_ptr<Communicator::Future>> const& future_vector
+    std::vector<std::unique_ptr<Communicator::Future>> test_some(
+        std::vector<std::unique_ptr<Communicator::Future>>& future_vector
     ) override;
 
     // clang-format off

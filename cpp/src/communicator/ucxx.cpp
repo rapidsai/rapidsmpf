@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -1146,18 +1147,44 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     return {std::move(msg), sender_rank};
 }
 
-std::vector<std::size_t> UCXX::test_some(
-    std::vector<std::unique_ptr<Communicator::Future>> const& future_vector
+std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
+    std::vector<std::unique_ptr<Communicator::Future>>& future_vector
 ) {
+    if (future_vector.empty()) {
+        return {};
+    }
     progress_worker();
-    std::vector<size_t> completed;
+    std::vector<size_t> indices;
+    indices.reserve(future_vector.size());
     for (size_t i = 0; i < future_vector.size(); i++) {
         auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
-            completed.push_back(i);
+            indices.push_back(i);
+        } else {
+            // We rely on this API returning completed futures in order,
+            // since we send acks and then post receives for data
+            // buffers in order. UCX completes message in order, but
+            // since there is a background progress thread, it might be
+            // that we observe req[i]->isCompleted() as false, then
+            // req[i+1]->isCompleted() as true (but then
+            // req[i]->isCompleted() also would return true, but we
+            // don't go back and check).
+            // Hence if we observe a "gap" in the completed requests
+            // from a rank, we must stop processing to ensure we respond
+            // to the ready for data messages in order.
+            break;
         }
     }
+    if (indices.size() == 0) {
+        return {};
+    }
+    std::vector<std::unique_ptr<Communicator::Future>> completed;
+    completed.reserve(indices.size());
+    std::ranges::transform(indices, std::back_inserter(completed), [&](std::size_t i) {
+        return std::move(future_vector[i]);
+    });
+    std::erase(future_vector, nullptr);
     return completed;
 }
 

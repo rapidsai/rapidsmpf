@@ -290,7 +290,7 @@ INSTANTIATE_TEST_SUITE_P(
              get_memory_available_map(rapidsmpf::MemoryType::DEVICE)}
         ),
         testing::Values(1, 2, 5, 10),  // total_num_partitions
-        testing::Values(1, 9, 100)  // total_num_rows
+        testing::Values(1, 9, 100, 100'000)  // total_num_rows
     )
 );
 
@@ -414,7 +414,7 @@ class ConcurrentShuffleTest
             total_num_partitions,
             [&](auto&& packed_chunks) { insert_fn(shuffler, std::move(packed_chunks)); },
             [&]() { insert_finished_fn(shuffler); },
-            100,  // total_num_rows
+            100'000,  // total_num_rows
             t_id,  // seed
             cudf::hash_id::HASH_MURMUR3,
             stream,
