@@ -188,6 +188,9 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
 std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
     std::vector<std::unique_ptr<Communicator::Future>>& future_vector
 ) {
+    if (future_vector.empty()) {
+        return {};
+    }
     std::vector<MPI_Request> reqs;
     reqs.reserve(future_vector.size());
     for (auto const& future : future_vector) {

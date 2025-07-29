@@ -1146,6 +1146,9 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
 std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
     std::vector<std::unique_ptr<Communicator::Future>>& future_vector
 ) {
+    if (future_vector.empty()) {
+        return {};
+    }
     progress_worker();
     std::vector<size_t> indices;
     indices.reserve(future_vector.size());
@@ -1154,6 +1157,19 @@ std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
             indices.push_back(i);
+        } else {
+            // We rely on this API returning completed futures in order,
+            // since we send acks and then post receives for data
+            // buffers in order. UCX completes message in order, but
+            // since there is a background progress thread, it might be
+            // that we observe req[i]->isCompleted() as false, then
+            // req[i+1]->isCompleted() as true (but then
+            // req[i]->isCompleted() also would return true, but we
+            // don't go back and check).
+            // Hence if we observe a "gap" in the completed requests
+            // from a rank, we must stop processing to ensure we respond
+            // to the ready for data messages in order.
+            break;
         }
     }
     if (indices.size() == 0) {

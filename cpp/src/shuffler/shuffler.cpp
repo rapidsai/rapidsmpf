@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <memory>
+#include <numeric>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 
 #include <rapidsmpf/buffer/buffer.hpp>
@@ -201,7 +203,7 @@ class Shuffler::Progress {
                             .second,
                         "outgoing chunk already exist"
                     );
-                    ready_ack_receives_.push_back(shuffler_.comm_->recv(
+                    ready_ack_receives_[dst].push_back(shuffler_.comm_->recv(
                         dst,
                         ready_for_data_tag,
                         shuffler_.br_->move(std::make_unique<std::vector<std::uint8_t>>(
@@ -334,9 +336,18 @@ class Shuffler::Progress {
         // requested data.
         {
             auto const t0_init_gpu_data_send = Clock::now();
-            RAPIDSMPF_NVTX_SCOPED_RANGE("init_gpu_send", ready_ack_receives_.size());
-            if (!ready_ack_receives_.empty()) {
-                auto finished = shuffler_.comm_->test_some(ready_ack_receives_);
+            RAPIDSMPF_NVTX_SCOPED_RANGE(
+                "init_gpu_send",
+                std::transform_reduce(
+                    ready_ack_receives_.begin(),
+                    ready_ack_receives_.end(),
+                    0,
+                    std::plus<>(),
+                    [](auto& kv) { return kv.second.size(); }
+                )
+            );
+            for (auto& [dst, futures] : ready_ack_receives_) {
+                auto finished = shuffler_.comm_->test_some(futures);
                 for (auto&& future : finished) {
                     auto const msg_data =
                         shuffler_.comm_->get_gpu_data(std::move(future));
@@ -344,8 +355,6 @@ class Shuffler::Progress {
                         const_cast<Buffer const&>(*msg_data).host()
                     );
                     auto chunk = extract_value(outgoing_chunks_, msg.cid);
-                    auto dst =
-                        shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0));
                     shuffler_.statistics_->add_bytes_stat(
                         "shuffle-payload-send", chunk.concat_data_size()
                     );
@@ -398,7 +407,6 @@ class Shuffler::Progress {
                     fire_and_forget_.empty() && incoming_chunks_.empty()
                     && outgoing_chunks_.empty() && in_transit_chunks_.empty()
                     && in_transit_futures_.empty() && shuffler_.outgoing_postbox_.empty()
-                    && ready_ack_receives_.empty()
                 ))
                    ? ProgressThread::ProgressState::InProgress
                    : ProgressThread::ProgressState::Done;
@@ -416,7 +424,7 @@ class Shuffler::Progress {
         in_transit_chunks_;  ///< Chunks currently in transit.
     std::unordered_map<detail::ChunkID, std::unique_ptr<Communicator::Future>>
         in_transit_futures_;  ///< Futures corresponding to in-transit chunks.
-    std::vector<std::unique_ptr<Communicator::Future>>
+    std::unordered_map<Rank, std::vector<std::unique_ptr<Communicator::Future>>>
         ready_ack_receives_;  ///< Receives matching ready for data messages.
 
     int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
