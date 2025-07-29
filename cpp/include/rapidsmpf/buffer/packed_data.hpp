@@ -10,6 +10,8 @@
 
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf {
@@ -22,39 +24,42 @@ namespace rapidsmpf {
  */
 struct PackedData {
     std::unique_ptr<std::vector<std::uint8_t>> metadata;  ///< The metadata
-    std::unique_ptr<rmm::device_buffer> gpu_data;  ///< The gpu data
+    std::unique_ptr<Buffer> gpu_data;  ///< The gpu data
 
-    /**
-     * @brief Construct packed data from metadata and gpu data, taking ownership.
-     *
-     * @param meta The metadata
-     * @param data The gpu data
-     */
     PackedData(
-        std::unique_ptr<std::vector<std::uint8_t>>&& meta,
-        std::unique_ptr<rmm::device_buffer>&& data
+        std::unique_ptr<std::vector<std::uint8_t>> metadata,
+        std::unique_ptr<Buffer> gpu_data
     )
-        : metadata{std::move(meta)}, gpu_data{std::move(data)} {
-        RAPIDSMPF_EXPECTS(
-            metadata != nullptr || gpu_data != nullptr,
-            "Metadata or GPU data must be non-null"
-        );
+        : metadata{std::move(metadata)}, gpu_data{std::move(gpu_data)} {}
 
-        RAPIDSMPF_EXPECTS(
-            (metadata->size() > 0 || gpu_data->size() == 0),
-            "Empty Metadata and non-empty GPU data is not allowed"
-        );
+    PackedData(
+        std::unique_ptr<std::vector<std::uint8_t>> metadata,
+        std::unique_ptr<rmm::device_buffer> gpu_data,
+        BufferResource* br,
+        rmm::cuda_stream_view stream,
+        std::shared_ptr<Buffer::Event> event = nullptr
+    )
+        : PackedData(std::move(metadata), br->move(std::move(gpu_data), stream, event)) {}
+
+    PackedData(
+        std::unique_ptr<std::vector<std::uint8_t>> metadata,
+        std::unique_ptr<rmm::device_buffer> gpu_data,
+        BufferResource* br
+    )
+        : metadata{std::move(metadata)} {
+        auto stream = gpu_data->stream();
+        this->gpu_data = br->move(std::move(gpu_data), stream);
     }
 
-    /**
-     * @brief Construct an empty PackedData object.
-     *
-     * This constructor initializes both the metadata and GPU data to empty
-     * buffers.
-     */
-    PackedData()
-        : metadata{std::make_unique<std::vector<std::uint8_t>>()},
-          gpu_data{std::make_unique<rmm::device_buffer>()} {}
+    // /**
+    //  * @brief Construct an empty PackedData object.
+    //  *
+    //  * This constructor initializes both the metadata and GPU data to empty
+    //  * buffers.
+    //  */
+    // PackedData()
+    //     : metadata{std::make_unique<std::vector<std::uint8_t>>()},
+    //       gpu_data{std::make_unique<rmm::device_buffer>()} {}
 
     ~PackedData() = default;
 
@@ -76,7 +81,7 @@ struct PackedData {
      * @return True if the packed data is empty, false otherwise.
      */
     [[nodiscard]] bool empty() const {
-        return metadata->empty() && gpu_data->size() == 0;
+        return metadata->empty() && gpu_data->size == 0;
     }
 };
 

@@ -94,26 +94,18 @@ Chunk Chunk::get_data(
 }
 
 Chunk Chunk::from_packed_data(
-    ChunkID chunk_id,
-    PartID part_id,
-    PackedData&& packed_data,
-    std::shared_ptr<Buffer::Event> event,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
+    ChunkID chunk_id, PartID part_id, PackedData&& packed_data
 ) {
     RAPIDSMPF_EXPECTS(packed_data.metadata != nullptr, "packed_data.metadata is nullptr");
     RAPIDSMPF_EXPECTS(packed_data.gpu_data != nullptr, "packed_data.gpu_data is nullptr");
-
-    return {
+    return Chunk{
         chunk_id,
         {part_id},
         {0},  // expected_num_chunks
         {static_cast<uint32_t>(packed_data.metadata->size())},
-        {packed_data.gpu_data->size()},
+        {packed_data.gpu_data->size},
         std::move(packed_data.metadata),
-        packed_data.gpu_data->size() > 0
-            ? br->move(std::move(packed_data.gpu_data), stream, std::move(event))
-            : br->allocate_empty_host_buffer()
+        std::move(packed_data.gpu_data),
     };
 }
 

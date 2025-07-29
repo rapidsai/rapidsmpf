@@ -114,11 +114,12 @@ TEST(MetadataMessage, round_trip) {
     auto expect = rapidsmpf::shuffler::detail::Chunk::from_packed_data(
         1,  // chunk_id
         2,  // part_id
-        {std::make_unique<std::vector<uint8_t>>(metadata),  // non-empty metadata
-         std::make_unique<rmm::device_buffer>()},  // empty gpu_data
-        nullptr,  // event
-        stream,
-        br.get()
+        rapidsmpf::PackedData{
+            std::make_unique<std::vector<uint8_t>>(metadata),  // non-empty metadata
+            std::make_unique<rmm::device_buffer>(),  // empty gpu_data
+            br.get(),
+            stream
+        }
     );
 
     // Extract the metadata from then chunk.
@@ -174,8 +175,8 @@ void test_shuffler(
     rapidsmpf::BufferResource* br,
     rmm::cuda_stream_view stream
 ) {
-    // To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the shuffle
-    // shouldn't get near 30s.
+    // To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the
+    // shuffle shouldn't get near 30s.
     std::chrono::milliseconds const wait_timeout(30 * 1000);
 
     // Every rank creates the full input table and all the expected partitions (also
@@ -198,7 +199,8 @@ void test_shuffler(
         // To simulate that `full_input_table` is distributed between multiple ranks,
         // we divided them into `total_num_partitions` number of partitions and pick
         // the partitions this rank should use as input. We pick using round robin but
-        // any distribution would work (as long as no rows are picked by multiple ranks).
+        // any distribution would work (as long as no rows are picked by multiple
+        // ranks).
         // TODO: we should test different distributions of the input partitions.
         if (rapidsmpf::shuffler::Shuffler::round_robin(comm, i) == comm->rank()) {
             cudf::size_type row_end = row_offset + partiton_size;
@@ -548,8 +550,9 @@ class ShuffleInsertGroupedTest
     }
 
     void TearDown() override {
-        // resume progress thread - this will guarantee that shuffler progress function is
-        // marked as done. This is important to ensure that the test does not hang.
+        // resume progress thread - this will guarantee that shuffler progress
+        // function is marked as done. This is important to ensure that the test does
+        // not hang.
         progress_thread->resume();
 
         if (shuffler) {
@@ -580,7 +583,9 @@ class ShuffleInsertGroupedTest
                     std::make_unique<std::vector<std::uint8_t>>(*dummy_meta),
                     std::make_unique<rmm::device_buffer>(
                         dummy_data->data(), num_bytes, stream
-                    )
+                    ),
+                    br.get(),
+                    stream
                 )
             );
         }
@@ -677,8 +682,8 @@ class ShuffleInsertGroupedTest
 };
 
 TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
-    // note: we disable periodic spill check to avoid the buffer resource from spilling
-    // chunks in the ready postbox
+    // note: we disable periodic spill check to avoid the buffer resource from
+    // spilling chunks in the ready postbox
     br = std::make_unique<rapidsmpf::BufferResource>(
         mr(),
         get_memory_available_map(rapidsmpf::MemoryType::DEVICE),
@@ -703,8 +708,8 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
 }
 
 TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
-    // note: we disable periodic spill check to avoid the buffer resource from spilling
-    // chunks in the ready postbox
+    // note: we disable periodic spill check to avoid the buffer resource from
+    // spilling chunks in the ready postbox
     br = std::make_unique<rapidsmpf::BufferResource>(
         mr(),
         get_memory_available_map(rapidsmpf::MemoryType::HOST),
@@ -1165,17 +1170,21 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
         }
     }
 
-    static auto empty_packed_data() {
+    auto empty_packed_data() {
         return rapidsmpf::PackedData{
             std::make_unique<std::vector<uint8_t>>(),
-            std::make_unique<rmm::device_buffer>()
+            std::make_unique<rmm::device_buffer>(),
+            br.get(),
+            stream
         };
     }
 
     auto non_empty_packed_data() {
         return rapidsmpf::PackedData{
             std::make_unique<std::vector<uint8_t>>(10),
-            std::make_unique<rmm::device_buffer>(10, stream)
+            std::make_unique<rmm::device_buffer>(10, stream),
+            br.get(),
+            stream
         };
     }
 

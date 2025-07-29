@@ -111,7 +111,9 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     auto packed = cudf::contiguous_split(table, splits, stream, br->device_mr());
     for (shuffler::PartID i = 0; static_cast<std::size_t>(i) < packed.size(); i++) {
         auto pack = std::move(packed[i].data);
-        ret.emplace(i, PackedData(std::move(pack.metadata), std::move(pack.gpu_data)));
+        ret.emplace(
+            i, PackedData(std::move(pack.metadata), std::move(pack.gpu_data), br, stream)
+        );
     }
     return ret;
 }
@@ -136,7 +138,8 @@ std::unique_ptr<cudf::table> unpack_and_concat(
         );
         if (packed_data.metadata) {
             unpacked.push_back(cudf::unpack(references.emplace_back(
-                std::move(packed_data.metadata), std::move(packed_data.gpu_data)
+                std::move(packed_data.metadata),
+                br->move_to_device_buffer(std::move(packed_data.gpu_data))
             )));
         }
     }

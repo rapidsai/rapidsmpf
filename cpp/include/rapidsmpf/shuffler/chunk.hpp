@@ -256,12 +256,7 @@ class Chunk {
      * @return The chunk.
      */
     static Chunk from_packed_data(
-        ChunkID chunk_id,
-        PartID part_id,
-        PackedData&& packed_data,
-        std::shared_ptr<Buffer::Event> event,
-        rmm::cuda_stream_view stream,
-        BufferResource* br
+        ChunkID chunk_id, PartID part_id, PackedData&& packed_data
     );
 
     /**

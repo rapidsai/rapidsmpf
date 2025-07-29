@@ -234,9 +234,7 @@ class Shuffler {
      * @param stream The CUDA stream for BufferResource memory operations.
      * @param event The event to use for the new chunk.
      */
-    [[nodiscard]] detail::Chunk create_chunk(
-        PartID pid, PackedData&& packed_data, std::shared_ptr<Buffer::Event> event
-    );
+    [[nodiscard]] detail::Chunk create_chunk(PartID pid, PackedData&& packed_data);
 
   public:
     PartID const total_num_partitions;  ///< Total number of partition in the shuffle.

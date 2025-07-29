@@ -510,12 +510,8 @@ void Shuffler::shutdown() {
     }
 }
 
-detail::Chunk Shuffler::create_chunk(
-    PartID pid, PackedData&& packed_data, std::shared_ptr<Buffer::Event> event
-) {
-    return detail::Chunk::from_packed_data(
-        get_new_cid(), pid, std::move(packed_data), std::move(event), stream_, br_
-    );
+detail::Chunk Shuffler::create_chunk(PartID pid, PackedData&& packed_data) {
+    return detail::Chunk::from_packed_data(get_new_cid(), pid, std::move(packed_data));
 }
 
 void Shuffler::insert_into_ready_postbox(detail::Chunk&& chunk) {
@@ -584,7 +580,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
         if (headroom < 0 && packed_data.gpu_data) {
             auto [host_reservation, host_overbooking] =
-                br_->reserve(MemoryType::HOST, packed_data.gpu_data->size(), true);
+                br_->reserve(MemoryType::HOST, packed_data.gpu_data->size, true);
             if (host_overbooking > 0) {
                 log.warn(
                     "Cannot spill to host because of host memory overbooking: ",
@@ -592,7 +588,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 );
                 continue;
             }
-            auto chunk = create_chunk(pid, std::move(packed_data), event);
+            auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
             chunk.set_data_buffer(br_->move(
@@ -606,7 +602,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             );
             insert(std::move(chunk));
         } else {
-            insert(create_chunk(pid, std::move(packed_data), event));
+            insert(create_chunk(pid, std::move(packed_data)));
         }
     }
 
@@ -637,7 +633,6 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
 
     // total size of data staged in all builders
     int64_t total_staged_data_ = 0;
-    auto init_event = std::make_shared<Buffer::Event>(stream_);
 
     auto build_all_groups_and_insert = [&]() {
         for (auto&& group : chunk_groups) {
@@ -654,14 +649,14 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
         // if the chunk is local, do not concatenate
         if (target_rank == comm_->rank()) {
             // no builder for local chunks
-            insert(create_chunk(pid, std::move(packed_data), init_event));
+            insert(create_chunk(pid, std::move(packed_data)));
             continue;
         }
 
         // if the packed data size + total_staged_data_ > headroom, no room to add more
         // chunks any of the builders. So, call build on all builders.
         if (!all_groups_built_flag
-            && (int64_t(packed_data.gpu_data->size()) + total_staged_data_ > headroom))
+            && (int64_t(packed_data.gpu_data->size) + total_staged_data_ > headroom))
         {
             build_all_groups_and_insert();
             all_groups_built_flag = true;
@@ -669,12 +664,12 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
 
         if (all_groups_built_flag) {
             // insert this chunk without concatenating
-            insert(create_chunk(pid, std::move(packed_data), init_event));
+            insert(create_chunk(pid, std::move(packed_data)));
         } else {
             // insert this chunk into the builder
-            total_staged_data_ += packed_data.gpu_data->ssize();
+            total_staged_data_ += static_cast<std::int64_t>(packed_data.gpu_data->size);
             chunk_groups[size_t(target_rank)].emplace_back(
-                create_chunk(pid, std::move(packed_data), init_event)
+                create_chunk(pid, std::move(packed_data))
             );
         }
     }
@@ -774,7 +769,9 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
         }
         ret.emplace_back(
             chunk.release_metadata_buffer(),
-            br_->move_to_device_buffer(chunk.release_data_buffer(), stream_, reservation)
+            br_->move(
+                MemoryType::DEVICE, chunk.release_data_buffer(), stream_, reservation
+            )
         );
     }
     statistics_->add_duration_stat(
