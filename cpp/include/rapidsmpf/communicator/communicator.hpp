@@ -84,8 +84,8 @@ class Tag {
      */
     constexpr Tag(OpID const op, StageID const stage)
         : tag_{
-            (static_cast<StorageT>(op) << stage_id_bits) | static_cast<StorageT>(stage)
-        } {}
+              (static_cast<StorageT>(op) << stage_id_bits) | static_cast<StorageT>(stage)
+          } {}
 
     /**
      * @brief Returns the max number of bits used for the tag

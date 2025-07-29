@@ -93,23 +93,25 @@ class SharedResources {
     std::shared_ptr<::ucxx::Listener> listener_{nullptr};  ///< UCXX Listener
     Rank rank_{Rank(-1)};  ///< Rank of the current process
     Rank nranks_{0};  ///< Number of ranks in the communicator
-    std::atomic<Rank> next_rank_{1
+    std::atomic<Rank> next_rank_{
+        1
     };  ///< Rank to assign for the next client that connects (root only)
     EndpointsMap endpoints_{};  ///< Map of UCP handle to UCXX endpoints of known ranks
     RankToEndpointMap rank_to_endpoint_{};  ///< Map of ranks to UCXX endpoints
-    RankToListenerAddressMap rank_to_listener_address_{
-    };  ///< Map of rank to listener addresses
+    RankToListenerAddressMap
+        rank_to_listener_address_{};  ///< Map of rank to listener addresses
     const ::ucxx::AmReceiverCallbackInfo control_callback_info_{
         "rapidsmpf", 0
     };  ///< UCXX callback info for control messages
-    std::vector<std::unique_ptr<HostFuture>> futures_{
-    };  ///< Futures to incomplete requests.
+    std::vector<std::unique_ptr<HostFuture>>
+        futures_{};  ///< Futures to incomplete requests.
     std::vector<std::function<void()>> delayed_progress_callbacks_{};
     std::mutex endpoints_mutex_{};
     std::mutex futures_mutex_{};
     std::mutex listener_mutex_{};
     std::mutex delayed_progress_callbacks_mutex_{};
-    bool endpoint_error_handling_{false
+    bool endpoint_error_handling_{
+        false
     };  ///< Whether to request UCX endpoint error handling. This is currently disabled
         ///< as it impacts performance very negatively.
         ///< See https://github.com/rapidsai/rapidsmpf/issues/140.
@@ -284,7 +286,8 @@ class SharedResources {
      * @param ep_handle The handle of the endpoint to retrieve.
      * @return The endpoint associated with the specified handle.
      */
-    [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(ucp_ep_h const ep_handle
+    [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(
+        ucp_ep_h const ep_handle
     ) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
         return endpoints_.at(ep_handle);
@@ -391,8 +394,7 @@ class SharedResources {
     void clear_completed_futures() {
         std::lock_guard<std::mutex> lock(futures_mutex_);
         auto new_end = std::ranges::remove_if(
-            futures_,
-            [](std::unique_ptr<HostFuture> const& element) {
+            futures_, [](std::unique_ptr<HostFuture> const& element) {
                 return element->completed();
             }
         );
@@ -592,7 +594,8 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
         auto rank = std::get<Rank>(data);
         encode_(&rank, sizeof(rank));
         return packed;
-    } else if (control == ControlMessage::QueryRank || control == ControlMessage::ReplyListenerAddress)
+    } else if (control == ControlMessage::QueryRank
+               || control == ControlMessage::ReplyListenerAddress)
     {
         auto listener_address = std::get<ListenerAddress>(data);
         auto packed_listener_address = listener_address_pack(listener_address);
@@ -1129,7 +1132,8 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     if (!msg_available) {
         return {nullptr, 0};
     }
-    auto msg = std::make_unique<std::vector<uint8_t>>(info.length
+    auto msg = std::make_unique<std::vector<uint8_t>>(
+        info.length
     );  // TODO: choose between host and device
 
     auto req = shared_resources_->get_worker()->tagRecv(

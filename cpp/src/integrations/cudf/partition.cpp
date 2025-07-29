@@ -124,9 +124,11 @@ std::unique_ptr<cudf::table> unpack_and_concat(
             std::invalid_argument
         );
         if (packed_data.metadata) {
-            unpacked.push_back(cudf::unpack(references.emplace_back(
-                std::move(packed_data.metadata), std::move(packed_data.gpu_data)
-            )));
+            unpacked.push_back(
+                cudf::unpack(references.emplace_back(
+                    std::move(packed_data.metadata), std::move(packed_data.gpu_data)
+                ))
+            );
         }
     }
     return cudf::concatenate(unpacked, stream, mr);
