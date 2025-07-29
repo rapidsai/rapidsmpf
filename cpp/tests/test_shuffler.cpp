@@ -278,7 +278,7 @@ INSTANTIATE_TEST_SUITE_P(
              get_memory_available_map(rapidsmpf::MemoryType::DEVICE)}
         ),
         testing::Values(1, 2, 5, 10),  // total_num_partitions
-        testing::Values(1, 9, 100)  // total_num_rows
+        testing::Values(1, 9, 100, 100'000)  // total_num_rows
     )
 );
 
@@ -402,7 +402,7 @@ class ConcurrentShuffleTest
             total_num_partitions,
             [&](auto&& packed_chunks) { insert_fn(shuffler, std::move(packed_chunks)); },
             [&]() { insert_finished_fn(shuffler); },
-            100,  // total_num_rows
+            100'000,  // total_num_rows
             t_id,  // seed
             cudf::hash_id::HASH_MURMUR3,
             stream,
@@ -417,17 +417,19 @@ class ConcurrentShuffleTest
 
         for (int t_id = 0; t_id < num_shufflers; t_id++) {
             // pass a copy of the insert_fn and insert_finished_fn to each thread
-            futures.push_back(std::async(
-                std::launch::async,
-                [this,
-                 t_id,
-                 insert_fn1 = insert_fn,
-                 insert_finished_fn1 = insert_finished_fn] {
-                    ASSERT_NO_FATAL_FAILURE(this->RunTest(
-                        t_id, std::move(insert_fn1), std::move(insert_finished_fn1)
-                    ));
-                }
-            ));
+            futures.push_back(
+                std::async(
+                    std::launch::async,
+                    [this,
+                     t_id,
+                     insert_fn1 = insert_fn,
+                     insert_finished_fn1 = insert_finished_fn] {
+                        ASSERT_NO_FATAL_FAILURE(this->RunTest(
+                            t_id, std::move(insert_fn1), std::move(insert_finished_fn1)
+                        ));
+                    }
+                )
+            );
         }
 
         for (auto& f : futures) {
@@ -527,9 +529,9 @@ class ShuffleInsertGroupedTest
 
         stream = cudf::get_default_stream();
 
-        progress_thread =
-            std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger()
-            );
+        progress_thread = std::make_shared<rapidsmpf::ProgressThread>(
+            GlobalEnvironment->comm_->logger()
+        );
 
         GlobalEnvironment->barrier();
     }
@@ -740,8 +742,9 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmpf::BufferResource br{
         mr,
         {{rapidsmpf::MemoryType::DEVICE,
-          [&device_memory_available]() -> std::int64_t { return device_memory_available; }
-        }},
+          [&device_memory_available]() -> std::int64_t {
+              return device_memory_available;
+          }}},
         std::nullopt  // disable periodic spill check
     };
     EXPECT_EQ(
@@ -985,6 +988,28 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
     EXPECT_EQ(all_chunks.size(), num_chunks);
 }
 
+TEST(ReadyPostBoxTest, MarkEmpty) {
+    auto postbox = std::make_unique<
+        rapidsmpf::shuffler::detail::PostBox<rapidsmpf::shuffler::PartID>>(
+        std::identity{}
+    );
+
+    rapidsmpf::shuffler::PartID pid = 0, pid1 = 1;
+    postbox->mark_empty(pid);
+    EXPECT_NO_THROW(postbox->mark_empty(pid));  // should not raise an error
+
+    postbox->insert(
+        rapidsmpf::shuffler::detail::make_dummy_chunk(
+            rapidsmpf::shuffler::detail::ChunkID{0}, pid1
+        )
+    );
+    EXPECT_THROW(postbox->mark_empty(pid1), std::logic_error);  // should raise an error
+
+    EXPECT_EQ(0, postbox->extract_by_key(pid).size());
+    EXPECT_EQ(1, postbox->extract_by_key(pid1).size());
+    EXPECT_TRUE(postbox->empty());
+}
+
 TEST_F(PostBoxTest, ThreadSafety) {
     constexpr uint32_t num_threads = 4;
     constexpr uint32_t chunks_per_thread = 100;
@@ -1040,4 +1065,135 @@ TEST(Shuffler, ShutdownWhilePaused) {
 
     // shutdown shuffler while progress thread is paused
     shuffler->shutdown();
+}
+
+// check cudf pack conditionsfor empty table
+TEST(EmptyPartitions, cudf_pack) {
+    auto stream = cudf::get_default_stream();
+    cudf::table tbl = random_table_with_index(0, 0, 0, 0);
+    EXPECT_EQ(0, tbl.num_rows());
+
+    // following conditions should be met for an empty cudf table
+    auto packed = cudf::pack(tbl, stream);
+    EXPECT_TRUE(packed.metadata);
+    EXPECT_TRUE(packed.gpu_data);
+    EXPECT_EQ(0, packed.gpu_data->size());
+}
+
+class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
+  public:
+    static constexpr rapidsmpf::shuffler::PartID nparts = 10;
+    static constexpr std::chrono::milliseconds wait_timeout =
+        std::chrono::milliseconds(30 * 1000);
+
+    void SetUp() override {
+        stream = cudf::get_default_stream();
+        br = std::make_unique<rapidsmpf::BufferResource>(mr());
+
+        shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
+            GlobalEnvironment->comm_,
+            GlobalEnvironment->progress_thread_,
+            0,
+            nparts,
+            stream,
+            br.get()
+        );
+
+        GlobalEnvironment->barrier();
+    }
+
+    void TearDown() override {
+        if (shuffler) {
+            shuffler->shutdown();
+        }
+        GlobalEnvironment->barrier();
+    }
+
+    void insert_chunks(
+        std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData>&& chunks
+    ) {
+        if (!chunks.empty()) {
+            shuffler->insert(std::move(chunks));
+        }
+        auto pids = iota_vector<rapidsmpf::shuffler::PartID>(nparts);
+        shuffler->insert_finished(std::move(pids));
+    }
+
+    void verify_extracted_chunks(auto skip_pid_fn) {
+        while (!shuffler->finished()) {
+            auto pid = shuffler->wait_any(wait_timeout);
+
+            if (skip_pid_fn(pid)) {
+                continue;
+            }
+
+            SCOPED_TRACE("pid: " + std::to_string(pid));
+            std::vector<rapidsmpf::PackedData> chunks;
+            EXPECT_NO_THROW({ chunks = shuffler->extract(pid); });
+
+            log().trace("pid: ", pid, " chunks: ", chunks.size());
+            EXPECT_TRUE(chunks.empty());
+        }
+    }
+
+    static auto empty_packed_data() {
+        return rapidsmpf::PackedData{
+            std::make_unique<std::vector<uint8_t>>(),
+            std::make_unique<rmm::device_buffer>()
+        };
+    }
+
+    auto non_empty_packed_data() {
+        return rapidsmpf::PackedData{
+            std::make_unique<std::vector<uint8_t>>(10),
+            std::make_unique<rmm::device_buffer>(10, stream)
+        };
+    }
+
+    rmm::cuda_stream_view stream;
+    std::unique_ptr<rapidsmpf::BufferResource> br;
+    std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler;
+};
+
+TEST_F(ExtractEmptyPartitionsTest, NoInsertions) {
+    insert_chunks({});
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto) { return false; }));
+}
+
+TEST_F(ExtractEmptyPartitionsTest, AllEmptyInsertions) {
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < nparts; ++pid) {
+        chunks.emplace(pid, empty_packed_data());
+    }
+
+    insert_chunks(std::move(chunks));
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto) { return false; }));
+}
+
+TEST_F(ExtractEmptyPartitionsTest, SomeEmptyInsertions) {
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < nparts; ++pid) {
+        if (pid % 3 == 0) {
+            chunks.emplace(pid, empty_packed_data());
+        }
+    }
+
+    insert_chunks(std::move(chunks));
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto) { return false; }));
+}
+
+TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < nparts; ++pid) {
+        if (pid % 3 == 0) {
+            chunks.emplace(pid, empty_packed_data());
+        } else {
+            chunks.emplace(pid, non_empty_packed_data());
+        }
+    }
+
+    insert_chunks(std::move(chunks));
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto pid) {
+        return pid % 3 != 0;
+    }));
 }

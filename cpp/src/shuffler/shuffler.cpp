@@ -5,13 +5,17 @@
 
 #include <algorithm>
 #include <memory>
+#include <numeric>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 
+#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -195,6 +199,15 @@ class Shuffler::Progress {
                             .second,
                         "outgoing chunk already exist"
                     );
+                    ready_ack_receives_[dst].push_back(shuffler_.comm_->recv(
+                        dst,
+                        ready_for_data_tag,
+                        shuffler_.br_->move(
+                            std::make_unique<std::vector<std::uint8_t>>(
+                                ReadyForDataMessage::byte_size
+                            )
+                        )
+                    ));
                 }
             }
             stats.add_duration_stat(
@@ -321,36 +334,40 @@ class Shuffler::Progress {
         // requested data.
         {
             auto const t0_init_gpu_data_send = Clock::now();
-            RAPIDSMPF_NVTX_SCOPED_RANGE("init_gpu_send");
-            int i = 0;
-            while (true) {
-                auto const [msg, src] = shuffler_.comm_->recv_any(ready_for_data_tag);
-                if (msg) {
-                    auto ready_for_data_msg = ReadyForDataMessage::unpack(msg);
-                    auto chunk = extract_value(outgoing_chunks_, ready_for_data_msg.cid);
-                    log.trace(
-                        "recv_any from ",
-                        src,
-                        ": ",
-                        ready_for_data_msg,
-                        ", sending: ",
-                        chunk
+            RAPIDSMPF_NVTX_SCOPED_RANGE(
+                "init_gpu_send",
+                std::transform_reduce(
+                    ready_ack_receives_.begin(),
+                    ready_ack_receives_.end(),
+                    0,
+                    std::plus<>(),
+                    [](auto& kv) { return kv.second.size(); }
+                )
+            );
+            // ready_ack_receives_ are separated by rank so that we
+            // can guarantee that we don't match messages out of order
+            // when using the UCXX communicator. See comment in
+            // ucxx.cpp::test_some.
+            for (auto& [dst, futures] : ready_ack_receives_) {
+                auto finished = shuffler_.comm_->test_some(futures);
+                for (auto&& future : finished) {
+                    auto const msg_data =
+                        shuffler_.comm_->get_gpu_data(std::move(future));
+                    auto msg = ReadyForDataMessage::unpack(
+                        const_cast<Buffer const&>(*msg_data).host()
                     );
+                    auto chunk = extract_value(outgoing_chunks_, msg.cid);
                     shuffler_.statistics_->add_bytes_stat(
                         "shuffle-payload-send", chunk.concat_data_size()
                     );
                     fire_and_forget_.push_back(shuffler_.comm_->send(
-                        chunk.release_data_buffer(), src, gpu_data_tag
+                        chunk.release_data_buffer(), dst, gpu_data_tag
                     ));
-                } else {
-                    break;
                 }
-                i++;
             }
             stats.add_duration_stat(
                 "event-loop-init-gpu-data-send", Clock::now() - t0_init_gpu_data_send
             );
-            RAPIDSMPF_NVTX_MARKER("init_gpu_send_iters", i);
         }
 
         // Check if any data in transit is finished.
@@ -363,7 +380,8 @@ class Shuffler::Progress {
                 for (auto cid : finished) {
                     auto chunk = extract_value(in_transit_chunks_, cid);
                     auto future = extract_value(in_transit_futures_, cid);
-                    chunk.set_data_buffer(shuffler_.comm_->get_gpu_data(std::move(future))
+                    chunk.set_data_buffer(
+                        shuffler_.comm_->get_gpu_data(std::move(future))
                     );
 
                     for (size_t i = 0; i < chunk.n_messages(); ++i) {
@@ -376,18 +394,7 @@ class Shuffler::Progress {
 
             // Check if we can free some of the outstanding futures.
             if (!fire_and_forget_.empty()) {
-                std::vector<std::size_t> finished =
-                    shuffler_.comm_->test_some(fire_and_forget_);
-                if (!finished.empty()) {
-                    // Sort the indexes into `fire_and_forget` in descending order.
-                    std::ranges::sort(finished, std::greater<>());
-                    // And erase from the right.
-                    for (auto i : finished) {
-                        fire_and_forget_.erase(
-                            fire_and_forget_.begin() + static_cast<std::ptrdiff_t>(i)
-                        );
-                    }
-                }
+                std::ignore = shuffler_.comm_->test_some(fire_and_forget_);
             }
             stats.add_duration_stat(
                 "event-loop-check-future-finish", Clock::now() - t0_check_future_finish
@@ -420,6 +427,8 @@ class Shuffler::Progress {
         in_transit_chunks_;  ///< Chunks currently in transit.
     std::unordered_map<detail::ChunkID, std::unique_ptr<Communicator::Future>>
         in_transit_futures_;  ///< Futures corresponding to in-transit chunks.
+    std::unordered_map<Rank, std::vector<std::unique_ptr<Communicator::Future>>>
+        ready_ack_receives_;  ///< Receives matching ready for data messages.
 
     int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
 };
@@ -697,9 +706,11 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
     // if pids only contains one element, we can just insert the finished chunk
     if (pids.size() == 1) {
-        insert(detail::Chunk::from_finished_partition(
-            get_new_cid(), pids[0], expected_num_chunks[0] + 1
-        ));
+        insert(
+            detail::Chunk::from_finished_partition(
+                get_new_cid(), pids[0], expected_num_chunks[0] + 1
+            )
+        );
         return;
     }
 
@@ -714,13 +725,17 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
         Rank target_rank = partition_owner(comm_, pids[i]);
 
         if (target_rank == comm_->rank()) {  // no group for local chunks
-            insert(Chunk::from_finished_partition(
-                get_new_cid(), pids[i], expected_num_chunks[i] + 1
-            ));
+            insert(
+                Chunk::from_finished_partition(
+                    get_new_cid(), pids[i], expected_num_chunks[i] + 1
+                )
+            );
         } else {
-            chunk_groups[size_t(target_rank)].emplace_back(Chunk::from_finished_partition(
-                get_new_cid(), pids[i], expected_num_chunks[i] + 1
-            ));
+            chunk_groups[size_t(target_rank)].emplace_back(
+                Chunk::from_finished_partition(
+                    get_new_cid(), pids[i], expected_num_chunks[i] + 1
+                )
+            );
         }
     }
 
@@ -774,6 +789,43 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     );
     statistics_->add_bytes_stat("spill-bytes-host-to-device", total_unspilled);
     return ret;
+}
+
+bool Shuffler::finished() const {
+    return finish_counter_.all_finished();
+}
+
+PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    auto [pid, contains_data] = finish_counter_.wait_any(std::move(timeout));
+    if (!contains_data) {
+        // there will be no data chunks for this pid in the ready postbox. Therefore,
+        // insert an empty container for this partition.
+        ready_postbox_.mark_empty(pid);
+    }
+    return pid;
+}
+
+void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    if (!finish_counter_.wait_on(pid, std::move(timeout))) {
+        // there will be no data chunks for this pid in the ready postbox. Therefore,
+        // insert an empty container for this partition.
+        ready_postbox_.mark_empty(pid);
+    }
+}
+
+std::vector<PartID> Shuffler::wait_some(
+    std::optional<std::chrono::milliseconds> timeout
+) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    auto [pids, contains_data] = finish_counter_.wait_some(std::move(timeout));
+    for (size_t i = 0; i < pids.size(); ++i) {
+        if (!contains_data[i]) {
+            ready_postbox_.mark_empty(pids[i]);
+        }
+    }
+    return std::move(pids);
 }
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {

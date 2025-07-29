@@ -60,7 +60,8 @@ class InitializedRank {
      */
     InitializedRank(std::shared_ptr<SharedResources> shared_resources);
 
-    std::shared_ptr<SharedResources> shared_resources_{nullptr
+    std::shared_ptr<SharedResources> shared_resources_{
+        nullptr
     };  ///< Opaque object created by `init()`.
 };
 
@@ -171,14 +172,15 @@ class UCXX final : public Communicator {
     /**
      * @copydoc Communicator::recv_any
      */
-    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(Tag tag
+    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
+        Tag tag
     ) override;
 
     /**
      * @copydoc Communicator::test_some
      */
-    std::vector<std::size_t> test_some(
-        std::vector<std::unique_ptr<Communicator::Future>> const& future_vector
+    std::vector<std::unique_ptr<Communicator::Future>> test_some(
+        std::vector<std::unique_ptr<Communicator::Future>>& future_vector
     ) override;
 
     // clang-format off

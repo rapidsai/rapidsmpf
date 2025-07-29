@@ -42,7 +42,8 @@ struct throw_at_limit_resource final : public rmm::mr::device_memory_resource {
         allocs.erase(ptr);
     }
 
-    [[nodiscard]] bool do_is_equal(rmm::mr::device_memory_resource const& other
+    [[nodiscard]] bool do_is_equal(
+        rmm::mr::device_memory_resource const& other
     ) const noexcept override {
         return this == &other;
     }
