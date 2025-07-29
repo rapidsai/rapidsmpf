@@ -63,6 +63,7 @@ static void BM_PartitionAndPack(benchmark::State& state) {
         std::make_unique<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>>(
             cuda_mr.get(), pool_size
         );
+    rapidsmpf::BufferResource br{*pool_mr};
 
     // Create input table
     auto table = create_int_table(num_rows, stream);
@@ -77,8 +78,8 @@ static void BM_PartitionAndPack(benchmark::State& state) {
             num_partitions,
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
-            stream,
-            *pool_mr
+            &br,
+            stream
         );
         benchmark::DoNotOptimize(pack_partitions);
         cudaStreamSynchronize(stream);
@@ -117,6 +118,7 @@ static void BM_PartitionAndPackCurrentImpl(benchmark::State& state) {
         std::make_unique<rmm::mr::pool_memory_resource<rmm::mr::cuda_memory_resource>>(
             cuda_mr.get(), pool_size
         );
+    rapidsmpf::BufferResource br{*pool_mr};
 
     // Create input table
     auto table = create_int_table(num_rows, stream);
@@ -132,8 +134,8 @@ static void BM_PartitionAndPackCurrentImpl(benchmark::State& state) {
                 total_npartitions,
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
-                stream,
-                *pool_mr
+                &br,
+                stream
             );
             benchmark::DoNotOptimize(pack_partitions);
         }

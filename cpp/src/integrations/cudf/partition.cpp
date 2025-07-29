@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <algorithm>
 #include <utility>
 
 #include <cudf/concatenate.hpp>
@@ -28,14 +27,14 @@ partition_and_split(
     int num_partitions,
     cudf::hash_id hash_function,
     uint32_t seed,
+    BufferResource* br,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
     std::shared_ptr<Statistics> statistics
 ) {
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     if (table.num_rows() == 0) {
         // Return views of a copy of the empty `table`.
-        auto owner = std::make_unique<cudf::table>(table, stream, mr);
+        auto owner = std::make_unique<cudf::table>(table, stream, br->device_mr());
         return {
             std::vector<cudf::table_view>(
                 static_cast<std::size_t>(num_partitions), owner->view()
@@ -45,7 +44,13 @@ partition_and_split(
     }
 
     auto res = cudf::hash_partition(
-        table, columns_to_hash, num_partitions, hash_function, seed, stream, mr
+        table,
+        columns_to_hash,
+        num_partitions,
+        hash_function,
+        seed,
+        stream,
+        br->device_mr()
     );
     std::unique_ptr<cudf::table> partition_table;
     partition_table.swap(res.first);
@@ -67,8 +72,8 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     int num_partitions,
     cudf::hash_id hash_function,
     uint32_t seed,
+    BufferResource* br,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
     std::shared_ptr<Statistics> statistics
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
@@ -78,26 +83,32 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
         auto splits = std::vector<cudf::size_type>(
             static_cast<std::uint64_t>(num_partitions - 1), 0
         );
-        return split_and_pack(table, splits, stream, mr);
+        return split_and_pack(table, splits, br, stream);
     }
     auto [reordered, split_points] = cudf::hash_partition(
-        table, columns_to_hash, num_partitions, hash_function, seed, stream, mr
+        table,
+        columns_to_hash,
+        num_partitions,
+        hash_function,
+        seed,
+        stream,
+        br->device_mr()
     );
     std::vector<cudf::size_type> splits(split_points.begin() + 1, split_points.end());
-    return split_and_pack(reordered->view(), splits, stream, mr);
+    return split_and_pack(reordered->view(), splits, br, stream);
 }
 
 std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& splits,
+    BufferResource* br,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
     std::shared_ptr<Statistics> statistics
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     std::unordered_map<shuffler::PartID, PackedData> ret;
-    auto packed = cudf::contiguous_split(table, splits, stream, mr);
+    auto packed = cudf::contiguous_split(table, splits, stream, br->device_mr());
     for (shuffler::PartID i = 0; static_cast<std::size_t>(i) < packed.size(); i++) {
         auto pack = std::move(packed[i].data);
         ret.emplace(i, PackedData(std::move(pack.metadata), std::move(pack.gpu_data)));
@@ -107,8 +118,8 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
 
 std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<PackedData>&& partitions,
+    BufferResource* br,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
     std::shared_ptr<Statistics> statistics
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
@@ -129,7 +140,7 @@ std::unique_ptr<cudf::table> unpack_and_concat(
             )));
         }
     }
-    return cudf::concatenate(unpacked, stream, mr);
+    return cudf::concatenate(unpacked, stream, br->device_mr());
 }
 
 

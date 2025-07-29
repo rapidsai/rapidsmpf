@@ -13,6 +13,7 @@
 #include <cudf/table/table.hpp>
 
 #include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -45,8 +46,8 @@ partition_and_split(
     int num_partitions,
     cudf::hash_id hash_function,
     uint32_t seed,
+    BufferResource* br,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
@@ -77,8 +78,8 @@ partition_and_split(
     int num_partitions,
     cudf::hash_id hash_function,
     uint32_t seed,
+    BufferResource* br,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
@@ -104,8 +105,8 @@ partition_and_split(
 [[nodiscard]] std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& splits,
+    BufferResource* br,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
@@ -128,8 +129,8 @@ partition_and_split(
  */
 [[nodiscard]] std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<PackedData>&& partitions,
+    BufferResource* br,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
