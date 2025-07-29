@@ -29,7 +29,7 @@ Communicator::Logger::LOG_LEVEL level_from_string(std::string const& str) {
 }  // namespace
 
 Communicator::Logger::Logger(Communicator* comm, config::Options options)
-    : comm_{comm}, level_(options.get<LOG_LEVEL>("log", level_from_string)){};
+    : comm_{comm}, level_(options.get<LOG_LEVEL>("log", level_from_string)) {};
 
 
 }  // namespace rapidsmpf

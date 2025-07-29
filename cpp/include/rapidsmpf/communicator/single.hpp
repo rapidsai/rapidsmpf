@@ -96,7 +96,8 @@ class Single final : public Communicator {
      * @note Always returns a nullptr for the received message, indicating that no message
      * is available.
      */
-    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(Tag tag
+    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
+        Tag tag
     ) override;
 
     /**

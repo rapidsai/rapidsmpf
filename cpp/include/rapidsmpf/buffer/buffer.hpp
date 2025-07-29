@@ -115,7 +115,8 @@ class Buffer {
 
       private:
         cudaEvent_t event_;  ///< CUDA event used to track device memory allocation
-        std::atomic<bool> done_{false
+        std::atomic<bool> done_{
+            false
         };  ///< Cache of the event status to avoid unnecessary queries.
     };
 

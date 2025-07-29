@@ -162,7 +162,8 @@ class FinishCounter {
         Rank rank_count{0};  ///< number of ranks that have reported their chunk count.
         ChunkID chunk_goal{0};  ///< the goal of a partition. This keeps increasing until
                                 ///< all ranks have reported their chunk count.
-        ChunkID finished_chunk_count{0
+        ChunkID finished_chunk_count{
+            0
         };  ///< The finished chunk counter of each partition. The goal of a partition has
             ///< been reached when its counter equals the goalpost.
 
