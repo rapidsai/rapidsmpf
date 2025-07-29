@@ -27,7 +27,8 @@ namespace {
 void broadcast_listener_address(MPI_Comm mpi_comm, std::string& root_worker_address_str) {
     size_t address_size{root_worker_address_str.size()};
 
-    RAPIDSMPF_MPI(MPI_Bcast(&address_size, sizeof(address_size), MPI_UINT8_T, 0, mpi_comm)
+    RAPIDSMPF_MPI(
+        MPI_Bcast(&address_size, sizeof(address_size), MPI_UINT8_T, 0, mpi_comm)
     );
 
     root_worker_address_str.resize(address_size);

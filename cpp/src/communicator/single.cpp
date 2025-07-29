@@ -13,8 +13,9 @@ namespace rapidsmpf {
 
 Single::Single(config::Options options) : logger_{this, std::move(options)} {}
 
-std::unique_ptr<Communicator::Future>
-Single::send(std::unique_ptr<std::vector<uint8_t>>, Rank, Tag, BufferResource*) {
+std::unique_ptr<Communicator::Future> Single::send(
+    std::unique_ptr<std::vector<uint8_t>>, Rank, Tag, BufferResource*
+) {
     RAPIDSMPF_FAIL("Unexpected send to self", std::runtime_error);
 }
 
@@ -30,15 +31,15 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> Single::recv_any(Tag) {
     return {nullptr, 0};
 }
 
-std::vector<std::size_t>
-Single::test_some(std::vector<std::unique_ptr<Communicator::Future>> const&) {
+std::vector<std::size_t> Single::test_some(
+    std::vector<std::unique_ptr<Communicator::Future>> const&
+) {
     RAPIDSMPF_FAIL("Unexpected test_some from self", std::runtime_error);
 }
 
-std::vector<std::size_t>
-Single::test_some(std::unordered_map<
-                  std::size_t,
-                  std::unique_ptr<Communicator::Future>> const&) {
+std::vector<std::size_t> Single::test_some(
+    std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
+) {
     RAPIDSMPF_FAIL("Unexpected test_some from self", std::runtime_error);
 }
 

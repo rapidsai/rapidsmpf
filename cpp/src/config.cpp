@@ -51,7 +51,7 @@ std::unordered_map<std::string, OptionValue> from_options_as_strings(
 }  // namespace
 
 Options::Options(std::unordered_map<std::string, std::string> options_as_strings)
-    : Options(from_options_as_strings(std::move(options_as_strings))){};
+    : Options(from_options_as_strings(std::move(options_as_strings))) {};
 
 bool Options::insert_if_absent(std::string const& key, std::string option_as_string) {
     return insert_if_absent({{key, option_as_string}});

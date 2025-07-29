@@ -367,7 +367,8 @@ class Shuffler::Progress {
                 for (auto cid : finished) {
                     auto chunk = extract_value(in_transit_chunks_, cid);
                     auto future = extract_value(in_transit_futures_, cid);
-                    chunk.set_data_buffer(shuffler_.comm_->get_gpu_data(std::move(future))
+                    chunk.set_data_buffer(
+                        shuffler_.comm_->get_gpu_data(std::move(future))
                     );
 
                     for (size_t i = 0; i < chunk.n_messages(); ++i) {
@@ -705,9 +706,11 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
     // if pids only contains one element, we can just insert the finished chunk
     if (pids.size() == 1) {
-        insert(detail::Chunk::from_finished_partition(
-            get_new_cid(), pids[0], expected_num_chunks[0] + 1
-        ));
+        insert(
+            detail::Chunk::from_finished_partition(
+                get_new_cid(), pids[0], expected_num_chunks[0] + 1
+            )
+        );
         return;
     }
 
@@ -722,13 +725,17 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
         Rank target_rank = partition_owner(comm_, pids[i]);
 
         if (target_rank == comm_->rank()) {  // no group for local chunks
-            insert(Chunk::from_finished_partition(
-                get_new_cid(), pids[i], expected_num_chunks[i] + 1
-            ));
+            insert(
+                Chunk::from_finished_partition(
+                    get_new_cid(), pids[i], expected_num_chunks[i] + 1
+                )
+            );
         } else {
-            chunk_groups[size_t(target_rank)].emplace_back(Chunk::from_finished_partition(
-                get_new_cid(), pids[i], expected_num_chunks[i] + 1
-            ));
+            chunk_groups[size_t(target_rank)].emplace_back(
+                Chunk::from_finished_partition(
+                    get_new_cid(), pids[i], expected_num_chunks[i] + 1
+                )
+            );
         }
     }
 
@@ -808,7 +815,8 @@ void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> time
     }
 }
 
-std::vector<PartID> Shuffler::wait_some(std::optional<std::chrono::milliseconds> timeout
+std::vector<PartID> Shuffler::wait_some(
+    std::optional<std::chrono::milliseconds> timeout
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto [pids, contains_data] = finish_counter_.wait_some(std::move(timeout));
