@@ -49,7 +49,7 @@ def _get_single_worker_context(worker: _SingleWorker | None = None) -> WorkerCon
         worker = worker or _single_rapidsmpf_worker
         if worker.context is None:
             worker.context = WorkerContext()
-        return cast(WorkerContext, worker.context)
+        return cast("WorkerContext", worker.context)
 
 
 def setup_single_worker(options: Options = Options()) -> None:
