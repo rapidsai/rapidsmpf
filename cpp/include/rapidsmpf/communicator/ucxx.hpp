@@ -123,6 +123,33 @@ class UCXX final : public Communicator {
     };
 
     /**
+     * @brief Represents the future result of multiple UCXX operations.
+     *
+     * This class is used to handle the result of multiple UCXX operations
+     * asynchronously.
+     */
+    class BatchFuture : public Communicator::BatchFuture {
+        friend class UCXX;
+
+      public:
+        /**
+         * @brief Construct a BatchFuture.
+         *
+         * @param reqs Vector of UCXX request handles for the operations.
+         * @param data A unique pointer to the data buffer.
+         */
+        BatchFuture(std::vector<std::shared_ptr<::ucxx::Request>> reqs, std::unique_ptr<Buffer> data)
+            : reqs_{std::move(reqs)}, data_{std::move(data)} {}
+
+        ~BatchFuture() noexcept override = default;
+
+      private:
+        std::vector<std::shared_ptr<::ucxx::Request>>
+            reqs_;  ///< The UCXX requests associated with the operations.
+        std::unique_ptr<Buffer> data_;  ///< The data buffer.
+    };
+
+    /**
      * @brief Construct the UCXX rank.
      *
      * Construct the UCXX rank using the context previously returned from the call to
@@ -210,7 +237,7 @@ class UCXX final : public Communicator {
     /**
      * @copydoc Communicator::test_batch
      */
-    [[nodiscard]] bool test_batch(BatchFuture& future) override;
+    [[nodiscard]] bool test_batch(Communicator::BatchFuture& future) override;
 
     /**
      * @copydoc Communicator::logger
@@ -265,3 +292,4 @@ class UCXX final : public Communicator {
 }  // namespace ucxx
 
 }  // namespace rapidsmpf
+ 

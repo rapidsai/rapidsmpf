@@ -593,7 +593,8 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
         auto rank = std::get<Rank>(data);
         encode_(&rank, sizeof(rank));
         return packed;
-    } else if (control == ControlMessage::QueryRank || control == ControlMessage::ReplyListenerAddress)
+    } else if (control == ControlMessage::QueryRank
+               || control == ControlMessage::ReplyListenerAddress)
     {
         auto listener_address = std::get<ListenerAddress>(data);
         auto packed_listener_address = listener_address_pack(listener_address);
@@ -1105,11 +1106,26 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 }
 
 std::unique_ptr<Communicator::BatchFuture> UCXX::send(
-    std::unique_ptr<Buffer> /* msg */,
-    std::unordered_set<Rank> const& /* ranks */,
-    Tag /* tag */
+    std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag
 ) {
-    RAPIDSMPF_FAIL("UCXX send to multiple ranks not implemented", std::runtime_error);
+    RAPIDSMPF_EXPECTS(
+        msg != nullptr && !ranks.empty(), "malformed arguments passed to batch send"
+    );
+    if (!msg->is_ready()) {
+        logger().warn("msg is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+
+    std::vector<std::shared_ptr<::ucxx::Request>> reqs;
+    reqs.reserve(ranks.size());
+    for (auto rank : ranks) {
+        std::cout << "Sending to rank " << rank << std::endl;
+        auto req = get_endpoint(rank)->tagSend(
+            msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
+        );
+        reqs.emplace_back(std::move(req));
+    }
+    return std::make_unique<BatchFuture>(std::move(reqs), std::move(msg));
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv(
@@ -1207,8 +1223,21 @@ std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future>
     return std::move(ucxx_future->data_);
 }
 
-bool UCXX::test_batch(BatchFuture& /* future */) {
-    RAPIDSMPF_FAIL("UCXX test_batch not implemented", std::runtime_error);
+bool UCXX::test_batch(Communicator::BatchFuture& future) {
+    auto ucxx_batch_future = dynamic_cast<UCXX::BatchFuture*>(&future);
+    RAPIDSMPF_EXPECTS(ucxx_batch_future != nullptr, "future isn't a UCXX::BatchFuture");
+
+    auto& reqs = ucxx_batch_future->reqs_;
+    if (reqs.empty()) {
+        return true;  // No requests to test, consider it complete
+    }
+    progress_worker();
+
+    // Remove completed requests
+    std::erase_if(reqs, [](auto& req) { return req->isCompleted(); });
+
+    // Return true if all requests are completed
+    return reqs.empty();
 }
 
 std::string UCXX::str() const {

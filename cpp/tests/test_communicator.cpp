@@ -30,6 +30,10 @@ class CommunicatorTest
         std::tie(memory_type, n_ops) = GetParam();
     }
 
+    void TearDown() override {
+        GlobalEnvironment->barrier();
+    }
+
     auto make_buffer(size_t size) {
         if (memory_type == rapidsmpf::MemoryType::HOST) {
             return br->move(std::make_unique<std::vector<uint8_t>>(size));
@@ -83,8 +87,8 @@ INSTANTIATE_TEST_CASE_P(
 
 // Test every rank sends a buffer to all other ranks (including itself)
 TEST_P(CommunicatorTest, MultiDestinationSend) {
-    if (GlobalEnvironment->type() != TestEnvironmentType::MPI) {
-        GTEST_SKIP() << "Non-MPI communicators do not support multi-destination send";
+    if (GlobalEnvironment->type() == TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "SINGLE communicator does not support multi-destination send";
     }
 
     auto log_vec = [&](std::string const& prefix, std::vector<int> const& vec) {
