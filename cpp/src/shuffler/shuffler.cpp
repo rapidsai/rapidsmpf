@@ -346,6 +346,10 @@ class Shuffler::Progress {
                     [](auto& kv) { return kv.second.size(); }
                 )
             );
+            // ready_ack_receives_ are separated by rank so that we
+            // can guarantee that we don't match messages out of order
+            // when using the UCXX communicator. See comment in
+            // ucxx.cpp::test_some.
             for (auto& [dst, futures] : ready_ack_receives_) {
                 auto finished = shuffler_.comm_->test_some(futures);
                 for (auto&& future : finished) {
