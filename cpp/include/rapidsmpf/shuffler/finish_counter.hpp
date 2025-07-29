@@ -57,10 +57,10 @@ class FinishCounter {
      * rank and partition. It should only be called once per rank and partition.
      *
      * @param pid The partition ID the goalpost is assigned to.
-     * @param nchunks The number of chunks required.
+     * @param nchunks The number of chunks required. (Requires nchunks > 0)
      *
      * @throw std::logic_error If the goalpost is moved more than once for the same rank
-     * and partition.
+     * and partition, or if nchunks is 0.
      */
     void move_goalpost(PartID pid, ChunkID nchunks);
 
@@ -94,13 +94,16 @@ class FinishCounter {
      *
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @return The partition ID of a finished partition.
+     * @return The partition ID of a finished partition and a boolean indicating if the
+     * partition contains data.
      *
      * @throw std::out_of_range If all partitions have already been waited on.
      * std::runtime_error If timeout was set and no partitions have been finished by the
      * expiration.
      */
-    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
+    std::pair<PartID, bool> wait_any(
+        std::optional<std::chrono::milliseconds> timeout = {}
+    );
 
     /**
      * @brief Wait for a specific partition to be finished (blocking). Optionally a
@@ -113,11 +116,13 @@ class FinishCounter {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
+     * @return A boolean indicating if the partition contains data.
+     *
      * @throw std::out_of_range If the desired partition is unavailable.
      * std::runtime_error If timeout was set and requested partition has been finished by
      * the expiration.
      */
-    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
+    bool wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Returns a vector of partition ids that are finished and haven't been waited
@@ -131,13 +136,16 @@ class FinishCounter {
      *
      * @note It is the caller's responsibility to process all returned partition IDs.
      *
-     * @return vector of finished partitions.
+     * @return A pair of vectors of finished partitions and a boolean indicating if the
+     * partition contains data for each partition.
      *
      * @throw std::out_of_range If all partitions have been waited on.
      * std::runtime_error If timeout was set and no partitions have been finished by the
      * expiration.
      */
-    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
+    std::pair<std::vector<PartID>, std::vector<bool>> wait_some(
+        std::optional<std::chrono::milliseconds> timeout = {}
+    );
 
     /**
      * @brief Returns a description of this instance.
@@ -162,6 +170,7 @@ class FinishCounter {
         constexpr PartitionInfo() = default;
 
         constexpr void move_goalpost(ChunkID nchunks, Rank nranks) {
+            RAPIDSMPF_EXPECTS(nchunks != 0, "the goalpost was moved by 0 chunks");
             RAPIDSMPF_EXPECTS(
                 ++rank_count <= nranks, "the goalpost was moved more than one per rank"
             );
@@ -181,6 +190,14 @@ class FinishCounter {
         // and the number of finished chunks has reached the goal.
         [[nodiscard]] constexpr bool is_finished(Rank nranks) const {
             return rank_count == nranks && finished_chunk_count == chunk_goal;
+        }
+
+        [[nodiscard]] constexpr ChunkID data_chunk_goal() const {
+            // there will always be a control message from each rank indicating how many
+            // chunks it's sending. Chunk goal contains this control message for each
+            // rank. Therefore, to get the data chunk goal, we need to subtract the number
+            // of ranks that have reported their chunk count from the chunk goal.
+            return chunk_goal - static_cast<ChunkID>(rank_count);
         }
     };
 

@@ -117,6 +117,10 @@ std::size_t postbox_spilling(
     auto const chunk_info = postbox.search(MemoryType::DEVICE);
     std::size_t total_spilled{0};
     for (auto [pid, cid, size] : chunk_info) {
+        if (size == 0) {  // skip empty data buffers
+            continue;
+        }
+
         // TODO: Use a clever strategy to decide which chunks to spill. For now, we
         // just spill the chunks in an arbitrary order.
         auto [host_reservation, host_overbooking] =
@@ -581,6 +585,10 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
 
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_data] : chunks) {
+        if (packed_data.empty()) {  // skip empty packed data
+            continue;
+        }
+
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
         if (headroom < 0 && packed_data.gpu_data) {

@@ -24,6 +24,15 @@
 
 extern Environment* GlobalEnvironment;
 
+/**
+ * @brief Get the logger object
+ *
+ * @return rapidsmpf::communicator::Logger&
+ */
+static rapidsmpf::Communicator::Logger& log() {
+    return GlobalEnvironment->comm_->logger();
+}
+
 class NumOfPartitions : public cudf::test::BaseFixtureWithParam<std::tuple<int, int>> {};
 
 // test different `num_partitions` and `num_rows`.
@@ -96,16 +105,19 @@ TEST_P(NumOfPartitions, split_and_pack) {
 
 TEST(MetadataMessage, round_trip) {
     auto stream = cudf::get_default_stream();
+    auto mr = cudf::get_current_device_resource_ref();
+    auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
 
     auto metadata = iota_vector<uint8_t>(100);
 
     auto expect = rapidsmpf::shuffler::detail::Chunk::from_packed_data(
         1,  // chunk_id
         2,  // part_id
-        {std::make_unique<std::vector<uint8_t>>(metadata), nullptr},  // packed_data
+        {std::make_unique<std::vector<uint8_t>>(metadata),  // non-empty metadata
+         std::make_unique<rmm::device_buffer>()},  // empty gpu_data
         nullptr,  // event
         stream,
-        nullptr  // buffer_resource
+        br.get()
     );
 
     // Extract the metadata from then chunk.
@@ -563,10 +575,13 @@ class ShuffleInsertGroupedTest
         std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
 
         for (auto pid : pids) {
-            chunks[pid] = rapidsmpf::PackedData(
-                std::make_unique<std::vector<std::uint8_t>>(*dummy_meta),
-                std::make_unique<rmm::device_buffer>(
-                    dummy_data->data(), num_bytes, stream
+            chunks.emplace(
+                pid,
+                rapidsmpf::PackedData(
+                    std::make_unique<std::vector<std::uint8_t>>(*dummy_meta),
+                    std::make_unique<rmm::device_buffer>(
+                        dummy_data->data(), num_bytes, stream
+                    )
                 )
             );
         }
@@ -861,14 +876,22 @@ void run_wait_test(WaitFn&& wait_fn, ExctractPidFn&& extract_pid_fn) {
     // none of the partitions are finished now. So, wait_fn should timeout
     EXPECT_THROW(wait_fn(finish_counter, p_id), std::runtime_error);
 
-    // move goalpost by 1 for the finished chunk msg
-    finish_counter.move_goalpost(p_id, 1);
+    // move goalpost by 2, one for a simulated data chunk and another for the finished
+    // chunk
+    finish_counter.move_goalpost(p_id, 2);
     for (auto i = 0; i < comm->nranks() - 1; i++) {
-        // mark that no more chunks from other ranks by setting n_chunks=0
-        finish_counter.move_goalpost(p_id, 0);
+        // mark that no more chunks from other ranks by adding finished chunk
+        finish_counter.move_goalpost(p_id, 1);
     }
-    // add the finished chunk for partition p_id
+
+    // add finished for the simulated data chunk
     finish_counter.add_finished_chunk(p_id);
+
+    // every rank should indicate that the partition is finished
+    for (auto i = 0; i < comm->nranks(); i++) {
+        // add the finished chunk for partition p_id
+        finish_counter.add_finished_chunk(p_id);
+    }
 
     // pass the wait_fn result to extract_pid_fn. It should return p_id
     EXPECT_EQ(p_id, extract_pid_fn(wait_fn(finish_counter, p_id)));
@@ -878,7 +901,10 @@ TEST(FinishCounterTests, wait_with_timeout) {
     ASSERT_NO_FATAL_FAILURE(run_wait_test(
         [](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
            rapidsmpf::shuffler::PartID const& /* exp_pid */) {
-            return finish_counter.wait_any(std::chrono::milliseconds(10));
+            auto [pid, n_data_chunks] =
+                finish_counter.wait_any(std::chrono::milliseconds(10));
+            EXPECT_EQ(1, n_data_chunks);  // only one data chunk
+            return pid;
         },
         [](rapidsmpf::shuffler::PartID const p_id) { return p_id; }  // pass through
     ));
@@ -888,7 +914,9 @@ TEST(FinishCounterTests, wait_on_with_timeout) {
     ASSERT_NO_FATAL_FAILURE(run_wait_test(
         [&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
             rapidsmpf::shuffler::PartID const& exp_pid) {
-            finish_counter.wait_on(exp_pid, std::chrono::milliseconds(10));
+            EXPECT_EQ(
+                1, finish_counter.wait_on(exp_pid, std::chrono::milliseconds(10))
+            );  // only one data chunk
             return exp_pid;  // return expected PID as wait_on return void
         },
         [&](rapidsmpf::shuffler::PartID const p_id) { return p_id; }  // pass through
@@ -899,7 +927,13 @@ TEST(FinishCounterTests, wait_some_with_timeout) {
     ASSERT_NO_FATAL_FAILURE(run_wait_test(
         [&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
             rapidsmpf::shuffler::PartID const& /* exp_pid */) {
-            return finish_counter.wait_some(std::chrono::milliseconds(10));
+            auto [pid, n_data_chunks] =
+                finish_counter.wait_some(std::chrono::milliseconds(10));
+
+            EXPECT_EQ(1, std::ranges::count_if(n_data_chunks, [](auto n) {
+                          return n > 0;
+                      }));  // only one data chunk
+            return std::move(pid);
         },
         [&](std::vector<rapidsmpf::shuffler::PartID> const p_ids) {
             // extract the first element, as there will be only one finished partition
