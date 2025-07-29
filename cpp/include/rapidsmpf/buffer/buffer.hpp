@@ -15,6 +15,7 @@
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
 
@@ -31,17 +32,6 @@ enum class MemoryType : int {
 /// @brief Array of all the different memory types.
 constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
 
-namespace {
-/// @brief Helper for overloaded lambdas using std::visit.
-template <class... Ts>
-struct overloaded : Ts... {
-    using Ts::operator()...;
-};
-/// @brief Explicit deduction guide
-template <class... Ts>
-overloaded(Ts...) -> overloaded<Ts...>;
-
-}  // namespace
 
 /**
  * @brief Buffer representing device or host memory.
