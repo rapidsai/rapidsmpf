@@ -347,14 +347,14 @@ class SharedResources {
 
     void barrier() {
         // The root needs to have endpoints to all other ranks to continue.
-        while (rank_ == 0
-               && rank_to_endpoint_.size() != static_cast<size_t>(nranks()))
-        {
+        while (rank_ == 0 && rank_to_endpoint_.size() != static_cast<size_t>(nranks())) {
             progress_worker();
         }
 
         if (rank_ == 0) {
             std::vector<std::shared_ptr<::ucxx::Request>> requests;
+            requests.reserve(static_cast<size_t>(nranks() - 1));
+            // send to all other ranks
             for (auto& [rank, endpoint] : rank_to_endpoint_) {
                 if (rank == 0) {
                     continue;
@@ -369,6 +369,7 @@ class SharedResources {
             }
             requests.clear();
 
+            // receive from all other ranks
             for (auto& [rank, endpoint] : rank_to_endpoint_) {
                 if (rank == 0) {
                     continue;
@@ -381,7 +382,7 @@ class SharedResources {
             {
                 progress_worker();
             }
-        } else {
+        } else {  // non-root ranks respond to root's broadcast
             auto endpoint = get_endpoint(0);
 
             auto req = endpoint->amRecv();
@@ -398,12 +399,9 @@ class SharedResources {
 
     void clear_completed_futures() {
         std::lock_guard<std::mutex> lock(futures_mutex_);
-        auto new_end = std::ranges::remove_if(
-            futures_, [](std::unique_ptr<HostFuture> const& element) {
-                return element->completed();
-            }
-        );
-        futures_.erase(new_end.begin(), new_end.end());
+        std::erase_if(futures_, [](std::unique_ptr<HostFuture> const& element) {
+            return element->completed();
+        });
     }
 
     void progress_worker() {
@@ -882,7 +880,8 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
                         shared_resources->endpoint_error_handling()
                     );
                 },
-                [shared_resources](std::shared_ptr<::ucxx::Address> const& remote_address
+                [shared_resources](
+                    std::shared_ptr<::ucxx::Address> const& remote_address
                 ) {
                     auto root_endpoint =
                         shared_resources->get_worker()->createEndpointFromWorkerAddress(

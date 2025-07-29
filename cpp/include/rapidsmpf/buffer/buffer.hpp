@@ -32,7 +32,6 @@ enum class MemoryType : int {
 /// @brief Array of all the different memory types.
 constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
 
-
 /**
  * @brief Buffer representing device or host memory.
  *
