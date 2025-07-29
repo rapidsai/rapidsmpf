@@ -91,7 +91,7 @@ def _get_occupied_ids_single() -> list[set[int]]:
 def _single_worker_barrier(
     shuffle_ids: tuple[int, ...],
     partition_count: int,
-    dependencies: Sequence[None],
+    *dependencies: Sequence[None],
 ) -> None:
     """
     Single worker barrier for RapidsMPF shuffle.
