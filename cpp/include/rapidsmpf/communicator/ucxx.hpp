@@ -60,7 +60,8 @@ class InitializedRank {
      */
     InitializedRank(std::shared_ptr<SharedResources> shared_resources);
 
-    std::shared_ptr<SharedResources> shared_resources_{nullptr
+    std::shared_ptr<SharedResources> shared_resources_{
+        nullptr
     };  ///< Opaque object created by `init()`.
 };
 
@@ -170,25 +171,42 @@ class UCXX final : public Communicator {
 
     /**
      * @copydoc Communicator::recv_any
+     *
+     * @throws ucxx::Error if there is a message but the receive does not complete
+     * successfully.
      */
-    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(Tag tag
+    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
+        Tag tag
     ) override;
 
     /**
      * @copydoc Communicator::test_some
+     *
+     * @throws ucxx::Error if any completed futures did not complete successfully.
      */
-    std::vector<std::size_t> test_some(
-        std::vector<std::unique_ptr<Communicator::Future>> const& future_vector
+    std::vector<std::unique_ptr<Communicator::Future>> test_some(
+        std::vector<std::unique_ptr<Communicator::Future>>& future_vector
     ) override;
 
     // clang-format off
     /**
      * @copydoc Communicator::test_some(std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const& future_map)
+     *
+     * @throws ucxx::Error if any completed futures did not complete successfully.
      */
     // clang-format on
     std::vector<std::size_t> test_some(
         std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
             future_map
+    ) override;
+
+    /**
+     * @copydoc Communicator::wait
+     *
+     * @throws ucxx::Error if the future did not complete successfully.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> wait(
+        std::unique_ptr<Communicator::Future> future
     ) override;
 
     /**

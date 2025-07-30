@@ -96,7 +96,8 @@ class Single final : public Communicator {
      * @note Always returns a nullptr for the received message, indicating that no message
      * is available.
      */
-    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(Tag tag
+    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
+        Tag tag
     ) override;
 
     /**
@@ -105,8 +106,8 @@ class Single final : public Communicator {
      * @throws std::runtime_error if called (single-process communicators should never
      * send messages).
      */
-    std::vector<std::size_t> test_some(
-        std::vector<std::unique_ptr<Communicator::Future>> const& future_vector
+    std::vector<std::unique_ptr<Communicator::Future>> test_some(
+        std::vector<std::unique_ptr<Communicator::Future>>& future_vector
     ) override;
 
     // clang-format off
@@ -119,6 +120,16 @@ class Single final : public Communicator {
     std::vector<std::size_t> test_some(
         std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
             future_map
+    ) override;
+
+    /**
+     * @copydoc Communicator::wait
+     *
+     * @throws std::runtime_error if called (single-process communicators should never
+     * send messages)
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> wait(
+        std::unique_ptr<Communicator::Future> future
     ) override;
 
     /**

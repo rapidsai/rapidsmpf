@@ -84,8 +84,8 @@ class Tag {
      */
     constexpr Tag(OpID const op, StageID const stage)
         : tag_{
-            (static_cast<StorageT>(op) << stage_id_bits) | static_cast<StorageT>(stage)
-        } {}
+              (static_cast<StorageT>(op) << stage_id_bits) | static_cast<StorageT>(stage)
+          } {}
 
     /**
      * @brief Returns the max number of bits used for the tag
@@ -151,7 +151,14 @@ class Communicator {
         Future() = default;
         virtual ~Future() noexcept = default;
         Future(Future&&) = default;  ///< Movable.
-        Future(Future&) = delete;  ///< Not copyable.
+        /**
+         * @brief Move assignment
+         *
+         * @returns Moved this.
+         */
+        Future& operator=(Future&&) = default;
+        Future(Future const&) = delete;  ///< Not copyable.
+        Future& operator=(Future const&) = delete;  ///< Not copy-assignable
     };
 
     /**
@@ -441,11 +448,12 @@ class Communicator {
     /**
      * @brief Tests for completion of multiple futures.
      *
-     * @param future_vector Vector of Future objects.
-     * @return Indices of completed futures.
+     * @param[inout] future_vector Vector of Future objects. Completed
+     * futures are erased from the vector.
+     * @return Completed futures.
      */
-    std::vector<std::size_t> virtual test_some(
-        std::vector<std::unique_ptr<Future>> const& future_vector
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Future>> test_some(
+        std::vector<std::unique_ptr<Future>>& future_vector
     ) = 0;
 
     /**
@@ -457,6 +465,17 @@ class Communicator {
     std::vector<std::size_t> virtual test_some(
         std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
             future_map
+    ) = 0;
+
+    /**
+     * @brief Wait for a future to complete and return the data buffer.
+     *
+     * @param future The future to wait for completion of.
+     * @return A unique pointer to the GPU data buffer (or `nullptr` if the future had no
+     * data).
+     */
+    [[nodiscard]] virtual std::unique_ptr<Buffer> wait(
+        std::unique_ptr<Future> future
     ) = 0;
 
     /**
