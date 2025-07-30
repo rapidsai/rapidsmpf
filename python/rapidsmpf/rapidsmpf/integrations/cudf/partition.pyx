@@ -64,8 +64,8 @@ cpdef dict partition_and_pack(
         The number of partitions to create.
     stream
         The CUDA stream used for memory operations.
-    device_mr
-        Reference to the RMM device memory resource used for device allocations.
+    br
+        Buffer resource for gpu data allocations.
 
     Returns
     -------
@@ -129,8 +129,8 @@ cpdef dict split_and_pack(
         the number of result partitions.
     stream
         The CUDA stream used for memory operations.
-    device_mr
-        Reference to the RMM device memory resource used for device allocations.
+    br
+        Buffer resource for gpu data allocations.
 
     Returns
     -------
@@ -194,8 +194,8 @@ cpdef Table unpack_and_concat(
         The packed input tables to unpack and concatenate.
     stream
         The CUDA stream used for memory operations.
-    device_mr
-        Reference to the RMM device memory resource used for device allocations.
+    br
+        Buffer resource for gpu data allocations.
 
     Returns
     -------
