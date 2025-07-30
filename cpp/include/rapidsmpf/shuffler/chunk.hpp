@@ -250,9 +250,6 @@ class Chunk {
      * @param chunk_id The ID of the chunk.
      * @param part_id The ID of the partition.
      * @param packed_data The packed data.
-     * @param event The CUDA event.
-     * @param stream The CUDA stream.
-     * @param br The buffer resource.
      * @return The chunk.
      */
     static Chunk from_packed_data(

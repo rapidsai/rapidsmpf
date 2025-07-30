@@ -29,7 +29,7 @@ namespace rapidsmpf {
  * @param hash_function Hash function to use.
  * @param seed Seed value to the hash function.
  * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param mr Device memory resource used to allocate the returned table's device memory.
+ * @param br Buffer resource for memory allocations.
  * @param statistics The statistics instance to use (disabled by default).
  *
  * @return A vector of each partition and a table that owns the device memory.
@@ -61,8 +61,8 @@ partition_and_split(
  * @param hash_function Hash function to use.
  * @param seed Seed value to the hash function.
  * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param mr Device memory resource used to allocate the returned table's device memory.
- *  @param statistics The statistics instance to use (disabled by default).
+ * @param br Buffer resource for memory allocations.
+ * @param statistics The statistics instance to use (disabled by default).
  *
  * @return A map of partition IDs and their packed tables.
  *
@@ -91,7 +91,7 @@ partition_and_split(
  * @param splits The split points, equivalent to cudf::split(), i.e. one less than
  * the number of result partitions.
  * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param mr Device memory resource used to allocate the returned table's device memory.
+ * @param br Buffer resource for memory allocations.
  * @param statistics The statistics instance to use (disabled by default).
  *
  * @return A map of partition IDs and their packed tables.
@@ -118,8 +118,8 @@ partition_and_split(
  *
  * @param partitions The packed input tables.
  * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param mr Device memory resource used to allocate the returned table's device memory.
- *  @param statistics The statistics instance to use (disabled by default).
+ * @param br Buffer resource for memory allocations.
+ * @param statistics The statistics instance to use (disabled by default).
  *
  * @return The unpacked and concatenated result.
  *
