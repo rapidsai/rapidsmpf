@@ -4,16 +4,22 @@
 from libc.stdint cimport uint8_t
 from libcpp.memory cimport unique_ptr
 from libcpp.vector cimport vector
+from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.librmm.device_buffer cimport device_buffer
+
+from rapidsmpf.buffer.resource cimport cpp_BufferResource
 
 
 cdef extern from "<rapidsmpf/buffer/packed_data.hpp>" nogil:
     cdef cppclass cpp_PackedData "rapidsmpf::PackedData":
-        unique_ptr[vector[uint8_t]] metadata
-        unique_ptr[device_buffer] gpu_data
+        cpp_PackedData(
+            unique_ptr[vector[uint8_t]] metadata,
+            unique_ptr[device_buffer] gpu_data,
+            cpp_BufferResource* br,
+            cuda_stream_view stream,
+        ) except +
 
-        cpp_PackedData(unique_ptr[vector[uint8_t]] metadata,
-                       unique_ptr[device_buffer] gpu_data)
+        cpp_PackedData() except +
 
 
 cdef class PackedData:

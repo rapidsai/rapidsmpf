@@ -14,11 +14,10 @@ from pylibcudf.libcudf.table.table_view cimport table_view
 from pylibcudf.libcudf.types cimport size_type
 from pylibcudf.table cimport Table
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
-from rmm.librmm.memory_resource cimport device_memory_resource
-from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
+from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
 
 
 cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
@@ -32,16 +31,16 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             int num_partitions,
             int hash_function,
             uint32_t seed,
+            cpp_BufferResource* br,
             cuda_stream_view stream,
-            device_memory_resource *mr,
         ) except +
 
     cdef unordered_map[uint32_t, cpp_PackedData] cpp_split_and_pack \
         "rapidsmpf::split_and_pack"(
             const table_view& table,
             const vector[size_type] &splits,
+            cpp_BufferResource* br,
             cuda_stream_view stream,
-            device_memory_resource *mr,
         ) except +
 
 
@@ -49,8 +48,8 @@ cpdef dict partition_and_pack(
     Table table,
     columns_to_hash,
     int num_partitions,
+    BufferResource br,
     stream,
-    DeviceMemoryResource device_mr,
 ):
     """
     Partition rows from the input table into multiple packed (serialized) tables.
@@ -84,11 +83,13 @@ cpdef dict partition_and_pack(
     pylibcudf.contiguous_split.pack
     rapidsmpf.integrations.cudf.partition.split_and_pack
     """
+    if stream is None:
+        raise ValueError("stream cannot be None")
+
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, cpp_PackedData] _ret
     cdef table_view tbl = table.view()
-    if stream is None:
-        raise ValueError("stream cannot be None")
+    cdef cpp_BufferResource* _br = br.ptr()
     cdef cuda_stream_view _stream = Stream(stream).view()
     with nogil:
         _ret = cpp_partition_and_pack(
@@ -97,8 +98,8 @@ cpdef dict partition_and_pack(
             num_partitions,
             cpp_HASH_MURMUR3,
             cpp_DEFAULT_HASH_SEED,
+            _br,
             _stream,
-            device_mr.get_mr()
         )
     ret = {}
     cdef unordered_map[uint32_t, cpp_PackedData].iterator it = _ret.begin()
@@ -113,8 +114,8 @@ cpdef dict partition_and_pack(
 cpdef dict split_and_pack(
     Table table,
     splits,
+    BufferResource br,
     stream,
-    DeviceMemoryResource device_mr,
 ):
     """
     Splits rows from the input table into multiple packed (serialized) tables.
@@ -147,19 +148,21 @@ cpdef dict split_and_pack(
     pylibcudf.copying.split
     rapidsmpf.integrations.cudf.partition.partition_and_pack
     """
+    if stream is None:
+        raise ValueError("stream cannot be None")
+
     cdef vector[size_type] _splits = tuple(splits)
     cdef unordered_map[uint32_t, cpp_PackedData] _ret
     cdef table_view tbl = table.view()
-    if stream is None:
-        raise ValueError("stream cannot be None")
+    cdef cpp_BufferResource* _br = br.ptr()
     cdef cuda_stream_view _stream = Stream(stream).view()
 
     with nogil:
         _ret = cpp_split_and_pack(
             tbl,
             _splits,
+            _br,
             _stream,
-            device_mr.get_mr()
         )
     ret = {}
     cdef unordered_map[uint32_t, cpp_PackedData].iterator it = _ret.begin()
@@ -175,15 +178,15 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
     cdef unique_ptr[cpp_table] cpp_unpack_and_concat \
         "rapidsmpf::unpack_and_concat"(
             vector[cpp_PackedData] partition,
+            cpp_BufferResource* br,
             cuda_stream_view stream,
-            device_memory_resource *mr,
         ) except +
 
 
 cpdef Table unpack_and_concat(
     partitions,
+    BufferResource br,
     stream,
-    DeviceMemoryResource device_mr,
 ):
     """
     Unpack (deserialize) input tables and concatenate them.
@@ -205,19 +208,22 @@ cpdef Table unpack_and_concat(
     --------
     rapidsmpf.integrations.cudf.partition.partition_and_pack
     """
+    if stream is None:
+        raise ValueError("stream cannot be None")
+
     cdef vector[cpp_PackedData] _partitions
     for part in partitions:
         if not (<PackedData?>part).c_obj:
             raise ValueError("PackedData was empty")
         _partitions.push_back(move(deref((<PackedData?>part).c_obj)))
-    if stream is None:
-        raise ValueError("stream cannot be None")
+
+    cdef cpp_BufferResource* _br = br.ptr()
     cdef cuda_stream_view _stream = Stream(stream).view()
     cdef unique_ptr[cpp_table] _ret
     with nogil:
         _ret = cpp_unpack_and_concat(
             move(_partitions),
+            _br,
             _stream,
-            device_mr.get_mr()
         )
     return Table.from_libcudf(move(_ret))

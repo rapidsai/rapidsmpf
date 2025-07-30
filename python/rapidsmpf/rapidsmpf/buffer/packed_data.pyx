@@ -5,8 +5,10 @@ from cython.operator cimport dereference as deref
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 from pylibcudf.contiguous_split cimport PackedColumns
+from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.packed_data cimport cpp_PackedData
+from rapidsmpf.buffer.resource cimport BufferResource
 
 
 cdef class PackedData:
@@ -17,7 +19,9 @@ cdef class PackedData:
         return self
 
     @classmethod
-    def from_cudf_packed_columns(cls, PackedColumns packed_columns):
+    def from_cudf_packed_columns(
+        cls, PackedColumns packed_columns, BufferResource br, stream
+    ):
         """
         Constructs a PackedData from CudfPackedColumns by taking the ownership of the
         data and releasing ``packed_columns``.
@@ -36,6 +40,10 @@ cdef class PackedData:
         ValueError
             If the PackedColumns object is empty (has been released already).
         """
+        if stream is None:
+            raise ValueError("stream cannot be None")
+        cdef cpp_BufferResource* _br = br.ptr()
+        cdef cuda_stream_view _stream = Stream(stream).view()
         cdef PackedData ret = cls.__new__(cls)
         with nogil:
             if not (packed_columns.c_obj != NULL and
@@ -48,7 +56,10 @@ cdef class PackedData:
             # underlying buffers
             ret.c_obj = make_unique[cpp_PackedData](
                 move(deref(packed_columns.c_obj).metadata),
-                move(deref(packed_columns.c_obj).gpu_data))
+                move(deref(packed_columns.c_obj).gpu_data),
+                _br,
+                _stream,
+            )
         return ret
 
     def __init__(self):

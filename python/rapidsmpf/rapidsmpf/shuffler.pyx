@@ -234,9 +234,7 @@ cdef class Shuffler:
         for i in range(_ret.size()):
             ret.append(
                 PackedData.from_librapidsmpf(
-                    make_unique[cpp_PackedData](
-                        move(_ret.at(i).metadata), move(_ret.at(i).gpu_data)
-                    )
+                    make_unique[cpp_PackedData](move(_ret[i]))
                 )
             )
         return ret
