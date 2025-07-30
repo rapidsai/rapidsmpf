@@ -205,14 +205,14 @@ def dask_cudf_shuffle(
         *sort_boundary_names,
     )
     if cluster_kind == "single":
-        from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
+        from rapidsmpf.integrations.single import rapidsmpf_shuffle_graph
 
         graph = rapidsmpf_shuffle_graph(
             *shuffle_graph_args, config_options=config_options
         )
     else:
         try:
-            from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
+            from rapidsmpf.integrations.dask import rapidsmpf_shuffle_graph
 
             graph = rapidsmpf_shuffle_graph(
                 *shuffle_graph_args, config_options=config_options
