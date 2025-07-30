@@ -151,7 +151,14 @@ class Communicator {
         Future() = default;
         virtual ~Future() noexcept = default;
         Future(Future&&) = default;  ///< Movable.
-        Future(Future&) = delete;  ///< Not copyable.
+        /**
+         * @brief Move assignment
+         *
+         * @returns Moved this.
+         */
+        Future& operator=(Future&&) = default;
+        Future(Future const&) = delete;  ///< Not copyable.
+        Future& operator=(Future const&) = delete;  ///< Not copy-assignable
     };
 
     /**
