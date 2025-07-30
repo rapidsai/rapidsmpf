@@ -226,7 +226,7 @@ def get_shuffler(
                 br=ctx.br,
                 statistics=ctx.statistics,
             )
-    return ctx.shufflers[shuffle_id]
+        return ctx.shufflers[shuffle_id]
 
 
 def insert_partition(
