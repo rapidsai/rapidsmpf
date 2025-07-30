@@ -276,7 +276,7 @@ class Buffer {
      * @brief Construct a Buffer from host memory.
      *
      * @param host_buffer A unique pointer to a vector containing host memory.
-     * @param br Buffer resource for memory allocation.
+     * @param br Buffer resource for gpu data allocations.
      *
      * @throws std::invalid_argument if `host_buffer` is null.
      */
@@ -287,7 +287,7 @@ class Buffer {
      *
      * @param device_buffer A unique pointer to a device buffer.
      * @param stream CUDA stream used for the device buffer allocation.
-     * @param br Buffer resource for memory allocation.
+     * @param br Buffer resource for gpu data allocations.
      * @param event The shared event to use for the buffer.
      *
      * @throws std::invalid_argument if `device_buffer` is null.

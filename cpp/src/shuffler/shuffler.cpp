@@ -95,7 +95,7 @@ std::unique_ptr<Buffer> allocate_buffer(
  * threads trying to extract a chunk that is in the process of being spilled, will fail.
  * To avoid this, the Shuffler uses `outbox_spillling_mutex_` to serialize extractions.
  *
- * @param br Buffer resource for memory allocation.
+ * @param br Buffer resource for gpu data allocations.
  * @param log A logger for recording events and debugging information.
  * @param statistics The statistics instance to use.
  * @param stream CUDA stream to use for memory and kernel operations.
