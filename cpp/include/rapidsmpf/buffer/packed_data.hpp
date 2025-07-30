@@ -25,15 +25,30 @@ namespace rapidsmpf {
 struct PackedData {
     std::unique_ptr<std::vector<std::uint8_t>> metadata;  ///< The metadata
     std::unique_ptr<Buffer> gpu_data;  ///< The gpu data
-
+    /// @brief Default constructor
     PackedData() = default;
 
+    /**
+     * @brief Construct from metadata and gpu data.
+     *
+     * @param metadata Host-side metadata describing the GPU data.
+     * @param gpu_data Pointer to GPU data.
+     */
     PackedData(
         std::unique_ptr<std::vector<std::uint8_t>> metadata,
         std::unique_ptr<Buffer> gpu_data
     )
         : metadata{std::move(metadata)}, gpu_data{std::move(gpu_data)} {}
 
+    /**
+     * @brief Construct from metadata and device buffer, taking ownership.
+     *
+     * @param metadata Host-side metadata.
+     * @param gpu_data Raw GPU buffer to be moved into a wrapped buffer.
+     * @param stream CUDA stream used during the move.
+     * @param br Buffer resource for gpu data allocations.
+     * @param event Optional event to associate with the gpu data.
+     */
     PackedData(
         std::unique_ptr<std::vector<std::uint8_t>> metadata,
         std::unique_ptr<rmm::device_buffer> gpu_data,
@@ -42,16 +57,6 @@ struct PackedData {
         std::shared_ptr<Buffer::Event> event = nullptr
     )
         : PackedData(std::move(metadata), br->move(std::move(gpu_data), stream, event)) {}
-
-    PackedData(
-        std::unique_ptr<std::vector<std::uint8_t>> metadata,
-        std::unique_ptr<rmm::device_buffer> gpu_data,
-        BufferResource* br
-    )
-        : metadata{std::move(metadata)} {
-        auto stream = gpu_data->stream();
-        this->gpu_data = br->move(std::move(gpu_data), stream);
-    }
 
     ~PackedData() = default;
 
