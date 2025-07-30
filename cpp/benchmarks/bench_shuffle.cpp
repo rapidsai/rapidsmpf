@@ -238,9 +238,11 @@ rapidsmpf::Duration do_run(
         while (!shuffler.finished()) {
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
-            output_partitions.emplace_back(rapidsmpf::unpack_and_concat(
-                std::move(packed_chunks), br, stream, statistics
-            ));
+            output_partitions.emplace_back(
+                rapidsmpf::unpack_and_concat(
+                    std::move(packed_chunks), br, stream, statistics
+                )
+            );
         }
         stream.synchronize();
     }
@@ -436,10 +438,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
 
     std::vector<std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData>>
         input_partitions = generate_input_partitions(
-            args,
-            stream,
-            br->device_mr(),
-            [&](cudf::table&& table) {
+            args, stream, br->device_mr(), [&](cudf::table&& table) {
                 return rapidsmpf::partition_and_pack(
                     table,
                     {0},

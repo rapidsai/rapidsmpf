@@ -132,10 +132,12 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     references.reserve(partitions.size());
     for (auto& packed_data : partitions) {
         if (!packed_data.empty()) {
-            unpacked.push_back(cudf::unpack(references.emplace_back(
-                std::move(packed_data.metadata),
-                br->move_to_device_buffer(std::move(packed_data.gpu_data))
-            )));
+            unpacked.push_back(
+                cudf::unpack(references.emplace_back(
+                    std::move(packed_data.metadata),
+                    br->move_to_device_buffer(std::move(packed_data.gpu_data))
+                ))
+            );
         }
     }
     return cudf::concatenate(unpacked, stream, br->device_mr());
