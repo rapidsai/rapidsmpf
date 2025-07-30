@@ -1211,6 +1211,16 @@ void UCXX::barrier() {
     log.trace("Barrier completed on rank ", shared_resources_->rank());
 }
 
+std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future) {
+    auto ucxx_future = dynamic_cast<Future*>(future.get());
+    RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    while (!ucxx_future->req_->isCompleted()) {
+        progress_worker();
+    }
+    ucxx_future->req_->checkError();
+    return std::move(ucxx_future->data_);
+}
+
 std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
