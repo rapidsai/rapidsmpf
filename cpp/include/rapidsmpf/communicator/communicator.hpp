@@ -468,6 +468,17 @@ class Communicator {
     ) = 0;
 
     /**
+     * @brief Wait for a future to complete and return the data buffer.
+     *
+     * @param future The future to wait for completion of.
+     * @return A unique pointer to the GPU data buffer (or `nullptr` if the future had no
+     * data).
+     */
+    [[nodiscard]] virtual std::unique_ptr<Buffer> wait(
+        std::unique_ptr<Future> future
+    ) = 0;
+
+    /**
      * @brief Retrieves GPU data associated with a completed future.
      *
      * @param future The completed future.
