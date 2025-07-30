@@ -26,6 +26,8 @@ struct PackedData {
     std::unique_ptr<std::vector<std::uint8_t>> metadata;  ///< The metadata
     std::unique_ptr<Buffer> gpu_data;  ///< The gpu data
 
+    PackedData() = default;
+
     PackedData(
         std::unique_ptr<std::vector<std::uint8_t>> metadata,
         std::unique_ptr<Buffer> gpu_data
@@ -51,16 +53,6 @@ struct PackedData {
         this->gpu_data = br->move(std::move(gpu_data), stream);
     }
 
-    // /**
-    //  * @brief Construct an empty PackedData object.
-    //  *
-    //  * This constructor initializes both the metadata and GPU data to empty
-    //  * buffers.
-    //  */
-    // PackedData()
-    //     : metadata{std::make_unique<std::vector<std::uint8_t>>()},
-    //       gpu_data{std::make_unique<rmm::device_buffer>()} {}
-
     ~PackedData() = default;
 
     /// @brief PackedData is moveable
@@ -79,8 +71,15 @@ struct PackedData {
      * @brief Check if the packed data is empty.
      *
      * @return True if the packed data is empty, false otherwise.
+     *
+     * @throw std::invalid_argument if metadata and gpu_data is null and non-null.
      */
     [[nodiscard]] bool empty() const {
+        RAPIDSMPF_EXPECTS(
+            (!metadata) == (!gpu_data),
+            "the metadata and gpu_data pointers cannot be null and non-null",
+            std::invalid_argument
+        );
         return metadata->empty() && gpu_data->size == 0;
     }
 };
