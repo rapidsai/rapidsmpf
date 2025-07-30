@@ -78,8 +78,8 @@ static void BM_PartitionAndPack(benchmark::State& state) {
             num_partitions,
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
-            &br,
-            stream
+            stream,
+            &br
         );
         benchmark::DoNotOptimize(pack_partitions);
         cudaStreamSynchronize(stream);
@@ -134,8 +134,8 @@ static void BM_PartitionAndPackCurrentImpl(benchmark::State& state) {
                 total_npartitions,
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
-                &br,
-                stream
+                stream,
+                &br
             );
             benchmark::DoNotOptimize(pack_partitions);
         }

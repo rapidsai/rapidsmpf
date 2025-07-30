@@ -58,7 +58,7 @@ TEST_P(NumOfPartitions, partition_and_pack) {
         random_table_with_index(seed, static_cast<std::size_t>(num_rows), 0, 10);
 
     auto chunks = rapidsmpf::partition_and_pack(
-        expect, {1}, num_partitions, hash_fn, seed, &br, stream
+        expect, {1}, num_partitions, hash_fn, seed, stream, &br
     );
 
     // Convert to a vector
@@ -68,7 +68,7 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     }
     EXPECT_EQ(chunks_vector.size(), num_partitions);
 
-    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), &br, stream);
+    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, &br);
 
     // Compare the input table with the result. We ignore the row order by
     // sorting by their index (first column).
@@ -89,7 +89,7 @@ TEST_P(NumOfPartitions, split_and_pack) {
         splits.emplace_back(i * num_rows / num_partitions);
     }
 
-    auto chunks = rapidsmpf::split_and_pack(expect, splits, &br, stream);
+    auto chunks = rapidsmpf::split_and_pack(expect, splits, stream, &br);
 
     // Convert to a vector (restoring the original order).
     std::vector<rapidsmpf::PackedData> chunks_vector;
@@ -98,7 +98,7 @@ TEST_P(NumOfPartitions, split_and_pack) {
     }
     EXPECT_EQ(chunks_vector.size(), num_partitions);
 
-    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), &br, stream);
+    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, &br);
 
     // Compare the input table with the result.
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(expect, *result);
@@ -117,8 +117,8 @@ TEST(MetadataMessage, round_trip) {
         rapidsmpf::PackedData{
             std::make_unique<std::vector<uint8_t>>(metadata),  // non-empty metadata
             std::make_unique<rmm::device_buffer>(),  // empty gpu_data
-            br.get(),
-            stream
+            stream,
+            br.get()
         }
     );
 
@@ -172,8 +172,8 @@ void test_shuffler(
     std::size_t total_num_rows,
     std::int64_t seed,
     cudf::hash_id hash_fn,
-    rapidsmpf::BufferResource* br,
-    rmm::cuda_stream_view stream
+    rmm::cuda_stream_view stream,
+    rapidsmpf::BufferResource* br
 ) {
     // To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the
     // shuffle shouldn't get near 30s.
@@ -188,8 +188,8 @@ void test_shuffler(
         static_cast<std::int32_t>(total_num_partitions),
         hash_fn,
         seed,
-        br,
-        stream
+        stream,
+        br
     );
 
     cudf::size_type row_offset = 0;
@@ -217,8 +217,8 @@ void test_shuffler(
                 static_cast<std::int32_t>(total_num_partitions),
                 hash_fn,
                 seed,
-                br,
-                stream
+                stream,
+                br
             );
             // Add the chunks to the shuffle
             insert_fn(std::move(packed_chunks));
@@ -231,7 +231,7 @@ void test_shuffler(
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any(wait_timeout);
         auto packed_chunks = shuffler.extract(finished_partition);
-        auto result = rapidsmpf::unpack_and_concat(std::move(packed_chunks), br, stream);
+        auto result = rapidsmpf::unpack_and_concat(std::move(packed_chunks), stream, br);
 
         // We should only receive the partitions assigned to this rank.
         EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
@@ -312,8 +312,8 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
         total_num_rows,
         seed,
         hash_fn,
-        br.get(),
-        stream
+        stream,
+        br.get()
     ));
 }
 
@@ -332,8 +332,8 @@ TEST_P(MemoryAvailable_NumPartition, round_trip_both_grouped) {
         total_num_rows,
         seed,
         hash_fn,
-        br.get(),
-        stream
+        stream,
+        br.get()
     ));
 }
 
@@ -352,8 +352,8 @@ TEST_P(MemoryAvailable_NumPartition, round_trip_insert_grouped) {
         total_num_rows,
         seed,
         hash_fn,
-        br.get(),
-        stream
+        stream,
+        br.get()
     ));
 }
 
@@ -372,8 +372,8 @@ TEST_P(MemoryAvailable_NumPartition, round_trip_finished_grouped) {
         total_num_rows,
         seed,
         hash_fn,
-        br.get(),
-        stream
+        stream,
+        br.get()
     ));
 }
 
@@ -420,8 +420,8 @@ class ConcurrentShuffleTest
             100'000,  // total_num_rows
             t_id,  // seed
             cudf::hash_id::HASH_MURMUR3,
-            br.get(),
-            stream
+            stream,
+            br.get()
         ));
     }
 
@@ -586,8 +586,8 @@ class ShuffleInsertGroupedTest
                     std::make_unique<rmm::device_buffer>(
                         dummy_data->data(), num_bytes, stream
                     ),
-                    br.get(),
-                    stream
+                    stream,
+                    br.get()
                 )
             );
         }
@@ -790,7 +790,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     );
     cudf::table input_table = random_table_with_index(seed, 1000, 0, 10);
     auto input_chunks = rapidsmpf::partition_and_pack(
-        input_table, {1}, total_num_partitions, hash_fn, seed, &br, stream
+        input_table, {1}, total_num_partitions, hash_fn, seed, stream, &br
     );
 
     // Insert spills does nothing when device memory is available, we start
@@ -1180,8 +1180,8 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
         return rapidsmpf::PackedData{
             std::make_unique<std::vector<uint8_t>>(),
             std::make_unique<rmm::device_buffer>(),
-            br.get(),
-            stream
+            stream,
+            br.get()
         };
     }
 
@@ -1189,8 +1189,8 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
         return rapidsmpf::PackedData{
             std::make_unique<std::vector<uint8_t>>(10),
             std::make_unique<rmm::device_buffer>(10, stream),
-            br.get(),
-            stream
+            stream,
+            br.get()
         };
     }
 

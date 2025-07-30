@@ -40,8 +40,8 @@ namespace {
 PackedData create_packed_data(
     cuda::std::span<uint8_t const> metadata,
     cuda::std::span<uint8_t const> data,
-    BufferResource* br,
-    rmm::cuda_stream_view stream
+    rmm::cuda_stream_view stream,
+    BufferResource* br
 ) {
     auto metadata_ptr =
         std::make_unique<std::vector<uint8_t>>(metadata.begin(), metadata.end());
@@ -49,7 +49,7 @@ PackedData create_packed_data(
     RAPIDSMPF_CUDA_TRY(
         cudaMemcpy(data_ptr->data(), data.data(), data.size(), cudaMemcpyHostToDevice)
     );
-    return PackedData{std::move(metadata_ptr), std::move(data_ptr), br, stream};
+    return PackedData{std::move(metadata_ptr), std::move(data_ptr), stream, br};
 }
 
 }  // namespace
@@ -100,8 +100,8 @@ TEST_F(ChunkTest, FromPackedData) {
     PackedData packed_data{
         std::make_unique<std::vector<uint8_t>>(*metadata),
         std::move(data),
-        br.get(),
-        stream
+        stream,
+        br.get()
     };
 
     auto test_chunk = [&](Chunk& chunk) {
@@ -169,7 +169,7 @@ TEST_F(ChunkTest, ChunkConcatPackedData) {
         Chunk::from_packed_data(
             0,
             1,
-            create_packed_data({metadata.data(), 3}, {data.data(), 3}, br.get(), stream)
+            create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream, br.get())
         )
     );
     chunks.push_back(
@@ -177,7 +177,7 @@ TEST_F(ChunkTest, ChunkConcatPackedData) {
             0,
             2,
             create_packed_data(
-                {metadata.data() + 3, 2}, {data.data() + 3, 2}, br.get(), stream
+                {metadata.data() + 3, 2}, {data.data() + 3, 2}, stream, br.get()
             )
         )
     );
@@ -231,14 +231,14 @@ std::tuple<Chunk, std::vector<uint8_t>, std::vector<uint8_t>, size_t> make_mixed
     chunks.push_back(Chunk::from_finished_partition(0, 1, 10));  // control message
     chunks.push_back(
         Chunk::from_packed_data(
-            0, 2, create_packed_data({metadata.data(), 3}, {data.data(), 3}, br, stream)
+            0, 2, create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream, br)
         )
     );  // packed data
     chunks.push_back(
         Chunk::from_packed_data(
             0,
             3,
-            create_packed_data({metadata.data() + 5, 0}, {data.data() + 5, 0}, br, stream)
+            create_packed_data({metadata.data() + 5, 0}, {data.data() + 5, 0}, stream, br)
         )
     );  // empty packed data - non-null
     chunks.push_back(Chunk::from_finished_partition(0, 4, 20));  // control message
@@ -246,7 +246,7 @@ std::tuple<Chunk, std::vector<uint8_t>, std::vector<uint8_t>, size_t> make_mixed
         Chunk::from_packed_data(
             0,
             5,
-            create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, br, stream)
+            create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream, br)
         )
     );  // packed data
     chunks.push_back(
@@ -254,7 +254,7 @@ std::tuple<Chunk, std::vector<uint8_t>, std::vector<uint8_t>, size_t> make_mixed
             0,
             6,
             create_packed_data(
-                {metadata.begin() + 5, metadata.end()}, {data.data(), 0}, br, stream
+                {metadata.begin() + 5, metadata.end()}, {data.data(), 0}, stream, br
             )
         )
     );  // metadata only packed data
@@ -376,7 +376,7 @@ TEST_F(ChunkTest, ChunkConcatSingleChunk) {
     std::vector<uint8_t> metadata{1, 2, 3};
     std::vector<uint8_t> data{4, 5, 6};
 
-    auto packed_data = create_packed_data(metadata, data, br.get(), stream);
+    auto packed_data = create_packed_data(metadata, data, stream, br.get());
     auto expected_metadata_ptr = packed_data.metadata->data();
     auto expected_data_ptr = packed_data.gpu_data->data();
 
@@ -442,12 +442,12 @@ TEST_F(ChunkTest, ChunkConcatHostBufferAllocation) {
     std::vector<Chunk> chunks;
     chunks.push_back(
         Chunk::from_packed_data(
-            1, 1, create_packed_data(metadata, data, br.get(), stream)
+            1, 1, create_packed_data(metadata, data, stream, br.get())
         )
     );
     chunks.push_back(
         Chunk::from_packed_data(
-            2, 2, create_packed_data(metadata, data, br.get(), stream)
+            2, 2, create_packed_data(metadata, data, stream, br.get())
         )
     );
     auto chunk = Chunk::concat(std::move(chunks), chunk_id, stream, br.get());
@@ -465,12 +465,12 @@ TEST_F(ChunkTest, ChunkConcatPreferredMemoryType) {
         std::vector<Chunk> chunks;
         chunks.push_back(
             Chunk::from_packed_data(
-                1, 1, create_packed_data(metadata, data, br.get(), stream)
+                1, 1, create_packed_data(metadata, data, stream, br.get())
             )
         );
         chunks.push_back(
             Chunk::from_packed_data(
-                2, 2, create_packed_data(metadata, data, br.get(), stream)
+                2, 2, create_packed_data(metadata, data, stream, br.get())
             )
         );
         return chunks;

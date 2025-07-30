@@ -12,12 +12,12 @@ cpdef dict partition_and_pack(
     Table table,
     columns_to_hash,
     int num_partitions,
-    BufferResource br,
     stream,
+    BufferResource br,
 )
 
 cpdef Table unpack_and_concat(
     partitions,
-    BufferResource br,
     stream,
+    BufferResource br,
 )

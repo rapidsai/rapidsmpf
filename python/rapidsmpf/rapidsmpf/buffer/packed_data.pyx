@@ -20,7 +20,7 @@ cdef class PackedData:
 
     @classmethod
     def from_cudf_packed_columns(
-        cls, PackedColumns packed_columns, BufferResource br, stream
+        cls, PackedColumns packed_columns, stream, BufferResource br
     ):
         """
         Constructs a PackedData from CudfPackedColumns by taking the ownership of the
@@ -42,8 +42,8 @@ cdef class PackedData:
         """
         if stream is None:
             raise ValueError("stream cannot be None")
-        cdef cpp_BufferResource* _br = br.ptr()
         cdef cuda_stream_view _stream = Stream(stream).view()
+        cdef cpp_BufferResource* _br = br.ptr()
         cdef PackedData ret = cls.__new__(cls)
         with nogil:
             if not (packed_columns.c_obj != NULL and
@@ -57,8 +57,8 @@ cdef class PackedData:
             ret.c_obj = make_unique[cpp_PackedData](
                 move(deref(packed_columns.c_obj).metadata),
                 move(deref(packed_columns.c_obj).gpu_data),
-                _br,
                 _stream,
+                _br,
             )
         return ret
 

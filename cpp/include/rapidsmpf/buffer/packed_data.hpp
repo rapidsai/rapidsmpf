@@ -37,8 +37,8 @@ struct PackedData {
     PackedData(
         std::unique_ptr<std::vector<std::uint8_t>> metadata,
         std::unique_ptr<rmm::device_buffer> gpu_data,
-        BufferResource* br,
         rmm::cuda_stream_view stream,
+        BufferResource* br,
         std::shared_ptr<Buffer::Event> event = nullptr
     )
         : PackedData(std::move(metadata), br->move(std::move(gpu_data), stream, event)) {}

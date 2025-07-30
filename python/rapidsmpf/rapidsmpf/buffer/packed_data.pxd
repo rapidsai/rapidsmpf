@@ -15,8 +15,8 @@ cdef extern from "<rapidsmpf/buffer/packed_data.hpp>" nogil:
         cpp_PackedData(
             unique_ptr[vector[uint8_t]] metadata,
             unique_ptr[device_buffer] gpu_data,
-            cpp_BufferResource* br,
             cuda_stream_view stream,
+            cpp_BufferResource* br,
         ) except +
 
         cpp_PackedData() except +

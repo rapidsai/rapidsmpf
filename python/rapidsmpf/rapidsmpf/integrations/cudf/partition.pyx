@@ -31,16 +31,16 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             int num_partitions,
             int hash_function,
             uint32_t seed,
-            cpp_BufferResource* br,
             cuda_stream_view stream,
+            cpp_BufferResource* br,
         ) except +
 
     cdef unordered_map[uint32_t, cpp_PackedData] cpp_split_and_pack \
         "rapidsmpf::split_and_pack"(
             const table_view& table,
             const vector[size_type] &splits,
-            cpp_BufferResource* br,
             cuda_stream_view stream,
+            cpp_BufferResource* br,
         ) except +
 
 
@@ -48,8 +48,8 @@ cpdef dict partition_and_pack(
     Table table,
     columns_to_hash,
     int num_partitions,
-    BufferResource br,
     stream,
+    BufferResource br,
 ):
     """
     Partition rows from the input table into multiple packed (serialized) tables.
@@ -85,12 +85,11 @@ cpdef dict partition_and_pack(
     """
     if stream is None:
         raise ValueError("stream cannot be None")
-
+    cdef cuda_stream_view _stream = Stream(stream).view()
+    cdef cpp_BufferResource* _br = br.ptr()
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef unordered_map[uint32_t, cpp_PackedData] _ret
     cdef table_view tbl = table.view()
-    cdef cpp_BufferResource* _br = br.ptr()
-    cdef cuda_stream_view _stream = Stream(stream).view()
     with nogil:
         _ret = cpp_partition_and_pack(
             tbl,
@@ -98,8 +97,8 @@ cpdef dict partition_and_pack(
             num_partitions,
             cpp_HASH_MURMUR3,
             cpp_DEFAULT_HASH_SEED,
-            _br,
             _stream,
+            _br,
         )
     ret = {}
     cdef unordered_map[uint32_t, cpp_PackedData].iterator it = _ret.begin()
@@ -114,8 +113,8 @@ cpdef dict partition_and_pack(
 cpdef dict split_and_pack(
     Table table,
     splits,
-    BufferResource br,
     stream,
+    BufferResource br,
 ):
     """
     Splits rows from the input table into multiple packed (serialized) tables.
@@ -150,19 +149,17 @@ cpdef dict split_and_pack(
     """
     if stream is None:
         raise ValueError("stream cannot be None")
-
+    cdef cuda_stream_view _stream = Stream(stream).view()
+    cdef cpp_BufferResource* _br = br.ptr()
     cdef vector[size_type] _splits = tuple(splits)
     cdef unordered_map[uint32_t, cpp_PackedData] _ret
     cdef table_view tbl = table.view()
-    cdef cpp_BufferResource* _br = br.ptr()
-    cdef cuda_stream_view _stream = Stream(stream).view()
-
     with nogil:
         _ret = cpp_split_and_pack(
             tbl,
             _splits,
-            _br,
             _stream,
+            _br,
         )
     ret = {}
     cdef unordered_map[uint32_t, cpp_PackedData].iterator it = _ret.begin()
@@ -178,15 +175,15 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
     cdef unique_ptr[cpp_table] cpp_unpack_and_concat \
         "rapidsmpf::unpack_and_concat"(
             vector[cpp_PackedData] partition,
-            cpp_BufferResource* br,
             cuda_stream_view stream,
+            cpp_BufferResource* br,
         ) except +
 
 
 cpdef Table unpack_and_concat(
     partitions,
-    BufferResource br,
     stream,
+    BufferResource br,
 ):
     """
     Unpack (deserialize) input tables and concatenate them.
@@ -210,6 +207,8 @@ cpdef Table unpack_and_concat(
     """
     if stream is None:
         raise ValueError("stream cannot be None")
+    cdef cuda_stream_view _stream = Stream(stream).view()
+    cdef cpp_BufferResource* _br = br.ptr()
 
     cdef vector[cpp_PackedData] _partitions
     for part in partitions:
@@ -217,13 +216,11 @@ cpdef Table unpack_and_concat(
             raise ValueError("PackedData was empty")
         _partitions.push_back(move(deref((<PackedData?>part).c_obj)))
 
-    cdef cpp_BufferResource* _br = br.ptr()
-    cdef cuda_stream_view _stream = Stream(stream).view()
     cdef unique_ptr[cpp_table] _ret
     with nogil:
         _ret = cpp_unpack_and_concat(
             move(_partitions),
-            _br,
             _stream,
+            _br,
         )
     return Table.from_libcudf(move(_ret))

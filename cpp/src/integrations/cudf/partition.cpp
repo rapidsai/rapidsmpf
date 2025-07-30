@@ -27,8 +27,8 @@ partition_and_split(
     int num_partitions,
     cudf::hash_id hash_function,
     uint32_t seed,
-    BufferResource* br,
     rmm::cuda_stream_view stream,
+    BufferResource* br,
     std::shared_ptr<Statistics> statistics
 ) {
     RAPIDSMPF_MEMORY_PROFILE(statistics);
@@ -72,8 +72,8 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     int num_partitions,
     cudf::hash_id hash_function,
     uint32_t seed,
-    BufferResource* br,
     rmm::cuda_stream_view stream,
+    BufferResource* br,
     std::shared_ptr<Statistics> statistics
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
@@ -83,7 +83,7 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
         auto splits = std::vector<cudf::size_type>(
             static_cast<std::uint64_t>(num_partitions - 1), 0
         );
-        return split_and_pack(table, splits, br, stream);
+        return split_and_pack(table, splits, stream, br);
     }
     auto [reordered, split_points] = cudf::hash_partition(
         table,
@@ -95,14 +95,14 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
         br->device_mr()
     );
     std::vector<cudf::size_type> splits(split_points.begin() + 1, split_points.end());
-    return split_and_pack(reordered->view(), splits, br, stream);
+    return split_and_pack(reordered->view(), splits, stream, br);
 }
 
 std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& splits,
-    BufferResource* br,
     rmm::cuda_stream_view stream,
+    BufferResource* br,
     std::shared_ptr<Statistics> statistics
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
@@ -112,7 +112,7 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     for (shuffler::PartID i = 0; static_cast<std::size_t>(i) < packed.size(); i++) {
         auto pack = std::move(packed[i].data);
         ret.emplace(
-            i, PackedData(std::move(pack.metadata), std::move(pack.gpu_data), br, stream)
+            i, PackedData(std::move(pack.metadata), std::move(pack.gpu_data), stream, br)
         );
     }
     return ret;
@@ -120,8 +120,8 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
 
 std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<PackedData>&& partitions,
-    BufferResource* br,
     rmm::cuda_stream_view stream,
+    BufferResource* br,
     std::shared_ptr<Statistics> statistics
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();

@@ -14,17 +14,17 @@ def partition_and_pack(
     table: Table,
     columns_to_hash: Iterable[int],
     num_partitions: int,
-    br: BufferResource,
     stream: Stream,
+    br: BufferResource,
 ) -> dict[int, PackedData]: ...
 def split_and_pack(
     table: Table,
     splits: Iterable[int],
-    br: BufferResource,
     stream: Stream,
+    br: BufferResource,
 ) -> dict[int, PackedData]: ...
 def unpack_and_concat(
     partitions: Iterable[PackedData],
-    br: BufferResource,
     stream: Stream,
+    br: BufferResource,
 ) -> Table: ...
