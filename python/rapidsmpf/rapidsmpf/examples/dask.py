@@ -20,7 +20,6 @@ from rapidsmpf.integrations.cudf.partition import (
     split_and_pack,
     unpack_and_concat,
 )
-from rapidsmpf.integrations.single import single_rapidsmpf_shuffle_graph
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
@@ -206,7 +205,9 @@ def dask_cudf_shuffle(
         *sort_boundary_names,
     )
     if cluster_kind == "single":
-        graph = single_rapidsmpf_shuffle_graph(
+        from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
+
+        graph = rapidsmpf_shuffle_graph(
             *shuffle_graph_args, config_options=config_options
         )
     else:
@@ -221,7 +222,7 @@ def dask_cudf_shuffle(
             # Use single shuffle instead.
             if cluster_kind == "distributed":
                 raise
-            graph = single_rapidsmpf_shuffle_graph(
+            graph = rapidsmpf_shuffle_graph(
                 *shuffle_graph_args, config_options=config_options
             )
 

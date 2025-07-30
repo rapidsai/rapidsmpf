@@ -8,16 +8,12 @@ import dask
 import dask.dataframe as dd
 import pytest
 
+import rapidsmpf.integrations.single
 from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options
 from rapidsmpf.examples.dask import DaskCudfIntegration
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
-from rapidsmpf.integrations.single import (
-    _get_single_worker_context,
-    setup_single_worker,
-    single_rapidsmpf_shuffle_graph,
-)
 from rapidsmpf.shuffler import Shuffler
 
 dask_cuda = pytest.importorskip("dask_cuda")
@@ -290,7 +286,7 @@ def test_many_shuffles_single() -> None:
         for i in range(num_shuffles):
             name_out = f"test_many_shuffles-output-{i}"
             graph.update(
-                single_rapidsmpf_shuffle_graph(
+                rapidsmpf.integrations.single.rapidsmpf_shuffle_graph(
                     input_name=name_in,
                     output_name=name_out,
                     partition_count_in=partition_count_in,
@@ -313,7 +309,9 @@ def test_many_shuffles_single() -> None:
             check_index=False,
         )
 
-    setup_single_worker(options=Options({"single_spill_device": "0.1"}))
+    rapidsmpf.integrations.single.setup_worker(
+        options=Options({"single_spill_device": "0.1"})
+    )
     max_num_shuffles = Shuffler.max_concurrent_shuffles
 
     # We can shuffle `max_num_shuffles` consecutive times.
@@ -322,7 +320,7 @@ def test_many_shuffles_single() -> None:
     do_shuffle(seed=2, num_shuffles=10)
 
     # Check that all shufflers has been cleaned up.
-    ctx = _get_single_worker_context()
+    ctx = rapidsmpf.integrations.single._get_worker_context()
     assert len(ctx.shufflers) == 0
 
     # But we cannot shuffle more than `max_num_shuffles` times in a single compute.
