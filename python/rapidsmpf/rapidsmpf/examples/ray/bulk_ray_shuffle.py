@@ -116,6 +116,7 @@ class BulkRayShufflerActor(BaseShufflingActor):
             buffer_resource=br,
             statistics=self.stats,
         )
+        self.br = br
 
     def cleanup(self) -> None:
         """Cleanup the UCXX communication and the shuffle operation."""
@@ -188,8 +189,8 @@ class BulkRayShufflerActor(BaseShufflingActor):
             table,
             columns_to_hash=columns_to_hash,
             num_partitions=self.total_nparts,
+            br=self.br,
             stream=DEFAULT_STREAM,
-            device_mr=rmm.mr.get_current_device_resource(),
         )
         self.shuffler.insert_chunks(packed_inputs)
 
@@ -233,8 +234,8 @@ class BulkRayShufflerActor(BaseShufflingActor):
             packed_chunks = self.shuffler.extract(partition_id)
             partition = unpack_and_concat(
                 packed_chunks,
+                br=self.br,
                 stream=DEFAULT_STREAM,
-                device_mr=rmm.mr.get_current_device_resource(),
             )
             yield partition_id, partition
 

@@ -38,19 +38,20 @@ if TYPE_CHECKING:
 def test_partition_and_pack_unpack(
     device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
 ) -> None:
+    br = BufferResource(device_mr)
     expect = cudf.DataFrame(df)
     partitions = partition_and_pack(
         cudf_to_pylibcudf_table(expect),
         columns_to_hash=(1,),
         num_partitions=num_partitions,
+        br=br,
         stream=DEFAULT_STREAM,
-        device_mr=device_mr,
     )
     got = pylibcudf_to_cudf_dataframe(
         unpack_and_concat(
             tuple(partitions.values()),
+            br=br,
             stream=DEFAULT_STREAM,
-            device_mr=device_mr,
         )
     )
     # Since the row order isn't preserved, we sort the rows by the "0" column.
@@ -69,19 +70,20 @@ def test_partition_and_pack_unpack(
 def test_split_and_pack_unpack(
     device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
 ) -> None:
+    br = BufferResource(device_mr)
     expect = cudf.DataFrame(df)
     splits = np.linspace(0, len(expect), num_partitions, endpoint=False)[1:].astype(int)
     partitions = split_and_pack(
         cudf_to_pylibcudf_table(expect),
         splits=splits,
+        br=br,
         stream=DEFAULT_STREAM,
-        device_mr=device_mr,
     )
     got = pylibcudf_to_cudf_dataframe(
         unpack_and_concat(
             tuple(partitions[i] for i in range(num_partitions)),
+            br=br,
             stream=DEFAULT_STREAM,
-            device_mr=device_mr,
         )
     )
 
@@ -93,13 +95,14 @@ def test_split_and_pack_unpack(
 def test_split_and_pack_unpack_out_of_range(
     device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
 ) -> None:
+    br = BufferResource(device_mr)
     expect = cudf.DataFrame({"0": [], "1": []})
     with pytest.raises(IndexError):
         split_and_pack(
             cudf_to_pylibcudf_table(expect),
             splits=[100],
+            br=br,
             stream=DEFAULT_STREAM,
-            device_mr=device_mr,
         )
 
 
@@ -114,7 +117,6 @@ def test_shuffler_single_nonempty_partition(
     concat: bool,  # noqa: FBT001
 ) -> None:
     br = BufferResource(device_mr)
-
     progress_thread = ProgressThread(comm)
 
     shuffler = Shuffler(
@@ -131,8 +133,8 @@ def test_shuffler_single_nonempty_partition(
         cudf_to_pylibcudf_table(df),
         columns_to_hash=(df.columns.get_loc("1"),),
         num_partitions=total_num_partitions,
+        br=br,
         stream=DEFAULT_STREAM,
-        device_mr=device_mr,
     )
     if concat:
         shuffler.concat_insert(packed_inputs)
@@ -161,8 +163,8 @@ def test_shuffler_single_nonempty_partition(
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
             packed_chunks,
+            br=br,
             stream=DEFAULT_STREAM,
-            device_mr=device_mr,
         )
         local_outputs.append(partition)
     shuffler.shutdown()
@@ -209,8 +211,8 @@ def test_shuffler_uniform(
         partition_id: pylibcudf_to_cudf_dataframe(
             unpack_and_concat(
                 [packed],
+                br=br,
                 stream=DEFAULT_STREAM,
-                device_mr=device_mr,
             ),
             column_names=column_names,
         )
@@ -218,8 +220,8 @@ def test_shuffler_uniform(
             cudf_to_pylibcudf_table(df),
             columns_to_hash=columns_to_hash,
             num_partitions=total_num_partitions,
+            br=br,
             stream=DEFAULT_STREAM,
-            device_mr=device_mr,
         ).items()
     }
 
@@ -245,8 +247,8 @@ def test_shuffler_uniform(
             cudf_to_pylibcudf_table(local_df.iloc[i : i + batch_size]),
             columns_to_hash=columns_to_hash,
             num_partitions=total_num_partitions,
+            br=br,
             stream=DEFAULT_STREAM,
-            device_mr=device_mr,
         )
         if concat:
             shuffler.concat_insert(packed_inputs)
@@ -266,8 +268,8 @@ def test_shuffler_uniform(
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
             packed_chunks,
+            br=br,
             stream=DEFAULT_STREAM,
-            device_mr=device_mr,
         )
         assert_eq(
             pylibcudf_to_cudf_dataframe(partition, column_names=column_names),
