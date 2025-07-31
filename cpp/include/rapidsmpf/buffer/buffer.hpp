@@ -265,18 +265,16 @@ class Buffer {
      * @brief Construct a Buffer from host memory.
      *
      * @param host_buffer A unique pointer to a vector containing host memory.
-     * @param br Buffer resource for memory allocation.
      *
      * @throws std::invalid_argument if `host_buffer` is null.
      */
-    Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br);
+    Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer);
 
     /**
      * @brief Construct a Buffer from device memory.
      *
      * @param device_buffer A unique pointer to a device buffer.
      * @param stream CUDA stream used for the device buffer allocation.
-     * @param br Buffer resource for memory allocation.
      * @param event The shared event to use for the buffer.
      *
      * @throws std::invalid_argument if `device_buffer` is null.
@@ -286,7 +284,6 @@ class Buffer {
     Buffer(
         std::unique_ptr<rmm::device_buffer> device_buffer,
         rmm::cuda_stream_view stream,
-        BufferResource* br,
         std::shared_ptr<Event> event = nullptr
     );
 
@@ -324,23 +321,26 @@ class Buffer {
      * @brief Create a copy of this buffer using the same memory type.
      *
      * @param stream CUDA stream used for the device buffer allocation and copy.
+     * @param br Buffer resource for data allocations.
      * @return A unique pointer to a new Buffer containing the copied data.
      */
-    [[nodiscard]] std::unique_ptr<Buffer> copy(rmm::cuda_stream_view stream) const;
+    [[nodiscard]] std::unique_ptr<Buffer> copy(
+        rmm::cuda_stream_view stream, BufferResource* br
+    ) const;
 
     /**
      * @brief Create a copy of this buffer using the specified memory type.
      *
      * @param target The target memory type.
      * @param stream CUDA stream used for device buffer allocation and copy.
+     * @param br Buffer resource for data allocations.
      * @return A unique pointer to a new Buffer containing the copied data.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy(
-        MemoryType target, rmm::cuda_stream_view stream
+        MemoryType target, rmm::cuda_stream_view stream, BufferResource* br
     ) const;
 
   public:
-    BufferResource* const br;  ///< The buffer resource used.
     std::size_t const size;  ///< The size of the buffer in bytes.
 
   private:
