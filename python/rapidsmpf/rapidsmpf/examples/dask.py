@@ -214,6 +214,8 @@ def dask_cudf_shuffle(
             # Failed to import distributed/dask-cuda or find a Dask client.
             # Use single shuffle instead.
             cluster_kind = "single"
+        else:
+            cluster_kind = "distributed"
 
     if cluster_kind == "distributed":
         from rapidsmpf.integrations.dask import rapidsmpf_shuffle_graph
