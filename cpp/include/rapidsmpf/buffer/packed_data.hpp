@@ -44,7 +44,7 @@ struct PackedData {
             this->gpu_data != nullptr, "the gpu data pointer cannot be null"
         );
         RAPIDSMPF_EXPECTS(
-            (metadata->size() > 0 || gpu_data->size == 0),
+            (this->metadata->size() > 0 || this->gpu_data->size == 0),
             "Empty Metadata and non-empty GPU data is not allowed"
         );
     }
