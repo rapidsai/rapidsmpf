@@ -361,7 +361,7 @@ class SharedResources {
                 progress_worker();
             }
         } else {
-            auto endpoint = get_endpoint(0);
+            auto endpoint = get_endpoint(Rank(0));
 
             auto req = endpoint->amRecv();
             while (!req->isCompleted()) {
