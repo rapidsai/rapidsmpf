@@ -29,7 +29,7 @@ struct PackedData {
     PackedData() = default;
 
     /**
-     * @brief Construct from metadata and gpu data.
+     * @brief Construct from metadata and gpu data, taking ownership.
      *
      * @param metadata Host-side metadata describing the GPU data.
      * @param gpu_data Pointer to GPU data.
