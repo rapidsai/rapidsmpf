@@ -163,7 +163,7 @@ class Chunk {
      *
      * @param i The index of the message.
      * @return The size of the packed data of the message. Zero when the message is a
-     * control message, otherwise the size of `PackedData::gpu_data` of the message.
+     * control message, otherwise the size of `PackedData::data` of the message.
      */
     [[nodiscard]] size_t data_size(size_t i) const {
         return i == 0 ? data_offsets_.at(0)

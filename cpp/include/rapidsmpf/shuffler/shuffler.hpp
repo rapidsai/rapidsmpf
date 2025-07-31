@@ -229,8 +229,7 @@ class Shuffler {
      * The chunk is assigned a new unique ID using `get_new_cid()`.
      *
      * @param pid The partition ID of the new chunk.
-     * @param metadata The metadata of the new chunk, can be null.
-     * @param gpu_data The gpu data of the new chunk, can be null.
+     * @param packed_data The pack data of the new chunk.
      */
     [[nodiscard]] detail::Chunk create_chunk(PartID pid, PackedData&& packed_data);
 

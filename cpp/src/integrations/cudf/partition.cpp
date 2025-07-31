@@ -138,7 +138,7 @@ std::unique_ptr<cudf::table> unpack_and_concat(
             unpacked.push_back(
                 cudf::unpack(references.emplace_back(
                     std::move(packed_data.metadata),
-                    br->move_to_device_buffer(std::move(packed_data.gpu_data))
+                    br->move_to_device_buffer(std::move(packed_data.data))
                 ))
             );
         }

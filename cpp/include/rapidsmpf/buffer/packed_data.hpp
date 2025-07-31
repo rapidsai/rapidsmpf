@@ -24,27 +24,24 @@ namespace rapidsmpf {
  */
 struct PackedData {
     std::unique_ptr<std::vector<std::uint8_t>> metadata;  ///< The metadata
-    std::unique_ptr<Buffer> gpu_data;  ///< The gpu data
+    std::unique_ptr<Buffer> data;  ///< The gpu data
 
     /**
      * @brief Construct from metadata and gpu data, taking ownership.
      *
      * @param metadata Host-side metadata describing the GPU data.
-     * @param gpu_data Pointer to GPU data.
+     * @param data Pointer to GPU data.
      */
     PackedData(
-        std::unique_ptr<std::vector<std::uint8_t>> metadata,
-        std::unique_ptr<Buffer> gpu_data
+        std::unique_ptr<std::vector<std::uint8_t>> metadata, std::unique_ptr<Buffer> data
     )
-        : metadata{std::move(metadata)}, gpu_data{std::move(gpu_data)} {
+        : metadata{std::move(metadata)}, data{std::move(data)} {
         RAPIDSMPF_EXPECTS(
             this->metadata != nullptr, "the metadata pointer cannot be null"
         );
+        RAPIDSMPF_EXPECTS(this->data != nullptr, "the gpu data pointer cannot be null");
         RAPIDSMPF_EXPECTS(
-            this->gpu_data != nullptr, "the gpu data pointer cannot be null"
-        );
-        RAPIDSMPF_EXPECTS(
-            (this->metadata->size() > 0 || this->gpu_data->size == 0),
+            (this->metadata->size() > 0 || this->data->size == 0),
             "Empty Metadata and non-empty GPU data is not allowed"
         );
     }
@@ -69,7 +66,7 @@ struct PackedData {
      * @return True if the packed data is empty, false otherwise.
      */
     [[nodiscard]] bool empty() const {
-        return metadata->empty() && gpu_data->size == 0;
+        return metadata->empty() && data->size == 0;
     }
 };
 

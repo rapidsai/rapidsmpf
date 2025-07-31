@@ -376,7 +376,7 @@ TEST_F(ChunkTest, ChunkConcatSingleChunk) {
 
     auto packed_data = create_packed_data(metadata, data, stream, br.get());
     auto expected_metadata_ptr = packed_data.metadata->data();
-    auto expected_data_ptr = packed_data.gpu_data->data();
+    auto expected_data_ptr = packed_data.data->data();
 
     chunks.push_back(Chunk::from_packed_data(0, 1, std::move(packed_data)));
 

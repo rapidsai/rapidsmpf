@@ -116,7 +116,7 @@ TEST(MetadataMessage, round_trip) {
         2,  // part_id
         rapidsmpf::PackedData{
             std::make_unique<std::vector<uint8_t>>(metadata),  // non-empty metadata
-            br->move(std::make_unique<rmm::device_buffer>(), stream)  // empty gpu_data
+            br->move(std::make_unique<rmm::device_buffer>(), stream)  // empty data
         }
     );
 

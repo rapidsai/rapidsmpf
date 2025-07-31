@@ -587,9 +587,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
 
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
-        if (headroom < 0 && packed_data.gpu_data) {
+        if (headroom < 0 && packed_data.data) {
             auto [host_reservation, host_overbooking] =
-                br_->reserve(MemoryType::HOST, packed_data.gpu_data->size, true);
+                br_->reserve(MemoryType::HOST, packed_data.data->size, true);
             if (host_overbooking > 0) {
                 log.warn(
                     "Cannot spill to host because of host memory overbooking: ",
@@ -665,7 +665,7 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
         // if the packed data size + total_staged_data_ > headroom, no room to add more
         // chunks any of the builders. So, call build on all builders.
         if (!all_groups_built_flag
-            && (int64_t(packed_data.gpu_data->size) + total_staged_data_ > headroom))
+            && (int64_t(packed_data.data->size) + total_staged_data_ > headroom))
         {
             build_all_groups_and_insert();
             all_groups_built_flag = true;
@@ -676,7 +676,7 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
             insert(create_chunk(pid, std::move(packed_data)));
         } else {
             // insert this chunk into the builder
-            total_staged_data_ += static_cast<std::int64_t>(packed_data.gpu_data->size);
+            total_staged_data_ += static_cast<std::int64_t>(packed_data.data->size);
             chunk_groups[size_t(target_rank)].emplace_back(
                 create_chunk(pid, std::move(packed_data))
             );

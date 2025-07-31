@@ -114,7 +114,7 @@ partition_and_split(
 /**
  * @brief Unpack (deserialize) input tables and concatenate them.
  *
- * Ignores partitions with metadata and gpu_data null pointers.
+ * Ignores empty partitions.
  *
  * @param partitions The packed input tables.
  * @param stream CUDA stream used for device memory operations and kernel launches.

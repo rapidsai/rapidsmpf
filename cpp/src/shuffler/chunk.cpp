@@ -97,15 +97,15 @@ Chunk Chunk::from_packed_data(
     ChunkID chunk_id, PartID part_id, PackedData&& packed_data
 ) {
     RAPIDSMPF_EXPECTS(packed_data.metadata != nullptr, "packed_data.metadata is nullptr");
-    RAPIDSMPF_EXPECTS(packed_data.gpu_data != nullptr, "packed_data.gpu_data is nullptr");
+    RAPIDSMPF_EXPECTS(packed_data.data != nullptr, "packed_data.data is nullptr");
     return Chunk{
         chunk_id,
         {part_id},
         {0},  // expected_num_chunks
         {static_cast<uint32_t>(packed_data.metadata->size())},
-        {packed_data.gpu_data->size},
+        {packed_data.data->size},
         std::move(packed_data.metadata),
-        std::move(packed_data.gpu_data),
+        std::move(packed_data.data),
     };
 }
 
