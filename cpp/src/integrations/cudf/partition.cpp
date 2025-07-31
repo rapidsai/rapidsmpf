@@ -112,7 +112,10 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     for (shuffler::PartID i = 0; static_cast<std::size_t>(i) < packed.size(); i++) {
         auto pack = std::move(packed[i].data);
         ret.emplace(
-            i, PackedData(std::move(pack.metadata), std::move(pack.gpu_data), stream, br)
+            i,
+            PackedData(
+                std::move(pack.metadata), br->move(std::move(pack.gpu_data), stream)
+            )
         );
     }
     return ret;

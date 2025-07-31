@@ -49,7 +49,7 @@ PackedData create_packed_data(
     RAPIDSMPF_CUDA_TRY(
         cudaMemcpy(data_ptr->data(), data.data(), data.size(), cudaMemcpyHostToDevice)
     );
-    return PackedData{std::move(metadata_ptr), std::move(data_ptr), stream, br};
+    return PackedData{std::move(metadata_ptr), br->move(std::move(data_ptr), stream)};
 }
 
 }  // namespace
@@ -99,9 +99,7 @@ TEST_F(ChunkTest, FromPackedData) {
 
     PackedData packed_data{
         std::make_unique<std::vector<uint8_t>>(*metadata),
-        std::move(data),
-        stream,
-        br.get()
+        br->move(std::move(data), stream)
     };
 
     auto test_chunk = [&](Chunk& chunk) {
