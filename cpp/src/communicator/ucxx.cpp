@@ -34,8 +34,6 @@ enum class ControlMessage {
     AssignRank = 0,  ///< Root assigns a rank to incoming client connection
     QueryRank,  ///< Ask root for a rank
     QueryListenerAddress,  ///< Ask for the remote endpoint's listener address
-    RegisterRank,  ///< Inform rank to remote process (non-root) after endpoint is
-                   ///< established
     ReplyListenerAddress  ///< Reply to `QueryListenerAddress` with the listener address
 };
 
@@ -241,26 +239,12 @@ class SharedResources {
      * @brief Registers an endpoint without a rank.
      *
      * Registers an endpoint to a remote process with a still unknown rank.
-     * The rank must be later associated by calling the `associate_endpoint_rank()`.
      *
      * @param endpoint The endpoint to register.
      */
     void register_endpoint(std::shared_ptr<::ucxx::Endpoint> endpoint) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
-        endpoints_[endpoint->getHandle()] = std::move(endpoint);
-    }
-
-    /**
-     * @brief Associate endpoint with a specific rank.
-     *
-     * Associate a previously registered endpoint to a specific rank.
-     *
-     * @param rank The rank to register the endpoint for.
-     * @param endpoint_handle The handle of the endpoint to register.
-     */
-    void associate_endpoint_rank(Rank const rank, ucp_ep_h const endpoint_handle) {
-        std::lock_guard<std::mutex> lock(endpoints_mutex_);
-        rank_to_endpoint_[rank] = endpoints_[endpoint_handle];
+        endpoints_[endpoint->getHandle()] = endpoint;
     }
 
     /**
@@ -576,7 +560,7 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
 ) {
     size_t offset{0};
 
-    if (control == ControlMessage::AssignRank || control == ControlMessage::RegisterRank
+    if (control == ControlMessage::AssignRank
         || control == ControlMessage::QueryListenerAddress)
     {
         size_t const total_size = sizeof(control) + get_size(data);
@@ -626,9 +610,7 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
  * the rank being requested and reply the requester with the listener address.
  * A future with the reply is stored via `SharedResources->add_future()`.
  * This is only executed by the root.
- * 3. RegisterRank: Associate the endpoint created during `listener_callback()`
- * with the rank informed by the client.
- * 4. ReplyListenerAddress: Handle reply from root rank, associating the
+ * 3. ReplyListenerAddress: Handle reply from root rank, associating the
  * received listener address with the requested rank.
  *
  * @param buffer bytes received via UCXX containing the packed message.
@@ -700,10 +682,6 @@ void control_unpack(
         };
 
         shared_resources->add_delayed_progress_callback(std::move(callback));
-    } else if (control == ControlMessage::RegisterRank) {
-        Rank rank;
-        decode_(&rank, sizeof(rank));
-        shared_resources->associate_endpoint_rank(rank, ep);
     } else if (control == ControlMessage::ReplyListenerAddress) {
         size_t packed_listener_address_size;
         decode_(&packed_listener_address_size, sizeof(packed_listener_address_size));
@@ -745,11 +723,7 @@ void control_unpack(
  * For all ranks when a new client connects, an endpoint to it is established
  * and retained for future communication. The root rank will always send an
  * `ControlMessage::AssignRank` to each incoming client to let the client know
- * which rank it should now respond to in the communicator world. Other ranks
- * will wait for a message `ControlMessage::RegisterRank` from the client
- * immediately after the connection is established with the client's rank in
- * the world communicator, so that the current rank knows which rank is
- * associated with the new endpoint.
+ * which rank it should now respond to in the communicator world.
  */
 void listener_callback(ucp_conn_request_h conn_request, void* arg) {
     auto shared_resources = reinterpret_cast<rapidsmpf::ucxx::SharedResources*>(arg);
@@ -1057,16 +1031,6 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
             listener_address.address
         );
         shared_resources_->register_endpoint(rank, endpoint);
-        auto packed_register_rank = control_pack(ControlMessage::RegisterRank, rank);
-        auto register_rank_req = endpoint->amSend(
-            packed_register_rank->data(),
-            packed_register_rank->size(),
-            UCS_MEMORY_TYPE_HOST,
-            shared_resources_->get_control_callback_info()
-        );
-        while (!register_rank_req->isCompleted()) {
-            progress_worker();
-        }
 
         log.trace(
             "Endpoint for rank ",
