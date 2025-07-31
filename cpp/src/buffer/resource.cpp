@@ -144,11 +144,6 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
 std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     std::unique_ptr<Buffer> buffer
 ) {
-    RAPIDSMPF_EXPECTS(
-        buffer->mem_type() == MemoryType::DEVICE,
-        "cannot move between memory types without a reservation",
-        std::invalid_argument
-    );
     return std::move(buffer->device());
 }
 
@@ -165,11 +160,6 @@ std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
 std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
     std::unique_ptr<Buffer> buffer
 ) {
-    RAPIDSMPF_EXPECTS(
-        buffer->mem_type() == MemoryType::HOST,
-        "cannot move between memory types without a reservation",
-        std::invalid_argument
-    );
     return std::move(buffer->host());
 }
 
