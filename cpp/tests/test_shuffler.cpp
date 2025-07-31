@@ -52,7 +52,7 @@ TEST_P(NumOfPartitions, partition_and_pack) {
     std::int64_t const seed = 42;
     cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
     auto stream = cudf::get_default_stream();
-    rapidsmpf::BufferResource br{cudf::get_current_device_resource_ref()};
+    rapidsmpf::BufferResource br{mr()};
 
     cudf::table expect =
         random_table_with_index(seed, static_cast<std::size_t>(num_rows), 0, 10);
