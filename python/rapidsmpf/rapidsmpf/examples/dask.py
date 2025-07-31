@@ -204,27 +204,23 @@ def dask_cudf_shuffle(
         {"on": on, "column_names": list(df0.columns)},
         *sort_boundary_names,
     )
-    if cluster_kind == "single":
-        from rapidsmpf.integrations.single import rapidsmpf_shuffle_graph
 
-        graph = rapidsmpf_shuffle_graph(
-            *shuffle_graph_args, config_options=config_options
-        )
-    else:
+    if cluster_kind == "auto":
         try:
-            from rapidsmpf.integrations.dask import rapidsmpf_shuffle_graph
+            from distributed import get_client
 
-            graph = rapidsmpf_shuffle_graph(
-                *shuffle_graph_args, config_options=config_options
-            )
+            get_client()
         except (ImportError, ValueError):
             # Failed to import distributed/dask-cuda or find a Dask client.
             # Use single shuffle instead.
-            if cluster_kind == "distributed":
-                raise
-            graph = rapidsmpf_shuffle_graph(
-                *shuffle_graph_args, config_options=config_options
-            )
+            cluster_kind = "single"
+
+    if cluster_kind == "distributed":
+        from rapidsmpf.integrations.dask import rapidsmpf_shuffle_graph
+    else:
+        from rapidsmpf.integrations.single import rapidsmpf_shuffle_graph
+
+    graph = rapidsmpf_shuffle_graph(*shuffle_graph_args, config_options=config_options)
 
     # Add df0 dependencies to the task graph
     graph.update(df0.dask)

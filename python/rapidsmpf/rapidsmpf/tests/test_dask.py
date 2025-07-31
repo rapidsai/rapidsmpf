@@ -11,7 +11,7 @@ import pytest
 import rapidsmpf.integrations.single
 from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options
-from rapidsmpf.examples.dask import DaskCudfIntegration
+from rapidsmpf.examples.dask import DaskCudfIntegration, dask_cudf_shuffle
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
 from rapidsmpf.shuffler import Shuffler
@@ -80,10 +80,6 @@ def test_dask_cudf_integration(
     # Test basic Dask-cuDF integration
     pytest.importorskip("dask_cudf")
 
-    import dask.dataframe as dd
-
-    from rapidsmpf.examples.dask import dask_cudf_shuffle
-
     with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
             bootstrap_dask_cluster(
@@ -124,10 +120,6 @@ def test_dask_cudf_integration_single(
 ) -> None:
     # Test single-worker cuDF integration with Dask-cuDF
     pytest.importorskip("dask_cudf")
-
-    import dask.dataframe as dd
-
-    from rapidsmpf.examples.dask import dask_cudf_shuffle
 
     df = (
         dask.datasets.timeseries(
