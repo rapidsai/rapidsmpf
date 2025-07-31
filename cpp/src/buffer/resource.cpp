@@ -90,12 +90,12 @@ std::unique_ptr<Buffer> BufferResource::allocate(
         // TODO: use pinned memory, maybe use rmm::mr::pinned_memory_resource and
         // std::pmr::vector?
         ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<std::vector<uint8_t>>(size), this)
+            new Buffer(std::make_unique<std::vector<uint8_t>>(size))
         );
         break;
     case MemoryType::DEVICE:
         ret = std::unique_ptr<Buffer>(new Buffer(
-            std::make_unique<rmm::device_buffer>(size, stream, device_mr_), stream, this
+            std::make_unique<rmm::device_buffer>(size, stream, device_mr_), stream
         ));
         break;
     default:
@@ -106,7 +106,7 @@ std::unique_ptr<Buffer> BufferResource::allocate(
 }
 
 std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<std::vector<uint8_t>> data) {
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data), this));
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data)));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
@@ -114,7 +114,7 @@ std::unique_ptr<Buffer> BufferResource::move(
     rmm::cuda_stream_view stream,
     std::shared_ptr<Buffer::Event> event
 ) {
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, this, event));
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, event));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
@@ -124,7 +124,7 @@ std::unique_ptr<Buffer> BufferResource::move(
     MemoryReservation& reservation
 ) {
     if (target != buffer->mem_type()) {
-        auto ret = buffer->copy(target, stream);
+        auto ret = buffer->copy(target, stream, this);
         release(reservation, target, ret->size);
         return ret;
     }
@@ -170,7 +170,7 @@ std::unique_ptr<Buffer> BufferResource::copy(
     MemoryReservation& reservation
 ) {
     // TODO: Inconsistency with multiple buffer resources #280
-    auto ret = buffer->copy(target, stream);
+    auto ret = buffer->copy(target, stream, this);
     release(reservation, target, ret->size);
     return ret;
 }
@@ -184,9 +184,7 @@ std::shared_ptr<Statistics> BufferResource::statistics() {
 }
 
 std::unique_ptr<Buffer> BufferResource::allocate_empty_host_buffer() const {
-    return std::unique_ptr<Buffer>(new Buffer(
-        std::make_unique<std::vector<uint8_t>>(0), const_cast<BufferResource*>(this)
-    ));
+    return std::unique_ptr<Buffer>(new Buffer(std::make_unique<std::vector<uint8_t>>(0)));
 }
 
 MemoryReservation reserve_or_fail(
