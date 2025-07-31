@@ -79,6 +79,7 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
         stream,
         reservation.first
     );
+    stream.synchronize();
     rapidsmpf::Tag tag{0, 0};
 
     auto send_fut = comm->send(std::move(send_buf), comm->rank(), tag);
