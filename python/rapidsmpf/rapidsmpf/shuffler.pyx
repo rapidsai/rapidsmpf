@@ -19,6 +19,25 @@ from collections.abc import Iterable
 from typing import Mapping
 
 
+# Insert PackedData into a partition map. We implement this in C++ because
+# PackedData doesn't have a default ctor.
+cdef extern from *:
+    """
+    void cpp_insert_chunk_into_partition_map(
+        std::unordered_map<std::uint32_t, rapidsmpf::PackedData> &partition_map,
+        std::uint32_t pid,
+        std::unique_ptr<rapidsmpf::PackedData> packed_data
+    ) {
+        partition_map.insert({pid, std::move(*packed_data)});
+    }
+    """
+    void cpp_insert_chunk_into_partition_map(
+        unordered_map[uint32_t, cpp_PackedData] partition_map,
+        uint32_t pid,
+        unique_ptr[cpp_PackedData] packed_data,
+    ) except + nogil
+
+
 cdef class Shuffler:
     """
     Shuffle service for partitioned data.
@@ -146,7 +165,9 @@ cdef class Shuffler:
         for pid, chunk in chunks.items():
             if not (<PackedData?>chunk).c_obj:
                 raise ValueError("PackedData was empty")
-            _chunks[<uint32_t?>pid] = move(deref((<PackedData?>chunk).c_obj))
+            cpp_insert_chunk_into_partition_map(
+                _chunks, <uint32_t?>pid, move((<PackedData?>chunk).c_obj)
+            )
 
         with nogil:
             deref(self._handle).insert(move(_chunks))
@@ -179,7 +200,9 @@ cdef class Shuffler:
         for pid, chunk in chunks.items():
             if not (<PackedData?>chunk).c_obj:
                 raise ValueError("PackedData was empty")
-            _chunks[<uint32_t?>pid] = move(deref((<PackedData?>chunk).c_obj))
+            cpp_insert_chunk_into_partition_map(
+                _chunks, <uint32_t?>pid, move((<PackedData?>chunk).c_obj)
+            )
 
         with nogil:
             deref(self._handle).concat_insert(move(_chunks))
