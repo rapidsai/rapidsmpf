@@ -14,11 +14,10 @@ from pylibcudf.libcudf.table.table_view cimport table_view
 from pylibcudf.libcudf.types cimport size_type
 from pylibcudf.table cimport Table
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
-from rmm.librmm.memory_resource cimport device_memory_resource
-from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
+from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
 
 
 cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
@@ -33,7 +32,7 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             int hash_function,
             uint32_t seed,
             cuda_stream_view stream,
-            device_memory_resource *mr,
+            cpp_BufferResource* br,
         ) except +
 
     cdef unordered_map[uint32_t, cpp_PackedData] cpp_split_and_pack \
@@ -41,7 +40,7 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             const table_view& table,
             const vector[size_type] &splits,
             cuda_stream_view stream,
-            device_memory_resource *mr,
+            cpp_BufferResource* br,
         ) except +
 
 
@@ -50,7 +49,7 @@ cpdef dict partition_and_pack(
     columns_to_hash,
     int num_partitions,
     stream,
-    DeviceMemoryResource device_mr,
+    BufferResource br,
 ):
     """
     Partition rows from the input table into multiple packed (serialized) tables.
@@ -65,8 +64,8 @@ cpdef dict partition_and_pack(
         The number of partitions to create.
     stream
         The CUDA stream used for memory operations.
-    device_mr
-        Reference to the RMM device memory resource used for device allocations.
+    br
+        Buffer resource for gpu data allocations.
 
     Returns
     -------
@@ -84,12 +83,13 @@ cpdef dict partition_and_pack(
     pylibcudf.contiguous_split.pack
     rapidsmpf.integrations.cudf.partition.split_and_pack
     """
-    cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
-    cdef unordered_map[uint32_t, cpp_PackedData] _ret
-    cdef table_view tbl = table.view()
     if stream is None:
         raise ValueError("stream cannot be None")
     cdef cuda_stream_view _stream = Stream(stream).view()
+    cdef cpp_BufferResource* _br = br.ptr()
+    cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
+    cdef unordered_map[uint32_t, cpp_PackedData] _ret
+    cdef table_view tbl = table.view()
     with nogil:
         _ret = cpp_partition_and_pack(
             tbl,
@@ -98,7 +98,7 @@ cpdef dict partition_and_pack(
             cpp_HASH_MURMUR3,
             cpp_DEFAULT_HASH_SEED,
             _stream,
-            device_mr.get_mr()
+            _br,
         )
     ret = {}
     cdef unordered_map[uint32_t, cpp_PackedData].iterator it = _ret.begin()
@@ -114,7 +114,7 @@ cpdef dict split_and_pack(
     Table table,
     splits,
     stream,
-    DeviceMemoryResource device_mr,
+    BufferResource br,
 ):
     """
     Splits rows from the input table into multiple packed (serialized) tables.
@@ -129,8 +129,8 @@ cpdef dict split_and_pack(
         the number of result partitions.
     stream
         The CUDA stream used for memory operations.
-    device_mr
-        Reference to the RMM device memory resource used for device allocations.
+    br
+        Buffer resource for gpu data allocations.
 
     Returns
     -------
@@ -147,19 +147,19 @@ cpdef dict split_and_pack(
     pylibcudf.copying.split
     rapidsmpf.integrations.cudf.partition.partition_and_pack
     """
-    cdef vector[size_type] _splits = tuple(splits)
-    cdef unordered_map[uint32_t, cpp_PackedData] _ret
-    cdef table_view tbl = table.view()
     if stream is None:
         raise ValueError("stream cannot be None")
     cdef cuda_stream_view _stream = Stream(stream).view()
-
+    cdef cpp_BufferResource* _br = br.ptr()
+    cdef vector[size_type] _splits = tuple(splits)
+    cdef unordered_map[uint32_t, cpp_PackedData] _ret
+    cdef table_view tbl = table.view()
     with nogil:
         _ret = cpp_split_and_pack(
             tbl,
             _splits,
             _stream,
-            device_mr.get_mr()
+            _br,
         )
     ret = {}
     cdef unordered_map[uint32_t, cpp_PackedData].iterator it = _ret.begin()
@@ -176,14 +176,14 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
         "rapidsmpf::unpack_and_concat"(
             vector[cpp_PackedData] partition,
             cuda_stream_view stream,
-            device_memory_resource *mr,
+            cpp_BufferResource* br,
         ) except +
 
 
 cpdef Table unpack_and_concat(
     partitions,
     stream,
-    DeviceMemoryResource device_mr,
+    BufferResource br,
 ):
     """
     Unpack (deserialize) input tables and concatenate them.
@@ -194,8 +194,8 @@ cpdef Table unpack_and_concat(
         The packed input tables to unpack and concatenate.
     stream
         The CUDA stream used for memory operations.
-    device_mr
-        Reference to the RMM device memory resource used for device allocations.
+    br
+        Buffer resource for gpu data allocations.
 
     Returns
     -------
@@ -205,19 +205,22 @@ cpdef Table unpack_and_concat(
     --------
     rapidsmpf.integrations.cudf.partition.partition_and_pack
     """
+    if stream is None:
+        raise ValueError("stream cannot be None")
+    cdef cuda_stream_view _stream = Stream(stream).view()
+    cdef cpp_BufferResource* _br = br.ptr()
+
     cdef vector[cpp_PackedData] _partitions
     for part in partitions:
         if not (<PackedData?>part).c_obj:
             raise ValueError("PackedData was empty")
         _partitions.push_back(move(deref((<PackedData?>part).c_obj)))
-    if stream is None:
-        raise ValueError("stream cannot be None")
-    cdef cuda_stream_view _stream = Stream(stream).view()
+
     cdef unique_ptr[cpp_table] _ret
     with nogil:
         _ret = cpp_unpack_and_concat(
             move(_partitions),
             _stream,
-            device_mr.get_mr()
+            _br,
         )
     return Table.from_libcudf(move(_ret))

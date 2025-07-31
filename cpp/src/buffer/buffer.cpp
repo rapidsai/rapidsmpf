@@ -54,25 +54,21 @@ void Buffer::Event::wait() {
     }
 }
 
-Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br)
-    : br{br},
-      size{host_buffer ? host_buffer->size() : 0},
+Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer)
+    : size{host_buffer ? host_buffer->size() : 0},
       storage_{std::move(host_buffer)},
       event_{nullptr} {
     RAPIDSMPF_EXPECTS(
         std::get<HostStorageT>(storage_) != nullptr, "the host_buffer cannot be NULL"
     );
-    RAPIDSMPF_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 
 Buffer::Buffer(
     std::unique_ptr<rmm::device_buffer> device_buffer,
     rmm::cuda_stream_view stream,
-    BufferResource* br,
     std::shared_ptr<Event> event
 )
-    : br{br},
-      size{device_buffer ? device_buffer->size() : 0},
+    : size{device_buffer ? device_buffer->size() : 0},
       storage_{std::move(device_buffer)},
       // Use the provided event if it exists, otherwise create a new event to track the
       // async copy only if the buffer is not empty
@@ -84,7 +80,6 @@ Buffer::Buffer(
     RAPIDSMPF_EXPECTS(
         std::get<DeviceStorageT>(storage_) != nullptr, "the device buffer cannot be NULL"
     );
-    RAPIDSMPF_EXPECTS(br != nullptr, "the BufferResource cannot be NULL");
 }
 
 void* Buffer::data() {
@@ -95,12 +90,14 @@ void const* Buffer::data() const {
     return std::visit([](auto&& storage) -> void* { return storage->data(); }, storage_);
 }
 
-std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
+std::unique_ptr<Buffer> Buffer::copy(
+    rmm::cuda_stream_view stream, BufferResource* br
+) const {
     return std::visit(
         overloaded{
             [&](const HostStorageT& storage) -> std::unique_ptr<Buffer> {
                 return std::unique_ptr<Buffer>(
-                    new Buffer{std::make_unique<std::vector<uint8_t>>(*storage), br}
+                    new Buffer{std::make_unique<std::vector<uint8_t>>(*storage)}
                 );
             },
             [&](const DeviceStorageT& storage) -> std::unique_ptr<Buffer> {
@@ -108,8 +105,7 @@ std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
                     std::make_unique<rmm::device_buffer>(
                         storage->data(), storage->size(), stream, br->device_mr()
                     ),
-                    stream,
-                    br
+                    stream
                 });
                 return new_buffer;
             }
@@ -119,10 +115,10 @@ std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
 }
 
 std::unique_ptr<Buffer> Buffer::copy(
-    MemoryType target, rmm::cuda_stream_view stream
+    MemoryType target, rmm::cuda_stream_view stream, BufferResource* br
 ) const {
     if (mem_type() == target) {
-        return copy(stream);
+        return copy(stream, br);
     }
 
     return std::visit(
@@ -132,8 +128,7 @@ std::unique_ptr<Buffer> Buffer::copy(
                     std::make_unique<rmm::device_buffer>(
                         storage->data(), storage->size(), stream, br->device_mr()
                     ),
-                    stream,
-                    br
+                    stream
                 });
                 return new_buffer;
             },
@@ -146,7 +141,7 @@ std::unique_ptr<Buffer> Buffer::copy(
                     cudaMemcpyDeviceToHost,
                     stream
                 ));
-                auto new_buffer = std::unique_ptr<Buffer>(new Buffer{std::move(ret), br});
+                auto new_buffer = std::unique_ptr<Buffer>(new Buffer{std::move(ret)});
 
                 // The event is created here instead of the constructor because the
                 // memcpy is async, but the buffer is created on the host.
