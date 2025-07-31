@@ -320,8 +320,11 @@ class Shuffler::Progress {
 
                     // iterate over all messages in the chunk
                     for (size_t i = 0; i < chunk.n_messages(); ++i) {
+                        // ready postbox uniquely identifies chunks by their [partition
+                        // ID, chunk ID] pair. We can reuse the same chunk ID for the
+                        // copy because the partition IDs are unique within a chunk.
                         auto chunk_copy = chunk.get_data(
-                            shuffler_.get_new_cid(), i, shuffler_.stream_, shuffler_.br_
+                            chunk.chunk_id(), i, shuffler_.stream_, shuffler_.br_
                         );
                         shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
                     }
@@ -389,8 +392,11 @@ class Shuffler::Progress {
                     );
 
                     for (size_t i = 0; i < chunk.n_messages(); ++i) {
+                        // ready postbox uniquely identifies chunks by their [partition
+                        // ID, chunk ID] pair. We can reuse the same chunk ID for the
+                        // copy because the partition IDs are unique within a chunk.
                         shuffler_.insert_into_ready_postbox(chunk.get_data(
-                            shuffler_.get_new_cid(), i, shuffler_.stream_, shuffler_.br_
+                            chunk.chunk_id(), i, shuffler_.stream_, shuffler_.br_
                         ));
                     }
                 }
@@ -657,6 +663,7 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
     };
 
     bool all_groups_built_flag = false;
+    constexpr ChunkID dummy_chunk_id = std::numeric_limits<ChunkID>::max();
     for (auto& [pid, packed_data] : chunks) {
         Rank target_rank = partition_owner(comm_, pid);
 
@@ -683,7 +690,9 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
             // insert this chunk into the builder
             total_staged_data_ += packed_data.gpu_data->ssize();
             chunk_groups[size_t(target_rank)].emplace_back(
-                create_chunk(pid, std::move(packed_data), init_event)
+                detail::Chunk::from_packed_data(
+                    dummy_chunk_id, pid, std::move(packed_data), nullptr, stream_, br_
+                )
             );
         }
     }
@@ -729,6 +738,8 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
         group.reserve(pids.size() / size_t(comm_->nranks()));
     }
 
+    // use the dummy chunk ID for intermediate chunks
+    constexpr ChunkID dummy_chunk_id = std::numeric_limits<ChunkID>::max();
     for (size_t i = 0; i < pids.size(); ++i) {
         Rank target_rank = partition_owner(comm_, pids[i]);
 
@@ -741,7 +752,7 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
         } else {
             chunk_groups[size_t(target_rank)].emplace_back(
                 Chunk::from_finished_partition(
-                    get_new_cid(), pids[i], expected_num_chunks[i] + 1
+                    dummy_chunk_id, pids[i], expected_num_chunks[i] + 1
                 )
             );
         }

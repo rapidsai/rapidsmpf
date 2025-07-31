@@ -192,6 +192,18 @@ bool Chunk::validate_format(std::vector<uint8_t> const& serialized_buf) {
         return false;
     }
 
+    // Check if the partition IDs are unique
+    std::unordered_set<PartID> seen_pids;
+    seen_pids.reserve(n);
+    auto const* pids = serialized_buf.data() + sizeof(ChunkID) + sizeof(size_t);
+    for (size_t i = 0; i < n; ++i) {
+        PartID pid;
+        std::memcpy(&pid, pids + i * sizeof(PartID), sizeof(PartID));
+        if (!seen_pids.emplace(pid).second) {
+            return false;
+        }
+    }
+
     // For each message, validate the metadata and data sizes
     uint8_t const* meta_offsets_start =
         serialized_buf.data()
@@ -307,9 +319,26 @@ Chunk Chunk::concat(
     uint64_t curr_data_offset = 0;
     size_t curr_msg_offset = 0;
 
+    // Check that the partition IDs are unique (incrementally checking each chunk using
+    // the lambda)
+    std::unordered_set<PartID> seen_pids;
+    seen_pids.reserve(total_messages);
+    auto check_pids_unique = [&](auto const& chunk) {
+        for (auto const& pid : chunk.part_ids_) {
+            RAPIDSMPF_EXPECTS(
+                seen_pids.emplace(pid).second,
+                "Duplicate partition ID " + std::to_string(pid) + " in chunk "
+                    + std::to_string(chunk.chunk_id())
+            );
+        }
+    };
+
     // Process each chunk
     for (auto& chunk : chunks) {
         size_t chunk_messages = chunk.n_messages();
+
+        check_pids_unique(chunk);
+
         // Copy partition IDs and expected number of chunks
         std::memcpy(
             part_ids.data() + curr_msg_offset,

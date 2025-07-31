@@ -221,7 +221,10 @@ TEST_F(ChunkTest, ChunkConcatPackedData) {
 }
 
 std::tuple<Chunk, std::vector<uint8_t>, std::vector<uint8_t>, size_t> make_mixed_chunk(
-    ChunkID chunk_id, rmm::cuda_stream_view stream, BufferResource* br
+    ChunkID chunk_id,
+    rmm::cuda_stream_view stream,
+    BufferResource* br,
+    PartID part_id_offset = 0
 ) {
     std::vector<Chunk> chunks;
 
@@ -230,11 +233,13 @@ std::tuple<Chunk, std::vector<uint8_t>, std::vector<uint8_t>, size_t> make_mixed
     std::vector<uint8_t> data{6, 7, 8, 9, 10};
 
     // Create chunks with mixed message types
-    chunks.push_back(Chunk::from_finished_partition(0, 1, 10));  // control message
+    chunks.push_back(
+        Chunk::from_finished_partition(0, 1 + part_id_offset, 10)
+    );  // control message
     chunks.push_back(
         Chunk::from_packed_data(
             0,
-            2,
+            2 + part_id_offset,
             create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream),
             nullptr,
             stream,
@@ -244,18 +249,20 @@ std::tuple<Chunk, std::vector<uint8_t>, std::vector<uint8_t>, size_t> make_mixed
     chunks.push_back(
         Chunk::from_packed_data(
             0,
-            3,
+            3 + part_id_offset,
             create_packed_data({metadata.data() + 5, 0}, {data.data() + 5, 0}, stream),
             nullptr,
             stream,
             br
         )
     );  // empty packed data - non-null
-    chunks.push_back(Chunk::from_finished_partition(0, 4, 20));  // control message
+    chunks.push_back(
+        Chunk::from_finished_partition(0, 4 + part_id_offset, 20)
+    );  // control message
     chunks.push_back(
         Chunk::from_packed_data(
             0,
-            5,
+            5 + part_id_offset,
             create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream),
             nullptr,
             stream,
@@ -265,7 +272,7 @@ std::tuple<Chunk, std::vector<uint8_t>, std::vector<uint8_t>, size_t> make_mixed
     chunks.push_back(
         Chunk::from_packed_data(
             0,
-            6,
+            6 + part_id_offset,
             create_packed_data(
                 {metadata.begin() + 5, metadata.end()}, {data.data(), 0}, stream
             ),
@@ -341,7 +348,7 @@ TEST_F(ChunkTest, ChunkConcatMixedMessagesMultiple) {
     auto [concat_chunk1, metadata1, data1, count1] =
         make_mixed_chunk(0, stream, br.get());
     auto [concat_chunk2, metadata2, data2, count2] =
-        make_mixed_chunk(1, stream, br.get());
+        make_mixed_chunk(1, stream, br.get(), static_cast<PartID>(count1));
 
     std::vector<Chunk> chunks;
     chunks.push_back(std::move(concat_chunk1));
