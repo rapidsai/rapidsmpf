@@ -7,7 +7,7 @@ from libcpp.memory cimport unique_ptr
 
 cdef extern from "<rapidsmpf/buffer/packed_data.hpp>" nogil:
     cdef cppclass cpp_PackedData "rapidsmpf::PackedData":
-        cpp_PackedData() except +
+        pass
 
 
 cdef class PackedData:
