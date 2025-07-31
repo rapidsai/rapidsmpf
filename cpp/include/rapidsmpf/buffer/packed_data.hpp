@@ -67,15 +67,8 @@ struct PackedData {
      * @brief Check if the packed data is empty.
      *
      * @return True if the packed data is empty, false otherwise.
-     *
-     * @throw std::invalid_argument if the metadata or gpu_data pointer is null.
      */
     [[nodiscard]] bool empty() const {
-        RAPIDSMPF_EXPECTS(
-            metadata != nullptr && gpu_data != nullptr,
-            "no buffers, has the object been moved?",
-            std::invalid_argument
-        );
         return metadata->empty() && gpu_data->size == 0;
     }
 };
