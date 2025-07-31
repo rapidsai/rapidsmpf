@@ -219,8 +219,14 @@ class SharedResources {
     void register_listener(std::shared_ptr<::ucxx::Listener> listener) {
         std::lock_guard<std::mutex> lock(listener_mutex_);
         auto worker = std::dynamic_pointer_cast<::ucxx::Worker>(listener->getParent());
-        rank_to_listener_address_[rank_] =
-            ListenerAddress{.address = worker->getAddress(), .rank = rank_};
+        RAPIDSMPF_EXPECTS(
+            rank_to_listener_address_
+                .emplace(
+                    rank_, ListenerAddress{.address = worker->getAddress(), .rank = rank_}
+                )
+                .second,
+            "listener for given rank already exists"
+        );
         listener_ = std::move(listener);
     }
 
@@ -234,8 +240,14 @@ class SharedResources {
      */
     void register_endpoint(Rank const rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
-        rank_to_endpoint_[rank] = endpoint;
-        endpoints_[endpoint->getHandle()] = std::move(endpoint);
+        RAPIDSMPF_EXPECTS(
+            rank_to_endpoint_.emplace(rank, endpoint).second,
+            "endpoint for given rank already exists"
+        );
+        RAPIDSMPF_EXPECTS(
+            endpoints_.emplace(endpoint->getHandle(), std::move(endpoint)).second,
+            "endpoint handle already exists"
+        );
     }
 
     /**
@@ -247,7 +259,10 @@ class SharedResources {
      */
     void register_endpoint(std::shared_ptr<::ucxx::Endpoint> endpoint) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
-        endpoints_[endpoint->getHandle()] = endpoint;
+        RAPIDSMPF_EXPECTS(
+            endpoints_.emplace(endpoint->getHandle(), std::move(endpoint)).second,
+            "endpoint handle already exists"
+        );
     }
 
     /**
@@ -313,7 +328,10 @@ class SharedResources {
      */
     void register_listener_address(Rank const rank, ListenerAddress listener_address) {
         std::lock_guard<std::mutex> lock(listener_mutex_);
-        rank_to_listener_address_[rank] = std::move(listener_address);
+        RAPIDSMPF_EXPECTS(
+            rank_to_listener_address_.emplace(rank, std::move(listener_address)).second,
+            "listener for given rank already exists"
+        );
     }
 
     /**
