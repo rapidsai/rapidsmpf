@@ -45,8 +45,9 @@ struct ScopedMemoryRecord {
      * sum across all types.
      * @return The number of allocations for the specified type.
      */
-    [[nodiscard]] std::int64_t num_total_allocs(AllocType alloc_type = AllocType::ALL)
-        const noexcept;
+    [[nodiscard]] std::int64_t num_total_allocs(
+        AllocType alloc_type = AllocType::ALL
+    ) const noexcept;
 
     /**
      * @brief Returns the number of currently active (non-deallocated) allocations
@@ -58,8 +59,9 @@ struct ScopedMemoryRecord {
      * sum across all types.
      * @return The number of active allocations for the specified type.
      */
-    [[nodiscard]] std::int64_t num_current_allocs(AllocType alloc_type = AllocType::ALL)
-        const noexcept;
+    [[nodiscard]] std::int64_t num_current_allocs(
+        AllocType alloc_type = AllocType::ALL
+    ) const noexcept;
 
     /**
      * @brief Returns the current memory usage in bytes for the specified allocator type.
@@ -70,8 +72,9 @@ struct ScopedMemoryRecord {
      * sum across all types.
      * @return The current memory usage in bytes for the specified type.
      */
-    [[nodiscard]] std::int64_t current(AllocType alloc_type = AllocType::ALL)
-        const noexcept;
+    [[nodiscard]] std::int64_t current(
+        AllocType alloc_type = AllocType::ALL
+    ) const noexcept;
 
     /**
      * @brief Returns the total number of bytes allocated.
@@ -82,8 +85,9 @@ struct ScopedMemoryRecord {
      * the sum across all types.
      * @return The total number of bytes allocated for the specified type.
      */
-    [[nodiscard]] std::int64_t total(AllocType alloc_type = AllocType::ALL)
-        const noexcept;
+    [[nodiscard]] std::int64_t total(
+        AllocType alloc_type = AllocType::ALL
+    ) const noexcept;
 
     /**
      * @brief Returns the peak memory usage (in bytes) for the specified allocator type.
@@ -219,8 +223,8 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      *
      * @return Optional reference to the fallback RMM memory resource.
      */
-    [[nodiscard]] std::optional<rmm::device_async_resource_ref> get_fallback_resource(
-    ) const noexcept {
+    [[nodiscard]] std::optional<rmm::device_async_resource_ref>
+    get_fallback_resource() const noexcept {
         return fallback_mr_;
     }
 
@@ -300,8 +304,9 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      * @param bytes Size of the allocation in bytes.
      * @param stream CUDA stream to associate with this deallocation.
      */
-    void do_deallocate(void* ptr, std::size_t bytes, rmm::cuda_stream_view stream)
-        override;
+    void do_deallocate(
+        void* ptr, std::size_t bytes, rmm::cuda_stream_view stream
+    ) override;
 
     /**
      * @brief Check if this memory resource is equal to another.
@@ -311,7 +316,8 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      * @param other Another memory resource to compare against.
      * @return true if both resources are equivalent, false otherwise.
      */
-    [[nodiscard]] bool do_is_equal(rmm::mr::device_memory_resource const& other
+    [[nodiscard]] bool do_is_equal(
+        rmm::mr::device_memory_resource const& other
     ) const noexcept override;
 
     mutable std::mutex mutex_;

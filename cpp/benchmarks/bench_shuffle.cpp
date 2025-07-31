@@ -238,9 +238,11 @@ rapidsmpf::Duration do_run(
         while (!shuffler.finished()) {
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
-            output_partitions.emplace_back(rapidsmpf::unpack_and_concat(
-                std::move(packed_chunks), stream, br->device_mr(), statistics
-            ));
+            output_partitions.emplace_back(
+                rapidsmpf::unpack_and_concat(
+                    std::move(packed_chunks), stream, br->device_mr(), statistics
+                )
+            );
         }
         stream.synchronize();
     }
@@ -436,10 +438,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
 
     std::vector<std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData>>
         input_partitions = generate_input_partitions(
-            args,
-            stream,
-            br->device_mr(),
-            [&](cudf::table&& table) {
+            args, stream, br->device_mr(), [&](cudf::table&& table) {
                 return rapidsmpf::partition_and_pack(
                     table,
                     {0},
@@ -527,10 +526,11 @@ int main(int argc, char** argv) {
         std::stringstream ss;
         auto const cur_dev = rmm::get_current_cuda_device().value();
         std::string pci_bus_id(16, '\0');  // Preallocate space for the PCI bus ID
-        CUDF_CUDA_TRY(cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), cur_dev)
+        RAPIDSMPF_CUDA_TRY(
+            cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), cur_dev)
         );
         cudaDeviceProp properties;
-        CUDF_CUDA_TRY(cudaGetDeviceProperties(&properties, 0));
+        RAPIDSMPF_CUDA_TRY(cudaGetDeviceProperties(&properties, 0));
         ss << "Hardware setup: \n";
         ss << "  GPU (" << properties.name << "): \n";
         ss << "    Device number: " << cur_dev << "\n";

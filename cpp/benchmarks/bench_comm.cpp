@@ -11,6 +11,7 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 #include "utils/misc.hpp"
@@ -190,13 +191,7 @@ Duration run(
     }
 
     while (!futures.empty()) {
-        std::vector<std::size_t> finished = comm->test_some(futures);
-        // Sort the indexes into descending order.
-        std::sort(finished.begin(), finished.end(), std::greater<>());
-        // And erase from the right.
-        for (auto i : finished) {
-            futures.erase(futures.begin() + static_cast<std::ptrdiff_t>(i));
-        }
+        std::ignore = comm->test_some(futures);
     }
 
     return Clock::now() - t0_elapsed;
@@ -239,10 +234,11 @@ int main(int argc, char** argv) {
         std::stringstream ss;
         auto const cur_dev = rmm::get_current_cuda_device().value();
         std::string pci_bus_id(16, '\0');  // Preallocate space for the PCI bus ID
-        CUDF_CUDA_TRY(cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), cur_dev)
+        RAPIDSMPF_CUDA_TRY(
+            cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), cur_dev)
         );
         cudaDeviceProp properties;
-        CUDF_CUDA_TRY(cudaGetDeviceProperties(&properties, 0));
+        RAPIDSMPF_CUDA_TRY(cudaGetDeviceProperties(&properties, 0));
         ss << "Hardware setup: \n";
         ss << "  GPU (" << properties.name << "): \n";
         ss << "    Device number: " << cur_dev << "\n";

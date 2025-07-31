@@ -118,8 +118,9 @@ std::unique_ptr<Buffer> Buffer::copy(rmm::cuda_stream_view stream) const {
     );
 }
 
-std::unique_ptr<Buffer> Buffer::copy(MemoryType target, rmm::cuda_stream_view stream)
-    const {
+std::unique_ptr<Buffer> Buffer::copy(
+    MemoryType target, rmm::cuda_stream_view stream
+) const {
     if (mem_type() == target) {
         return copy(stream);
     }

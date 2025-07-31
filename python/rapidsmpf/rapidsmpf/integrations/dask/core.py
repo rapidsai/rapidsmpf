@@ -105,7 +105,7 @@ def get_worker_context(
         dask_worker = dask_worker or get_worker()
         if not hasattr(dask_worker, "_rapidsmpf_worker_context"):
             dask_worker._rapidsmpf_worker_context = DaskWorkerContext()
-        return cast(DaskWorkerContext, dask_worker._rapidsmpf_worker_context)
+        return cast("DaskWorkerContext", dask_worker._rapidsmpf_worker_context)
 
 
 def get_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
