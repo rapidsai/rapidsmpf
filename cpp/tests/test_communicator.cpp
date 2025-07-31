@@ -50,12 +50,15 @@ class BasicCommunicatorTest
     }
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     BasicCommunicatorTest,
     BasicCommunicatorTest,
     testing::Values(rapidsmpf::MemoryType::HOST, rapidsmpf::MemoryType::DEVICE),
     [](const testing::TestParamInfo<rapidsmpf::MemoryType>& info) {
-        return "memory_type_" + std::to_string(static_cast<int>(info.param));
+        return (
+            info.param == rapidsmpf::MemoryType::HOST ? "MemoryType_HOST"
+                                                      : "MemoryType_DEVICE"
+        );
     }
 );
 
@@ -64,18 +67,32 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
         GTEST_SKIP() << "Unsupported send to self";
     }
     constexpr int nelems{10};
-    auto data =
-        std::make_unique<std::vector<std::uint8_t>>(iota_vector<std::uint8_t>(nelems));
+    auto send_data_h = iota_vector<std::uint8_t>(nelems);
+    auto reservation = br->reserve(memory_type(), 2 * send_data_h.size(), true);
+    auto send_buf = br->move(
+        memory_type(),
+        br->move(
+            std::make_unique<decltype(send_data_h)>(
+                send_data_h.begin(), send_data_h.end()
+            )
+        ),
+        stream,
+        reservation.first
+    );
     rapidsmpf::Tag tag{0, 0};
 
-    auto send_fut = comm->send(br->move(std::move(data)), comm->rank(), tag);
+    auto send_fut = comm->send(std::move(send_buf), comm->rank(), tag);
     auto recv_fut = comm->recv(
-        comm->rank(), tag, br->move(std::make_unique<std::vector<std::uint8_t>>(nelems))
+        comm->rank(),
+        tag,
+        br->allocate(memory_type(), send_data_h.size(), stream, reservation.first)
     );
-    auto recv_data = comm->wait(std::move(recv_fut));
-    auto send_data = comm->wait(std::move(send_fut));
-    EXPECT_EQ(
-        *const_cast<rapidsmpf::Buffer const*>(send_data.get())->host(),
-        *const_cast<rapidsmpf::Buffer const*>(recv_data.get())->host()
-    );
+    auto recv_buf = comm->wait(std::move(recv_fut));
+    std::ignore = comm->wait(std::move(send_fut));
+    auto host_reservation =
+        br->reserve(rapidsmpf::MemoryType::HOST, send_data_h.size(), true);
+    auto recv_data_h =
+        br->move_to_host_vector(std::move(recv_buf), stream, host_reservation.first);
+    stream.synchronize();
+    EXPECT_EQ(send_data_h, *recv_data_h);
 }
