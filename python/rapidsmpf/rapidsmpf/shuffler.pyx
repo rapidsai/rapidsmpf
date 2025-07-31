@@ -32,7 +32,7 @@ cdef extern from *:
     }
     """
     void cpp_insert_chunk_into_partition_map(
-        unordered_map[uint32_t, cpp_PackedData] partition_map,
+        unordered_map[uint32_t, cpp_PackedData] &partition_map,
         uint32_t pid,
         unique_ptr[cpp_PackedData] packed_data,
     ) except + nogil
