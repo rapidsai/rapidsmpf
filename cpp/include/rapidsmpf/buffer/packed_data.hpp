@@ -70,7 +70,7 @@ struct PackedData {
      */
     PackedData& operator=(PackedData&&) = default;
     PackedData(PackedData const&) = delete;
-    PackedData& operator=(PackedData&) = delete;
+    PackedData& operator=(PackedData const&) = delete;
 
     /**
      * @brief Check if the packed data is empty.

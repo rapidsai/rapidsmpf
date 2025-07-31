@@ -1143,6 +1143,7 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     while (!req->isCompleted()) {
         progress_worker();
     }
+    req->checkError();
 
     return {std::move(msg), sender_rank};
 }
@@ -1160,6 +1161,7 @@ std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
         auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
+            ucxx_future->req_->checkError();
             indices.push_back(i);
         } else {
             // We rely on this API returning completed futures in order,
@@ -1198,6 +1200,7 @@ std::vector<std::size_t> UCXX::test_some(
         auto ucxx_future = dynamic_cast<Future const*>(future.get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
+            ucxx_future->req_->checkError();
             completed.push_back(key);
         }
     }
@@ -1209,6 +1212,16 @@ void UCXX::barrier() {
     log.trace("Barrier started on rank ", shared_resources_->rank());
     shared_resources_->barrier();
     log.trace("Barrier completed on rank ", shared_resources_->rank());
+}
+
+std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future) {
+    auto ucxx_future = dynamic_cast<Future*>(future.get());
+    RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    while (!ucxx_future->req_->isCompleted()) {
+        progress_worker();
+    }
+    ucxx_future->req_->checkError();
+    return std::move(ucxx_future->data_);
 }
 
 std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
