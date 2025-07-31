@@ -10,6 +10,8 @@
 
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf {
@@ -22,39 +24,27 @@ namespace rapidsmpf {
  */
 struct PackedData {
     std::unique_ptr<std::vector<std::uint8_t>> metadata;  ///< The metadata
-    std::unique_ptr<rmm::device_buffer> gpu_data;  ///< The gpu data
+    std::unique_ptr<Buffer> data;  ///< The gpu data
 
     /**
-     * @brief Construct packed data from metadata and gpu data, taking ownership.
+     * @brief Construct from metadata and gpu data, taking ownership.
      *
-     * @param meta The metadata
-     * @param data The gpu data
+     * @param metadata Host-side metadata describing the GPU data.
+     * @param data Pointer to GPU data.
      */
     PackedData(
-        std::unique_ptr<std::vector<std::uint8_t>>&& meta,
-        std::unique_ptr<rmm::device_buffer>&& data
+        std::unique_ptr<std::vector<std::uint8_t>> metadata, std::unique_ptr<Buffer> data
     )
-        : metadata{std::move(meta)}, gpu_data{std::move(data)} {
+        : metadata{std::move(metadata)}, data{std::move(data)} {
         RAPIDSMPF_EXPECTS(
-            metadata != nullptr || gpu_data != nullptr,
-            "Metadata or GPU data must be non-null"
+            this->metadata != nullptr, "the metadata pointer cannot be null"
         );
-
+        RAPIDSMPF_EXPECTS(this->data != nullptr, "the gpu data pointer cannot be null");
         RAPIDSMPF_EXPECTS(
-            (metadata->size() > 0 || gpu_data->size() == 0),
+            (this->metadata->size() > 0 || this->data->size == 0),
             "Empty Metadata and non-empty GPU data is not allowed"
         );
     }
-
-    /**
-     * @brief Construct an empty PackedData object.
-     *
-     * This constructor initializes both the metadata and GPU data to empty
-     * buffers.
-     */
-    PackedData()
-        : metadata{std::make_unique<std::vector<std::uint8_t>>()},
-          gpu_data{std::make_unique<rmm::device_buffer>()} {}
 
     ~PackedData() = default;
 
@@ -76,7 +66,7 @@ struct PackedData {
      * @return True if the packed data is empty, false otherwise.
      */
     [[nodiscard]] bool empty() const {
-        return metadata->empty() && gpu_data->size() == 0;
+        return metadata->empty() && data->size == 0;
     }
 };
 
