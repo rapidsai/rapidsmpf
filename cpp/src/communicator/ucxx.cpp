@@ -36,8 +36,6 @@ enum class ControlMessage {
     AssignRank = 0,  ///< Root assigns a rank to incoming client connection
     QueryRank,  ///< Ask root for a rank
     QueryListenerAddress,  ///< Ask for the remote endpoint's listener address
-    RegisterRank,  ///< Inform rank to remote process (non-root) after endpoint is
-                   ///< established
     ReplyListenerAddress  ///< Reply to `QueryListenerAddress` with the listener address
 };
 
@@ -222,8 +220,14 @@ class SharedResources {
     void register_listener(std::shared_ptr<::ucxx::Listener> listener) {
         std::lock_guard<std::mutex> lock(listener_mutex_);
         auto worker = std::dynamic_pointer_cast<::ucxx::Worker>(listener->getParent());
-        rank_to_listener_address_[rank_] =
-            ListenerAddress{.address = worker->getAddress(), .rank = rank_};
+        RAPIDSMPF_EXPECTS(
+            rank_to_listener_address_
+                .emplace(
+                    rank_, ListenerAddress{.address = worker->getAddress(), .rank = rank_}
+                )
+                .second,
+            "listener for given rank already exists"
+        );
         listener_ = std::move(listener);
     }
 
@@ -237,34 +241,29 @@ class SharedResources {
      */
     void register_endpoint(Rank const rank, std::shared_ptr<::ucxx::Endpoint> endpoint) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
-        rank_to_endpoint_[rank] = endpoint;
-        endpoints_[endpoint->getHandle()] = std::move(endpoint);
+        RAPIDSMPF_EXPECTS(
+            rank_to_endpoint_.emplace(rank, endpoint).second,
+            "endpoint for given rank already exists"
+        );
+        RAPIDSMPF_EXPECTS(
+            endpoints_.emplace(endpoint->getHandle(), std::move(endpoint)).second,
+            "endpoint handle already exists"
+        );
     }
 
     /**
      * @brief Registers an endpoint without a rank.
      *
      * Registers an endpoint to a remote process with a still unknown rank.
-     * The rank must be later associated by calling the `associate_endpoint_rank()`.
      *
      * @param endpoint The endpoint to register.
      */
     void register_endpoint(std::shared_ptr<::ucxx::Endpoint> endpoint) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
-        endpoints_[endpoint->getHandle()] = std::move(endpoint);
-    }
-
-    /**
-     * @brief Associate endpoint with a specific rank.
-     *
-     * Associate a previously registered endpoint to a specific rank.
-     *
-     * @param rank The rank to register the endpoint for.
-     * @param endpoint_handle The handle of the endpoint to register.
-     */
-    void associate_endpoint_rank(Rank const rank, ucp_ep_h const endpoint_handle) {
-        std::lock_guard<std::mutex> lock(endpoints_mutex_);
-        rank_to_endpoint_[rank] = endpoints_[endpoint_handle];
+        RAPIDSMPF_EXPECTS(
+            endpoints_.emplace(endpoint->getHandle(), std::move(endpoint)).second,
+            "endpoint handle already exists"
+        );
     }
 
     /**
@@ -330,7 +329,10 @@ class SharedResources {
      */
     void register_listener_address(Rank const rank, ListenerAddress listener_address) {
         std::lock_guard<std::mutex> lock(listener_mutex_);
-        rank_to_listener_address_[rank] = std::move(listener_address);
+        RAPIDSMPF_EXPECTS(
+            rank_to_listener_address_.emplace(rank, std::move(listener_address)).second,
+            "listener for given rank already exists"
+        );
     }
 
     /**
@@ -383,7 +385,7 @@ class SharedResources {
                 progress_worker();
             }
         } else {  // non-root ranks respond to root's broadcast
-            auto endpoint = get_endpoint(0);
+            auto endpoint = get_endpoint(Rank(0));
 
             auto req = endpoint->amRecv();
             while (!req->isCompleted()) {
@@ -580,7 +582,7 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
 ) {
     size_t offset{0};
 
-    if (control == ControlMessage::AssignRank || control == ControlMessage::RegisterRank
+    if (control == ControlMessage::AssignRank
         || control == ControlMessage::QueryListenerAddress)
     {
         size_t const total_size = sizeof(control) + get_size(data);
@@ -631,9 +633,7 @@ std::unique_ptr<std::vector<uint8_t>> control_pack(
  * the rank being requested and reply the requester with the listener address.
  * A future with the reply is stored via `SharedResources->add_future()`.
  * This is only executed by the root.
- * 3. RegisterRank: Associate the endpoint created during `listener_callback()`
- * with the rank informed by the client.
- * 4. ReplyListenerAddress: Handle reply from root rank, associating the
+ * 3. ReplyListenerAddress: Handle reply from root rank, associating the
  * received listener address with the requested rank.
  *
  * @param buffer bytes received via UCXX containing the packed message.
@@ -705,10 +705,6 @@ void control_unpack(
         };
 
         shared_resources->add_delayed_progress_callback(std::move(callback));
-    } else if (control == ControlMessage::RegisterRank) {
-        Rank rank;
-        decode_(&rank, sizeof(rank));
-        shared_resources->associate_endpoint_rank(rank, ep);
     } else if (control == ControlMessage::ReplyListenerAddress) {
         size_t packed_listener_address_size;
         decode_(&packed_listener_address_size, sizeof(packed_listener_address_size));
@@ -750,11 +746,7 @@ void control_unpack(
  * For all ranks when a new client connects, an endpoint to it is established
  * and retained for future communication. The root rank will always send an
  * `ControlMessage::AssignRank` to each incoming client to let the client know
- * which rank it should now respond to in the communicator world. Other ranks
- * will wait for a message `ControlMessage::RegisterRank` from the client
- * immediately after the connection is established with the client's rank in
- * the world communicator, so that the current rank knows which rank is
- * associated with the new endpoint.
+ * which rank it should now respond to in the communicator world.
  */
 void listener_callback(ucp_conn_request_h conn_request, void* arg) {
     auto shared_resources = reinterpret_cast<rapidsmpf::ucxx::SharedResources*>(arg);
@@ -1066,16 +1058,6 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
             listener_address.address
         );
         shared_resources_->register_endpoint(rank, endpoint);
-        auto packed_register_rank = control_pack(ControlMessage::RegisterRank, rank);
-        auto register_rank_req = endpoint->amSend(
-            packed_register_rank->data(),
-            packed_register_rank->size(),
-            UCS_MEMORY_TYPE_HOST,
-            shared_resources_->get_control_callback_info()
-        );
-        while (!register_rank_req->isCompleted()) {
-            progress_worker();
-        }
 
         log.trace(
             "Endpoint for rank ",
@@ -1148,6 +1130,7 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     while (!req->isCompleted()) {
         progress_worker();
     }
+    req->checkError();
 
     return {std::move(msg), sender_rank};
 }
@@ -1165,6 +1148,7 @@ std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
         auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
+            ucxx_future->req_->checkError();
             indices.push_back(i);
         } else {
             // We rely on this API returning completed futures in order,
@@ -1203,6 +1187,7 @@ std::vector<std::size_t> UCXX::test_some(
         auto ucxx_future = dynamic_cast<Future const*>(future.get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
+            ucxx_future->req_->checkError();
             completed.push_back(key);
         }
     }
@@ -1214,6 +1199,16 @@ void UCXX::barrier() {
     log.trace("Barrier started on rank ", shared_resources_->rank());
     shared_resources_->barrier();
     log.trace("Barrier completed on rank ", shared_resources_->rank());
+}
+
+std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future) {
+    auto ucxx_future = dynamic_cast<Future*>(future.get());
+    RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    while (!ucxx_future->req_->isCompleted()) {
+        progress_worker();
+    }
+    ucxx_future->req_->checkError();
+    return std::move(ucxx_future->data_);
 }
 
 std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {

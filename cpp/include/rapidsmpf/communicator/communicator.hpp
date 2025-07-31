@@ -151,7 +151,14 @@ class Communicator {
         Future() = default;
         virtual ~Future() noexcept = default;
         Future(Future&&) = default;  ///< Movable.
-        Future(Future&) = delete;  ///< Not copyable.
+        /**
+         * @brief Move assignment
+         *
+         * @returns Moved this.
+         */
+        Future& operator=(Future&&) = default;
+        Future(Future const&) = delete;  ///< Not copyable.
+        Future& operator=(Future const&) = delete;  ///< Not copy-assignable
     };
 
     /**
@@ -458,6 +465,17 @@ class Communicator {
     std::vector<std::size_t> virtual test_some(
         std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
             future_map
+    ) = 0;
+
+    /**
+     * @brief Wait for a future to complete and return the data buffer.
+     *
+     * @param future The future to wait for completion of.
+     * @return A unique pointer to the GPU data buffer (or `nullptr` if the future had no
+     * data).
+     */
+    [[nodiscard]] virtual std::unique_ptr<Buffer> wait(
+        std::unique_ptr<Future> future
     ) = 0;
 
     /**
