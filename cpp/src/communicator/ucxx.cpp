@@ -827,6 +827,14 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         return worker;
     };
 
+    auto register_self_endpoint = [](::ucxx::Worker& worker,
+                                     rapidsmpf::ucxx::SharedResources& shared_resources) {
+        auto self_ep = worker.createEndpointFromWorkerAddress(
+            worker.getAddress(), shared_resources.endpoint_error_handling()
+        );
+        shared_resources.register_endpoint(shared_resources.rank(), std::move(self_ep));
+    };
+
     if (remote_address) {
         if (worker == nullptr) {
             worker = create_worker();
@@ -908,6 +916,9 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         while (shared_resources->rank() == Rank(-1)) {
             shared_resources->progress_worker();
         }
+
+        register_self_endpoint(*worker, *shared_resources);
+
         // TODO: Enable when Logger can be created before the UCXX communicator object.
         // See https://github.com/rapidsai/rapidsmpf/issues/65 .
         // log.debug("Assigned rank: ", shared_resources->rank());
@@ -962,10 +973,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
             shared_resources->get_control_callback_info(), control_callback
         );
 
-        auto root_self_ep = worker->createEndpointFromWorkerAddress(
-            worker->getAddress(), shared_resources->endpoint_error_handling()
-        );
-        shared_resources->register_endpoint(0, root_self_ep);
+        register_self_endpoint(*worker, *shared_resources);
 
         return std::make_unique<rapidsmpf::ucxx::InitializedRank>(
             std::move(shared_resources)

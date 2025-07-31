@@ -352,8 +352,5 @@ template <class... Ts>
 struct overloaded : Ts... {
     using Ts::operator()...;
 };
-/// @brief Explicit deduction guide
-template <class... Ts>
-overloaded(Ts...) -> overloaded<Ts...>;
 
 }  // namespace rapidsmpf
