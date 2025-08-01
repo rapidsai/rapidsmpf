@@ -13,8 +13,10 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
+    spill_partitions,
     split_and_pack,
     unpack_and_concat,
+    unspill_partitions,
 )
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import (
@@ -97,3 +99,35 @@ def test_split_and_pack_unpack_out_of_range(
             br=br,
             stream=DEFAULT_STREAM,
         )
+
+
+@pytest.mark.parametrize("df", [{"0": [1, 2, 3], "1": [2, 2, 1]}, {"0": [], "1": []}])
+@pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])
+def test_spill_unspill_roundtrip(
+    device_mr: rmm.mr.CudaMemoryResource, df: dict[str, list[int]], num_partitions: int
+) -> None:
+    br = BufferResource(device_mr)
+    expect = cudf.DataFrame(df)
+    partitions = partition_and_pack(
+        cudf_to_pylibcudf_table(expect),
+        columns_to_hash=(1,),
+        num_partitions=num_partitions,
+        br=br,
+        stream=DEFAULT_STREAM,
+    )
+
+    # Spill roundtrip
+    spilled = spill_partitions(partitions.values(), stream=DEFAULT_STREAM, br=br)
+    unspilled = unspill_partitions(
+        spilled, stream=DEFAULT_STREAM, br=br, allow_overbooking=False
+    )
+
+    got = pylibcudf_to_cudf_dataframe(
+        unpack_and_concat(
+            unspilled,
+            br=br,
+            stream=DEFAULT_STREAM,
+        )
+    )
+    # Since the row order isn't preserved, we sort the rows by the "0" column.
+    assert_eq(expect, got, sort_rows="0")
