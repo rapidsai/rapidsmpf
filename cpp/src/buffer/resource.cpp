@@ -13,7 +13,7 @@ namespace rapidsmpf {
 
 MemoryReservation::~MemoryReservation() noexcept {
     if (size_ > 0) {
-        br_->release(*this, mem_type_, size_);
+        br_->release(*this, size_);
     }
 }
 
@@ -57,14 +57,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     return {MemoryReservation(mem_type, this, size), overbooking};
 }
 
-std::size_t BufferResource::release(
-    MemoryReservation& reservation, MemoryType target, std::size_t size
-) {
-    RAPIDSMPF_EXPECTS(
-        reservation.mem_type_ == target,
-        "the memory type of MemoryReservation doesn't match",
-        std::invalid_argument
-    );
+std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t size) {
     std::lock_guard const lock(mutex_);
     RAPIDSMPF_EXPECTS(
         size <= reservation.size_,
@@ -72,20 +65,17 @@ std::size_t BufferResource::release(
             + format_nbytes(size) + ")",
         std::overflow_error
     );
-    std::size_t& reserved = memory_reserved(target);
+    std::size_t& reserved = memory_reserved(reservation.mem_type_);
     RAPIDSMPF_EXPECTS(reserved >= size, "corrupted reservation stat");
     reserved -= size;
     return reservation.size_ -= size;
 }
 
 std::unique_ptr<Buffer> BufferResource::allocate(
-    MemoryType mem_type,
-    std::size_t size,
-    rmm::cuda_stream_view stream,
-    MemoryReservation& reservation
+    std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
 ) {
     std::unique_ptr<Buffer> ret;
-    switch (mem_type) {
+    switch (reservation.mem_type_) {
     case MemoryType::HOST:
         // TODO: use pinned memory, maybe use rmm::mr::pinned_memory_resource and
         // std::pmr::vector?
@@ -101,7 +91,7 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     default:
         RAPIDSMPF_FAIL("MemoryType: unknown");
     }
-    release(reservation, mem_type, size);
+    release(reservation, size);
     return ret;
 }
 
@@ -114,19 +104,16 @@ std::unique_ptr<Buffer> BufferResource::move(
     rmm::cuda_stream_view stream,
     std::shared_ptr<Buffer::Event> event
 ) {
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, event));
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, std::move(event)));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    MemoryType target,
     std::unique_ptr<Buffer> buffer,
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
-    if (target != buffer->mem_type()) {
-        auto ret = buffer->copy(target, stream, this);
-        release(reservation, target, ret->size);
-        return ret;
+    if (reservation.mem_type_ != buffer->mem_type()) {
+        return buffer->copy(stream, reservation);
     }
     return buffer;
 }
@@ -136,9 +123,12 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
-    return std::move(
-        move(MemoryType::DEVICE, std::move(buffer), stream, reservation)->device()
+    RAPIDSMPF_EXPECTS(
+        reservation.mem_type_ == MemoryType::DEVICE,
+        "the memory type of MemoryReservation doesn't match",
+        std::invalid_argument
     );
+    return std::move(move(std::move(buffer), stream, reservation)->device());
 }
 
 std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
@@ -152,9 +142,12 @@ std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
-    return std::move(
-        move(MemoryType::HOST, std::move(buffer), stream, reservation)->host()
+    RAPIDSMPF_EXPECTS(
+        reservation.mem_type_ == MemoryType::HOST,
+        "the memory type of MemoryReservation doesn't match",
+        std::invalid_argument
     );
+    return std::move(move(std::move(buffer), stream, reservation)->host());
 }
 
 std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
@@ -164,15 +157,11 @@ std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
 }
 
 std::unique_ptr<Buffer> BufferResource::copy(
-    MemoryType target,
     std::unique_ptr<Buffer> const& buffer,
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
-    // TODO: Inconsistency with multiple buffer resources #280
-    auto ret = buffer->copy(target, stream, this);
-    release(reservation, target, ret->size);
-    return ret;
+    return buffer->copy(stream, reservation);
 }
 
 SpillManager& BufferResource::spill_manager() {

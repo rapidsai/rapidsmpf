@@ -70,12 +70,7 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     auto send_data_h = iota_vector<std::uint8_t>(nelems);
     auto reservation = br->reserve(memory_type(), 2 * send_data_h.size(), true);
     auto send_buf = br->move(
-        memory_type(),
-        br->move(
-            std::make_unique<decltype(send_data_h)>(
-                send_data_h.begin(), send_data_h.end()
-            )
-        ),
+        br->move(std::make_unique<decltype(send_data_h)>(send_data_h)),
         stream,
         reservation.first
     );
@@ -84,9 +79,7 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
 
     auto send_fut = comm->send(std::move(send_buf), comm->rank(), tag);
     auto recv_fut = comm->recv(
-        comm->rank(),
-        tag,
-        br->allocate(memory_type(), send_data_h.size(), stream, reservation.first)
+        comm->rank(), tag, br->allocate(send_data_h.size(), stream, reservation.first)
     );
     auto recv_buf = comm->wait(std::move(recv_fut));
     std::ignore = comm->wait(std::move(send_fut));

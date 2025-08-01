@@ -329,26 +329,15 @@ class Buffer {
     }
 
     /**
-     * @brief Create a copy of this buffer using the same memory type.
+     * @brief Create a copy of this buffer by allocating a new buffer from the
+     * reservation.
      *
      * @param stream CUDA stream used for the device buffer allocation and copy.
-     * @param br Buffer resource for data allocations.
+     * @param reservation Memory reservation for data allocations.
      * @return A unique pointer to a new Buffer containing the copied data.
      */
     [[nodiscard]] std::unique_ptr<Buffer> copy(
-        rmm::cuda_stream_view stream, BufferResource* br
-    ) const;
-
-    /**
-     * @brief Create a copy of this buffer using the specified memory type.
-     *
-     * @param target The target memory type.
-     * @param stream CUDA stream used for device buffer allocation and copy.
-     * @param br Buffer resource for data allocations.
-     * @return A unique pointer to a new Buffer containing the copied data.
-     */
-    [[nodiscard]] std::unique_ptr<Buffer> copy(
-        MemoryType target, rmm::cuda_stream_view stream, BufferResource* br
+        rmm::cuda_stream_view stream, MemoryReservation& reservation
     ) const;
 
   public:

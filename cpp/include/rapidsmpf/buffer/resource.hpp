@@ -228,22 +228,17 @@ class BufferResource {
      * Reduces the remaining size of the reserved memory by the specified amount.
      *
      * @param reservation The reservation to release.
-     * @param target The memory type of the reservation.
      * @param size The size to consume in bytes.
      * @return The remaining size of the reserved memory after consumption.
      *
-     * @throws std::invalid_argument if the memory type does not match the reservation.
      * @throws std::overflow_error if the released size exceeds the size of the
      * reservation.
      */
-    std::size_t release(
-        MemoryReservation& reservation, MemoryType target, std::size_t size
-    );
+    std::size_t release(MemoryReservation& reservation, std::size_t size);
 
     /**
-     * @brief Allocate a buffer of the specified memory type.
+     * @brief Allocate a buffer of the specified memory type by the reservation.
      *
-     * @param mem_type The target memory type.
      * @param size The size of the buffer in bytes.
      * @param stream CUDA stream to use for device allocations.
      * @param reservation The reservation to use for memory allocations.
@@ -253,10 +248,7 @@ class BufferResource {
      * @throws std::overflow_error if `size` exceeds the size of the reservation.
      */
     std::unique_ptr<Buffer> allocate(
-        MemoryType mem_type,
-        std::size_t size,
-        rmm::cuda_stream_view stream,
-        MemoryReservation& reservation
+        std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
     );
 
     /**
@@ -282,11 +274,10 @@ class BufferResource {
     );
 
     /**
-     * @brief Move a Buffer to the specified memory type.
+     * @brief Move a Buffer to the specified memory type by the reservation.
      *
      * If and only if moving between different memory types will this perform a copy.
      *
-     * @param target The target memory type.
      * @param buffer The buffer to move.
      * @param stream CUDA stream used for the buffer allocation, copy, and/or move.
      * @param reservation The reservation to use for memory allocations.
@@ -296,7 +287,6 @@ class BufferResource {
      * @throws std::overflow_error if the memory requirement exceeds the reservation.
      */
     std::unique_ptr<Buffer> move(
-        MemoryType target,
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
         MemoryReservation& reservation
@@ -332,7 +322,7 @@ class BufferResource {
      * @param buffer The buffer to move.
      * @return A unique pointer to the resulting device buffer.
      *
-     * @throws std::invalid_argument if the buffer is not already in device memory.
+     * @throws std::logic_error if the buffer is not already in device memory.
      */
     std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer
@@ -368,18 +358,17 @@ class BufferResource {
      * @param buffer The buffer to move.
      * @return A unique pointer to the resulting host vector.
      *
-     * @throws std::invalid_argument if the buffer is not already in host memory.
+     * @throws std::logic_error if the buffer is not already in host memory.
      */
     std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer
     );
 
     /**
-     * @brief Create a copy of a Buffer in the specified memory type.
+     * @brief Create a copy of a Buffer by allocating a new buffer from the reservation.
      *
      * Unlike `move()`, this always performs a copy operation.
      *
-     * @param target The target memory type.
      * @param buffer The buffer to copy.
      * @param stream CUDA stream used for the buffer allocation and copy.
      * @param reservation The reservation to use for memory allocations.
@@ -389,7 +378,6 @@ class BufferResource {
      * @throws std::overflow_error if the size exceeds the size of the reservation.
      */
     std::unique_ptr<Buffer> copy(
-        MemoryType target,
         std::unique_ptr<Buffer> const& buffer,
         rmm::cuda_stream_view stream,
         MemoryReservation& reservation
