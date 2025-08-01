@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cudf_test/base_fixture.hpp>
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
@@ -15,11 +17,14 @@
 #include "environment.hpp"
 #include "utils.hpp"
 
-class BaseCommunicatorTest : public cudf::test::BaseFixture {
+class BaseCommunicatorTest : public ::testing::Test {
   protected:
     void SetUp() override {
         comm = GlobalEnvironment->comm_.get();
-        br = std::make_unique<rapidsmpf::BufferResource>(mr());
+        mr = std::unique_ptr<rmm::mr::device_memory_resource>(
+            new rmm::mr::cuda_memory_resource{}
+        );
+        br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
         stream = rmm::cuda_stream_default;
         GlobalEnvironment->barrier();
     }
@@ -31,6 +36,7 @@ class BaseCommunicatorTest : public cudf::test::BaseFixture {
     virtual rapidsmpf::MemoryType memory_type() = 0;
 
     rapidsmpf::Communicator* comm;
+    std::unique_ptr<rmm::mr::device_memory_resource> mr;
     rmm::cuda_stream_view stream;
     std::unique_ptr<rapidsmpf::BufferResource> br;
 };
