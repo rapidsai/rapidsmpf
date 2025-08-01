@@ -137,6 +137,41 @@ partition_and_split(
 );
 
 /**
+ * @brief Spill partitions from device memory to host memory.
+ *
+ * Moves the buffer of each `PackedData` from device memory to host memory using
+ * the provided buffer resource. Partitions that are already in host memory are
+ * passed through unchanged.
+ *
+ * For device-resident partitions, a host memory reservation is made before moving
+ * the buffer. If the reservation fails due to insufficient host memory, an exception
+ * is thrown. Overbooking is not allowed.
+ *
+ * @param partitions The partitions to spill.
+ * @param stream CUDA stream used for memory operations.
+ * @param br Buffer resource used to reserve host memory and perform the move.
+ *
+ * @return A vector of `PackedData`, where each buffer resides in host memory.
+ *
+ * @throws std::overflow_error If host memory reservation fails.
+ */
+std::vector<PackedData> spill_partitions(
+    std::vector<PackedData>&& partitions, rmm::cuda_stream_view stream, BufferResource* br
+) {
+    // Spill each partition to host memory.
+    std::vector<PackedData> ret;
+    ret.reserve(partitions.size());
+    for (auto& [metadata, data] : partitions) {
+        auto [reservation, _] = br->reserve(MemoryType::HOST, data->size, false);
+        ret.emplace_back(
+            std::move(metadata),
+            br->move(MemoryType::HOST, std::move(data), stream, reservation)
+        );
+    }
+    return ret;
+}
+
+/**
  * @brief Move spilled partitions (i.e., packed tables in host memory) back to device
  * memory.
  *
