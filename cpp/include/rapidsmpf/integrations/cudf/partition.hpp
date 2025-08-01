@@ -155,7 +155,7 @@ partition_and_split(
  *
  * @throws std::overflow_error If host memory reservation fails.
  */
-std::vector<PackedData> spill_partitions(
+inline std::vector<PackedData> spill_partitions(
     std::vector<PackedData>&& partitions, rmm::cuda_stream_view stream, BufferResource* br
 ) {
     // Spill each partition to host memory.
@@ -194,7 +194,7 @@ std::vector<PackedData> spill_partitions(
  * @throws std::overflow_error If overbooking exceeds the amount spilled and
  *         `allow_overbooking` is false.
  */
-std::vector<PackedData> unspill_partitions(
+inline std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
