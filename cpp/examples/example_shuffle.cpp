@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
             stream,
-            mr
+            &br
         );
 
     // Now, we can insert the packed partitions into the shuffler. This operation is
@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
         // Unpack (deserialize) and concatenate the chunks into a single table using a
         // convenience function.
         local_outputs.push_back(
-            rapidsmpf::unpack_and_concat(std::move(packed_chunks), stream, mr)
+            rapidsmpf::unpack_and_concat(std::move(packed_chunks), stream, &br)
         );
     }
     // At this point, `local_outputs` contains the local result of the shuffle.
