@@ -68,7 +68,6 @@ class DaskCudfIntegration:
         partition_id
             The input partition id of ``df``.
         partition_count
-                cluster_kind="distributed",
             Number of output partitions for the current shuffle.
         shuffler
             The RapidsMPF Shuffler object to extract from.
