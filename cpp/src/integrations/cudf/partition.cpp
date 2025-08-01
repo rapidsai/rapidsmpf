@@ -146,5 +146,57 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     return cudf::concatenate(unpacked, stream, br->device_mr());
 }
 
+std::vector<PackedData> spill_partitions(
+    std::vector<PackedData>&& partitions, rmm::cuda_stream_view stream, BufferResource* br
+) {
+    // Spill each partition to host memory.
+    std::vector<PackedData> ret;
+    ret.reserve(partitions.size());
+    for (auto& [metadata, data] : partitions) {
+        auto [reservation, _] = br->reserve(MemoryType::HOST, data->size, false);
+        ret.emplace_back(
+            std::move(metadata),
+            br->move(MemoryType::HOST, std::move(data), stream, reservation)
+        );
+    }
+    return ret;
+}
 
+std::vector<PackedData> unspill_partitions(
+    std::vector<PackedData>&& partitions,
+    rmm::cuda_stream_view stream,
+    BufferResource* br,
+    bool allow_overbooking
+) {
+    // Sum the total size of all packed data not in device memory already.
+    std::size_t non_device_size{0};
+    for (auto& [_, data] : partitions) {
+        if (data->mem_type() != MemoryType::DEVICE) {
+            non_device_size += data->size;
+        }
+    }
+    // This total sum is what we need to reserve before moving data to device.
+    auto [reservation, overbooking] =
+        br->reserve(MemoryType::DEVICE, non_device_size, true);
+
+    // Check overbooking, do we need to spill to host memory?
+    if (overbooking > 0) {
+        std::size_t spilled = br->spill_manager().spill(overbooking);
+        RAPIDSMPF_EXPECTS(
+            allow_overbooking || spilled >= overbooking,
+            "could not spill enough to make room to unspill all partitions",
+            std::overflow_error
+        );
+    }
+    // Unspill each partition.
+    std::vector<PackedData> ret;
+    ret.reserve(partitions.size());
+    for (auto& [metadata, data] : partitions) {
+        ret.emplace_back(
+            std::move(metadata),
+            br->move(MemoryType::DEVICE, std::move(data), stream, reservation)
+        );
+    }
+    return ret;
+}
 }  // namespace rapidsmpf
