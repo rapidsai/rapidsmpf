@@ -39,19 +39,21 @@ AllGather::AllGather(
     std::shared_ptr<Statistics> statistics
 )
     : comm_(comm.get()),
-      shuffler_(std::make_unique<shuffler::Shuffler>(
-          std::move(comm),
-          std::move(progress_thread),
-          op_id,
-          comm_->nranks(),
-          stream,
-          br,
-          std::move(statistics),
-          [](std::shared_ptr<Communicator> const&, shuffler::PartID pid) -> Rank {
-              // identity-like mapping, as there are only n_ranks partitions
-              return static_cast<Rank>(pid);
-          }
-      )),
+      shuffler_(
+          std::make_unique<shuffler::Shuffler>(
+              std::move(comm),
+              std::move(progress_thread),
+              op_id,
+              comm_->nranks(),
+              stream,
+              br,
+              std::move(statistics),
+              [](std::shared_ptr<Communicator> const&, shuffler::PartID pid) -> Rank {
+                  // identity-like mapping, as there are only n_ranks partitions
+                  return static_cast<Rank>(pid);
+              }
+          )
+      ),
       stream_(stream),
       br_(br) {}
 
@@ -76,9 +78,8 @@ void AllGather::insert(PackedData&& data) {
         }
         // copy data in the chunk
         auto metadata_buf = std::make_unique<std::vector<uint8_t>>(*data.metadata);
-        auto data_buf = std::make_unique<rmm::device_buffer>(
-            data.gpu_data->data(), data.gpu_data->size(), stream_, br_->device_mr()
-        );
+        auto res = reserve_or_fail(br_, data.data->size);
+        auto data_buf = br_->copy(res.mem_type(), data.data, stream_, res);
         chunks.emplace(
             static_cast<shuffler::PartID>(r),
             PackedData{std::move(metadata_buf), std::move(data_buf)}

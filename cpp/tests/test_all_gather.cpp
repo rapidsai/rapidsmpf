@@ -33,7 +33,7 @@ rapidsmpf::PackedData generate_packed_data(
     size_t n_elements,
     size_t offset,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    rapidsmpf::BufferResource& br
 ) {
     auto metadata = std::make_unique<std::vector<uint8_t>>();
     metadata->reserve(n_elements);
@@ -42,10 +42,10 @@ rapidsmpf::PackedData generate_packed_data(
     }
 
     auto data = std::make_unique<rmm::device_buffer>(
-        metadata->data(), metadata->size(), stream, mr
+        metadata->data(), metadata->size(), stream, br.device_mr()
     );
 
-    return {std::move(metadata), std::move(data)};
+    return {std::move(metadata), br.move(std::move(data), stream)};
 }
 
 // Validate the packed data object by checking the metadata and gpu_data.
@@ -64,7 +64,7 @@ void validate_packed_data(
     std::vector<uint8_t> copied_data(n_elements);
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
         copied_data.data(),
-        packed_data.gpu_data->data(),
+        packed_data.data->data(),
         n_elements,
         cudaMemcpyDefault,
         stream
@@ -129,7 +129,7 @@ TEST_P(AllGatherTest, shutdown) {
 TEST_P(AllGatherTest, basic_all_gather) {
     for (size_t i = 0; i < n_inserts; i++) {
         auto packed_data = generate_packed_data(
-            n_elements, static_cast<size_t>(comm->rank()), stream, mr()
+            n_elements, static_cast<size_t>(comm->rank()), stream, *br
         );
         all_gather->insert(std::move(packed_data));
     }
