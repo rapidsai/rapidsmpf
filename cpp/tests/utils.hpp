@@ -14,6 +14,9 @@
 #include <cudf/table/table_view.hpp>
 #include <cudf_test/column_wrapper.hpp>
 
+#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/error.hpp>
+
 /**
  * @brief User-defined literal for specifying memory sizes in MiB.
  */
@@ -85,4 +88,22 @@ template <typename T>
     std::vector<cudf::size_type> const& column_indices = {0}
 ) {
     return sort_table(table->view(), column_indices);
+}
+
+/// @brief Create a PackedData object from a host buffer
+[[nodiscard]] inline rapidsmpf::PackedData create_packed_data(
+    cuda::std::span<uint8_t const> metadata,
+    cuda::std::span<uint8_t const> data,
+    rmm::cuda_stream_view stream,
+    rapidsmpf::BufferResource* br
+) {
+    auto metadata_ptr =
+        std::make_unique<std::vector<uint8_t>>(metadata.begin(), metadata.end());
+    auto data_ptr = std::make_unique<rmm::device_buffer>(data.size(), stream);
+    RAPIDSMPF_CUDA_TRY(
+        cudaMemcpy(data_ptr->data(), data.data(), data.size(), cudaMemcpyHostToDevice)
+    );
+    return rapidsmpf::PackedData{
+        std::move(metadata_ptr), br->move(std::move(data_ptr), stream)
+    };
 }
