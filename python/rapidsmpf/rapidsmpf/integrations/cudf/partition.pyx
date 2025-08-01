@@ -180,6 +180,17 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
         ) except +
 
 
+# Help function to convert an iterable of `PackedData` to a vector of
+# `cpp_PackedData`.
+cdef vector[cpp_PackedData] _partitions_py_to_cpp(partitions):
+    cdef vector[cpp_PackedData] ret
+    for part in partitions:
+        if not (<PackedData?>part).c_obj:
+            raise ValueError("PackedData was empty")
+        ret.push_back(move(deref((<PackedData?>part).c_obj)))
+    return move(ret)
+
+
 cpdef Table unpack_and_concat(
     partitions,
     stream,
@@ -187,6 +198,8 @@ cpdef Table unpack_and_concat(
 ):
     """
     Unpack (deserialize) input tables and concatenate them.
+
+    The input partitions are consumed and are left empty on return.
 
     Parameters
     ----------
@@ -209,13 +222,7 @@ cpdef Table unpack_and_concat(
         raise ValueError("stream cannot be None")
     cdef cuda_stream_view _stream = Stream(stream).view()
     cdef cpp_BufferResource* _br = br.ptr()
-
-    cdef vector[cpp_PackedData] _partitions
-    for part in partitions:
-        if not (<PackedData?>part).c_obj:
-            raise ValueError("PackedData was empty")
-        _partitions.push_back(move(deref((<PackedData?>part).c_obj)))
-
+    cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)
     cdef unique_ptr[cpp_table] _ret
     with nogil:
         _ret = cpp_unpack_and_concat(
