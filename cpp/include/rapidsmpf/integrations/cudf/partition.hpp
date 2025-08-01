@@ -12,8 +12,10 @@
 #include <cudf/partitioning.hpp>
 #include <cudf/table/table.hpp>
 
+#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -134,5 +136,65 @@ partition_and_split(
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
+/**
+ * @brief Move spilled partitions (i.e., packed tables in host memory) back to device
+ * memory.
+ *
+ * Each partition is inspected to determine whether its buffer resides in device memory.
+ * Buffers already in device memory are left untouched. Host-resident buffers are moved
+ * to device memory using the provided buffer resource and CUDA stream.
+ *
+ * If insufficient device memory is available, the buffer resource's spill manager is
+ * invoked to free memory. If overbooking occurs and spilling fails to reclaim enough
+ * memory, behavior depends on the `allow_overbooking` flag.
+ *
+ * @param partitions The partitions to unspill, potentially containing host-resident data.
+ * @param stream CUDA stream used for memory operations and kernel launches.
+ * @param br Buffer resource responsible for memory reservation and spills.
+ * @param allow_overbooking If false, ensures enough memory is freed to satisfy the
+ * reservation; otherwise, allows overbooking even if spilling was insufficient.
+ *
+ * @return A vector of `PackedData`, each with a buffer in device memory.
+ *
+ * @throws std::overflow_error If overbooking exceeds the amount spilled and
+ *         `allow_overbooking` is false.
+ */
+std::vector<PackedData> unspill_partitions(
+    std::vector<PackedData>&& partitions,
+    rmm::cuda_stream_view stream,
+    BufferResource* br,
+    bool allow_overbooking
+) {
+    // Sum the total size of all packed data not in device memory already.
+    std::size_t non_device_size{0};
+    for (auto& [_, data] : partitions) {
+        if (data->mem_type() != MemoryType::DEVICE) {
+            non_device_size += data->size;
+        }
+    }
+    // This total sum is what we need to reserve before moving data to device.
+    auto [reservation, overbooking] =
+        br->reserve(MemoryType::DEVICE, non_device_size, true);
+
+    // Check overbooking, do we need to spill to host memory?
+    if (overbooking > 0) {
+        std::size_t spilled = br->spill_manager().spill(overbooking);
+        RAPIDSMPF_EXPECTS(
+            allow_overbooking || spilled >= overbooking,
+            "could not spill enough to make room to unspill all partitions",
+            std::overflow_error
+        );
+    }
+    // Unspill each partition.
+    std::vector<PackedData> ret;
+    ret.reserve(partitions.size());
+    for (auto& [metadata, data] : partitions) {
+        ret.emplace_back(
+            std::move(metadata),
+            br->move(MemoryType::DEVICE, std::move(data), stream, reservation)
+        );
+    }
+    return ret;
+}
 
 }  // namespace rapidsmpf
