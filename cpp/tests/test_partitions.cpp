@@ -92,3 +92,41 @@ TEST_P(NumOfPartitions, split_and_pack) {
     // Compare the input table with the result.
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(expect, *result);
 }
+
+class SpillingTest : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
+        stream = cudf::get_default_stream();
+    }
+
+    std::unique_ptr<BufferResource> br;
+    rmm::cuda_stream_view stream;
+};
+
+TEST_F(SpillingTest, SpillUnspillRoundtripPreservesDataAndMetadata) {
+    std::vector<uint8_t> metadata{42, 99};
+    std::vector<uint8_t> payload{10, 20, 30};
+
+    // Create device input.
+    std::vector<rapidsmpf::PackedData> input;
+    input.push_back(create_packed_data(metadata, payload, stream, br.get()));
+
+    // Device -> Host
+    auto on_gpu = unspill_partitions(
+        std::move(input), stream, br.get(), /*allow_overbooking=*/true
+    );
+    ASSERT_EQ(on_gpu.size(), 1);
+    EXPECT_EQ(on_gpu[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
+    EXPECT_EQ(*on_gpu[0].metadata, metadata);
+
+    // Host -> Device
+    auto back_on_host = spill_partitions(std::move(on_gpu), stream, br.get());
+    ASSERT_EQ(back_on_host.size(), 1);
+    EXPECT_EQ(back_on_host[0].data->mem_type(), rapidsmpf::MemoryType::HOST);
+    EXPECT_EQ(*back_on_host[0].metadata, metadata);
+
+    // Check that contents match original
+    auto actual = br->move_to_host_vector(std::move(back_on_host[0].data));
+    EXPECT_EQ(*actual, payload);
+}
