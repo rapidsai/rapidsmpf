@@ -179,7 +179,7 @@ std::vector<PackedData> unspill_partitions(
     auto [reservation, overbooking] =
         br->reserve(MemoryType::DEVICE, non_device_size, true);
 
-    // Check overbooking, do we need to spill to host memory?
+    // Check overbooking, should we ask the spill manager to make room?
     if (overbooking > 0) {
         std::size_t spilled = br->spill_manager().spill(overbooking);
         RAPIDSMPF_EXPECTS(
