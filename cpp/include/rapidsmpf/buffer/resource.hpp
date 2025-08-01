@@ -377,7 +377,7 @@ class BufferResource {
      * @throws std::invalid_argument if `target` does not match the reservation.
      * @throws std::overflow_error if the size exceeds the size of the reservation.
      */
-    std::unique_ptr<Buffer> copy(
+    static std::unique_ptr<Buffer> copy(
         std::unique_ptr<Buffer> const& buffer,
         rmm::cuda_stream_view stream,
         MemoryReservation& reservation
