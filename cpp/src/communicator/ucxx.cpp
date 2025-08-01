@@ -1065,14 +1065,14 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
-    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
+    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource*
 ) {
     auto req = get_endpoint(rank)->tagSend(
         msg->data(),
         msg->size(),
         tag_with_rank(shared_resources_->rank(), static_cast<int>(tag))
     );
-    return std::make_unique<Future>(req, br->move(std::move(msg)));
+    return std::make_unique<Future>(req, BufferResource::move(std::move(msg)));
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(

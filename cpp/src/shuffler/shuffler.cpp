@@ -135,7 +135,7 @@ std::size_t postbox_spilling(
         // We extract the chunk, spilled it, and insert it back into the PostBox.
         auto chunk = postbox.extract(pid, cid);
         chunk.set_data_buffer(
-            br->move(chunk.release_data_buffer(), stream, host_reservation)
+            BufferResource::move(chunk.release_data_buffer(), stream, host_reservation)
         );
         postbox.insert(std::move(chunk));
         if ((total_spilled += size) >= amount) {
@@ -206,7 +206,7 @@ class Shuffler::Progress {
                     ready_ack_receives_[dst].push_back(shuffler_.comm_->recv(
                         dst,
                         ready_for_data_tag,
-                        shuffler_.br_->move(
+                        BufferResource::move(
                             std::make_unique<std::vector<std::uint8_t>>(
                                 ReadyForDataMessage::byte_size
                             )
@@ -601,7 +601,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
             chunk.set_data_buffer(
-                br_->move(chunk.release_data_buffer(), stream_, host_reservation)
+                BufferResource::move(
+                    chunk.release_data_buffer(), stream_, host_reservation
+                )
             );
             statistics_->add_duration_stat(
                 "spill-time-device-to-host", Clock::now() - t0_elapsed
@@ -784,7 +786,7 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
         }
         ret.emplace_back(
             chunk.release_metadata_buffer(),
-            br_->move(chunk.release_data_buffer(), stream_, reservation)
+            BufferResource::move(chunk.release_data_buffer(), stream_, reservation)
         );
     }
     statistics_->add_duration_stat(

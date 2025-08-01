@@ -114,7 +114,8 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
         ret.emplace(
             i,
             PackedData(
-                std::move(pack.metadata), br->move(std::move(pack.gpu_data), stream)
+                std::move(pack.metadata),
+                BufferResource::move(std::move(pack.gpu_data), stream)
             )
         );
     }
@@ -138,7 +139,7 @@ std::unique_ptr<cudf::table> unpack_and_concat(
             unpacked.push_back(
                 cudf::unpack(references.emplace_back(
                     std::move(packed_data.metadata),
-                    br->move_to_device_buffer(std::move(packed_data.data))
+                    BufferResource::move_to_device_buffer(std::move(packed_data.data))
                 ))
             );
         }

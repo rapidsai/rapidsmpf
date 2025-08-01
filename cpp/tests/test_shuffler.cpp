@@ -116,7 +116,9 @@ TEST(MetadataMessage, round_trip) {
         2,  // part_id
         rapidsmpf::PackedData{
             std::make_unique<std::vector<uint8_t>>(metadata),  // non-empty metadata
-            br->move(std::make_unique<rmm::device_buffer>(), stream)  // empty data
+            rapidsmpf::BufferResource::move(
+                std::make_unique<rmm::device_buffer>(), stream
+            )  // empty data
         }
     );
 
@@ -581,7 +583,7 @@ class ShuffleInsertGroupedTest
                 pid,
                 rapidsmpf::PackedData(
                     std::make_unique<std::vector<std::uint8_t>>(*dummy_meta),
-                    br->move(
+                    rapidsmpf::BufferResource::move(
                         std::make_unique<rmm::device_buffer>(
                             dummy_data->data(), num_bytes, stream
                         ),
@@ -1178,14 +1180,18 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
     auto empty_packed_data() {
         return rapidsmpf::PackedData{
             std::make_unique<std::vector<uint8_t>>(),
-            br->move(std::make_unique<rmm::device_buffer>(), stream)
+            rapidsmpf::BufferResource::move(
+                std::make_unique<rmm::device_buffer>(), stream
+            )
         };
     }
 
     auto non_empty_packed_data() {
         return rapidsmpf::PackedData{
             std::make_unique<std::vector<uint8_t>>(10),
-            br->move(std::make_unique<rmm::device_buffer>(10, stream), stream)
+            rapidsmpf::BufferResource::move(
+                std::make_unique<rmm::device_buffer>(10, stream), stream
+            )
         };
     }
 

@@ -257,7 +257,7 @@ class BufferResource {
      * @param data A unique pointer to the vector containing host data.
      * @return A unique pointer to the resulting Buffer.
      */
-    std::unique_ptr<Buffer> move(std::unique_ptr<std::vector<uint8_t>> data);
+    static std::unique_ptr<Buffer> move(std::unique_ptr<std::vector<uint8_t>> data);
 
     /**
      * @brief Move device buffer data into a Buffer.
@@ -267,7 +267,7 @@ class BufferResource {
      * @param event The event to use for the buffer.
      * @return A unique pointer to the resulting Buffer.
      */
-    std::unique_ptr<Buffer> move(
+    static std::unique_ptr<Buffer> move(
         std::unique_ptr<rmm::device_buffer> data,
         rmm::cuda_stream_view stream,
         std::shared_ptr<Buffer::Event> event = nullptr
@@ -286,7 +286,7 @@ class BufferResource {
      * @throws std::invalid_argument if `target` does not match the reservation.
      * @throws std::overflow_error if the memory requirement exceeds the reservation.
      */
-    std::unique_ptr<Buffer> move(
+    static std::unique_ptr<Buffer> move(
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
         MemoryReservation& reservation
@@ -306,7 +306,7 @@ class BufferResource {
      * reservation.
      * @throws std::overflow_error if the memory requirement exceeds the reservation.
      */
-    std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
+    static std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
         MemoryReservation& reservation
@@ -324,7 +324,7 @@ class BufferResource {
      *
      * @throws std::logic_error if the buffer is not already in device memory.
      */
-    std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
+    static std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
         std::unique_ptr<Buffer> buffer
     );
 
@@ -342,7 +342,7 @@ class BufferResource {
      * reservation.
      * @throws std::overflow_error if the memory requirement exceeds the reservation.
      */
-    std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
+    static std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
         MemoryReservation& reservation
@@ -360,7 +360,7 @@ class BufferResource {
      *
      * @throws std::logic_error if the buffer is not already in host memory.
      */
-    std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
+    static std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer
     );
 
@@ -403,7 +403,7 @@ class BufferResource {
      *
      * @return A unique pointer to the allocated Buffer.
      */
-    std::unique_ptr<Buffer> allocate_empty_host_buffer() const;
+    static std::unique_ptr<Buffer> allocate_empty_host_buffer();
 
   private:
     std::mutex mutex_;
