@@ -63,21 +63,17 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(BasicCommunicatorTest, SendToSelf) {
-    if (GlobalEnvironment->type() != TestEnvironmentType::MPI) {
+    if (GlobalEnvironment->type() == TestEnvironmentType::SINGLE) {
         GTEST_SKIP() << "Unsupported send to self";
     }
     constexpr int nelems{10};
     auto send_data_h = iota_vector<std::uint8_t>(nelems);
-    auto reservation = br->reserve(memory_type(), 2 * send_data_h.size(), true);
+    auto [reservation, ob] = br->reserve(memory_type(), 2 * send_data_h.size(), true);
     auto send_buf = br->move(
         memory_type(),
-        br->move(
-            std::make_unique<decltype(send_data_h)>(
-                send_data_h.begin(), send_data_h.end()
-            )
-        ),
+        br->move(std::make_unique<std::vector<uint8_t>>(send_data_h)),
         stream,
-        reservation.first
+        reservation
     );
     stream.synchronize();
     rapidsmpf::Tag tag{0, 0};
@@ -86,14 +82,14 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     auto recv_fut = comm->recv(
         comm->rank(),
         tag,
-        br->allocate(memory_type(), send_data_h.size(), stream, reservation.first)
+        br->allocate(memory_type(), send_data_h.size(), stream, reservation)
     );
-    auto recv_buf = comm->wait(std::move(recv_fut));
     std::ignore = comm->wait(std::move(send_fut));
-    auto host_reservation =
+    auto recv_buf = comm->wait(std::move(recv_fut));
+    auto [host_reservation, host_ob] =
         br->reserve(rapidsmpf::MemoryType::HOST, send_data_h.size(), true);
     auto recv_data_h =
-        br->move_to_host_vector(std::move(recv_buf), stream, host_reservation.first);
+        br->move_to_host_vector(std::move(recv_buf), stream, host_reservation);
     stream.synchronize();
     EXPECT_EQ(send_data_h, *recv_data_h);
 }
