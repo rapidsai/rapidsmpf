@@ -127,6 +127,7 @@ class ShufflerIntegration(Protocol[DataFrameT]):
         partition_count: int,
         shuffler: Shuffler,
         options: Any,
+        get_worker_context: Callable[[], WorkerContext],
         *other: Any,
     ) -> None:
         """
@@ -144,6 +145,9 @@ class ShufflerIntegration(Protocol[DataFrameT]):
             The RapidsMPF Shuffler object to extract from.
         options
             Additional options.
+        get_worker_context
+            A callable that runs on the worker to get its current
+            context.
         *other
             Other data needed for partitioning. For example,
             this may be boundary values needed for sorting.
@@ -154,6 +158,7 @@ class ShufflerIntegration(Protocol[DataFrameT]):
         partition_id: int,
         shuffler: Shuffler,
         options: Any,
+        get_worker_context: Callable[[], WorkerContext],
     ) -> DataFrameT:
         """
         Extract a DataFrame partition from a RapidsMPF Shuffler.
@@ -166,6 +171,9 @@ class ShufflerIntegration(Protocol[DataFrameT]):
             The RapidsMPF Shuffler object to extract from.
         options
             Additional options.
+        get_worker_context
+            A callable that runs on the worker to get its current
+            context.
 
         Returns
         -------
@@ -238,6 +246,7 @@ def insert_partition(
             int,
             Shuffler,
             Any,
+            Callable[..., WorkerContext],
             *tuple[str | tuple[str, int], ...],
         ],
         None,
@@ -279,6 +288,7 @@ def insert_partition(
         partition_count,
         get_shuffler(get_context, shuffle_id),
         options,
+        get_context,
         *other_keys,
     )
 
@@ -286,7 +296,7 @@ def insert_partition(
 def extract_partition(
     get_context: Callable[..., WorkerContext],
     callback: Callable[
-        [int, Shuffler, Any],
+        [int, Shuffler, Any, Callable[..., WorkerContext]],
         DataFrameT,
     ],
     shuffle_id: int,
@@ -325,6 +335,7 @@ def extract_partition(
             partition_id,
             shuffler,
             options,
+            get_context,
         )
     finally:
         if shuffler.finished():

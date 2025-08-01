@@ -244,6 +244,7 @@ def rapidsmpf_shuffle_graph(
             partition_count_out,
             shuffle_id,
             options,
+            # get_worker_context,
             *other_keys,
         )
         for pid in range(partition_count_in)

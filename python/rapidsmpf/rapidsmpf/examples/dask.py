@@ -13,22 +13,25 @@ from dask.utils import M
 
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
+import rapidsmpf.integrations.dask
+import rapidsmpf.integrations.single
 from rapidsmpf.config import Options
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     split_and_pack,
     unpack_and_concat,
 )
-from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from typing import Any
 
     import dask_cudf
 
     import cudf
 
+    from rapidsmpf.integrations.core import WorkerContext
     from rapidsmpf.shuffler import Shuffler
 
 
@@ -52,6 +55,7 @@ class DaskCudfIntegration:
         partition_count: int,
         shuffler: Shuffler,
         options: dict[str, Any],
+        get_worker_context: Callable[[], WorkerContext],
         *other: Any,
     ) -> None:
         """
@@ -64,11 +68,15 @@ class DaskCudfIntegration:
         partition_id
             The input partition id of ``df``.
         partition_count
+                cluster_kind="distributed",
             Number of output partitions for the current shuffle.
         shuffler
             The RapidsMPF Shuffler object to extract from.
         options
             Additional options.
+        get_worker_context
+            A callable that runs on the worker to get its current
+            context.
         *other
             Other data needed for partitioning. For example,
             this may be boundary values needed for sorting.
@@ -102,6 +110,7 @@ class DaskCudfIntegration:
         partition_id: int,
         shuffler: Shuffler,
         options: dict[str, Any],
+        get_worker_context: Callable[[], WorkerContext],
     ) -> cudf.DataFrame:
         """
         Extract a finished partition from the RMPF shuffler.
@@ -114,6 +123,9 @@ class DaskCudfIntegration:
             The RapidsMPF Shuffler object to extract from.
         options
             Additional options.
+        get_worker_context
+            A callable that runs on the worker to get its current
+            context.
 
         Returns
         -------
@@ -222,11 +234,11 @@ def dask_cudf_shuffle(
             cluster_kind = "distributed"
 
     if cluster_kind == "distributed":
-        from rapidsmpf.integrations.dask import rapidsmpf_shuffle_graph
+        shuffle = rapidsmpf.integrations.dask.rapidsmpf_shuffle_graph
     else:
-        from rapidsmpf.integrations.single import rapidsmpf_shuffle_graph
+        shuffle = rapidsmpf.integrations.single.rapidsmpf_shuffle_graph
 
-    graph = rapidsmpf_shuffle_graph(*shuffle_graph_args, config_options=config_options)
+    graph = shuffle(*shuffle_graph_args, config_options=config_options)
 
     # Add df0 dependencies to the task graph
     graph.update(df0.dask)
