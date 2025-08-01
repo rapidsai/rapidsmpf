@@ -92,8 +92,8 @@ template <typename T>
 
 /// @brief Create a PackedData object from a host buffer
 [[nodiscard]] inline rapidsmpf::PackedData create_packed_data(
-    cuda::std::span<uint8_t const> metadata,
-    cuda::std::span<uint8_t const> data,
+    std::span<uint8_t const> metadata,
+    std::span<uint8_t const> data,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br
 ) {
