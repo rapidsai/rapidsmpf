@@ -205,7 +205,7 @@ TEST(BufferResource, LimitAvailableMemory) {
 
     // With the correct memory type, we can copy the buffer.
     auto [reserve5, overbooking5] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
-    auto dev_buf3 = br.copy(host_buf3, stream, reserve5);
+    auto dev_buf3 = BufferResource::copy(host_buf3, stream, reserve5);
     EXPECT_EQ(dev_buf3->mem_type(), MemoryType::DEVICE);
     EXPECT_EQ(dev_buf3->size, 10_KiB);
     EXPECT_EQ(reserve5.size(), 0);
