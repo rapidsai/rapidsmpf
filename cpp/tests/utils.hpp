@@ -99,7 +99,8 @@ template <typename T>
 ) {
     auto metadata_ptr =
         std::make_unique<std::vector<uint8_t>>(metadata.begin(), metadata.end());
-    auto data_ptr = std::make_unique<rmm::device_buffer>(data.data(), data.size(), stream);
+    auto data_ptr =
+        std::make_unique<rmm::device_buffer>(data.data(), data.size(), stream);
     return rapidsmpf::PackedData{
         std::move(metadata_ptr), br->move(std::move(data_ptr), stream)
     };
