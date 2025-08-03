@@ -99,10 +99,7 @@ template <typename T>
 ) {
     auto metadata_ptr =
         std::make_unique<std::vector<uint8_t>>(metadata.begin(), metadata.end());
-    auto data_ptr = std::make_unique<rmm::device_buffer>(data.size(), stream);
-    RAPIDSMPF_CUDA_TRY(
-        cudaMemcpy(data_ptr->data(), data.data(), data.size(), cudaMemcpyHostToDevice)
-    );
+    auto data_ptr = std::make_unique<rmm::device_buffer>(data.data(), data.size(), stream);
     return rapidsmpf::PackedData{
         std::move(metadata_ptr), br->move(std::move(data_ptr), stream)
     };
