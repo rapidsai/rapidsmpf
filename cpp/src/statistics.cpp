@@ -65,9 +65,7 @@ std::size_t Statistics::add_bytes_stat(std::string const& name, std::size_t nbyt
 
 Duration Statistics::add_duration_stat(std::string const& name, Duration seconds) {
     return Duration(add_stat(
-        name,
-        seconds.count(),
-        [](std::ostream& os, std::size_t count, double val) {
+        name, seconds.count(), [](std::ostream& os, std::size_t count, double val) {
             os << format_duration(val);
             if (count > 1) {
                 os << " (avg " << format_duration(val / count) << ")";

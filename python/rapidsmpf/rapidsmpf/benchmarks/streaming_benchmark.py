@@ -172,7 +172,9 @@ def streaming_shuffle(
         # NOTE: This will require part_size amount of GPU memory.
         chunks: dict[int, PackedData] = {}
         for i in range(output_nparts):
-            chunks[i] = PackedData.from_cudf_packed_columns(pack(dummy_table))
+            chunks[i] = PackedData.from_cudf_packed_columns(
+                pack(dummy_table), DEFAULT_STREAM, br
+            )
 
         if p > 0 and insert_delay_ms > 0:
             time.sleep(insert_delay_ms / 1000)

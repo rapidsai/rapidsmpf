@@ -183,7 +183,8 @@ class MPI final : public Communicator {
     /**
      * @copydoc Communicator::recv_any
      */
-    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(Tag tag
+    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
+        Tag tag
     ) override;
 
     /**
@@ -201,6 +202,13 @@ class MPI final : public Communicator {
     std::vector<std::size_t> test_some(
         std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
             future_map
+    ) override;
+
+    /**
+     * @copydoc Communicator::wait
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> wait(
+        std::unique_ptr<Communicator::Future> future
     ) override;
 
     /**

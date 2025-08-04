@@ -10,10 +10,10 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 
-enum class TestEnvironmentType {
+enum class TestEnvironmentType : int {
     MPI,
     UCXX,
-    SINGLE
+    SINGLE,
 };
 
 class Environment : public ::testing::Environment {
@@ -26,7 +26,7 @@ class Environment : public ::testing::Environment {
 
     void barrier();
 
-    TestEnvironmentType type() const;
+    [[nodiscard]] TestEnvironmentType type() const;
 
     std::shared_ptr<rapidsmpf::Communicator> split_comm();
 

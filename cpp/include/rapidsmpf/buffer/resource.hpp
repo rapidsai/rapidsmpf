@@ -44,8 +44,8 @@ class MemoryReservation {
      */
     MemoryReservation(MemoryReservation&& o)
         : MemoryReservation{
-            o.mem_type_, std::exchange(o.br_, nullptr), std::exchange(o.size_, 0)
-        } {}
+              o.mem_type_, std::exchange(o.br_, nullptr), std::exchange(o.size_, 0)
+          } {}
 
     /**
      * @brief Move assignment operator for MemoryReservation.
@@ -323,6 +323,22 @@ class BufferResource {
     );
 
     /**
+     * @brief Move a Buffer to a device buffer without allowing memory type conversion.
+     *
+     * This overload assumes the buffer is already in device memory. No copy will be
+     * performed. Moving between different memory types is not allowed and will result in
+     * an exception.
+     *
+     * @param buffer The buffer to move.
+     * @return A unique pointer to the resulting device buffer.
+     *
+     * @throws std::invalid_argument if the buffer is not already in device memory.
+     */
+    std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
+        std::unique_ptr<Buffer> buffer
+    );
+
+    /**
      * @brief Move a Buffer to a host vector.
      *
      * If and only if moving between different memory types will this perform a copy.
@@ -340,6 +356,22 @@ class BufferResource {
         std::unique_ptr<Buffer> buffer,
         rmm::cuda_stream_view stream,
         MemoryReservation& reservation
+    );
+
+    /**
+     * @brief Move a Buffer to a host vector without allowing memory type conversion.
+     *
+     * This overload assumes the buffer is already in host memory. No copy will be
+     * performed. Moving between different memory types is not allowed and will result in
+     * an exception.
+     *
+     * @param buffer The buffer to move.
+     * @return A unique pointer to the resulting host vector.
+     *
+     * @throws std::invalid_argument if the buffer is not already in host memory.
+     */
+    std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
+        std::unique_ptr<Buffer> buffer
     );
 
     /**

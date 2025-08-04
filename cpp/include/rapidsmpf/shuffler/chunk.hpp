@@ -163,7 +163,7 @@ class Chunk {
      *
      * @param i The index of the message.
      * @return The size of the packed data of the message. Zero when the message is a
-     * control message, otherwise the size of `PackedData::gpu_data` of the message.
+     * control message, otherwise the size of `PackedData::data` of the message.
      */
     [[nodiscard]] size_t data_size(size_t i) const {
         return i == 0 ? data_offsets_.at(0)
@@ -250,18 +250,10 @@ class Chunk {
      * @param chunk_id The ID of the chunk.
      * @param part_id The ID of the partition.
      * @param packed_data The packed data.
-     * @param event The CUDA event.
-     * @param stream The CUDA stream.
-     * @param br The buffer resource.
      * @return The chunk.
      */
     static Chunk from_packed_data(
-        ChunkID chunk_id,
-        PartID part_id,
-        PackedData&& packed_data,
-        std::shared_ptr<Buffer::Event> event,
-        rmm::cuda_stream_view stream,
-        BufferResource* br
+        ChunkID chunk_id, PartID part_id, PackedData&& packed_data
     );
 
     /**

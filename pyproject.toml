@@ -71,6 +71,8 @@ ignore = [
   "E501",
   # pydocstyle: http://www.pydocstyle.org/en/stable/error_codes.html
   "D401", # Relax NumPy docstring convention: First line should be in imperative mood
+  # pylint
+  "PLC0415", # import-outside-top-level
   # flake8-pytest-style:
   "PT011", # pytest.raises({exception}) is too broad, set the match parameter or use a more specific exception
   # flake8-simplify

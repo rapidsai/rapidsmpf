@@ -3,7 +3,7 @@
 
 from cython.operator cimport dereference as deref
 from cython.operator cimport preincrement
-from libcpp cimport bool
+from libcpp cimport bool as bool_t
 from libcpp.memory cimport make_shared, make_unique
 from libcpp.string cimport string
 
@@ -43,7 +43,7 @@ cdef class Statistics:
     mr
         Enable memory profiling by providing a RMM resource adaptor.
     """
-    def __cinit__(self, *, bool enable, RmmResourceAdaptor mr = None):
+    def __cinit__(self, *, bool_t enable, RmmResourceAdaptor mr = None):
         cdef cpp_RmmResourceAdaptor* mr_handle
         self._mr = mr  # Keep mr alive.
         if enable and mr is not None:
