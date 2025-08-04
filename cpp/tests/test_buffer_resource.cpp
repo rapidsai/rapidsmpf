@@ -195,7 +195,7 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(dev_mem_available(), 10_KiB);
 
     // But copying buffers always requires a reservation.
-    EXPECT_THROW(BufferResource::copy(host_buf3, stream, reserve3), std::overflow_error);
+    EXPECT_THROW(br.copy(host_buf3, stream, reserve3), std::overflow_error);
 
     // The reservation must be of the correct memory type.
     auto [reserve4, overbooking4] = br.reserve(MemoryType::HOST, 10_KiB, true);
@@ -205,7 +205,7 @@ TEST(BufferResource, LimitAvailableMemory) {
 
     // With the correct memory type, we can copy the buffer.
     auto [reserve5, overbooking5] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
-    auto dev_buf3 = BufferResource::copy(host_buf3, stream, reserve5);
+    auto dev_buf3 = br.copy(host_buf3, stream, reserve5);
     EXPECT_EQ(dev_buf3->mem_type(), MemoryType::DEVICE);
     EXPECT_EQ(dev_buf3->size, 10_KiB);
     EXPECT_EQ(reserve5.size(), 0);
@@ -242,7 +242,7 @@ TEST(BufferResource, CUDAEventTracking) {
         initialize_data(*host_data);
         auto host_buf = br.move(std::move(host_data));
         auto [host_reserve, host_overbooking] = br.reserve(MemoryType::HOST, 1024, false);
-        auto host_copy = BufferResource::copy(host_buf, stream, host_reserve);
+        auto host_copy = br.copy(host_buf, stream, host_reserve);
         host_copy->wait_for_ready();  // should be no-op
         EXPECT_TRUE(host_copy->is_ready());  // No event created
 
@@ -272,7 +272,7 @@ TEST(BufferResource, CUDAEventTracking) {
 
         auto [copy_reserve, copy_overbooking] =
             br.reserve(MemoryType::DEVICE, buffer_size, false);
-        auto dev_copy = BufferResource::copy(dev_buf, stream, copy_reserve);
+        auto dev_copy = br.copy(dev_buf, stream, copy_reserve);
         EXPECT_EQ(dev_copy->mem_type(), MemoryType::DEVICE);
 
         // Wait for copy to complete
@@ -295,7 +295,7 @@ TEST(BufferResource, CUDAEventTracking) {
         auto [dev_reserve, dev_overbooking] =
             br.reserve(MemoryType::DEVICE, buffer_size, false);
 
-        auto dev_copy = BufferResource::copy(host_buf, stream, dev_reserve);
+        auto dev_copy = br.copy(host_buf, stream, dev_reserve);
         EXPECT_EQ(dev_copy->mem_type(), MemoryType::DEVICE);
 
         // Wait for copy to complete
@@ -330,7 +330,7 @@ TEST(BufferResource, CUDAEventTracking) {
 
         auto [host_reserve, host_overbooking] =
             br.reserve(MemoryType::HOST, buffer_size, false);
-        auto host_copy = BufferResource::copy(dev_buf, stream, host_reserve);
+        auto host_copy = br.copy(dev_buf, stream, host_reserve);
         EXPECT_EQ(host_copy->mem_type(), MemoryType::HOST);
 
         // Wait for copy to complete

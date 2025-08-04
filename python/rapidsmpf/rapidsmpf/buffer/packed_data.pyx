@@ -25,8 +25,7 @@ cdef extern from *:
         rapidsmpf::BufferResource* br
     ) {
         return std::make_unique<rapidsmpf::PackedData>(
-            std::move(metadata), rapidsmpf::BufferResource::move(std::move(gpu_data),
-            stream)
+            std::move(metadata), br->move(std::move(gpu_data), stream)
         );
     }
     """
