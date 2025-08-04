@@ -686,7 +686,7 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
             total_staged_data_ += static_cast<std::int64_t>(packed_data.data->size);
             chunk_groups[size_t(target_rank)].emplace_back(
                 detail::Chunk::from_packed_data(
-                    dummy_chunk_id, pid, std::move(packed_data), nullptr, stream_, br_
+                    dummy_chunk_id, pid, std::move(packed_data)
                 )
             );
         }

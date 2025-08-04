@@ -216,20 +216,14 @@ std::tuple<Chunk, std::vector<uint8_t>, std::vector<uint8_t>, size_t> make_mixed
         Chunk::from_packed_data(
             0,
             2 + part_id_offset,
-            create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream),
-            nullptr,
-            stream,
-            br
+            create_packed_data({metadata.data(), 3}, {data.data(), 3}, stream, br)
         )
     );  // packed data
     chunks.push_back(
         Chunk::from_packed_data(
             0,
             3 + part_id_offset,
-            create_packed_data({metadata.data() + 5, 0}, {data.data() + 5, 0}, stream),
-            nullptr,
-            stream,
-            br
+            create_packed_data({metadata.data() + 5, 0}, {data.data() + 5, 0}, stream, br)
         )
     );  // empty packed data - non-null
     chunks.push_back(
@@ -239,10 +233,7 @@ std::tuple<Chunk, std::vector<uint8_t>, std::vector<uint8_t>, size_t> make_mixed
         Chunk::from_packed_data(
             0,
             5 + part_id_offset,
-            create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream),
-            nullptr,
-            stream,
-            br
+            create_packed_data({metadata.data() + 3, 2}, {data.data() + 3, 2}, stream, br)
         )
     );  // packed data
     chunks.push_back(
