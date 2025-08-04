@@ -347,5 +347,10 @@ constexpr T* to_pointer(std::shared_ptr<T>& ptr) noexcept {
 
 }  // namespace detail
 
+/// @brief Helper for overloaded lambdas using std::visit.
+template <class... Ts>
+struct overloaded : Ts... {
+    using Ts::operator()...;
+};
 
 }  // namespace rapidsmpf
