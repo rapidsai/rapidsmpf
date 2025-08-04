@@ -3,7 +3,7 @@
 """The Shuffler interface for RapidsMPF."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport UINT8_MAX, uint8_t, uint32_t
+from libc.stdint cimport UINT8_MAX, uint32_t
 from libcpp.memory cimport make_unique
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
@@ -17,20 +17,6 @@ from rapidsmpf.statistics cimport Statistics
 
 from collections.abc import Iterable
 from typing import Mapping
-
-_registry: set[int] = set()
-
-
-def get_active_shuffle_ids():
-    """
-    Get the set of active shuffle IDs.
-
-    Returns
-    -------
-    set[int]
-        The set of currently active shuffle operation IDs.
-    """
-    return _registry.copy()
 
 
 # Insert PackedData into a partition map. We implement this in C++ because
@@ -107,12 +93,10 @@ cdef class Shuffler:
         self._stream = Stream(stream)
         self._comm = comm
         self._br = br
-        self._op_id = op_id  # Store op_id for cleanup
         cdef cpp_BufferResource* br_ = br.ptr()
         cdef cuda_stream_view _stream = self._stream.view()
         if statistics is None:
             statistics = Statistics(enable=False)  # Disables statistics.
-        _registry.add(op_id)
         with nogil:
             self._handle = make_unique[cpp_Shuffler](
                 comm._handle,
@@ -125,7 +109,6 @@ cdef class Shuffler:
             )
 
     def __dealloc__(self):
-        _registry.discard(self._op_id)
         with nogil:
             self._handle.reset()
 

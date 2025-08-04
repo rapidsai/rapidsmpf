@@ -12,8 +12,6 @@ from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.statistics import Statistics
 
-def get_active_shuffle_ids() -> set[int]: ...
-
 class Shuffler:
     max_concurrent_shuffles: int
     def __init__(

@@ -126,15 +126,3 @@ def stream() -> Stream:
     we just return the default stream.
     """
     return DEFAULT_STREAM
-
-
-@pytest.fixture(autouse=True)
-def debug_active_shuffles() -> Generator[None, None, None]:
-    """
-    Temporary fixture to debug active shuffles.
-    """
-    from rapidsmpf.shuffler import get_active_shuffle_ids
-
-    yield
-
-    print("Active shuffles (main thread):", get_active_shuffle_ids())

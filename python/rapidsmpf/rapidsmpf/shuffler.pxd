@@ -43,4 +43,3 @@ cdef class Shuffler:
     cdef Communicator _comm
     cdef Stream _stream
     cdef BufferResource _br
-    cdef uint8_t _op_id
