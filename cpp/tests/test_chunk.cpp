@@ -9,8 +9,6 @@
 
 #include <gtest/gtest.h>
 
-#include <cuda/std/span>
-
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/memory_resource.hpp>
 
@@ -18,6 +16,8 @@
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
+
+#include "utils.hpp"
 
 using namespace rapidsmpf;
 using namespace rapidsmpf::shuffler;
@@ -33,26 +33,6 @@ class ChunkTest : public ::testing::Test {
     std::unique_ptr<BufferResource> br;
     rmm::cuda_stream_view stream;
 };
-
-namespace {
-
-/// @brief Create a PackedData object from a host buffer
-PackedData create_packed_data(
-    cuda::std::span<uint8_t const> metadata,
-    cuda::std::span<uint8_t const> data,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
-) {
-    auto metadata_ptr =
-        std::make_unique<std::vector<uint8_t>>(metadata.begin(), metadata.end());
-    auto data_ptr = std::make_unique<rmm::device_buffer>(data.size(), stream);
-    RAPIDSMPF_CUDA_TRY(
-        cudaMemcpy(data_ptr->data(), data.data(), data.size(), cudaMemcpyHostToDevice)
-    );
-    return PackedData{std::move(metadata_ptr), br->move(std::move(data_ptr), stream)};
-}
-
-}  // namespace
 
 TEST_F(ChunkTest, FromFinishedPartition) {
     ChunkID chunk_id = 123;
