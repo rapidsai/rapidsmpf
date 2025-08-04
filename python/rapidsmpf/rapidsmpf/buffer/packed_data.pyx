@@ -3,7 +3,7 @@
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint8_t
-from libcpp.memory cimport unique_ptr
+from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from pylibcudf.contiguous_split cimport PackedColumns
@@ -95,3 +95,15 @@ cdef class PackedData:
     def __dealloc__(self):
         with nogil:
             self.c_obj.reset()
+
+
+# Convert a vector of `cpp_PackedData` into a list of `PackedData`.
+cdef list packed_data_vector_to_list(vector[cpp_PackedData] packed_data):
+    cdef list ret = []
+    for i in range(packed_data.size()):
+        ret.append(
+            PackedData.from_librapidsmpf(
+                make_unique[cpp_PackedData](move(packed_data[i]))
+            )
+        )
+    return ret
