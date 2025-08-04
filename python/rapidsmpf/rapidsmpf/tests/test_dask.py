@@ -191,6 +191,16 @@ def test_boostrap_single_node_cluster_no_deadlock() -> None:
 def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
     pytest.importorskip("dask_cudf")
 
+    def clear_finished_shuffles(dask_worker: Worker) -> None:
+        # Avoid leaking Shuffler objects between tests.
+        ctx = get_worker_context(dask_worker)
+        for shuffle_id, shuffler in list(ctx.shufflers.items()):
+            if ctx.shufflers[shuffle_id].finished():
+                del ctx.shufflers[shuffle_id]
+            else:
+                shuffler.shutdown()
+                del ctx.shufflers[shuffle_id]
+
     def do_shuffle(seed: int, num_shuffles: int) -> None:
         """Shuffle a dataframe `num_shuffles` consecutive times and check the result"""
         expect = (
@@ -263,6 +273,8 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
             ):
                 do_shuffle(seed=3, num_shuffles=max_num_shuffles + 1)
 
+            client.run(clear_finished_shuffles)
+
 
 def test_many_shuffles_single() -> None:
     pytest.importorskip("dask_cudf")
@@ -332,3 +344,12 @@ def test_many_shuffles_single() -> None:
         match=f"Cannot shuffle more than {max_num_shuffles} times in a single query",
     ):
         do_shuffle(seed=3, num_shuffles=max_num_shuffles + 1)
+
+    # Cleanup Shufflers to avoid leaking between tests.
+    context = rapidsmpf.integrations.single._get_worker_context()
+    for shuffle_id, shuffler in list(context.shufflers.items()):
+        if context.shufflers[shuffle_id].finished():
+            del context.shufflers[shuffle_id]
+        else:
+            shuffler.shutdown()
+            del context.shufflers[shuffle_id]
