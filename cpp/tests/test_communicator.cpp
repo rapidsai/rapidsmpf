@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -26,6 +27,7 @@ class BaseCommunicatorTest : public ::testing::Test {
         );
         br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
         stream = rmm::cuda_stream_default;
+        GlobalEnvironment->barrier();
         GlobalEnvironment->barrier();
     }
 
@@ -141,6 +143,83 @@ class CommunicatorTest
     size_t n_ops;
 };
 
+class BasicCommunicatorTest : public BaseCommunicatorTest,
+                              public testing::WithParamInterface<rapidsmpf::MemoryType> {
+  protected:
+    rapidsmpf::MemoryType memory_type() override {
+        return GetParam();
+    }
+};
+
+INSTANTIATE_TEST_CASE_P(
+    BasicCommunicatorTest,
+    BasicCommunicatorTest,
+    testing::Values(rapidsmpf::MemoryType::HOST, rapidsmpf::MemoryType::DEVICE),
+    [](const testing::TestParamInfo<rapidsmpf::MemoryType>& info) {
+        return "memory_type_" + std::to_string(static_cast<int>(info.param));
+    }
+);
+
+// Test send to self
+TEST_P(BasicCommunicatorTest, SendToSelf) {
+    if (GlobalEnvironment->type() == TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "SINGLE communicator does not support send to self";
+    }
+
+    // if (comm->rank() == 0) {
+    //     GTEST_SKIP();
+    // }
+
+    constexpr size_t n_elems = 10;
+    auto data = iota_vector<uint8_t>(n_elems, 0);
+    constexpr Tag tag{0, 0};
+    Rank self_rank = comm->rank();
+
+    auto send_buf = make_buffer(n_elems);
+    copy_to_buffer(data.data(), n_elems, *send_buf);
+
+    // send data to self (ignore the return future)
+    auto send_future = comm->send(std::move(send_buf), self_rank, tag);
+
+    // receive data from self
+    std::vector<std::unique_ptr<Communicator::Future>> recv_futures;
+    auto recv_buf = make_buffer(n_elems);
+    recv_futures.emplace_back(comm->recv(self_rank, tag, std::move(recv_buf)));
+
+    while (!recv_futures.empty()) {
+        auto finished = comm->test_some(recv_futures);
+
+        if (finished.empty()) {
+            std::this_thread::sleep_for(std::chrono::microseconds(10));
+            continue;
+        }
+        // there should only be one finished future
+        auto recv_buf = comm->get_gpu_data(std::move(finished[0]));
+        EXPECT_EQ(n_elems, recv_buf->size);
+        std::vector<uint8_t> recv_data(n_elems);
+        copy_from_buffer(*recv_buf, recv_data.data(), n_elems);
+        EXPECT_EQ(data, recv_data);
+        log_vec("recv_data:", recv_data);
+    }
+}
+
+class CommunicatorTest
+    : public BaseCommunicatorTest,
+      public testing::WithParamInterface<std::tuple<rapidsmpf::MemoryType, size_t>> {
+  protected:
+    void SetUp() override {
+        std::tie(mem_type, n_ops) = GetParam();
+        BaseCommunicatorTest::SetUp();
+    }
+
+    rapidsmpf::MemoryType memory_type() override {
+        return mem_type;
+    }
+
+    rapidsmpf::MemoryType mem_type;
+    size_t n_ops;
+};
+
 INSTANTIATE_TEST_CASE_P(
     CommunicatorTest,
     CommunicatorTest,
@@ -159,15 +238,6 @@ TEST_P(CommunicatorTest, MultiDestinationSend) {
     if (GlobalEnvironment->type() == TestEnvironmentType::SINGLE) {
         GTEST_SKIP() << "SINGLE communicator does not support multi-destination send";
     }
-
-    auto log_vec = [&](std::string const& prefix, std::vector<int> const& vec) {
-        std::stringstream ss;
-        ss << prefix << " ";
-        for (auto&& v : vec) {
-            ss << v << " ";
-        }
-        comm->logger().debug(ss.str());
-    };
 
     constexpr size_t n_elems = 5;  // number of int elements to send
     auto const all_ranks = iota_vector<rapidsmpf::Rank>(comm->nranks());
@@ -230,6 +300,7 @@ TEST_P(CommunicatorTest, MultiDestinationSend) {
     EXPECT_EQ(offset, n_elems * comm->nranks() * n_ops);
 
     // sort recv data
+    std::ranges::sort(recv_data);
     std::ranges::sort(recv_data);
 
     // check if the recv data is sorted
