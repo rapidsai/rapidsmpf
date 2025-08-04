@@ -155,8 +155,7 @@ std::vector<PackedData> spill_partitions(
     for (auto& [metadata, data] : partitions) {
         auto [reservation, _] = br->reserve(MemoryType::HOST, data->size, false);
         ret.emplace_back(
-            std::move(metadata),
-            br->move(MemoryType::HOST, std::move(data), stream, reservation)
+            std::move(metadata), br->move(std::move(data), stream, reservation)
         );
     }
     return ret;
@@ -193,8 +192,7 @@ std::vector<PackedData> unspill_partitions(
     ret.reserve(partitions.size());
     for (auto& [metadata, data] : partitions) {
         ret.emplace_back(
-            std::move(metadata),
-            br->move(MemoryType::DEVICE, std::move(data), stream, reservation)
+            std::move(metadata), br->move(std::move(data), stream, reservation)
         );
     }
     return ret;
