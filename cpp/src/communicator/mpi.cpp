@@ -116,6 +116,17 @@ std::vector<int> mpi_testsome(std::vector<MPI_Request> const& reqs) {
     return indices;
 }
 
+bool mpi_testall(std::vector<MPI_Request> const& reqs) {
+    int flag;
+    RAPIDSMPF_MPI(MPI_Testall(
+        static_cast<int>(reqs.size()),
+        const_cast<MPI_Request*>(reqs.data()),
+        &flag,
+        MPI_STATUSES_IGNORE
+    ));
+    return static_cast<bool>(flag);
+}
+
 }  // namespace
 
 MPI::MPI(MPI_Comm comm, config::Options options)
@@ -232,37 +243,77 @@ std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
     }
     std::vector<std::unique_ptr<Communicator::Future>> completed;
 
-    // Note: this impl traverses the future vector three times:
-    // 1. partition the futures s.t. singleton futures are at the beginning
-    // 2. test the singleton requests first and then multi-req futures
-    // 3. erase the completed futures from the future vector
+    auto to_mpi_future = [](auto& future) {
+        auto mpi_future = dynamic_cast<Future*>(future.get());
+        RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
+        return mpi_future;
+    };
 
-    // partition the futures s.t. singleton futures are at the beginning
-    // and multi-req futures are at the end
-    auto multi_reqs_range =
-        std::ranges::partition(future_vector, [&](auto const& future) {
-            auto mpi_future = dynamic_cast<Future const*>(future.get());
-            RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-            return mpi_future->size() == 1;
-        });
+    auto to_mpi_future_static = [](auto& future) {
+        return static_cast<Future*>(future.get());
+    };
 
-    // extract mpi requests from the singleton futures
+    // using std::partition reference implementation
+    // https://en.cppreference.com/w/cpp/algorithm/partition.html
+
+    // the following logic will partition the future vector into singleton and multi-req
+    // futures.
+    // When a multi-req future is found, it will be tested immediately. If it's completed,
+    // it will be moved to the completed vector.
+    // When a singleton future is found, it's request will be added to the
+    // `singleton_reqs` vector, and swapped with the last multi-req future.
+    // essentially, this mutates the elements while partitioning the vector.
+
+    auto first = future_vector.begin();
+    auto const last = future_vector.end();
+
     std::vector<MPI_Request> singleton_reqs;
-    singleton_reqs.reserve(future_vector.size());
-    std::ranges::transform(
-        future_vector.begin(),
-        multi_reqs_range.begin(),
-        std::back_inserter(singleton_reqs),
-        [](auto const& future) {
-            auto mpi_future = static_cast<Future*>(future.get());
-            return mpi_future->reqs_[0];
-        }
-    );
+    singleton_reqs.reserve(future_vector.size());  // at most, all futures are singleton
 
-    // test the singleton requests first
+    // advance `first` to the first multi-req future, while collecting singleton requests
+    for (; first != last; ++first) {
+        auto mpi_future = to_mpi_future(*first);
+        if (mpi_future->size() == 1) {
+            singleton_reqs.emplace_back(mpi_future->reqs_[0]);
+        } else {
+            break;
+        }
+    }
+
+    if (first != last) {
+        // first points to a multi-req future. test it immediately.
+        // if it's completed, move it to the completed vector
+        if (mpi_testall(to_mpi_future_static(*first)->reqs_)) {
+            // move the completed multi-req future to the completed vector. but `first` is
+            // still valid
+            completed.emplace_back(std::move(*first));
+        }
+
+        for (auto i = std::next(first); i != last; ++i) {
+            auto mpi_future = to_mpi_future(*i);
+            if (mpi_future->size() == 1) {  // this is a singleton future
+                singleton_reqs.emplace_back(mpi_future->reqs_[0]);
+                std::iter_swap(i, first);
+                ++first;
+            } else {  // this is a multi-req future
+                // test it immediately. if it's completed, move it to the completed vector
+                if (mpi_testall(mpi_future->reqs_)) {
+                    completed.emplace_back(std::move(*i));
+                }
+            }
+        }
+    }
+
+    // now, [future_vector.begin(), first) contains singleton futures
+    // and [first, last) contains multi-req futures (with nullptr for completed ones)
+    RAPIDSMPF_EXPECTS(
+        singleton_reqs.size()
+            == static_cast<size_t>(std::distance(future_vector.begin(), first)),
+        "incorrect number of singleton requests"
+    );
+    // test the singleton requests
     auto completed_singleton_reqs = mpi_testsome(singleton_reqs);
-    completed.reserve(completed_singleton_reqs.size());
-    // move the completed singleton futures to the completed vector
+    completed.reserve(completed.size() + completed_singleton_reqs.size());
     std::ranges::transform(
         completed_singleton_reqs.begin(),
         completed_singleton_reqs.end(),
@@ -270,17 +321,7 @@ std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
         [&](std::size_t i) { return std::move(future_vector[i]); }
     );
 
-    // test the multi-req futures
-    for (auto& future : multi_reqs_range) {
-        auto mpi_future = static_cast<Future*>(future.get());
-        auto indices = mpi_testsome(mpi_future->reqs_);
-        // if all the requests are completed, move the future to the completed vector
-        if (indices.size() == mpi_future->size()) {
-            completed.emplace_back(std::move(future));
-        }
-    }
-
-    // remove the completed futures from the future vector
+    // all completed futures should be nullptr in the future vector
     std::erase(future_vector, nullptr);
 
     return completed;
@@ -344,15 +385,7 @@ std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> 
 bool MPI::test(Communicator::Future& future) {
     auto mpi_future = dynamic_cast<Future*>(&future);
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-
-    int flag = 0;
-    RAPIDSMPF_MPI(MPI_Testall(
-        static_cast<int>(mpi_future->reqs_.size()),
-        mpi_future->reqs_.data(),
-        &flag,
-        MPI_STATUS_IGNORE
-    ));
-    return static_cast<bool>(flag);
+    return mpi_testall(mpi_future->reqs_);
 }
 
 std::string MPI::str() const {
