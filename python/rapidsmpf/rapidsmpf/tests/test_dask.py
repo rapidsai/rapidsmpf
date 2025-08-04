@@ -89,7 +89,7 @@ def test_dask_cudf_integration(
 
     with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
-            client.register_worker_plugin(DebugActiveShuffles())
+            client.register_plugin(DebugActiveShuffles())
             bootstrap_dask_cluster(
                 client, options=Options({"dask_spill_device": "0.1"})
             )
@@ -171,7 +171,7 @@ def test_dask_cudf_integration_single_raises() -> None:
 def test_bootstrap_dask_cluster_idempotent() -> None:
     options = Options({"dask_spill_device": "0.1"})
     with LocalCUDACluster() as cluster, Client(cluster) as client:
-        client.register_worker_plugin(DebugActiveShuffles())
+        client.register_plugin(DebugActiveShuffles())
         bootstrap_dask_cluster(client, options=options)
         before = client.run(
             lambda dask_worker: id(get_worker_context(dask_worker).comm)
@@ -184,7 +184,7 @@ def test_bootstrap_dask_cluster_idempotent() -> None:
 
 def test_boostrap_single_node_cluster_no_deadlock() -> None:
     with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
-        client.register_worker_plugin(DebugActiveShuffles())
+        client.register_plugin(DebugActiveShuffles())
         bootstrap_dask_cluster(client, options=Options({"dask_spill_device": "0.1"}))
 
 
@@ -238,7 +238,7 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
 
     with LocalCUDACluster(n_workers=1, loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
-            client.register_worker_plugin(DebugActiveShuffles())
+            client.register_plugin(DebugActiveShuffles())
             bootstrap_dask_cluster(
                 client, options=Options({"dask_spill_device": "0.1"})
             )
