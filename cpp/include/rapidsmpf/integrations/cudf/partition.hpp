@@ -12,7 +12,10 @@
 #include <cudf/partitioning.hpp>
 #include <cudf/table/table.hpp>
 
+#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -28,7 +31,7 @@ namespace rapidsmpf {
  * @param hash_function Hash function to use.
  * @param seed Seed value to the hash function.
  * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param mr Device memory resource used to allocate the returned table's device memory.
+ * @param br Buffer resource for memory allocations.
  * @param statistics The statistics instance to use (disabled by default).
  *
  * @return A vector of each partition and a table that owns the device memory.
@@ -46,7 +49,7 @@ partition_and_split(
     cudf::hash_id hash_function,
     uint32_t seed,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
+    BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
@@ -60,8 +63,8 @@ partition_and_split(
  * @param hash_function Hash function to use.
  * @param seed Seed value to the hash function.
  * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param mr Device memory resource used to allocate the returned table's device memory.
- *  @param statistics The statistics instance to use (disabled by default).
+ * @param br Buffer resource for memory allocations.
+ * @param statistics The statistics instance to use (disabled by default).
  *
  * @return A map of partition IDs and their packed tables.
  *
@@ -78,7 +81,7 @@ partition_and_split(
     cudf::hash_id hash_function,
     uint32_t seed,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
+    BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
@@ -90,7 +93,7 @@ partition_and_split(
  * @param splits The split points, equivalent to cudf::split(), i.e. one less than
  * the number of result partitions.
  * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param mr Device memory resource used to allocate the returned table's device memory.
+ * @param br Buffer resource for memory allocations.
  * @param statistics The statistics instance to use (disabled by default).
  *
  * @return A map of partition IDs and their packed tables.
@@ -105,7 +108,7 @@ partition_and_split(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& splits,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
+    BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
@@ -113,12 +116,12 @@ partition_and_split(
 /**
  * @brief Unpack (deserialize) input tables and concatenate them.
  *
- * Ignores partitions with metadata and gpu_data null pointers.
+ * Ignores empty partitions.
  *
  * @param partitions The packed input tables.
  * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param mr Device memory resource used to allocate the returned table's device memory.
- *  @param statistics The statistics instance to use (disabled by default).
+ * @param br Buffer resource for memory allocations.
+ * @param statistics The statistics instance to use (disabled by default).
  *
  * @return The unpacked and concatenated result.
  *
@@ -129,9 +132,61 @@ partition_and_split(
 [[nodiscard]] std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
+    BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
+/**
+ * @brief Spill partitions from device memory to host memory.
+ *
+ * Moves the buffer of each `PackedData` from device memory to host memory using
+ * the provided buffer resource. Partitions that are already in host memory are
+ * passed through unchanged.
+ *
+ * For device-resident partitions, a host memory reservation is made before moving
+ * the buffer. If the reservation fails due to insufficient host memory, an exception
+ * is thrown. Overbooking is not allowed.
+ *
+ * @param partitions The partitions to spill.
+ * @param stream CUDA stream used for memory operations.
+ * @param br Buffer resource used to reserve host memory and perform the move.
+ *
+ * @return A vector of `PackedData`, where each buffer resides in host memory.
+ *
+ * @throws std::overflow_error If host memory reservation fails.
+ */
+std::vector<PackedData> spill_partitions(
+    std::vector<PackedData>&& partitions, rmm::cuda_stream_view stream, BufferResource* br
+);
+
+/**
+ * @brief Move spilled partitions (i.e., packed tables in host memory) back to device
+ * memory.
+ *
+ * Each partition is inspected to determine whether its buffer resides in device memory.
+ * Buffers already in device memory are left untouched. Host-resident buffers are moved
+ * to device memory using the provided buffer resource and CUDA stream.
+ *
+ * If insufficient device memory is available, the buffer resource's spill manager is
+ * invoked to free memory. If overbooking occurs and spilling fails to reclaim enough
+ * memory, behavior depends on the `allow_overbooking` flag.
+ *
+ * @param partitions The partitions to unspill, potentially containing host-resident data.
+ * @param stream CUDA stream used for memory operations and kernel launches.
+ * @param br Buffer resource responsible for memory reservation and spills.
+ * @param allow_overbooking If false, ensures enough memory is freed to satisfy the
+ * reservation; otherwise, allows overbooking even if spilling was insufficient.
+ *
+ * @return A vector of `PackedData`, each with a buffer in device memory.
+ *
+ * @throws std::overflow_error If overbooking exceeds the amount spilled and
+ *         `allow_overbooking` is false.
+ */
+std::vector<PackedData> unspill_partitions(
+    std::vector<PackedData>&& partitions,
+    rmm::cuda_stream_view stream,
+    BufferResource* br,
+    bool allow_overbooking
+);
 
 }  // namespace rapidsmpf

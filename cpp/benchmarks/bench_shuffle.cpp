@@ -240,7 +240,7 @@ rapidsmpf::Duration do_run(
             auto packed_chunks = shuffler.extract(finished_partition);
             output_partitions.emplace_back(
                 rapidsmpf::unpack_and_concat(
-                    std::move(packed_chunks), stream, br->device_mr(), statistics
+                    std::move(packed_chunks), stream, br, statistics
                 )
             );
         }
@@ -259,7 +259,7 @@ rapidsmpf::Duration do_run(
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
                 stream,
-                br->device_mr()
+                br
             );
             RAPIDSMPF_EXPECTS(
                 std::count_if(
@@ -385,7 +385,7 @@ rapidsmpf::Duration run_hash_partition_inline(
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
             stream,
-            br->device_mr(),
+            br,
             statistics
         );
     };
@@ -446,7 +446,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
                     cudf::hash_id::HASH_MURMUR3,
                     cudf::DEFAULT_HASH_SEED,
                     stream,
-                    br->device_mr()
+                    br
                 );
             }
         );

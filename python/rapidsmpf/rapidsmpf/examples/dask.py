@@ -11,7 +11,6 @@ import numpy as np
 from dask.tokenize import tokenize
 from dask.utils import M
 
-import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.integrations.cudf.partition import (
@@ -19,6 +18,7 @@ from rapidsmpf.integrations.cudf.partition import (
     split_and_pack,
     unpack_and_concat,
 )
+from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 
@@ -73,6 +73,8 @@ class DaskCudfIntegration:
             Other data needed for partitioning. For example,
             this may be boundary values needed for sorting.
         """
+        ctx = get_worker_context()
+        assert ctx.br is not None
         on = options["on"]
         if other:
             df = df.sort_values(on)
@@ -81,8 +83,8 @@ class DaskCudfIntegration:
             packed_inputs = split_and_pack(
                 df.to_pylibcudf()[0],
                 splits.tolist(),
+                br=ctx.br,
                 stream=DEFAULT_STREAM,
-                device_mr=rmm.mr.get_current_device_resource(),
             )
         else:
             columns_to_hash = tuple(list(df.columns).index(val) for val in on)
@@ -90,8 +92,8 @@ class DaskCudfIntegration:
                 df.to_pylibcudf()[0],
                 columns_to_hash=columns_to_hash,
                 num_partitions=partition_count,
+                br=ctx.br,
                 stream=DEFAULT_STREAM,
-                device_mr=rmm.mr.get_current_device_resource(),
             )
         shuffler.insert_chunks(packed_inputs)
 
@@ -117,12 +119,14 @@ class DaskCudfIntegration:
         -------
         A shuffled DataFrame partition.
         """
+        ctx = get_worker_context()
+        assert ctx.br is not None
         column_names = options["column_names"]
         shuffler.wait_on(partition_id)
         table = unpack_and_concat(
             shuffler.extract(partition_id),
+            br=ctx.br,
             stream=DEFAULT_STREAM,
-            device_mr=rmm.mr.get_current_device_resource(),
         )
         return pylibcudf_to_cudf_dataframe(
             table,

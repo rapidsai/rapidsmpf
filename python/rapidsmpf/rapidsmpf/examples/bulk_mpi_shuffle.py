@@ -166,6 +166,7 @@ def bulk_mpi_shuffle(
                 columns,
             )
     else:
+        br = BufferResource(rmm.mr.get_current_device_resource())
         progress_thread = ProgressThread(comm)
 
         shuffler = Shuffler(
@@ -190,8 +191,8 @@ def bulk_mpi_shuffle(
                 table,
                 columns_to_hash=columns_to_hash,
                 num_partitions=total_num_partitions,
+                br=br,
                 stream=DEFAULT_STREAM,
-                device_mr=rmm.mr.get_current_device_resource(),
             )
             shuffler.insert_chunks(packed_inputs)
 
@@ -204,8 +205,8 @@ def bulk_mpi_shuffle(
             partition_id = shuffler.wait_any()
             table = unpack_and_concat(
                 shuffler.extract(partition_id),
+                br=br,
                 stream=DEFAULT_STREAM,
-                device_mr=rmm.mr.get_current_device_resource(),
             )
             write_func(
                 table,

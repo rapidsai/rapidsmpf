@@ -14,6 +14,10 @@ Environment* GlobalEnvironment = nullptr;
 
 Environment::Environment(int argc, char** argv) : argc_(argc), argv_(argv) {}
 
+TestEnvironmentType Environment::type() const {
+    return TestEnvironmentType::MPI;
+}
+
 void Environment::SetUp() {
     rapidsmpf::mpi::init(&argc_, &argv_);
 
