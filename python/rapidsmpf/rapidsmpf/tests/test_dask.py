@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Literal
 import dask
 import dask.dataframe as dd
 import pytest
+from distributed.diagnostics.plugin import WorkerPlugin
 
 import rapidsmpf.integrations.single
 from rapidsmpf.communicator import COMMUNICATORS
@@ -14,7 +15,7 @@ from rapidsmpf.config import Options
 from rapidsmpf.examples.dask import DaskCudfIntegration, dask_cudf_shuffle
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
-from rapidsmpf.shuffler import Shuffler
+from rapidsmpf.shuffler import Shuffler, get_active_shuffle_ids
 
 dask_cuda = pytest.importorskip("dask_cuda")
 
@@ -45,6 +46,11 @@ def is_running_on_multiple_mpi_nodes() -> bool:
     return bool(MPI.COMM_WORLD.Get_size() > 1)
 
 
+class DebugActiveShuffles(WorkerPlugin):
+    def teardown(self, worker):  # type: ignore[no-untyped-def]
+        print(f"Active shuffles {worker}:", get_active_shuffle_ids())
+
+
 pytestmark = pytest.mark.skipif(
     is_running_on_multiple_mpi_nodes(),
     reason="Dask tests should not run with more than one MPI process",
@@ -57,6 +63,7 @@ async def test_dask_ucxx_cluster_sync() -> None:
         LocalCUDACluster(scheduler_port=0, device_memory_limit=1) as cluster,
         Client(cluster) as client,
     ):
+        client.register_plugin(DebugActiveShuffles())
         assert len(cluster.workers) == get_n_gpus()
         bootstrap_dask_cluster(client, options=Options({"dask_spill_device": "0.1"}))
 
@@ -82,6 +89,7 @@ def test_dask_cudf_integration(
 
     with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
+            client.register_worker_plugin(DebugActiveShuffles())
             bootstrap_dask_cluster(
                 client, options=Options({"dask_spill_device": "0.1"})
             )
@@ -163,6 +171,7 @@ def test_dask_cudf_integration_single_raises() -> None:
 def test_bootstrap_dask_cluster_idempotent() -> None:
     options = Options({"dask_spill_device": "0.1"})
     with LocalCUDACluster() as cluster, Client(cluster) as client:
+        client.register_worker_plugin(DebugActiveShuffles())
         bootstrap_dask_cluster(client, options=options)
         before = client.run(
             lambda dask_worker: id(get_worker_context(dask_worker).comm)
@@ -175,6 +184,7 @@ def test_bootstrap_dask_cluster_idempotent() -> None:
 
 def test_boostrap_single_node_cluster_no_deadlock() -> None:
     with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
+        client.register_worker_plugin(DebugActiveShuffles())
         bootstrap_dask_cluster(client, options=Options({"dask_spill_device": "0.1"}))
 
 
@@ -228,6 +238,7 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
 
     with LocalCUDACluster(n_workers=1, loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
+            client.register_worker_plugin(DebugActiveShuffles())
             bootstrap_dask_cluster(
                 client, options=Options({"dask_spill_device": "0.1"})
             )
