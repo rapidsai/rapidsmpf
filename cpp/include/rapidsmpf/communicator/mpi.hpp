@@ -72,7 +72,7 @@ void check_mpi_error(int error_code, const char* file, int line);
 class MPI final : public Communicator {
   public:
     /**
-     * @brief Represents the future result of an MPI operation.
+     * @brief Represents the future result of MPI operations.
      *
      * This class is used to handle the result of an MPI communication operation
      * asynchronously.
@@ -82,41 +82,32 @@ class MPI final : public Communicator {
 
       public:
         /**
+         * @brief Construct a MultiReqFuture.
+         *
+         * @param reqs Vector of MPI request handles for the operations.
+         * @param data A unique pointer to the data buffer.
+         */
+        Future(std::vector<MPI_Request> reqs, std::unique_ptr<Buffer> data)
+            : reqs_{std::move(reqs)}, data_{std::move(data)} {
+            RAPIDSMPF_EXPECTS(
+                !reqs_.empty(), "MultiReqFuture must have at least 1 request"
+            );
+        }
+
+        /**
          * @brief Construct a Future.
          *
          * @param req The MPI request handle for the operation.
          * @param data A unique pointer to the data buffer.
          */
         Future(MPI_Request req, std::unique_ptr<Buffer> data)
-            : req_{req}, data_{std::move(data)} {}
+            : reqs_{{req}}, data_{std::move(data)} {}
 
         ~Future() noexcept override = default;
 
-      private:
-        MPI_Request req_;  ///< The MPI request associated with the operation.
-        std::unique_ptr<Buffer> data_;  ///< The data buffer.
-    };
-
-    /**
-     * @brief Represents the future result of multiple MPI operations.
-     *
-     * This class is used to handle the result of multiple MPI operations
-     * asynchronously.
-     */
-    class BatchFuture : public Communicator::BatchFuture {
-        friend class MPI;
-
-      public:
-        /**
-         * @brief Construct a MultiReqFuture.
-         *
-         * @param reqs Vector of MPI request handles for the operations.
-         * @param data A unique pointer to the data buffer.
-         */
-        BatchFuture(std::vector<MPI_Request> reqs, std::unique_ptr<Buffer> data)
-            : reqs_{std::move(reqs)}, data_{std::move(data)} {}
-
-        ~BatchFuture() noexcept override = default;
+        constexpr size_t size() const {
+            return reqs_.size();
+        }
 
       private:
         std::vector<MPI_Request>
@@ -166,11 +157,11 @@ class MPI final : public Communicator {
 
     // clang-format off
     /**
-     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag)
+     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag)
      */
     // clang-format on
-    [[nodiscard]] std::unique_ptr<Communicator::BatchFuture> send(
-        std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag
+    [[nodiscard]] std::unique_ptr<Communicator::Future> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag
     ) override;
 
     /**
@@ -183,8 +174,7 @@ class MPI final : public Communicator {
     /**
      * @copydoc Communicator::recv_any
      */
-    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
-        Tag tag
+    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(Tag tag
     ) override;
 
     /**
@@ -219,9 +209,9 @@ class MPI final : public Communicator {
     ) override;
 
     /**
-     * @copydoc Communicator::test_batch
+     * @copydoc Communicator::test
      */
-    [[nodiscard]] bool test_batch(Communicator::BatchFuture& future) override;
+    [[nodiscard]] bool test(Communicator::Future& future) override;
 
     /**
      * @copydoc Communicator::logger

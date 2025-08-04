@@ -24,8 +24,8 @@ std::unique_ptr<Communicator::Future> Single::send(std::unique_ptr<Buffer>, Rank
     RAPIDSMPF_FAIL("Unexpected send to self", std::runtime_error);
 }
 
-std::unique_ptr<Communicator::BatchFuture> Single::send(
-    std::unique_ptr<Buffer>, std::unordered_set<Rank> const&, Tag
+std::unique_ptr<Communicator::Future> Single::send(
+    std::unique_ptr<Buffer>, std::span<Rank> const, Tag
 ) {
     RAPIDSMPF_FAIL("Unexpected send to self", std::runtime_error);
 }
@@ -58,8 +58,8 @@ std::unique_ptr<Buffer> Single::get_gpu_data(std::unique_ptr<Communicator::Futur
     RAPIDSMPF_FAIL("Unexpected get_gpu_data from self", std::runtime_error);
 }
 
-bool Single::test_batch(BatchFuture& /* future */) {
-    RAPIDSMPF_FAIL("Unexpected test_batch from self", std::runtime_error);
+bool Single::test(Communicator::Future& /* future */) {
+    RAPIDSMPF_FAIL("Unexpected test from self", std::runtime_error);
 }
 
 std::string Single::str() const {

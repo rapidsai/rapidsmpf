@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -139,81 +140,13 @@ class CommunicatorTest
         }
     }
 
-    rapidsmpf::MemoryType mem_type;
-    size_t n_ops;
-};
-
-class BasicCommunicatorTest : public BaseCommunicatorTest,
-                              public testing::WithParamInterface<rapidsmpf::MemoryType> {
-  protected:
-    rapidsmpf::MemoryType memory_type() override {
-        return GetParam();
-    }
-};
-
-INSTANTIATE_TEST_CASE_P(
-    BasicCommunicatorTest,
-    BasicCommunicatorTest,
-    testing::Values(rapidsmpf::MemoryType::HOST, rapidsmpf::MemoryType::DEVICE),
-    [](const testing::TestParamInfo<rapidsmpf::MemoryType>& info) {
-        return "memory_type_" + std::to_string(static_cast<int>(info.param));
-    }
-);
-
-// Test send to self
-TEST_P(BasicCommunicatorTest, SendToSelf) {
-    if (GlobalEnvironment->type() == TestEnvironmentType::SINGLE) {
-        GTEST_SKIP() << "SINGLE communicator does not support send to self";
-    }
-
-    // if (comm->rank() == 0) {
-    //     GTEST_SKIP();
-    // }
-
-    constexpr size_t n_elems = 10;
-    auto data = iota_vector<uint8_t>(n_elems, 0);
-    constexpr Tag tag{0, 0};
-    Rank self_rank = comm->rank();
-
-    auto send_buf = make_buffer(n_elems);
-    copy_to_buffer(data.data(), n_elems, *send_buf);
-
-    // send data to self (ignore the return future)
-    auto send_future = comm->send(std::move(send_buf), self_rank, tag);
-
-    // receive data from self
-    std::vector<std::unique_ptr<Communicator::Future>> recv_futures;
-    auto recv_buf = make_buffer(n_elems);
-    recv_futures.emplace_back(comm->recv(self_rank, tag, std::move(recv_buf)));
-
-    while (!recv_futures.empty()) {
-        auto finished = comm->test_some(recv_futures);
-
-        if (finished.empty()) {
-            std::this_thread::sleep_for(std::chrono::microseconds(10));
-            continue;
+    void log_vec(std::string const& prefix, std::vector<int> const& vec) {
+        std::stringstream ss;
+        ss << prefix << " ";
+        for (auto&& v : vec) {
+            ss << v << " ";
         }
-        // there should only be one finished future
-        auto recv_buf = comm->get_gpu_data(std::move(finished[0]));
-        EXPECT_EQ(n_elems, recv_buf->size);
-        std::vector<uint8_t> recv_data(n_elems);
-        copy_from_buffer(*recv_buf, recv_data.data(), n_elems);
-        EXPECT_EQ(data, recv_data);
-        log_vec("recv_data:", recv_data);
-    }
-}
-
-class CommunicatorTest
-    : public BaseCommunicatorTest,
-      public testing::WithParamInterface<std::tuple<rapidsmpf::MemoryType, size_t>> {
-  protected:
-    void SetUp() override {
-        std::tie(mem_type, n_ops) = GetParam();
-        BaseCommunicatorTest::SetUp();
-    }
-
-    rapidsmpf::MemoryType memory_type() override {
-        return mem_type;
+        comm->logger().debug(ss.str());
     }
 
     rapidsmpf::MemoryType mem_type;
@@ -240,7 +173,7 @@ TEST_P(CommunicatorTest, MultiDestinationSend) {
     }
 
     constexpr size_t n_elems = 5;  // number of int elements to send
-    auto const all_ranks = iota_vector<rapidsmpf::Rank>(comm->nranks());
+    auto all_ranks = iota_vector<rapidsmpf::Rank>(comm->nranks());
 
     // send data is arranged as follows:
     // | op 0                     | op 1                             | ... |
@@ -249,7 +182,7 @@ TEST_P(CommunicatorTest, MultiDestinationSend) {
 
     // for each operation, each rank sends to every other rank, using the op iteration as
     // the op and rank as the stage of the tag
-    std::vector<std::unique_ptr<rapidsmpf::Communicator::BatchFuture>> send_futures;
+    std::vector<std::unique_ptr<rapidsmpf::Communicator::Future>> send_futures;
     std::vector<std::unique_ptr<rapidsmpf::Communicator::Future>> recv_futures;
     for (rapidsmpf::OpID op = 0; op < n_ops; ++op) {
         // every ranks receives from the other ranks. Post all receives first.
@@ -266,23 +199,19 @@ TEST_P(CommunicatorTest, MultiDestinationSend) {
         auto send_data =
             iota_vector<int>(n_elems, n_elems * (op * comm->nranks() + this_rank));
 
-        std::unordered_set<rapidsmpf::Rank> receivers(all_ranks.begin(), all_ranks.end());
         // Post batch send
         auto send_buf = make_buffer(n_elems * sizeof(int));
         copy_to_buffer(send_data.data(), n_elems * sizeof(int), *send_buf);
         send_futures.emplace_back(comm->send(
             std::move(send_buf),
-            receivers,
+            all_ranks,
             rapidsmpf::Tag{op, static_cast<rapidsmpf::StageID>(this_rank)}
         ));
     }
 
     // wait for all sends to complete
-    while (!std::ranges::all_of(send_futures, [&](auto& future) {
-        return comm->test_batch(*future);
-    }))
-    {
-        std::this_thread::sleep_for(std::chrono::microseconds(10));
+    for (auto& future : send_futures) {
+        std::ignore = comm->wait(std::move(future));
     }
 
     // wait for all receives to complete

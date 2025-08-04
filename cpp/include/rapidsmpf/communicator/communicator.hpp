@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <span>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -161,17 +162,6 @@ class Communicator {
         Future& operator=(Future&&) = default;
         Future(Future const&) = delete;  ///< Not copyable.
         Future& operator=(Future const&) = delete;  ///< Not copy-assignable
-    };
-
-    /**
-     * @brief A batch future is a future that represents a batch of operations.
-     */
-    class BatchFuture {
-      public:
-        BatchFuture() = default;
-        virtual ~BatchFuture() noexcept = default;
-        BatchFuture(BatchFuture&&) = default;  ///< Movable.
-        BatchFuture(BatchFuture&) = delete;  ///< Not copyable.
     };
 
     /**
@@ -431,9 +421,9 @@ class Communicator {
      * @brief Sends a message (device or host) to multiple destination ranks.
      *
      * @param msg Unique pointer to the message data (Buffer).
-     * @param ranks Set of destination ranks.
+     * @param ranks Span of destination ranks.
      * @param tag Message tag for identification.
-     * @return A unique pointer to a `BatchFuture` representing the asynchronous
+     * @return A unique pointer to a `Future` representing the asynchronous
      * operation.
      *
      * @warning The caller is responsible to ensure the underlying `Buffer` allocation
@@ -442,8 +432,8 @@ class Communicator {
      * `Buffer::is_ready()` returns true before calling this function, if not, a
      * warning is printed and the application will terminate.
      */
-    [[nodiscard]] virtual std::unique_ptr<BatchFuture> send(
-        std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag
+    [[nodiscard]] virtual std::unique_ptr<Future> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag
     ) = 0;
 
     /**
@@ -489,14 +479,14 @@ class Communicator {
     ) = 0;
 
     /**
-     * @brief Tests for completion of a batch future.
+     * @brief Tests for completion of a future.
      *
-     * @param future The batch future to test.
-     * @return True if the batch future is completed, false otherwise.
+     * @param future The future to test.
+     * @return True if the future is completed, false otherwise.
      *
      * @throws std::runtime_error if the future is not a batch future.
      */
-    [[nodiscard]] virtual bool test_batch(BatchFuture& future) = 0;
+    [[nodiscard]] virtual bool test(Future& future) = 0;
 
     /**
      * @brief Tests for completion of multiple futures in a map.

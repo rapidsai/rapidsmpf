@@ -82,13 +82,13 @@ class Single final : public Communicator {
 
     // clang-format off
     /**
-     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag)
+     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag)
      *
      * @throws std::runtime_error if called (single-process communicators should never send messages).
      */
     // clang-format on
-    [[nodiscard]] std::unique_ptr<Communicator::BatchFuture> send(
-        std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag
+    [[nodiscard]] std::unique_ptr<Communicator::Future> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag
     ) override;
 
     /**
@@ -154,12 +154,12 @@ class Single final : public Communicator {
     ) override;
 
     /**
-     * @copydoc Communicator::test_batch
+     * @copydoc Communicator::test
      *
      * @throws std::runtime_error if called (single-process communicators should never
      * send messages).
      */
-    [[nodiscard]] bool test_batch(BatchFuture& future) override;
+    [[nodiscard]] bool test(Communicator::Future& future) override;
 
     /**
      * @copydoc Communicator::logger

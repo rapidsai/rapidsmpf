@@ -129,7 +129,7 @@ class UCXX final : public Communicator {
      * This class is used to handle the result of multiple UCXX operations
      * asynchronously.
      */
-    class BatchFuture : public Communicator::BatchFuture {
+    class BatchFuture : public Communicator::Future {
         friend class UCXX;
 
       public:
@@ -191,11 +191,11 @@ class UCXX final : public Communicator {
 
     // clang-format off
     /**
-     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag)
+     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag)
      */
     // clang-format on
-    [[nodiscard]] std::unique_ptr<Communicator::BatchFuture> send(
-        std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag
+    [[nodiscard]] std::unique_ptr<Communicator::Future> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag
     ) override;
 
     /**
@@ -253,9 +253,9 @@ class UCXX final : public Communicator {
     ) override;
 
     /**
-     * @copydoc Communicator::test_batch
+     * @copydoc Communicator::test
      */
-    [[nodiscard]] bool test_batch(Communicator::BatchFuture& future) override;
+    [[nodiscard]] bool test(Communicator::Future& future) override;
 
     /**
      * @copydoc Communicator::logger

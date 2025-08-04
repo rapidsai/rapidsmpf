@@ -1102,8 +1102,8 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     return std::make_unique<Future>(req, std::move(msg));
 }
 
-std::unique_ptr<Communicator::BatchFuture> UCXX::send(
-    std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag
+std::unique_ptr<Communicator::Future> UCXX::send(
+    std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag
 ) {
     RAPIDSMPF_EXPECTS(
         msg != nullptr && !ranks.empty(), "malformed arguments passed to batch send"
@@ -1250,7 +1250,7 @@ std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future>
     return std::move(ucxx_future->data_);
 }
 
-bool UCXX::test_batch(Communicator::BatchFuture& future) {
+bool UCXX::test(Communicator::Future& future) {
     auto ucxx_batch_future = dynamic_cast<UCXX::BatchFuture*>(&future);
     RAPIDSMPF_EXPECTS(ucxx_batch_future != nullptr, "future isn't a UCXX::BatchFuture");
 

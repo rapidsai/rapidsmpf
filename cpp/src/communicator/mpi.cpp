@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <ranges>
 #include <unordered_set>
 #include <utility>
 
@@ -94,11 +95,15 @@ void check_mpi_thread_support() {
     );
 }
 
-std::vector<int> mpi_testsome(std::vector<MPI_Request>& reqs) {
+std::vector<int> mpi_testsome(std::vector<MPI_Request> const& reqs) {
     std::vector<int> indices(reqs.size());
     int num_completed{0};
     RAPIDSMPF_MPI(MPI_Testsome(
-        reqs.size(), reqs.data(), &num_completed, indices.data(), MPI_STATUSES_IGNORE
+        reqs.size(),
+        const_cast<MPI_Request*>(reqs.data()),
+        &num_completed,
+        indices.data(),
+        MPI_STATUSES_IGNORE
     ));
     RAPIDSMPF_EXPECTS(
         num_completed != MPI_UNDEFINED, "Expected at least one active handle."
@@ -147,8 +152,8 @@ std::unique_ptr<Communicator::Future> MPI::send(
     return std::make_unique<Future>(req, std::move(msg));
 }
 
-std::unique_ptr<Communicator::BatchFuture> MPI::send(
-    std::unique_ptr<Buffer> msg, std::unordered_set<Rank> const& ranks, Tag tag
+std::unique_ptr<Communicator::Future> MPI::send(
+    std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag
 ) {
     RAPIDSMPF_EXPECTS(
         msg != nullptr && !ranks.empty(), "malformed arguments passed to batch send"
@@ -166,7 +171,7 @@ std::unique_ptr<Communicator::BatchFuture> MPI::send(
         );
         reqs.emplace_back(req);
     }
-    return std::make_unique<BatchFuture>(std::move(reqs), std::move(msg));
+    return std::make_unique<Future>(std::move(reqs), std::move(msg));
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
@@ -225,25 +230,59 @@ std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
     if (future_vector.empty()) {
         return {};
     }
-    std::vector<MPI_Request> reqs;
-    reqs.reserve(future_vector.size());
-    for (auto const& future : future_vector) {
-        auto mpi_future = dynamic_cast<Future const*>(future.get());
-        RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-        reqs.push_back(mpi_future->req_);
-    }
-
-    // Get completed requests as indices into `future_vector` (and `reqs`).
-    auto indices = mpi_testsome(reqs);
     std::vector<std::unique_ptr<Communicator::Future>> completed;
-    completed.reserve(indices.size());
+
+    // Note: this impl traverses the future vector three times:
+    // 1. partition the futures s.t. singleton futures are at the beginning
+    // 2. test the singleton requests first and then multi-req futures
+    // 3. erase the completed futures from the future vector
+
+    // partition the futures s.t. singleton futures are at the beginning
+    // and multi-req futures are at the end
+    auto multi_reqs_range =
+        std::ranges::partition(future_vector, [&](auto const& future) {
+            auto mpi_future = dynamic_cast<Future const*>(future.get());
+            RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
+            return mpi_future->size() == 1;
+        });
+
+    // extract mpi requests from the singleton futures
+    std::vector<MPI_Request> singleton_reqs;
+    singleton_reqs.reserve(future_vector.size());
     std::ranges::transform(
-        indices.begin(),
-        indices.end(),
+        future_vector.begin(),
+        multi_reqs_range.begin(),
+        std::back_inserter(singleton_reqs),
+        [](auto const& future) {
+            auto mpi_future = static_cast<Future*>(future.get());
+            return mpi_future->reqs_[0];
+        }
+    );
+
+    // test the singleton requests first
+    auto completed_singleton_reqs = mpi_testsome(singleton_reqs);
+    completed.reserve(completed_singleton_reqs.size());
+    // move the completed singleton futures to the completed vector
+    std::ranges::transform(
+        completed_singleton_reqs.begin(),
+        completed_singleton_reqs.end(),
         std::back_inserter(completed),
         [&](std::size_t i) { return std::move(future_vector[i]); }
     );
+
+    // test the multi-req futures
+    for (auto& future : multi_reqs_range) {
+        auto mpi_future = static_cast<Future*>(future.get());
+        auto indices = mpi_testsome(mpi_future->reqs_);
+        // if all the requests are completed, move the future to the completed vector
+        if (indices.size() == mpi_future->size()) {
+            completed.emplace_back(std::move(future));
+        }
+    }
+
+    // remove the completed futures from the future vector
     std::erase(future_vector, nullptr);
+
     return completed;
 }
 
@@ -251,43 +290,47 @@ std::vector<std::size_t> MPI::test_some(
     std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
         future_map
 ) {
-    std::vector<MPI_Request> reqs;
-    std::vector<std::size_t> key_reqs;
-    reqs.reserve(future_map.size());
-    key_reqs.reserve(future_map.size());
+    std::vector<std::size_t> finished;
+    std::vector<MPI_Request> singleton_reqs;
+    std::vector<std::size_t> singleton_futures;
+
+    // reserve for the most common case: all singleton futures
+    singleton_reqs.reserve(future_map.size());
+    singleton_futures.reserve(future_map.size());
+
     for (auto const& [key, future] : future_map) {
         auto mpi_future = dynamic_cast<Future const*>(future.get());
         RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-        reqs.push_back(mpi_future->req_);
-        key_reqs.push_back(key);
+        if (mpi_future->size() == 1) {
+            singleton_reqs.emplace_back(mpi_future->reqs_[0]);
+            singleton_futures.emplace_back(key);
+        } else {
+            // test the multi-req futures immidiately
+            auto indices = mpi_testsome(mpi_future->reqs_);
+            if (indices.size() == mpi_future->size()) {
+                finished.emplace_back(key);
+            }
+        }
     }
 
-    // Get completed requests as indices into `key_reqs` (and `reqs`).
-    std::vector<int> completed(reqs.size());
-    {
-        int num_completed{0};
-        RAPIDSMPF_MPI(MPI_Testsome(
-            reqs.size(),
-            reqs.data(),
-            &num_completed,
-            completed.data(),
-            MPI_STATUSES_IGNORE
-        ));
-        completed.resize(static_cast<std::size_t>(num_completed));
-    }
-
-    std::vector<std::size_t> ret;
-    ret.reserve(completed.size());
+    // Test the singleton requests
+    std::vector<int> completed = mpi_testsome(singleton_reqs);
+    finished.reserve(finished.size() + completed.size());
     for (int i : completed) {
-        ret.push_back(key_reqs.at(static_cast<std::size_t>(i)));
+        finished.emplace_back(singleton_futures[static_cast<std::size_t>(i)]);
     }
-    return ret;
+
+    return finished;
 }
 
 std::unique_ptr<Buffer> MPI::wait(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-    RAPIDSMPF_MPI(MPI_Wait(&mpi_future->req_, MPI_STATUS_IGNORE));
+    RAPIDSMPF_MPI(MPI_Waitall(
+        static_cast<int>(mpi_future->reqs_.size()),
+        mpi_future->reqs_.data(),
+        MPI_STATUS_IGNORE
+    ));
     return std::move(mpi_future->data_);
 }
 
@@ -298,24 +341,18 @@ std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> 
     return std::move(mpi_future->data_);
 }
 
-bool MPI::test_batch(Communicator::BatchFuture& future) {
-    auto mpi_batch_future = dynamic_cast<MPI::BatchFuture*>(&future);
-    RAPIDSMPF_EXPECTS(mpi_batch_future != nullptr, "future isn't a MPI::BatchFuture");
+bool MPI::test(Communicator::Future& future) {
+    auto mpi_future = dynamic_cast<Future*>(&future);
+    RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
 
-    auto& reqs = mpi_batch_future->reqs_;
-    if (reqs.empty()) {
-        return true;  // No requests to test, consider it complete
-    }
-
-    // Test all requests in the batch
-    auto indices = mpi_testsome(reqs);
-    std::ranges::for_each(indices.begin(), indices.end(), [&](int i) {
-        reqs[static_cast<size_t>(i)] = nullptr;
-    });
-    std::erase(reqs, nullptr);
-
-    // Return true if all requests are completed
-    return reqs.empty();
+    int flag = 0;
+    RAPIDSMPF_MPI(MPI_Testall(
+        static_cast<int>(mpi_future->reqs_.size()),
+        mpi_future->reqs_.data(),
+        &flag,
+        MPI_STATUS_IGNORE
+    ));
+    return static_cast<bool>(flag);
 }
 
 std::string MPI::str() const {
