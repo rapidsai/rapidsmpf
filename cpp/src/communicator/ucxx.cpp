@@ -1109,6 +1109,12 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     RAPIDSMPF_EXPECTS(
         msg != nullptr && !ranks.empty(), "malformed arguments passed to batch send"
     );
+
+    RAPIDSMPF_EXPECTS(
+        std::unordered_set<Rank>(ranks.begin(), ranks.end()).size() == ranks.size(),
+        "duplicate ranks in batch send"
+    );
+
     if (!msg->is_ready()) {
         logger().warn("msg is not ready. This is irrecoverable, terminating.");
         std::terminate();

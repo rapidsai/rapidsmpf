@@ -169,6 +169,12 @@ std::unique_ptr<Communicator::Future> MPI::send(
     RAPIDSMPF_EXPECTS(
         msg != nullptr && !ranks.empty(), "malformed arguments passed to batch send"
     );
+
+    RAPIDSMPF_EXPECTS(
+        std::unordered_set<Rank>(ranks.begin(), ranks.end()).size() == ranks.size(),
+        "duplicate ranks in batch send"
+    );
+
     RAPIDSMPF_EXPECTS(
         msg->size <= std::numeric_limits<int>::max(),
         "send buffer size exceeds MPI max count"
