@@ -34,7 +34,7 @@ _worker_context: _WorkerContext = _WorkerContext()
 
 
 def get_worker_context() -> WorkerContext:
-    """Retrieve the single-worker :class:`rapidsmpf.integrations.core.WorkerContext`."""
+    """Retrieve the single-worker ``WorkerContext``."""
     # Unlike _get_worker_context, this doesn't take an optional (private) _WorkerContext
     return _get_worker_context()
 

@@ -33,16 +33,15 @@ def get_worker_context(
     worker: distributed.Worker | None = None,
 ) -> WorkerContext:
     """
-    Retrieve the `WorkerContext` associated with a Dask worker.
+    Retrieve the ``WorkerContext`` associated with a Dask worker.
 
-    If the worker context does not already exist on the worker, it will be created
-    and attached to the worker under the attribute `_rapidsmpf_worker_context`.
+    If the worker context does not already exist on the worker, it will be created.
 
     Parameters
     ----------
     worker
         An optional Dask worker instance. If not provided, the current worker
-        is retrieved using `get_worker()`.
+        is retrieved using ``get_worker()``.
 
     Returns
     -------
