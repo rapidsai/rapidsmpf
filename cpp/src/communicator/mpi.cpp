@@ -243,72 +243,42 @@ std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
     }
     std::vector<std::unique_ptr<Communicator::Future>> completed;
 
-    auto to_mpi_future = [](auto& future) {
-        auto mpi_future = dynamic_cast<Future*>(future.get());
-        RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-        return mpi_future;
-    };
-
-    auto to_mpi_future_static = [](auto& future) {
-        return static_cast<Future*>(future.get());
-    };
-
-    // using std::partition reference implementation
-    // https://en.cppreference.com/w/cpp/algorithm/partition.html
-
-    // the following logic will partition the future vector into singleton and multi-req
-    // futures.
-    // When a multi-req future is found, it will be tested immediately. If it's completed,
-    // it will be moved to the completed vector.
-    // When a singleton future is found, it's request will be added to the
-    // `singleton_reqs` vector, and swapped with the last multi-req future.
-    // essentially, this mutates the elements while partitioning the vector.
-
-    auto first = future_vector.begin();
-    auto const last = future_vector.end();
-
     std::vector<MPI_Request> singleton_reqs;
     singleton_reqs.reserve(future_vector.size());  // at most, all futures are singleton
 
-    // advance `first` to the first multi-req future, while collecting singleton requests
-    for (; first != last; ++first) {
-        auto mpi_future = to_mpi_future(*first);
-        if (mpi_future->size() == 1) {
-            singleton_reqs.emplace_back(mpi_future->reqs_[0]);
-        } else {
-            break;
-        }
-    }
+    // partition the future_vector into singleton and multi-req futures
+    auto [pivot, last] = std::ranges::partition(
+        future_vector,
+        [](Future* const mpi_future) {
+            // if mpi_future is nullptr or multi-req future, it will be moved to the to
+            // the end of the future_vector
+            return mpi_future && mpi_future->size() == 1;
+        },
+        [&](auto& future) -> Future* {
+            // project the future to a Future*: this will be called once for each future
 
-    if (first != last) {
-        // first points to a multi-req future. test it immediately.
-        // if it's completed, move it to the completed vector
-        if (mpi_testall(to_mpi_future_static(*first)->reqs_)) {
-            // move the completed multi-req future to the completed vector. but `first` is
-            // still valid
-            completed.emplace_back(std::move(*first));
-        }
+            // if the future is a singleton future, add the request to the singleton_reqs
+            // vector if the future is a multi-req future, test it immediately. If it's
+            // completed, move it to the completed vector.
+            auto mpi_future = dynamic_cast<Future*>(future.get());
+            RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
 
-        for (auto i = std::next(first); i != last; ++i) {
-            auto mpi_future = to_mpi_future(*i);
-            if (mpi_future->size() == 1) {  // this is a singleton future
+            if (mpi_future->size() == 1) {
                 singleton_reqs.emplace_back(mpi_future->reqs_[0]);
-                std::iter_swap(i, first);
-                ++first;
-            } else {  // this is a multi-req future
-                // test it immediately. if it's completed, move it to the completed vector
-                if (mpi_testall(mpi_future->reqs_)) {
-                    completed.emplace_back(std::move(*i));
-                }
+            } else if (mpi_testall(mpi_future->reqs_)) {
+                completed.emplace_back(std::move(future));
+                return nullptr;
             }
-        }
-    }
 
-    // now, [future_vector.begin(), first) contains singleton futures
-    // and [first, last) contains multi-req futures (with nullptr for completed ones)
+            return mpi_future;
+        }
+    );
+
+    // now, [future_vector.begin(), pivot) contains singleton futures
+    // and [pivot, last) contains multi-req futures (with nullptr for completed ones)
     RAPIDSMPF_EXPECTS(
         singleton_reqs.size()
-            == static_cast<size_t>(std::distance(future_vector.begin(), first)),
+            == static_cast<size_t>(std::distance(future_vector.begin(), pivot)),
         "incorrect number of singleton requests"
     );
     // test the singleton requests
