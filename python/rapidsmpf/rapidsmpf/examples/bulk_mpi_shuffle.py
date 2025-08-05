@@ -210,6 +210,7 @@ def bulk_mpi_shuffle(
                     stream=DEFAULT_STREAM,
                     br=br,
                     allow_overbooking=True,
+                    statistics=statistics,
                 ),
                 br=br,
                 stream=DEFAULT_STREAM,

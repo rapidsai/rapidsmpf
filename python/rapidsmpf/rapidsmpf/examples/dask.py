@@ -142,6 +142,7 @@ class DaskCudfIntegration:
                 stream=DEFAULT_STREAM,
                 br=ctx.br,
                 allow_overbooking=True,
+                statistics=ctx.statistics,
             ),
             br=ctx.br,
             stream=DEFAULT_STREAM,

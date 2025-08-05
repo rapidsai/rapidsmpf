@@ -239,6 +239,7 @@ class BulkRayShufflerActor(BaseShufflingActor):
                     stream=DEFAULT_STREAM,
                     br=self.br,
                     allow_overbooking=True,
+                    statistics=self.stats,
                 ),
                 br=self.br,
                 stream=DEFAULT_STREAM,
