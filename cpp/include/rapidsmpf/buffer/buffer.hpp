@@ -325,7 +325,7 @@ class Buffer {
         if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
             return *ref;
         } else {
-            RAPIDSMPF_FAIL("Buffer is not host memory");
+            RAPIDSMPF_FAIL("Buffer is not device memory");
         }
     }
 
