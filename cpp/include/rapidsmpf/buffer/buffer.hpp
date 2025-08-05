@@ -15,6 +15,7 @@
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
 
@@ -30,18 +31,6 @@ enum class MemoryType : int {
 
 /// @brief Array of all the different memory types.
 constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
-
-namespace {
-/// @brief Helper for overloaded lambdas using std::visit.
-template <class... Ts>
-struct overloaded : Ts... {
-    using Ts::operator()...;
-};
-/// @brief Explicit deduction guide
-template <class... Ts>
-overloaded(Ts...) -> overloaded<Ts...>;
-
-}  // namespace
 
 /**
  * @brief Buffer representing device or host memory.
@@ -241,6 +230,18 @@ class Buffer {
     ) const;
 
     /**
+     * @brief Create a copy of this buffer by allocating a new buffer from the
+     * reservation.
+     *
+     * @param stream CUDA stream used for the device buffer allocation and copy.
+     * @param reservation Memory reservation for data allocations.
+     * @return A unique pointer to a new Buffer containing the copied data.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> copy(
+        rmm::cuda_stream_view stream, MemoryReservation& reservation
+    ) const;
+
+    /**
      * @brief Copy data from this buffer to a destination buffer with a given offset.
      *
      * @param dest Destination buffer.
@@ -305,7 +306,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] HostStorageT& host() {
+    [[nodiscard]] constexpr HostStorageT& host() {
         if (auto ref = std::get_if<HostStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -320,36 +321,35 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] DeviceStorageT& device() {
+    [[nodiscard]] constexpr DeviceStorageT& device() {
         if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
             return *ref;
         } else {
-            RAPIDSMPF_FAIL("Buffer is not host memory");
+            RAPIDSMPF_FAIL("Buffer is not device memory");
         }
     }
 
     /**
-     * @brief Create a copy of this buffer using the same memory type.
+     * @brief Release the underlying device memory buffer.
      *
-     * @param stream CUDA stream used for the device buffer allocation and copy.
-     * @param br Buffer resource for data allocations.
-     * @return A unique pointer to a new Buffer containing the copied data.
+     * @return The underlying device memory buffer.
+     *
+     * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] std::unique_ptr<Buffer> copy(
-        rmm::cuda_stream_view stream, BufferResource* br
-    ) const;
+    [[nodiscard]] DeviceStorageT release_device() {
+        return std::move(device());
+    }
 
     /**
-     * @brief Create a copy of this buffer using the specified memory type.
+     * @brief Release the underlying host memory buffer.
      *
-     * @param target The target memory type.
-     * @param stream CUDA stream used for device buffer allocation and copy.
-     * @param br Buffer resource for data allocations.
-     * @return A unique pointer to a new Buffer containing the copied data.
+     * @return The underlying host memory buffer.
+     *
+     * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] std::unique_ptr<Buffer> copy(
-        MemoryType target, rmm::cuda_stream_view stream, BufferResource* br
-    ) const;
+    [[nodiscard]] HostStorageT release_host() {
+        return std::move(host());
+    }
 
   public:
     std::size_t const size;  ///< The size of the buffer in bytes.

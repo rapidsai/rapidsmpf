@@ -322,15 +322,17 @@ class Chunk {
     /**
      * @brief Concatenate multiple chunks into a single chunk.
      *
-     * @param chunks Vector of chunks to concatenate. The chunks will be moved from this
-     * vector.
+     * @param chunks Vector of chunks to concatenate.
      * @param chunk_id The ID for the resulting concatenated chunk.
      * @param stream The CUDA stream to use for copying data.
      * @param br The buffer resource to use for memory allocation.
      * @param preferred_mem_type The preferred memory type to use for the concatenated
      * data buffer.
      * @return Chunk The concatenated chunk.
-     * @throws std::logic_error if the input vector is empty.
+     * @throws std::logic_error if the input vector is empty or the concatenated chunk
+     * contains duplicate partition IDs.
+     *
+     * @note The chunks vector should contain unique partition IDs.
      */
     static Chunk concat(
         std::vector<Chunk>&& chunks,
@@ -354,7 +356,8 @@ class Chunk {
 
     ChunkID const chunk_id_;  ///< The ID of the chunk.
     std::vector<PartID> const
-        part_ids_;  ///< The partition IDs of the messages in the chunk.
+        part_ids_;  ///< The partition IDs of the messages in the
+                    ///< chunk. These partition IDs should be unique.
     std::vector<size_t> const expected_num_chunks_;  ///< The expected number of chunks of
                                                      ///< the messages in the chunk.
     std::vector<uint32_t> const

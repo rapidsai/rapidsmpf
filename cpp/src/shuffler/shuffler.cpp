@@ -47,7 +47,7 @@ std::unique_ptr<Buffer> allocate_buffer(
     if (reservation.size() != size) {
         return nullptr;
     }
-    auto ret = br->allocate(mem_type, size, stream, reservation);
+    auto ret = br->allocate(size, stream, reservation);
     RAPIDSMPF_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
     return ret;
 }
@@ -134,9 +134,9 @@ std::size_t postbox_spilling(
         }
         // We extract the chunk, spilled it, and insert it back into the PostBox.
         auto chunk = postbox.extract(pid, cid);
-        chunk.set_data_buffer(br->move(
-            MemoryType::HOST, chunk.release_data_buffer(), stream, host_reservation
-        ));
+        chunk.set_data_buffer(
+            br->move(chunk.release_data_buffer(), stream, host_reservation)
+        );
         postbox.insert(std::move(chunk));
         if ((total_spilled += size) >= amount) {
             break;
@@ -320,8 +320,11 @@ class Shuffler::Progress {
 
                     // iterate over all messages in the chunk
                     for (size_t i = 0; i < chunk.n_messages(); ++i) {
+                        // ready postbox uniquely identifies chunks by their [partition
+                        // ID, chunk ID] pair. We can reuse the same chunk ID for the
+                        // copy because the partition IDs are unique within a chunk.
                         auto chunk_copy = chunk.get_data(
-                            shuffler_.get_new_cid(), i, shuffler_.stream_, shuffler_.br_
+                            chunk.chunk_id(), i, shuffler_.stream_, shuffler_.br_
                         );
                         shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
                     }
@@ -389,8 +392,11 @@ class Shuffler::Progress {
                     );
 
                     for (size_t i = 0; i < chunk.n_messages(); ++i) {
+                        // ready postbox uniquely identifies chunks by their [partition
+                        // ID, chunk ID] pair. We can reuse the same chunk ID for the
+                        // copy because the partition IDs are unique within a chunk.
                         shuffler_.insert_into_ready_postbox(chunk.get_data(
-                            shuffler_.get_new_cid(), i, shuffler_.stream_, shuffler_.br_
+                            chunk.chunk_id(), i, shuffler_.stream_, shuffler_.br_
                         ));
                     }
                 }
@@ -600,9 +606,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
-            chunk.set_data_buffer(br_->move(
-                MemoryType::HOST, chunk.release_data_buffer(), stream_, host_reservation
-            ));
+            chunk.set_data_buffer(
+                br_->move(chunk.release_data_buffer(), stream_, host_reservation)
+            );
             statistics_->add_duration_stat(
                 "spill-time-device-to-host", Clock::now() - t0_elapsed
             );
@@ -652,6 +658,7 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
     };
 
     bool all_groups_built_flag = false;
+    constexpr ChunkID dummy_chunk_id = std::numeric_limits<ChunkID>::max();
     for (auto& [pid, packed_data] : chunks) {
         Rank target_rank = partition_owner(comm_, pid);
 
@@ -678,7 +685,9 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
             // insert this chunk into the builder
             total_staged_data_ += static_cast<std::int64_t>(packed_data.data->size);
             chunk_groups[size_t(target_rank)].emplace_back(
-                create_chunk(pid, std::move(packed_data))
+                detail::Chunk::from_packed_data(
+                    dummy_chunk_id, pid, std::move(packed_data)
+                )
             );
         }
     }
@@ -724,6 +733,8 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
         group.reserve(pids.size() / size_t(comm_->nranks()));
     }
 
+    // use the dummy chunk ID for intermediate chunks
+    constexpr ChunkID dummy_chunk_id = std::numeric_limits<ChunkID>::max();
     for (size_t i = 0; i < pids.size(); ++i) {
         Rank target_rank = partition_owner(comm_, pids[i]);
 
@@ -736,7 +747,7 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
         } else {
             chunk_groups[size_t(target_rank)].emplace_back(
                 Chunk::from_finished_partition(
-                    get_new_cid(), pids[i], expected_num_chunks[i] + 1
+                    dummy_chunk_id, pids[i], expected_num_chunks[i] + 1
                 )
             );
         }
@@ -759,40 +770,10 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     std::vector<PackedData> ret;
     ret.reserve(chunks.size());
 
-    // Sum the total size of all chunks not in device memory already.
-    std::size_t non_device_size{0};
+    // Convert the chunks to packed data.
     for (auto& [_, chunk] : chunks) {
-        if (chunk.data_memory_type() != MemoryType::DEVICE) {
-            non_device_size += chunk.concat_data_size();
-        }
+        ret.emplace_back(chunk.release_metadata_buffer(), chunk.release_data_buffer());
     }
-    // This total sum is what we need to reserve before moving them to device.
-    auto [reservation, overbooking] =
-        br_->reserve(MemoryType::DEVICE, non_device_size, true);
-
-    // Check overbooking, do we need to spill to host memory?
-    if (overbooking > 0) {
-        br_->spill_manager().spill(overbooking);
-    }
-
-    // Move the data to device memory (copy if necessary).
-    auto const t0_unspill = Clock::now();
-    std::uint64_t total_unspilled{0};
-    for (auto& [_, chunk] : chunks) {
-        if (chunk.data_memory_type() != MemoryType::DEVICE) {
-            total_unspilled += chunk.concat_data_size();
-        }
-        ret.emplace_back(
-            chunk.release_metadata_buffer(),
-            br_->move(
-                MemoryType::DEVICE, chunk.release_data_buffer(), stream_, reservation
-            )
-        );
-    }
-    statistics_->add_duration_stat(
-        "spill-time-host-to-device", Clock::now() - t0_unspill
-    );
-    statistics_->add_bytes_stat("spill-bytes-host-to-device", total_unspilled);
     return ret;
 }
 

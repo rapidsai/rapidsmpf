@@ -20,6 +20,7 @@ from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
+    unspill_partitions,
 )
 from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
@@ -233,7 +234,13 @@ class BulkRayShufflerActor(BaseShufflingActor):
             partition_id = self.shuffler.wait_any()
             packed_chunks = self.shuffler.extract(partition_id)
             partition = unpack_and_concat(
-                packed_chunks,
+                unspill_partitions(
+                    packed_chunks,
+                    stream=DEFAULT_STREAM,
+                    br=self.br,
+                    allow_overbooking=True,
+                    statistics=self.stats,
+                ),
                 br=self.br,
                 stream=DEFAULT_STREAM,
             )

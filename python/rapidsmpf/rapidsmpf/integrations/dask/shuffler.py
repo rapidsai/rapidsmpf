@@ -4,198 +4,41 @@
 
 from __future__ import annotations
 
-import threading
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from functools import partial
+from typing import TYPE_CHECKING, Any
 
 from distributed import get_worker
 
-from rmm.pylibrmm.stream import DEFAULT_STREAM
-
 from rapidsmpf.config import Options
+from rapidsmpf.integrations.core import (
+    extract_partition,
+    get_new_shuffle_id,
+    get_shuffler,
+    insert_partition,
+)
 from rapidsmpf.integrations.dask.core import (
-    DataFrameT,
     get_dask_client,
+    get_dask_worker_rank,
     get_worker_context,
-    get_worker_rank,
     global_rmpf_barrier,
 )
-from rapidsmpf.shuffler import Shuffler
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, MutableMapping
+    from collections.abc import MutableMapping
 
     from distributed import Client, Worker
 
-
-# Set of available shuffle IDs
-_shuffle_id_vacancy: set[int] = set(range(Shuffler.max_concurrent_shuffles))
-_shuffle_id_vacancy_lock: threading.Lock = threading.Lock()
+    from rapidsmpf.integrations.core import ShufflerIntegration
 
 
-def _get_new_shuffle_id(client: Client) -> int:
-    """
-    Get a new available shuffle ID.
-
-    Since RapidsMPF only supports a limited number of shuffler instances at
-    any given time, this function maintains a shared pool of shuffle IDs.
-
-    If no IDs are available locally, it queries all workers for IDs in use,
-    updates the vacancy set accordingly, and retries. If all IDs are in use
-    across the cluster, an error is raised.
-
-    Parameters
-    ----------
-    client
-        A Dask distributed client used to query workers for active shuffle IDs.
-
-    Returns
-    -------
-    A unique shuffle ID not currently in use.
-
-    Raises
-    ------
-    ValueError
-        If all shuffle IDs are currently in use across the cluster.
-    """
-    global _shuffle_id_vacancy  # noqa: PLW0603
-
-    with _shuffle_id_vacancy_lock:
-        if not _shuffle_id_vacancy:
-
-            def get_occupied_ids(dask_worker: Worker) -> set[int]:
-                ctx = get_worker_context(dask_worker)
-                with ctx.lock:
-                    return set(ctx.shufflers.keys())
-
-            # We start with setting all IDs as vacant and then subtract all
-            # IDs occupied on any one worker.
-            _shuffle_id_vacancy = set(range(Shuffler.max_concurrent_shuffles))
-            _shuffle_id_vacancy.difference_update(
-                *client.run(get_occupied_ids).values()
-            )
-            if not _shuffle_id_vacancy:
-                raise ValueError(
-                    f"Cannot shuffle more than {Shuffler.max_concurrent_shuffles} "
-                    "times in a single Dask compute."
-                )
-
-        return _shuffle_id_vacancy.pop()
-
-
-def get_shuffler(
-    shuffle_id: int,
-    partition_count: int | None = None,
-    dask_worker: Worker | None = None,
-) -> Shuffler:
-    """
-    Return the appropriate :class:`Shuffler` object.
-
-    Parameters
-    ----------
-    shuffle_id
-        Unique ID for the shuffle operation.
-    partition_count
-        Output partition count for the shuffle operation.
-    dask_worker
-        The current dask worker.
-
-    Returns
-    -------
-    The active RapidsMPF :class:`Shuffler` object associated with
-    the specified ``shuffle_id``, ``partition_count`` and
-    ``dask_worker``.
-
-    Notes
-    -----
-    Whenever a new :class:`Shuffler` object is created, it is
-    saved as ``DaskWorkerContext.shufflers[shuffle_id]``.
-
-    This function is expected to run on a Dask worker.
-    """
+def _get_occupied_ids_local(dask_worker: Worker) -> set[int]:
     ctx = get_worker_context(dask_worker)
     with ctx.lock:
-        if shuffle_id not in ctx.shufflers:
-            if partition_count is None:
-                raise ValueError(
-                    "Need partition_count to create new shuffler."
-                    f" shuffle_id: {shuffle_id}\n"
-                    f" Shufflers: {ctx.shufflers}"
-                )
-            assert ctx.br is not None
-            assert ctx.comm is not None
-            assert ctx.progress_thread is not None
-            ctx.shufflers[shuffle_id] = Shuffler(
-                ctx.comm,
-                ctx.progress_thread,
-                op_id=shuffle_id,
-                total_num_partitions=partition_count,
-                stream=DEFAULT_STREAM,
-                br=ctx.br,
-                statistics=ctx.statistics,
-            )
-    return ctx.shufflers[shuffle_id]
+        return set(ctx.shufflers.keys())
 
 
-@runtime_checkable
-class DaskIntegration(Protocol[DataFrameT]):
-    """
-    dask-integration protocol.
-
-    This protocol can be used to implement a RapidsMPF-shuffle
-    operation using a Dask task graph.
-    """
-
-    @staticmethod
-    def insert_partition(
-        df: DataFrameT,
-        partition_id: int,
-        partition_count: int,
-        shuffler: Shuffler,
-        options: Any,
-        *other: Any,
-    ) -> None:
-        """
-        Add a partition to a RapidsMPF Shuffler.
-
-        Parameters
-        ----------
-        df
-            DataFrame partition to add to a RapidsMPF shuffler.
-        partition_id
-            The input partition id of ``df``.
-        partition_count
-            Number of output partitions for the current shuffle.
-        shuffler
-            The RapidsMPF Shuffler object to extract from.
-        options
-            Additional options.
-        *other
-            Other data needed for partitioning. For example,
-            this may be boundary values needed for sorting.
-        """
-
-    @staticmethod
-    def extract_partition(
-        partition_id: int,
-        shuffler: Shuffler,
-        options: Any,
-    ) -> DataFrameT:
-        """
-        Extract a DataFrame partition from a RapidsMPF Shuffler.
-
-        Parameters
-        ----------
-        partition_id
-            Partition id to extract.
-        shuffler
-            The RapidsMPF Shuffler object to extract from.
-        options
-            Additional options.
-
-        Returns
-        -------
-        A shuffled DataFrame partition.
-        """
+def _get_occupied_ids_dask(client: Client) -> list[set[int]]:
+    return list(client.run(_get_occupied_ids_local).values())
 
 
 def _worker_rmpf_barrier(
@@ -223,10 +66,8 @@ def _worker_rmpf_barrier(
     A worker barrier task DOES need to be restricted
     to a specific Dask worker.
     """
-    from rapidsmpf.integrations.dask.shuffler import get_shuffler
-
     for shuffle_id in shuffle_ids:
-        shuffler = get_shuffler(shuffle_id)
+        shuffler = get_shuffler(get_worker_context, shuffle_id)
         for pid in range(partition_count):
             shuffler.insert_finished(pid)
 
@@ -234,7 +75,7 @@ def _worker_rmpf_barrier(
 def _stage_shuffler(
     shuffle_id: int,
     partition_count: int,
-    dask_worker: Worker | None = None,
+    worker: Worker | None = None,
 ) -> None:
     """
     Stage a shuffler object without returning it.
@@ -245,128 +86,26 @@ def _stage_shuffler(
         Unique ID for the shuffle operation.
     partition_count
         Output partition count for the shuffle operation.
-    dask_worker
+    worker
         The current dask worker.
 
     Notes
     -----
     This function is expected to run on a Dask worker.
     """
-    dask_worker = dask_worker or get_worker()
+    worker = worker or get_worker()
     get_shuffler(
+        get_worker_context,
         shuffle_id,
         partition_count=partition_count,
-        dask_worker=dask_worker,
+        worker=worker,
     )
 
 
-def _insert_partition(
-    callback: Callable[
-        [
-            DataFrameT,
-            int,
-            int,
-            Shuffler,
-            Any,
-            *tuple[str | tuple[str, int], ...],
-        ],
-        None,
-    ],
-    df: DataFrameT,
-    partition_id: int,
-    partition_count: int,
-    shuffle_id: int,
-    options: Any,
-    *other_keys: str | tuple[str, int],
-) -> None:
-    """
-    Add a partition to a RapidsMPF Shuffler.
-
-    Parameters
-    ----------
-    callback
-        Insertion callback function. This function must be
-        the `insert_partition` attribute of a `DaskIntegration`
-        protocol.
-    df
-        DataFrame partition to add to a RapidsMPF shuffler.
-    partition_id
-        The input partition id of ``df``.
-    partition_count
-        Number of output partitions for the current shuffle.
-    shuffle_id
-        The RapidsMPF shuffle id.
-    options
-        Optional key-word arguments.
-    *other_keys
-        Other keys needed by ``callback``.
-    """
-    if callback is None:
-        raise ValueError("callback missing in _insert_partition.")
-    from rapidsmpf.integrations.dask.shuffler import get_shuffler
-
-    callback(
-        df,
-        partition_id,
-        partition_count,
-        get_shuffler(shuffle_id),
-        options,
-        *other_keys,
-    )
-
-
-def _extract_partition(
-    callback: Callable[
-        [int, Shuffler, Any],
-        DataFrameT,
-    ],
-    shuffle_id: int,
-    partition_id: int,
-    worker_barrier: tuple[int, ...],
-    options: Any,
-) -> DataFrameT:
-    """
-    Extract a partition from a RapidsMPF Shuffler.
-
-    Parameters
-    ----------
-    callback
-        Insertion callback function. This function must be
-        the `extract_partition` attribute of a `DaskIntegration`
-        protocol.
-    shuffle_id
-        The RapidsMPF shuffle id.
-    partition_id
-        Partition id to extract.
-    worker_barrier
-        Worker-barrier task dependency. This value should
-        not be used for compute logic.
-    options
-        Additional options.
-
-    Returns
-    -------
-    Extracted DataFrame partition.
-    """
-    shuffler = get_shuffler(shuffle_id)
-    try:
-        return callback(
-            partition_id,
-            shuffler,
-            options,
-        )
-    finally:
-        if shuffler.finished():
-            ctx = get_worker_context()
-            with ctx.lock:
-                if shuffle_id in ctx.shufflers:
-                    del ctx.shufflers[shuffle_id]
-
-
-def _get_worker_ranks_and_stage_shuffler(
+def _get_dask_worker_ranks_and_stage_shuffler(
     shuffle_id: int, partition_count: int, dask_worker: Worker | None = None
 ) -> int:
-    rank = get_worker_rank(dask_worker)
+    rank = get_dask_worker_rank(dask_worker)
 
     _stage_shuffler(shuffle_id, partition_count, dask_worker)
 
@@ -378,7 +117,7 @@ def rapidsmpf_shuffle_graph(
     output_name: str,
     partition_count_in: int,
     partition_count_out: int,
-    integration: DaskIntegration,
+    integration: ShufflerIntegration,
     options: Any,
     *other_keys: str | tuple[str, int],
     config_options: Options = Options(),
@@ -470,11 +209,7 @@ def rapidsmpf_shuffle_graph(
     """
     # Get the shuffle id
     client = get_dask_client(options=config_options)
-    shuffle_id = _get_new_shuffle_id(client)
-
-    # Check integration argument
-    if not isinstance(integration, DaskIntegration):
-        raise TypeError(f"Expected DaskIntegration object, got {integration}.")
+    shuffle_id = get_new_shuffle_id(partial(_get_occupied_ids_dask, client))
 
     # Note: We've observed high overhead from `Client.run` on some systems with
     # some networking configurations. Minimize the number of `Client.run` calls
@@ -483,7 +218,7 @@ def rapidsmpf_shuffle_graph(
     worker_ranks: dict[int, str] = {
         v: k
         for k, v in client.run(
-            _get_worker_ranks_and_stage_shuffler,
+            _get_dask_worker_ranks_and_stage_shuffler,
             shuffle_id,
             partition_count_out,
         ).items()
@@ -501,7 +236,8 @@ def rapidsmpf_shuffle_graph(
     # Add tasks to insert each partition into the shuffler
     graph: dict[Any, Any] = {
         (insert_name, pid): (
-            _insert_partition,
+            insert_partition,
+            get_worker_context,
             integration.insert_partition,
             (input_name, pid),
             pid,
@@ -544,7 +280,8 @@ def rapidsmpf_shuffle_graph(
         rank = part_id % n_workers
         output_keys.append((output_name, part_id))
         graph[output_keys[-1]] = (
-            _extract_partition,
+            extract_partition,
+            get_worker_context,
             integration.extract_partition,
             shuffle_id,
             part_id,

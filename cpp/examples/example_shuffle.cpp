@@ -117,7 +117,13 @@ int main(int argc, char** argv) {
         // Unpack (deserialize) and concatenate the chunks into a single table using a
         // convenience function.
         local_outputs.push_back(
-            rapidsmpf::unpack_and_concat(std::move(packed_chunks), stream, &br)
+            rapidsmpf::unpack_and_concat(
+                rapidsmpf::unspill_partitions(
+                    std::move(packed_chunks), stream, &br, true
+                ),
+                stream,
+                &br
+            )
         );
     }
     // At this point, `local_outputs` contains the local result of the shuffle.

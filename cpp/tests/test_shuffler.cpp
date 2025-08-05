@@ -34,76 +34,6 @@ static rapidsmpf::Communicator::Logger& log() {
     return GlobalEnvironment->comm_->logger();
 }
 
-class NumOfPartitions : public cudf::test::BaseFixtureWithParam<std::tuple<int, int>> {};
-
-// test different `num_partitions` and `num_rows`.
-INSTANTIATE_TEST_SUITE_P(
-    Shuffler,
-    NumOfPartitions,
-    testing::Combine(
-        testing::Range(1, 10),  // num_partitions
-        testing::Range(1, 100, 9)  // num_rows
-    )
-);
-
-TEST_P(NumOfPartitions, partition_and_pack) {
-    int const num_partitions = std::get<0>(GetParam());
-    int const num_rows = std::get<1>(GetParam());
-    std::int64_t const seed = 42;
-    cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
-    auto stream = cudf::get_default_stream();
-    rapidsmpf::BufferResource br{mr()};
-
-    cudf::table expect =
-        random_table_with_index(seed, static_cast<std::size_t>(num_rows), 0, 10);
-
-    auto chunks = rapidsmpf::partition_and_pack(
-        expect, {1}, num_partitions, hash_fn, seed, stream, &br
-    );
-
-    // Convert to a vector
-    std::vector<rapidsmpf::PackedData> chunks_vector;
-    for (auto& [_, chunk] : chunks) {
-        chunks_vector.push_back(std::move(chunk));
-    }
-    EXPECT_EQ(chunks_vector.size(), num_partitions);
-
-    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, &br);
-
-    // Compare the input table with the result. We ignore the row order by
-    // sorting by their index (first column).
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(sort_table(expect), sort_table(result));
-}
-
-TEST_P(NumOfPartitions, split_and_pack) {
-    int const num_partitions = std::get<0>(GetParam());
-    int const num_rows = std::get<1>(GetParam());
-    std::int64_t const seed = 42;
-    auto stream = cudf::get_default_stream();
-    rapidsmpf::BufferResource br{cudf::get_current_device_resource_ref()};
-
-    cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
-
-    std::vector<cudf::size_type> splits;
-    for (int i = 1; i < num_partitions; ++i) {
-        splits.emplace_back(i * num_rows / num_partitions);
-    }
-
-    auto chunks = rapidsmpf::split_and_pack(expect, splits, stream, &br);
-
-    // Convert to a vector (restoring the original order).
-    std::vector<rapidsmpf::PackedData> chunks_vector;
-    for (int i = 0; i < num_partitions; ++i) {
-        chunks_vector.emplace_back(std::move(chunks.at(i)));
-    }
-    EXPECT_EQ(chunks_vector.size(), num_partitions);
-
-    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, &br);
-
-    // Compare the input table with the result.
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(expect, *result);
-}
-
 TEST(MetadataMessage, round_trip) {
     auto stream = cudf::get_default_stream();
     auto mr = cudf::get_current_device_resource_ref();
@@ -229,7 +159,11 @@ void test_shuffler(
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any(wait_timeout);
         auto packed_chunks = shuffler.extract(finished_partition);
-        auto result = rapidsmpf::unpack_and_concat(std::move(packed_chunks), stream, br);
+        auto result = rapidsmpf::unpack_and_concat(
+            rapidsmpf::unspill_partitions(std::move(packed_chunks), stream, br, true),
+            stream,
+            br
+        );
 
         // We should only receive the partitions assigned to this rank.
         EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
@@ -804,7 +738,8 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 
     {
         // Now extract triggers spilling of the partition not being extracted.
-        std::vector<rapidsmpf::PackedData> output_chunks = shuffler.extract(0);
+        std::vector<rapidsmpf::PackedData> output_chunks =
+            rapidsmpf::unspill_partitions(shuffler.extract(0), stream, &br, true);
         EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
 
         // And insert also triggers spilling. We end up with zero device allocations.
@@ -815,9 +750,11 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     }
 
     // Extract and unspill both partitions.
-    std::vector<rapidsmpf::PackedData> out0 = shuffler.extract(0);
+    std::vector<rapidsmpf::PackedData> out0 =
+        rapidsmpf::unspill_partitions(shuffler.extract(0), stream, &br, true);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
-    std::vector<rapidsmpf::PackedData> out1 = shuffler.extract(1);
+    std::vector<rapidsmpf::PackedData> out1 =
+        rapidsmpf::unspill_partitions(shuffler.extract(1), stream, &br, true);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
     // Disable spilling and insert the first partition.

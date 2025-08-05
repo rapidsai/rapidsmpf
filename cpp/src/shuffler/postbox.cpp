@@ -23,8 +23,10 @@ void PostBox<KeyType>::insert(Chunk&& chunk) {
         );
     }
     std::lock_guard const lock(mutex_);
-    auto [_, inserted] = pigeonhole_[key].insert({chunk.chunk_id(), std::move(chunk)});
-    RAPIDSMPF_EXPECTS(inserted, "PostBox.insert(): chunk already exist");
+    RAPIDSMPF_EXPECTS(
+        pigeonhole_[key].emplace(chunk.chunk_id(), std::move(chunk)).second,
+        "PostBox.insert(): chunk already exist"
+    );
 }
 
 template <typename KeyType>

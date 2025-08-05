@@ -5,7 +5,8 @@
 from cython.operator cimport dereference as deref
 from cython.operator cimport postincrement
 from libc.stdint cimport uint32_t
-from libcpp.memory cimport make_unique, unique_ptr
+from libcpp cimport bool as bool_t
+from libcpp.memory cimport make_unique, shared_ptr, unique_ptr
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
@@ -16,8 +17,10 @@ from pylibcudf.table cimport Table
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
+from rapidsmpf.buffer.packed_data cimport (PackedData, cpp_PackedData,
+                                           packed_data_vector_to_list)
 from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
+from rapidsmpf.statistics cimport cpp_Statistics
 
 
 cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
@@ -42,7 +45,6 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             cuda_stream_view stream,
             cpp_BufferResource* br,
         ) except +
-
 
 cpdef dict partition_and_pack(
     Table table,
@@ -180,6 +182,17 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
         ) except +
 
 
+# Help function to convert an iterable of `PackedData` to a vector of
+# `cpp_PackedData`.
+cdef vector[cpp_PackedData] _partitions_py_to_cpp(partitions):
+    cdef vector[cpp_PackedData] ret
+    for part in partitions:
+        if not (<PackedData?>part).c_obj:
+            raise ValueError("PackedData was empty")
+        ret.push_back(move(deref((<PackedData?>part).c_obj)))
+    return move(ret)
+
+
 cpdef Table unpack_and_concat(
     partitions,
     stream,
@@ -187,6 +200,8 @@ cpdef Table unpack_and_concat(
 ):
     """
     Unpack (deserialize) input tables and concatenate them.
+
+    The input partitions are consumed and are left empty on return.
 
     Parameters
     ----------
@@ -209,13 +224,7 @@ cpdef Table unpack_and_concat(
         raise ValueError("stream cannot be None")
     cdef cuda_stream_view _stream = Stream(stream).view()
     cdef cpp_BufferResource* _br = br.ptr()
-
-    cdef vector[cpp_PackedData] _partitions
-    for part in partitions:
-        if not (<PackedData?>part).c_obj:
-            raise ValueError("PackedData was empty")
-        _partitions.push_back(move(deref((<PackedData?>part).c_obj)))
-
+    cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)
     cdef unique_ptr[cpp_table] _ret
     with nogil:
         _ret = cpp_unpack_and_concat(
@@ -224,3 +233,147 @@ cpdef Table unpack_and_concat(
             _br,
         )
     return Table.from_libcudf(move(_ret))
+
+
+cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
+    cdef vector[cpp_PackedData] cpp_spill_partitions \
+        "rapidsmpf::spill_partitions"(
+            vector[cpp_PackedData] partitions,
+            cuda_stream_view stream,
+            cpp_BufferResource* br,
+            shared_ptr[cpp_Statistics] statistics,
+        ) except +
+
+
+cpdef list spill_partitions(
+    partitions,
+    stream,
+    BufferResource br,
+    Statistics statistics = None,
+):
+    """
+    Spill partitions from device memory to host memory.
+
+    Partitions already in host memory are returned unchanged. For partitions
+    in device memory, this function allocates host memory and moves the buffer
+    using the provided buffer resource.
+
+    For device-resident partitions, a host memory reservation is made before
+    moving the buffer. If the reservation fails due to insufficient host memory,
+    an exception is raised. Overbooking is not allowed.
+
+    The input partitions are consumed and are left empty on return.
+
+    Parameters
+    ----------
+    partitions
+        The input partitions, each containing GPU or host buffers.
+    stream
+        The CUDA stream used for memory operations.
+    br
+        The buffer resource that manages memory allocation and movement.
+    statistics
+        The statistics instance to use. If None, statistics is disabled.
+
+    Returns
+    -------
+    A list of partitions where all buffers reside in host memory.
+
+    Raises
+    ------
+    MemoryError
+        If host memory allocation fails. Overbooking is not allowed.
+    """
+
+    if stream is None:
+        raise ValueError("stream cannot be None")
+    cdef cuda_stream_view _stream = Stream(stream).view()
+    cdef cpp_BufferResource* _br = br.ptr()
+    cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)
+    cdef vector[cpp_PackedData] _ret
+    if statistics is None:
+        statistics = Statistics(enable=False)  # Disables statistics.
+    with nogil:
+        _ret = cpp_spill_partitions(
+            move(_partitions),
+            _stream,
+            _br,
+            statistics._handle,
+        )
+    return packed_data_vector_to_list(move(_ret))
+
+
+cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
+    cdef vector[cpp_PackedData] cpp_unspill_partitions \
+        "rapidsmpf::unspill_partitions"(
+            vector[cpp_PackedData] partitions,
+            cuda_stream_view stream,
+            cpp_BufferResource* br,
+            bool_t allow_overbooking,
+            shared_ptr[cpp_Statistics] statistics,
+        ) except +
+
+
+cpdef list unspill_partitions(
+    partitions,
+    stream,
+    BufferResource br,
+    bool_t allow_overbooking,
+    Statistics statistics = None,
+):
+    """
+    Move spilled partitions (i.e., packed tables in host memory) back to device memory.
+
+    Each partition is inspected to determine whether its buffer already resides in
+    device memory. Buffers already in device memory are returned unchanged. Host-
+    resident buffers are moved to device memory using the provided buffer resource
+    and CUDA stream.
+
+    If insufficient device memory is available, the buffer resource's spill manager is
+    invoked to attempt to free up space. If overbooking occurs and the spill manager
+    fails to reclaim enough memory, the behavior depends on the `allow_overbooking`
+    flag.
+
+    The input partitions are consumed and are left empty on return.
+
+    Parameters
+    ----------
+    partitions
+        The partitions to unspill, potentially containing host-resident data.
+    stream
+        CUDA stream used for memory operations and kernel launches.
+    br
+        Buffer resource responsible for memory reservation, spills, and transfers.
+    allow_overbooking
+        Whether to allow overbooking if not enough device memory can be reclaimed by
+        spilling. If False, an error is raised if the reservation cannot be fulfilled.
+    statistics
+        The statistics instance to use. If None, statistics is disabled.
+
+    Returns
+    -------
+    A list of partitions where each buffer resides in device memory.
+
+    Raises
+    ------
+    OverflowError
+        If overbooking is required but `allow_overbooking` is False and insufficient
+        memory could be spilled to satisfy the reservation.
+    """
+    if stream is None:
+        raise ValueError("stream cannot be None")
+    cdef cuda_stream_view _stream = Stream(stream).view()
+    cdef cpp_BufferResource* _br = br.ptr()
+    cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)
+    cdef vector[cpp_PackedData] _ret
+    if statistics is None:
+        statistics = Statistics(enable=False)  # Disables statistics.
+    with nogil:
+        _ret = cpp_unspill_partitions(
+            move(_partitions),
+            _stream,
+            _br,
+            allow_overbooking,
+            statistics._handle,
+        )
+    return packed_data_vector_to_list(move(_ret))

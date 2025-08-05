@@ -5,17 +5,15 @@
 from __future__ import annotations
 
 from rapidsmpf.integrations.dask.core import (
-    DataFrameT,
     bootstrap_dask_cluster,
+    get_worker_context,
 )
 from rapidsmpf.integrations.dask.shuffler import (
-    DaskIntegration,
     rapidsmpf_shuffle_graph,
 )
 
 __all__: list[str] = [
-    "DaskIntegration",
-    "DataFrameT",
     "bootstrap_dask_cluster",
+    "get_worker_context",
     "rapidsmpf_shuffle_graph",
 ]

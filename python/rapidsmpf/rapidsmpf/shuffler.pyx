@@ -11,7 +11,8 @@ from libcpp.vector cimport vector
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
+from rapidsmpf.buffer.packed_data cimport (PackedData, cpp_PackedData,
+                                           packed_data_vector_to_list)
 from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics
 
@@ -251,16 +252,7 @@ cdef class Shuffler:
         cdef vector[cpp_PackedData] _ret
         with nogil:
             _ret = deref(self._handle).extract(pid)
-
-        # Move the result into a python list of `PackedData`.
-        cdef list ret = []
-        for i in range(_ret.size()):
-            ret.append(
-                PackedData.from_librapidsmpf(
-                    make_unique[cpp_PackedData](move(_ret[i]))
-                )
-            )
-        return ret
+        return packed_data_vector_to_list(move(_ret))
 
     def finished(self):
         """

@@ -110,13 +110,6 @@ class Shuffler {
     void shutdown();
 
     /**
-     * @brief Insert a chunk into the shuffle.
-     *
-     * @param chunk The chunk to insert.
-     */
-    void insert(detail::Chunk&& chunk);
-
-    /**
      * @brief Insert a map of packed data, grouping them by destination rank, and
      * concatenating into a single chunk per rank.
      *
@@ -219,6 +212,13 @@ class Shuffler {
     [[nodiscard]] std::string str() const;
 
   private:
+    /**
+     * @brief Insert a chunk into the shuffle.
+     *
+     * @param chunk The chunk to insert.
+     */
+    void insert(detail::Chunk&& chunk);
+
     /**
      * @brief Insert a chunk into the outbox (the chunk is ready for the user).
      *
