@@ -10,6 +10,9 @@
 #include <mutex>
 #include <utility>
 
+#include <ucs/memory/memory_type.h>
+#include <ucxx/typedefs.h>
+
 #include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -1147,6 +1150,47 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     req->checkError();
 
     return {std::move(msg), sender_rank};
+}
+
+std::unique_ptr<Communicator::Future> UCXX::am_send(
+    std::unique_ptr<std::vector<uint8_t>> msg,
+    Rank rank,
+    BufferResource* br,
+    ::ucxx::AmReceiverCallbackInfo const& info
+) {
+    auto req =
+        get_endpoint(rank)->amSend(msg->data(), msg->size(), UCS_MEMORY_TYPE_HOST, info);
+    return std::make_unique<Future>(req, br->move(std::move(msg)));
+}
+
+std::unique_ptr<Communicator::Future> UCXX::am_send(
+    std::unique_ptr<Buffer> msg, Rank rank, ::ucxx::AmReceiverCallbackInfo const& info
+) {
+    if (!msg->is_ready()) {
+        logger().warn("msg is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+    auto req =
+        get_endpoint(rank)->amSend(msg->data(), msg->size, UCS_MEMORY_TYPE_HOST, info);
+    return std::make_unique<Future>(req, std::move(msg));
+}
+
+void UCXX::am_recv_callback(
+    ::ucxx::AmReceiverCallbackInfo const& info, ::ucxx::AmReceiverCallbackType callback
+) {
+    shared_resources_->get_worker()->registerAmReceiverCallback(info, callback);
+}
+
+std::unique_ptr<Communicator::Future> UCXX::am_recv(
+    std::shared_ptr<::ucxx::RequestAm> req, std::unique_ptr<Buffer> recv_buffer
+) {
+    if (!recv_buffer->is_ready()) {
+        logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+    return std::make_unique<Future>(
+        req->receiveData(recv_buffer->data()), std::move(recv_buffer)
+    );
 }
 
 std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
