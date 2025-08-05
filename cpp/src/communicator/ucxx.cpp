@@ -848,12 +848,15 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         );
         auto listener = shared_resources->get_listener();
 
-        auto control_callback = ::ucxx::AmReceiverCallbackType(
-            [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
+        auto control_callback =
+            ::ucxx::AmReceiverCallbackType([shared_resources](
+                                               std::shared_ptr<::ucxx::Request> req,
+                                               ucp_ep_h ep,
+                                               const ::ucxx::AmReceiverCallbackInfo&
+                                           ) {
                 auto buffer = req->getRecvBuffer();
                 control_unpack(req->getRecvBuffer(), ep, shared_resources);
-            }
-        );
+            });
 
         worker->registerAmReceiverCallback(
             shared_resources->get_control_callback_info(), control_callback
@@ -963,11 +966,14 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         // log.info("Root running at address ", listener->getIp(), ":",
         // listener->getPort());
 
-        auto control_callback = ::ucxx::AmReceiverCallbackType(
-            [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
+        auto control_callback =
+            ::ucxx::AmReceiverCallbackType([shared_resources](
+                                               std::shared_ptr<::ucxx::Request> req,
+                                               ucp_ep_h ep,
+                                               const ::ucxx::AmReceiverCallbackInfo&
+                                           ) {
                 control_unpack(req->getRecvBuffer(), ep, shared_resources);
-            }
-        );
+            });
 
         worker->registerAmReceiverCallback(
             shared_resources->get_control_callback_info(), control_callback
@@ -1273,11 +1279,14 @@ std::shared_ptr<UCXX> UCXX::split() {
     );
 
     // Set up control callback
-    auto control_callback = ::ucxx::AmReceiverCallbackType(
-        [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
+    auto control_callback =
+        ::ucxx::AmReceiverCallbackType([shared_resources](
+                                           std::shared_ptr<::ucxx::Request> req,
+                                           ucp_ep_h ep,
+                                           const ::ucxx::AmReceiverCallbackInfo&
+                                       ) {
             control_unpack(req->getRecvBuffer(), ep, shared_resources);
-        }
-    );
+        });
 
     worker->registerAmReceiverCallback(
         shared_resources->get_control_callback_info(), control_callback
