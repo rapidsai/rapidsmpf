@@ -27,5 +27,5 @@ run_mpirun_test() {
 # Note, we run with many different number of ranks, which we can do as long as
 # the test suite only takes seconds to run (timeouts after one minute).
 for nrank in 1 2 3 4 5 8; do
-    run_mpirun_test 300 $nrank
+    run_mpirun_test 500 $nrank
 done
