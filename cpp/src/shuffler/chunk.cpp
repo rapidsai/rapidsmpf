@@ -311,25 +311,11 @@ Chunk Chunk::concat(
     uint64_t curr_data_offset = 0;
     size_t curr_msg_offset = 0;
 
-    // Check that the partition IDs are unique (incrementally checking each chunk using
-    // the lambda)
-    std::unordered_set<PartID> seen_pids;
-    seen_pids.reserve(total_messages);
-    auto check_pids_unique = [&](auto const& chunk) {
-        for (auto const& pid : chunk.part_ids_) {
-            RAPIDSMPF_EXPECTS(
-                seen_pids.emplace(pid).second,
-                "Duplicate partition ID " + std::to_string(pid) + " in chunk "
-                    + std::to_string(chunk.chunk_id())
-            );
-        }
-    };
-
     // Process each chunk
     for (auto& chunk : chunks) {
         size_t chunk_messages = chunk.n_messages();
 
-        check_pids_unique(chunk);
+        // TODO: check that the partition IDs are unique (maybe in debug mode)
 
         // Copy partition IDs and expected number of chunks
         std::memcpy(
