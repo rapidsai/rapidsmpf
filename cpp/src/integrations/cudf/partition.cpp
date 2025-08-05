@@ -147,17 +147,30 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 }
 
 std::vector<PackedData> spill_partitions(
-    std::vector<PackedData>&& partitions, rmm::cuda_stream_view stream, BufferResource* br
+    std::vector<PackedData>&& partitions,
+    rmm::cuda_stream_view stream,
+    BufferResource* br,
+    std::shared_ptr<Statistics> statistics
 ) {
+    auto const elapsed = Clock::now();
+    // Sum the total size of all packed data in device memory.
+    std::size_t device_size{0};
+    for (auto& [_, data] : partitions) {
+        if (data->mem_type() == MemoryType::DEVICE) {
+            device_size += data->size;
+        }
+    }
+    auto [reservation, _] = br->reserve(MemoryType::HOST, device_size, false);
     // Spill each partition to host memory.
     std::vector<PackedData> ret;
     ret.reserve(partitions.size());
     for (auto& [metadata, data] : partitions) {
-        auto [reservation, _] = br->reserve(MemoryType::HOST, data->size, false);
         ret.emplace_back(
             std::move(metadata), br->move(std::move(data), stream, reservation)
         );
     }
+    statistics->add_duration_stat("spill-time-device-to-host", Clock::now() - elapsed);
+    statistics->add_bytes_stat("spill-bytes-device-to-host", device_size);
     return ret;
 }
 
@@ -165,8 +178,10 @@ std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    bool allow_overbooking
+    bool allow_overbooking,
+    std::shared_ptr<Statistics> statistics
 ) {
+    auto const elapsed = Clock::now();
     // Sum the total size of all packed data not in device memory already.
     std::size_t non_device_size{0};
     for (auto& [_, data] : partitions) {
@@ -195,6 +210,9 @@ std::vector<PackedData> unspill_partitions(
             std::move(metadata), br->move(std::move(data), stream, reservation)
         );
     }
+
+    statistics->add_duration_stat("spill-time-host-to-device", Clock::now() - elapsed);
+    statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
     return ret;
 }
 }  // namespace rapidsmpf
