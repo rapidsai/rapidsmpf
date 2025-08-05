@@ -181,8 +181,12 @@ def test_boostrap_single_node_cluster_no_deadlock() -> None:
 def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
     pytest.importorskip("dask_cudf")
 
-    def clear_finished_shuffles(dask_worker: Worker) -> None:
-        # Avoid leaking Shuffler objects between tests.
+    def clear_shuffles(dask_worker: Worker) -> None:
+        # Avoid leaking Shuffler objects between tests, by clearing
+        # finished shuffles and shutting down (and clearing) staged,
+        # but not finished, suffles. This shouldn't hang because in the
+        # "too many shuffles" case, we just stage shuffles without actually
+        # inserting (or extracting) any data, and so shutdown shouldn't block.
         ctx = get_worker_context(dask_worker)
         for shuffle_id, shuffler in list(ctx.shufflers.items()):
             if ctx.shufflers[shuffle_id].finished():
@@ -262,7 +266,7 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
             ):
                 do_shuffle(seed=3, num_shuffles=max_num_shuffles + 1)
 
-            client.run(clear_finished_shuffles)
+            client.run(clear_shuffles)
 
 
 def test_many_shuffles_single() -> None:
@@ -335,6 +339,8 @@ def test_many_shuffles_single() -> None:
         do_shuffle(seed=3, num_shuffles=max_num_shuffles + 1)
 
     # Cleanup Shufflers to avoid leaking between tests.
+    # This shouldn't hang because we just stage shuffles without,
+    # without inserting or extracting any data, and so shutdown shouldn't block.
     context = rapidsmpf.integrations.single._get_worker_context()
     for shuffle_id, shuffler in list(context.shufflers.items()):
         if context.shufflers[shuffle_id].finished():
