@@ -5,6 +5,7 @@
 
 
 #include <iostream>
+#include <memory>
 
 #include <mpi.h>
 #include <ucxx/typedefs.h>
@@ -169,6 +170,7 @@ void run_tag(
 ) {
     Tag const tag{0, 1};
     std::vector<std::unique_ptr<Communicator::Future>> futures;
+    futures.reserve(send_bufs.size() + recv_bufs.size());
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
             auto buf = std::move(recv_bufs.at(
@@ -177,7 +179,7 @@ void run_tag(
             ));
             if (rank != comm->rank()) {
                 statistics->add_bytes_stat("all-to-all-recv", buf->size);
-                futures.push_back(comm->recv(rank, tag, std::move(buf)));
+                futures.emplace_back(comm->recv(rank, tag, std::move(buf)));
             }
         }
         for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
@@ -187,7 +189,7 @@ void run_tag(
             ));
             if (rank != comm->rank()) {
                 statistics->add_bytes_stat("all-to-all-send", buf->size);
-                futures.push_back(comm->send(std::move(buf), rank, tag));
+                futures.emplace_back(comm->send(std::move(buf), rank, tag));
             }
         }
     }
