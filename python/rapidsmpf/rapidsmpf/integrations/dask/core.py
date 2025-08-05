@@ -16,7 +16,8 @@ from rapidsmpf.config import (
     Options,
     get_environment_variables,
 )
-from rapidsmpf.integrations.core import WorkerContext, rmpf_worker_setup
+from rapidsmpf.integrations import WorkerContext
+from rapidsmpf.integrations.core import rmpf_worker_setup
 from rapidsmpf.integrations.dask import _compat
 
 if TYPE_CHECKING:
