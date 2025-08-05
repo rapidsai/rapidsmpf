@@ -56,7 +56,7 @@ Chunk Chunk::get_data(
             {meta_offsets_[0]},
             {data_offsets_[0]},
             std::move(metadata_),
-            data_ ? std::move(data_) : br->allocate_empty_host_buffer()
+            data_ ? std::move(data_) : BufferResource::allocate_empty_host_buffer()
         );
     } else {
         // copy the metadata to the new chunk
@@ -72,7 +72,7 @@ Chunk Chunk::get_data(
         size_t data_slice_size = data_size(i);
         std::unique_ptr<Buffer> data_slice;
         if (data_slice_size == 0) {
-            data_slice = br->allocate_empty_host_buffer();
+            data_slice = BufferResource::allocate_empty_host_buffer();
         } else {
             std::ptrdiff_t data_slice_offset =
                 (i == 0 ? 0 : std::ptrdiff_t(data_offsets_[i - 1]));
@@ -285,9 +285,9 @@ Chunk Chunk::concat(
     std::unique_ptr<Buffer> concat_data;
     if (total_data_size > 0) {
         auto reserve = reserve_or_fail(br, total_data_size, preferred_mem_type);
-        concat_data = br->allocate(reserve.mem_type(), total_data_size, stream, reserve);
+        concat_data = br->allocate(total_data_size, stream, reserve);
     } else {  // no data, allocate an empty host buffer
-        concat_data = br->allocate_empty_host_buffer();
+        concat_data = BufferResource::allocate_empty_host_buffer();
     }
 
     // if the data buffer is on the device, we need to create an event to track the

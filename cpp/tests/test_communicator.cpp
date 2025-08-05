@@ -70,19 +70,14 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     auto send_data_h = iota_vector<std::uint8_t>(nelems);
     auto [reservation, ob] = br->reserve(memory_type(), 2 * send_data_h.size(), true);
     auto send_buf = br->move(
-        memory_type(),
-        br->move(std::make_unique<std::vector<uint8_t>>(send_data_h)),
-        stream,
-        reservation
+        br->move(std::make_unique<std::vector<uint8_t>>(send_data_h)), stream, reservation
     );
     stream.synchronize();
     rapidsmpf::Tag tag{0, 0};
 
     auto send_fut = comm->send(std::move(send_buf), comm->rank(), tag);
     auto recv_fut = comm->recv(
-        comm->rank(),
-        tag,
-        br->allocate(memory_type(), send_data_h.size(), stream, reservation)
+        comm->rank(), tag, br->allocate(send_data_h.size(), stream, reservation)
     );
     std::ignore = comm->wait(std::move(send_fut));
     auto recv_buf = comm->wait(std::move(recv_fut));
