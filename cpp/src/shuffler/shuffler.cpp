@@ -47,7 +47,7 @@ std::unique_ptr<Buffer> allocate_buffer(
     if (reservation.size() != size) {
         return nullptr;
     }
-    auto ret = br->allocate(mem_type, size, stream, reservation);
+    auto ret = br->allocate(size, stream, reservation);
     RAPIDSMPF_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
     return ret;
 }
@@ -134,9 +134,9 @@ std::size_t postbox_spilling(
         }
         // We extract the chunk, spilled it, and insert it back into the PostBox.
         auto chunk = postbox.extract(pid, cid);
-        chunk.set_data_buffer(br->move(
-            MemoryType::HOST, chunk.release_data_buffer(), stream, host_reservation
-        ));
+        chunk.set_data_buffer(
+            br->move(chunk.release_data_buffer(), stream, host_reservation)
+        );
         postbox.insert(std::move(chunk));
         if ((total_spilled += size) >= amount) {
             break;
@@ -606,9 +606,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
-            chunk.set_data_buffer(br_->move(
-                MemoryType::HOST, chunk.release_data_buffer(), stream_, host_reservation
-            ));
+            chunk.set_data_buffer(
+                br_->move(chunk.release_data_buffer(), stream_, host_reservation)
+            );
             statistics_->add_duration_stat(
                 "spill-time-device-to-host", Clock::now() - t0_elapsed
             );
@@ -795,9 +795,7 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
         }
         ret.emplace_back(
             chunk.release_metadata_buffer(),
-            br_->move(
-                MemoryType::DEVICE, chunk.release_data_buffer(), stream_, reservation
-            )
+            br_->move(chunk.release_data_buffer(), stream_, reservation)
         );
     }
     statistics_->add_duration_stat(

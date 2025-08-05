@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import dask.dataframe as dd
 import numpy as np
@@ -13,13 +13,14 @@ from dask.utils import M
 
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
+import rapidsmpf.integrations.dask
+import rapidsmpf.integrations.single
+from rapidsmpf.config import Options
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     split_and_pack,
     unpack_and_concat,
 )
-from rapidsmpf.integrations.dask.core import get_worker_context
-from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
@@ -41,8 +42,8 @@ class DaskCudfIntegration:
 
     See Also
     --------
-    rapidsmpf.integrations.dask.shuffler.DaskIntegration
-        Base Dask-integration protocol definition.
+    rapidsmpf.integrations.core.ShufflerIntegration
+        Base shuffler-integration protocol definition.
     """
 
     @staticmethod
@@ -73,7 +74,11 @@ class DaskCudfIntegration:
             Other data needed for partitioning. For example,
             this may be boundary values needed for sorting.
         """
-        ctx = get_worker_context()
+        if options.get("cluster_kind", "distributed") == "distributed":
+            ctx = rapidsmpf.integrations.dask.get_worker_context()
+        else:
+            ctx = rapidsmpf.integrations.single.get_worker_context()
+
         assert ctx.br is not None
         on = options["on"]
         if other:
@@ -114,12 +119,19 @@ class DaskCudfIntegration:
             The RapidsMPF Shuffler object to extract from.
         options
             Additional options.
+        get_worker_context
+            A callable that runs on the worker to get its current
+            context.
 
         Returns
         -------
         A shuffled DataFrame partition.
         """
-        ctx = get_worker_context()
+        if options.get("cluster_kind", "distributed") == "distributed":
+            ctx = rapidsmpf.integrations.dask.get_worker_context()
+        else:
+            ctx = rapidsmpf.integrations.single.get_worker_context()
+
         assert ctx.br is not None
         column_names = options["column_names"]
         shuffler.wait_on(partition_id)
@@ -140,6 +152,8 @@ def dask_cudf_shuffle(
     *,
     sort: bool = False,
     partition_count: int | None = None,
+    cluster_kind: Literal["distributed", "single", "auto"] = "auto",
+    config_options: Options = Options(),
 ) -> dask_cudf.DataFrame:
     """
     Shuffle a dask_cudf.DataFrame with RapidsMPF.
@@ -157,11 +171,28 @@ def dask_cudf_shuffle(
     partition_count
         Output partition count. Default will preserve
         the input partition count.
+    cluster_kind
+        What kind of Dask cluster to shuffle on. Available
+        options are ``{'distributed', 'single', 'auto'}``.
+        If 'auto' (the default), 'distributed' will be
+        used if a global Dask client is found.
+    config_options
+        RapidsMPF configuration options.
 
     Returns
     -------
     Shuffled Dask-cuDF DataFrame collection.
+
+    Notes
+    -----
+    This API is currently intended for demonstration and
+    testing purposes only.
     """
+    if cluster_kind not in ("distributed", "single", "auto"):
+        raise ValueError(
+            f"Expected one of 'distributed', 'single', or 'auto'. Got {cluster_kind}"
+        )
+
     df0 = df.optimize()
     count_in = df0.npartitions
     count_out = partition_count or count_in
@@ -179,15 +210,35 @@ def dask_cudf_shuffle(
         sort_boundary_names = ((boundaries._name, 0),)
     else:
         sort_boundary_names = ()
-    graph = rapidsmpf_shuffle_graph(
+
+    if cluster_kind == "auto":
+        try:
+            from distributed import get_client
+
+            get_client()
+        except (ImportError, ValueError):
+            # Failed to import distributed/dask-cuda or find a Dask client.
+            # Use single shuffle instead.
+            cluster_kind = "single"
+        else:
+            cluster_kind = "distributed"
+
+    if cluster_kind == "distributed":
+        shuffle = rapidsmpf.integrations.dask.rapidsmpf_shuffle_graph
+    else:
+        shuffle = rapidsmpf.integrations.single.rapidsmpf_shuffle_graph
+
+    shuffle_graph_args = (
         name_in,
         name_out,
         count_in,
         count_out,
         DaskCudfIntegration,
-        {"on": on, "column_names": list(df0.columns)},
+        {"on": on, "column_names": list(df0.columns), "cluster_kind": cluster_kind},
         *sort_boundary_names,
     )
+
+    graph = shuffle(*shuffle_graph_args, config_options=config_options)
 
     # Add df0 dependencies to the task graph
     graph.update(df0.dask)

@@ -91,67 +91,9 @@ void const* Buffer::data() const {
 }
 
 std::unique_ptr<Buffer> Buffer::copy(
-    rmm::cuda_stream_view stream, BufferResource* br
+    rmm::cuda_stream_view stream, MemoryReservation& reservation
 ) const {
-    return std::visit(
-        overloaded{
-            [&](const HostStorageT& storage) -> std::unique_ptr<Buffer> {
-                return std::unique_ptr<Buffer>(
-                    new Buffer{std::make_unique<std::vector<uint8_t>>(*storage)}
-                );
-            },
-            [&](const DeviceStorageT& storage) -> std::unique_ptr<Buffer> {
-                auto new_buffer = std::unique_ptr<Buffer>(new Buffer{
-                    std::make_unique<rmm::device_buffer>(
-                        storage->data(), storage->size(), stream, br->device_mr()
-                    ),
-                    stream
-                });
-                return new_buffer;
-            }
-        },
-        storage_
-    );
-}
-
-std::unique_ptr<Buffer> Buffer::copy(
-    MemoryType target, rmm::cuda_stream_view stream, BufferResource* br
-) const {
-    if (mem_type() == target) {
-        return copy(stream, br);
-    }
-
-    return std::visit(
-        overloaded{
-            [&](const HostStorageT& storage) -> std::unique_ptr<Buffer> {
-                auto new_buffer = std::unique_ptr<Buffer>(new Buffer{
-                    std::make_unique<rmm::device_buffer>(
-                        storage->data(), storage->size(), stream, br->device_mr()
-                    ),
-                    stream
-                });
-                return new_buffer;
-            },
-            [&](const DeviceStorageT& storage) -> std::unique_ptr<Buffer> {
-                auto ret = std::make_unique<std::vector<uint8_t>>(storage->size());
-                RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-                    ret->data(),
-                    storage->data(),
-                    storage->size(),
-                    cudaMemcpyDeviceToHost,
-                    stream
-                ));
-                auto new_buffer = std::unique_ptr<Buffer>(new Buffer{std::move(ret)});
-
-                // The event is created here instead of the constructor because the
-                // memcpy is async, but the buffer is created on the host.
-                new_buffer->event_ = std::make_shared<Event>(stream);
-
-                return new_buffer;
-            }
-        },
-        storage_
-    );
+    return copy_slice(0, size, reservation, stream);
 }
 
 std::unique_ptr<Buffer> Buffer::copy_slice(
@@ -161,7 +103,7 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
     rmm::cuda_stream_view stream
 ) const {
     RAPIDSMPF_EXPECTS(
-        target_reserv.size() >= length, "reservation is too small", std::invalid_argument
+        target_reserv.size() >= length, "reservation is too small", std::overflow_error
     );
     RAPIDSMPF_EXPECTS(
         offset >= 0 && std::cmp_less_equal(offset, size),
@@ -178,9 +120,7 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
     auto do_alloc_and_cuda_memcpy_async = [&](cudaMemcpyKind kind,
                                               cuda::std::uint8_t* source) {
         // allocate buffer using the target reservation
-        auto out_buf = target_reserv.br()->allocate(
-            target_reserv.mem_type(), length, stream, target_reserv
-        );
+        auto out_buf = target_reserv.br()->allocate(length, stream, target_reserv);
 
         if (length > 0) {
             // if this buffer has an event, ask the current stream to wait for it, before

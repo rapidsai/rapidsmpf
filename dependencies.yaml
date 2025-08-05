@@ -46,8 +46,6 @@ files:
       - depends_on_dask_cudf
       - depends_on_libcudf
       - depends_on_librmm
-      - depends_on_pylibcudf
-      - depends_on_rmm
       - depends_on_ucxx
       - py_version
       - run_rapidsmpf
@@ -128,6 +126,8 @@ files:
       table: project
     includes:
       - run_rapidsmpf
+      - depends_on_rmm
+      - depends_on_pylibcudf
       - depends_on_librapidsmpf
   py_run_librapidsmpf:
     output: pyproject
@@ -181,7 +181,7 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - rapids-build-backend>=0.3.0,<0.4.0.dev0
+          - rapids-build-backend>=0.4.0,<0.5.0.dev0
       - output_types: conda
         packages:
           - scikit-build-core>=0.10.0
