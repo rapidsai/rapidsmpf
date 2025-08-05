@@ -159,7 +159,11 @@ void test_shuffler(
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any(wait_timeout);
         auto packed_chunks = shuffler.extract(finished_partition);
-        auto result = rapidsmpf::unpack_and_concat(std::move(packed_chunks), stream, br);
+        auto result = rapidsmpf::unpack_and_concat(
+            rapidsmpf::unspill_partitions(std::move(packed_chunks), stream, br, true),
+            stream,
+            br
+        );
 
         // We should only receive the partitions assigned to this rank.
         EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
