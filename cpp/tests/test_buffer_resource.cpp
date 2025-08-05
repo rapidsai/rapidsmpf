@@ -65,18 +65,16 @@ TEST(BufferResource, ReservationOverbooking) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Cannot release the wrong memory type.
-    EXPECT_THROW(br.release(reserve1, MemoryType::HOST, 10_KiB), std::invalid_argument);
-    EXPECT_THROW(br.release(reserve4, MemoryType::DEVICE, 10_KiB), std::invalid_argument);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Cannot release more than the size of the reservation.
-    EXPECT_THROW(br.release(reserve1, MemoryType::DEVICE, 20_KiB), std::overflow_error);
+    EXPECT_THROW(br.release(reserve1, 20_KiB), std::overflow_error);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 20_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Partial releasing a reservation.
-    EXPECT_EQ(br.release(reserve1, MemoryType::DEVICE, 5_KiB), 5_KiB);
+    EXPECT_EQ(br.release(reserve1, 5_KiB), 5_KiB);
     EXPECT_EQ(reserve1.size(), 5_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 15_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
@@ -111,18 +109,16 @@ TEST(BufferResource, ReservationReleasing) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Cannot release the wrong memory type.
-    EXPECT_THROW(br.release(reserve1, MemoryType::HOST, 10_KiB), std::invalid_argument);
-    EXPECT_THROW(br.release(reserve2, MemoryType::DEVICE, 10_KiB), std::invalid_argument);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Cannot release more than the size of the reservation.
-    EXPECT_THROW(br.release(reserve1, MemoryType::DEVICE, 20_KiB), std::overflow_error);
+    EXPECT_THROW(br.release(reserve1, 20_KiB), std::overflow_error);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 
     // Partial releasing a reservation.
-    EXPECT_EQ(br.release(reserve1, MemoryType::DEVICE, 5_KiB), 5_KiB);
+    EXPECT_EQ(br.release(reserve1, 5_KiB), 5_KiB);
     EXPECT_EQ(reserve1.size(), 5_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 5_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
@@ -159,7 +155,8 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
 
     // Allocating a Buffer also requires a reservation, which are then released.
-    auto dev_buf1 = br.allocate(MemoryType::DEVICE, 10_KiB, stream, reserve1);
+    auto dev_buf1 = br.allocate(10_KiB, stream, reserve1);
+    EXPECT_EQ(dev_buf1->mem_type(), MemoryType::DEVICE);
     EXPECT_EQ(dev_buf1->size, 10_KiB);
     EXPECT_EQ(reserve1.size(), 0);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
@@ -167,9 +164,7 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(dev_mem_available(), 0);
 
     // Insufficent reservation for the allocation.
-    EXPECT_THROW(
-        br.allocate(MemoryType::DEVICE, 10_KiB, stream, reserve1), std::overflow_error
-    );
+    EXPECT_THROW(br.allocate(10_KiB, stream, reserve1), std::overflow_error);
 
     // Freeing a buffer increases the available but the reserved memory is unchanged.
     dev_buf1.reset();
@@ -179,40 +174,39 @@ TEST(BufferResource, LimitAvailableMemory) {
 
     // Moving buffers between memory types requires a reservation.
     auto [reserve2, overbooking2] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
-    auto dev_buf2 = br.allocate(MemoryType::DEVICE, 10_KiB, stream, reserve2);
+    auto dev_buf2 = br.allocate(10_KiB, stream, reserve2);
+    EXPECT_EQ(dev_buf2->mem_type(), MemoryType::DEVICE);
     auto [reserve3, overbooking3] = br.reserve(MemoryType::HOST, 10_KiB, true);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
     EXPECT_EQ(dev_mem_available(), 0);
 
-    auto host_buf2 = br.move(MemoryType::HOST, std::move(dev_buf2), stream, reserve3);
+    auto host_buf2 = br.move(std::move(dev_buf2), stream, reserve3);
+    EXPECT_EQ(host_buf2->mem_type(), MemoryType::HOST);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0_KiB);
     EXPECT_EQ(dev_mem_available(), 10_KiB);
 
     // Moving buffers to the same memory type accepts an empty reservation.
-    auto host_buf3 = br.move(MemoryType::HOST, std::move(host_buf2), stream, reserve3);
+    auto host_buf3 = br.move(std::move(host_buf2), stream, reserve3);
+    EXPECT_EQ(host_buf3->mem_type(), MemoryType::HOST);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0_KiB);
     EXPECT_EQ(dev_mem_available(), 10_KiB);
 
     // But copying buffers always requires a reservation.
-    EXPECT_THROW(
-        br.copy(MemoryType::HOST, host_buf3, stream, reserve3), std::overflow_error
-    );
+    EXPECT_THROW(br.copy(host_buf3, stream, reserve3), std::overflow_error);
 
     // The reservation must be of the correct memory type.
     auto [reserve4, overbooking4] = br.reserve(MemoryType::HOST, 10_KiB, true);
-    EXPECT_THROW(
-        br.copy(MemoryType::DEVICE, host_buf3, stream, reserve4), std::invalid_argument
-    );
     EXPECT_EQ(reserve4.size(), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
 
     // With the correct memory type, we can copy the buffer.
     auto [reserve5, overbooking5] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
-    auto dev_buf3 = br.copy(MemoryType::DEVICE, host_buf3, stream, reserve5);
+    auto dev_buf3 = br.copy(host_buf3, stream, reserve5);
+    EXPECT_EQ(dev_buf3->mem_type(), MemoryType::DEVICE);
     EXPECT_EQ(dev_buf3->size, 10_KiB);
     EXPECT_EQ(reserve5.size(), 0);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
@@ -248,7 +242,7 @@ TEST(BufferResource, CUDAEventTracking) {
         initialize_data(*host_data);
         auto host_buf = br.move(std::move(host_data));
         auto [host_reserve, host_overbooking] = br.reserve(MemoryType::HOST, 1024, false);
-        auto host_copy = br.copy(MemoryType::HOST, host_buf, stream, host_reserve);
+        auto host_copy = br.copy(host_buf, stream, host_reserve);
         host_copy->wait_for_ready();  // should be no-op
         EXPECT_TRUE(host_copy->is_ready());  // No event created
 
@@ -262,8 +256,8 @@ TEST(BufferResource, CUDAEventTracking) {
     {
         auto [alloc_reserve, alloc_overbooking] =
             br.reserve(MemoryType::DEVICE, buffer_size, false);
-        auto dev_buf =
-            br.allocate(MemoryType::DEVICE, buffer_size, stream, alloc_reserve);
+        auto dev_buf = br.allocate(buffer_size, stream, alloc_reserve);
+        EXPECT_EQ(dev_buf->mem_type(), MemoryType::DEVICE);
 
         // Initialize device data with a pattern
         auto host_pattern = std::make_unique<std::vector<uint8_t>>(buffer_size);
@@ -278,7 +272,8 @@ TEST(BufferResource, CUDAEventTracking) {
 
         auto [copy_reserve, copy_overbooking] =
             br.reserve(MemoryType::DEVICE, buffer_size, false);
-        auto dev_copy = br.copy(MemoryType::DEVICE, dev_buf, stream, copy_reserve);
+        auto dev_copy = br.copy(dev_buf, stream, copy_reserve);
+        EXPECT_EQ(dev_copy->mem_type(), MemoryType::DEVICE);
 
         // Wait for copy to complete
         dev_copy->wait_for_ready();
@@ -300,7 +295,8 @@ TEST(BufferResource, CUDAEventTracking) {
         auto [dev_reserve, dev_overbooking] =
             br.reserve(MemoryType::DEVICE, buffer_size, false);
 
-        auto dev_copy = br.copy(MemoryType::DEVICE, host_buf, stream, dev_reserve);
+        auto dev_copy = br.copy(host_buf, stream, dev_reserve);
+        EXPECT_EQ(dev_copy->mem_type(), MemoryType::DEVICE);
 
         // Wait for copy to complete
         dev_copy->wait_for_ready();
@@ -318,8 +314,8 @@ TEST(BufferResource, CUDAEventTracking) {
     {
         auto [alloc_reserve, alloc_overbooking] =
             br.reserve(MemoryType::DEVICE, buffer_size, false);
-        auto dev_buf =
-            br.allocate(MemoryType::DEVICE, buffer_size, stream, alloc_reserve);
+        auto dev_buf = br.allocate(buffer_size, stream, alloc_reserve);
+        EXPECT_EQ(dev_buf->mem_type(), MemoryType::DEVICE);
 
         // Initialize device data with a pattern
         auto host_pattern = std::make_unique<std::vector<uint8_t>>(buffer_size);
@@ -334,7 +330,8 @@ TEST(BufferResource, CUDAEventTracking) {
 
         auto [host_reserve, host_overbooking] =
             br.reserve(MemoryType::HOST, buffer_size, false);
-        auto host_copy = br.copy(MemoryType::HOST, dev_buf, stream, host_reserve);
+        auto host_copy = br.copy(dev_buf, stream, host_reserve);
+        EXPECT_EQ(host_copy->mem_type(), MemoryType::HOST);
 
         // Wait for copy to complete
         host_copy->wait_for_ready();
@@ -364,7 +361,8 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
         MemoryType const mem_type, std::size_t const size
     ) {
         auto [alloc_reserve, alloc_overbooking] = br->reserve(mem_type, size, false);
-        auto buf = br->allocate(mem_type, size, stream, alloc_reserve);
+        auto buf = br->allocate(size, stream, alloc_reserve);
+        EXPECT_EQ(buf->mem_type(), mem_type);
 
         if (mem_type == MemoryType::DEVICE) {
             // copy the host pattern to the device buffer
@@ -531,7 +529,8 @@ TEST_P(BufferResourceCopyToTest, CopyTo) {
     auto [source_type, dest_type, params] = BufferResourceCopyToTest::GetParam();
     auto source = create_and_initialize_buffer(source_type, params.source_size);
     auto [dest_reserve, dest_overbooking] = br->reserve(dest_type, buffer_size, false);
-    auto dest = br->allocate(dest_type, buffer_size, stream, dest_reserve);
+    auto dest = br->allocate(buffer_size, stream, dest_reserve);
+    EXPECT_EQ(dest->mem_type(), dest_type);
 
     copy_and_verify(source, dest, params.dest_offset);
 }
@@ -575,49 +574,77 @@ TEST_F(BufferResourceCopyToTest, OutOfBounds) {
     EXPECT_THROW(std::ignore = source->copy_to(*dest, 1, stream), std::invalid_argument);
 }
 
-TEST(BufferResource, CopySliceDifferentResources) {
-    constexpr std::size_t buffer_size = 1_KiB;
+class BufferResourceDifferentResourcesTest : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        buffer_size = 1_KiB;
+        stream = cudf::get_default_stream();
+
+        // Host pattern for initialization and verification
+        host_pattern.resize(buffer_size);
+        for (std::size_t i = 0; i < host_pattern.size(); ++i) {
+            host_pattern[i] = static_cast<uint8_t>(i % 256);
+        }
+
+        // Setup br1 with statistics for its device memory
+        mr_cuda1 = std::make_unique<rmm::mr::cuda_memory_resource>();
+        mr1 = std::make_unique<RmmResourceAdaptor>(*mr_cuda1);
+        br1 = std::make_unique<BufferResource>(mr1.get());
+
+        // Setup br2 with statistics for its device memory
+        mr_cuda2 = std::make_unique<rmm::mr::cuda_memory_resource>();
+        mr2 = std::make_unique<RmmResourceAdaptor>(*mr_cuda2);
+        br2 = std::make_unique<BufferResource>(mr2.get());
+    }
+
+    std::unique_ptr<Buffer> create_source_buffer() {
+        auto [reserv1, ob1] = br1->reserve(MemoryType::DEVICE, buffer_size, false);
+        auto buf1 = br1->allocate(buffer_size, stream, reserv1);
+        EXPECT_EQ(reserv1.size(), 0);  // reservation should be consumed
+        EXPECT_EQ(buf1->size, buffer_size);
+        EXPECT_EQ(buf1->mem_type(), MemoryType::DEVICE);
+
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            const_cast<void*>(buf1->data()),
+            host_pattern.data(),
+            buffer_size,
+            cudaMemcpyHostToDevice,
+            stream
+        ));
+        buf1->override_event(std::make_shared<Buffer::Event>(stream));
+        buf1->wait_for_ready();
+
+        EXPECT_EQ(mr1->get_main_record().total(), buffer_size);
+        return buf1;
+    }
+
+    void verify_memory_allocation(
+        std::size_t expected_br1_total, std::size_t expected_br2_total
+    ) {
+        EXPECT_EQ(mr1->get_main_record().total(), expected_br1_total);
+        EXPECT_EQ(mr2->get_main_record().total(), expected_br2_total);
+    }
+
+    std::size_t buffer_size;
+    rmm::cuda_stream_view stream;
+    std::vector<uint8_t> host_pattern;
+
+    std::unique_ptr<rmm::mr::cuda_memory_resource> mr_cuda1;
+    std::unique_ptr<rmm::mr::cuda_memory_resource> mr_cuda2;
+    std::unique_ptr<RmmResourceAdaptor> mr1;
+    std::unique_ptr<RmmResourceAdaptor> mr2;
+    std::unique_ptr<BufferResource> br1;
+    std::unique_ptr<BufferResource> br2;
+};
+
+TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
     constexpr std::size_t slice_offset = 128;
     constexpr std::size_t slice_length = 512;
 
-    auto stream = cudf::get_default_stream();
-
-    // Host pattern for initialization and verification
-    std::vector<uint8_t> host_pattern(buffer_size);
-    for (std::size_t i = 0; i < host_pattern.size(); ++i) {
-        host_pattern[i] = static_cast<uint8_t>(i % 256);
-    }
-
-    // Setup br1 with statistics for its device memory
-    rmm::mr::cuda_memory_resource mr_cuda1;
-    RmmResourceAdaptor mr1{mr_cuda1};
-    BufferResource br1{&mr1};
-
-    // Setup br2 with statistics for its device memory
-    rmm::mr::cuda_memory_resource mr_cuda2_dev;
-    RmmResourceAdaptor mr2{mr_cuda2_dev};
-    BufferResource br2{&mr2};
-
-    // Create source buf1 on br1
-    auto [reserv1, ob1] = br1.reserve(MemoryType::DEVICE, buffer_size, false);
-    auto buf1 = br1.allocate(MemoryType::DEVICE, buffer_size, stream, reserv1);
-    EXPECT_EQ(reserv1.size(), 0);  // reservation should be consumed
-    EXPECT_EQ(buf1->size, buffer_size);
-
-    RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-        const_cast<void*>(buf1->data()),
-        host_pattern.data(),
-        buffer_size,
-        cudaMemcpyHostToDevice,
-        stream
-    ));
-    buf1->override_event(std::make_shared<Buffer::Event>(stream));
-    buf1->wait_for_ready();
-
-    EXPECT_EQ(mr1.get_main_record().total(), buffer_size);
+    auto buf1 = create_source_buffer();
 
     // Reserve memory for the slice on br2
-    auto [reserv2, ob2] = br2.reserve(MemoryType::DEVICE, slice_length, false);
+    auto [reserv2, ob2] = br2->reserve(MemoryType::DEVICE, slice_length, false);
 
     // Create slice of buf1 on br2
     auto buf2 = buf1->copy_slice(slice_offset, slice_length, reserv2, stream);
@@ -625,11 +652,24 @@ TEST(BufferResource, CopySliceDifferentResources) {
     EXPECT_EQ(reserv2.size(), 0);  // reservation should be consumed
     buf2->wait_for_ready();
 
-    // Verify br1 hasn't allocated any more memory
-    EXPECT_EQ(mr1.get_main_record().total(), buffer_size);
+    // Verify memory allocation
+    verify_memory_allocation(buffer_size, slice_length);
+}
 
-    // Verify br2 has allocated the slice
-    EXPECT_EQ(mr2.get_main_record().total(), slice_length);
+TEST_F(BufferResourceDifferentResourcesTest, Copy) {
+    auto buf1 = create_source_buffer();
+
+    // Reserve memory for the copy on br2
+    auto [reserv2, ob2] = br2->reserve(MemoryType::DEVICE, buffer_size, false);
+
+    // Create copy of buf1 on br2
+    auto buf2 = buf1->copy(stream, reserv2);
+    EXPECT_EQ(buf2->size, buffer_size);
+    EXPECT_EQ(reserv2.size(), 0);  // reservation should be consumed
+    buf2->wait_for_ready();
+
+    // Verify memory allocation
+    verify_memory_allocation(buffer_size, buffer_size);
 }
 
 TEST(BufferResource, CheckIllegalArgs) {
@@ -637,10 +677,12 @@ TEST(BufferResource, CheckIllegalArgs) {
     auto stream = cudf::get_default_stream();
     BufferResource br{cudf::get_current_device_resource_ref()};
     auto [src_res, src_ob] = br.reserve(MemoryType::HOST, buf_sz, false);
-    auto src = br.allocate(MemoryType::HOST, buf_sz, stream, src_res);
+    auto src = br.allocate(buf_sz, stream, src_res);
+    EXPECT_EQ(src->mem_type(), MemoryType::HOST);
 
     auto [dst_res, dst_ob] = br.reserve(MemoryType::HOST, buf_sz, false);
-    auto dst = br.allocate(MemoryType::HOST, buf_sz, stream, dst_res);
+    auto dst = br.allocate(buf_sz, stream, dst_res);
+    EXPECT_EQ(dst->mem_type(), MemoryType::HOST);
 
     // Test copy_slice invalid offset
     auto [res, ob] = br.reserve(MemoryType::HOST, buf_sz, false);
@@ -659,9 +701,7 @@ TEST(BufferResource, CheckIllegalArgs) {
 
     // Test copy_slice reservation too small
     auto [res1, ob1] = br.reserve(MemoryType::HOST, 5, false);
-    EXPECT_THROW(
-        std::ignore = src->copy_slice(0, 10, res1, stream), std::invalid_argument
-    );
+    EXPECT_THROW(std::ignore = src->copy_slice(0, 10, res1, stream), std::overflow_error);
 
     // Test copy_to invalid offset
     EXPECT_THROW(std::ignore = src->copy_to(*dst, -1, stream), std::invalid_argument);
