@@ -8,10 +8,12 @@
 #include <memory>
 
 #include <mpi.h>
+#include <ucxx/request_am.h>
 #include <ucxx/typedefs.h>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -199,6 +201,57 @@ void run_tag(
     }
 }
 
+void run_am(
+    std::shared_ptr<rapidsmpf::ucxx::UCXX> comm,
+    ArgumentParser const& args,
+    std::shared_ptr<rapidsmpf::Statistics> statistics,
+    std::vector<std::unique_ptr<Buffer>>& send_bufs,
+    std::vector<std::unique_ptr<Buffer>>& recv_bufs
+) {
+    std::vector<std::unique_ptr<Communicator::Future>> recv_futures;
+    recv_futures.reserve(recv_bufs.size());
+
+    ::ucxx::AmReceiverCallbackInfo receiverCallbackInfo("RapidsMPF-bench-comm", 0);
+    auto receiverCallback =
+        ::ucxx::AmReceiverCallbackType([&comm, &recv_bufs, &recv_futures](
+                                           std::shared_ptr<::ucxx::Request> req,
+                                           ucp_ep_h /*ep*/,
+                                           ::ucxx::AmReceiverCallbackInfo const& info
+                                       ) {
+            std::uint64_t op_num = info.userHeader->as<std::uint64_t>();
+            recv_futures.emplace_back(comm->am_recv(
+                std::dynamic_pointer_cast<::ucxx::RequestAm>(req),
+                std::move(recv_bufs[op_num])
+            ));
+        });
+    comm->am_recv_callback(receiverCallbackInfo, receiverCallback);
+
+    std::vector<std::unique_ptr<Communicator::Future>> send_futures;
+    send_futures.reserve(send_bufs.size());
+    for (std::uint64_t i = 0; i < args.num_ops; ++i) {
+        for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
+            auto buf = std::move(send_bufs.at(
+                static_cast<std::uint64_t>(rank)
+                + i * static_cast<std::uint64_t>(comm->nranks())
+            ));
+            ::ucxx::AmReceiverCallbackInfo info(
+                "RapidsMPF-bench-comm", 0, false, ::ucxx::AmUserHeader(i)
+            );
+            if (rank != comm->rank()) {
+                statistics->add_bytes_stat("all-to-all-send", buf->size);
+                send_futures.emplace_back(comm->am_send(std::move(buf), rank, info));
+            }
+        }
+    }
+
+    while (!send_futures.empty() && !recv_futures.empty()) {
+        if (!send_futures.empty())
+            std::ignore = comm->test_some(send_futures);
+        if (!recv_futures.empty())
+            std::ignore = comm->test_some(recv_futures);
+    }
+}
+
 Duration run(
     std::shared_ptr<Communicator> comm,
     ArgumentParser const& args,
@@ -226,6 +279,13 @@ Duration run(
     if (args.api_type == "tag") {
         run_tag(comm, args, statistics, send_bufs, recv_bufs);
     } else if (args.api_type == "am") {
+        run_am(
+            std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm),
+            args,
+            statistics,
+            send_bufs,
+            recv_bufs
+        );
     }
 
     return Clock::now() - t0_elapsed;
