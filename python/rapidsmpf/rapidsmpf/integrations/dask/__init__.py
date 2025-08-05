@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from rapidsmpf.integrations.dask.core import (
     bootstrap_dask_cluster,
+    get_worker_context,
 )
 from rapidsmpf.integrations.dask.shuffler import (
     rapidsmpf_shuffle_graph,
@@ -13,5 +14,6 @@ from rapidsmpf.integrations.dask.shuffler import (
 
 __all__: list[str] = [
     "bootstrap_dask_cluster",
+    "get_worker_context",
     "rapidsmpf_shuffle_graph",
 ]

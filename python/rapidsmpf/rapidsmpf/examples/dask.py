@@ -24,14 +24,12 @@ from rapidsmpf.integrations.cudf.partition import (
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from typing import Any
 
     import dask_cudf
 
     import cudf
 
-    from rapidsmpf.integrations.core import WorkerContext
     from rapidsmpf.shuffler import Shuffler
 
 
@@ -55,7 +53,6 @@ class DaskCudfIntegration:
         partition_count: int,
         shuffler: Shuffler,
         options: dict[str, Any],
-        get_worker_context: Callable[[], WorkerContext],
         *other: Any,
     ) -> None:
         """
@@ -73,14 +70,15 @@ class DaskCudfIntegration:
             The RapidsMPF Shuffler object to extract from.
         options
             Additional options.
-        get_worker_context
-            A callable that runs on the worker to get its current
-            context.
         *other
             Other data needed for partitioning. For example,
             this may be boundary values needed for sorting.
         """
-        ctx = get_worker_context()
+        if options.get("cluster_kind", "distributed") == "distributed":
+            ctx = rapidsmpf.integrations.dask.get_worker_context()
+        else:
+            ctx = rapidsmpf.integrations.single.get_worker_context()
+
         assert ctx.br is not None
         on = options["on"]
         if other:
@@ -109,7 +107,6 @@ class DaskCudfIntegration:
         partition_id: int,
         shuffler: Shuffler,
         options: dict[str, Any],
-        get_worker_context: Callable[[], WorkerContext],
     ) -> cudf.DataFrame:
         """
         Extract a finished partition from the RMPF shuffler.
@@ -130,7 +127,11 @@ class DaskCudfIntegration:
         -------
         A shuffled DataFrame partition.
         """
-        ctx = get_worker_context()
+        if options.get("cluster_kind", "distributed") == "distributed":
+            ctx = rapidsmpf.integrations.dask.get_worker_context()
+        else:
+            ctx = rapidsmpf.integrations.single.get_worker_context()
+
         assert ctx.br is not None
         column_names = options["column_names"]
         shuffler.wait_on(partition_id)
@@ -210,16 +211,6 @@ def dask_cudf_shuffle(
     else:
         sort_boundary_names = ()
 
-    shuffle_graph_args = (
-        name_in,
-        name_out,
-        count_in,
-        count_out,
-        DaskCudfIntegration,
-        {"on": on, "column_names": list(df0.columns)},
-        *sort_boundary_names,
-    )
-
     if cluster_kind == "auto":
         try:
             from distributed import get_client
@@ -236,6 +227,16 @@ def dask_cudf_shuffle(
         shuffle = rapidsmpf.integrations.dask.rapidsmpf_shuffle_graph
     else:
         shuffle = rapidsmpf.integrations.single.rapidsmpf_shuffle_graph
+
+    shuffle_graph_args = (
+        name_in,
+        name_out,
+        count_in,
+        count_out,
+        DaskCudfIntegration,
+        {"on": on, "column_names": list(df0.columns), "cluster_kind": cluster_kind},
+        *sort_boundary_names,
+    )
 
     graph = shuffle(*shuffle_graph_args, config_options=config_options)
 

@@ -223,7 +223,11 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
                     partition_count_in=partition_count_in,
                     partition_count_out=partition_count_out,
                     integration=DaskCudfIntegration,
-                    options={"on": shuffle_on, "column_names": column_names},
+                    options={
+                        "on": shuffle_on,
+                        "column_names": column_names,
+                        "cluster_kind": "distributed",
+                    },
                 )
             )
             name_in = name_out
@@ -300,7 +304,11 @@ def test_many_shuffles_single() -> None:
                     partition_count_in=partition_count_in,
                     partition_count_out=partition_count_out,
                     integration=DaskCudfIntegration,
-                    options={"on": shuffle_on, "column_names": column_names},
+                    options={
+                        "on": shuffle_on,
+                        "column_names": column_names,
+                        "cluster_kind": "single",
+                    },
                 )
             )
             name_in = name_out
