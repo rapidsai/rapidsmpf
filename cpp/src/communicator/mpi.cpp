@@ -316,7 +316,7 @@ std::vector<std::size_t> MPI::test_some(
             singleton_reqs.emplace_back(mpi_future->reqs_[0]);
             singleton_futures.emplace_back(key);
         } else {
-            // test the multi-req futures immidiately
+            // test the multi-req futures immediately
             auto indices = mpi_testsome(mpi_future->reqs_);
             if (indices.size() == mpi_future->size()) {
                 finished.emplace_back(key);

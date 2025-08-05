@@ -139,7 +139,10 @@ class UCXX final : public Communicator {
          * @param reqs Vector of UCXX request handles for the operations.
          * @param data A unique pointer to the data buffer.
          */
-        BatchFuture(std::vector<std::shared_ptr<::ucxx::Request>> reqs, std::unique_ptr<Buffer> data)
+        BatchFuture(
+            std::vector<std::shared_ptr<::ucxx::Request>> reqs,
+            std::unique_ptr<Buffer> data
+        )
             : reqs_{std::move(reqs)}, data_{std::move(data)} {}
 
         ~BatchFuture() noexcept override = default;
@@ -310,4 +313,3 @@ class UCXX final : public Communicator {
 }  // namespace ucxx
 
 }  // namespace rapidsmpf
- 

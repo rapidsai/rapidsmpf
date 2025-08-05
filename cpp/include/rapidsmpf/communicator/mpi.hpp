@@ -105,6 +105,11 @@ class MPI final : public Communicator {
 
         ~Future() noexcept override = default;
 
+        /**
+         * @brief Get the number of requests in the future.
+         *
+         * @return The number of requests in the future.
+         */
         constexpr size_t size() const {
             return reqs_.size();
         }
@@ -174,7 +179,8 @@ class MPI final : public Communicator {
     /**
      * @copydoc Communicator::recv_any
      */
-    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(Tag tag
+    [[nodiscard]] std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
+        Tag tag
     ) override;
 
     /**
