@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <cstdlib>
 #include <memory>
 #include <utility>
@@ -107,49 +108,51 @@ class UCXX final : public Communicator {
 
       public:
         /**
-         * @brief Construct a Future.
+         * @brief Construct a Future with a single request.
          *
          * @param req The UCXX request handle for the operation.
          * @param data A unique pointer to the data buffer.
          */
         Future(std::shared_ptr<::ucxx::Request> req, std::unique_ptr<Buffer> data)
-            : req_{std::move(req)}, data_{std::move(data)} {}
+            : reqs_{std::move(req)}, data_{std::move(data)} {}
 
-        ~Future() noexcept override = default;
-
-      private:
-        std::shared_ptr<::ucxx::Request>
-            req_;  ///< The UCXX request associated with the operation.
-        std::unique_ptr<Buffer> data_;  ///< The data buffer.
-    };
-
-    /**
-     * @brief Represents the future result of multiple UCXX operations.
-     *
-     * This class is used to handle the result of multiple UCXX operations
-     * asynchronously.
-     */
-    class BatchFuture : public Communicator::Future {
-        friend class UCXX;
-
-      public:
         /**
-         * @brief Construct a BatchFuture.
+         * @brief Construct a Future with multiple requests.
          *
          * @param reqs Vector of UCXX request handles for the operations.
          * @param data A unique pointer to the data buffer.
          */
-        BatchFuture(
+        Future(
             std::vector<std::shared_ptr<::ucxx::Request>> reqs,
             std::unique_ptr<Buffer> data
         )
-            : reqs_{std::move(reqs)}, data_{std::move(data)} {}
+            : reqs_{std::move(reqs)}, data_{std::move(data)} {
+            RAPIDSMPF_EXPECTS(!reqs_.empty(), "ucxx request vector is empty");
+        }
 
-        ~BatchFuture() noexcept override = default;
+        ~Future() noexcept override = default;
+
+        /**
+         * @brief Check if all requests are completed without error.
+         *
+         * @return True if all requests are completed without error, false otherwise.
+         *
+         * @throws ucxx::Error if any request has completed with an error.
+         */
+        constexpr bool is_completed() const {
+            // TODO: should we remove the finished requests from the vector?
+            return std::ranges::all_of(reqs_, [](auto const& req) {
+                return req->isCompleted() && [&] {
+                    // check for error if the request is completed
+                    req->checkError();
+                    return true;
+                }();
+            });
+        }
 
       private:
         std::vector<std::shared_ptr<::ucxx::Request>>
-            reqs_;  ///< The UCXX requests associated with the operations.
+            reqs_;  ///< The UCXX request(s) associated with the operation.
         std::unique_ptr<Buffer> data_;  ///< The data buffer.
     };
 

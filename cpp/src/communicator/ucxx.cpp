@@ -8,6 +8,7 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <ranges>
 #include <unordered_set>
 #include <utility>
 
@@ -1116,13 +1117,12 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     std::vector<std::shared_ptr<::ucxx::Request>> reqs;
     reqs.reserve(ranks.size());
     for (auto rank : ranks) {
-        std::cout << "Sending to rank " << rank << std::endl;
         auto req = get_endpoint(rank)->tagSend(
             msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
         );
         reqs.emplace_back(std::move(req));
     }
-    return std::make_unique<BatchFuture>(std::move(reqs), std::move(msg));
+    return std::make_unique<Future>(std::move(reqs), std::move(msg));
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv(
@@ -1179,8 +1179,7 @@ std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
     for (size_t i = 0; i < future_vector.size(); i++) {
         auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-        if (ucxx_future->req_->isCompleted()) {
-            ucxx_future->req_->checkError();
+        if (ucxx_future->is_completed()) {
             indices.push_back(i);
         } else {
             // We rely on this API returning completed futures in order,
@@ -1218,8 +1217,7 @@ std::vector<std::size_t> UCXX::test_some(
     for (auto const& [key, future] : future_map) {
         auto ucxx_future = dynamic_cast<Future const*>(future.get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-        if (ucxx_future->req_->isCompleted()) {
-            ucxx_future->req_->checkError();
+        if (ucxx_future->is_completed()) {
             completed.push_back(key);
         }
     }
@@ -1236,10 +1234,9 @@ void UCXX::barrier() {
 std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-    while (!ucxx_future->req_->isCompleted()) {
+    while (!ucxx_future->is_completed()) {
         progress_worker();
     }
-    ucxx_future->req_->checkError();
     return std::move(ucxx_future->data_);
 }
 
@@ -1251,20 +1248,11 @@ std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future>
 }
 
 bool UCXX::test(Communicator::Future& future) {
-    auto ucxx_batch_future = dynamic_cast<UCXX::BatchFuture*>(&future);
-    RAPIDSMPF_EXPECTS(ucxx_batch_future != nullptr, "future isn't a UCXX::BatchFuture");
+    auto ucxx_future = dynamic_cast<UCXX::Future*>(&future);
+    RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
 
-    auto& reqs = ucxx_batch_future->reqs_;
-    if (reqs.empty()) {
-        return true;  // No requests to test, consider it complete
-    }
     progress_worker();
-
-    // Remove completed requests
-    std::erase_if(reqs, [](auto& req) { return req->isCompleted(); });
-
-    // Return true if all requests are completed
-    return reqs.empty();
+    return ucxx_future->is_completed();
 }
 
 std::string UCXX::str() const {
