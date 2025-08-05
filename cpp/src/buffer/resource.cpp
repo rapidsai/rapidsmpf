@@ -128,13 +128,13 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
         "the memory type of MemoryReservation doesn't match",
         std::invalid_argument
     );
-    return move(std::move(buffer), stream, reservation)->device();
+    return move(std::move(buffer), stream, reservation)->release_device();
 }
 
 std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     std::unique_ptr<Buffer> buffer
 ) {
-    return std::move(buffer->device());
+    return buffer->release_device();
 }
 
 std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
@@ -147,13 +147,13 @@ std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
         "the memory type of MemoryReservation doesn't match",
         std::invalid_argument
     );
-    return move(std::move(buffer), stream, reservation)->host();
+    return move(std::move(buffer), stream, reservation)->release_host();
 }
 
 std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
     std::unique_ptr<Buffer> buffer
 ) {
-    return std::move(buffer->host());
+    return buffer->release_host();
 }
 
 std::unique_ptr<Buffer> BufferResource::copy(
