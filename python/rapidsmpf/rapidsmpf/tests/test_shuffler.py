@@ -15,6 +15,7 @@ from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
+    unspill_partitions,
 )
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.shuffler import (
@@ -88,7 +89,9 @@ def test_shuffler_single_nonempty_partition(
             my_partitions.remove(partition_id)
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
-            packed_chunks,
+            unspill_partitions(
+                packed_chunks, stream=DEFAULT_STREAM, br=br, allow_overbooking=True
+            ),
             br=br,
             stream=DEFAULT_STREAM,
         )
@@ -193,7 +196,9 @@ def test_shuffler_uniform(
         partition_id = shuffler.wait_any()
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
-            packed_chunks,
+            unspill_partitions(
+                packed_chunks, stream=DEFAULT_STREAM, br=br, allow_overbooking=True
+            ),
             br=br,
             stream=DEFAULT_STREAM,
         )
