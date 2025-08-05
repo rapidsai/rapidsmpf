@@ -734,7 +734,8 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 
     {
         // Now extract triggers spilling of the partition not being extracted.
-        std::vector<rapidsmpf::PackedData> output_chunks = shuffler.extract(0);
+        std::vector<rapidsmpf::PackedData> output_chunks =
+            rapidsmpf::unspill_partitions(shuffler.extract(0), stream, &br, true);
         EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
 
         // And insert also triggers spilling. We end up with zero device allocations.
