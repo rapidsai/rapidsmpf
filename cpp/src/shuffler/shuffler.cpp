@@ -759,38 +759,10 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     std::vector<PackedData> ret;
     ret.reserve(chunks.size());
 
-    // Sum the total size of all chunks not in device memory already.
-    std::size_t non_device_size{0};
+    // Convert the chunks to packed data.
     for (auto& [_, chunk] : chunks) {
-        if (chunk.data_memory_type() != MemoryType::DEVICE) {
-            non_device_size += chunk.concat_data_size();
-        }
+        ret.emplace_back(chunk.release_metadata_buffer(), chunk.release_data_buffer());
     }
-    // This total sum is what we need to reserve before moving them to device.
-    auto [reservation, overbooking] =
-        br_->reserve(MemoryType::DEVICE, non_device_size, true);
-
-    // Check overbooking, do we need to spill to host memory?
-    if (overbooking > 0) {
-        br_->spill_manager().spill(overbooking);
-    }
-
-    // Move the data to device memory (copy if necessary).
-    auto const t0_unspill = Clock::now();
-    std::uint64_t total_unspilled{0};
-    for (auto& [_, chunk] : chunks) {
-        if (chunk.data_memory_type() != MemoryType::DEVICE) {
-            total_unspilled += chunk.concat_data_size();
-        }
-        ret.emplace_back(
-            chunk.release_metadata_buffer(),
-            br_->move(chunk.release_data_buffer(), stream_, reservation)
-        );
-    }
-    statistics_->add_duration_stat(
-        "spill-time-host-to-device", Clock::now() - t0_unspill
-    );
-    statistics_->add_bytes_stat("spill-bytes-host-to-device", total_unspilled);
     return ret;
 }
 

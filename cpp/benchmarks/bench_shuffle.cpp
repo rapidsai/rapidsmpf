@@ -240,7 +240,12 @@ rapidsmpf::Duration do_run(
             auto packed_chunks = shuffler.extract(finished_partition);
             output_partitions.emplace_back(
                 rapidsmpf::unpack_and_concat(
-                    std::move(packed_chunks), stream, br, statistics
+                    rapidsmpf::unspill_partitions(
+                        std::move(packed_chunks), stream, br, true, statistics
+                    ),
+                    stream,
+                    br,
+                    statistics
                 )
             );
         }

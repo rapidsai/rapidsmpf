@@ -159,7 +159,11 @@ void test_shuffler(
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any(wait_timeout);
         auto packed_chunks = shuffler.extract(finished_partition);
-        auto result = rapidsmpf::unpack_and_concat(std::move(packed_chunks), stream, br);
+        auto result = rapidsmpf::unpack_and_concat(
+            rapidsmpf::unspill_partitions(std::move(packed_chunks), stream, br, true),
+            stream,
+            br
+        );
 
         // We should only receive the partitions assigned to this rank.
         EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
@@ -734,7 +738,8 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 
     {
         // Now extract triggers spilling of the partition not being extracted.
-        std::vector<rapidsmpf::PackedData> output_chunks = shuffler.extract(0);
+        std::vector<rapidsmpf::PackedData> output_chunks =
+            rapidsmpf::unspill_partitions(shuffler.extract(0), stream, &br, true);
         EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
 
         // And insert also triggers spilling. We end up with zero device allocations.
@@ -745,9 +750,11 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     }
 
     // Extract and unspill both partitions.
-    std::vector<rapidsmpf::PackedData> out0 = shuffler.extract(0);
+    std::vector<rapidsmpf::PackedData> out0 =
+        rapidsmpf::unspill_partitions(shuffler.extract(0), stream, &br, true);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
-    std::vector<rapidsmpf::PackedData> out1 = shuffler.extract(1);
+    std::vector<rapidsmpf::PackedData> out1 =
+        rapidsmpf::unspill_partitions(shuffler.extract(1), stream, &br, true);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
     // Disable spilling and insert the first partition.
