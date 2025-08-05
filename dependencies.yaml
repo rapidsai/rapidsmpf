@@ -128,6 +128,8 @@ files:
       table: project
     includes:
       - run_rapidsmpf
+      - depends_on_rmm
+      - depends_on_pylibcudf
       - depends_on_librapidsmpf
   py_run_librapidsmpf:
     output: pyproject
