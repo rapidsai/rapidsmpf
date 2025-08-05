@@ -7,6 +7,7 @@
 #include <iostream>
 
 #include <mpi.h>
+#include <ucxx/typedefs.h>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
@@ -32,7 +33,7 @@ class ArgumentParser {
 
         try {
             int option;
-            while ((option = getopt(argc, argv, "hC:O:r:w:n:p:m:")) != -1) {
+            while ((option = getopt(argc, argv, "hC:O:A:r:w:n:p:m:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -42,6 +43,7 @@ class ArgumentParser {
                            << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
                            << "  -O <op>    Operation {all-to-all} (default: "
                               "all-to-all)\n"
+                           << "  -A <api>   API type {tag, am} (default: tag\n"
                            << "  -n <num>   Message size in bytes (default: 1M)\n"
                            << "  -p <num>   Number of concurrent operations, e.g. number"
                               " of  concurrent all-to-all operations (default: 1)\n"
@@ -73,6 +75,16 @@ class ArgumentParser {
                         throw std::invalid_argument(
                             "-O (Operation) must be one of {all-to-all}"
                         );
+                    }
+                    break;
+                case 'A':
+                    api_type = std::string{optarg};
+                    if (!(api_type == "tag" || api_type == "am")) {
+                        if (rank == 0) {
+                            std::cerr << "-A (API type) must be one of {tag, am}"
+                                      << std::endl;
+                        }
+                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     }
                     break;
                 case 'n':
@@ -114,6 +126,11 @@ class ArgumentParser {
             }
             RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
+
+        if (api_type == "am" && comm_type != "ucxx") {
+            std::cerr << "'-A am' is only supported with '-C ucxx'" << std::endl;
+            RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+        }
     }
 
     void pprint(Communicator& comm) const {
@@ -124,6 +141,7 @@ class ArgumentParser {
         ss << "Arguments:\n";
         ss << "  -C " << comm_type << " (communicator)\n";
         ss << "  -O " << operation << " (operation)\n";
+        ss << "  -A " << api_type << " (API type)\n";
         ss << "  -n " << msg_size << " (message size)\n";
         ss << "  -p " << num_ops << " (number of operations)\n";
         ss << "  -r " << num_runs << " (number of runs)\n";
@@ -137,34 +155,18 @@ class ArgumentParser {
     std::string rmm_mr{"cuda"};
     std::string comm_type{"mpi"};
     std::string operation{"all-to-all"};
+    std::string api_type{"tag"};
     std::uint64_t msg_size{1 << 20};
     std::uint64_t num_ops{1};
 };
 
-Duration run(
+void run_tag(
     std::shared_ptr<Communicator> comm,
     ArgumentParser const& args,
-    rmm::cuda_stream_view stream,
-    BufferResource* br,
-    std::shared_ptr<rapidsmpf::Statistics> statistics
+    std::shared_ptr<rapidsmpf::Statistics> statistics,
+    std::vector<std::unique_ptr<Buffer>>& send_bufs,
+    std::vector<std::unique_ptr<Buffer>>& recv_bufs
 ) {
-    // Allocate send and recv buffers and fill the send buffers with random data.
-    std::vector<std::unique_ptr<Buffer>> send_bufs;
-    std::vector<std::unique_ptr<Buffer>> recv_bufs;
-    for (std::uint64_t i = 0; i < args.num_ops; ++i) {
-        for (Rank rank = 0; rank < comm->nranks(); ++rank) {
-            auto [res, _] = br->reserve(MemoryType::DEVICE, args.msg_size * 2, true);
-            auto buf = br->allocate(MemoryType::DEVICE, args.msg_size, stream, res);
-            random_fill(*buf, stream, br->device_mr());
-            send_bufs.push_back(std::move(buf));
-            recv_bufs.push_back(
-                br->allocate(MemoryType::DEVICE, args.msg_size, stream, res)
-            );
-        }
-    }
-
-    auto const t0_elapsed = Clock::now();
-
     Tag const tag{0, 1};
     std::vector<std::unique_ptr<Communicator::Future>> futures;
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
@@ -192,6 +194,36 @@ Duration run(
 
     while (!futures.empty()) {
         std::ignore = comm->test_some(futures);
+    }
+}
+
+Duration run(
+    std::shared_ptr<Communicator> comm,
+    ArgumentParser const& args,
+    rmm::cuda_stream_view stream,
+    BufferResource* br,
+    std::shared_ptr<rapidsmpf::Statistics> statistics
+) {
+    // Allocate send and recv buffers and fill the send buffers with random data.
+    std::vector<std::unique_ptr<Buffer>> send_bufs;
+    std::vector<std::unique_ptr<Buffer>> recv_bufs;
+    for (std::uint64_t i = 0; i < args.num_ops; ++i) {
+        for (Rank rank = 0; rank < comm->nranks(); ++rank) {
+            auto [res, _] = br->reserve(MemoryType::DEVICE, args.msg_size * 2, true);
+            auto buf = br->allocate(MemoryType::DEVICE, args.msg_size, stream, res);
+            random_fill(*buf, stream, br->device_mr());
+            send_bufs.push_back(std::move(buf));
+            recv_bufs.push_back(
+                br->allocate(MemoryType::DEVICE, args.msg_size, stream, res)
+            );
+        }
+    }
+
+    auto const t0_elapsed = Clock::now();
+
+    if (args.api_type == "tag") {
+        run_tag(comm, args, statistics, send_bufs, recv_bufs);
+    } else if (args.api_type == "am") {
     }
 
     return Clock::now() - t0_elapsed;
