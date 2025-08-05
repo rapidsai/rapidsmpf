@@ -23,6 +23,7 @@ from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
+    unspill_partitions,
 )
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
@@ -204,7 +205,12 @@ def bulk_mpi_shuffle(
         while not shuffler.finished():
             partition_id = shuffler.wait_any()
             table = unpack_and_concat(
-                shuffler.extract(partition_id),
+                unspill_partitions(
+                    shuffler.extract(partition_id),
+                    stream=DEFAULT_STREAM,
+                    br=br,
+                    allow_overbooking=True,
+                ),
                 br=br,
                 stream=DEFAULT_STREAM,
             )

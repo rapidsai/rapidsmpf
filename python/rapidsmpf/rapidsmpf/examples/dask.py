@@ -20,6 +20,7 @@ from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     split_and_pack,
     unpack_and_concat,
+    unspill_partitions,
 )
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 
@@ -136,7 +137,12 @@ class DaskCudfIntegration:
         column_names = options["column_names"]
         shuffler.wait_on(partition_id)
         table = unpack_and_concat(
-            shuffler.extract(partition_id),
+            unspill_partitions(
+                shuffler.extract(partition_id),
+                stream=DEFAULT_STREAM,
+                br=ctx.br,
+                allow_overbooking=True,
+            ),
             br=ctx.br,
             stream=DEFAULT_STREAM,
         )

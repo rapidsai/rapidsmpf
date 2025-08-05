@@ -745,9 +745,11 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     }
 
     // Extract and unspill both partitions.
-    std::vector<rapidsmpf::PackedData> out0 = shuffler.extract(0);
+    std::vector<rapidsmpf::PackedData> out0 =
+        rapidsmpf::unspill_partitions(shuffler.extract(0), stream, &br, true);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
-    std::vector<rapidsmpf::PackedData> out1 = shuffler.extract(1);
+    std::vector<rapidsmpf::PackedData> out1 =
+        rapidsmpf::unspill_partitions(shuffler.extract(1), stream, &br, true);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
     // Disable spilling and insert the first partition.
