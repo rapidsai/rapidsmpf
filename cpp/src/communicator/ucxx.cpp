@@ -1184,13 +1184,23 @@ void UCXX::am_recv_callback(
 std::unique_ptr<Communicator::Future> UCXX::am_recv(
     std::shared_ptr<::ucxx::RequestAm> req, std::unique_ptr<Buffer> recv_buffer
 ) {
+    std::cout << "am_recv buf ready: " << recv_buffer->is_ready() << std::endl;
     if (!recv_buffer->is_ready()) {
         logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
         std::terminate();
     }
-    return std::make_unique<Future>(
-        req->receiveData(recv_buffer->data()), std::move(recv_buffer)
+    std::shared_ptr<::ucxx::Request> recv_req_tmp{nullptr};
+    auto recv_req = req->receiveData(recv_buffer->data());
+    std::cout << "am_recv recv_req: " << recv_req.get() << std::endl;
+    recv_req_tmp = recv_req;
+    std::cout << "am_recv recv_req_tmp: " << recv_req_tmp.get() << std::endl;
+    auto ret = std::make_unique<Future>(
+        // req->receiveData(recv_buffer->data()), std::move(recv_buffer)
+        std::move(recv_req),
+        std::move(recv_buffer)
     );
+    std::cout << "am_recv recv_req future: " << ret->req_.get() << std::endl;
+    return ret;
 }
 
 std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
