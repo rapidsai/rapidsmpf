@@ -224,11 +224,7 @@ struct AmCallbackContainer {
 
     void reset(std::vector<std::unique_ptr<Buffer>>&& recv_bufs) {
         std::lock_guard<std::mutex> lock(recv_mutex);
-        std::cout << "Resetting AM callback container, recv_bufs.size() = "
-                  << recv_bufs.size() << std::endl;
         this->recv_bufs = std::move(recv_bufs);
-        std::cout << "AM callback container, recv_bufs.size() = "
-                  << this->recv_bufs.size() << std::endl;
         recv_futures.clear();
         recv_count = 0;
     }
@@ -253,20 +249,6 @@ std::unique_ptr<AmCallbackContainer> setup_am_callback(
                       * static_cast<std::uint64_t>(container_ptr->comm->nranks());
 
             std::lock_guard<std::mutex> lock(container_ptr->recv_mutex);
-
-            auto& log = container_ptr->comm->logger();
-            log.print(
-                "Received message from rank ",
-                am_header.rank_,
-                " in operation ",
-                am_header.op_num_,
-                ", buf_index = ",
-                buf_index,
-                ", recv_bufs.size() = ",
-                container_ptr->recv_bufs.size(),
-                ", container_ptr = ",
-                container_ptr
-            );
 
             container_ptr->recv_futures.push_back(container_ptr->comm->am_recv(
                 std::dynamic_pointer_cast<::ucxx::RequestAm>(req),
@@ -357,17 +339,7 @@ Duration run(
     }
 
     if (am_callback_container != nullptr) {
-        auto& log = comm->logger();
-        log.print(
-            "Resetting AM callback container, recv_bufs.size() = ", recv_bufs.size()
-        );
         am_callback_container->reset(std::move(recv_bufs));
-        log.print(
-            "AM callback container ",
-            am_callback_container.get(),
-            " reset, am_callback_container->recv_bufs.size() = ",
-            am_callback_container->recv_bufs.size()
-        );
 
         // Required to ensure all workers have setup recv buffers before starting
         std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm)->barrier();
@@ -389,6 +361,12 @@ Duration run(
             send_bufs,
             am_callback_container
         );
+
+        // Without the barrier other ranks may start sending messages before the
+        // current local iteration has finished and recv buffers have been setup.
+        // TODO: This is a hack to ensure all workers have received all messages
+        // before returning. We should find a better way to do this.
+        std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm)->barrier();
     }
 
     return Clock::now() - t0_elapsed;
