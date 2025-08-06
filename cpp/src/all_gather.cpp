@@ -40,19 +40,21 @@ AllGather::AllGather(
     std::shared_ptr<Statistics> statistics
 )
     : comm_(comm.get()),
-      shuffler_(std::make_unique<shuffler::Shuffler>(
-          std::move(comm),
-          std::move(progress_thread),
-          op_id,
-          comm_->nranks(),
-          stream,
-          br,
-          std::move(statistics),
-          [](std::shared_ptr<Communicator> const&, shuffler::PartID pid) -> Rank {
-              // identity-like mapping, as there are only n_ranks partitions
-              return static_cast<Rank>(pid);
-          }
-      )),
+      shuffler_(
+          std::make_unique<shuffler::Shuffler>(
+              std::move(comm),
+              std::move(progress_thread),
+              op_id,
+              comm_->nranks(),
+              stream,
+              br,
+              std::move(statistics),
+              [](std::shared_ptr<Communicator> const&, shuffler::PartID pid) -> Rank {
+                  // identity-like mapping, as there are only n_ranks partitions
+                  return static_cast<Rank>(pid);
+              }
+          )
+      ),
       stream_(stream),
       br_(br) {}
 
