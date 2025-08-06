@@ -72,7 +72,7 @@ void check_mpi_error(int error_code, const char* file, int line);
 class MPI final : public Communicator {
   public:
     /**
-     * @brief Represents the future result of an MPI operation.
+     * @brief Represents the future result of MPI operations.
      *
      * This class is used to handle the result of an MPI communication operation
      * asynchronously.
@@ -82,18 +82,41 @@ class MPI final : public Communicator {
 
       public:
         /**
+         * @brief Construct a MultiReqFuture.
+         *
+         * @param reqs Vector of MPI request handles for the operations.
+         * @param data A unique pointer to the data buffer.
+         */
+        Future(std::vector<MPI_Request> reqs, std::unique_ptr<Buffer> data)
+            : reqs_{std::move(reqs)}, data_{std::move(data)} {
+            RAPIDSMPF_EXPECTS(
+                !reqs_.empty(), "MultiReqFuture must have at least 1 request"
+            );
+        }
+
+        /**
          * @brief Construct a Future.
          *
          * @param req The MPI request handle for the operation.
          * @param data A unique pointer to the data buffer.
          */
         Future(MPI_Request req, std::unique_ptr<Buffer> data)
-            : req_{req}, data_{std::move(data)} {}
+            : reqs_{req}, data_{std::move(data)} {}
 
         ~Future() noexcept override = default;
 
+        /**
+         * @brief Get the number of requests in the future.
+         *
+         * @return The number of requests in the future.
+         */
+        [[nodiscard]] constexpr size_t size() const {
+            return reqs_.size();
+        }
+
       private:
-        MPI_Request req_;  ///< The MPI request associated with the operation.
+        std::vector<MPI_Request>
+            reqs_;  ///< The MPI requests associated with the operations.
         std::unique_ptr<Buffer> data_;  ///< The data buffer.
     };
 
@@ -135,6 +158,15 @@ class MPI final : public Communicator {
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
+    ) override;
+
+    // clang-format off
+    /**
+     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag)
+     */
+    // clang-format on
+    [[nodiscard]] std::unique_ptr<Communicator::Future> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag
     ) override;
 
     /**
@@ -181,6 +213,11 @@ class MPI final : public Communicator {
     [[nodiscard]] std::unique_ptr<Buffer> get_gpu_data(
         std::unique_ptr<Communicator::Future> future
     ) override;
+
+    /**
+     * @copydoc Communicator::test
+     */
+    [[nodiscard]] bool test(Communicator::Future& future) override;
 
     /**
      * @copydoc Communicator::logger

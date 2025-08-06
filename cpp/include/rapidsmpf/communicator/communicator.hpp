@@ -4,12 +4,15 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <sstream>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <rapidsmpf/buffer/buffer.hpp>
@@ -415,6 +418,25 @@ class Communicator {
     ) = 0;
 
     /**
+     * @brief Sends a message (device or host) to multiple destination ranks.
+     *
+     * @param msg Unique pointer to the message data (Buffer).
+     * @param ranks Span of destination ranks.
+     * @param tag Message tag for identification.
+     * @return A unique pointer to a `Future` representing the asynchronous
+     * operation.
+     *
+     * @warning The caller is responsible to ensure the underlying `Buffer` allocation
+     * and data are already valid before calling, for example, when a CUDA allocation
+     * and/or copy are done asynchronously. Specifically, the caller should ensure
+     * `Buffer::is_ready()` returns true before calling this function, if not, a
+     * warning is printed and the application will terminate.
+     */
+    [[nodiscard]] virtual std::unique_ptr<Future> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag
+    ) = 0;
+
+    /**
      * @brief Receives a message from a specific rank.
      *
      * @param rank The source rank.
@@ -455,6 +477,16 @@ class Communicator {
     [[nodiscard]] virtual std::vector<std::unique_ptr<Future>> test_some(
         std::vector<std::unique_ptr<Future>>& future_vector
     ) = 0;
+
+    /**
+     * @brief Tests for completion of a future.
+     *
+     * @param future The future to test.
+     * @return True if the future is completed, false otherwise.
+     *
+     * @throws std::runtime_error if the future is not a batch future.
+     */
+    [[nodiscard]] virtual bool test(Future& future) = 0;
 
     /**
      * @brief Tests for completion of multiple futures in a map.

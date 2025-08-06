@@ -8,6 +8,8 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <ranges>
+#include <unordered_set>
 #include <utility>
 
 #include <rapidsmpf/communicator/ucxx.hpp>
@@ -1101,6 +1103,34 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     return std::make_unique<Future>(req, std::move(msg));
 }
 
+std::unique_ptr<Communicator::Future> UCXX::send(
+    std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag
+) {
+    RAPIDSMPF_EXPECTS(
+        msg != nullptr && !ranks.empty(), "malformed arguments passed to batch send"
+    );
+
+    RAPIDSMPF_EXPECTS(
+        std::unordered_set<Rank>(ranks.begin(), ranks.end()).size() == ranks.size(),
+        "duplicate ranks in batch send"
+    );
+
+    if (!msg->is_ready()) {
+        logger().warn("msg is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+
+    std::vector<std::shared_ptr<::ucxx::Request>> reqs;
+    reqs.reserve(ranks.size());
+    for (auto rank : ranks) {
+        auto req = get_endpoint(rank)->tagSend(
+            msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
+        );
+        reqs.emplace_back(std::move(req));
+    }
+    return std::make_unique<Future>(std::move(reqs), std::move(msg));
+}
+
 std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
@@ -1155,8 +1185,7 @@ std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
     for (size_t i = 0; i < future_vector.size(); i++) {
         auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-        if (ucxx_future->req_->isCompleted()) {
-            ucxx_future->req_->checkError();
+        if (ucxx_future->is_completed()) {
             indices.push_back(i);
         } else {
             // We rely on this API returning completed futures in order,
@@ -1194,8 +1223,7 @@ std::vector<std::size_t> UCXX::test_some(
     for (auto const& [key, future] : future_map) {
         auto ucxx_future = dynamic_cast<Future const*>(future.get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-        if (ucxx_future->req_->isCompleted()) {
-            ucxx_future->req_->checkError();
+        if (ucxx_future->is_completed()) {
             completed.push_back(key);
         }
     }
@@ -1212,10 +1240,9 @@ void UCXX::barrier() {
 std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-    while (!ucxx_future->req_->isCompleted()) {
+    while (!ucxx_future->is_completed()) {
         progress_worker();
     }
-    ucxx_future->req_->checkError();
     return std::move(ucxx_future->data_);
 }
 
@@ -1224,6 +1251,14 @@ std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future>
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
     RAPIDSMPF_EXPECTS(ucxx_future->data_ != nullptr, "future has no data");
     return std::move(ucxx_future->data_);
+}
+
+bool UCXX::test(Communicator::Future& future) {
+    auto ucxx_future = dynamic_cast<UCXX::Future*>(&future);
+    RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+
+    progress_worker();
+    return ucxx_future->is_completed();
 }
 
 std::string UCXX::str() const {

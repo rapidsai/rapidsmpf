@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <cstdlib>
 #include <memory>
 #include <utility>
@@ -107,19 +108,51 @@ class UCXX final : public Communicator {
 
       public:
         /**
-         * @brief Construct a Future.
+         * @brief Construct a Future with a single request.
          *
          * @param req The UCXX request handle for the operation.
          * @param data A unique pointer to the data buffer.
          */
         Future(std::shared_ptr<::ucxx::Request> req, std::unique_ptr<Buffer> data)
-            : req_{std::move(req)}, data_{std::move(data)} {}
+            : reqs_{std::move(req)}, data_{std::move(data)} {}
+
+        /**
+         * @brief Construct a Future with multiple requests.
+         *
+         * @param reqs Vector of UCXX request handles for the operations.
+         * @param data A unique pointer to the data buffer.
+         */
+        Future(
+            std::vector<std::shared_ptr<::ucxx::Request>> reqs,
+            std::unique_ptr<Buffer> data
+        )
+            : reqs_{std::move(reqs)}, data_{std::move(data)} {
+            RAPIDSMPF_EXPECTS(!reqs_.empty(), "ucxx request vector is empty");
+        }
 
         ~Future() noexcept override = default;
 
+        /**
+         * @brief Check if all requests are completed without error.
+         *
+         * @return True if all requests are completed without error, false otherwise.
+         *
+         * @throws ucxx::Error if any request has completed with an error.
+         */
+        [[nodiscard]] constexpr bool is_completed() const {
+            // TODO: should we remove the finished requests from the vector?
+            return std::ranges::all_of(reqs_, [](auto const& req) {
+                return req->isCompleted() && [&] {
+                    // check for error if the request is completed
+                    req->checkError();
+                    return true;
+                }();
+            });
+        }
+
       private:
-        std::shared_ptr<::ucxx::Request>
-            req_;  ///< The UCXX request associated with the operation.
+        std::vector<std::shared_ptr<::ucxx::Request>>
+            reqs_;  ///< The UCXX request(s) associated with the operation.
         std::unique_ptr<Buffer> data_;  ///< The data buffer.
     };
 
@@ -160,6 +193,15 @@ class UCXX final : public Communicator {
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
+    ) override;
+
+    // clang-format off
+    /**
+     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag)
+     */
+    // clang-format on
+    [[nodiscard]] std::unique_ptr<Communicator::Future> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag
     ) override;
 
     /**
@@ -215,6 +257,11 @@ class UCXX final : public Communicator {
     [[nodiscard]] std::unique_ptr<Buffer> get_gpu_data(
         std::unique_ptr<Communicator::Future> future
     ) override;
+
+    /**
+     * @copydoc Communicator::test
+     */
+    [[nodiscard]] bool test(Communicator::Future& future) override;
 
     /**
      * @copydoc Communicator::logger
