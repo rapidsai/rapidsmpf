@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from rapidsmpf.communicator.single import new_communicator
 from rapidsmpf.config import Options

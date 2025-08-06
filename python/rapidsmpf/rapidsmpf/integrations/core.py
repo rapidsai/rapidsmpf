@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import threading
 import weakref
-from functools import partial
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, TypeVar
 
 import rmm.mr

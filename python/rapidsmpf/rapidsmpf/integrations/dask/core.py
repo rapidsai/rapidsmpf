@@ -50,7 +50,7 @@ def get_worker_context(
     """
     with WorkerContext.lock:
         worker = worker or get_worker()
-        return worker._rapidsmpf_worker_context
+        return worker._rapidsmpf_worker_context  # type: ignore[no-any-return]
 
 
 def get_dask_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
