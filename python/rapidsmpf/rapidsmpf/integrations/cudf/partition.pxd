@@ -7,6 +7,7 @@ from pylibcudf.table cimport Table
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 from rapidsmpf.buffer.resource cimport BufferResource
+from rapidsmpf.statistics cimport Statistics
 
 
 cpdef dict partition_and_pack(
@@ -27,6 +28,7 @@ cpdef list spill_partitions(
     partitions,
     stream,
     BufferResource br,
+    Statistics statistics = *,
 )
 
 cpdef list unspill_partitions(
@@ -34,4 +36,5 @@ cpdef list unspill_partitions(
     stream,
     BufferResource br,
     bool_t allow_overbooking,
+    Statistics statistics = *,
 )

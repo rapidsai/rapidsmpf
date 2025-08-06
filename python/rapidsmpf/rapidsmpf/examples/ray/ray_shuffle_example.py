@@ -16,6 +16,7 @@ from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
+    unspill_partitions,
 )
 from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
 from rapidsmpf.testing import assert_eq
@@ -141,7 +142,9 @@ class ShufflingActor(BaseShufflingActor):
             partition_id = shuffler.wait_any()
             packed_chunks = shuffler.extract(partition_id)
             partition = unpack_and_concat(
-                packed_chunks,
+                unspill_partitions(
+                    packed_chunks, stream=stream, br=br, allow_overbooking=True
+                ),
                 br=br,
                 stream=stream,
             )

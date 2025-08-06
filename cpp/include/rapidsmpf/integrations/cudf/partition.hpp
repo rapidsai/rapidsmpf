@@ -150,13 +150,17 @@ partition_and_split(
  * @param partitions The partitions to spill.
  * @param stream CUDA stream used for memory operations.
  * @param br Buffer resource used to reserve host memory and perform the move.
+ * @param statistics The statistics instance to use (disabled by default).
  *
  * @return A vector of `PackedData`, where each buffer resides in host memory.
  *
  * @throws std::overflow_error If host memory reservation fails.
  */
 std::vector<PackedData> spill_partitions(
-    std::vector<PackedData>&& partitions, rmm::cuda_stream_view stream, BufferResource* br
+    std::vector<PackedData>&& partitions,
+    rmm::cuda_stream_view stream,
+    BufferResource* br,
+    std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
 /**
@@ -176,6 +180,7 @@ std::vector<PackedData> spill_partitions(
  * @param br Buffer resource responsible for memory reservation and spills.
  * @param allow_overbooking If false, ensures enough memory is freed to satisfy the
  * reservation; otherwise, allows overbooking even if spilling was insufficient.
+ * @param statistics The statistics instance to use (disabled by default).
  *
  * @return A vector of `PackedData`, each with a buffer in device memory.
  *
@@ -186,7 +191,8 @@ std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    bool allow_overbooking
+    bool allow_overbooking,
+    std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
 }  // namespace rapidsmpf
