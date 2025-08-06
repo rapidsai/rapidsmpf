@@ -141,8 +141,7 @@ AllGather::wait_and_extract_ordered(std::optional<std::chrono::milliseconds> tim
         auto rank = shuffler::Shuffler::extract_rank(chunk.chunk_id());
         n_chunks_per_rank[static_cast<size_t>(rank)]++;
         packed_data.emplace_back(
-            std::move(chunk.release_metadata_buffer()),
-            std::move(chunk.release_data_buffer())
+            chunk.release_metadata_buffer(), chunk.release_data_buffer()
         );
     }
 
