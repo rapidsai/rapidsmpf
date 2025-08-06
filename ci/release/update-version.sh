@@ -73,7 +73,7 @@ for FILE in conda/recipes/*/conda_build_config.yaml; do
 done
 
 # rapids-cmake version
-sed_runner 's/'"set(rapids-cmake-version.*"'/'"set(rapids-cmake-version ${NEXT_RAPIDS_SHORT_TAG})"'/g' cmake/RAPIDS.cmake
+sed_runner 's/'"set(rapids-cmake-version.*"'/'"set(rapids-cmake-version ${NEXT_SHORT_TAG})"'/g' cmake/RAPIDS.cmake
 
 # CI files
 for FILE in .github/workflows/*.yaml; do
