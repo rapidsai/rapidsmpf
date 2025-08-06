@@ -12,9 +12,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <cudf/utilities/default_stream.hpp>
-#include <cudf/utilities/memory_resource.hpp>
-
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/config.hpp>
@@ -356,7 +353,7 @@ class Communicator {
         /// number returned by `std::this_thread::get_id()`.
         std::uint32_t thread_id_names_counter{0};
 
-        /// Thread name record mapping thread IDs to their shorten names.
+        /// Thread record mapping thread IDs to their shorten names.
         std::unordered_map<std::thread::id, std::uint32_t> thread_id_names;
     };
 
@@ -434,6 +431,8 @@ class Communicator {
      * @param tag Message tag for identification.
      * @return A pair containing the message data (host memory) and the rank of the
      * sender.
+     * @note If no message is available this is indicated by returning
+     * a `nullptr` in the first slot of the pair.
      */
     [[nodiscard]] virtual std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> recv_any(
         Tag tag
@@ -484,7 +483,11 @@ class Communicator {
 };
 
 /// @brief Whether RapidsMPF was built with the UCXX Communicator.
+#ifdef RAPIDSMPF_HAVE_UCXX
 constexpr bool COMM_HAVE_UCXX = true;
+#else
+constexpr bool COMM_HAVE_UCXX = false;
+#endif
 
 /// @brief Whether RapidsMPF was built with the MPI Communicator.
 #ifdef RAPIDSMPF_HAVE_MPI

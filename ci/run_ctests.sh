@@ -12,7 +12,7 @@ export OMPI_ALLOW_RUN_AS_ROOT=1  # CI runs as root
 export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
 
-EXTRA_ARGS="$@"
+EXTRA_ARGS=("$@")
 
 # Temporarily increasing timeouts to 5m.
 # See: https://github.com/rapidsai/rapidsmpf/issues/75
@@ -20,8 +20,11 @@ timeout_secs=$((5*60)) # 5m timeout
 
 # Run tests using mpirun with multiple nranks. Test cases and nranks are defined in the cpp/tests/CMakeLists.txt
 
-# mpi_test cases
-ctest --verbose --no-tests=error --output-on-failure --timeout $timeout_secs -R "mpi_tests_*" $EXTRA_ARGS
+# mpi_tests cases
+ctest --verbose --no-tests=error --output-on-failure --timeout $timeout_secs -R "mpi_tests_*" "${EXTRA_ARGS[@]}"
 
-# ucxx_test cases
-ctest --verbose --no-tests=error --output-on-failure --timeout $timeout_secs -R "ucxx_tests_*" $EXTRA_ARGS
+# ucxx_tests cases
+ctest --verbose --no-tests=error --output-on-failure --timeout $timeout_secs -R "ucxx_tests_*" "${EXTRA_ARGS[@]}"
+
+# single_tests case
+ctest --verbose --no-tests=error --output-on-failure --timeout $timeout_secs -R "single_tests" "${EXTRA_ARGS[@]}"

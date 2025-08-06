@@ -14,8 +14,12 @@ from dask.utils import M
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
+from rapidsmpf.integrations.cudf.partition import (
+    partition_and_pack,
+    split_and_pack,
+    unpack_and_concat,
+)
 from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
-from rapidsmpf.shuffler import partition_and_pack, split_and_pack, unpack_and_concat
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 
 if TYPE_CHECKING:

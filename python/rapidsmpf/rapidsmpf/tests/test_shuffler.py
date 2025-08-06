@@ -12,12 +12,14 @@ import cudf
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.buffer.resource import BufferResource
-from rapidsmpf.progress_thread import ProgressThread
-from rapidsmpf.shuffler import (
-    Shuffler,
+from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     split_and_pack,
     unpack_and_concat,
+)
+from rapidsmpf.progress_thread import ProgressThread
+from rapidsmpf.shuffler import (
+    Shuffler,
 )
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import (
@@ -103,11 +105,13 @@ def test_split_and_pack_unpack_out_of_range(
 
 @pytest.mark.parametrize("wait_on", [False, True])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
+@pytest.mark.parametrize("concat", [False, True])
 def test_shuffler_single_nonempty_partition(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
     total_num_partitions: int,
     wait_on: bool,  # noqa: FBT001
+    concat: bool,  # noqa: FBT001
 ) -> None:
     br = BufferResource(device_mr)
 
@@ -130,13 +134,19 @@ def test_shuffler_single_nonempty_partition(
         stream=DEFAULT_STREAM,
         device_mr=device_mr,
     )
-    shuffler.insert_chunks(packed_inputs)
+    if concat:
+        shuffler.concat_insert(packed_inputs)
+    else:
+        shuffler.insert_chunks(packed_inputs)
 
-    my_partitions = set()
-    for pid in range(total_num_partitions):
-        shuffler.insert_finished(pid)
-        if (pid % comm.nranks) == comm.rank:
-            my_partitions.add(pid)
+    my_partitions = {
+        p for p in range(total_num_partitions) if (p % comm.nranks) == comm.rank
+    }
+    if concat:
+        shuffler.insert_finished(list(range(total_num_partitions)))
+    else:
+        for pid in range(total_num_partitions):
+            shuffler.insert_finished(pid)
 
     local_outputs = []
     while not shuffler.finished():
@@ -170,11 +180,13 @@ def test_shuffler_single_nonempty_partition(
 
 @pytest.mark.parametrize("batch_size", [None, 10])
 @pytest.mark.parametrize("total_num_partitions", [1, 2, 3, 10])
+@pytest.mark.parametrize("concat", [False, True])
 def test_shuffler_uniform(
     comm: Communicator,
     device_mr: rmm.mr.CudaMemoryResource,
     batch_size: int | None,
     total_num_partitions: int,
+    concat: bool,  # noqa: FBT001
 ) -> None:
     br = BufferResource(device_mr)
 
@@ -236,11 +248,17 @@ def test_shuffler_uniform(
             stream=DEFAULT_STREAM,
             device_mr=device_mr,
         )
-        shuffler.insert_chunks(packed_inputs)
+        if concat:
+            shuffler.concat_insert(packed_inputs)
+        else:
+            shuffler.insert_chunks(packed_inputs)
 
     # Tell shuffler we are done adding data
-    for pid in range(total_num_partitions):
-        shuffler.insert_finished(pid)
+    if concat:
+        shuffler.insert_finished(list(range(total_num_partitions)))
+    else:
+        for pid in range(total_num_partitions):
+            shuffler.insert_finished(pid)
 
     # Extract and check shuffled partitions
     while not shuffler.finished():

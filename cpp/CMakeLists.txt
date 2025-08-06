@@ -34,28 +34,33 @@ rapids_cmake_build_type(Release)
 # * build options ---------------------------------------------------------------------------------
 
 option(BUILD_MPI_SUPPORT "Build RapidsMPF with MPI support" ON)
+option(BUILD_UCXX_SUPPORT "Build RapidsMPF with UCXX support" ON)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
 option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
-option(RAPIDSMPF_STATIC_LINTERS "Enable static linters (e.g. clang-tidy) during compilation" OFF)
+option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
+option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
 
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
+set(RAPIDSMPF_HAVE_UCXX ${BUILD_UCXX_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
 
-if(NOT RAPIDSMPF_HAVE_MPI)
-  if(RAPIDSMPF_BUILD_TESTS)
-    message(FATAL_ERROR "BUILD_TESTS cannot be ON when BUILD_MPI_SUPPORT is OFF")
-  endif()
+if(NOT (RAPIDSMPF_HAVE_MPI AND RAPIDSMPF_HAVE_UCXX))
   if(RAPIDSMPF_BUILD_BENCHMARKS)
-    message(FATAL_ERROR "BUILD_BENCHMARKS cannot be ON when BUILD_MPI_SUPPORT is OFF")
+    message(
+      FATAL_ERROR
+        "BUILD_BENCHMARKS cannot be ON when BUILD_MPI_SUPPORT or BUILD_UCXX_SUPPORT is OFF"
+    )
   endif()
   if(RAPIDSMPF_BUILD_EXAMPLES)
-    message(FATAL_ERROR "BUILD_EXAMPLES cannot be ON when BUILD_MPI_SUPPORT is OFF")
+    message(
+      FATAL_ERROR "BUILD_EXAMPLES cannot be ON when BUILD_MPI_SUPPORT or BUILD_UCXX_SUPPORT is OFF"
+    )
   endif()
 endif()
 
@@ -85,16 +90,18 @@ rapids_find_package(
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
-rapids_find_package(
-  UCX REQUIRED
-  BUILD_EXPORT_SET rapidsmpf-exports
-  INSTALL_EXPORT_SET rapidsmpf-exports
-)
-rapids_find_package(
-  ucxx REQUIRED
-  BUILD_EXPORT_SET rapidsmpf-exports
-  INSTALL_EXPORT_SET rapidsmpf-exports
-)
+if(RAPIDSMPF_HAVE_UCXX)
+  rapids_find_package(
+    UCX REQUIRED
+    BUILD_EXPORT_SET rapidsmpf-exports
+    INSTALL_EXPORT_SET rapidsmpf-exports
+  )
+  rapids_find_package(
+    ucxx REQUIRED
+    BUILD_EXPORT_SET rapidsmpf-exports
+    INSTALL_EXPORT_SET rapidsmpf-exports
+  )
+endif()
 if(RAPIDSMPF_HAVE_MPI)
   rapids_find_package(
     MPI REQUIRED
@@ -109,8 +116,21 @@ endif()
 # ##################################################################################################
 # * library targets --------------------------------------------------------------------------------
 
-file(GLOB SOURCES "src/*.cpp" "src/shuffler/*.cpp" "src/communicator/*.cpp" "src/buffer/*.cpp")
+add_library(maybe_asan INTERFACE)
+target_compile_options(
+  maybe_asan INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>>"
+)
+target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>")
 
+file(GLOB SOURCES "src/*.cpp" "src/buffer/*.cpp" "src/communicator/*.cpp"
+     "src/integrations/cudf/*.cpp" "src/shuffler/*.cpp"
+)
+
+# Without UCXX support, remove the UCXX communicator from the source list.
+if(NOT RAPIDSMPF_HAVE_UCXX)
+  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx.cpp")
+  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx_utils.cpp")
+endif()
 # Without MPI support, remove the MPI communicator from the source list.
 if(NOT RAPIDSMPF_HAVE_MPI)
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/mpi.cpp")
@@ -124,11 +144,11 @@ set_target_properties(
   PROPERTIES BUILD_RPATH "\$ORIGIN"
              INSTALL_RPATH "\$ORIGIN"
              # set target compile options
-             CXX_STANDARD 17
+             CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
              # For std:: support of __int128_t. Can be removed once using cuda::std
              CXX_EXTENSIONS ON
-             CUDA_STANDARD 17
+             CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
              POSITION_INDEPENDENT_CODE ON
              INTERFACE_POSITION_INDEPENDENT_CODE ON
@@ -147,11 +167,14 @@ target_include_directories(
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf ucxx::ucxx
-  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env>
+  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
+  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
-target_compile_definitions(rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>)
+target_compile_definitions(
+  rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>
+                   $<$<BOOL:${RAPIDSMPF_HAVE_UCXX}>:RAPIDSMPF_HAVE_UCXX>
+)
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
 
@@ -159,7 +182,7 @@ add_library(rapidsmpf::rapidsmpf ALIAS rapidsmpf)
 
 # ##################################################################################################
 # * linter configuration ---------------------------------------------------------------------------
-if(RAPIDSMPF_STATIC_LINTERS)
+if(RAPIDSMPF_CLANG_TIDY)
   if(CMAKE_EXPORT_COMPILE_COMMANDS)
     set(CMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
   endif()
@@ -185,7 +208,7 @@ if(RAPIDSMPF_STATIC_LINTERS)
   # versions are skipped so we don't want to constrain to a patch version that the user can't
   # install.
   set(LLVM_VERSION "${CMAKE_MATCH_1}")
-  set(expected_clang_tidy_version 19.1)
+  set(expected_clang_tidy_version 20.1)
   if(NOT expected_clang_tidy_version VERSION_EQUAL LLVM_VERSION)
     message(
       FATAL_ERROR
@@ -254,8 +277,10 @@ RAPIDSMPF.
     ]=]
 )
 
-# Export `RAPIDSMPF_HAVE_MPI` to let downstream projects know if MPI is supported.
-set(final_code_string "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_MPI}]=])")
+# Export `RAPIDSMPF_HAVE_MPI/UCXX` to let downstream projects know if MPI/UCXX is supported.
+string(JOIN "\n" final_code_string "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_MPI}]=])"
+       "set(RAPIDSMPF_HAVE_UCXX [=[${RAPIDSMPF_HAVE_UCXX}]=])"
+)
 
 rapids_export(
   INSTALL rapidsmpf

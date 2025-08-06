@@ -19,12 +19,23 @@ project(
   LANGUAGES CXX CUDA
 )
 
-set(ucxx-python_DIR $ENV{SITE_PACKAGES}/ucxx/lib64/cmake/ucxx-python/)
-include_directories($ENV{SITE_PACKAGES}/ucxx/include)
+# Add global AddressSanitizer flags only if explicitly requested
+option(RAPIDSMPF_PYTHON_ASAN "Enable AddressSanitizer for Python build" OFF)
+add_library(maybe_asan INTERFACE)
+target_compile_options(
+  maybe_asan
+  INTERFACE "$<$<COMPILE_LANGUAGE:C,CXX>:$<$<BOOL:${RAPIDSMPF_PYTHON_ASAN}>:-fsanitize=address>>"
+)
+target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_PYTHON_ASAN}>:-fsanitize=address>")
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(rapidsmpf REQUIRED "${RAPIDS_VERSION}")
 
-rapids_find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
+if(RAPIDSMPF_HAVE_UCXX)
+  rapids_find_package(ucxx-python REQUIRED "${UCXX_VERSION}")
+endif()
 find_package(CUDAToolkit REQUIRED)
 
 include(rapids-cython-core)

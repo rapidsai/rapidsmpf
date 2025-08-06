@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -126,7 +127,7 @@ class SharedResources {
      * @param nranks The number of ranks requested for the cluster.
      */
     SharedResources(std::shared_ptr<::ucxx::Worker> worker, bool root, Rank nranks)
-        : worker_{worker}, rank_{Rank(root ? 0 : -1)}, nranks_{nranks} {}
+        : worker_{std::move(worker)}, rank_{Rank(root ? 0 : -1)}, nranks_{nranks} {}
 
     SharedResources(SharedResources&&) = delete;  ///< Not movable.
     SharedResources(SharedResources&) = delete;  ///< Not copyable.
@@ -218,7 +219,7 @@ class SharedResources {
         std::lock_guard<std::mutex> lock(listener_mutex_);
         auto worker = std::dynamic_pointer_cast<::ucxx::Worker>(listener->getParent());
         rank_to_listener_address_[rank_] =
-            ListenerAddress{worker->getAddress(), .rank = rank_};
+            ListenerAddress{.address = worker->getAddress(), .rank = rank_};
         listener_ = std::move(listener);
     }
 
@@ -353,46 +354,48 @@ class SharedResources {
                 auto& endpoint = rank_to_endpoint.second;
                 requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
             }
-            while (std::any_of(requests.cbegin(), requests.cend(), [](auto const& req) {
+            while (std::ranges::any_of(requests, [](auto const& req) {
                 return !req->isCompleted();
             }))
+            {
                 progress_worker();
-
+            }
             requests.clear();
 
             for (auto& rank_to_endpoint : rank_to_endpoint_) {
                 auto& endpoint = rank_to_endpoint.second;
                 requests.push_back(endpoint->amRecv());
             }
-            while (std::any_of(requests.cbegin(), requests.cend(), [](auto const& req) {
+            while (std::ranges::any_of(requests, [](auto const& req) {
                 return !req->isCompleted();
             }))
+            {
                 progress_worker();
+            }
         } else {
             auto endpoint = get_endpoint(0);
 
             auto req = endpoint->amRecv();
-            while (!req->isCompleted())
+            while (!req->isCompleted()) {
                 progress_worker();
+            }
 
             req = endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST);
-            while (!req->isCompleted())
+            while (!req->isCompleted()) {
                 progress_worker();
+            }
         }
     }
 
     void clear_completed_futures() {
         std::lock_guard<std::mutex> lock(futures_mutex_);
-        futures_.erase(
-            std::remove_if(
-                futures_.begin(),
-                futures_.end(),
-                [](std::unique_ptr<HostFuture> const& element) {
-                    return element->completed();
-                }
-            ),
-            futures_.end()
+        auto new_end = std::ranges::remove_if(
+            futures_,
+            [](std::unique_ptr<HostFuture> const& element) {
+                return element->completed();
+            }
         );
+        futures_.erase(new_end.begin(), new_end.end());
     }
 
     void progress_worker() {
@@ -882,7 +885,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
                     auto packed_listener_address_rank = control_pack(
                         ControlMessage::QueryRank,
                         ListenerAddress{
-                            shared_resources->get_worker()->getAddress(),
+                            .address = shared_resources->get_worker()->getAddress(),
                             .rank = shared_resources->rank()
                         }
                     );
@@ -920,7 +923,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 
             // Inform listener address
             ListenerAddress listener_address = ListenerAddress{
-                std::make_pair(listener->getIp(), listener->getPort()),
+                .address = std::make_pair(listener->getIp(), listener->getPort()),
                 .rank = shared_resources->rank()
             };
             auto packed_listener_address =
@@ -1116,7 +1119,6 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
 }
 
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
-    Logger& log = logger();
     auto probe = shared_resources_->get_worker()->tagProbe(
         ::ucxx::Tag(static_cast<int>(tag)), UserTagMask
     );
@@ -1134,12 +1136,6 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     );
 
     while (!req->isCompleted()) {
-        log.warn(
-            "block-receiving a messager larger than the normal ",
-            "eager threshold (",
-            msg->size(),
-            " bytes)"
-        );
         progress_worker();
     }
 

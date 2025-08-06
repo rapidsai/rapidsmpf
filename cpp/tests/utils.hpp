@@ -14,6 +14,13 @@
 #include <cudf/table/table_view.hpp>
 #include <cudf_test/column_wrapper.hpp>
 
+/**
+ * @brief User-defined literal for specifying memory sizes in MiB.
+ */
+constexpr std::size_t operator"" _MiB(unsigned long long val) {
+    return val * (1ull << 20);
+}
+
 template <typename T>
 [[nodiscard]] std::vector<T> iota_vector(std::size_t nelem, T start = 0) {
     std::vector<T> ret(nelem);

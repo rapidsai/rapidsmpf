@@ -4,15 +4,13 @@
  */
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <memory>
 #include <sstream>
 #include <string>
-
-#include <cudf/column/column_view.hpp>
-#include <cudf/table/table.hpp>
-#include <cudf/types.hpp>
 
 namespace rapidsmpf {
 
@@ -20,50 +18,6 @@ namespace rapidsmpf {
 using Clock = std::chrono::high_resolution_clock;
 /// Alias for a duration type representing time in seconds as a double.
 using Duration = std::chrono::duration<double>;
-
-/**
- * @brief Converts the element at a specific index in a `cudf::column_view` to a string.
- *
- * @param col The column view containing the data.
- * @param index The index of the element to convert.
- * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param mr Memory resource for device memory allocation.
- * @return A string representation of the element at the specified index.
- */
-std::string str(
-    cudf::column_view col,
-    cudf::size_type index,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()
-);
-
-/**
- * @brief Converts all elements in a `cudf::column_view` to a string.
- *
- * @param col The column view containing the data.
- * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param mr Memory resource for device memory allocation.
- * @return A string representation of all elements in the column.
- */
-std::string str(
-    cudf::column_view col,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()
-);
-
-/**
- * @brief Converts all rows in a `cudf::table_view` to a string.
- *
- * @param tbl The table view containing the data.
- * @param stream CUDA stream used for device memory operations and kernel launches.
- * @param mr Memory resource for device memory allocation.
- * @return A string representation of all rows in the table.
- */
-std::string str(
-    cudf::table_view tbl,
-    rmm::cuda_stream_view stream = cudf::get_default_stream(),
-    rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()
-);
 
 /**
  * @brief Formats value to a string with a specified number of decimal places.
@@ -89,9 +43,9 @@ std::string to_precision(T value, int precision = 2) {
  * @param precision The number of decimal places to include.
  * @return A string representation of the byte size with the specified precision.
  */
-std::string inline format_nbytes(std::size_t nbytes, int precision = 2) {
+std::string inline format_nbytes(double nbytes, int precision = 2) {
     constexpr std::array<const char*, 6> units = {" B", " KiB", " MiB", " GiB", " TiB"};
-    auto n = static_cast<double>(nbytes);
+    double n = nbytes;
     for (auto const& unit : units) {
         if (std::abs(n) < 1024.0) {
             return to_precision(n, precision) + unit;
@@ -330,5 +284,68 @@ T parse_string(std::string const& value) {
  */
 template <>
 bool parse_string(std::string const& value);
+
+// Macro to concatenate two tokens x and y.
+#define RAPIDSMPF_CONCAT_DETAIL_(x, y) x##y
+#define RAPIDSMPF_CONCAT(x, y) RAPIDSMPF_CONCAT_DETAIL_(x, y)
+
+// Stringify a macro argument.
+#define RAPIDSMPF_STRINGIFY_DETAIL_(x) #x
+#define RAPIDSMPF_STRINGIFY(x) RAPIDSMPF_STRINGIFY_DETAIL_(x)
+
+/**
+ * @def RAPIDSMPF_OVERLOAD_BY_ARG_COUNT
+ * @brief Helper macro to select another macro based on the number of arguments.
+ *
+ * Example usage:
+ * @code
+ * #define FOO_1(x)        do_something_with_one(x)
+ * #define FOO_2(x, y)     do_something_with_two(x, y)
+ *
+ * #define FOO(...) RAPIDSMPF_OVERLOAD_BY_ARG_COUNT \
+ *                      (__VA_ARGS__, FOO_2, FOO_1)(__VA_ARGS__)
+ *
+ * FOO(42);        // Expands to FOO_1(42)
+ * FOO(1, 2);      // Expands to FOO_2(1, 2)
+ * @endcode
+ */
+#define RAPIDSMPF_OVERLOAD_BY_ARG_COUNT(_1, _2, NAME, ...) NAME
+
+namespace detail {
+
+/**
+ * @brief Returns the raw pointer from a pointer, reference, or smart pointer.
+ *
+ * This utility is useful in macros that accepts any kind of reference.
+ *
+ * @tparam T Type of the object.
+ * @param ptr A raw pointer.
+ * @return T* The same raw pointer.
+ */
+template <typename T>
+constexpr T* to_pointer(T* ptr) noexcept {
+    return ptr;
+}
+
+/** @copydoc to_pointer(T*) */
+template <typename T>
+constexpr T* to_pointer(T& ptr) noexcept {
+    return std::addressof(ptr);
+}
+
+/** @copydoc to_pointer(T*) */
+template <typename T>
+constexpr T* to_pointer(std::unique_ptr<T>& ptr) noexcept {
+    return ptr.get();
+}
+
+/** @copydoc to_pointer(T*) */
+template <typename T>
+constexpr T* to_pointer(std::shared_ptr<T>& ptr) noexcept {
+    return ptr.get();
+}
+
+}  // namespace detail
+
 
 }  // namespace rapidsmpf

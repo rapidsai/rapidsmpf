@@ -7,7 +7,6 @@
 #include <array>
 #include <atomic>
 #include <memory>
-#include <mutex>
 #include <variant>
 #include <vector>
 
@@ -26,7 +25,7 @@ class MemoryReservation;
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
     DEVICE = 0,  ///< Device memory
-    HOST  ///< Host memory
+    HOST = 1  ///< Host memory
 };
 
 /// @brief Array of all the different memory types.

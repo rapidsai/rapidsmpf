@@ -7,9 +7,7 @@ from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 from libcpp.vector cimport vector
-from pylibcudf.table cimport Table
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
-from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.packed_data cimport cpp_PackedData
@@ -18,20 +16,6 @@ from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.progress_thread cimport cpp_ProgressThread
 from rapidsmpf.statistics cimport cpp_Statistics
 
-
-cpdef dict partition_and_pack(
-    Table table,
-    columns_to_hash,
-    int num_partitions,
-    stream,
-    DeviceMemoryResource device_mr,
-)
-
-cpdef Table unpack_and_concat(
-    partitions,
-    stream,
-    DeviceMemoryResource device_mr,
-)
 
 cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
     cdef cppclass cpp_Shuffler "rapidsmpf::shuffler::Shuffler":
@@ -46,7 +30,8 @@ cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
         ) except +
         void shutdown() except +
         void insert(unordered_map[uint32_t, cpp_PackedData] chunks) except +
-        void insert_finished(uint32_t pid) except +
+        void concat_insert(unordered_map[uint32_t, cpp_PackedData] chunks) except +
+        void insert_finished(vector[uint32_t] pids) except +
         vector[cpp_PackedData] extract(uint32_t pid)  except +
         bool finished() except +
         uint32_t wait_any() except +

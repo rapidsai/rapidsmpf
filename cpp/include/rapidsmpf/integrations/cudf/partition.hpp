@@ -13,17 +13,10 @@
 #include <cudf/table/table.hpp>
 
 #include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/statistics.hpp>
 
-namespace rapidsmpf::shuffler {
-
-
-/**
- * @brief Partition ID, which goes from 0 to the total number of partitions in the
- * shuffle.
- *
- * The `PartID` is always referring to a partition globally.
- */
-using PartID = std::uint32_t;
+namespace rapidsmpf {
 
 
 /**
@@ -36,6 +29,7 @@ using PartID = std::uint32_t;
  * @param seed Seed value to the hash function.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param mr Device memory resource used to allocate the returned table's device memory.
+ * @param statistics The statistics instance to use (disabled by default).
  *
  * @return A vector of each partition and a table that owns the device memory.
  *
@@ -52,7 +46,8 @@ partition_and_split(
     cudf::hash_id hash_function,
     uint32_t seed,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    rmm::device_async_resource_ref mr,
+    std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
 
@@ -66,6 +61,7 @@ partition_and_split(
  * @param seed Seed value to the hash function.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param mr Device memory resource used to allocate the returned table's device memory.
+ *  @param statistics The statistics instance to use (disabled by default).
  *
  * @return A map of partition IDs and their packed tables.
  *
@@ -75,14 +71,15 @@ partition_and_split(
  * @see cudf::hash_partition
  * @see cudf::pack
  */
-[[nodiscard]] std::unordered_map<PartID, PackedData> partition_and_pack(
+[[nodiscard]] std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& columns_to_hash,
     int num_partitions,
     cudf::hash_id hash_function,
     uint32_t seed,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    rmm::device_async_resource_ref mr,
+    std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
 
@@ -94,6 +91,7 @@ partition_and_split(
  * the number of result partitions.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param mr Device memory resource used to allocate the returned table's device memory.
+ * @param statistics The statistics instance to use (disabled by default).
  *
  * @return A map of partition IDs and their packed tables.
  *
@@ -103,11 +101,12 @@ partition_and_split(
  * @see cudf::split
  * @see partition_and_pack
  */
-[[nodiscard]] std::unordered_map<PartID, PackedData> split_and_pack(
+[[nodiscard]] std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     cudf::table_view const& table,
     std::vector<cudf::size_type> const& splits,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    rmm::device_async_resource_ref mr,
+    std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
 
@@ -119,6 +118,7 @@ partition_and_split(
  * @param partitions The packed input tables.
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param mr Device memory resource used to allocate the returned table's device memory.
+ *  @param statistics The statistics instance to use (disabled by default).
  *
  * @return The unpacked and concatenated result.
  *
@@ -129,8 +129,9 @@ partition_and_split(
 [[nodiscard]] std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    rmm::device_async_resource_ref mr,
+    std::shared_ptr<Statistics> statistics = Statistics::disabled()
 );
 
 
-}  // namespace rapidsmpf::shuffler
+}  // namespace rapidsmpf

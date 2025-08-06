@@ -9,15 +9,21 @@ on:
   workflow_dispatch:
     inputs:
       branch:
+        description: |
+          branch: git branch the workflow run targets.
+          Required even when 'sha' is provided because it is also used for organizing artifacts.
         required: true
         type: string
       date:
+        description: "date: Date (YYYY-MM-DD) this run is for. Used to organize artifacts produced by nightly builds"
         required: true
         type: string
       sha:
+        description: "sha: full git commit SHA to check out"
         required: true
         type: string
       build_type:
+        description: "build_type: one of [branch, nightly, pull-request]"
         type: string
         default: nightly
 
@@ -28,29 +34,27 @@ concurrency:
 jobs:
   conda-cpp-build:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@branch-25.06
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@branch-25.08
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       script: ci/build_cpp.sh
       sha: ${{ inputs.sha }}
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   conda-python-build:
     needs: [conda-cpp-build]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@branch-25.06
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@branch-25.08
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       script: ci/build_python.sh
       sha: ${{ inputs.sha }}
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   upload-conda:
     needs: [conda-cpp-build, conda-python-build]
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/conda-upload-packages.yaml@branch-25.06
+    uses: rapidsai/shared-workflows/.github/workflows/conda-upload-packages.yaml@branch-25.08
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -60,19 +64,19 @@ jobs:
     if: github.ref_type == 'branch'
     needs: conda-python-build
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-25.06
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-25.08
     with:
       arch: "amd64"
       branch: ${{ inputs.branch }}
       build_type: ${{ inputs.build_type || 'branch' }}
-      container_image: "rapidsai/ci-conda:latest"
+      container_image: "rapidsai/ci-conda:25.08-latest"
       date: ${{ inputs.date }}
       node_type: "cpu8"
       script: "ci/build_docs.sh"
       sha: ${{ inputs.sha }}
   wheel-build-librapidsmpf:
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.06
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.08
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -86,7 +90,7 @@ jobs:
   wheel-publish-librapidsmpf:
     needs: wheel-build-librapidsmpf
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@branch-25.06
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@branch-25.08
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -97,7 +101,7 @@ jobs:
   wheel-build-rapidsmpf:
     needs: wheel-build-librapidsmpf
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.06
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.08
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -106,11 +110,10 @@ jobs:
       script: ci/build_wheel_rapidsmpf.sh
       package-name: rapidsmpf
       package-type: python
-      matrix_filter: map(select(.CUDA_VER | startswith("11") | not))
   wheel-publish-rapidsmpf:
     needs: wheel-build-rapidsmpf
     secrets: inherit
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@branch-25.06
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@branch-25.08
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -118,3 +121,17 @@ jobs:
       date: ${{ inputs.date }}
       package-name: rapidsmpf
       package-type: python
+  wheel-build-rapidsmpf-singlecomm:
+    needs: wheel-build-rapidsmpf
+    secrets: inherit
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@branch-25.08
+    with:
+      build_type: ${{ inputs.build_type || 'branch' }}
+      branch: ${{ inputs.branch }}
+      date: ${{ inputs.date }}
+      sha: ${{ inputs.sha }}
+      script: ci/build_wheel_singlecomm.sh
+      package-name: rapidsmpf-singlecomm
+      package-type: python
+      # build for every combination of arch on CUDA 12 and latest Python
+      matrix_filter: group_by([.ARCH]) | map(max_by(.PY_VER|split(".")|map(tonumber)))

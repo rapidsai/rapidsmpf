@@ -17,7 +17,7 @@
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
 
-#include <rapidsmpf/shuffler/partition.hpp>
+#include <rapidsmpf/integrations/cudf/partition.hpp>
 
 // Helper function to create a table with a single int column
 std::unique_ptr<cudf::table> create_int_table(
@@ -71,7 +71,7 @@ static void BM_PartitionAndPack(benchmark::State& state) {
     std::vector<cudf::size_type> columns_to_hash{0};
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(rapidsmpf::shuffler::partition_and_pack(
+        auto pack_partitions = rapidsmpf::partition_and_pack(
             *table,
             columns_to_hash,
             num_partitions,
@@ -79,7 +79,8 @@ static void BM_PartitionAndPack(benchmark::State& state) {
             cudf::DEFAULT_HASH_SEED,
             stream,
             *pool_mr
-        ));
+        );
+        benchmark::DoNotOptimize(pack_partitions);
         cudaStreamSynchronize(stream);
     }
 
@@ -125,7 +126,7 @@ static void BM_PartitionAndPackCurrentImpl(benchmark::State& state) {
 
     for (auto _ : state) {
         for (int i = 0; i < num_partitions; i++) {
-            benchmark::DoNotOptimize(rapidsmpf::shuffler::partition_and_pack(
+            auto pack_partitions = rapidsmpf::partition_and_pack(
                 *table,
                 columns_to_hash,
                 total_npartitions,
@@ -133,7 +134,8 @@ static void BM_PartitionAndPackCurrentImpl(benchmark::State& state) {
                 cudf::DEFAULT_HASH_SEED,
                 stream,
                 *pool_mr
-            ));
+            );
+            benchmark::DoNotOptimize(pack_partitions);
         }
         cudaStreamSynchronize(stream);
     }

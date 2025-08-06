@@ -3,8 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <stdexcept>
+#include <utility>
 
 #include <cuda_runtime.h>
+
+#include <cuda/std/cstdint>
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
@@ -165,7 +168,7 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
         target_reserv.size() >= length, "reservation is too small", std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(
-        offset >= 0 && offset <= std::ptrdiff_t(size),
+        offset >= 0 && std::cmp_less_equal(offset, size),
         "offset can't be greater than size",
         std::invalid_argument
     );
@@ -251,7 +254,7 @@ std::ptrdiff_t Buffer::copy_to(
     bool attach_event
 ) const {
     RAPIDSMPF_EXPECTS(
-        dest_offset >= 0 && dest_offset <= std::ptrdiff_t(dest.size),
+        dest_offset >= 0 && std::cmp_less_equal(dest_offset, dest.size),
         "destination offset can't be greater than destination buffer size",
         std::invalid_argument
     );

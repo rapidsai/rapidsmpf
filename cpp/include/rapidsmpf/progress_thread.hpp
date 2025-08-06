@@ -15,15 +15,13 @@
  */
 #pragma once
 
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
-#include <list>
 #include <mutex>
-#include <thread>
 #include <unordered_map>
 
+#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -64,7 +62,7 @@ class ProgressThread {
      * Composed of the ProgressThread address and a sequential function index.
      */
     struct FunctionID {
-        ProgressThreadAddress thread_address{ProgressThreadAddress(nullptr)
+        ProgressThreadAddress thread_address{ProgressThreadAddress(0)
         };  ///< The address of the ProgressThread instance
         FunctionIndex function_index{0};  ///< The sequential index of the function
 
@@ -93,7 +91,7 @@ class ProgressThread {
          * @return True if the FunctionID is valid, false otherwise.
          */
         [[nodiscard]] constexpr bool is_valid() const {
-            return thread_address != ProgressThreadAddress(nullptr);
+            return thread_address != ProgressThreadAddress(0);
         }
     };
 
@@ -139,7 +137,7 @@ class ProgressThread {
      */
     ProgressThread(
         Communicator::Logger& logger,
-        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false),
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         Duration sleep = std::chrono::microseconds{1}
     );
 
@@ -173,6 +171,25 @@ class ProgressThread {
      * `ProgressThread` or was already removed.
      */
     void remove_function(FunctionID function_id);
+
+    /**
+     * @brief Pause the progress thread.
+     *
+     * @note This blocks until the thread is actually paused.
+     */
+    void pause();
+
+    /**
+     * @brief Resume the progress thread.
+     */
+    void resume();
+
+    /**
+     * @brief Check if the progress thread is currently running.
+     *
+     * @return true if the thread is running, false otherwise.
+     */
+    bool is_running() const;
 
   private:
     /**

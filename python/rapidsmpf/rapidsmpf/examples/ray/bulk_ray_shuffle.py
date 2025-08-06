@@ -17,8 +17,12 @@ import rmm.mr
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.integrations.cudf.partition import (
+    partition_and_pack,
+    unpack_and_concat,
+)
 from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
-from rapidsmpf.shuffler import partition_and_pack, unpack_and_concat
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import pylibcudf_to_cudf_dataframe
 from rapidsmpf.utils.ray_utils import BaseShufflingActor
@@ -88,7 +92,7 @@ class BulkRayShufflerActor(BaseShufflingActor):
         super().setup_worker(root_address_bytes)
 
         # Initialize the RMM memory resource
-        mr = rmm.mr.StatisticsResourceAdaptor(
+        mr = RmmResourceAdaptor(
             rmm.mr.PoolMemoryResource(
                 rmm.mr.CudaMemoryResource(),
                 initial_pool_size=self.rmm_pool_size,
@@ -104,7 +108,7 @@ class BulkRayShufflerActor(BaseShufflingActor):
         )
         br = BufferResource(mr, memory_available)
         # Create a statistics object
-        self.stats = Statistics(self.enable_statistics)
+        self.stats = Statistics(enable=self.enable_statistics, mr=mr)
         # Create a shuffler
         self.shuffler: Shuffler = self.create_shuffler(
             0,

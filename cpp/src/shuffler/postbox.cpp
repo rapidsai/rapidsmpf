@@ -14,10 +14,31 @@ namespace rapidsmpf::shuffler::detail {
 
 template <typename KeyType>
 void PostBox<KeyType>::insert(Chunk&& chunk) {
+    // check if all partition IDs in the chunk map to the same key
+    KeyType key = key_map_fn_(chunk.part_id(0));
+    for (size_t i = 1; i < chunk.n_messages(); ++i) {
+        RAPIDSMPF_EXPECTS(
+            key == key_map_fn_(chunk.part_id(i)),
+            "PostBox.insert(): all messages in the chunk must map to the same key"
+        );
+    }
     std::lock_guard const lock(mutex_);
-    auto [_, inserted] =
-        pigeonhole_[key_map_fn_(chunk.pid)].insert({chunk.cid, std::move(chunk)});
+    auto [_, inserted] = pigeonhole_[key].insert({chunk.chunk_id(), std::move(chunk)});
     RAPIDSMPF_EXPECTS(inserted, "PostBox.insert(): chunk already exist");
+}
+
+template <typename KeyType>
+void PostBox<KeyType>::mark_empty(PartID pid) {
+    std::lock_guard const lock(mutex_);
+    KeyType key = key_map_fn_(pid);
+
+    auto [it, inserted] = pigeonhole_.emplace(key, std::unordered_map<ChunkID, Chunk>{});
+    // if insertion failed, then the partition in the pigenhole needs to be empty.
+    // (ex: a pid that has already been marked as empty). Else raise an error.
+    RAPIDSMPF_EXPECTS(
+        inserted || it->second.empty(),
+        "Attempting to mark a non-empty partition as empty"
+    );
 }
 
 template <typename KeyType>
@@ -51,7 +72,7 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
         auto chunk_it = chunks.begin();
         while (chunk_it != chunks.end()) {
             if (chunk_it->second.is_ready()) {
-                ret.push_back(std::move(chunk_it->second));
+                ret.emplace_back(std::move(chunk_it->second));
                 chunk_it = chunks.erase(chunk_it);
             } else {
                 ++chunk_it;
@@ -82,8 +103,8 @@ std::vector<std::tuple<KeyType, ChunkID, std::size_t>> PostBox<KeyType>::search(
     std::vector<std::tuple<KeyType, ChunkID, std::size_t>> ret;
     for (auto& [key, chunks] : pigeonhole_) {
         for (auto& [cid, chunk] : chunks) {
-            if (chunk.gpu_data && chunk.gpu_data->mem_type() == mem_type) {
-                ret.emplace_back(key, cid, chunk.gpu_data->size);
+            if (!chunk.is_control_message(0) && chunk.data_memory_type() == mem_type) {
+                ret.emplace_back(key, cid, chunk.concat_data_size());
             }
         }
     }
@@ -100,9 +121,9 @@ std::string PostBox<KeyType>::str() const {
     for (auto const& [key, chunks] : pigeonhole_) {
         ss << "k=" << key << ": [";
         for (auto const& [cid, chunk] : chunks) {
-            assert(cid == chunk.cid);
-            if (chunk.expected_num_chunks) {
-                ss << "EOP" << chunk.expected_num_chunks << ", ";
+            assert(cid == chunk.chunk_id());
+            if (chunk.is_control_message(0)) {
+                ss << "EOP" << chunk.expected_num_chunks(0) << ", ";
             } else {
                 ss << cid << ", ";
             }

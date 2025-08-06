@@ -6,15 +6,10 @@
 
 #include <atomic>
 #include <chrono>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <vector>
-
-#include <cudf/contiguous_split.hpp>
-#include <cudf/partitioning.hpp>
-#include <cudf/table/table.hpp>
 
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
@@ -28,11 +23,14 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils.hpp>
 
+
+class ShuffleInsertGroupedTest;
+
 /**
  * @namespace rapidsmpf::shuffler
  * @brief Shuffler interfaces.
  *
- * A shuffle service for cuDF tables. Use `Shuffler` to perform a single shuffle.
+ * A shuffle service for host and device data. Use `Shuffler` to perform a single shuffle.
  */
 namespace rapidsmpf::shuffler {
 
@@ -44,6 +42,8 @@ namespace rapidsmpf::shuffler {
  * different ranks.
  */
 class Shuffler {
+    friend class ::ShuffleInsertGroupedTest;
+
   public:
     /**
      * @brief Function that given a `Communicator` and a `PartID`, returns the
@@ -96,7 +96,7 @@ class Shuffler {
         PartID total_num_partitions,
         rmm::cuda_stream_view stream,
         BufferResource* br,
-        std::shared_ptr<Statistics> statistics = std::make_shared<Statistics>(false),
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin
     );
 
@@ -105,17 +105,24 @@ class Shuffler {
     /**
      * @brief Shutdown the shuffle, blocking until all inflight communication is done.
      *
-     * @throw cudf::logic_error If the shuffler is already inactive.
+     * @throw std::logic_error If the shuffler is already inactive.
      */
     void shutdown();
 
-  public:
     /**
      * @brief Insert a chunk into the shuffle.
      *
      * @param chunk The chunk to insert.
      */
     void insert(detail::Chunk&& chunk);
+
+    /**
+     * @brief Insert a map of packed data, grouping them by destination rank, and
+     * concatenating into a single chunk per rank.
+     *
+     * @param chunks A map of partition IDs and their packed chunks.
+     */
+    void concat_insert(std::unordered_map<PartID, PackedData>&& chunks);
 
     /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
@@ -134,6 +141,13 @@ class Shuffler {
     void insert_finished(PartID pid);
 
     /**
+     * @brief Insert a finish mark for a list of partitions.
+     *
+     * @param pids The list of partition IDs to mark as finished.
+     */
+    void insert_finished(std::vector<PartID>&& pids);
+
+    /**
      * @brief Extract all chunks of a specific partition.
      *
      * @param pid The partition ID.
@@ -144,11 +158,9 @@ class Shuffler {
     /**
      * @brief Check if all partitions are finished.
      *
-     * @return True if all partitions are finished, otherwise false.
+     * @return True if all partitions are finished, otherwise False.
      */
-    [[nodiscard]] bool finished() const {
-        return finish_counter_.all_finished();
-    }
+    [[nodiscard]] bool finished() const;
 
     /**
      * @brief Wait for any partition to finish.
@@ -157,10 +169,7 @@ class Shuffler {
      *
      * @return The partition ID of the next finished partition.
      */
-    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {}) {
-        RAPIDSMPF_NVTX_FUNC_RANGE();
-        return finish_counter_.wait_any(std::move(timeout));
-    }
+    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Wait for a specific partition to finish (blocking).
@@ -168,10 +177,7 @@ class Shuffler {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      */
-    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {}) {
-        RAPIDSMPF_NVTX_FUNC_RANGE();
-        finish_counter_.wait_on(pid, std::move(timeout));
-    }
+    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Wait for at least one partition to finish.
@@ -180,10 +186,7 @@ class Shuffler {
      *
      * @return The partition IDs of all finished partitions.
      */
-    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {}) {
-        RAPIDSMPF_NVTX_FUNC_RANGE();
-        return finish_counter_.wait_some(std::move(timeout));
-    }
+    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Spills data to device if necessary.
@@ -232,20 +235,8 @@ class Shuffler {
      * @param event The event to use for the new chunk.
      */
     [[nodiscard]] detail::Chunk create_chunk(
-        PartID pid,
-        std::unique_ptr<std::vector<uint8_t>> metadata,
-        std::unique_ptr<rmm::device_buffer> gpu_data,
-        rmm::cuda_stream_view stream,
-        std::shared_ptr<Buffer::Event> event
-    ) {
-        return detail::Chunk{
-            pid,
-            get_new_cid(),
-            gpu_data ? gpu_data->size() : 0,  // gpu_data_size
-            std::move(metadata),
-            br_->move(std::move(gpu_data), stream, event)
-        };
-    }
+        PartID pid, PackedData&& packed_data, std::shared_ptr<Buffer::Event> event
+    );
 
   public:
     PartID const total_num_partitions;  ///< Total number of partition in the shuffle.
@@ -271,9 +262,9 @@ class Shuffler {
     std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;
     mutable std::mutex outbound_chunk_counter_mutex_;
 
-    // We protect outbox extraction to avoid returning a chunk that is in the process
-    // of being spilled by `Shuffler::spill`.
-    mutable std::mutex outbox_spilling_mutex_;
+    // We protect ready_postbox extraction to avoid returning a chunk that is in the
+    // process of being spilled by `Shuffler::spill`.
+    mutable std::mutex ready_postbox_spilling_mutex_;
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
