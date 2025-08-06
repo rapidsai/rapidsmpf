@@ -270,6 +270,9 @@ void run_am(
     );
     comm->am_recv_callback(receiverCallbackInfo, receiverCallback);
 
+    // Required to ensure all workers registered callbacks before starting
+    comm->barrier();
+
     std::vector<std::unique_ptr<Communicator::Future>> send_futures;
     send_futures.reserve(send_bufs.size());
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
