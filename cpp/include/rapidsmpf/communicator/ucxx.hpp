@@ -139,7 +139,7 @@ class UCXX final : public Communicator {
          *
          * @throws ucxx::Error if any request has completed with an error.
          */
-        constexpr bool is_completed() const {
+        [[nodiscard]] constexpr bool is_completed() const {
             // TODO: should we remove the finished requests from the vector?
             return std::ranges::all_of(reqs_, [](auto const& req) {
                 return req->isCompleted() && [&] {

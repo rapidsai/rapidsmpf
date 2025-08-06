@@ -101,7 +101,7 @@ class MPI final : public Communicator {
          * @param data A unique pointer to the data buffer.
          */
         Future(MPI_Request req, std::unique_ptr<Buffer> data)
-            : reqs_{{req}}, data_{std::move(data)} {}
+            : reqs_{req}, data_{std::move(data)} {}
 
         ~Future() noexcept override = default;
 
@@ -110,7 +110,7 @@ class MPI final : public Communicator {
          *
          * @return The number of requests in the future.
          */
-        constexpr size_t size() const {
+        [[nodiscard]] constexpr size_t size() const {
             return reqs_.size();
         }
 
