@@ -224,47 +224,24 @@ void run_am(
     size_t recv_count{0};
     std::mutex recv_mutex{};
 
-    // for (std::uint64_t i = 0; i < send_bufs.size(); ++i) {
-    //     auto header = ::ucxx::AmUserHeader(i);
-    //     std::cout << "header: " << header.as<std::uint64_t>()
-    //               << ", size: " << header.size() << std::endl;
-    // }
-    // auto& log = comm->logger();
-
     ::ucxx::AmReceiverCallbackInfo receiverCallbackInfo("RapidsMPF-bench-comm", 0);
     auto receiverCallback = ::ucxx::AmReceiverCallbackType(
-        // [&comm, &recv_bufs, &recv_futures, &recv_mutex, &recv_count, &log](
         [&comm, &recv_bufs, &recv_futures, &recv_mutex, &recv_count](
             std::shared_ptr<::ucxx::Request> req,
             ucp_ep_h /*ep*/,
             ::ucxx::AmReceiverCallbackInfo const& info
         ) {
             auto am_header = info.userHeader->as<AmHeader>();
-            // std::stringstream userHeaderSS;
-            // userHeaderSS << "recv buf_index: " << am_header.buf_index(comm->nranks())
-            //              << ", size: " << info.userHeader->size() << std::endl;
-            // log.print(userHeaderSS.str());
-            // std::uint64_t op_num = info.userHeader->as<std::uint64_t>();
             std::uint64_t buf_index =
                 static_cast<std::uint64_t>(am_header.rank_)
                 + am_header.op_num_ * static_cast<std::uint64_t>(comm->nranks());
+
             std::lock_guard<std::mutex> lock(recv_mutex);
-            // recv_futures.emplace_back(comm->am_recv(
-            //     std::dynamic_pointer_cast<::ucxx::RequestAm>(req),
-            //     std::move(recv_bufs[op_num])
-            // ));
 
-            // std::stringstream bufSS;
-            // bufSS << "recv_count: " << recv_count << ", buf_index: " << buf_index
-            //       << ", buf: " << recv_bufs[buf_index].get() << std::endl;
-            // log.print(bufSS.str());
-
-            auto recv_req = comm->am_recv(
+            recv_futures.push_back(comm->am_recv(
                 std::dynamic_pointer_cast<::ucxx::RequestAm>(req),
                 std::move(recv_bufs[buf_index])
-            );
-
-            recv_futures.push_back(std::move(recv_req));
+            ));
             ++recv_count;
         }
     );
@@ -282,16 +259,13 @@ void run_am(
                 static_cast<std::uint64_t>(rank)
                 + i * static_cast<std::uint64_t>(comm->nranks())
             ));
-            ::ucxx::AmReceiverCallbackInfo info(
-                "RapidsMPF-bench-comm", 0, true, ::ucxx::AmUserHeader(am_header)
-            );
-            // std::stringstream headerSS;
-            // headerSS << "send buf_index: "
-            //          << info.userHeader->as<AmHeader>().buf_index(comm->nranks())
-            //          << std::endl;
-            // log.print(headerSS.str());
+
             if (rank != comm->rank()) {
                 statistics->add_bytes_stat("all-to-all-send", buf->size);
+
+                ::ucxx::AmReceiverCallbackInfo info(
+                    "RapidsMPF-bench-comm", 0, true, ::ucxx::AmUserHeader(am_header)
+                );
                 send_futures.emplace_back(comm->am_send(std::move(buf), rank, info));
             }
         }
@@ -309,22 +283,15 @@ void run_am(
         }
     }
 
-    // std::cout << "send_futures size: " << send_futures.size() << std::endl;
-    // std::cout << "recv_futures size: " << recv_futures.size() << std::endl;
-
     for (size_t i = 0; i < send_futures.size(); i++) {
         auto ucxx_future =
             dynamic_cast<rapidsmpf::ucxx::UCXX::Future const*>(send_futures[i].get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-        // std::cout << "send_futures[" << i << "]: " << ucxx_future->req_->getStatus()
-        //           << " / " << ucxx_future->req_->isCompleted() << std::endl;
     }
     for (size_t i = 0; i < recv_futures.size(); i++) {
         auto ucxx_future =
             dynamic_cast<rapidsmpf::ucxx::UCXX::Future const*>(recv_futures[i].get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-        // std::cout << "recv_futures[" << i << "]: " << ucxx_future->req_->getStatus()
-        //           << " / " << ucxx_future->req_->isCompleted() << std::endl;
     }
 }
 

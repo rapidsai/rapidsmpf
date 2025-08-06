@@ -115,9 +115,7 @@ class UCXX final : public Communicator {
          * @param data A unique pointer to the data buffer.
          */
         Future(std::shared_ptr<::ucxx::Request> req, std::unique_ptr<Buffer> data)
-            : req_{req}, data_{std::move(data)} {
-            // std::cout << "Future: " << req.get() << " " << req_.get() << std::endl;
-        }
+            : req_{req}, data_{std::move(data)} {}
 
         ~Future() noexcept override = default;
 
