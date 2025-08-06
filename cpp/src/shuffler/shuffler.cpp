@@ -881,10 +881,10 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
 }
 
 detail::ChunkID Shuffler::get_new_cid() {
-    // Place the counter in the first 38 bits (supports 256G chunks).
-    std::uint64_t upper = ++chunk_id_counter_ << chunk_id_rank_bits;
-    // and place the rank in last 26 bits (supports 64M ranks).
-    auto lower = static_cast<std::uint64_t>(comm_->rank());
+    // Place the counter in the last 38 bits (supports 256G chunks).
+    std::uint64_t lower = ++chunk_id_counter_;
+    // and place the rank in the first 26 bits (supports 64M ranks).
+    auto upper = static_cast<std::uint64_t>(comm_->rank()) << chunk_id_counter_bits;
     return upper | lower;
 }
 

@@ -220,24 +220,14 @@ class Shuffler {
     [[nodiscard]] std::string str() const;
 
     /**
-     * @brief The number of bits used to store the rank in a chunk ID.
+     * @brief The number of bits used to store the counter in a chunk ID.
      */
-    static constexpr int chunk_id_rank_bits = 26;
+    static constexpr int chunk_id_counter_bits = 38;
 
     /**
-     * @brief The mask for the rank in a chunk ID.
+     * @brief The mask for the counter in a chunk ID.
      */
-    static constexpr uint64_t chunk_id_rank_mask =
-        (uint64_t(1) << chunk_id_rank_bits) - 1;
-
-    /**
-     * @brief Extract the rank from a chunk ID.
-     * @param cid The chunk ID.
-     * @return The rank.
-     */
-    static constexpr Rank extract_rank(detail::ChunkID cid) {
-        return static_cast<Rank>(cid & chunk_id_rank_mask);
-    }
+    static constexpr uint64_t counter_mask = (uint64_t(1) << chunk_id_counter_bits) - 1;
 
     /**
      * @brief Extract the counter from a chunk ID.
@@ -245,7 +235,16 @@ class Shuffler {
      * @return The counter.
      */
     static constexpr uint64_t extract_counter(detail::ChunkID cid) {
-        return cid >> chunk_id_rank_bits;
+        return cid & counter_mask;
+    }
+
+    /**
+     * @brief Extract the rank from a chunk ID.
+     * @param cid The chunk ID.
+     * @return The rank.
+     */
+    static constexpr Rank extract_rank(detail::ChunkID cid) {
+        return static_cast<Rank>(cid >> chunk_id_counter_bits);
     }
 
     /**

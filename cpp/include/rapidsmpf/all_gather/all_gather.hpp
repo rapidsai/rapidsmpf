@@ -20,12 +20,22 @@
 
 namespace rapidsmpf::all_gather {
 
+namespace detail {
+using ChunkID = ::rapidsmpf::shuffler::detail::ChunkID;
+}
+
 /**
- * @brief All-gather service for cuDF tables.
+ * @brief All-gather service for packed data.
  *
  * The `AllGather` class provides an interface for performing an all-gather operation
- * on cuDF tables, collecting data from all ranks and distributing the complete dataset
+ * on packed data, collecting data from all ranks and distributing the complete dataset
  * to all ranks.
+ *
+ * @note Ordering:
+ * - `wait_and_extract`: No ordering guarantees.
+ * - `wait_and_extract_ordered`: Data is ordered by rank and insertion order.
+ *
+ * @note Any empty packed data will be ignored during insertion.
  */
 class AllGather {
   public:
@@ -74,30 +84,42 @@ class AllGather {
     void insert_finished();
 
     /**
-     * @brief Check if all ranks have finished sending their data.
+     * @brief Check if data has been extracted.
      *
-     * @return True if all ranks have finished, otherwise False.
+     * @return True if data has been extracted, otherwise False.
      */
     [[nodiscard]] bool finished() const;
 
     /**
      * @brief Wait for all ranks to finish and extract all gathered data.
-     *
-     * @param ordered If true, the data is returned in order of the ranks and insertion
-     * order.
+
      * @param timeout Optional timeout (ms) to wait.
-     * @return A vector of packed data containing all gathered data from all ranks.
+     * @return A vector of non-empty packed data from all ranks.
      *
      * @note There are no guarantees on the order of the data across ranks.
      *
      * @throw std::runtime_error if the timeout is reached.
      */
     [[nodiscard]] std::vector<PackedData> wait_and_extract(
-        bool ordered = false, std::optional<std::chrono::milliseconds> timeout = {}
+        std::optional<std::chrono::milliseconds> timeout = {}
     );
 
+    /**
+     * @brief Wait for all ranks to finish and extract all gathered data.
+     *
+     * @param timeout Optional timeout (ms) to wait.
+     * @return A pair of vectors [packed_data, n_chunks_per_rank]. `packed_data`
+     * contains the non-empty packed data ordered by rank and insertion order (size:
+     * sum(n_chunks_per_rank)). `n_chunks_per_rank` contains the number of packed data for
+     * each rank (size: number of ranks).
+     *
+     * @throw std::runtime_error if the timeout is reached.
+     */
+    [[nodiscard]] std::pair<std::vector<PackedData>, std::vector<uint64_t>>
+    wait_and_extract_ordered(std::optional<std::chrono::milliseconds> timeout = {});
+
   private:
-    Communicator const* comm_;
+    Communicator* comm_;
     std::unique_ptr<shuffler::Shuffler> shuffler_;
     rmm::cuda_stream_view stream_;
     BufferResource* br_;

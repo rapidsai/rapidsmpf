@@ -103,35 +103,39 @@ bool AllGather::finished() const {
 }
 
 std::vector<PackedData> AllGather::wait_and_extract(
-    bool ordered, std::optional<std::chrono::milliseconds> timeout
+    std::optional<std::chrono::milliseconds> timeout
 ) {
     // wait for the local partition data
     auto pid = static_cast<shuffler::PartID>(comm_->rank());
     shuffler_->wait_on(pid, timeout);
-    if (ordered) {
-        auto chunks = shuffler_->extract_chunks(pid);
-        std::sort(chunks.begin(), chunks.end(), [](const auto& lhs, const auto& rhs) {
-            auto const& [lhs_rank, lhs_counter] =
-                shuffler::Shuffler::extract_info(lhs.chunk_id());
-            auto const& [rhs_rank, rhs_counter] =
-                shuffler::Shuffler::extract_info(rhs.chunk_id());
+    return shuffler_->extract(pid);
+}
 
-            return lhs_rank < rhs_rank
-                   || (lhs_rank == rhs_rank && lhs_counter < rhs_counter);
-        });
+std::pair<std::vector<PackedData>, std::vector<uint64_t>>
+AllGather::wait_and_extract_ordered(std::optional<std::chrono::milliseconds> timeout) {
+    // wait for the local partition data
+    auto pid = static_cast<shuffler::PartID>(comm_->rank());
+    shuffler_->wait_on(pid, std::move(timeout));
 
-        std::vector<PackedData> packed_data;
-        packed_data.reserve(chunks.size());
-        std::ranges::transform(
-            chunks, std::back_inserter(packed_data), [](auto&& chunk) -> PackedData {
-                return {chunk.release_metadata_buffer(), chunk.release_data_buffer()};
-            }
+    auto chunks = shuffler_->extract_chunks(pid);
+    std::ranges::sort(chunks, [](const auto& lhs, const auto& rhs) {
+        return lhs.chunk_id() < rhs.chunk_id();
+    });
+
+    std::vector<uint64_t> n_chunks_per_rank(static_cast<size_t>(comm_->nranks()), 0);
+    std::vector<PackedData> packed_data;
+    packed_data.reserve(chunks.size());
+
+    for (auto&& chunk : chunks) {
+        auto rank = shuffler::Shuffler::extract_rank(chunk.chunk_id());
+        n_chunks_per_rank[static_cast<size_t>(rank)]++;
+        packed_data.emplace_back(
+            std::move(chunk.release_metadata_buffer()),
+            std::move(chunk.release_data_buffer())
         );
-
-        return packed_data;
-    } else {
-        return shuffler_->extract(pid);
     }
+
+    return {std::move(packed_data), std::move(n_chunks_per_rank)};
 }
 
 }  // namespace rapidsmpf::all_gather

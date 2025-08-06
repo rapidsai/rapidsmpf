@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <ranges>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -30,19 +31,18 @@ extern Environment* GlobalEnvironment;
 // Generate a packed data object with the given number of elements and offset.
 // Both metadata and gpu_data contains the same data.
 rapidsmpf::PackedData generate_packed_data(
-    size_t n_elements,
-    size_t offset,
+    int n_elements,
+    int offset,
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource& br
 ) {
-    auto metadata = std::make_unique<std::vector<uint8_t>>();
-    metadata->reserve(n_elements);
-    for (size_t i = 0; i < n_elements; i++) {
-        metadata->push_back(static_cast<uint8_t>(offset + i));  // wraps around 256
-    }
+    auto values = iota_vector<int>(n_elements, offset);
+
+    auto metadata = std::make_unique<std::vector<uint8_t>>(n_elements * sizeof(int));
+    std::memcpy(metadata->data(), values.data(), n_elements * sizeof(int));
 
     auto data = std::make_unique<rmm::device_buffer>(
-        metadata->data(), metadata->size(), stream, br.device_mr()
+        values.data(), n_elements * sizeof(int), stream, br.device_mr()
     );
 
     return {std::move(metadata), br.move(std::move(data), stream)};
@@ -51,21 +51,25 @@ rapidsmpf::PackedData generate_packed_data(
 // Validate the packed data object by checking the metadata and gpu_data.
 void validate_packed_data(
     rapidsmpf::PackedData const& packed_data,
-    size_t n_elements,
-    size_t offset,
+    int n_elements,
+    int offset,
     rmm::cuda_stream_view stream
 ) {
     auto const& metadata = *packed_data.metadata;
-    EXPECT_EQ(metadata.size(), n_elements);
-    for (size_t i = 0; i < n_elements; i++) {
-        EXPECT_EQ(static_cast<uint8_t>(offset + i), metadata[i]);
+    EXPECT_EQ(metadata.size(), n_elements * sizeof(int));
+
+    for (int i = 0; i < n_elements; i++) {
+        int val;
+        std::memcpy(&val, metadata.data() + i * sizeof(int), sizeof(int));
+        EXPECT_EQ(offset + i, val);
     }
 
-    std::vector<uint8_t> copied_data(n_elements);
+    EXPECT_EQ(packed_data.data->size, n_elements * sizeof(int));
+    std::vector<uint8_t> copied_data(n_elements * sizeof(int));
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
         copied_data.data(),
         packed_data.data->data(),
-        n_elements,
+        n_elements * sizeof(int),
         cudaMemcpyDefault,
         stream
     ));
@@ -74,13 +78,15 @@ void validate_packed_data(
     EXPECT_EQ(metadata, copied_data);
 }
 
-class AllGatherTest
-    : public cudf::test::BaseFixtureWithParam<std::tuple<size_t, size_t>> {
+class AllGatherTest : public ::testing::TestWithParam<std::tuple<int, int, bool>> {
   protected:
     void SetUp() override {
-        std::tie(n_elements, n_inserts) = GetParam();
+        std::tie(n_elements, n_inserts, ordered) = GetParam();
         stream = cudf::get_default_stream();
-        br = std::make_unique<rapidsmpf::BufferResource>(mr());
+        mr = std::unique_ptr<rmm::mr::device_memory_resource>(
+            new rmm::mr::cuda_memory_resource{}
+        );
+        br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
         comm = GlobalEnvironment->comm_.get();
 
         all_gather = std::make_unique<AllGather>(
@@ -97,13 +103,15 @@ class AllGatherTest
         GlobalEnvironment->barrier();
     }
 
-    size_t n_elements;
-    size_t n_inserts;
+    int n_elements;
+    int n_inserts;
+    bool ordered;
 
     rmm::cuda_stream_view stream;
     rapidsmpf::Communicator* comm;
     std::unique_ptr<rapidsmpf::BufferResource> br;
     std::unique_ptr<AllGather> all_gather;
+    std::unique_ptr<rmm::mr::device_memory_resource> mr;
 };
 
 // Parameterized test for different element counts
@@ -112,11 +120,13 @@ INSTANTIATE_TEST_SUITE_P(
     AllGatherTest,
     ::testing::Combine(
         ::testing::Values(0, 1, 10, 100),  // n_elements
-        ::testing::Values(1, 10)  // n_inserts
+        ::testing::Values(0, 1, 10),  // n_inserts
+        ::testing::Values(false, true)  // ordered
     ),
     [](const ::testing::TestParamInfo<AllGatherTest::ParamType>& info) {
         return "n_elements_" + std::to_string(std::get<0>(info.param)) + "_n_inserts_"
-               + std::to_string(std::get<1>(info.param));
+               + std::to_string(std::get<1>(info.param)) + "_"
+               + (std::get<2>(info.param) ? "ordered" : "unordered");
     }
 );
 
@@ -127,29 +137,76 @@ TEST_P(AllGatherTest, shutdown) {
 
 // Test basic all-gather
 TEST_P(AllGatherTest, basic_all_gather) {
-    for (size_t i = 0; i < n_inserts; i++) {
-        auto packed_data = generate_packed_data(
-            n_elements, static_cast<size_t>(comm->rank()), stream, *br
-        );
+    constexpr auto gen_offset = [](int i, int r) { return i * 10 + r; };
+    auto this_rank = comm->rank();
+
+    for (int i = 0; i < n_inserts; i++) {
+        auto packed_data =
+            generate_packed_data(n_elements, gen_offset(i, this_rank), stream, *br);
         all_gather->insert(std::move(packed_data));
     }
 
     all_gather->insert_finished();
 
-    auto results = all_gather->wait_and_extract();
-
-    EXPECT_TRUE(all_gather->finished());
-    if (n_elements > 0) {  // only validate if there is data
-        EXPECT_EQ(n_inserts * static_cast<size_t>(comm->nranks()), results.size());
-        for (auto const& result : results) {
-            size_t offset = result.metadata->at(0);
-            EXPECT_NO_FATAL_FAILURE(
-                validate_packed_data(result, n_elements, offset, stream)
-            );
-        }
-    } else {  // n_elements == 0. No data is inserted.
-        EXPECT_EQ(0, results.size());
+    std::vector<rapidsmpf::PackedData> results;
+    std::vector<uint64_t> n_chunks_per_rank;
+    if (ordered) {
+        std::tie(results, n_chunks_per_rank) = all_gather->wait_and_extract_ordered();
+        EXPECT_EQ(comm->nranks(), n_chunks_per_rank.size());
+    } else {
+        results = all_gather->wait_and_extract();
     }
 
+    EXPECT_TRUE(all_gather->finished());
+    if (n_elements > 0 && n_inserts > 0) {  // only validate if there is data
+        EXPECT_EQ(n_inserts * comm->nranks(), results.size());
+
+        if (ordered) {
+            EXPECT_TRUE(std::ranges::all_of(n_chunks_per_rank, [this](uint64_t n) {
+                return n == static_cast<uint64_t>(n_inserts);
+            }));
+
+            // results vector should be ordered by rank and insertion order. Values should
+            // look like:
+            // rank0    |0... |10...|... * n_inserts
+            // rank1    |1... |11...|... * n_inserts
+            // ...
+            // rank n-1 |(n-1)... |...   * n_inserts
+            for (int r = 0; r < comm->nranks(); r++) {
+                for (int i = 0; i < n_inserts; i++) {
+                    auto const& result = results[r * n_inserts + i];
+                    int exp_offset = gen_offset(i, r);
+                    EXPECT_NO_FATAL_FAILURE(
+                        validate_packed_data(result, n_elements, exp_offset, stream)
+                    );
+                }
+            }
+        } else {  // unordered
+            std::vector<int> exp_offsets;
+            for (int i = 0; i < n_inserts * comm->nranks(); i++) {
+                exp_offsets.emplace_back(gen_offset(i % n_inserts, i / n_inserts));
+            }
+
+            for (auto const& result : results) {
+                int offset = *reinterpret_cast<int*>(result.metadata->data());
+                auto it = std::ranges::find(exp_offsets, offset);
+                EXPECT_NE(it, exp_offsets.end());
+                exp_offsets.erase(it);
+                EXPECT_NO_FATAL_FAILURE(
+                    validate_packed_data(result, n_elements, offset, stream)
+                );
+            }
+            EXPECT_TRUE(exp_offsets.empty());
+        }
+    } else {  // n_elements == 0 or n_inserts == 0. No data is inserted.
+        EXPECT_EQ(0, results.size());
+        if (ordered) {
+            EXPECT_TRUE(std::ranges::all_of(n_chunks_per_rank, [](uint64_t n) {
+                return n == 0;
+            }));
+        }
+    }
+
+    EXPECT_TRUE(all_gather->finished());
     all_gather->shutdown();
 }
