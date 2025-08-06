@@ -23,38 +23,14 @@ if TYPE_CHECKING:
     from rapidsmpf.integrations.core import ShufflerIntegration
 
 
-# Local single-worker context
-class _WorkerContext:
-    """Mutable single-worker utility class."""
-
-    context: WorkerContext | None = None
-
-
-_worker_context: _WorkerContext = _WorkerContext()
+_worker_context: WorkerContext | None = None
 
 
 def get_worker_context() -> WorkerContext:
     """Retrieve the single-worker ``WorkerContext``."""
-    # Unlike _get_worker_context, this doesn't take an optional (private) _WorkerContext
-    return _get_worker_context()
-
-
-def _get_worker_context(worker: _WorkerContext | None = None) -> WorkerContext:
-    """
-    Retrieve the single-worker :class:`rapidsmpf.integrations.core.WorkerContext`.
-
-    If the worker context does not already exist on the worker, it
-    will be created.
-
-    Returns
-    -------
-    The existing or newly initialized worker context.
-    """
     with WorkerContext.lock:
-        worker = worker or _worker_context
-        if worker.context is None:
-            worker.context = WorkerContext()
-        return cast("WorkerContext", worker.context)
+        assert _worker_context is not None
+        return _worker_context
 
 
 def setup_worker(options: Options = Options()) -> None:
@@ -71,25 +47,17 @@ def setup_worker(options: Options = Options()) -> None:
     This function creates a new RMM memory pool, and
     sets it as the current device resource.
     """
-    ctx = _get_worker_context()
-    with ctx.lock:
-        if ctx.comm is not None:
-            return  # Single worker already set up
-
-    # Set up "single" communicator
-    ctx.comm = new_communicator(options)
-    ctx.comm.logger.trace("single communicator created.")
-
-    rmpf_worker_setup(
-        _get_worker_context,
-        None,
-        "single_",
-        options=options,
-    )
+    global _worker_context  # noqa: PLW0603
+    with WorkerContext.lock:
+        if _worker_context is None:
+            comm = new_communicator(options)
+            _worker_context = rmpf_worker_setup(
+                None, "single_", comm=comm, options=options
+            )
 
 
 def _get_occupied_ids() -> list[set[int]]:
-    ctx = _get_worker_context()
+    ctx = get_worker_context()
     return [set(ctx.shufflers.keys())]
 
 
@@ -114,7 +82,7 @@ def _barrier(
         Null sequence used to enforce barrier dependencies.
     """
     for shuffle_id in shuffle_ids:
-        shuffler = get_shuffler(_get_worker_context, shuffle_id)
+        shuffler = get_shuffler(get_worker_context, shuffle_id)
         for pid in range(partition_count):
             shuffler.insert_finished(pid)
 
@@ -131,7 +99,7 @@ def _stage_shuffle(shuffle_id: int, partition_count: int) -> None:
         Output partition count for the shuffle operation.
     """
     get_shuffler(
-        _get_worker_context,
+        get_worker_context,
         shuffle_id,
         partition_count=partition_count,
     )
@@ -190,7 +158,7 @@ def rapidsmpf_shuffle_graph(
     graph: dict[Any, Any] = {
         (insert_name, pid): (
             insert_partition,
-            _get_worker_context,
+            get_worker_context,
             integration.insert_partition,
             (input_name, pid),
             pid,
@@ -216,7 +184,7 @@ def rapidsmpf_shuffle_graph(
         output_keys.append((output_name, part_id))
         graph[output_keys[-1]] = (
             extract_partition,
-            _get_worker_context,
+            get_worker_context,
             integration.extract_partition,
             shuffle_id,
             part_id,
