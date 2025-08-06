@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <numeric>
 #include <unordered_map>
 #include <vector>
@@ -79,13 +80,13 @@ void AllGather::insert(PackedData&& data) {
         // copy data in the chunk
         auto metadata_buf = std::make_unique<std::vector<uint8_t>>(*data.metadata);
         auto res = reserve_or_fail(br_, data.data->size);
-        auto data_buf = br_->copy(res.mem_type(), data.data, stream_, res);
+        auto data_buf = br_->copy(data.data, stream_, res);
         chunks.emplace(
             static_cast<shuffler::PartID>(r),
             PackedData{std::move(metadata_buf), std::move(data_buf)}
         );
     }
-    chunks.emplace(comm_->rank(), std::move(data));
+    chunks.emplace(static_cast<shuffler::PartID>(comm_->rank()), std::move(data));
 
     shuffler_->insert(std::move(chunks));
 }
@@ -102,12 +103,35 @@ bool AllGather::finished() const {
 }
 
 std::vector<PackedData> AllGather::wait_and_extract(
-    std::optional<std::chrono::milliseconds> timeout
+    bool ordered, std::optional<std::chrono::milliseconds> timeout
 ) {
     // wait for the local partition data
     auto pid = static_cast<shuffler::PartID>(comm_->rank());
     shuffler_->wait_on(pid, timeout);
-    return shuffler_->extract(pid);
+    if (ordered) {
+        auto chunks = shuffler_->extract_chunks(pid);
+        std::sort(chunks.begin(), chunks.end(), [](const auto& lhs, const auto& rhs) {
+            auto const& [lhs_rank, lhs_counter] =
+                shuffler::Shuffler::extract_info(lhs.chunk_id());
+            auto const& [rhs_rank, rhs_counter] =
+                shuffler::Shuffler::extract_info(rhs.chunk_id());
+
+            return lhs_rank < rhs_rank
+                   || (lhs_rank == rhs_rank && lhs_counter < rhs_counter);
+        });
+
+        std::vector<PackedData> packed_data;
+        packed_data.reserve(chunks.size());
+        std::ranges::transform(
+            chunks, std::back_inserter(packed_data), [](auto&& chunk) -> PackedData {
+                return {chunk.release_metadata_buffer(), chunk.release_data_buffer()};
+            }
+        );
+
+        return packed_data;
+    } else {
+        return shuffler_->extract(pid);
+    }
 }
 
 }  // namespace rapidsmpf::all_gather

@@ -83,6 +83,8 @@ class AllGather {
     /**
      * @brief Wait for all ranks to finish and extract all gathered data.
      *
+     * @param ordered If true, the data is returned in order of the ranks and insertion
+     * order.
      * @param timeout Optional timeout (ms) to wait.
      * @return A vector of packed data containing all gathered data from all ranks.
      *
@@ -91,7 +93,7 @@ class AllGather {
      * @throw std::runtime_error if the timeout is reached.
      */
     [[nodiscard]] std::vector<PackedData> wait_and_extract(
-        std::optional<std::chrono::milliseconds> timeout = {}
+        bool ordered = false, std::optional<std::chrono::milliseconds> timeout = {}
     );
 
   private:

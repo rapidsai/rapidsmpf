@@ -4,6 +4,8 @@
  */
 
 #include <algorithm>
+#include <concepts>
+#include <functional>
 #include <memory>
 #include <numeric>
 #include <stdexcept>
@@ -143,6 +145,43 @@ std::size_t postbox_spilling(
         }
     }
     return total_spilled;
+}
+
+/**
+ * @brief Extracts chunks from a postbox and applies a projection function.
+ *
+ * This template function provides a thread-safe way to extract chunks from a postbox
+ * and transform them using a projection function. The function uses RAII locking
+ * to ensure thread safety during extraction.
+ *
+ * @tparam ProjectionType The type of the projection function (must be callable with
+ * detail::Chunk&&).
+ *
+ * @param mtx Mutex for thread-safe access to the postbox.
+ * @param postbox The postbox to extract chunks from.
+ * @param pid The partition ID to extract chunks for.
+ * @param chunk_projection Function to transform chunks into the desired output type.
+ *
+ * @return A vector of transformed chunks.
+ */
+template <typename ProjectionType>
+    requires std::invocable<ProjectionType, detail::Chunk&&>
+auto extract_chunks_impl(
+    std::mutex& mtx, auto& postbox, PartID pid, ProjectionType&& chunk_projection
+) {
+    using T = std::invoke_result_t<ProjectionType, detail::Chunk&&>;
+
+    std::unique_lock<std::mutex> lock(mtx);
+    auto chunks = postbox.extract(pid);
+    lock.unlock();
+
+    std::vector<T> ret;
+    ret.reserve(chunks.size());
+    for (auto& [_, chunk] : chunks) {
+        ret.emplace_back(chunk_projection(std::move(chunk)));
+    }
+
+    return ret;
 }
 
 }  // namespace
@@ -762,19 +801,26 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
 std::vector<PackedData> Shuffler::extract(PartID pid) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    // Protect the chunk extraction to make sure we don't get a chunk
-    // `Shuffler::spill` is in the process of spilling.
-    std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
-    auto chunks = ready_postbox_.extract(pid);
-    lock.unlock();
-    std::vector<PackedData> ret;
-    ret.reserve(chunks.size());
 
-    // Convert the chunks to packed data.
-    for (auto& [_, chunk] : chunks) {
-        ret.emplace_back(chunk.release_metadata_buffer(), chunk.release_data_buffer());
-    }
-    return ret;
+    return extract_chunks_impl(
+        ready_postbox_spilling_mutex_,
+        ready_postbox_,
+        pid,
+        [](detail::Chunk&& chunk) -> PackedData {
+            return {chunk.release_metadata_buffer(), chunk.release_data_buffer()};
+        }
+    );
+}
+
+std::vector<detail::Chunk> Shuffler::extract_chunks(PartID pid) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+
+    return extract_chunks_impl(
+        ready_postbox_spilling_mutex_,
+        ready_postbox_,
+        pid,
+        [](detail::Chunk&& chunk) -> detail::Chunk { return std::move(chunk); }
+    );
 }
 
 bool Shuffler::finished() const {
@@ -836,7 +882,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
 
 detail::ChunkID Shuffler::get_new_cid() {
     // Place the counter in the first 38 bits (supports 256G chunks).
-    std::uint64_t upper = ++chunk_id_counter_ << 26;
+    std::uint64_t upper = ++chunk_id_counter_ << chunk_id_rank_bits;
     // and place the rank in last 26 bits (supports 64M ranks).
     auto lower = static_cast<std::uint64_t>(comm_->rank());
     return upper | lower;

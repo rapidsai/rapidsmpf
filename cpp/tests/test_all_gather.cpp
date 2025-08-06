@@ -111,7 +111,7 @@ INSTANTIATE_TEST_SUITE_P(
     AllGather,
     AllGatherTest,
     ::testing::Combine(
-        ::testing::Values(0, 10, 100),  // n_elements
+        ::testing::Values(0, 1, 10, 100),  // n_elements
         ::testing::Values(1, 10)  // n_inserts
     ),
     [](const ::testing::TestParamInfo<AllGatherTest::ParamType>& info) {
@@ -139,14 +139,16 @@ TEST_P(AllGatherTest, basic_all_gather) {
     auto results = all_gather->wait_and_extract();
 
     EXPECT_TRUE(all_gather->finished());
-    EXPECT_EQ(n_inserts * static_cast<size_t>(comm->nranks()), results.size());
     if (n_elements > 0) {  // only validate if there is data
+        EXPECT_EQ(n_inserts * static_cast<size_t>(comm->nranks()), results.size());
         for (auto const& result : results) {
             size_t offset = result.metadata->at(0);
             EXPECT_NO_FATAL_FAILURE(
                 validate_packed_data(result, n_elements, offset, stream)
             );
         }
+    } else {  // n_elements == 0. No data is inserted.
+        EXPECT_EQ(0, results.size());
     }
 
     all_gather->shutdown();
