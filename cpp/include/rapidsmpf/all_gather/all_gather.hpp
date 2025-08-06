@@ -98,7 +98,8 @@ class AllGather {
      *
      * @note There are no guarantees on the order of the data across ranks.
      *
-     * @throw std::runtime_error if the timeout is reached.
+     * @throw std::runtime_error if the timeout is reached or if the data insertion
+     * has not been finished yet.
      */
     [[nodiscard]] std::vector<PackedData> wait_and_extract(
         std::optional<std::chrono::milliseconds> timeout = {}
@@ -113,7 +114,8 @@ class AllGather {
      * sum(n_chunks_per_rank)). `n_chunks_per_rank` contains the number of packed data for
      * each rank (size: number of ranks).
      *
-     * @throw std::runtime_error if the timeout is reached.
+     * @throw std::runtime_error if the timeout is reached or if the data insertion
+     * has not been finished yet.
      */
     [[nodiscard]] std::pair<std::vector<PackedData>, std::vector<uint64_t>>
     wait_and_extract_ordered(std::optional<std::chrono::milliseconds> timeout = {});
@@ -123,6 +125,8 @@ class AllGather {
     std::unique_ptr<shuffler::Shuffler> shuffler_;
     rmm::cuda_stream_view stream_;
     BufferResource* br_;
+
+    std::atomic<bool> insert_finished_{false};
 };
 
 }  // namespace rapidsmpf::all_gather

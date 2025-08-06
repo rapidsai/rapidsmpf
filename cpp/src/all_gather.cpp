@@ -40,21 +40,19 @@ AllGather::AllGather(
     std::shared_ptr<Statistics> statistics
 )
     : comm_(comm.get()),
-      shuffler_(
-          std::make_unique<shuffler::Shuffler>(
-              std::move(comm),
-              std::move(progress_thread),
-              op_id,
-              comm_->nranks(),
-              stream,
-              br,
-              std::move(statistics),
-              [](std::shared_ptr<Communicator> const&, shuffler::PartID pid) -> Rank {
-                  // identity-like mapping, as there are only n_ranks partitions
-                  return static_cast<Rank>(pid);
-              }
-          )
-      ),
+      shuffler_(std::make_unique<shuffler::Shuffler>(
+          std::move(comm),
+          std::move(progress_thread),
+          op_id,
+          comm_->nranks(),
+          stream,
+          br,
+          std::move(statistics),
+          [](std::shared_ptr<Communicator> const&, shuffler::PartID pid) -> Rank {
+              // identity-like mapping, as there are only n_ranks partitions
+              return static_cast<Rank>(pid);
+          }
+      )),
       stream_(stream),
       br_(br) {}
 
@@ -92,10 +90,13 @@ void AllGather::insert(PackedData&& data) {
 }
 
 void AllGather::insert_finished() {
-    // there will be n_ranks partitions
-    std::vector<shuffler::PartID> pids(static_cast<size_t>(comm_->nranks()));
-    std::iota(pids.begin(), pids.end(), 0);
-    shuffler_->insert_finished(std::move(pids));
+    bool expected = false;
+    if (insert_finished_.compare_exchange_strong(expected, true)) {
+        // there will be n_ranks partitions
+        std::vector<shuffler::PartID> pids(static_cast<size_t>(comm_->nranks()));
+        std::iota(pids.begin(), pids.end(), 0);
+        shuffler_->insert_finished(std::move(pids));
+    }
 }
 
 bool AllGather::finished() const {
@@ -105,6 +106,10 @@ bool AllGather::finished() const {
 std::vector<PackedData> AllGather::wait_and_extract(
     std::optional<std::chrono::milliseconds> timeout
 ) {
+    RAPIDSMPF_EXPECTS(
+        insert_finished_.load(), "insertion has not finished yet.", std::runtime_error
+    );
+
     // wait for the local partition data
     auto pid = static_cast<shuffler::PartID>(comm_->rank());
     shuffler_->wait_on(pid, timeout);
@@ -113,6 +118,10 @@ std::vector<PackedData> AllGather::wait_and_extract(
 
 std::pair<std::vector<PackedData>, std::vector<uint64_t>>
 AllGather::wait_and_extract_ordered(std::optional<std::chrono::milliseconds> timeout) {
+    RAPIDSMPF_EXPECTS(
+        insert_finished_.load(), "insertion has not finished yet.", std::runtime_error
+    );
+
     // wait for the local partition data
     auto pid = static_cast<shuffler::PartID>(comm_->rank());
     shuffler_->wait_on(pid, std::move(timeout));
