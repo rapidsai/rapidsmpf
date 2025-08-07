@@ -78,10 +78,9 @@ void validate_packed_data(
     EXPECT_EQ(metadata, copied_data);
 }
 
-class AllGatherTest : public ::testing::TestWithParam<std::tuple<int, int, bool>> {
+class BaseAllGatherTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        std::tie(n_elements, n_inserts, ordered) = GetParam();
         stream = cudf::get_default_stream();
         mr = std::unique_ptr<rmm::mr::device_memory_resource>(
             new rmm::mr::cuda_memory_resource{}
@@ -103,15 +102,29 @@ class AllGatherTest : public ::testing::TestWithParam<std::tuple<int, int, bool>
         GlobalEnvironment->barrier();
     }
 
-    int n_elements;
-    int n_inserts;
-    bool ordered;
-
     rmm::cuda_stream_view stream;
     rapidsmpf::Communicator* comm;
     std::unique_ptr<rapidsmpf::BufferResource> br;
     std::unique_ptr<AllGather> all_gather;
     std::unique_ptr<rmm::mr::device_memory_resource> mr;
+};
+
+// Test simple shutdown
+TEST_F(BaseAllGatherTest, shutdown) {
+    all_gather->shutdown();
+}
+
+class AllGatherTest : public BaseAllGatherTest,
+                      public ::testing::WithParamInterface<std::tuple<int, int, bool>> {
+  protected:
+    void SetUp() override {
+        BaseAllGatherTest::SetUp();
+        std::tie(n_elements, n_inserts, ordered) = GetParam();
+    }
+
+    int n_elements;
+    int n_inserts;
+    bool ordered;
 };
 
 // Parameterized test for different element counts
@@ -130,14 +143,12 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
-// Test simple shutdown
-TEST_P(AllGatherTest, shutdown) {
-    all_gather->shutdown();
-}
+constexpr auto gen_offset(int i, int r) {
+    return i * 10 + r;
+};
 
 // Test basic all-gather
 TEST_P(AllGatherTest, basic_all_gather) {
-    constexpr auto gen_offset = [](int i, int r) { return i * 10 + r; };
     auto this_rank = comm->rank();
 
     for (int i = 0; i < n_inserts; i++) {
@@ -209,4 +220,70 @@ TEST_P(AllGatherTest, basic_all_gather) {
 
     EXPECT_TRUE(all_gather->finished());
     all_gather->shutdown();
+}
+
+class AllGatherOrderedTest : public BaseAllGatherTest,
+                             public ::testing::WithParamInterface<bool> {};
+
+// Parameterized test for different element counts
+INSTANTIATE_TEST_SUITE_P(
+    AllGatherOrdered,
+    AllGatherOrderedTest,
+    ::testing::Values(false, true),  // ordered,
+    [](auto const& info) { return info.param ? "ordered" : "unordered"; }
+);
+
+TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
+    auto ordered = GetParam();
+    auto this_rank = comm->rank();
+    auto n_inserts = this_rank;
+    auto n_ranks = comm->nranks();
+
+    constexpr int n_elements = 5;
+
+    // call insert this_rank times
+    for (int i = 0; i < n_inserts; i++) {
+        auto packed_data =
+            generate_packed_data(n_elements, gen_offset(i, this_rank), stream, *br);
+        all_gather->insert(std::move(packed_data));
+    }
+
+    all_gather->insert_finished();
+
+    std::vector<rapidsmpf::PackedData> results;
+    std::vector<uint64_t> n_chunks_per_rank;
+    if (ordered) {
+        std::tie(results, n_chunks_per_rank) = all_gather->wait_and_extract_ordered();
+        EXPECT_EQ(n_ranks, n_chunks_per_rank.size());
+        for (int r = 0; r < n_ranks; r++) {
+            EXPECT_EQ(r, n_chunks_per_rank[r]);
+        }
+    } else {
+        results = all_gather->wait_and_extract();
+    }
+
+    // results should be a triangular number of elements
+    EXPECT_EQ((n_ranks - 1) * n_ranks / 2, results.size());
+
+    if (ordered) {
+        auto it = results.begin();
+        for (int r = 0; r < n_ranks; r++) {
+            for (int i = 0; i < r; i++) {
+                auto const& result = *it;
+                EXPECT_NO_FATAL_FAILURE(
+                    validate_packed_data(result, n_elements, gen_offset(i, r), stream)
+                );
+                it++;
+            }
+        }
+    } else {  // unordered
+        for (auto const& result : results) {
+            if (result.data->size > 0) {
+                int offset = *reinterpret_cast<int*>(result.metadata->data());
+                EXPECT_NO_FATAL_FAILURE(
+                    validate_packed_data(result, n_elements, offset, stream)
+                );
+            }
+        }
+    }
 }
