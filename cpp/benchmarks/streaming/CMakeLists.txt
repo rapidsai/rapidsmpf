@@ -26,6 +26,6 @@ target_link_libraries(
 install(
   TARGETS bench_streaming_shuffle
   COMPONENT benchmarking
-  DESTINATION bin/benchmarks/librapidsmpf/streaming
+  DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL
 )

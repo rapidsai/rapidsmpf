@@ -15,3 +15,4 @@ export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
 # Ensure that benchmarks are runnable
 mpirun --map-by node --bind-to none -np 3 ./bench_shuffle
 mpirun --map-by node --bind-to none -np 3 ./bench_comm
+./bench_streaming_shuffle
