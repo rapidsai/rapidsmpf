@@ -1230,6 +1230,37 @@ void UCXX::barrier() {
     log.trace("Barrier completed on rank ", shared_resources_->rank());
 }
 
+std::vector<std::unique_ptr<Buffer>> UCXX::wait_all(
+    std::vector<std::unique_ptr<Communicator::Future>>&& futures
+) {
+    std::vector<std::shared_ptr<::ucxx::Request>> reqs;
+    reqs.reserve(futures.size());
+    std::ranges::transform(futures, std::back_inserter(reqs), [](auto&& future) {
+        auto ucxx_future = dynamic_cast<Future*>(future.get());
+        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX:Future");
+        RAPIDSMPF_EXPECTS(
+            std::holds_alternative<std::unique_ptr<Buffer>>(ucxx_future->data_),
+            "Can't wait on future holding shared pointer"
+        );
+        return ucxx_future->req_;
+    });
+    while (!std::ranges::all_of(reqs, [](auto&& req) {
+        auto ret = req->isCompleted();
+        req->checkError();
+        return ret;
+    }))
+    {
+        progress_worker();
+    }
+    std::vector<std::unique_ptr<Buffer>> result;
+    result.reserve(reqs.size());
+    std::ranges::transform(futures, std::back_inserter(result), [](auto&& future) {
+        auto ucxx_future = static_cast<Future*>(future.get());
+        return std::move(std::get<std::unique_ptr<Buffer>>(ucxx_future->data_));
+    });
+    return result;
+}
+
 std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");

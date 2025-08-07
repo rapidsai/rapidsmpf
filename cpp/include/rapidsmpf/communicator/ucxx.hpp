@@ -233,6 +233,15 @@ class UCXX final : public Communicator {
     ) override;
 
     /**
+     * @copydoc Communicator::wait_all
+     *
+     * @throws ucxx::Error if any future did not complete successfully.
+     */
+    [[nodiscard]] std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Communicator::Future>>&& futures
+    ) override;
+
+    /**
      * @copydoc Communicator::get_gpu_data
      */
     [[nodiscard]] std::unique_ptr<Buffer> get_gpu_data(
