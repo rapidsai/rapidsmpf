@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <span>
 #include <stdexcept>
+#include <vector>
 
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/error.hpp>
@@ -20,6 +22,12 @@ std::unique_ptr<Communicator::Future> Single::send(
 }
 
 std::unique_ptr<Communicator::Future> Single::send(std::unique_ptr<Buffer>, Rank, Tag) {
+    RAPIDSMPF_FAIL("Unexpected send to self", std::runtime_error);
+}
+
+std::vector<std::unique_ptr<Communicator::Future>> Single::send(
+    std::unique_ptr<Buffer>, std::span<Rank> const, Tag
+) {
     RAPIDSMPF_FAIL("Unexpected send to self", std::runtime_error);
 }
 

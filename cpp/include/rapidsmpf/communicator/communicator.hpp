@@ -395,7 +395,6 @@ class Communicator {
         std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
     ) = 0;
 
-
     /**
      * @brief Sends a message (device or host) to a specific rank.
      *
@@ -412,6 +411,28 @@ class Communicator {
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
+    ) = 0;
+
+    /**
+     * @brief Sends a message (device or host) to the specified ranks.
+     *
+     * @param msg Unique pointer to the message data (Buffer).
+     * @param destinations The destination ranks.
+     * @param tag Message tag for identification.
+     * @return A vector of unique pointers to `Future`s (one per
+     * destination rank) representing the asynchronous operation.
+     *
+     * @warning It is undefined behaviour to call this function
+     * with duplicates in `destinations`.
+     *
+     * @warning The caller is responsible to ensure the underlying `Buffer` allocation
+     * and data are already valid before calling, for example, when a CUDA allocation
+     * and/or copy are done asynchronously. Specifically, the caller should ensure
+     * `Buffer::is_ready()` returns true before calling this function, if not, a
+     * warning is printed and the application will terminate.
+     */
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Future>> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
     ) = 0;
 
     /**

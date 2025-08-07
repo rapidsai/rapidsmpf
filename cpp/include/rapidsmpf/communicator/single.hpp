@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -78,6 +79,15 @@ class Single final : public Communicator {
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
+    ) override;
+
+    // clang-format off
+    /**
+     * @copydoc Communicator::send(std::unique_ptr<Buffer>, std::span<Rank> const, Tag tag)
+     */
+    // clang-format on
+    [[nodiscard]] std::vector<std::unique_ptr<Communicator::Future>> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
     ) override;
 
     /**

@@ -1101,6 +1101,27 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     return std::make_unique<Future>(req, std::move(msg));
 }
 
+std::vector<std::unique_ptr<Communicator::Future>> UCXX::send(
+    std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
+) {
+    if (!msg->is_ready()) {
+        logger().warn("msg is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+    std::vector<std::unique_ptr<Communicator::Future>> futures;
+    futures.reserve(destinations.size());
+    auto buf = std::shared_ptr<Buffer>(msg.release(), msg.get_deleter());
+    std::ranges::transform(
+        destinations, std::back_inserter(futures), [&](Rank const dest) {
+            auto req = get_endpoint(dest)->tagSend(
+                buf->data(), buf->size, tag_with_rank(shared_resources_->rank(), tag)
+            );
+            return std::make_unique<Future>(req, buf);
+        }
+    );
+    return futures;
+}
+
 std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
@@ -1212,18 +1233,27 @@ void UCXX::barrier() {
 std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    RAPIDSMPF_EXPECTS(
+        std::holds_alternative<std::unique_ptr<Buffer>>(ucxx_future->data_),
+        "Can't wait on future holding shared pointer"
+    );
     while (!ucxx_future->req_->isCompleted()) {
         progress_worker();
     }
     ucxx_future->req_->checkError();
-    return std::move(ucxx_future->data_);
+    return std::move(std::get<std::unique_ptr<Buffer>>(ucxx_future->data_));
 }
 
 std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-    RAPIDSMPF_EXPECTS(ucxx_future->data_ != nullptr, "future has no data");
-    return std::move(ucxx_future->data_);
+    RAPIDSMPF_EXPECTS(
+        std::holds_alternative<std::unique_ptr<Buffer>>(ucxx_future->data_),
+        "Can't wait on future holding shared pointer"
+    );
+    auto result = std::move(std::get<std::unique_ptr<Buffer>>(ucxx_future->data_));
+    RAPIDSMPF_EXPECTS(result != nullptr, "future has no data");
+    return result;
 }
 
 std::string UCXX::str() const {

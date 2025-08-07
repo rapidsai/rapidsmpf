@@ -6,6 +6,8 @@
 
 #include <cstdlib>
 #include <memory>
+#include <span>
+#include <variant>
 #include <vector>
 
 #include <mpi.h>
@@ -90,11 +92,25 @@ class MPI final : public Communicator {
         Future(MPI_Request req, std::unique_ptr<Buffer> data)
             : req_{req}, data_{std::move(data)} {}
 
+        /**
+         * @brief Construct a Future.
+         *
+         * @param req The MPI request handle for the operation.
+         * @param data A shared pointer to the data buffer.
+         * @warning It is undefined behaviour to create such a future
+         * for a receive operation. It should only be done for send
+         * operations when sending the same data to multiple
+         * recipients.
+         */
+        Future(MPI_Request req, std::shared_ptr<Buffer> data)
+            : req_{req}, data_{std::move(data)} {}
+
         ~Future() noexcept override = default;
 
       private:
         MPI_Request req_;  ///< The MPI request associated with the operation.
-        std::unique_ptr<Buffer> data_;  ///< The data buffer.
+        std::variant<std::unique_ptr<Buffer>, std::shared_ptr<Buffer>>
+            data_;  ///< The data buffer.
     };
 
     /**
@@ -135,6 +151,15 @@ class MPI final : public Communicator {
     // clang-format on
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
+    ) override;
+
+    // clang-format off
+    /**
+     * @copydoc Communicator::send(std::unique_ptr<Buffer>, std::span<Rank> const, Tag tag)
+     */
+    // clang-format on
+    [[nodiscard]] std::vector<std::unique_ptr<Communicator::Future>> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
     ) override;
 
     /**

@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <span>
 #include <utility>
+#include <variant>
 
 #include <mpi.h>
 
@@ -133,6 +135,32 @@ std::unique_ptr<Communicator::Future> MPI::send(
     MPI_Request req;
     RAPIDSMPF_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
     return std::make_unique<Future>(req, std::move(msg));
+}
+
+std::vector<std::unique_ptr<Communicator::Future>> MPI::send(
+    std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
+) {
+    if (!msg->is_ready()) {
+        logger().warn("msg is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+    RAPIDSMPF_EXPECTS(
+        msg->size <= std::numeric_limits<int>::max(),
+        "send buffer size exceeds MPI max count"
+    );
+    std::vector<std::unique_ptr<Communicator::Future>> futures;
+    futures.reserve(destinations.size());
+    auto buf = std::shared_ptr<Buffer>(msg.release(), msg.get_deleter());
+    std::ranges::transform(
+        destinations, std::back_inserter(futures), [&](Rank const dest) {
+            MPI_Request req;
+            RAPIDSMPF_MPI(
+                MPI_Isend(buf->data(), buf->size, MPI_UINT8_T, dest, tag, comm_, &req)
+            );
+            return std::make_unique<Future>(req, buf);
+        }
+    );
+    return futures;
 }
 
 std::unique_ptr<Communicator::Future> MPI::recv(
@@ -264,14 +292,23 @@ std::unique_ptr<Buffer> MPI::wait(std::unique_ptr<Communicator::Future> future) 
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
     RAPIDSMPF_MPI(MPI_Wait(&mpi_future->req_, MPI_STATUS_IGNORE));
-    return std::move(mpi_future->data_);
+    RAPIDSMPF_EXPECTS(
+        std::holds_alternative<std::unique_ptr<Buffer>>(mpi_future->data_),
+        "Can't wait on future holding shared pointer"
+    );
+    return std::move(std::get<std::unique_ptr<Buffer>>(mpi_future->data_));
 }
 
 std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-    RAPIDSMPF_EXPECTS(mpi_future->data_ != nullptr, "future has no data");
-    return std::move(mpi_future->data_);
+    RAPIDSMPF_EXPECTS(
+        std::holds_alternative<std::unique_ptr<Buffer>>(mpi_future->data_),
+        "Can't get_gpu_data on future holding shared pointer"
+    );
+    auto result = std::move(std::get<std::unique_ptr<Buffer>>(mpi_future->data_));
+    RAPIDSMPF_EXPECTS(result != nullptr, "future has no data");
+    return result;
 }
 
 std::string MPI::str() const {
