@@ -88,3 +88,39 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     stream.synchronize();
     EXPECT_EQ(send_data_h, *recv_data_h);
 }
+
+TEST_P(BasicCommunicatorTest, SendToAll) {
+    if (GlobalEnvironment->type() == TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "Unsupported send to self";
+    }
+    constexpr int nelems{4};
+    auto send_data_h = std::vector<std::uint8_t>(nelems, comm->rank() + 1);
+    auto [reservation, ob] =
+        br->reserve(memory_type(), (1 + comm->nranks()) * send_data_h.size(), true);
+    auto send_buf = br->move(
+        br->move(std::make_unique<std::vector<uint8_t>>(send_data_h)), stream, reservation
+    );
+    stream.synchronize();
+    rapidsmpf::Tag tag{0, 0};
+
+    auto dests = iota_vector<rapidsmpf::Rank>(comm->nranks());
+    auto send_futures = comm->send(std::move(send_buf), dests, tag);
+    std::vector<std::unique_ptr<rapidsmpf::Communicator::Future>> recv_futures;
+    for (int i = 0; i < comm->nranks(); i++) {
+        recv_futures.push_back(
+            comm->recv(i, tag, br->allocate(send_data_h.size(), stream, reservation))
+        );
+    }
+    auto recv_bufs = comm->wait_all(std::move(recv_futures));
+    while (!send_futures.empty()) {
+        std::ignore = comm->test_some(send_futures);
+    }
+    for (int i = 0; i < comm->nranks(); i++) {
+        auto [host_reservation, host_ob] =
+            br->reserve(rapidsmpf::MemoryType::HOST, send_data_h.size(), true);
+        auto recv_data_h =
+            br->move_to_host_vector(std::move(recv_bufs[i]), stream, host_reservation);
+        stream.synchronize();
+        EXPECT_EQ(std::vector<std::uint8_t>(nelems, i + 1), *recv_data_h);
+    }
+}
