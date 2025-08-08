@@ -632,6 +632,9 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
     // resume progress thread - this will guarantee that shuffler progress function is
     // marked as done. This is important to ensure that the test does not hang.
     progress_thread->resume();
+
+    shuffler.reset();
+    br.reset();
 }
 
 TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
@@ -658,6 +661,9 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
     // resume progress thread - this will guarantee that shuffler progress function is
     // marked as done. This is important to ensure that the test does not hang.
     progress_thread->resume();
+
+    shuffler.reset();
+    br.reset();
 }
 
 INSTANTIATE_TEST_SUITE_P(
