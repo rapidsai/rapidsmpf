@@ -24,6 +24,7 @@ function(find_and_configure_libcoro)
             "LIBCORO_BUILD_SHARED_LIBS OFF"
             "BUILD_SHARED_LIBS OFF"
   )
+  set_property(TARGET libcoro PROPERTY POSITION_INDEPENDENT_CODE ON)
 endfunction()
 
 find_and_configure_libcoro()
