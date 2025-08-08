@@ -81,6 +81,8 @@ void validate_packed_data(
 class BaseAllGatherTest : public ::testing::Test {
   protected:
     void SetUp() override {
+        GlobalEnvironment->barrier();
+
         stream = cudf::get_default_stream();
         mr = std::unique_ptr<rmm::mr::device_memory_resource>(
             new rmm::mr::cuda_memory_resource{}
@@ -95,10 +97,12 @@ class BaseAllGatherTest : public ::testing::Test {
             stream,
             br.get()
         );
-        GlobalEnvironment->barrier();
     }
 
     void TearDown() override {
+        all_gather = nullptr;
+        br = nullptr;
+        mr = nullptr;
         GlobalEnvironment->barrier();
     }
 
@@ -219,7 +223,6 @@ TEST_P(AllGatherTest, basic_all_gather) {
     }
 
     EXPECT_TRUE(all_gather->finished());
-    all_gather->shutdown();
 }
 
 class AllGatherOrderedTest : public BaseAllGatherTest,
@@ -288,5 +291,4 @@ TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
     }
 
     EXPECT_TRUE(all_gather->finished());
-    all_gather->shutdown();
 }
