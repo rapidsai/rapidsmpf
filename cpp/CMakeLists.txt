@@ -237,8 +237,10 @@ if(RAPIDSMPF_CLANG_TIDY)
 
   # clang will complain about unused link libraries on the compile line unless we specify
   # -Qunused-arguments.
-  set_target_properties(rapidsmpf PROPERTIES
-    CXX_CLANG_TIDY
+  set_target_properties(
+    rapidsmpf
+    PROPERTIES
+      CXX_CLANG_TIDY
       "clang-tidy;-header-filter=${CLANG_TIDY_HEADER_FILTER};--extra-arg=-Qunused-arguments"
   )
 endif()

@@ -32,8 +32,8 @@ Node partition_and_pack(
         auto tbl = table->make_available(reservation, ctx.stream(), ctx.br());
 
         PartitionMapChunk partition_map{
-            tbl.sequence_number(),
-            rapidsmpf::partition_and_pack(
+            .sequence_number = tbl.sequence_number(),
+            .data = rapidsmpf::partition_and_pack(
                 tbl.table_view(),
                 columns_to_hash,
                 num_partitions,

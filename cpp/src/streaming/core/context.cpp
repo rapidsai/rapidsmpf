@@ -22,7 +22,7 @@ MemoryReservation rapidsmpf::streaming::Context::reserve_and_spill(std::size_t s
             );
         }
     }
-    return reservation;
+    return std::move(reservation);
 }
 
 }  // namespace rapidsmpf::streaming
