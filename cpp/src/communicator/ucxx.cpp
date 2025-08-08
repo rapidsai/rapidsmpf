@@ -1175,14 +1175,12 @@ std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
         return {};
     }
     progress_worker();
-    std::vector<size_t> indices;
-    indices.reserve(future_vector.size());
-    for (size_t i = 0; i < future_vector.size(); i++) {
-        auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
+    std::vector<std::unique_ptr<Communicator::Future>> completed;
+    for (auto& future : future_vector) {
+        auto ucxx_future = dynamic_cast<Future const*>(future.get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-        if (ucxx_future->req_->isCompleted()) {
-            ucxx_future->req_->checkError();
-            indices.push_back(i);
+        if (is_complete(ucxx_future->req_)) {
+            completed.push_back(std::move(future));
         } else {
             // We rely on this API returning completed futures in order,
             // since we send acks and then post receives for data
@@ -1198,14 +1196,6 @@ std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
             break;
         }
     }
-    if (indices.size() == 0) {
-        return {};
-    }
-    std::vector<std::unique_ptr<Communicator::Future>> completed;
-    completed.reserve(indices.size());
-    std::ranges::transform(indices, std::back_inserter(completed), [&](std::size_t i) {
-        return std::move(future_vector[i]);
-    });
     std::erase(future_vector, nullptr);
     return completed;
 }
