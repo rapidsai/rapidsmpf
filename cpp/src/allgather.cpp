@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include <rapidsmpf/all_gather/all_gather.hpp>
+#include <rapidsmpf/allgather/allgather.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -17,7 +17,7 @@
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 
-namespace rapidsmpf::all_gather {
+namespace rapidsmpf::allgather {
 
 /**
  * @brief A naive implementation of the all-gather operation.
@@ -148,4 +148,4 @@ AllGather::wait_and_extract_ordered(std::optional<std::chrono::milliseconds> tim
     return {std::move(packed_data), std::move(n_chunks_per_rank)};
 }
 
-}  // namespace rapidsmpf::all_gather
+}  // namespace rapidsmpf::allgather

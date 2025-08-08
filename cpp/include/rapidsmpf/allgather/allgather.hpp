@@ -18,7 +18,7 @@
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
 
-namespace rapidsmpf::all_gather {
+namespace rapidsmpf::allgather {
 
 namespace detail {
 using ChunkID = ::rapidsmpf::shuffler::detail::ChunkID;
@@ -129,4 +129,4 @@ class AllGather {
     std::atomic<bool> insert_finished_{false};
 };
 
-}  // namespace rapidsmpf::all_gather
+}  // namespace rapidsmpf::allgather
