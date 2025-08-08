@@ -29,7 +29,8 @@ _worker_context: WorkerContext | None = None
 def get_worker_context() -> WorkerContext:
     """Retrieve the single-worker ``WorkerContext``."""
     with WorkerContext.lock:
-        assert _worker_context is not None
+        if _worker_context is None:
+            raise RuntimeError("Must call setup_worker first")
         return _worker_context
 
 
@@ -82,7 +83,7 @@ def _barrier(
         Null sequence used to enforce barrier dependencies.
     """
     for shuffle_id in shuffle_ids:
-        shuffler = get_shuffler(get_worker_context, shuffle_id)
+        shuffler = get_shuffler(get_worker_context(), shuffle_id)
         for pid in range(partition_count):
             shuffler.insert_finished(pid)
 
@@ -99,7 +100,7 @@ def _stage_shuffle(shuffle_id: int, partition_count: int) -> None:
         Output partition count for the shuffle operation.
     """
     get_shuffler(
-        get_worker_context,
+        get_worker_context(),
         shuffle_id,
         partition_count=partition_count,
     )

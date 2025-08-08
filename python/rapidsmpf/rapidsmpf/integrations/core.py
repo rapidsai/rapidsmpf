@@ -177,7 +177,7 @@ class ShufflerIntegration(Protocol[DataFrameT]):
 
 
 def get_shuffler(
-    get_context: Callable[..., WorkerContext],
+    ctx: WorkerContext,
     shuffle_id: int,
     *,
     partition_count: int | None = None,
@@ -188,8 +188,8 @@ def get_shuffler(
 
     Parameters
     ----------
-    get_context
-        Callable function to fetch the worker context.
+    ctx
+        The worker context.
     shuffle_id
         Unique ID for the shuffle operation.
     partition_count
@@ -208,7 +208,6 @@ def get_shuffler(
     Whenever a new :class:`Shuffler` object is created, it is
     saved as ``WorkerContext.shufflers[shuffle_id]``.
     """
-    ctx = get_context(worker)
     with ctx.lock:
         if shuffle_id not in ctx.shufflers:
             if partition_count is None:
@@ -280,7 +279,7 @@ def insert_partition(
         df,
         partition_id,
         partition_count,
-        get_shuffler(get_context, shuffle_id),
+        get_shuffler(get_context(), shuffle_id),
         options,
         *other_keys,
     )
@@ -322,7 +321,7 @@ def extract_partition(
     -------
     Extracted DataFrame partition.
     """
-    shuffler = get_shuffler(get_context, shuffle_id)
+    shuffler = get_shuffler(get_context(), shuffle_id)
     try:
         return callback(
             partition_id,
@@ -439,6 +438,8 @@ def rmpf_worker_setup(
             name=str(worker),
             stats=statistics,
         )
+    else:
+        statistics = Statistics(enable=False)
 
     # Create a buffer resource with a limiting availability function.
     total_memory = rmm.mr.available_device_memory()[1]
