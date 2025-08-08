@@ -8,8 +8,6 @@
 #include <sstream>
 #include <vector>
 
-#include <cuda/std/span>
-
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>

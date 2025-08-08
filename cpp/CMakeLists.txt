@@ -40,20 +40,30 @@ rapids_cmake_build_type(Release)
 
 option(BUILD_MPI_SUPPORT "Build RapidsMPF with MPI support" ON)
 option(BUILD_UCXX_SUPPORT "Build RapidsMPF with UCXX support" ON)
+option(BUILD_STREAMING_SUPPORT "Build RapidsMPF with streaming support" ON)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
-option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
+option(RAPIDSMPF_BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_HAVE_UCXX ${BUILD_UCXX_SUPPORT})
+set(RAPIDSMPF_HAVE_STREAMING ${BUILD_STREAMING_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
+set(BUILD_SHARED_LIBS ${RAPIDSMPF_BUILD_SHARED_LIBS})
+
+# if(RAPIDSMPF_HAVE_UCXX AND NOT BUILD_SHARED_LIBS)
+#   message(
+#     FATAL_ERROR "RapidsMPF must be built with shared libraries when streaming is enabled. "
+#                 "Please build with BUILD_STREAMING_SUPPORT=OFF or RAPIDSMPF_BUILD_SHARED_LIBS=ON."
+#   )
+# endif()
 
 if(NOT (RAPIDSMPF_HAVE_MPI AND RAPIDSMPF_HAVE_UCXX))
   if(RAPIDSMPF_BUILD_BENCHMARKS)
@@ -117,6 +127,9 @@ endif()
 if(RAPIDSMPF_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
 endif()
+if(RAPIDSMPF_HAVE_STREAMING)
+  include(../cmake/thirdparty/get_libcoro.cmake)
+endif()
 
 # ##################################################################################################
 # * library targets --------------------------------------------------------------------------------
@@ -131,6 +144,10 @@ file(GLOB SOURCES "src/*.cpp" "src/buffer/*.cpp" "src/communicator/*.cpp"
      "src/integrations/cudf/*.cpp" "src/shuffler/*.cpp"
 )
 
+if(RAPIDSMPF_HAVE_STREAMING)
+  file(GLOB STREAMING_SOURCES "src/streaming/core/*.cpp" "src/streaming/cudf/*.cpp")
+endif()
+
 # Without UCXX support, remove the UCXX communicator from the source list.
 if(NOT RAPIDSMPF_HAVE_UCXX)
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx.cpp")
@@ -142,7 +159,7 @@ if(NOT RAPIDSMPF_HAVE_MPI)
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx_utils.cpp")
 endif()
 
-add_library(rapidsmpf ${SOURCES})
+add_library(rapidsmpf ${SOURCES} ${STREAMING_SOURCES})
 
 set_target_properties(
   rapidsmpf
@@ -172,9 +189,14 @@ target_include_directories(
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
+  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro::libcoro>
   PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
+
+# # Always statically embed libcoro into rapidsmpf when available.
+# if(TARGET libcoro)
+#   target_link_libraries(rapidsmpf PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,libcoro>)
+# endif()
 
 target_compile_definitions(
   rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>
@@ -221,12 +243,18 @@ if(RAPIDSMPF_CLANG_TIDY)
     )
   endif()
 
+  # Restrict clang-tidy to only run on our own source/include dirs
+  set(CLANG_TIDY_HEADER_FILTER
+      "^-?(${CMAKE_SOURCE_DIR}/src|${CMAKE_SOURCE_DIR}/include|${CMAKE_SOURCE_DIR}/benchmarks|${CMAKE_SOURCE_DIR}/tests)/.*"
+  )
+
   # clang will complain about unused link libraries on the compile line unless we specify
   # -Qunused-arguments.
   set_target_properties(
     rapidsmpf
-    PROPERTIES CXX_CLANG_TIDY
-               "clang-tidy;-header-filter=^${CMAKE_SOURCE_DIR}/.*;--extra-arg=-Qunused-arguments"
+    PROPERTIES
+      CXX_CLANG_TIDY
+      "clang-tidy;-header-filter=${CLANG_TIDY_HEADER_FILTER};--extra-arg=-Qunused-arguments"
   )
 endif()
 
@@ -270,7 +298,7 @@ include(GNUInstallDirs)
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME rapidsmpf)
 
 install(
-  TARGETS rapidsmpf
+  TARGETS rapidsmpf maybe_asan
   DESTINATION ${lib_dir}
   EXPORT rapidsmpf-exports
 )
@@ -286,6 +314,18 @@ RAPIDSMPF.
 string(JOIN "\n" final_code_string "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_MPI}]=])"
        "set(RAPIDSMPF_HAVE_UCXX [=[${RAPIDSMPF_HAVE_UCXX}]=])"
 )
+
+# # Install libcoro headers so downstreams can include <coro/...> without a package.
+# if(TARGET libcoro)
+#   get_target_property(_libcoro_inc_dirs libcoro INTERFACE_INCLUDE_DIRECTORIES)
+#   if(_libcoro_inc_dirs)
+#     foreach(_inc IN LISTS _libcoro_inc_dirs)
+#       if(EXISTS "${_inc}/coro")
+#         install(DIRECTORY "${_inc}/coro" DESTINATION include)
+#       endif()
+#     endforeach()
+#   endif()
+# endif()
 
 rapids_export(
   INSTALL rapidsmpf
