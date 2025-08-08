@@ -315,6 +315,18 @@ string(JOIN "\n" final_code_string "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_M
        "set(RAPIDSMPF_HAVE_UCXX [=[${RAPIDSMPF_HAVE_UCXX}]=])"
 )
 
+# Install libcoro headers so downstreams can include <coro/...> without a package.
+if(TARGET libcoro)
+  get_target_property(_libcoro_inc_dirs libcoro INTERFACE_INCLUDE_DIRECTORIES)
+  if(_libcoro_inc_dirs)
+    foreach(_inc IN LISTS _libcoro_inc_dirs)
+      if(EXISTS "${_inc}/coro")
+        install(DIRECTORY "${_inc}/coro" DESTINATION include)
+      endif()
+    endforeach()
+  endif()
+endif()
+
 rapids_export(
   INSTALL rapidsmpf
   EXPORT_SET rapidsmpf-exports
