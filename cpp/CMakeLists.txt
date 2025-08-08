@@ -58,12 +58,12 @@ set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
 set(BUILD_SHARED_LIBS ${RAPIDSMPF_BUILD_SHARED_LIBS})
 
-if(RAPIDSMPF_HAVE_UCXX AND NOT BUILD_SHARED_LIBS)
-  message(
-    FATAL_ERROR "RapidsMPF must be built with shared libraries when streaming is enabled. "
-                "Please build with BUILD_STREAMING_SUPPORT=OFF or RAPIDSMPF_BUILD_SHARED_LIBS=ON."
-  )
-endif()
+# if(RAPIDSMPF_HAVE_UCXX AND NOT BUILD_SHARED_LIBS)
+#   message(
+#     FATAL_ERROR "RapidsMPF must be built with shared libraries when streaming is enabled. "
+#                 "Please build with BUILD_STREAMING_SUPPORT=OFF or RAPIDSMPF_BUILD_SHARED_LIBS=ON."
+#   )
+# endif()
 
 if(NOT (RAPIDSMPF_HAVE_MPI AND RAPIDSMPF_HAVE_UCXX))
   if(RAPIDSMPF_BUILD_BENCHMARKS)
@@ -189,14 +189,14 @@ target_include_directories(
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
+  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro::libcoro>
   PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
-# Always statically embed libcoro into rapidsmpf when available.
-if(TARGET libcoro)
-  target_link_libraries(rapidsmpf PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,libcoro>)
-endif()
+# # Always statically embed libcoro into rapidsmpf when available.
+# if(TARGET libcoro)
+#   target_link_libraries(rapidsmpf PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,libcoro>)
+# endif()
 
 target_compile_definitions(
   rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>
@@ -315,17 +315,17 @@ string(JOIN "\n" final_code_string "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_M
        "set(RAPIDSMPF_HAVE_UCXX [=[${RAPIDSMPF_HAVE_UCXX}]=])"
 )
 
-# Install libcoro headers so downstreams can include <coro/...> without a package.
-if(TARGET libcoro)
-  get_target_property(_libcoro_inc_dirs libcoro INTERFACE_INCLUDE_DIRECTORIES)
-  if(_libcoro_inc_dirs)
-    foreach(_inc IN LISTS _libcoro_inc_dirs)
-      if(EXISTS "${_inc}/coro")
-        install(DIRECTORY "${_inc}/coro" DESTINATION include)
-      endif()
-    endforeach()
-  endif()
-endif()
+# # Install libcoro headers so downstreams can include <coro/...> without a package.
+# if(TARGET libcoro)
+#   get_target_property(_libcoro_inc_dirs libcoro INTERFACE_INCLUDE_DIRECTORIES)
+#   if(_libcoro_inc_dirs)
+#     foreach(_inc IN LISTS _libcoro_inc_dirs)
+#       if(EXISTS "${_inc}/coro")
+#         install(DIRECTORY "${_inc}/coro" DESTINATION include)
+#       endif()
+#     endforeach()
+#   endif()
+# endif()
 
 rapids_export(
   INSTALL rapidsmpf
