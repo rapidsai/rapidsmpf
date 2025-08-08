@@ -286,4 +286,7 @@ TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
             }
         }
     }
+
+    EXPECT_TRUE(all_gather->finished());
+    all_gather->shutdown();
 }
