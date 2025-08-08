@@ -84,9 +84,7 @@ class BaseAllGatherTest : public ::testing::Test {
         GlobalEnvironment->barrier();
 
         stream = cudf::get_default_stream();
-        mr = std::unique_ptr<rmm::mr::device_memory_resource>(
-            new rmm::mr::cuda_memory_resource{}
-        );
+        mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
         comm = GlobalEnvironment->comm_.get();
 
