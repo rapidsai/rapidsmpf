@@ -356,6 +356,8 @@ class ConcurrentShuffleTest
             stream,
             br.get()
         ));
+
+        shuffler.shutdown();
     }
 
     template <typename InsertFn, typename InsertFinishedFn>
@@ -365,17 +367,19 @@ class ConcurrentShuffleTest
 
         for (int t_id = 0; t_id < num_shufflers; t_id++) {
             // pass a copy of the insert_fn and insert_finished_fn to each thread
-            futures.push_back(std::async(
-                std::launch::async,
-                [this,
-                 t_id,
-                 insert_fn1 = insert_fn,
-                 insert_finished_fn1 = insert_finished_fn] {
-                    ASSERT_NO_FATAL_FAILURE(this->RunTest(
-                        t_id, std::move(insert_fn1), std::move(insert_finished_fn1)
-                    ));
-                }
-            ));
+            futures.push_back(
+                std::async(
+                    std::launch::async,
+                    [this,
+                     t_id,
+                     insert_fn1 = insert_fn,
+                     insert_finished_fn1 = insert_finished_fn] {
+                        ASSERT_NO_FATAL_FAILURE(this->RunTest(
+                            t_id, std::move(insert_fn1), std::move(insert_finished_fn1)
+                        ));
+                    }
+                )
+            );
         }
 
         for (auto& f : futures) {
@@ -475,9 +479,9 @@ class ShuffleInsertGroupedTest
 
         stream = cudf::get_default_stream();
 
-        progress_thread =
-            std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger()
-            );
+        progress_thread = std::make_shared<rapidsmpf::ProgressThread>(
+            GlobalEnvironment->comm_->logger()
+        );
 
         GlobalEnvironment->barrier();
     }
@@ -684,8 +688,9 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmpf::BufferResource br{
         mr,
         {{rapidsmpf::MemoryType::DEVICE,
-          [&device_memory_available]() -> std::int64_t { return device_memory_available; }
-        }},
+          [&device_memory_available]() -> std::int64_t {
+              return device_memory_available;
+          }}},
         std::nullopt  // disable periodic spill check
     };
     EXPECT_EQ(
@@ -953,16 +958,19 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
 
 TEST(ReadyPostBoxTest, MarkEmpty) {
     auto postbox = std::make_unique<
-        rapidsmpf::shuffler::detail::PostBox<rapidsmpf::shuffler::PartID>>(std::identity{}
+        rapidsmpf::shuffler::detail::PostBox<rapidsmpf::shuffler::PartID>>(
+        std::identity{}
     );
 
     rapidsmpf::shuffler::PartID pid = 0, pid1 = 1;
     postbox->mark_empty(pid);
     EXPECT_NO_THROW(postbox->mark_empty(pid));  // should not raise an error
 
-    postbox->insert(rapidsmpf::shuffler::detail::make_dummy_chunk(
-        rapidsmpf::shuffler::detail::ChunkID{0}, pid1
-    ));
+    postbox->insert(
+        rapidsmpf::shuffler::detail::make_dummy_chunk(
+            rapidsmpf::shuffler::detail::ChunkID{0}, pid1
+        )
+    );
     EXPECT_THROW(postbox->mark_empty(pid1), std::logic_error);  // should raise an error
 
     EXPECT_EQ(0, postbox->extract_by_key(pid).size());
@@ -1152,6 +1160,7 @@ TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
     }
 
     insert_chunks(std::move(chunks));
-    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto pid) { return pid % 3 != 0; })
-    );
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto pid) {
+        return pid % 3 != 0;
+    }));
 }
