@@ -21,6 +21,17 @@ namespace ucxx {
 namespace {
 
 /**
+ * @brief Check completed and error status of a request.
+ *
+ * @param req The request to check.
+ * @return true if the request is complete, false otherwise
+ * @throws ucxx::Error if the request completed, but unsuccessfully.
+ */
+[[nodiscard]] bool inline is_complete(std::shared_ptr<::ucxx::Request> req) {
+    return req->isCompleted() && (req->checkError(), true);
+}
+
+/**
  * @brief Control message types.
  *
  * There are 4 types of control messages:
