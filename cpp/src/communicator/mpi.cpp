@@ -150,7 +150,7 @@ std::vector<std::unique_ptr<Communicator::Future>> MPI::send(
     );
     std::vector<std::unique_ptr<Communicator::Future>> futures;
     futures.reserve(destinations.size());
-    auto buf = std::shared_ptr<Buffer>(msg.release(), msg.get_deleter());
+    auto buf = std::shared_ptr<Buffer>(std::move(msg));
     std::ranges::transform(
         destinations, std::back_inserter(futures), [&](Rank const dest) {
             MPI_Request req;
