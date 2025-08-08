@@ -22,7 +22,10 @@ function(find_and_configure_libcoro)
             "LIBCORO_FEATURE_TLS OFF"
             "LIBCORO_BUILD_TESTS OFF"
             "LIBCORO_BUILD_SHARED_LIBS OFF"
+            "BUILD_SHARED_LIBS OFF"
   )
 endfunction()
 
 find_and_configure_libcoro()
+# We have to reset `BUILD_SHARED_LIBS` since libcoro will set it to OFF.
+set(BUILD_SHARED_LIBS ${RAPIDSMPF_BUILD_SHARED_LIBS})

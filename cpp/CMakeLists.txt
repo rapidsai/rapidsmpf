@@ -44,11 +44,11 @@ option(BUILD_STREAMING_SUPPORT "Build RapidsMPF with streaming support" ON)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
-option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 # cudart can be statically linked or dynamically linked. The python ecosystem wants dynamic linking
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
+option(RAPIDSMPF_BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_HAVE_UCXX ${BUILD_UCXX_SUPPORT})
@@ -56,6 +56,14 @@ set(RAPIDSMPF_HAVE_STREAMING ${BUILD_STREAMING_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
+set(BUILD_SHARED_LIBS ${RAPIDSMPF_BUILD_SHARED_LIBS})
+
+if(RAPIDSMPF_HAVE_UCXX AND NOT BUILD_SHARED_LIBS)
+  message(
+    FATAL_ERROR "RapidsMPF must be built with shared libraries when streaming is enabled. "
+                "Please build with BUILD_STREAMING_SUPPORT=OFF or RAPIDSMPF_BUILD_SHARED_LIBS=ON."
+  )
+endif()
 
 if(NOT (RAPIDSMPF_HAVE_MPI AND RAPIDSMPF_HAVE_UCXX))
   if(RAPIDSMPF_BUILD_BENCHMARKS)
@@ -181,9 +189,14 @@ target_include_directories(
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
+  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
   PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
+
+# Always statically embed libcoro into rapidsmpf when available.
+if(TARGET libcoro)
+  target_link_libraries(rapidsmpf PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,libcoro>)
+endif()
 
 target_compile_definitions(
   rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>
