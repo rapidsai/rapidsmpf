@@ -21,6 +21,17 @@ namespace ucxx {
 namespace {
 
 /**
+ * @brief Check completed and error status of a request.
+ *
+ * @param req The request to check.
+ * @return true if the request is complete, false otherwise
+ * @throws ucxx::Error if the request completed, but unsuccessfully.
+ */
+[[nodiscard]] bool inline is_complete(std::shared_ptr<::ucxx::Request> req) {
+    return req->isCompleted() && (req->checkError(), true);
+}
+
+/**
  * @brief Control message types.
  *
  * There are 4 types of control messages:
@@ -75,7 +86,7 @@ class HostFuture {
     HostFuture(HostFuture&) = delete;  ///< Not copyable.
 
     [[nodiscard]] bool completed() const {
-        return req_->isCompleted();
+        return is_complete(req_);
     }
 
   private:
@@ -363,10 +374,7 @@ class SharedResources {
                 }
                 requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
             }
-            while (std::ranges::any_of(requests, [](auto const& req) {
-                return !req->isCompleted();
-            }))
-            {
+            while (!std::ranges::all_of(requests, is_complete)) {
                 progress_worker();
             }
             requests.clear();
@@ -378,10 +386,7 @@ class SharedResources {
                 }
                 requests.push_back(endpoint->amRecv());
             }
-            while (std::ranges::any_of(requests, [](auto const& req) {
-                return !req->isCompleted();
-            }))
-            {
+            while (!std::ranges::all_of(requests, is_complete)) {
                 progress_worker();
             }
         } else {  // non-root ranks respond to root's broadcast
@@ -393,7 +398,7 @@ class SharedResources {
             }
 
             req = endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST);
-            while (!req->isCompleted()) {
+            while (!is_complete(req)) {
                 progress_worker();
             }
         }
@@ -902,7 +907,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
                         UCS_MEMORY_TYPE_HOST,
                         shared_resources->get_control_callback_info()
                     );
-                    while (!listener_address_req->isCompleted())
+                    while (!is_complete(listener_address_req))
                         shared_resources->progress_worker();
 
                     return root_endpoint;
@@ -941,7 +946,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
                 UCS_MEMORY_TYPE_HOST,
                 shared_resources->get_control_callback_info()
             );
-            while (!req->isCompleted())
+            while (!is_complete(req))
                 shared_resources->progress_worker();
         }
         return std::make_unique<rapidsmpf::ucxx::InitializedRank>(shared_resources);
@@ -1033,7 +1038,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
             shared_resources_->get_control_callback_info()
         );
 
-        while (!listener_address_req->isCompleted()) {
+        while (!is_complete(listener_address_req)) {
             progress_worker();
         }
         while (true) {
@@ -1101,6 +1106,27 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     return std::make_unique<Future>(req, std::move(msg));
 }
 
+std::vector<std::unique_ptr<Communicator::Future>> UCXX::send(
+    std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
+) {
+    if (!msg->is_ready()) {
+        logger().warn("msg is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+    std::vector<std::unique_ptr<Communicator::Future>> futures;
+    futures.reserve(destinations.size());
+    auto buf = std::shared_ptr<Buffer>(std::move(msg));
+    std::ranges::transform(
+        destinations, std::back_inserter(futures), [&](Rank const dest) {
+            auto req = get_endpoint(dest)->tagSend(
+                buf->data(), buf->size, tag_with_rank(shared_resources_->rank(), tag)
+            );
+            return std::make_unique<Future>(req, buf);
+        }
+    );
+    return futures;
+}
+
 std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
@@ -1135,10 +1161,9 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
         msg->data(), msg->size(), ::ucxx::Tag(static_cast<int>(tag)), UserTagMask
     );
 
-    while (!req->isCompleted()) {
+    while (!is_complete(req)) {
         progress_worker();
     }
-    req->checkError();
 
     return {std::move(msg), sender_rank};
 }
@@ -1150,14 +1175,12 @@ std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
         return {};
     }
     progress_worker();
-    std::vector<size_t> indices;
-    indices.reserve(future_vector.size());
-    for (size_t i = 0; i < future_vector.size(); i++) {
-        auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
+    std::vector<std::unique_ptr<Communicator::Future>> completed;
+    for (auto& future : future_vector) {
+        auto ucxx_future = dynamic_cast<Future const*>(future.get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-        if (ucxx_future->req_->isCompleted()) {
-            ucxx_future->req_->checkError();
-            indices.push_back(i);
+        if (is_complete(ucxx_future->req_)) {
+            completed.push_back(std::move(future));
         } else {
             // We rely on this API returning completed futures in order,
             // since we send acks and then post receives for data
@@ -1173,14 +1196,6 @@ std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
             break;
         }
     }
-    if (indices.size() == 0) {
-        return {};
-    }
-    std::vector<std::unique_ptr<Communicator::Future>> completed;
-    completed.reserve(indices.size());
-    std::ranges::transform(indices, std::back_inserter(completed), [&](std::size_t i) {
-        return std::move(future_vector[i]);
-    });
     std::erase(future_vector, nullptr);
     return completed;
 }
@@ -1194,8 +1209,7 @@ std::vector<std::size_t> UCXX::test_some(
     for (auto const& [key, future] : future_map) {
         auto ucxx_future = dynamic_cast<Future const*>(future.get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-        if (ucxx_future->req_->isCompleted()) {
-            ucxx_future->req_->checkError();
+        if (is_complete(ucxx_future->req_)) {
             completed.push_back(key);
         }
     }
@@ -1209,21 +1223,55 @@ void UCXX::barrier() {
     log.trace("Barrier completed on rank ", shared_resources_->rank());
 }
 
+std::vector<std::unique_ptr<Buffer>> UCXX::wait_all(
+    std::vector<std::unique_ptr<Communicator::Future>>&& futures
+) {
+    std::vector<std::shared_ptr<::ucxx::Request>> reqs;
+    reqs.reserve(futures.size());
+    std::ranges::transform(futures, std::back_inserter(reqs), [](auto&& future) {
+        auto ucxx_future = dynamic_cast<Future*>(future.get());
+        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX:Future");
+        RAPIDSMPF_EXPECTS(
+            std::holds_alternative<std::unique_ptr<Buffer>>(ucxx_future->data_),
+            "Can't wait on future holding shared pointer"
+        );
+        return ucxx_future->req_;
+    });
+    while (!std::ranges::all_of(reqs, is_complete)) {
+        progress_worker();
+    }
+    std::vector<std::unique_ptr<Buffer>> result;
+    result.reserve(reqs.size());
+    std::ranges::transform(futures, std::back_inserter(result), [](auto&& future) {
+        auto ucxx_future = static_cast<Future*>(future.get());
+        return std::move(std::get<std::unique_ptr<Buffer>>(ucxx_future->data_));
+    });
+    return result;
+}
+
 std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-    while (!ucxx_future->req_->isCompleted()) {
+    RAPIDSMPF_EXPECTS(
+        std::holds_alternative<std::unique_ptr<Buffer>>(ucxx_future->data_),
+        "Can't wait on future holding shared pointer"
+    );
+    while (!is_complete(ucxx_future->req_)) {
         progress_worker();
     }
-    ucxx_future->req_->checkError();
-    return std::move(ucxx_future->data_);
+    return std::move(std::get<std::unique_ptr<Buffer>>(ucxx_future->data_));
 }
 
 std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-    RAPIDSMPF_EXPECTS(ucxx_future->data_ != nullptr, "future has no data");
-    return std::move(ucxx_future->data_);
+    RAPIDSMPF_EXPECTS(
+        std::holds_alternative<std::unique_ptr<Buffer>>(ucxx_future->data_),
+        "Can't wait on future holding shared pointer"
+    );
+    auto result = std::move(std::get<std::unique_ptr<Buffer>>(ucxx_future->data_));
+    RAPIDSMPF_EXPECTS(result != nullptr, "future has no data");
+    return result;
 }
 
 std::string UCXX::str() const {

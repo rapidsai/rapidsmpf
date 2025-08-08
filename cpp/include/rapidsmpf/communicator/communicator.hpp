@@ -395,7 +395,6 @@ class Communicator {
         std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
     ) = 0;
 
-
     /**
      * @brief Sends a message (device or host) to a specific rank.
      *
@@ -412,6 +411,28 @@ class Communicator {
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
+    ) = 0;
+
+    /**
+     * @brief Sends a message (device or host) to the specified ranks.
+     *
+     * @param msg Unique pointer to the message data (Buffer).
+     * @param destinations The destination ranks.
+     * @param tag Message tag for identification.
+     * @return A vector of unique pointers to `Future`s (one per
+     * destination rank) representing the asynchronous operation.
+     *
+     * @warning It is undefined behaviour to call this function
+     * with duplicates in `destinations`.
+     *
+     * @warning The caller is responsible to ensure the underlying `Buffer` allocation
+     * and data are already valid before calling, for example, when a CUDA allocation
+     * and/or copy are done asynchronously. Specifically, the caller should ensure
+     * `Buffer::is_ready()` returns true before calling this function, if not, a
+     * warning is printed and the application will terminate.
+     */
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Future>> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
     ) = 0;
 
     /**
@@ -473,9 +494,25 @@ class Communicator {
      * @param future The future to wait for completion of.
      * @return A unique pointer to the GPU data buffer (or `nullptr` if the future had no
      * data).
+     * @throws std::logic_error if the future is storing a shared_ptr
+     * to its associated `Buffer`.
      */
     [[nodiscard]] virtual std::unique_ptr<Buffer> wait(
         std::unique_ptr<Future> future
+    ) = 0;
+
+    /**
+     * @brief Wait for all futures to complete and return their data
+     * buffers.
+     *
+     * @param futures The futures to wait for completion of.
+     * @return Vector of unique pointers to the data buffers of the
+     * provided futures.
+     * @throws std::logic_error if any future is storing a shared_ptr
+     * to its associated `Buffer`.
+     */
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Future>>&& futures
     ) = 0;
 
     /**
@@ -483,6 +520,10 @@ class Communicator {
      *
      * @param future The completed future.
      * @return A unique pointer to the GPU data buffer.
+     * @throws std::logic_error if the future is storing a shared_ptr
+     * to its associated `Buffer`.
+     * @throws std::logic_error if the future does not have an
+     * associated data `Buffer`.
      */
     [[nodiscard]] std::unique_ptr<Buffer> virtual get_gpu_data(
         std::unique_ptr<Communicator::Future> future
