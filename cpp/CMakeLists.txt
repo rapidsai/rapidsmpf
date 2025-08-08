@@ -221,8 +221,12 @@ if(RAPIDSMPF_CLANG_TIDY)
     )
   endif()
 
-  # clang will complain about unused link libraries on the compile line unless we specify
-  # -Qunused-arguments.
+  # Restrict clang-tidy to only run on our own source/include dirs.
+  set(CLANG_TIDY_HEADER_FILTER
+      "^-?(${CMAKE_SOURCE_DIR}/src|${CMAKE_SOURCE_DIR}/include|${CMAKE_SOURCE_DIR}/benchmarks|${CMAKE_SOURCE_DIR}/tests)/.*"
+  )
+
+  # adding `-Qunused-arguments`, otherwise clang complains about unused link libraries.
   set_target_properties(
     rapidsmpf
     PROPERTIES CXX_CLANG_TIDY
