@@ -426,6 +426,9 @@ class Communicator {
      * @return A unique pointer to a `Future` representing the asynchronous
      * operation.
      *
+     * @warning The caller must ensure that `ranks` names unique targets with no
+     * duplicates. Behaviour is undefined if not.
+     *
      * @warning The caller is responsible to ensure the underlying `Buffer` allocation
      * and data are already valid before calling, for example, when a CUDA allocation
      * and/or copy are done asynchronously. Specifically, the caller should ensure
