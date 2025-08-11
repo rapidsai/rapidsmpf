@@ -87,7 +87,7 @@ class MPI final : public Communicator {
          * @param reqs Vector of MPI request handles for the operations.
          * @param data A unique pointer to the data buffer.
          */
-        Future(std::vector<MPI_Request> reqs, std::unique_ptr<Buffer> data)
+        Future(std::vector<MPI_Request>&& reqs, std::unique_ptr<Buffer> data)
             : reqs_{std::move(reqs)}, data_{std::move(data)} {
             RAPIDSMPF_EXPECTS(
                 !reqs_.empty(), "MultiReqFuture must have at least 1 request"
@@ -112,6 +112,15 @@ class MPI final : public Communicator {
          */
         [[nodiscard]] constexpr size_t size() const {
             return reqs_.size();
+        }
+
+        /**
+         * @brief Get the first request in the future.
+         *
+         * @return The first request in the future.
+         */
+        [[nodiscard]] MPI_Request const& first_req() const {
+            return reqs_.front();
         }
 
       private:
