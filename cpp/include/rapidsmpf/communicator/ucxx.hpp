@@ -123,7 +123,7 @@ class UCXX final : public Communicator {
          * @param data A unique pointer to the data buffer.
          */
         Future(
-            std::vector<std::shared_ptr<::ucxx::Request>> reqs,
+            std::vector<std::shared_ptr<::ucxx::Request>>&& reqs,
             std::unique_ptr<Buffer> data
         )
             : reqs_{std::move(reqs)}, data_{std::move(data)} {

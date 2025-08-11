@@ -82,7 +82,7 @@ class MPI final : public Communicator {
 
       public:
         /**
-         * @brief Construct a MultiReqFuture.
+         * @brief Construct a Future tracking multiple requests.
          *
          * @param reqs Vector of MPI request handles for the operations.
          * @param data A unique pointer to the data buffer.
@@ -90,7 +90,7 @@ class MPI final : public Communicator {
         Future(std::vector<MPI_Request>&& reqs, std::unique_ptr<Buffer> data)
             : reqs_{std::move(reqs)}, data_{std::move(data)} {
             RAPIDSMPF_EXPECTS(
-                !reqs_.empty(), "MultiReqFuture must have at least 1 request"
+                !reqs_.empty(), "Must have at least one request"
             );
         }
 
