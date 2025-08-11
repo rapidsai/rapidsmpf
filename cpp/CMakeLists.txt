@@ -49,6 +49,18 @@ option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
 
+message(STATUS "librapidsmpf build options:")
+message(STATUS "  BUILD_MPI_SUPPORT    : ${BUILD_MPI_SUPPORT}")
+message(STATUS "  BUILD_UCXX_SUPPORT   : ${BUILD_UCXX_SUPPORT}")
+message(STATUS "  BUILD_TESTS          : ${BUILD_TESTS}")
+message(STATUS "  BUILD_BENCHMARKS     : ${BUILD_BENCHMARKS}")
+message(STATUS "  BUILD_EXAMPLES       : ${BUILD_EXAMPLES}")
+message(STATUS "  BUILD_SHARED_LIBS    : ${BUILD_SHARED_LIBS}")
+message(STATUS "  CUDA_STATIC_RUNTIME  : ${CUDA_STATIC_RUNTIME}")
+message(STATUS "  RAPIDSMPF_CLANG_TIDY : ${RAPIDSMPF_CLANG_TIDY}")
+message(STATUS "  RAPIDSMPF_ASAN       : ${RAPIDSMPF_ASAN}")
+
+# Copy options to our prefix to prevent upstream projects from modifying them.
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_HAVE_UCXX ${BUILD_UCXX_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
@@ -221,12 +233,17 @@ if(RAPIDSMPF_CLANG_TIDY)
     )
   endif()
 
-  # clang will complain about unused link libraries on the compile line unless we specify
-  # -Qunused-arguments.
+  # Restrict clang-tidy to only run on our own source/include dirs.
+  set(CLANG_TIDY_HEADER_FILTER
+      "^-?(${CMAKE_SOURCE_DIR}/src|${CMAKE_SOURCE_DIR}/include|${CMAKE_SOURCE_DIR}/benchmarks|${CMAKE_SOURCE_DIR}/tests)/.*"
+  )
+
+  # adding `-Qunused-arguments`, otherwise clang complains about unused link libraries.
   set_target_properties(
     rapidsmpf
-    PROPERTIES CXX_CLANG_TIDY
-               "clang-tidy;-header-filter=^${CMAKE_SOURCE_DIR}/.*;--extra-arg=-Qunused-arguments"
+    PROPERTIES
+      CXX_CLANG_TIDY
+      "${CLANG_TIDY_EXE};--header-filter=${CLANG_TIDY_HEADER_FILTER};--extra-arg=-Qunused-arguments"
   )
 endif()
 
@@ -257,7 +274,7 @@ endif()
 # ##################################################################################################
 # * add examples
 # -------------------------------------------------------------------------------------
-if(RAPIDSMPF_BUILD_BENCHMARKS)
+if(RAPIDSMPF_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()
 
