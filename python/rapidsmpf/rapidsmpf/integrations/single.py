@@ -27,7 +27,23 @@ _worker_context: WorkerContext | None = None
 
 
 def get_worker_context() -> WorkerContext:
-    """Retrieve the single-worker ``WorkerContext``."""
+    """
+    Retrieve the single-worker ``WorkerContext``.
+
+    Returns
+    -------
+    The worker context
+
+    Raises
+    ------
+    ValueError
+        If a worker context was never created.
+
+    See Also
+    --------
+    setup_worker
+        Must be called before this function.
+    """
     with WorkerContext.lock:
         if _worker_context is None:
             raise RuntimeError("Must call setup_worker first")
