@@ -23,14 +23,14 @@ cdef extern from *:
     ) {
         return stats.get_stat(name).count();
     }
-    std::size_t cpp_get_statistic_value(
+    double cpp_get_statistic_value(
         rapidsmpf::Statistics const& stats, std::string const& name
     ) {
         return stats.get_stat(name).value();
     }
     """
-    size_t cpp_get_statistic_count(cpp_Statistics stats, string name) nogil
-    double cpp_get_statistic_value(cpp_Statistics stats, string name) nogil
+    size_t cpp_get_statistic_count(cpp_Statistics stats, string name) except +
+    double cpp_get_statistic_value(cpp_Statistics stats, string name) except +
 
 cdef class Statistics:
     """
@@ -107,9 +107,13 @@ cdef class Statistics:
         cdef string name_ = str.encode(name)
         cdef size_t count
         cdef double value
-        with nogil:
+        try:
             count = cpp_get_statistic_count(deref(self._handle), name_)
             value = cpp_get_statistic_value(deref(self._handle), name_)
+        except IndexError:
+            # The C++ implementation throws a std::out_of_range exception
+            # which we / Cython translate to a KeyError.
+            raise KeyError(f"Statistic '{name}' does not exist") from None
         return {"count": count, "value": value}
 
     def add_stat(self, name, double value):
