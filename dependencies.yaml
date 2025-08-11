@@ -155,7 +155,7 @@ dependencies:
         packages:
           - c-compiler
           - cxx-compiler
-          - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+          - openmpi!=5.0.8  # See <https://github.com/rapidsai/rapidsmpf/issues/17, https://github.com/conda-forge/openmpi-feedstock/issues/203>
     specific:
       - output_types: conda
         matrices:
