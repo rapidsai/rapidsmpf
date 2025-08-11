@@ -73,22 +73,7 @@ class Chunk {
      * @param other The chunk to move.
      * @return this chunk.
      */
-    Chunk& operator=(Chunk&& other) noexcept {
-        if (this != &other) {
-            const_cast<ChunkID&>(chunk_id_) = other.chunk_id_;
-            const_cast<std::vector<PartID>&>(part_ids_) = std::move(other.part_ids_);
-            const_cast<std::vector<size_t>&>(expected_num_chunks_) =
-                std::move(other.expected_num_chunks_);
-            const_cast<std::vector<uint32_t>&>(meta_offsets_) =
-                std::move(other.meta_offsets_);
-            const_cast<std::vector<uint64_t>&>(data_offsets_) =
-                std::move(other.data_offsets_);
-            metadata_ = std::move(other.metadata_);
-            data_ = std::move(other.data_);
-            return *this;
-        }
-        return *this;
-    }
+    Chunk& operator=(Chunk&& other) noexcept = default;
 
     /**
      * @brief The size of the metadata message header.
@@ -382,15 +367,14 @@ class Chunk {
         std::unique_ptr<Buffer> data = nullptr
     );
 
-    ChunkID const chunk_id_;  ///< The ID of the chunk.
-    std::vector<PartID> const
-        part_ids_;  ///< The partition IDs of the messages in the
-                    ///< chunk. These partition IDs should be unique.
-    std::vector<size_t> const expected_num_chunks_;  ///< The expected number of chunks of
-                                                     ///< the messages in the chunk.
-    std::vector<uint32_t> const
+    ChunkID chunk_id_;  ///< The ID of the chunk.
+    std::vector<PartID> part_ids_;  ///< The partition IDs of the messages in the
+                                    ///< chunk. These partition IDs should be unique.
+    std::vector<size_t> expected_num_chunks_;  ///< The expected number of chunks of
+                                               ///< the messages in the chunk.
+    std::vector<uint32_t>
         meta_offsets_;  ///< The offsets of the metadata of the messages in the chunk.
-    std::vector<uint64_t> const
+    std::vector<uint64_t>
         data_offsets_;  ///< The offsets of the data of the messages in the chunk.
 
     /// Metadata buffer that contains information about the messages in the chunk.
