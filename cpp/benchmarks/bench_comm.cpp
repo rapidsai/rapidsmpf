@@ -5,8 +5,10 @@
 
 
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <queue>
+#include <utility>
 
 #include <mpi.h>
 #include <ucxx/request_am.h>
@@ -235,7 +237,8 @@ struct AmCallbackContainer {
     // Queue for messages from future iterations
     std::queue<PendingMessage> pending_messages{};
 
-    AmCallbackContainer(std::shared_ptr<rapidsmpf::ucxx::UCXX> comm_) : comm(comm_) {}
+    AmCallbackContainer(std::shared_ptr<rapidsmpf::ucxx::UCXX> comm_)
+        : comm(std::move(comm_)) {}
 
     void reset(
         std::vector<std::unique_ptr<Buffer>>&& recv_bufs, std::uint64_t iteration_id
@@ -248,12 +251,14 @@ struct AmCallbackContainer {
             recv_futures.clear();
             recv_count = 0;
             current_iteration_id.store(iteration_id, std::memory_order_release);
-
+        }
+        {
             // Extract messages for this iteration from the queue
             std::queue<PendingMessage> remaining_messages;
 
-            std::cout << "Processing " << pending_messages.size()
-                      << " pending messages for iteration " << iteration_id << std::endl;
+            // std::cout << "Processing " << pending_messages.size()
+            //           << " pending messages for iteration " << iteration_id <<
+            //           std::endl;
 
             while (!pending_messages.empty()) {
                 auto& pending = pending_messages.front();
@@ -273,13 +278,34 @@ struct AmCallbackContainer {
 
         // Process messages outside the lock to avoid deadlock
         for (auto& msg : messages_to_process) {
-            std::lock_guard<std::mutex> lock(recv_mutex);
+            // std::lock_guard<std::mutex> lock(recv_mutex);
             process_message(msg.req, msg.header);
         }
     }
 
-    std::uint64_t get_current_iteration() const {
+    [[nodiscard]] std::uint64_t get_current_iteration() const {
         return current_iteration_id.load(std::memory_order_acquire);
+    }
+
+    // Process any pending messages that are now ready for the current iteration
+    void process_ready_pending_messages() {
+        std::uint64_t current_iteration = get_current_iteration();
+        std::queue<PendingMessage> remaining_messages;
+
+        while (!pending_messages.empty()) {
+            auto& pending = pending_messages.front();
+            if (pending.header.iteration_id_ == current_iteration) {
+                // Process this message now
+                process_message(pending.req, pending.header);
+            } else {
+                // Keep for future iterations
+                remaining_messages.push(std::move(pending));
+            }
+            pending_messages.pop();
+        }
+
+        // Replace queue with remaining messages
+        pending_messages = std::move(remaining_messages);
     }
 
   private:
@@ -290,10 +316,21 @@ struct AmCallbackContainer {
             static_cast<std::uint64_t>(am_header.rank_)
             + am_header.op_num_ * static_cast<std::uint64_t>(comm->nranks());
 
-        recv_futures.push_back(comm->am_recv(
+        // Bounds check to prevent crashes
+        if (buf_index >= recv_bufs.size() || !recv_bufs[buf_index]) {
+            std::cerr << "ERROR: Invalid buffer index " << buf_index
+                      << " for recv_bufs of size " << recv_bufs.size()
+                      << " (rank=" << am_header.rank_ << ", op=" << am_header.op_num_
+                      << ", iter=" << am_header.iteration_id_ << ")" << std::endl;
+            return;
+        }
+
+        auto future = comm->am_recv(
             std::dynamic_pointer_cast<::ucxx::RequestAm>(req),
             std::move(recv_bufs[buf_index])
-        ));
+        );
+        std::lock_guard<std::mutex> lock(recv_mutex);
+        recv_futures.push_back(std::move(future));
         ++recv_count;
     }
 
@@ -304,7 +341,7 @@ struct AmCallbackContainer {
         std::uint64_t current_iteration = get_current_iteration();
 
         if (header.iteration_id_ == current_iteration) {
-            // Process immediately
+            // Process immediately - recv_bufs should be available for current iteration
             process_message(req, header);
         } else if (header.iteration_id_ > current_iteration) {
             // Queue for future iteration
@@ -329,7 +366,7 @@ std::unique_ptr<AmCallbackContainer> setup_am_callback(
                                        ) {
             auto am_header = info.userHeader->as<AmHeader>();
 
-            std::lock_guard<std::mutex> lock(container_ptr->recv_mutex);
+            // std::lock_guard<std::mutex> lock(container_ptr->recv_mutex);
 
             // Use the new queue-based approach that handles messages correctly
             // instead of dropping them
@@ -375,26 +412,63 @@ void run_am(
         std::uint64_t expected_recv_count =
             args.num_ops * (static_cast<std::uint64_t>(comm->nranks()) - 1);
 
-        while (!send_futures.empty() || !am_callback_container->recv_futures.empty()
-               || am_callback_container->recv_count < expected_recv_count)
+        // bool recv_done = false;
+        size_t recv_count = 0;
+        std::vector<std::unique_ptr<Communicator::Future>> recv_futures{};
+        while (!send_futures.empty() || !recv_futures.empty()
+               || recv_count < expected_recv_count)
         {
-            std::lock_guard<std::mutex> lock(am_callback_container->recv_mutex);
             if (!send_futures.empty())
                 std::ignore = comm->test_some(send_futures);
-            if (!am_callback_container->recv_futures.empty())
-                std::ignore = comm->test_some(am_callback_container->recv_futures);
 
-            // Debug output to help identify the issue
-            // static int debug_counter = 0;
-            // if (++debug_counter % 10000 == 0) {
-            //     std::cout << "Rank " << comm->rank() << " iteration " << iteration_id
-            //               << ": recv_count=" << am_callback_container->recv_count
-            //               << ", expected=" << expected_recv_count
-            //               << ", send_futures=" << send_futures.size() << ",
-            //               recv_futures="
-            //               << am_callback_container->recv_futures.size() << std::endl;
-            // }
+            {
+                std::lock_guard<std::mutex> lock(am_callback_container->recv_mutex);
+
+                if (!am_callback_container->recv_futures.empty()) {
+                    recv_futures.insert(
+                        recv_futures.end(),
+                        std::make_move_iterator(
+                            am_callback_container->recv_futures.begin()
+                        ),
+                        std::make_move_iterator(am_callback_container->recv_futures.end())
+                    );
+                    am_callback_container->recv_futures.clear();
+                    recv_count = am_callback_container->recv_count;
+                }
+            }
+
+            if (!recv_futures.empty())
+                std::ignore = comm->test_some(recv_futures);
+
+            // Process any pending messages that are now ready for this iteration
+            am_callback_container->process_ready_pending_messages();
         }
+
+        // while (!send_futures.empty() || !am_callback_container->recv_futures.empty()
+        //        || am_callback_container->recv_count < expected_recv_count)
+        // {
+        //     std::lock_guard<std::mutex> lock(am_callback_container->recv_mutex);
+        //     if (!send_futures.empty())
+        //         std::ignore = comm->test_some(send_futures);
+        //     if (!am_callback_container->recv_futures.empty())
+        //         std::ignore = comm->test_some(am_callback_container->recv_futures);
+
+        //     // Process any pending messages that are now ready for this iteration
+        //     am_callback_container->process_ready_pending_messages();
+
+        //     // Debug output to help identify the issue
+        //     // static int debug_counter = 0;
+        //     // if (++debug_counter % 10000 == 0) {
+        //     //     std::cout << "Rank " << comm->rank() << " iteration " <<
+        //     iteration_id
+        //     //               << ": recv_count=" << am_callback_container->recv_count
+        //     //               << ", expected=" << expected_recv_count
+        //     //               << ", send_futures=" << send_futures.size() << ",
+        //     //               recv_futures="
+        //     //               << am_callback_container->recv_futures.size() <<
+        //     std::endl;
+        //     // }
+        // }
     }
 
     for (size_t i = 0; i < send_futures.size(); i++) {
