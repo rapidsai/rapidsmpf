@@ -162,6 +162,27 @@ class Communicator {
     };
 
     /**
+     * @brief Abstract base class for asynchronous operation within the communicator.
+     *
+     * Encapsulates the concept of an asynchronous operation, allowing users to query
+     * or wait for completion. This one stores shared data, not unique data.
+     */
+    class MultiFuture {
+      public:
+        MultiFuture() = default;
+        virtual ~MultiFuture() noexcept = default;
+        MultiFuture(MultiFuture&&) = default;  ///< Movable.
+        /**
+         * @brief Move assignment
+         *
+         * @returns Moved this.
+         */
+        MultiFuture& operator=(MultiFuture&&) = default;
+        MultiFuture(MultiFuture const&) = delete;  ///< Not copyable.
+        MultiFuture& operator=(MultiFuture const&) = delete;  ///< Not copy-assignable
+    };
+
+    /**
      * @brief A logger base class for handling different levels of log messages.
      *
      * The logger class provides various logging methods with different verbosity levels.
@@ -419,7 +440,7 @@ class Communicator {
      * @param msg Unique pointer to the message data (Buffer).
      * @param destinations The destination ranks.
      * @param tag Message tag for identification.
-     * @return A vector of unique pointers to `Future`s (one per
+     * @return A vector of unique pointers to `MultiFuture`s (one per
      * destination rank) representing the asynchronous operation.
      *
      * @warning It is undefined behaviour to call this function
@@ -431,7 +452,7 @@ class Communicator {
      * `Buffer::is_ready()` returns true before calling this function, if not, a
      * warning is printed and the application will terminate.
      */
-    [[nodiscard]] virtual std::vector<std::unique_ptr<Future>> send(
+    [[nodiscard]] virtual std::vector<std::unique_ptr<MultiFuture>> send(
         std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
     ) = 0;
 
@@ -475,6 +496,17 @@ class Communicator {
      */
     [[nodiscard]] virtual std::vector<std::unique_ptr<Future>> test_some(
         std::vector<std::unique_ptr<Future>>& future_vector
+    ) = 0;
+
+    /**
+     * @brief Tests for completion of multiple futures.
+     *
+     * @param[inout] future_vector Vector of MultiFuture objects. Completed
+     * futures are erased from the vector.
+     * @return Completed futures.
+     */
+    [[nodiscard]] virtual std::vector<std::unique_ptr<MultiFuture>> test_some(
+        std::vector<std::unique_ptr<MultiFuture>>& future_vector
     ) = 0;
 
     /**

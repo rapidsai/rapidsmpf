@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include <ucxx/api.h>
 
@@ -19,6 +20,17 @@ namespace rapidsmpf {
 
 namespace ucxx {
 
+
+namespace detail {
+/**
+ * @brief Check completed and error status of a request.
+ *
+ * @param req The request to check.
+ * @return true if the request is complete, false otherwise
+ * @throws ucxx::Error if the request completed, but unsuccessfully.
+ */
+[[nodiscard]] bool inline is_complete(std::shared_ptr<::ucxx::Request> req);
+}  // namespace detail
 
 using HostPortPair =
     std::pair<std::string, uint16_t>;  ///< A string with hostname or IP address, and the
@@ -131,10 +143,45 @@ class UCXX final : public Communicator {
         ~Future() noexcept override = default;
 
       private:
+        using Base = Communicator::Future;
+
         std::shared_ptr<::ucxx::Request>
             req_;  ///< The UCXX request associated with the operation.
         std::variant<std::unique_ptr<Buffer>, std::shared_ptr<Buffer>>
             data_;  ///< The data buffer.
+    };
+
+    /**
+     * @brief Represents the future result of an UCXX operation.
+     *
+     * This class is used to handle the result of an UCXX communication operation
+     * asynchronously.
+     */
+    class MultiFuture : public Communicator::MultiFuture {
+        friend class UCXX;
+
+      public:
+        /**
+         * @brief Construct a MultiFuture.
+         *
+         * @param req The UCXX request handle for the operation.
+         * @param data A shared pointer to the data buffer.
+         * @warning It is undefined behaviour to create such a future
+         * for a receive operation. It should only be done for send
+         * operations when sending the same data to multiple
+         * recipients.
+         */
+        MultiFuture(std::shared_ptr<::ucxx::Request> req, std::shared_ptr<Buffer> data)
+            : req_{std::move(req)}, data_{std::move(data)} {}
+
+        ~MultiFuture() noexcept override = default;
+
+      private:
+        using Base = Communicator::MultiFuture;
+
+        std::shared_ptr<::ucxx::Request>
+            req_;  ///< The UCXX request associated with the operation.
+        std::shared_ptr<Buffer> data_;  ///< The data buffer.
     };
 
     /**
@@ -181,7 +228,7 @@ class UCXX final : public Communicator {
      * @copydoc Communicator::send(std::unique_ptr<Buffer>, std::span<Rank> const, Tag tag)
      */
     // clang-format on
-    [[nodiscard]] std::vector<std::unique_ptr<Communicator::Future>> send(
+    [[nodiscard]] std::vector<std::unique_ptr<Communicator::MultiFuture>> send(
         std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
     ) override;
 
@@ -202,6 +249,50 @@ class UCXX final : public Communicator {
         Tag tag
     ) override;
 
+  private:
+    /**
+     * @brief Test for completion of multiple future objects.
+     * @tparam Type of future being tested.
+     *
+     * @param[inout] futures Futures to be tested.
+     * @return Completed futures (erased from the input vector).
+     */
+    template <typename Future>
+        requires std::is_same_v<Future, UCXX::Future>
+                 || std::is_same_v<Future, UCXX::MultiFuture>
+    std::vector<std::unique_ptr<typename Future::Base>> test_some(
+        std::vector<std::unique_ptr<typename Future::Base>>& futures
+    ) {
+        if (futures.empty()) {
+            return {};
+        }
+        progress_worker();
+        std::vector<std::unique_ptr<typename Future::Base>> completed;
+        for (auto& future : futures) {
+            auto ucxx_future = dynamic_cast<Future const*>(future.get());
+            RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+            if (detail::is_complete(ucxx_future->req_)) {
+                completed.push_back(std::move(future));
+            } else {
+                // We rely on this API returning completed futures in order,
+                // since we send acks and then post receives for data
+                // buffers in order. UCX completes message in order, but
+                // since there is a background progress thread, it might be
+                // that we observe req[i]->isCompleted() as false, then
+                // req[i+1]->isCompleted() as true (but then
+                // req[i]->isCompleted() also would return true, but we
+                // don't go back and check).
+                // Hence if we observe a "gap" in the completed requests
+                // from a rank, we must stop processing to ensure we respond
+                // to the ready for data messages in order.
+                break;
+            }
+        }
+        std::erase(futures, nullptr);
+        return completed;
+    }
+
+  public:
     /**
      * @copydoc Communicator::test_some
      *
@@ -209,6 +300,17 @@ class UCXX final : public Communicator {
      */
     std::vector<std::unique_ptr<Communicator::Future>> test_some(
         std::vector<std::unique_ptr<Communicator::Future>>& future_vector
+    ) override;
+
+    // clang-format off
+    /**
+     * @copydoc Communicator::test_some(std::vector<std::unique_ptr<MultiFuture>>&)
+     *
+     * @throws ucxx::Error if any completed futures did not complete successfully.
+     */
+    // clang-format on
+    std::vector<std::unique_ptr<Communicator::MultiFuture>> test_some(
+        std::vector<std::unique_ptr<Communicator::MultiFuture>>& future_vector
     ) override;
 
     // clang-format off

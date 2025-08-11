@@ -8,7 +8,6 @@
 #include <memory>
 #include <span>
 #include <utility>
-#include <variant>
 
 #include <mpi.h>
 
@@ -137,7 +136,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
     return std::make_unique<Future>(req, std::move(msg));
 }
 
-std::vector<std::unique_ptr<Communicator::Future>> MPI::send(
+std::vector<std::unique_ptr<Communicator::MultiFuture>> MPI::send(
     std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
 ) {
     if (!msg->is_ready()) {
@@ -148,7 +147,7 @@ std::vector<std::unique_ptr<Communicator::Future>> MPI::send(
         msg->size <= std::numeric_limits<int>::max(),
         "send buffer size exceeds MPI max count"
     );
-    std::vector<std::unique_ptr<Communicator::Future>> futures;
+    std::vector<std::unique_ptr<Communicator::MultiFuture>> futures;
     futures.reserve(destinations.size());
     auto buf = std::shared_ptr<Buffer>(std::move(msg));
     std::ranges::transform(
@@ -157,7 +156,7 @@ std::vector<std::unique_ptr<Communicator::Future>> MPI::send(
             RAPIDSMPF_MPI(
                 MPI_Isend(buf->data(), buf->size, MPI_UINT8_T, dest, tag, comm_, &req)
             );
-            return std::make_unique<Future>(req, buf);
+            return std::make_unique<MultiFuture>(req, buf);
         }
     );
     return futures;
@@ -216,39 +215,13 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
 std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
     std::vector<std::unique_ptr<Communicator::Future>>& future_vector
 ) {
-    if (future_vector.empty()) {
-        return {};
-    }
-    std::vector<MPI_Request> reqs;
-    reqs.reserve(future_vector.size());
-    for (auto const& future : future_vector) {
-        auto mpi_future = dynamic_cast<Future const*>(future.get());
-        RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-        reqs.push_back(mpi_future->req_);
-    }
+    return test_some<Future>(future_vector);
+}
 
-    // Get completed requests as indices into `future_vector` (and `reqs`).
-    std::vector<int> indices(reqs.size());
-    int num_completed{0};
-    RAPIDSMPF_MPI(MPI_Testsome(
-        reqs.size(), reqs.data(), &num_completed, indices.data(), MPI_STATUSES_IGNORE
-    ));
-    RAPIDSMPF_EXPECTS(
-        num_completed != MPI_UNDEFINED, "Expected at least one active handle."
-    );
-    if (num_completed == 0) {
-        return {};
-    }
-    std::vector<std::unique_ptr<Communicator::Future>> completed;
-    completed.reserve(static_cast<std::size_t>(num_completed));
-    std::ranges::transform(
-        indices.begin(),
-        indices.begin() + num_completed,
-        std::back_inserter(completed),
-        [&](std::size_t i) { return std::move(future_vector[i]); }
-    );
-    std::erase(future_vector, nullptr);
-    return completed;
+std::vector<std::unique_ptr<Communicator::MultiFuture>> MPI::test_some(
+    std::vector<std::unique_ptr<Communicator::MultiFuture>>& future_vector
+) {
+    return test_some<MultiFuture>(future_vector);
 }
 
 std::vector<std::size_t> MPI::test_some(
@@ -292,11 +265,7 @@ std::unique_ptr<Buffer> MPI::wait(std::unique_ptr<Communicator::Future> future) 
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
     RAPIDSMPF_MPI(MPI_Wait(&mpi_future->req_, MPI_STATUS_IGNORE));
-    RAPIDSMPF_EXPECTS(
-        std::holds_alternative<std::unique_ptr<Buffer>>(mpi_future->data_),
-        "Can't wait on future holding shared pointer"
-    );
-    return std::move(std::get<std::unique_ptr<Buffer>>(mpi_future->data_));
+    return std::move(mpi_future->data_);
 }
 
 std::vector<std::unique_ptr<Buffer>> MPI::wait_all(
@@ -307,10 +276,6 @@ std::vector<std::unique_ptr<Buffer>> MPI::wait_all(
     std::ranges::transform(futures, std::back_inserter(reqs), [](auto&& future) {
         auto mpi_future = dynamic_cast<Future*>(future.get());
         RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-        RAPIDSMPF_EXPECTS(
-            std::holds_alternative<std::unique_ptr<Buffer>>(mpi_future->data_),
-            "Can't wait on future holding shared pointer"
-        );
         return mpi_future->req_;
     });
     RAPIDSMPF_MPI(MPI_Waitall(reqs.size(), reqs.data(), MPI_STATUSES_IGNORE));
@@ -318,7 +283,7 @@ std::vector<std::unique_ptr<Buffer>> MPI::wait_all(
     result.reserve(reqs.size());
     std::ranges::transform(futures, std::back_inserter(result), [](auto&& future) {
         auto mpi_future = static_cast<Future*>(future.get());
-        return std::move(std::get<std::unique_ptr<Buffer>>(mpi_future->data_));
+        return std::move(mpi_future->data_);
     });
     return result;
 }
@@ -326,11 +291,7 @@ std::vector<std::unique_ptr<Buffer>> MPI::wait_all(
 std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-    RAPIDSMPF_EXPECTS(
-        std::holds_alternative<std::unique_ptr<Buffer>>(mpi_future->data_),
-        "Can't get_gpu_data on future holding shared pointer"
-    );
-    auto result = std::move(std::get<std::unique_ptr<Buffer>>(mpi_future->data_));
+    auto result = std::move(mpi_future->data_);
     RAPIDSMPF_EXPECTS(result != nullptr, "future has no data");
     return result;
 }

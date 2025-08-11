@@ -41,6 +41,19 @@ class Single final : public Communicator {
     };
 
     /**
+     * @brief Represents the future result of an operation.
+     *
+     * This class is used to handle the result of a communication operation
+     * asynchronously.
+     */
+    class MultiFuture : public Communicator::MultiFuture {
+        friend class Single;
+
+      public:
+        ~MultiFuture() noexcept override = default;
+    };
+
+    /**
      * @brief Construct a single process communicator.
      *
      * @param options Configuration options.
@@ -86,7 +99,7 @@ class Single final : public Communicator {
      * @copydoc Communicator::send(std::unique_ptr<Buffer>, std::span<Rank> const, Tag tag)
      */
     // clang-format on
-    [[nodiscard]] std::vector<std::unique_ptr<Communicator::Future>> send(
+    [[nodiscard]] std::vector<std::unique_ptr<Communicator::MultiFuture>> send(
         std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
     ) override;
 
@@ -118,6 +131,18 @@ class Single final : public Communicator {
      */
     std::vector<std::unique_ptr<Communicator::Future>> test_some(
         std::vector<std::unique_ptr<Communicator::Future>>& future_vector
+    ) override;
+
+    // clang-format off
+    /**
+     * @copydoc Communicator::test_some(std::vector<std::unique_ptr<MultiFuture>>&)
+     *
+     * @throws std::runtime_error if called (single-process communicators should never
+     * send messages).
+     */
+    // clang-format on
+    std::vector<std::unique_ptr<Communicator::MultiFuture>> test_some(
+        std::vector<std::unique_ptr<Communicator::MultiFuture>>& future_vector
     ) override;
 
     // clang-format off

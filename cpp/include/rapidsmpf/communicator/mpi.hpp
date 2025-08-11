@@ -4,10 +4,10 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <cstdlib>
 #include <memory>
 #include <span>
-#include <variant>
 #include <vector>
 
 #include <mpi.h>
@@ -92,8 +92,27 @@ class MPI final : public Communicator {
         Future(MPI_Request req, std::unique_ptr<Buffer> data)
             : req_{req}, data_{std::move(data)} {}
 
+        ~Future() noexcept override = default;
+
+      private:
+        using Base = Communicator::Future;
+
+        MPI_Request req_;  ///< The MPI request associated with the operation.
+        std::unique_ptr<Buffer> data_;  ///< The data buffer.
+    };
+
+    /**
+     * @brief Represents the future result of an MPI operation.
+     *
+     * This class is used to handle the result of an MPI communication operation
+     * asynchronously.
+     */
+    class MultiFuture : public Communicator::MultiFuture {
+        friend class MPI;
+
+      public:
         /**
-         * @brief Construct a Future.
+         * @brief Construct a MultiFuture.
          *
          * @param req The MPI request handle for the operation.
          * @param data A shared pointer to the data buffer.
@@ -102,15 +121,16 @@ class MPI final : public Communicator {
          * operations when sending the same data to multiple
          * recipients.
          */
-        Future(MPI_Request req, std::shared_ptr<Buffer> data)
+        MultiFuture(MPI_Request req, std::shared_ptr<Buffer> data)
             : req_{req}, data_{std::move(data)} {}
 
-        ~Future() noexcept override = default;
+        ~MultiFuture() noexcept override = default;
 
       private:
+        using Base = Communicator::MultiFuture;
+
         MPI_Request req_;  ///< The MPI request associated with the operation.
-        std::variant<std::unique_ptr<Buffer>, std::shared_ptr<Buffer>>
-            data_;  ///< The data buffer.
+        std::shared_ptr<Buffer> data_;  ///< The data buffer.
     };
 
     /**
@@ -158,7 +178,7 @@ class MPI final : public Communicator {
      * @copydoc Communicator::send(std::unique_ptr<Buffer>, std::span<Rank> const, Tag tag)
      */
     // clang-format on
-    [[nodiscard]] std::vector<std::unique_ptr<Communicator::Future>> send(
+    [[nodiscard]] std::vector<std::unique_ptr<Communicator::MultiFuture>> send(
         std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
     ) override;
 
@@ -176,11 +196,70 @@ class MPI final : public Communicator {
         Tag tag
     ) override;
 
+  private:
+    /**
+     * @brief Test for completion of multiple future objects.
+     * @tparam Type of future being tested.
+     *
+     * @param[inout] futures Futures to be tested.
+     * @return Completed futures (erased from the input vector).
+     */
+    template <typename Future>
+        requires std::is_same_v<Future, MPI::Future>
+                 || std::is_same_v<Future, MPI::MultiFuture>
+    std::vector<std::unique_ptr<typename Future::Base>> test_some(
+        std::vector<std::unique_ptr<typename Future::Base>>& futures
+    ) {
+        if (futures.empty()) {
+            return {};
+        }
+        std::vector<MPI_Request> reqs;
+        reqs.reserve(futures.size());
+        for (auto const& future : futures) {
+            auto mpi_future = dynamic_cast<Future const*>(future.get());
+            RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
+            reqs.push_back(mpi_future->req_);
+        }
+
+        // Get completed requests as indices into `futures` (and `reqs`).
+        std::vector<int> indices(reqs.size());
+        int num_completed{0};
+        RAPIDSMPF_MPI(MPI_Testsome(
+            reqs.size(), reqs.data(), &num_completed, indices.data(), MPI_STATUSES_IGNORE
+        ));
+        RAPIDSMPF_EXPECTS(
+            num_completed != MPI_UNDEFINED, "Expected at least one active handle."
+        );
+        if (num_completed == 0) {
+            return {};
+        }
+        std::vector<std::unique_ptr<typename Future::Base>> completed;
+        completed.reserve(static_cast<std::size_t>(num_completed));
+        std::ranges::transform(
+            indices.begin(),
+            indices.begin() + num_completed,
+            std::back_inserter(completed),
+            [&](std::size_t i) { return std::move(futures[i]); }
+        );
+        std::erase(futures, nullptr);
+        return completed;
+    }
+
+  public:
     /**
      * @copydoc Communicator::test_some
      */
     std::vector<std::unique_ptr<Communicator::Future>> test_some(
         std::vector<std::unique_ptr<Communicator::Future>>& future_vector
+    ) override;
+
+    // clang-format off
+    /**
+     * @copydoc Communicator::test_some(std::vector<std::unique_ptr<MultiFuture>>&)
+     */
+    // clang-format on
+    std::vector<std::unique_ptr<Communicator::MultiFuture>> test_some(
+        std::vector<std::unique_ptr<Communicator::MultiFuture>>& future_vector
     ) override;
 
     // clang-format off
