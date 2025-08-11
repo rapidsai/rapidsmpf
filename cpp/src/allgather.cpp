@@ -129,7 +129,7 @@ AllGather::wait_and_extract_ordered(std::optional<std::chrono::milliseconds> tim
     shuffler_->wait_on(pid, std::move(timeout));
 
     auto chunks = shuffler_->extract_chunks(pid);
-    std::ranges::sort(chunks, std::less<>{}, &shuffler::Chunk::chunk_id);
+    std::ranges::sort(chunks, std::less<>{}, &shuffler::detail::Chunk::chunk_id);
 
     std::vector<uint64_t> n_chunks_per_rank(static_cast<size_t>(comm_->nranks()), 0);
     std::vector<PackedData> packed_data;
