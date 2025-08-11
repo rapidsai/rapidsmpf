@@ -4,6 +4,7 @@
  */
 
 #include <stdexcept>
+#include <unordered_set>
 
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/error.hpp>
@@ -20,6 +21,12 @@ std::unique_ptr<Communicator::Future> Single::send(
 }
 
 std::unique_ptr<Communicator::Future> Single::send(std::unique_ptr<Buffer>, Rank, Tag) {
+    RAPIDSMPF_FAIL("Unexpected send to self", std::runtime_error);
+}
+
+std::unique_ptr<Communicator::Future> Single::send(
+    std::unique_ptr<Buffer>, std::span<Rank> const, Tag
+) {
     RAPIDSMPF_FAIL("Unexpected send to self", std::runtime_error);
 }
 
@@ -49,6 +56,10 @@ std::unique_ptr<Buffer> Single::wait(std::unique_ptr<Communicator::Future>) {
 
 std::unique_ptr<Buffer> Single::get_gpu_data(std::unique_ptr<Communicator::Future>) {
     RAPIDSMPF_FAIL("Unexpected get_gpu_data from self", std::runtime_error);
+}
+
+bool Single::test(Communicator::Future& /* future */) {
+    RAPIDSMPF_FAIL("Unexpected test from self", std::runtime_error);
 }
 
 std::string Single::str() const {
