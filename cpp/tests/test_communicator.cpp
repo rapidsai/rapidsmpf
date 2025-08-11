@@ -30,11 +30,12 @@ class BaseCommunicatorTest : public ::testing::Test {
         br = std::make_unique<rapidsmpf::BufferResource>(mr.get());
         stream = rmm::cuda_stream_default;
         GlobalEnvironment->barrier();
-        GlobalEnvironment->barrier();
     }
 
     void TearDown() override {
         GlobalEnvironment->barrier();
+        br = nullptr;
+        mr = nullptr;
     }
 
     virtual rapidsmpf::MemoryType memory_type() = 0;
