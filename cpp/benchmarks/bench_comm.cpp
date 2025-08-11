@@ -6,6 +6,7 @@
 
 #include <iostream>
 #include <memory>
+#include <queue>
 
 #include <mpi.h>
 #include <ucxx/request_am.h>
@@ -204,13 +205,23 @@ void run_tag(
 struct AmHeader {
     std::uint64_t op_num_;
     Rank rank_;
+    std::uint64_t iteration_id_;  // Add iteration ID to prevent cross-iteration races
 
-    AmHeader(std::uint64_t op_num, Rank rank) : op_num_(op_num), rank_(rank) {}
+    AmHeader(std::uint64_t op_num, Rank rank, std::uint64_t iteration_id = 0)
+        : op_num_(op_num), rank_(rank), iteration_id_(iteration_id) {}
 
     [[nodiscard]] std::uint64_t buf_index(Rank nranks) const {
         return static_cast<std::uint64_t>(rank_)
                + op_num_ * static_cast<std::uint64_t>(nranks);
     }
+};
+
+struct PendingMessage {
+    std::shared_ptr<::ucxx::Request> req;
+    AmHeader header;
+
+    PendingMessage(std::shared_ptr<::ucxx::Request> req, AmHeader header)
+        : req(std::move(req)), header(header) {}
 };
 
 struct AmCallbackContainer {
@@ -219,14 +230,88 @@ struct AmCallbackContainer {
     std::mutex recv_mutex{};
     size_t recv_count{0};
     std::shared_ptr<rapidsmpf::ucxx::UCXX> comm{nullptr};
+    std::atomic<std::uint64_t> current_iteration_id{0};
+
+    // Queue for messages from future iterations
+    std::queue<PendingMessage> pending_messages{};
 
     AmCallbackContainer(std::shared_ptr<rapidsmpf::ucxx::UCXX> comm_) : comm(comm_) {}
 
-    void reset(std::vector<std::unique_ptr<Buffer>>&& recv_bufs) {
-        std::lock_guard<std::mutex> lock(recv_mutex);
-        this->recv_bufs = std::move(recv_bufs);
-        recv_futures.clear();
-        recv_count = 0;
+    void reset(
+        std::vector<std::unique_ptr<Buffer>>&& recv_bufs, std::uint64_t iteration_id
+    ) {
+        std::vector<PendingMessage> messages_to_process;
+
+        {
+            std::lock_guard<std::mutex> lock(recv_mutex);
+            this->recv_bufs = std::move(recv_bufs);
+            recv_futures.clear();
+            recv_count = 0;
+            current_iteration_id.store(iteration_id, std::memory_order_release);
+
+            // Extract messages for this iteration from the queue
+            std::queue<PendingMessage> remaining_messages;
+
+            std::cout << "Processing " << pending_messages.size()
+                      << " pending messages for iteration " << iteration_id << std::endl;
+
+            while (!pending_messages.empty()) {
+                auto& pending = pending_messages.front();
+                if (pending.header.iteration_id_ == iteration_id) {
+                    // Extract this message for processing
+                    messages_to_process.push_back(std::move(pending));
+                } else {
+                    // Keep for future iterations
+                    remaining_messages.push(std::move(pending));
+                }
+                pending_messages.pop();
+            }
+
+            // Replace queue with remaining messages
+            pending_messages = std::move(remaining_messages);
+        }
+
+        // Process messages outside the lock to avoid deadlock
+        for (auto& msg : messages_to_process) {
+            std::lock_guard<std::mutex> lock(recv_mutex);
+            process_message(msg.req, msg.header);
+        }
+    }
+
+    std::uint64_t get_current_iteration() const {
+        return current_iteration_id.load(std::memory_order_acquire);
+    }
+
+  private:
+    void process_message(
+        std::shared_ptr<::ucxx::Request> req, const AmHeader& am_header
+    ) {
+        std::uint64_t buf_index =
+            static_cast<std::uint64_t>(am_header.rank_)
+            + am_header.op_num_ * static_cast<std::uint64_t>(comm->nranks());
+
+        recv_futures.push_back(comm->am_recv(
+            std::dynamic_pointer_cast<::ucxx::RequestAm>(req),
+            std::move(recv_bufs[buf_index])
+        ));
+        ++recv_count;
+    }
+
+  public:
+    void enqueue_or_process_message(
+        std::shared_ptr<::ucxx::Request> req, const AmHeader& header
+    ) {
+        std::uint64_t current_iteration = get_current_iteration();
+
+        if (header.iteration_id_ == current_iteration) {
+            // Process immediately
+            process_message(req, header);
+        } else if (header.iteration_id_ > current_iteration) {
+            // Queue for future iteration
+            pending_messages.emplace(req, header);
+        }
+        // Note: We ignore messages from past iterations (header.iteration_id_ <
+        // current_iteration) as they should not occur in normal operation
     }
 };
 
@@ -243,18 +328,12 @@ std::unique_ptr<AmCallbackContainer> setup_am_callback(
                                            ::ucxx::AmReceiverCallbackInfo const& info
                                        ) {
             auto am_header = info.userHeader->as<AmHeader>();
-            std::uint64_t buf_index =
-                static_cast<std::uint64_t>(am_header.rank_)
-                + am_header.op_num_
-                      * static_cast<std::uint64_t>(container_ptr->comm->nranks());
 
             std::lock_guard<std::mutex> lock(container_ptr->recv_mutex);
 
-            container_ptr->recv_futures.push_back(container_ptr->comm->am_recv(
-                std::dynamic_pointer_cast<::ucxx::RequestAm>(req),
-                std::move(container_ptr->recv_bufs[buf_index])
-            ));
-            ++container_ptr->recv_count;
+            // Use the new queue-based approach that handles messages correctly
+            // instead of dropping them
+            container_ptr->enqueue_or_process_message(req, am_header);
         });
     comm->am_recv_callback(receiverCallbackInfo, receiverCallback);
 
@@ -266,13 +345,14 @@ void run_am(
     ArgumentParser const& args,
     std::shared_ptr<rapidsmpf::Statistics> statistics,
     std::vector<std::unique_ptr<Buffer>>& send_bufs,
-    std::shared_ptr<AmCallbackContainer> am_callback_container
+    std::shared_ptr<AmCallbackContainer> am_callback_container,
+    std::uint64_t iteration_id = 0
 ) {
     std::vector<std::unique_ptr<Communicator::Future>> send_futures;
     send_futures.reserve(send_bufs.size());
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
-            AmHeader am_header(i, comm->rank());
+            AmHeader am_header(i, comm->rank(), iteration_id);
             auto buf = std::move(send_bufs.at(
                 static_cast<std::uint64_t>(rank)
                 + i * static_cast<std::uint64_t>(comm->nranks())
@@ -290,15 +370,30 @@ void run_am(
     }
 
     {
+        // Calculate expected receive count for this iteration:
+        // num_ops operations * (nranks - 1) senders per operation
+        std::uint64_t expected_recv_count =
+            args.num_ops * (static_cast<std::uint64_t>(comm->nranks()) - 1);
+
         while (!send_futures.empty() || !am_callback_container->recv_futures.empty()
-               || am_callback_container->recv_count
-                      != static_cast<std::uint64_t>(comm->nranks()) - 1)
+               || am_callback_container->recv_count < expected_recv_count)
         {
             std::lock_guard<std::mutex> lock(am_callback_container->recv_mutex);
             if (!send_futures.empty())
                 std::ignore = comm->test_some(send_futures);
             if (!am_callback_container->recv_futures.empty())
                 std::ignore = comm->test_some(am_callback_container->recv_futures);
+
+            // Debug output to help identify the issue
+            // static int debug_counter = 0;
+            // if (++debug_counter % 10000 == 0) {
+            //     std::cout << "Rank " << comm->rank() << " iteration " << iteration_id
+            //               << ": recv_count=" << am_callback_container->recv_count
+            //               << ", expected=" << expected_recv_count
+            //               << ", send_futures=" << send_futures.size() << ",
+            //               recv_futures="
+            //               << am_callback_container->recv_futures.size() << std::endl;
+            // }
         }
     }
 
@@ -321,7 +416,8 @@ Duration run(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<rapidsmpf::Statistics> statistics,
-    std::shared_ptr<AmCallbackContainer> am_callback_container = nullptr
+    std::shared_ptr<AmCallbackContainer> am_callback_container = nullptr,
+    std::uint64_t iteration_id = 0
 ) {
     // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
@@ -339,7 +435,7 @@ Duration run(
     }
 
     if (am_callback_container != nullptr) {
-        am_callback_container->reset(std::move(recv_bufs));
+        am_callback_container->reset(std::move(recv_bufs), iteration_id);
 
         // Required to ensure all workers have setup recv buffers before starting
         std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm)->barrier();
@@ -359,14 +455,13 @@ Duration run(
             args,
             statistics,
             send_bufs,
-            am_callback_container
+            am_callback_container,
+            iteration_id
         );
 
-        // Without the barrier other ranks may start sending messages before the
-        // current local iteration has finished and recv buffers have been setup.
-        // TODO: This is a hack to ensure all workers have received all messages
-        // before returning. We should find a better way to do this.
-        std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm)->barrier();
+        // No barrier needed here anymore! The iteration-based message queuing
+        // prevents race conditions between iterations by queuing future messages
+        // instead of dropping them.
     }
 
     return Clock::now() - t0_elapsed;
@@ -444,7 +539,7 @@ int main(int argc, char** argv) {
             stats = std::make_shared<rapidsmpf::Statistics>();
         }
         auto const elapsed =
-            run(comm, args, stream, &br, stats, am_callback_container).count();
+            run(comm, args, stream, &br, stats, am_callback_container, i).count();
         std::stringstream ss;
         ss << "elapsed: " << to_precision(elapsed) << " sec"
            << " | local comm: " << format_nbytes(local_messages_send / elapsed)
