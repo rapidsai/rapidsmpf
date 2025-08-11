@@ -241,8 +241,9 @@ if(RAPIDSMPF_CLANG_TIDY)
   # adding `-Qunused-arguments`, otherwise clang complains about unused link libraries.
   set_target_properties(
     rapidsmpf
-    PROPERTIES CXX_CLANG_TIDY
-               "clang-tidy;-header-filter=^${CMAKE_SOURCE_DIR}/.*;--extra-arg=-Qunused-arguments"
+    PROPERTIES
+      CXX_CLANG_TIDY
+      "${CLANG_TIDY_EXE};--header-filter=${CLANG_TIDY_HEADER_FILTER};--extra-arg=-Qunused-arguments"
   )
 endif()
 
