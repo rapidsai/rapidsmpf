@@ -89,9 +89,7 @@ class MPI final : public Communicator {
          */
         Future(std::vector<MPI_Request>&& reqs, std::unique_ptr<Buffer> data)
             : reqs_{std::move(reqs)}, data_{std::move(data)} {
-            RAPIDSMPF_EXPECTS(
-                !reqs_.empty(), "Must have at least one request"
-            );
+            RAPIDSMPF_EXPECTS(!reqs_.empty(), "Must have at least one request");
         }
 
         /**

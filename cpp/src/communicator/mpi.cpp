@@ -174,7 +174,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
         msg->size <= std::numeric_limits<int>::max(),
         "send buffer size exceeds MPI max count"
     );
-    
+
     std::vector<MPI_Request> reqs;
     reqs.reserve(ranks.size());
     for (auto rank : ranks) {

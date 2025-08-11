@@ -142,7 +142,7 @@ class UCXX final : public Communicator {
         [[nodiscard]] constexpr bool is_completed() const {
             // TODO: should we remove the finished requests from the vector?
             return std::ranges::all_of(reqs_, [](auto const& req) {
-                return req->isCompleted() && [&] {
+                return req->isCompleted() && [&req] {
                     // check for error if the request is completed
                     req->checkError();
                     return true;

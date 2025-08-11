@@ -21,6 +21,7 @@ TestEnvironmentType Environment::type() const {
 }
 
 void Environment::SetUp() {
+    // Ensure CUDA context is created before UCX is initialized.
     cudaFree(nullptr);
 
     // Explicitly initialize MPI. We can not use rapidsmpf::mpi::init as it checks some
