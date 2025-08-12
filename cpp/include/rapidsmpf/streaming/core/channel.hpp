@@ -50,7 +50,7 @@ class Channel {
         if (msg.has_value()) {
             co_return std::make_optional(std::move(*msg));
         } else {
-            co_return std::optional<T>{};
+            co_return std::nullopt;
         }
     }
 
@@ -130,7 +130,7 @@ std::shared_ptr<Channel<std::unique_ptr<T>>> make_shared_channel() {
 }
 
 /**
- * @brief Helper RAII class to shut down channels when it goes out of scope.
+ * @brief Helper RAII class to shut down channels when they go out of scope.
  *
  * Automatically shuts down all provided channels in reverse construction order.
  * Any pending or future send/receive operations will complete with failure/nullopt.
