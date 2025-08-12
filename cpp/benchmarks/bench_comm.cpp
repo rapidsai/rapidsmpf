@@ -256,34 +256,8 @@ struct AmCallbackContainer {
             recv_count = 0;
             current_iteration_id.store(iteration_id, std::memory_order_release);
         }
-        {
-            // Extract messages for this iteration from the queue
-            std::queue<PendingMessage> remaining_messages;
 
-            // std::cout << "Processing " << pending_messages.size()
-            //           << " pending messages for iteration " << iteration_id <<
-            //           std::endl;
-
-            while (!pending_messages.empty()) {
-                auto& pending = pending_messages.front();
-                if (pending.header.iteration_id_ == iteration_id) {
-                    // Extract this message for processing
-                    messages_to_process.push_back(std::move(pending));
-                } else {
-                    // Keep for future iterations
-                    remaining_messages.push(std::move(pending));
-                }
-                pending_messages.pop();
-            }
-
-            // Replace queue with remaining messages
-            pending_messages = std::move(remaining_messages);
-        }
-
-        // Process messages outside the lock to avoid deadlock
-        for (auto& msg : messages_to_process) {
-            process_message(msg.req, msg.header);
-        }
+        process_ready_pending_messages();
     }
 
     [[nodiscard]] std::uint64_t get_current_iteration() const {
