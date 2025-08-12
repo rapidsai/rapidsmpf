@@ -42,7 +42,8 @@ Node partition_and_pack(
                 ctx->stream(),
                 ctx->br(),
                 ctx->statistics()
-            )
+            ),
+            .stream = tbl.stream()
         };
 
         co_await ch_out->send(
@@ -73,7 +74,9 @@ Node unpack_and_concat(
             ctx->statistics()
         );
         co_await ch_out->send(
-            std::make_unique<TableChunk>(partition_map->sequence_number, std::move(ret))
+            std::make_unique<TableChunk>(
+                partition_map->sequence_number, std::move(ret), partition_map->stream
+            )
         );
     }
     co_await ch_out->drain(ctx->executor());
@@ -100,7 +103,9 @@ Node unpack_and_concat(
             ctx->statistics()
         );
         co_await ch_out->send(
-            std::make_unique<TableChunk>(partition_vec->sequence_number, std::move(ret))
+            std::make_unique<TableChunk>(
+                partition_vec->sequence_number, std::move(ret), partition_vec->stream
+            )
         );
     }
     co_await ch_out->drain(ctx->executor());

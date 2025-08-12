@@ -43,7 +43,8 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
                 i,
                 std::make_unique<cudf::table>(
                     expects[i], ctx->stream(), ctx->br()->device_mr()
-                )
+                ),
+                ctx->stream()
             )
         );
     }

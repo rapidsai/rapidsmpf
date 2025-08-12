@@ -53,7 +53,8 @@ TEST_F(StreamingShuffler, Basic) {
                         .at(0),
                     ctx->stream(),
                     ctx->br()->device_mr()
-                )
+                ),
+                ctx->stream()
             )
         );
     }

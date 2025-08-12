@@ -37,18 +37,25 @@ class TableChunk {
      *
      * @param sequence_number Ordering identifier for the chunk.
      * @param table Device-resident table.
+     * @param stream the CUDA stream on which the table was created.
      */
-    TableChunk(std::uint64_t sequence_number, std::unique_ptr<cudf::table> table);
+    TableChunk(
+        std::uint64_t sequence_number,
+        std::unique_ptr<cudf::table> table,
+        rmm::cuda_stream_view stream
+    );
 
     /**
      * @brief Construct a TableChunk from packed columns.
      *
      * @param sequence_number Ordering identifier for the chunk.
      * @param packed_columns Serialized device table.
+     * @param stream the CUDA stream on which the packed_columns was created.
      */
     TableChunk(
         std::uint64_t sequence_number,
-        std::unique_ptr<cudf::packed_columns> packed_columns
+        std::unique_ptr<cudf::packed_columns> packed_columns,
+        rmm::cuda_stream_view stream
     );
 
     /**
@@ -56,8 +63,13 @@ class TableChunk {
      *
      * @param sequence_number Ordering identifier for the chunk.
      * @param packed_data Serialized host/device data with metadata.
+     * @param stream the CUDA stream on which the packed_data was created.
      */
-    TableChunk(std::uint64_t sequence_number, std::unique_ptr<PackedData> packed_data);
+    TableChunk(
+        std::uint64_t sequence_number,
+        std::unique_ptr<PackedData> packed_data,
+        rmm::cuda_stream_view stream
+    );
 
     ~TableChunk() = default;
 
@@ -78,6 +90,15 @@ class TableChunk {
      * @return the sequence number.
      */
     [[nodiscard]] std::uint64_t sequence_number() const;
+
+    /**
+     * @brief Returns the CUDA stream on which this chunk was created.
+     *
+     * @return The CUDA stream view.
+     */
+    rmm::cuda_stream_view stream() {
+        return stream_;
+    }
 
     /**
      * @brief Number of bytes allocated for the data in the specified memory type.
@@ -160,6 +181,8 @@ class TableChunk {
     // Zero initialized data allocation size (one for each memory type).
     std::array<std::size_t, MEMORY_TYPES.size()> data_alloc_size_ = {};
     std::size_t make_available_cost_;  // For now, only device memory cost is tracked.
+
+    rmm::cuda_stream_view stream_;
 };
 
 }  // namespace rapidsmpf::streaming

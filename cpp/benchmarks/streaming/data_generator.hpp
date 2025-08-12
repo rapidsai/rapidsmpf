@@ -65,7 +65,8 @@ Node random_table_generator(
                     max_val,
                     ctx->stream(),
                     ctx->br()->device_mr()
-                ))
+                )),
+                ctx->stream()
             )
         );
     }

@@ -6,8 +6,12 @@
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
-TableChunk::TableChunk(std::uint64_t sequence_number, std::unique_ptr<cudf::table> table)
-    : sequence_number_{sequence_number}, table_{std::move(table)} {
+TableChunk::TableChunk(
+    std::uint64_t sequence_number,
+    std::unique_ptr<cudf::table> table,
+    rmm::cuda_stream_view stream
+)
+    : sequence_number_{sequence_number}, table_{std::move(table)}, stream_{stream} {
     RAPIDSMPF_EXPECTS(
         table_ != nullptr, "table pointer cannot be null", std::invalid_argument
     );
@@ -17,9 +21,13 @@ TableChunk::TableChunk(std::uint64_t sequence_number, std::unique_ptr<cudf::tabl
 }
 
 TableChunk::TableChunk(
-    std::uint64_t sequence_number, std::unique_ptr<cudf::packed_columns> packed_columns
+    std::uint64_t sequence_number,
+    std::unique_ptr<cudf::packed_columns> packed_columns,
+    rmm::cuda_stream_view stream
 )
-    : sequence_number_{sequence_number}, packed_columns_{std::move(packed_columns)} {
+    : sequence_number_{sequence_number},
+      packed_columns_{std::move(packed_columns)},
+      stream_{stream} {
     RAPIDSMPF_EXPECTS(
         packed_columns_ != nullptr,
         "packed columns pointer cannot be null",
@@ -32,9 +40,13 @@ TableChunk::TableChunk(
 }
 
 TableChunk::TableChunk(
-    std::uint64_t sequence_number, std::unique_ptr<PackedData> packed_data
+    std::uint64_t sequence_number,
+    std::unique_ptr<PackedData> packed_data,
+    rmm::cuda_stream_view stream
 )
-    : sequence_number_{sequence_number}, packed_data_{std::move(packed_data)} {
+    : sequence_number_{sequence_number},
+      packed_data_{std::move(packed_data)},
+      stream_{stream} {
     RAPIDSMPF_EXPECTS(
         packed_data_ != nullptr,
         "packed data pointer cannot be null",
@@ -81,7 +93,8 @@ TableChunk TableChunk::make_available(
         std::make_unique<cudf::packed_columns>(
             std::move(packed_data.metadata),
             br->move_to_device_buffer(std::move(packed_data.data), stream, reservation)
-        )
+        ),
+        stream
     };
 }
 
@@ -120,7 +133,7 @@ TableChunk TableChunk::spill_to_host(rmm::cuda_stream_view stream, BufferResourc
     auto [res, _] = br->reserve(MemoryType::HOST, packed_data->data->size, false);
     packed_data->data = br->move(std::move(packed_data->data), stream, res);
 
-    return TableChunk{sequence_number_, std::move(packed_data)};
+    return TableChunk{sequence_number_, std::move(packed_data), stream};
 }
 
 }  // namespace rapidsmpf::streaming
