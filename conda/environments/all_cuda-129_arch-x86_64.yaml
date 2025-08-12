@@ -34,7 +34,6 @@ dependencies:
 - numpydoc
 - nvidia-ml-py
 - openmpi
-- openmpi!=5.0.8
 - pre-commit
 - psutil
 - pydata-sphinx-theme
