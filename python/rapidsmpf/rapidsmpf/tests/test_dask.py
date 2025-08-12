@@ -336,7 +336,7 @@ def test_many_shuffles_single() -> None:
     do_shuffle(seed=2, num_shuffles=10)
 
     # Check that all shufflers has been cleaned up.
-    ctx = rapidsmpf.integrations.single._get_worker_context()
+    ctx = rapidsmpf.integrations.single.get_worker_context()
     assert len(ctx.shufflers) == 0
 
     # But we cannot shuffle more than `max_num_shuffles` times in a single compute.
@@ -349,7 +349,7 @@ def test_many_shuffles_single() -> None:
     # Cleanup Shufflers to avoid leaking between tests.
     # This shouldn't hang because we just stage shuffles without,
     # without inserting or extracting any data, and so shutdown shouldn't block.
-    context = rapidsmpf.integrations.single._get_worker_context()
+    context = rapidsmpf.integrations.single.get_worker_context()
     for shuffle_id, shuffler in list(context.shufflers.items()):
         if context.shufflers[shuffle_id].finished():
             del context.shufflers[shuffle_id]
