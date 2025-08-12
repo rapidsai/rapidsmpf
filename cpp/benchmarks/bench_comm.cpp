@@ -5,11 +5,18 @@
 
 
 #include <iostream>
+#include <iterator>
+#include <memory>
+#include <queue>
+#include <utility>
 
 #include <mpi.h>
+#include <ucxx/request_am.h>
+#include <ucxx/typedefs.h>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -32,7 +39,7 @@ class ArgumentParser {
 
         try {
             int option;
-            while ((option = getopt(argc, argv, "hC:O:r:w:n:p:m:")) != -1) {
+            while ((option = getopt(argc, argv, "hC:O:A:r:w:n:p:m:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -42,6 +49,7 @@ class ArgumentParser {
                            << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
                            << "  -O <op>    Operation {all-to-all} (default: "
                               "all-to-all)\n"
+                           << "  -A <api>   API type {tag, am} (default: tag\n"
                            << "  -n <num>   Message size in bytes (default: 1M)\n"
                            << "  -p <num>   Number of concurrent operations, e.g. number"
                               " of  concurrent all-to-all operations (default: 1)\n"
@@ -73,6 +81,16 @@ class ArgumentParser {
                         throw std::invalid_argument(
                             "-O (Operation) must be one of {all-to-all}"
                         );
+                    }
+                    break;
+                case 'A':
+                    api_type = std::string{optarg};
+                    if (!(api_type == "tag" || api_type == "am")) {
+                        if (rank == 0) {
+                            std::cerr << "-A (API type) must be one of {tag, am}"
+                                      << std::endl;
+                        }
+                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     }
                     break;
                 case 'n':
@@ -114,6 +132,11 @@ class ArgumentParser {
             }
             RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
+
+        if (api_type == "am" && comm_type != "ucxx") {
+            std::cerr << "'-A am' is only supported with '-C ucxx'" << std::endl;
+            RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+        }
     }
 
     void pprint(Communicator& comm) const {
@@ -124,6 +147,7 @@ class ArgumentParser {
         ss << "Arguments:\n";
         ss << "  -C " << comm_type << " (communicator)\n";
         ss << "  -O " << operation << " (operation)\n";
+        ss << "  -A " << api_type << " (API type)\n";
         ss << "  -n " << msg_size << " (message size)\n";
         ss << "  -p " << num_ops << " (number of operations)\n";
         ss << "  -r " << num_runs << " (number of runs)\n";
@@ -137,16 +161,282 @@ class ArgumentParser {
     std::string rmm_mr{"cuda"};
     std::string comm_type{"mpi"};
     std::string operation{"all-to-all"};
+    std::string api_type{"tag"};
     std::uint64_t msg_size{1 << 20};
     std::uint64_t num_ops{1};
 };
+
+void run_tag(
+    std::shared_ptr<Communicator> comm,
+    ArgumentParser const& args,
+    std::shared_ptr<rapidsmpf::Statistics> statistics,
+    std::vector<std::unique_ptr<Buffer>>& send_bufs,
+    std::vector<std::unique_ptr<Buffer>>& recv_bufs
+) {
+    Tag const tag{0, 1};
+    std::vector<std::unique_ptr<Communicator::Future>> futures;
+    futures.reserve(send_bufs.size() + recv_bufs.size());
+    for (std::uint64_t i = 0; i < args.num_ops; ++i) {
+        for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
+            auto buf = std::move(recv_bufs.at(
+                static_cast<std::uint64_t>(rank)
+                + i * static_cast<std::uint64_t>(comm->nranks())
+            ));
+            if (rank != comm->rank()) {
+                statistics->add_bytes_stat("all-to-all-recv", buf->size);
+                futures.emplace_back(comm->recv(rank, tag, std::move(buf)));
+            }
+        }
+        for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
+            auto buf = std::move(send_bufs.at(
+                static_cast<std::uint64_t>(rank)
+                + i * static_cast<std::uint64_t>(comm->nranks())
+            ));
+            if (rank != comm->rank()) {
+                statistics->add_bytes_stat("all-to-all-send", buf->size);
+                futures.emplace_back(comm->send(std::move(buf), rank, tag));
+            }
+        }
+    }
+
+    while (!futures.empty()) {
+        std::ignore = comm->test_some(futures);
+    }
+}
+
+struct AmHeader {
+    std::uint64_t op_num_;
+    Rank rank_;
+    std::uint64_t iteration_id_;  // Add iteration ID to prevent cross-iteration races
+
+    AmHeader(std::uint64_t op_num, Rank rank, std::uint64_t iteration_id = 0)
+        : op_num_(op_num), rank_(rank), iteration_id_(iteration_id) {}
+
+    [[nodiscard]] std::uint64_t buf_index(Rank nranks) const {
+        return static_cast<std::uint64_t>(rank_)
+               + op_num_ * static_cast<std::uint64_t>(nranks);
+    }
+};
+
+struct PendingMessage {
+    std::shared_ptr<::ucxx::Request> req;
+    AmHeader header;
+
+    PendingMessage(std::shared_ptr<::ucxx::Request> req, AmHeader header)
+        : req(std::move(req)), header(header) {}
+};
+
+class AmCallbackContainer {
+  private:
+    std::vector<std::unique_ptr<Buffer>> recv_bufs_{};
+    std::vector<std::unique_ptr<Communicator::Future>> recv_futures_{};
+    std::mutex recv_mutex_{};
+    size_t recv_count_{0};
+    std::shared_ptr<rapidsmpf::ucxx::UCXX> comm_{nullptr};
+    std::atomic<std::uint64_t> current_iteration_id_{0};
+    std::queue<PendingMessage> pending_messages_{};
+
+    void process_message(
+        std::shared_ptr<::ucxx::Request> req, const AmHeader& am_header
+    ) {
+        std::uint64_t buf_index =
+            static_cast<std::uint64_t>(am_header.rank_)
+            + am_header.op_num_ * static_cast<std::uint64_t>(comm_->nranks());
+
+        auto future = comm_->am_recv(
+            std::dynamic_pointer_cast<::ucxx::RequestAm>(req),
+            std::move(recv_bufs_[buf_index])
+        );
+
+        // Lock needed only to modify attributes
+        auto lock = acquire_lock();
+        recv_futures_.push_back(std::move(future));
+        ++recv_count_;
+    }
+
+  public:
+    AmCallbackContainer(std::shared_ptr<rapidsmpf::ucxx::UCXX> comm)
+        : comm_(std::move(comm)) {}
+
+    [[nodiscard]] std::lock_guard<std::mutex> acquire_lock() {
+        return std::lock_guard<std::mutex>(recv_mutex_);
+    }
+
+    [[nodiscard]] std::vector<std::unique_ptr<Communicator::Future>> release_futures() {
+        return std::move(recv_futures_);
+    }
+
+    [[nodiscard]] size_t get_recv_count() {
+        return recv_count_;
+    }
+
+    void reset(
+        std::vector<std::unique_ptr<Buffer>>&& recv_bufs, std::uint64_t iteration_id
+    ) {
+        {
+            auto lock = acquire_lock();
+            recv_bufs_ = std::move(recv_bufs);
+            recv_futures_.clear();
+            recv_count_ = 0;
+            current_iteration_id_.store(iteration_id, std::memory_order_release);
+        }
+
+        process_ready_pending_messages();
+
+        // Required to ensure all workers have setup recv buffers before starting
+        std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm_)->barrier();
+    }
+
+    [[nodiscard]] std::uint64_t get_current_iteration() const {
+        return current_iteration_id_.load(std::memory_order_acquire);
+    }
+
+    // Process any pending messages that are now ready for the current iteration
+    void process_ready_pending_messages() {
+        std::uint64_t current_iteration = get_current_iteration();
+        std::queue<PendingMessage> remaining_messages;
+
+        while (!pending_messages_.empty()) {
+            auto& pending = pending_messages_.front();
+            if (pending.header.iteration_id_ == current_iteration) {
+                // Process this message now
+                process_message(pending.req, pending.header);
+            } else {
+                // Keep for future iterations
+                remaining_messages.push(std::move(pending));
+            }
+            pending_messages_.pop();
+        }
+
+        // Replace queue with remaining messages
+        pending_messages_ = std::move(remaining_messages);
+    }
+
+    void enqueue_or_process_message(
+        std::shared_ptr<::ucxx::Request> req, const AmHeader& header
+    ) {
+        std::uint64_t current_iteration = get_current_iteration();
+
+        if (header.iteration_id_ == current_iteration) {
+            // Process immediately - recv_bufs_ should be available for current iteration
+            process_message(req, header);
+        } else if (header.iteration_id_ > current_iteration) {
+            // Queue for future iteration
+            pending_messages_.emplace(req, header);
+        }
+        // Note: We ignore messages from past iterations (header.iteration_id_ <
+        // current_iteration) as they should not occur in normal operation
+    }
+
+    static std::unique_ptr<AmCallbackContainer> setup(
+        std::shared_ptr<rapidsmpf::ucxx::UCXX> comm
+    ) {
+        auto container = std::make_unique<AmCallbackContainer>(comm);
+
+        ::ucxx::AmReceiverCallbackInfo receiverCallbackInfo("RapidsMPF-bench-comm", 0);
+        auto receiverCallback =
+            ::ucxx::AmReceiverCallbackType([container_ptr = container.get()](
+                                               std::shared_ptr<::ucxx::Request> req,
+                                               ucp_ep_h /*ep*/,
+                                               ::ucxx::AmReceiverCallbackInfo const& info
+                                           ) {
+                auto am_header = info.userHeader->as<AmHeader>();
+
+                // Use the new queue-based approach that handles messages correctly
+                // instead of dropping them
+                container_ptr->enqueue_or_process_message(req, am_header);
+            });
+        comm->am_recv_callback(receiverCallbackInfo, receiverCallback);
+
+        return container;
+    }
+};
+
+void run_am(
+    std::shared_ptr<rapidsmpf::ucxx::UCXX> comm,
+    ArgumentParser const& args,
+    std::shared_ptr<rapidsmpf::Statistics> statistics,
+    std::vector<std::unique_ptr<Buffer>>& send_bufs,
+    std::shared_ptr<AmCallbackContainer> am_callback_container,
+    std::uint64_t iteration_id = 0
+) {
+    std::vector<std::unique_ptr<Communicator::Future>> send_futures;
+    send_futures.reserve(send_bufs.size());
+    for (std::uint64_t i = 0; i < args.num_ops; ++i) {
+        for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
+            AmHeader am_header(i, comm->rank(), iteration_id);
+            auto buf = std::move(send_bufs.at(
+                static_cast<std::uint64_t>(rank)
+                + i * static_cast<std::uint64_t>(comm->nranks())
+            ));
+
+            if (rank != comm->rank()) {
+                statistics->add_bytes_stat("all-to-all-send", buf->size);
+
+                ::ucxx::AmReceiverCallbackInfo info(
+                    "RapidsMPF-bench-comm", 0, true, ::ucxx::AmUserHeader(am_header)
+                );
+                send_futures.emplace_back(comm->am_send(std::move(buf), rank, info));
+            }
+        }
+    }
+
+    size_t recv_count = 0;
+    std::vector<std::unique_ptr<Communicator::Future>> recv_futures{};
+    {
+        // Calculate expected receive count for this iteration:
+        // num_ops operations * (nranks - 1) senders per operation
+        std::uint64_t expected_recv_count =
+            args.num_ops * (static_cast<std::uint64_t>(comm->nranks()) - 1);
+
+        while (!send_futures.empty() || !recv_futures.empty()
+               || recv_count < expected_recv_count)
+        {
+            if (!send_futures.empty())
+                std::ignore = comm->test_some(send_futures);
+
+            {
+                // This block prevents holding the lock to test for completion/receive
+                // data
+                auto lock = am_callback_container->acquire_lock();
+
+                auto callback_futures = am_callback_container->release_futures();
+                recv_futures.insert(
+                    recv_futures.end(),
+                    std::make_move_iterator(callback_futures.begin()),
+                    std::make_move_iterator(callback_futures.end())
+                );
+                recv_count = am_callback_container->get_recv_count();
+            }
+
+            if (!recv_futures.empty())
+                std::ignore = comm->test_some(recv_futures);
+
+            // Process any pending messages that are now ready for this iteration
+            am_callback_container->process_ready_pending_messages();
+        }
+    }
+
+    for (size_t i = 0; i < send_futures.size(); i++) {
+        auto ucxx_future =
+            dynamic_cast<rapidsmpf::ucxx::UCXX::Future const*>(send_futures[i].get());
+        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    }
+    for (size_t i = 0; i < recv_futures.size(); i++) {
+        auto ucxx_future =
+            dynamic_cast<rapidsmpf::ucxx::UCXX::Future const*>(recv_futures[i].get());
+        RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    }
+}
 
 Duration run(
     std::shared_ptr<Communicator> comm,
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<rapidsmpf::Statistics> statistics
+    std::shared_ptr<rapidsmpf::Statistics> statistics,
+    std::shared_ptr<AmCallbackContainer> am_callback_container = nullptr,
+    std::uint64_t iteration_id = 0
 ) {
     // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
@@ -161,35 +451,31 @@ Duration run(
         }
     }
 
-    auto const t0_elapsed = Clock::now();
-
-    Tag const tag{0, 1};
-    std::vector<std::unique_ptr<Communicator::Future>> futures;
-    for (std::uint64_t i = 0; i < args.num_ops; ++i) {
-        for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
-            auto buf = std::move(recv_bufs.at(
-                static_cast<std::uint64_t>(rank)
-                + i * static_cast<std::uint64_t>(comm->nranks())
-            ));
-            if (rank != comm->rank()) {
-                statistics->add_bytes_stat("all-to-all-recv", buf->size);
-                futures.push_back(comm->recv(rank, tag, std::move(buf)));
-            }
-        }
-        for (Rank rank = 0; rank < static_cast<Rank>(comm->nranks()); ++rank) {
-            auto buf = std::move(send_bufs.at(
-                static_cast<std::uint64_t>(rank)
-                + i * static_cast<std::uint64_t>(comm->nranks())
-            ));
-            if (rank != comm->rank()) {
-                statistics->add_bytes_stat("all-to-all-send", buf->size);
-                futures.push_back(comm->send(std::move(buf), rank, tag));
-            }
-        }
+    if (am_callback_container != nullptr) {
+        am_callback_container->reset(std::move(recv_bufs), iteration_id);
     }
 
-    while (!futures.empty()) {
-        std::ignore = comm->test_some(futures);
+    auto const t0_elapsed = Clock::now();
+
+    if (args.api_type == "tag") {
+        run_tag(comm, args, statistics, send_bufs, recv_bufs);
+    } else if (args.api_type == "am") {
+        RAPIDSMPF_EXPECTS(
+            am_callback_container != nullptr,
+            "AM callback container is required for AM API"
+        );
+        run_am(
+            std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm),
+            args,
+            statistics,
+            send_bufs,
+            am_callback_container,
+            iteration_id
+        );
+
+        // No barrier needed here anymore! The iteration-based message queuing
+        // prevents race conditions between iterations by queuing future messages
+        // instead of dropping them.
     }
 
     return Clock::now() - t0_elapsed;
@@ -249,6 +535,14 @@ int main(int argc, char** argv) {
     // We start with disabled statistics.
     auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
 
+    // Setup AM callback container once before the loop if using AM API
+    std::shared_ptr<AmCallbackContainer> am_callback_container = nullptr;
+    if (args.api_type == "am") {
+        am_callback_container = AmCallbackContainer::setup(
+            std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm)
+        );
+    }
+
     auto const local_messages_send =
         args.msg_size * args.num_ops * (static_cast<std::uint64_t>(comm->nranks()) - 1);
     auto const local_messages =
@@ -259,7 +553,8 @@ int main(int argc, char** argv) {
         if (i == args.num_warmups + args.num_runs - 1) {
             stats = std::make_shared<rapidsmpf::Statistics>();
         }
-        auto const elapsed = run(comm, args, stream, &br, stats).count();
+        auto const elapsed =
+            run(comm, args, stream, &br, stats, am_callback_container, i).count();
         std::stringstream ss;
         ss << "elapsed: " << to_precision(elapsed) << " sec"
            << " | local comm: " << format_nbytes(local_messages_send / elapsed)

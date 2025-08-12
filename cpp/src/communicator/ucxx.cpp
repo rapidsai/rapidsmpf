@@ -10,6 +10,9 @@
 #include <mutex>
 #include <utility>
 
+#include <ucs/memory/memory_type.h>
+#include <ucxx/typedefs.h>
+
 #include <rapidsmpf/communicator/ucxx.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -102,6 +105,9 @@ class SharedResources {
     const ::ucxx::AmReceiverCallbackInfo control_callback_info_{
         "rapidsmpf", 0
     };  ///< UCXX callback info for control messages
+    const ::ucxx::AmReceiverCallbackInfo barrier_callback_info_{
+        "rapidsmpf", 1
+    };  ///< UCXX callback info for control messages
     std::vector<std::unique_ptr<HostFuture>>
         futures_{};  ///< Futures to incomplete requests.
     std::vector<std::function<void()>> delayed_progress_callbacks_{};
@@ -114,6 +120,9 @@ class SharedResources {
     };  ///< Whether to request UCX endpoint error handling. This is currently disabled
         ///< as it impacts performance very negatively.
         ///< See https://github.com/rapidsai/rapidsmpf/issues/140.
+    std::atomic<size_t> barrier_count{
+        0
+    };  ///< Count number of ranks that completed barrier
 
   public:
     UCXX::Logger* logger{nullptr};  ///< UCXX Listener
@@ -208,6 +217,14 @@ class SharedResources {
 
     [[nodiscard]] ::ucxx::AmReceiverCallbackInfo get_control_callback_info() const {
         return control_callback_info_;
+    }
+
+    [[nodiscard]] ::ucxx::AmReceiverCallbackInfo get_barrier_callback_info() const {
+        return barrier_callback_info_;
+    }
+
+    void barrier_count_inc() {
+        ++barrier_count;
     }
 
     /**
@@ -354,48 +371,39 @@ class SharedResources {
         }
 
         if (rank_ == 0) {
+            while (barrier_count != static_cast<size_t>(nranks()) - 1) {
+                progress_worker();
+            }
+
             std::vector<std::shared_ptr<::ucxx::Request>> requests;
-            requests.reserve(static_cast<size_t>(nranks() - 1));
-            // send to all other ranks
             for (auto& [rank, endpoint] : rank_to_endpoint_) {
                 if (rank == 0) {
                     continue;
                 }
-                requests.push_back(endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST));
+                requests.push_back(endpoint->amSend(
+                    nullptr, 0, UCS_MEMORY_TYPE_HOST, get_barrier_callback_info()
+                ));
             }
+
             while (std::ranges::any_of(requests, [](auto const& req) {
                 return !req->isCompleted();
             }))
             {
                 progress_worker();
             }
-            requests.clear();
 
-            // receive from all other ranks
-            for (auto& [rank, endpoint] : rank_to_endpoint_) {
-                if (rank == 0) {
-                    continue;
-                }
-                requests.push_back(endpoint->amRecv());
-            }
-            while (std::ranges::any_of(requests, [](auto const& req) {
-                return !req->isCompleted();
-            }))
-            {
-                progress_worker();
-            }
-        } else {  // non-root ranks respond to root's broadcast
-            auto endpoint = get_endpoint(Rank(0));
+            barrier_count = 0;
+        } else {
+            std::vector<std::shared_ptr<::ucxx::Request>> requests;
+            auto req = get_endpoint(Rank(0))->amSend(
+                nullptr, 0, UCS_MEMORY_TYPE_HOST, get_barrier_callback_info()
+            );
 
-            auto req = endpoint->amRecv();
-            while (!req->isCompleted()) {
+            while (!req->isCompleted() || barrier_count != 1) {
                 progress_worker();
             }
 
-            req = endpoint->amSend(nullptr, 0, UCS_MEMORY_TYPE_HOST);
-            while (!req->isCompleted()) {
-                progress_worker();
-            }
+            barrier_count = 0;
         }
     }
 
@@ -835,11 +843,13 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         shared_resources.register_endpoint(shared_resources.rank(), std::move(self_ep));
     };
 
+    std::shared_ptr<rapidsmpf::ucxx::SharedResources> shared_resources{nullptr};
+
     if (remote_address) {
         if (worker == nullptr) {
             worker = create_worker();
         }
-        auto shared_resources =
+        shared_resources =
             std::make_shared<rapidsmpf::ucxx::SharedResources>(worker, false, nranks);
 
         // Create listener
@@ -848,12 +858,15 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         );
         auto listener = shared_resources->get_listener();
 
-        auto control_callback = ::ucxx::AmReceiverCallbackType(
-            [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
+        auto control_callback =
+            ::ucxx::AmReceiverCallbackType([shared_resources](
+                                               std::shared_ptr<::ucxx::Request> req,
+                                               ucp_ep_h ep,
+                                               const ::ucxx::AmReceiverCallbackInfo&
+                                           ) {
                 auto buffer = req->getRecvBuffer();
                 control_unpack(req->getRecvBuffer(), ep, shared_resources);
-            }
-        );
+            });
 
         worker->registerAmReceiverCallback(
             shared_resources->get_control_callback_info(), control_callback
@@ -944,12 +957,11 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
             while (!req->isCompleted())
                 shared_resources->progress_worker();
         }
-        return std::make_unique<rapidsmpf::ucxx::InitializedRank>(shared_resources);
     } else {
         if (worker == nullptr) {
             worker = create_worker();
         }
-        auto shared_resources =
+        shared_resources =
             std::make_shared<rapidsmpf::ucxx::SharedResources>(worker, true, nranks);
 
         // Create listener
@@ -963,22 +975,35 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         // log.info("Root running at address ", listener->getIp(), ":",
         // listener->getPort());
 
-        auto control_callback = ::ucxx::AmReceiverCallbackType(
-            [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
+        auto control_callback =
+            ::ucxx::AmReceiverCallbackType([shared_resources](
+                                               std::shared_ptr<::ucxx::Request> req,
+                                               ucp_ep_h ep,
+                                               const ::ucxx::AmReceiverCallbackInfo&
+                                           ) {
                 control_unpack(req->getRecvBuffer(), ep, shared_resources);
-            }
-        );
+            });
 
         worker->registerAmReceiverCallback(
             shared_resources->get_control_callback_info(), control_callback
         );
 
         register_self_endpoint(*worker, *shared_resources);
-
-        return std::make_unique<rapidsmpf::ucxx::InitializedRank>(
-            std::move(shared_resources)
-        );
     }
+
+    auto barrier_callback =
+        ::ucxx::AmReceiverCallbackType([shared_resources](
+                                           std::shared_ptr<::ucxx::Request>,
+                                           ucp_ep_h,
+                                           const ::ucxx::AmReceiverCallbackInfo&
+                                       ) { shared_resources->barrier_count_inc(); });
+    worker->registerAmReceiverCallback(
+        shared_resources->get_barrier_callback_info(), barrier_callback
+    );
+
+    return std::make_unique<rapidsmpf::ucxx::InitializedRank>(
+        std::move(shared_resources)
+    );
 }
 
 UCXX::UCXX(
@@ -1143,6 +1168,47 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     return {std::move(msg), sender_rank};
 }
 
+std::unique_ptr<Communicator::Future> UCXX::am_send(
+    std::unique_ptr<std::vector<uint8_t>> msg,
+    Rank rank,
+    BufferResource* br,
+    ::ucxx::AmReceiverCallbackInfo const& info
+) {
+    auto req =
+        get_endpoint(rank)->amSend(msg->data(), msg->size(), UCS_MEMORY_TYPE_HOST, info);
+    return std::make_unique<Future>(req, br->move(std::move(msg)));
+}
+
+std::unique_ptr<Communicator::Future> UCXX::am_send(
+    std::unique_ptr<Buffer> msg, Rank rank, ::ucxx::AmReceiverCallbackInfo const& info
+) {
+    if (!msg->is_ready()) {
+        logger().warn("msg is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+    auto req =
+        get_endpoint(rank)->amSend(msg->data(), msg->size, UCS_MEMORY_TYPE_HOST, info);
+    return std::make_unique<Future>(req, std::move(msg));
+}
+
+void UCXX::am_recv_callback(
+    ::ucxx::AmReceiverCallbackInfo const& info, ::ucxx::AmReceiverCallbackType callback
+) {
+    shared_resources_->get_worker()->registerAmReceiverCallback(info, callback);
+}
+
+std::unique_ptr<Communicator::Future> UCXX::am_recv(
+    std::shared_ptr<::ucxx::RequestAm> req, std::unique_ptr<Buffer> recv_buffer
+) {
+    if (!recv_buffer->is_ready()) {
+        logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+    return std::make_unique<Future>(
+        req->receiveData(recv_buffer->data()), std::move(recv_buffer)
+    );
+}
+
 std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
     std::vector<std::unique_ptr<Communicator::Future>>& future_vector
 ) {
@@ -1273,11 +1339,14 @@ std::shared_ptr<UCXX> UCXX::split() {
     );
 
     // Set up control callback
-    auto control_callback = ::ucxx::AmReceiverCallbackType(
-        [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
+    auto control_callback =
+        ::ucxx::AmReceiverCallbackType([shared_resources](
+                                           std::shared_ptr<::ucxx::Request> req,
+                                           ucp_ep_h ep,
+                                           const ::ucxx::AmReceiverCallbackInfo&
+                                       ) {
             control_unpack(req->getRecvBuffer(), ep, shared_resources);
-        }
-    );
+        });
 
     worker->registerAmReceiverCallback(
         shared_resources->get_control_callback_info(), control_callback

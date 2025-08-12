@@ -9,6 +9,8 @@
 #include <utility>
 
 #include <ucxx/api.h>
+#include <ucxx/request_am.h>
+#include <ucxx/typedefs.h>
 
 #include <rmm/device_buffer.hpp>
 
@@ -113,11 +115,11 @@ class UCXX final : public Communicator {
          * @param data A unique pointer to the data buffer.
          */
         Future(std::shared_ptr<::ucxx::Request> req, std::unique_ptr<Buffer> data)
-            : req_{std::move(req)}, data_{std::move(data)} {}
+            : req_{req}, data_{std::move(data)} {}
 
         ~Future() noexcept override = default;
 
-      private:
+      public:
         std::shared_ptr<::ucxx::Request>
             req_;  ///< The UCXX request associated with the operation.
         std::unique_ptr<Buffer> data_;  ///< The data buffer.
@@ -180,6 +182,76 @@ class UCXX final : public Communicator {
     ) override;
 
     /**
+     * @brief Sends a host active message to a specific rank.
+     *
+     * @param msg Unique pointer to the message data (host memory).
+     * @param rank The destination rank.
+     * @param br Buffer resource used to allocate the received message.
+     * @param info The active message callback info containing identifier and
+     * optional user header.
+     * @return A unique pointer to a `Future` representing the asynchronous operation.
+     */
+    [[nodiscard]] std::unique_ptr<Communicator::Future> am_send(
+        std::unique_ptr<std::vector<uint8_t>> msg,
+        Rank rank,
+        BufferResource* br,
+        ::ucxx::AmReceiverCallbackInfo const& info
+    );
+
+    /**
+     * @brief Sends an active message (device or host) to a specific rank.
+     *
+     * @param msg Unique pointer to the message data (Buffer).
+     * @param rank The destination rank.
+     * @param info The active message callback info containing identifier and
+     * optional user header.
+     * @return A unique pointer to a `Future` representing the asynchronous operation.
+     *
+     * @warning The caller is responsible to ensure the underlying `Buffer` allocation
+     * and data are already valid before calling, for example, when a CUDA allocation
+     * and/or copy are done asynchronously. Specifically, the caller should ensure
+     * `Buffer::is_ready()` returns true before calling this function, if not, a
+     * warning is printed and the application will terminate.
+     */
+    [[nodiscard]] std::unique_ptr<Communicator::Future> am_send(
+        std::unique_ptr<Buffer> msg, Rank rank, ::ucxx::AmReceiverCallbackInfo const& info
+    );
+
+    /**
+     * @brief Registers an active message receiver callback.
+     *
+     * @param info The active message callback info containing identifier, the
+     * optional user header is reserved for the sender and is ignored if filled.
+     * @param callback The callback to execute when an message arrives.
+     */
+    void am_recv_callback(
+        ::ucxx::AmReceiverCallbackInfo const& info,
+        ::ucxx::AmReceiverCallbackType callback
+    );
+
+    /**
+     * @brief Receives an active message from a pending request.
+     *
+     * Receives the data from a pending active message request delivered to a callback
+     * registered with `am_recv_callback`. This can only be used to process and retrieve
+     * data from a message delivered to the callback, it's not possible to initiate an
+     * arbitrary receive request.
+     *
+     * @param req The request delivered to the callback registered by `am_recv_callback`.
+     * @param recv_buffer The receive buffer.
+     * @return A unique pointer to a `Future` representing the asynchronous operation.
+     *
+     * @warning The caller is responsible to ensure the underlying `Buffer` allocation
+     * is already valid before calling, for example, when a CUDA allocation
+     * and/or copy are done asynchronously. Specifically, the caller should ensure
+     * `Buffer::is_ready()` returns true before calling this function, if not, a
+     * warning is printed and the application will terminate.
+     */
+    [[nodiscard]] std::unique_ptr<Communicator::Future> am_recv(
+        std::shared_ptr<::ucxx::RequestAm> req, std::unique_ptr<Buffer> recv_buffer
+    );
+
+    /**
      * @copydoc Communicator::test_some
      *
      * @throws ucxx::Error if any completed futures did not complete successfully.
@@ -234,6 +306,7 @@ class UCXX final : public Communicator {
      * The barrier is not intended to be performant and therefore should not be
      * used as part of regular rapidsmpf logic, it is designed as a mechanism to
      * wait for the cluster to bootstrap and to wait for completion of all tasks.
+     * This method is not thread-safe.
      */
     void barrier();
 
