@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 
@@ -25,6 +27,14 @@ def test_add_get_stat() -> None:
     assert stats.add_stat("stat1", 4) == 5
     assert stats.get_stat("stat1") == {"count": 2, "value": 5.0}
     assert stats.get_stat("stat2") == {"count": 1, "value": 2}
+
+
+def test_get_nonexistent_stat() -> None:
+    """Test that accessing a non-existent statistic raises KeyError."""
+    stats = Statistics(enable=True)
+
+    with pytest.raises(KeyError, match="Statistic 'foo' does not exist"):
+        stats.get_stat("foo")
 
 
 def test_enable_memory_profiling(device_mr: rmm.mr.CudaMemoryResource) -> None:
