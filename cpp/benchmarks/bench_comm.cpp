@@ -240,13 +240,17 @@ struct AmCallbackContainer {
     AmCallbackContainer(std::shared_ptr<rapidsmpf::ucxx::UCXX> comm_)
         : comm(std::move(comm_)) {}
 
+    [[nodiscard]] std::lock_guard<std::mutex> acquire_lock() {
+        return std::lock_guard<std::mutex>(recv_mutex);
+    }
+
     void reset(
         std::vector<std::unique_ptr<Buffer>>&& recv_bufs, std::uint64_t iteration_id
     ) {
         std::vector<PendingMessage> messages_to_process;
 
         {
-            std::lock_guard<std::mutex> lock(recv_mutex);
+            auto lock = acquire_lock();
             this->recv_bufs = std::move(recv_bufs);
             recv_futures.clear();
             recv_count = 0;
@@ -278,7 +282,6 @@ struct AmCallbackContainer {
 
         // Process messages outside the lock to avoid deadlock
         for (auto& msg : messages_to_process) {
-            // std::lock_guard<std::mutex> lock(recv_mutex);
             process_message(msg.req, msg.header);
         }
     }
@@ -329,7 +332,7 @@ struct AmCallbackContainer {
             std::dynamic_pointer_cast<::ucxx::RequestAm>(req),
             std::move(recv_bufs[buf_index])
         );
-        std::lock_guard<std::mutex> lock(recv_mutex);
+        auto lock = acquire_lock();
         recv_futures.push_back(std::move(future));
         ++recv_count;
     }
@@ -365,8 +368,6 @@ std::unique_ptr<AmCallbackContainer> setup_am_callback(
                                            ::ucxx::AmReceiverCallbackInfo const& info
                                        ) {
             auto am_header = info.userHeader->as<AmHeader>();
-
-            // std::lock_guard<std::mutex> lock(container_ptr->recv_mutex);
 
             // Use the new queue-based approach that handles messages correctly
             // instead of dropping them
@@ -412,7 +413,6 @@ void run_am(
         std::uint64_t expected_recv_count =
             args.num_ops * (static_cast<std::uint64_t>(comm->nranks()) - 1);
 
-        // bool recv_done = false;
         size_t recv_count = 0;
         std::vector<std::unique_ptr<Communicator::Future>> recv_futures{};
         while (!send_futures.empty() || !recv_futures.empty()
@@ -422,7 +422,9 @@ void run_am(
                 std::ignore = comm->test_some(send_futures);
 
             {
-                std::lock_guard<std::mutex> lock(am_callback_container->recv_mutex);
+                // This block prevents holding the lock to test for completion/receive
+                // data
+                auto lock = am_callback_container->acquire_lock();
 
                 if (!am_callback_container->recv_futures.empty()) {
                     recv_futures.insert(
@@ -443,32 +445,6 @@ void run_am(
             // Process any pending messages that are now ready for this iteration
             am_callback_container->process_ready_pending_messages();
         }
-
-        // while (!send_futures.empty() || !am_callback_container->recv_futures.empty()
-        //        || am_callback_container->recv_count < expected_recv_count)
-        // {
-        //     std::lock_guard<std::mutex> lock(am_callback_container->recv_mutex);
-        //     if (!send_futures.empty())
-        //         std::ignore = comm->test_some(send_futures);
-        //     if (!am_callback_container->recv_futures.empty())
-        //         std::ignore = comm->test_some(am_callback_container->recv_futures);
-
-        //     // Process any pending messages that are now ready for this iteration
-        //     am_callback_container->process_ready_pending_messages();
-
-        //     // Debug output to help identify the issue
-        //     // static int debug_counter = 0;
-        //     // if (++debug_counter % 10000 == 0) {
-        //     //     std::cout << "Rank " << comm->rank() << " iteration " <<
-        //     iteration_id
-        //     //               << ": recv_count=" << am_callback_container->recv_count
-        //     //               << ", expected=" << expected_recv_count
-        //     //               << ", send_futures=" << send_futures.size() << ",
-        //     //               recv_futures="
-        //     //               << am_callback_container->recv_futures.size() <<
-        //     std::endl;
-        //     // }
-        // }
     }
 
     for (size_t i = 0; i < send_futures.size(); i++) {
