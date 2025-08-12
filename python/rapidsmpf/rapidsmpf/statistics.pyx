@@ -108,8 +108,9 @@ cdef class Statistics:
         cdef size_t count
         cdef double value
         try:
-            count = cpp_get_statistic_count(deref(self._handle), name_)
-            value = cpp_get_statistic_value(deref(self._handle), name_)
+            with nogil:
+                count = cpp_get_statistic_count(deref(self._handle), name_)
+                value = cpp_get_statistic_value(deref(self._handle), name_)
         except IndexError:
             # The C++ implementation throws a std::out_of_range exception
             # which we / Cython translate to a KeyError.
