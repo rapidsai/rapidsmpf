@@ -48,13 +48,13 @@ TEST_F(StreamingShuffler, Basic) {
                         full_input_table,
                         {static_cast<cudf::size_type>(i * chunk_size),
                          static_cast<cudf::size_type>((i + 1) * chunk_size)},
-                        ctx->stream()
+                        stream
                     )
                         .at(0),
-                    ctx->stream(),
+                    stream,
                     ctx->br()->device_mr()
                 ),
-                ctx->stream()
+                stream
             )
         );
     }

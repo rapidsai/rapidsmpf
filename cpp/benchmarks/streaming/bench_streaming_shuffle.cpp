@@ -208,8 +208,8 @@ streaming::Node consumer(
 
 Duration run(
     std::shared_ptr<streaming::Context> ctx,
-    std::shared_ptr<Communicator> comm,
-    ArgumentParser const& args
+    ArgumentParser const& args,
+    rmm::cuda_stream_view stream
 ) {
     constexpr std::int32_t min_val = 0;
     constexpr std::int32_t max_val = 10;
@@ -217,7 +217,7 @@ Duration run(
     constexpr uint32_t seed = cudf::DEFAULT_HASH_SEED;
     rapidsmpf::shuffler::PartID const total_num_partitions =
         args.num_output_partitions
-        * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
+        * static_cast<rapidsmpf::shuffler::PartID>(ctx->comm()->nranks());
     constexpr OpID op_id = 0;
 
     // Create streaming pipeline.
@@ -232,7 +232,8 @@ Duration run(
                 static_cast<cudf::size_type>(args.num_columns),
                 static_cast<cudf::size_type>(args.num_local_rows),
                 min_val,
-                max_val
+                max_val,
+                stream
             )
         );
         auto ch2 = streaming::make_shared_channel<streaming::PartitionMapChunk>();
@@ -340,7 +341,7 @@ int main(int argc, char** argv) {
                 stats = std::make_shared<Statistics>(/* enable = */ true);
             }
         }
-        double const elapsed = run(ctx, comm, args).count();
+        double const elapsed = run(ctx, args, stream).count();
         std::stringstream ss;
         ss << "elapsed: " << to_precision(elapsed)
            << " sec | local throughput: " << format_nbytes(args.local_nbytes / elapsed)

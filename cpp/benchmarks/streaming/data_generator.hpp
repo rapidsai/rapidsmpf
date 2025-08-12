@@ -37,6 +37,8 @@ namespace rapidsmpf::streaming::node {
  * @param nrows Number of rows per column in each table.
  * @param min_val Minimum inclusive value for the generated random integers.
  * @param max_val Maximum inclusive value for the generated random integers.
+ * @param max_val The CUDA stream on which to create the random tables. TODO: use a pool
+ * of CUDA streams.
  *
  * @return A streaming node that completes once all random tables have been generated
  *         and sent, and the channel has been drained.
@@ -48,7 +50,8 @@ Node random_table_generator(
     cudf::size_type ncolumns,
     cudf::size_type nrows,
     std::int32_t min_val,
-    std::int32_t max_val
+    std::int32_t max_val,
+    rmm::cuda_stream_view stream
 ) {
     ShutdownAtExit c{ch_out};
     co_await ctx->executor()->schedule();
@@ -59,14 +62,9 @@ Node random_table_generator(
             std::make_unique<TableChunk>(
                 seq,
                 std::make_unique<cudf::table>(random_table(
-                    ncolumns,
-                    nrows,
-                    min_val,
-                    max_val,
-                    ctx->stream(),
-                    ctx->br()->device_mr()
+                    ncolumns, nrows, min_val, max_val, stream, ctx->br()->device_mr()
                 )),
-                ctx->stream()
+                stream
             )
         );
     }

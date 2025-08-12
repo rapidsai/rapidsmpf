@@ -140,15 +140,6 @@ class Context {
     }
 
     /**
-     * @brief Returns the CUDA stream.
-     *
-     * @return The CUDA stream view.
-     */
-    rmm::cuda_stream_view stream() {
-        return stream_;
-    }
-
-    /**
      * @brief Returns the buffer resource.
      *
      * @return Raw pointer to the buffer resource.

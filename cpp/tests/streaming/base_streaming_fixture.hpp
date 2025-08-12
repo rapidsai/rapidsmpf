@@ -22,6 +22,7 @@ class BaseStreamingFixture : public ::testing::Test {
         rapidsmpf::config::Options options{
             rapidsmpf::config::get_environment_variables()
         };
+        stream = cudf::get_default_stream();
         br = std::make_unique<rapidsmpf::BufferResource>(mr_cuda);
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
             options,
@@ -31,6 +32,7 @@ class BaseStreamingFixture : public ::testing::Test {
         );
     }
 
+    rmm::cuda_stream_view stream;
     rmm::mr::cuda_memory_resource mr_cuda;
     std::unique_ptr<rapidsmpf::BufferResource> br;
     std::shared_ptr<rapidsmpf::streaming::Context> ctx;
