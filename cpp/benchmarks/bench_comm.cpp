@@ -243,19 +243,12 @@ class AmCallbackContainer {
             static_cast<std::uint64_t>(am_header.rank_)
             + am_header.op_num_ * static_cast<std::uint64_t>(comm_->nranks());
 
-        // Bounds check to prevent crashes
-        if (buf_index >= recv_bufs_.size() || !recv_bufs_[buf_index]) {
-            std::cerr << "ERROR: Invalid buffer index " << buf_index
-                      << " for recv_bufs_ of size " << recv_bufs_.size()
-                      << " (rank=" << am_header.rank_ << ", op=" << am_header.op_num_
-                      << ", iter=" << am_header.iteration_id_ << ")" << std::endl;
-            return;
-        }
-
         auto future = comm_->am_recv(
             std::dynamic_pointer_cast<::ucxx::RequestAm>(req),
             std::move(recv_bufs_[buf_index])
         );
+
+        // Lock needed only to modify attributes
         auto lock = acquire_lock();
         recv_futures_.push_back(std::move(future));
         ++recv_count_;
@@ -280,8 +273,6 @@ class AmCallbackContainer {
     void reset(
         std::vector<std::unique_ptr<Buffer>>&& recv_bufs, std::uint64_t iteration_id
     ) {
-        std::vector<PendingMessage> messages_to_process;
-
         {
             auto lock = acquire_lock();
             recv_bufs_ = std::move(recv_bufs);
@@ -291,6 +282,9 @@ class AmCallbackContainer {
         }
 
         process_ready_pending_messages();
+
+        // Required to ensure all workers have setup recv buffers before starting
+        std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm_)->barrier();
     }
 
     [[nodiscard]] std::uint64_t get_current_iteration() const {
@@ -461,9 +455,6 @@ Duration run(
 
     if (am_callback_container != nullptr) {
         am_callback_container->reset(std::move(recv_bufs), iteration_id);
-
-        // Required to ensure all workers have setup recv buffers before starting
-        std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm)->barrier();
     }
 
     auto const t0_elapsed = Clock::now();
