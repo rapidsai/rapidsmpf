@@ -37,7 +37,7 @@ class TableChunk {
      *
      * @param sequence_number Ordering identifier for the chunk.
      * @param table Device-resident table.
-     * @param stream the CUDA stream on which the table was created.
+     * @param stream The CUDA stream on which the table was created.
      */
     TableChunk(
         std::uint64_t sequence_number,
@@ -50,7 +50,7 @@ class TableChunk {
      *
      * @param sequence_number Ordering identifier for the chunk.
      * @param packed_columns Serialized device table.
-     * @param stream the CUDA stream on which the packed_columns was created.
+     * @param stream The CUDA stream on which the packed_columns was created.
      */
     TableChunk(
         std::uint64_t sequence_number,
@@ -63,7 +63,7 @@ class TableChunk {
      *
      * @param sequence_number Ordering identifier for the chunk.
      * @param packed_data Serialized host/device data with metadata.
-     * @param stream the CUDA stream on which the packed_data was created.
+     * @param stream The CUDA stream on which the packed_data was created.
      */
     TableChunk(
         std::uint64_t sequence_number,
