@@ -67,7 +67,7 @@ def _worker_rmpf_barrier(
     to a specific Dask worker.
     """
     for shuffle_id in shuffle_ids:
-        shuffler = get_shuffler(get_worker_context, shuffle_id)
+        shuffler = get_shuffler(get_worker_context(), shuffle_id)
         for pid in range(partition_count):
             shuffler.insert_finished(pid)
 
@@ -95,7 +95,7 @@ def _stage_shuffler(
     """
     worker = worker or get_worker()
     get_shuffler(
-        get_worker_context,
+        get_worker_context(worker),
         shuffle_id,
         partition_count=partition_count,
         worker=worker,
