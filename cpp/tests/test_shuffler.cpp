@@ -356,8 +356,6 @@ class ConcurrentShuffleTest
             stream,
             br.get()
         ));
-
-        shuffler.shutdown();
     }
 
     template <typename InsertFn, typename InsertFinishedFn>
@@ -611,59 +609,49 @@ class ShuffleInsertGroupedTest
 TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
     // note: we disable periodic spill check to avoid the buffer resource from
     // spilling chunks in the ready postbox
-    auto br = std::make_unique<rapidsmpf::BufferResource>(
-        mr(),
-        get_memory_available_map(rapidsmpf::MemoryType::DEVICE),
-        std::nullopt  // disable periodic spill check
+    rapidsmpf::BufferResource br(
+        mr(), get_memory_available_map(rapidsmpf::MemoryType::DEVICE), std::nullopt
     );
-    auto shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
+    rapidsmpf::shuffler::Shuffler shuffler(
+        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, &br
     );
 
     // pause the progress thread to avoid extracting from outgoing_postbox_
     progress_thread->pause();
 
-    auto chunks = generate_packed_data(br.get());
-    shuffler->concat_insert(std::move(chunks));
-    shuffler->insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
+    auto chunks = generate_packed_data(&br);
+    shuffler.concat_insert(std::move(chunks));
+    shuffler.insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
 
-    ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(*shuffler));
+    ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(shuffler));
 
     // resume progress thread - this will guarantee that shuffler progress function is
     // marked as done. This is important to ensure that the test does not hang.
     progress_thread->resume();
-
-    shuffler.reset();
-    br.reset();
 }
 
 TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
     // note: we disable periodic spill check to avoid the buffer resource from
     // spilling chunks in the ready postbox
-    auto br = std::make_unique<rapidsmpf::BufferResource>(
-        mr(),
-        get_memory_available_map(rapidsmpf::MemoryType::HOST),
-        std::nullopt  // disable periodic spill check
+    rapidsmpf::BufferResource br(
+        mr(), get_memory_available_map(rapidsmpf::MemoryType::HOST), std::nullopt
     );
-    auto shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
+    rapidsmpf::shuffler::Shuffler shuffler(
+        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, &br
     );
 
     // pause the progress thread to avoid extracting from outgoing_postbox_
     progress_thread->pause();
 
-    auto chunks = generate_packed_data(br.get());
-    shuffler->concat_insert(std::move(chunks));
-    shuffler->insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
+    auto chunks = generate_packed_data(&br);
+    shuffler.concat_insert(std::move(chunks));
+    shuffler.insert_finished(std::vector<rapidsmpf::shuffler::PartID>(pids));
 
-    ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(*shuffler));
+    ASSERT_NO_FATAL_FAILURE(verify_shuffler_state(shuffler));
 
     // resume progress thread - this will guarantee that shuffler progress function is
     // marked as done. This is important to ensure that the test does not hang.
     progress_thread->resume();
-
-    shuffler.reset();
-    br.reset();
 }
 
 INSTANTIATE_TEST_SUITE_P(
