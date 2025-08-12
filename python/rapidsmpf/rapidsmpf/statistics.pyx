@@ -29,8 +29,8 @@ cdef extern from *:
         return stats.get_stat(name).value();
     }
     """
-    size_t cpp_get_statistic_count(cpp_Statistics stats, string name) nogil except +
-    double cpp_get_statistic_value(cpp_Statistics stats, string name) nogil except +
+    size_t cpp_get_statistic_count(cpp_Statistics stats, string name) except + nogil
+    double cpp_get_statistic_value(cpp_Statistics stats, string name) except + nogil
 
 cdef class Statistics:
     """
