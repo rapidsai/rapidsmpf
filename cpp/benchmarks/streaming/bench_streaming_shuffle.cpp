@@ -327,10 +327,7 @@ int main(int argc, char** argv) {
     // We start with disabled statistics.
     auto stats = std::make_shared<Statistics>(/* enable = */ false);
 
-    unsigned int coro_thread_count = 4;
-    auto ctx = std::make_shared<streaming::Context>(
-        options, comm, stream, &br, coro_thread_count, stats
-    );
+    auto ctx = std::make_shared<streaming::Context>(options, comm, stream, &br, stats);
 
     std::vector<double> elapsed_vec;
     std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;

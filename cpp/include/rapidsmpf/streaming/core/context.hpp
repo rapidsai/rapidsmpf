@@ -67,7 +67,6 @@ class Context {
      * @param comm Shared pointer to a communicator.
      * @param stream CUDA stream used for memory operations.
      * @param br Buffer resource used to reserve host memory and perform the move.
-     * @param coro_thread_count Number of threads for the coroutine pool.
      * @param statistics The statistics instance to use (disabled by default).
      */
     Context(
@@ -75,15 +74,29 @@ class Context {
         std::shared_ptr<Communicator> comm,
         rmm::cuda_stream_view stream,
         BufferResource* br,
-        unsigned int coro_thread_count = std::thread::hardware_concurrency(),
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     )
         : Context(
-              std::move(options),
+              options,
               comm,
               std::make_shared<ProgressThread>(comm->logger(), statistics),
               coro::thread_pool::make_shared(
-                  coro::thread_pool::options{.thread_count = coro_thread_count}
+                  coro::thread_pool::options{
+                      .thread_count = options.get<std::uint32_t>(
+                          "num_streaming_threads",
+                          [](std::string const& s) {
+                              if (s.empty()) {
+                                  return 1;  // Default number of threads.
+                              }
+                              if (int v = std::stoi(s); v > 0) {
+                                  return v;
+                              }
+                              throw std::invalid_argument(
+                                  "num_streaming_threads must be positive"
+                              );
+                          }
+                      )
+                  }
               ),
               stream,
               std::move(br),
