@@ -92,25 +92,23 @@ class SharedResources {
     std::shared_ptr<::ucxx::Listener> listener_{nullptr};  ///< UCXX Listener
     Rank rank_{Rank(-1)};  ///< Rank of the current process
     Rank nranks_{0};  ///< Number of ranks in the communicator
-    std::atomic<Rank> next_rank_{
-        1
+    std::atomic<Rank> next_rank_{1
     };  ///< Rank to assign for the next client that connects (root only)
     EndpointsMap endpoints_{};  ///< Map of UCP handle to UCXX endpoints of known ranks
     RankToEndpointMap rank_to_endpoint_{};  ///< Map of ranks to UCXX endpoints
-    RankToListenerAddressMap
-        rank_to_listener_address_{};  ///< Map of rank to listener addresses
+    RankToListenerAddressMap rank_to_listener_address_{
+    };  ///< Map of rank to listener addresses
     const ::ucxx::AmReceiverCallbackInfo control_callback_info_{
         "rapidsmpf", 0
     };  ///< UCXX callback info for control messages
-    std::vector<std::unique_ptr<HostFuture>>
-        futures_{};  ///< Futures to incomplete requests.
+    std::vector<std::unique_ptr<HostFuture>> futures_{
+    };  ///< Futures to incomplete requests.
     std::vector<std::function<void()>> delayed_progress_callbacks_{};
     std::mutex endpoints_mutex_{};
     std::mutex futures_mutex_{};
     std::mutex listener_mutex_{};
     std::mutex delayed_progress_callbacks_mutex_{};
-    bool endpoint_error_handling_{
-        false
+    bool endpoint_error_handling_{false
     };  ///< Whether to request UCX endpoint error handling. This is currently disabled
         ///< as it impacts performance very negatively.
         ///< See https://github.com/rapidsai/rapidsmpf/issues/140.
@@ -286,8 +284,7 @@ class SharedResources {
      * @param ep_handle The handle of the endpoint to retrieve.
      * @return The endpoint associated with the specified handle.
      */
-    [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(
-        ucp_ep_h const ep_handle
+    [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(ucp_ep_h const ep_handle
     ) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
         return endpoints_.at(ep_handle);
@@ -880,8 +877,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
                         shared_resources->endpoint_error_handling()
                     );
                 },
-                [shared_resources](
-                    std::shared_ptr<::ucxx::Address> const& remote_address
+                [shared_resources](std::shared_ptr<::ucxx::Address> const& remote_address
                 ) {
                     auto root_endpoint =
                         shared_resources->get_worker()->createEndpointFromWorkerAddress(
@@ -1127,8 +1123,7 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     if (!msg_available) {
         return {nullptr, 0};
     }
-    auto msg = std::make_unique<std::vector<uint8_t>>(
-        info.length
+    auto msg = std::make_unique<std::vector<uint8_t>>(info.length
     );  // TODO: choose between host and device
 
     auto req = shared_resources_->get_worker()->tagRecv(
@@ -1287,6 +1282,69 @@ std::shared_ptr<UCXX> UCXX::split() {
     auto initialized_rank = std::make_unique<InitializedRank>(shared_resources);
     return std::make_shared<UCXX>(std::move(initialized_rank), options_);
 }
+
+namespace {
+
+/// @brief Temporary data structure to hold the message and deliver it to the callback.
+struct CallbackData {
+    std::unique_ptr<Buffer> msg;
+};
+
+}  // namespace
+
+std::unique_ptr<Communicator::Future> UCXX::send_with_cb(
+    std::unique_ptr<Buffer> msg,
+    Rank rank,
+    Tag tag,
+    std::function<void(std::unique_ptr<Buffer>)> send_cb
+) {
+    if (!msg->is_ready()) {
+        logger().warn("msg is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+    auto data_ptr = msg->data();
+    auto data_size = msg->size;
+    auto req = get_endpoint(rank)->tagSend(
+        data_ptr,
+        data_size,
+        tag_with_rank(shared_resources_->rank(), tag),
+        false,
+        [cb = std::move(send_cb)](ucs_status_t status, std::shared_ptr<void> data) {
+            RAPIDSMPF_EXPECTS(status == UCS_OK, "UCXX send failed", std::runtime_error);
+            cb(std::move(static_pointer_cast<CallbackData>(data)->msg));
+        },
+        std::make_shared<CallbackData>(std::move(msg))
+    );
+    return std::make_unique<Future>(req, nullptr);
+}
+
+std::unique_ptr<Communicator::Future> UCXX::recv_with_cb(
+    Rank rank,
+    Tag tag,
+    std::unique_ptr<Buffer> recv_buffer,
+    std::function<void(std::unique_ptr<Buffer>)> recv_cb
+) {
+    if (!recv_buffer->is_ready()) {
+        logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+    auto data_ptr = recv_buffer->data();
+    auto data_size = recv_buffer->size;
+    auto req = get_endpoint(rank)->tagRecv(
+        data_ptr,
+        data_size,
+        tag_with_rank(rank, tag),
+        ::ucxx::TagMaskFull,
+        false,
+        [cb = std::move(recv_cb)](ucs_status_t status, std::shared_ptr<void> data) {
+            RAPIDSMPF_EXPECTS(status == UCS_OK, "UCXX recv failed", std::runtime_error);
+            cb(std::move(static_pointer_cast<CallbackData>(data)->msg));
+        },
+        std::make_shared<CallbackData>(std::move(recv_buffer))
+    );
+    return std::make_unique<Future>(req, nullptr);
+}
+
 
 }  // namespace ucxx
 

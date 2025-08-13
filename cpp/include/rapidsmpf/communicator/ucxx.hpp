@@ -170,6 +170,50 @@ class UCXX final : public Communicator {
     ) override;
 
     /**
+     * Send a message with a callback.
+     *
+     * @param msg The message to send.
+     * @param rank The rank to send the message to.
+     * @param tag The tag to send the message with.
+     * @param send_cb The callback to call when the message is sent. The send buffer will
+     * be delivered into the callback at the end of send operation.
+     *
+     * @return A future representing the send operation.
+     * @note The returned future would not contain any data. Therefore, can not be used in
+     * `get_gpu_data` method. Use the callback to get the data.
+     *
+     * @throws std::runtime_error if the send operation fails.
+     */
+    std::unique_ptr<Communicator::Future> send_with_cb(
+        std::unique_ptr<Buffer> msg,
+        Rank rank,
+        Tag tag,
+        std::function<void(std::unique_ptr<Buffer>)> send_cb
+    );
+
+    /**
+     * Receive a message with a callback.
+     *
+     * @param rank The rank to receive the message from.
+     * @param tag The tag to receive the message with.
+     * @param recv_buffer The buffer to receive the message into.
+     * @param recv_cb The callback to call when the message is received. The receive
+     * buffer will be delivered into the callback at the end of receive operation.
+     *
+     * @return A future representing the receive operation.
+     * @note The returned future would not contain any data. Therefore, can not be used in
+     * `get_gpu_data` method. Use the callback to get the data.
+     *
+     * @throws std::runtime_error if the receive operation fails.
+     */
+    std::unique_ptr<Communicator::Future> recv_with_cb(
+        Rank rank,
+        Tag tag,
+        std::unique_ptr<Buffer> recv_buffer,
+        std::function<void(std::unique_ptr<Buffer>)> recv_cb
+    );
+
+    /**
      * @copydoc Communicator::recv_any
      *
      * @throws ucxx::Error if there is a message but the receive does not complete
