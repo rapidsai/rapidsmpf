@@ -214,6 +214,26 @@ class UCXX final : public Communicator {
     );
 
     /**
+     * Receive a message with a callback.
+     *
+     * @param tag The tag to receive the message with.
+     * @param recv_cb The callback to call when the message is received. The receive
+     * buffer will be delivered into the callback at the end of receive operation.
+     * @param br The buffer resource to allocate the receive buffer.
+     *
+     * @return A future representing the receive operation.
+     * @note The returned future would not contain any data. Therefore, can not be used in
+     * `get_gpu_data` method. Use the callback to get the data.
+     *
+     * @throws std::runtime_error if the receive operation fails.
+     */
+    std::unique_ptr<Communicator::Future> recv_any_with_cb(
+        Tag tag,
+        std::function<void(std::unique_ptr<Buffer>, Rank)> recv_cb,
+        BufferResource* br
+    );
+
+    /**
      * @copydoc Communicator::recv_any
      *
      * @throws ucxx::Error if there is a message but the receive does not complete

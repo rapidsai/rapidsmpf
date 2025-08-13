@@ -204,3 +204,115 @@ TEST_F(BaseCommunicatorTest, UcxxTagSendRecvCb) {
         std::ignore = ucx_comm->test_some(futures);
     }
 }
+
+TEST_F(BaseCommunicatorTest, UcxxTagSendRecvCb2) {
+    if (GlobalEnvironment->type() != TestEnvironmentType::UCXX) {
+        GTEST_SKIP() << "UCXX only";
+    }
+
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Need at least 2 ranks";
+    }
+    auto ucx_comm = static_cast<rapidsmpf::ucxx::UCXX*>(comm);
+    Tag const ready_for_data_tag{0, 1};
+    Tag const metadata_tag{0, 2};
+    Tag const gpu_data_tag{0, 3};
+
+    constexpr size_t nelems{8};
+    constexpr shuffler::detail::ChunkID chunk_id{100};
+    constexpr shuffler::PartID part_id{100};
+
+    // Create dummy metadata and data
+    auto metadata = iota_vector<std::uint8_t>(nelems, 100);  // Start from 100
+    auto data = iota_vector<std::uint8_t>(nelems, 200);  // Start from 200
+
+    // Create PackedData using the helper function
+    auto packed_data = create_packed_data(metadata, data, stream, br.get());
+
+    auto chunk = shuffler::detail::Chunk::from_packed_data(
+        chunk_id, part_id, std::move(packed_data)
+    );
+
+    std::vector<std::unique_ptr<Communicator::Future>> futures;
+
+    if (comm->rank() == 0) {
+        // send metadata to rank 1
+        auto serialized_metadata = chunk.serialize();
+
+        // send metadata to rank 1
+        futures.emplace_back(ucx_comm->send(
+            std::move(serialized_metadata), Rank(1), metadata_tag, br.get()
+        ));
+
+        // recive ready for data from rank 1
+        auto ready_for_data = std::make_unique<std::vector<uint8_t>>(
+            shuffler::detail::ReadyForDataMessage::byte_size
+        );
+
+        futures.emplace_back(ucx_comm->recv_with_cb(
+            Rank(1),
+            ready_for_data_tag,
+            br->move(std::move(ready_for_data)),
+            [&](std::unique_ptr<Buffer> buf) {
+                auto const& host_buf = br->move_to_host_vector(std::move(buf));
+                EXPECT_EQ(
+                    host_buf->size(), shuffler::detail::ReadyForDataMessage::byte_size
+                );
+
+                shuffler::detail::ChunkID cid;
+                std::memcpy(&cid, host_buf->data(), sizeof(cid));
+                EXPECT_EQ(cid, chunk_id);
+
+                auto data_buf = chunk.release_data_buffer();
+                data_buf->wait_for_ready();
+                futures.emplace_back(
+                    ucx_comm->send(std::move(data_buf), Rank(1), gpu_data_tag)
+                );
+            }
+        ));
+    } else if (comm->rank() == 1) {
+        auto recv_any_cb = [&](std::unique_ptr<Buffer> buf, Rank sender_rank) {
+            auto const& recv_buf = br->move_to_host_vector(std::move(buf));
+            EXPECT_EQ(sender_rank, 0);
+            auto chunk = shuffler::detail::Chunk::deserialize(*recv_buf);
+            EXPECT_EQ(chunk.chunk_id(), chunk_id);
+
+            // allocate data buffer
+            auto [reservation, ob] =
+                br->reserve(MemoryType::DEVICE, chunk.concat_data_size(), false);
+            auto data_buf = br->allocate(chunk.concat_data_size(), stream, reservation);
+            data_buf->wait_for_ready();
+
+            // post recv for data from rank 0
+            futures.emplace_back(ucx_comm->recv_with_cb(
+                sender_rank,
+                gpu_data_tag,
+                std::move(data_buf),
+                [data_size = chunk.concat_data_size()](std::unique_ptr<Buffer> buf) {
+                    EXPECT_EQ(data_size, buf->size);
+                }
+            ));
+
+            // send ready for data to rank 0
+            auto ready_for_data = std::make_unique<std::vector<uint8_t>>(
+                shuffler::detail::ReadyForDataMessage::byte_size
+            );
+            std::memcpy(ready_for_data->data(), &chunk_id, sizeof(chunk_id));
+            futures.emplace_back(ucx_comm->send(
+                br->move(std::move(ready_for_data)), Rank(0), ready_for_data_tag
+            ));
+        };
+
+        while (true) {
+            auto fut = ucx_comm->recv_any_with_cb(metadata_tag, recv_any_cb, br.get());
+            if (fut) {
+                futures.emplace_back(std::move(fut));
+                break;
+            }
+        }
+    }  // else do nothing
+
+    while (!futures.empty()) {
+        std::ignore = ucx_comm->test_some(futures);
+    }
+}

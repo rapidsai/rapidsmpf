@@ -92,23 +92,25 @@ class SharedResources {
     std::shared_ptr<::ucxx::Listener> listener_{nullptr};  ///< UCXX Listener
     Rank rank_{Rank(-1)};  ///< Rank of the current process
     Rank nranks_{0};  ///< Number of ranks in the communicator
-    std::atomic<Rank> next_rank_{1
+    std::atomic<Rank> next_rank_{
+        1
     };  ///< Rank to assign for the next client that connects (root only)
     EndpointsMap endpoints_{};  ///< Map of UCP handle to UCXX endpoints of known ranks
     RankToEndpointMap rank_to_endpoint_{};  ///< Map of ranks to UCXX endpoints
-    RankToListenerAddressMap rank_to_listener_address_{
-    };  ///< Map of rank to listener addresses
+    RankToListenerAddressMap
+        rank_to_listener_address_{};  ///< Map of rank to listener addresses
     const ::ucxx::AmReceiverCallbackInfo control_callback_info_{
         "rapidsmpf", 0
     };  ///< UCXX callback info for control messages
-    std::vector<std::unique_ptr<HostFuture>> futures_{
-    };  ///< Futures to incomplete requests.
+    std::vector<std::unique_ptr<HostFuture>>
+        futures_{};  ///< Futures to incomplete requests.
     std::vector<std::function<void()>> delayed_progress_callbacks_{};
     std::mutex endpoints_mutex_{};
     std::mutex futures_mutex_{};
     std::mutex listener_mutex_{};
     std::mutex delayed_progress_callbacks_mutex_{};
-    bool endpoint_error_handling_{false
+    bool endpoint_error_handling_{
+        false
     };  ///< Whether to request UCX endpoint error handling. This is currently disabled
         ///< as it impacts performance very negatively.
         ///< See https://github.com/rapidsai/rapidsmpf/issues/140.
@@ -284,7 +286,8 @@ class SharedResources {
      * @param ep_handle The handle of the endpoint to retrieve.
      * @return The endpoint associated with the specified handle.
      */
-    [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(ucp_ep_h const ep_handle
+    [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(
+        ucp_ep_h const ep_handle
     ) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
         return endpoints_.at(ep_handle);
@@ -877,7 +880,8 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
                         shared_resources->endpoint_error_handling()
                     );
                 },
-                [shared_resources](std::shared_ptr<::ucxx::Address> const& remote_address
+                [shared_resources](
+                    std::shared_ptr<::ucxx::Address> const& remote_address
                 ) {
                     auto root_endpoint =
                         shared_resources->get_worker()->createEndpointFromWorkerAddress(
@@ -1123,7 +1127,8 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     if (!msg_available) {
         return {nullptr, 0};
     }
-    auto msg = std::make_unique<std::vector<uint8_t>>(info.length
+    auto msg = std::make_unique<std::vector<uint8_t>>(
+        info.length
     );  // TODO: choose between host and device
 
     auto req = shared_resources_->get_worker()->tagRecv(
@@ -1343,6 +1348,35 @@ std::unique_ptr<Communicator::Future> UCXX::recv_with_cb(
         std::make_shared<CallbackData>(std::move(recv_buffer))
     );
     return std::make_unique<Future>(req, nullptr);
+}
+
+std::unique_ptr<Communicator::Future> UCXX::recv_any_with_cb(
+    Tag tag,
+    std::function<void(std::unique_ptr<Buffer>, Rank)> recv_cb,
+    BufferResource* br
+) {
+    auto [msg_available, info] = shared_resources_->get_worker()->tagProbe(
+        ::ucxx::Tag(static_cast<int>(tag)), UserTagMask
+    );
+
+    if (!msg_available) {
+        return nullptr;
+    }
+
+    auto sender_rank = static_cast<Rank>(info.senderTag >> 32);
+
+    // Create a buffer to receive the message
+    auto msg = std::make_unique<std::vector<uint8_t>>(info.length);
+
+    // Receive the message
+    return recv_with_cb(
+        sender_rank,
+        tag,
+        br->move(std::move(msg)),
+        [cb = std::move(recv_cb), sender_rank](std::unique_ptr<Buffer> msg) {
+            cb(std::move(msg), sender_rank);
+        }
+    );
 }
 
 
