@@ -28,31 +28,33 @@ class CudaEventRAII {
         RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event_, flags));
     }
 
-    ~CudaEventRAII() {
-        cudaEventDestroy(event_);
+    ~CudaEventRAII() noexcept {
+        if (event_) {
+            (void)cudaEventDestroy(event_);
+        }  // don't throw from dtor
     }
 
-    CudaEventRAII(const CudaEventRAII&) = delete;
-    CudaEventRAII& operator=(const CudaEventRAII&) = delete;
+    CudaEventRAII(CudaEventRAII const&) = delete;
+    CudaEventRAII& operator=(CudaEventRAII const&) = delete;
     CudaEventRAII(CudaEventRAII&&) = delete;
     CudaEventRAII& operator=(CudaEventRAII&&) = delete;
 
     /**
      * @brief Get the wrapped event.
      *
-     * @return The underlying event
+     * @return The underlying event.
      */
     [[nodiscard]] cudaEvent_t const& value() const noexcept {
         return event_;
     }
 
     /**
-     * @brief Implicit conversion to cudaEvent_t.
+     * @brief Implicit conversion to a cudaEvent_t reference.
      *
-     * @return The underlying event.
+     * @return Const reference to the underlying event.
      */
-    operator cudaEvent_t() const noexcept {
-        return value();
+    operator cudaEvent_t const&() const noexcept {
+        return event_;
     }
 
   private:
