@@ -25,10 +25,7 @@ class BaseStreamingFixture : public ::testing::Test {
         stream = cudf::get_default_stream();
         br = std::make_unique<rapidsmpf::BufferResource>(mr_cuda);
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
-            options,
-            std::make_shared<rapidsmpf::Single>(options),
-            cudf::get_default_stream(),
-            br.get()
+            options, std::make_shared<rapidsmpf::Single>(options), br.get()
         );
     }
 

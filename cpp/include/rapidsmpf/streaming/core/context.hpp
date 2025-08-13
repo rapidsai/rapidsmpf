@@ -31,7 +31,6 @@ class Context {
      * @param comm Shared pointer to a communicator.
      * @param progress_thread Shared pointer to a progress thread.
      * @param executor Shared pointer to a coroutine thread pool.
-     * @param stream CUDA stream used for asynchronous operations.
      * @param br Shared pointer to a buffer resource.
      * @param statistics Shared pointer to a statistics collector.
      */
@@ -40,7 +39,6 @@ class Context {
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
         std::shared_ptr<coro::thread_pool> executor,
-        rmm::cuda_stream_view stream,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics
     )
@@ -48,7 +46,6 @@ class Context {
           comm_{std::move(comm)},
           progress_thread_{std::move(progress_thread)},
           executor_{std::move(executor)},
-          stream_{std::move(stream)},
           br_{std::move(br)},
           statistics_{std::move(statistics)} {
         RAPIDSMPF_EXPECTS(comm_ != nullptr, "comm cannot be NULL");
@@ -65,14 +62,12 @@ class Context {
      *
      * @param options Configuration options.
      * @param comm Shared pointer to a communicator.
-     * @param stream CUDA stream used for memory operations.
      * @param br Buffer resource used to reserve host memory and perform the move.
      * @param statistics The statistics instance to use (disabled by default).
      */
     Context(
         config::Options options,
         std::shared_ptr<Communicator> comm,
-        rmm::cuda_stream_view stream,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     )
@@ -98,7 +93,6 @@ class Context {
                       )
                   }
               ),
-              stream,
               std::move(br),
               statistics
           ) {}
@@ -170,7 +164,6 @@ class Context {
     std::shared_ptr<Communicator> comm_;
     std::shared_ptr<ProgressThread> progress_thread_;
     std::shared_ptr<coro::thread_pool> executor_;
-    rmm::cuda_stream_view stream_;
     BufferResource* br_;
     std::shared_ptr<Statistics> statistics_;
 };
