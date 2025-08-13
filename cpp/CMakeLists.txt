@@ -194,14 +194,15 @@ target_include_directories(
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
-         $<TARGET_NAME_IF_EXISTS:libcoro::libcoro>
+  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
   PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
 target_compile_definitions(
-  rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>
-                   $<$<BOOL:${RAPIDSMPF_HAVE_UCXX}>:RAPIDSMPF_HAVE_UCXX>
+  rapidsmpf
+  PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>
+         $<$<BOOL:${RAPIDSMPF_HAVE_UCXX}>:RAPIDSMPF_HAVE_UCXX>
+         $<$<BOOL:${RAPIDSMPF_HAVE_STREAMING}>:RAPIDSMPF_HAVE_STREAMING>
 )
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})

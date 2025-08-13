@@ -13,8 +13,8 @@ function(find_and_configure_libcoro)
     libcoro 0.15.0
     GLOBAL_TARGETS libcoro
     CPM_ARGS
-    GIT_REPOSITORY https://github.com/madsbk/libcoro.git
-    GIT_TAG rapidsmpf
+    GIT_REPOSITORY https://github.com/jbaldwin/libcoro
+    GIT_TAG main
     GIT_SHALLOW TRUE
     OPTIONS "LIBCORO_FEATURE_NETWORKING OFF"
             "LIBCORO_EXTERNAL_DEPENDENCIES OFF"
@@ -23,9 +23,32 @@ function(find_and_configure_libcoro)
             "LIBCORO_BUILD_TESTS OFF"
             "BUILD_SHARED_LIBS OFF"
             "CMAKE_POSITION_INDEPENDENT_CODE ON"
-    EXCLUDE_FROM_ALL YES # Don't install liblibcoro.a (not a typo), it is only needed when building
-                         # librapidsmpf.so
   )
+
+  # Ignore compile warnings in libcoro.
+  set_property(TARGET libcoro PROPERTY SYSTEM TRUE)
+
+  # Remove old C++ flags used by libcoro, which isn't supported by TIDY.
+  get_target_property(flags libcoro COMPILE_OPTIONS)
+  list(FILTER flags EXCLUDE REGEX ".*-fconcepts.*|.*-fcoroutines.*")
+  set_target_properties(libcoro PROPERTIES COMPILE_OPTIONS "${flags}")
+  get_target_property(flags libcoro INTERFACE_COMPILE_OPTIONS)
+  list(FILTER flags EXCLUDE REGEX ".*-fconcepts.*|.*-fcoroutines.*")
+  set_target_properties(libcoro PROPERTIES INTERFACE_COMPILE_OPTIONS "${flags}")
 endfunction()
 
+# Save rapidsmpf's desired BUILD_SHARED_LIBS.
+set(_RAPIDSMPF_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+
+# Find libcoro, which overwrites BUILD_SHARED_LIBS to OFF.
+# <https://github.com/jbaldwin/libcoro/blob/main/CMakeLists.txt#L81>
 find_and_configure_libcoro()
+
+# Reset BUILD_SHARED_LIBS in cache if it was changed by libcoro.
+if(_RAPIDSMPF_BUILD_SHARED_LIBS)
+  # cmake-lint: disable=C0103
+  set(BUILD_SHARED_LIBS
+      ON
+      CACHE INTERNAL "Reset by rapidsmpf after libcoro" FORCE
+  )
+endif()
