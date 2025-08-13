@@ -47,7 +47,7 @@ class ArgumentParser {
                               " of  concurrent all-to-all operations (default: 1)\n"
                            << "  -m <mr>    RMM memory resource {cuda, pool, async, "
                               "managed} "
-                              "(default: cuda)\n"
+                              "(default: pool)\n"
                            << "  -r <num>   Number of runs (default: 1)\n"
                            << "  -w <num>   Number of warmup runs (default: 0)\n"
                            << "  -h         Display this help message\n";
@@ -114,6 +114,16 @@ class ArgumentParser {
             }
             RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
+
+        if (rmm_mr == "cuda") {
+            if (rank == 0) {
+                std::cout << "WARNING: using the default cuda memory resource "
+                             "(-m cuda) might leak memory! A limitation in UCX "
+                             "means that device memory send through IPC can "
+                             "never be freed."
+                          << std::endl;
+            }
+        }
     }
 
     void pprint(Communicator& comm) const {
@@ -134,7 +144,7 @@ class ArgumentParser {
 
     std::uint64_t num_runs{1};
     std::uint64_t num_warmups{0};
-    std::string rmm_mr{"cuda"};
+    std::string rmm_mr{"pool"};
     std::string comm_type{"mpi"};
     std::string operation{"all-to-all"};
     std::uint64_t msg_size{1 << 20};
