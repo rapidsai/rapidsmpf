@@ -19,4 +19,6 @@ rapids-pip-retry install \
     "${CPP_WHEELHOUSE}"/*.whl \
     "$(echo "${PYTHON_WHEELHOUSE}"/rapidsmpf_"${RAPIDS_PY_CUDA_SUFFIX}"*.whl)[test]"
 
+export NUMBA_CUDA_USE_NVIDIA_BINDING=0  # Temporary workaround for https://github.com/rapidsai/rapidsmpf/issues/434
+
 python -m pytest ./python/rapidsmpf/rapidsmpf/tests
