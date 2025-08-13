@@ -29,9 +29,7 @@ class CudaEventRAII {
     }
 
     ~CudaEventRAII() noexcept {
-        if (event_) {
-            (void)cudaEventDestroy(event_);
-        }  // don't throw from dtor
+        cudaEventDestroy(event_);
     }
 
     CudaEventRAII(CudaEventRAII const&) = delete;
