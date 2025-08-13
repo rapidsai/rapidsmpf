@@ -31,27 +31,27 @@ namespace rapidsmpf::streaming::node {
  * in a `TableChunk` and sent to the provided output channel in streaming fashion.
  *
  * @param ctx The context to use.
+ * @param stream The CUDA stream on which to create the random tables. TODO: use a pool
+ * of CUDA streams.
  * @param ch_out Output channel to which generated `TableChunk` objects are sent.
  * @param num_blocks Number of tables (chunks) to generate and send.
  * @param ncolumns Number of columns per generated table.
  * @param nrows Number of rows per column in each table.
  * @param min_val Minimum inclusive value for the generated random integers.
  * @param max_val Maximum inclusive value for the generated random integers.
- * @param max_val The CUDA stream on which to create the random tables. TODO: use a pool
- * of CUDA streams.
  *
  * @return A streaming node that completes once all random tables have been generated
  *         and sent, and the channel has been drained.
  */
 Node random_table_generator(
     std::shared_ptr<Context> ctx,
+    rmm::cuda_stream_view stream,
     SharedChannel<TableChunk> ch_out,
     std::uint64_t num_blocks,
     cudf::size_type ncolumns,
     cudf::size_type nrows,
     std::int32_t min_val,
-    std::int32_t max_val,
-    rmm::cuda_stream_view stream
+    std::int32_t max_val
 ) {
     ShutdownAtExit c{ch_out};
     co_await ctx->executor()->schedule();

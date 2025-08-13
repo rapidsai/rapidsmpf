@@ -66,27 +66,29 @@ class CudaEventRAII {
  * completes.
  *
  * Records @p event on @p secondary and inserts a wait for that event on @p primary.
- * This is fully asynchronous with respect to the host thread—no host-side blocking.
+ * This is fully asynchronous with respect to the host thread; no host-side blocking.
  *
- * @param primary    The stream that must not run ahead.
- * @param secondary  The stream whose already-enqueued work must complete first.
- * @param event         The CUDA event to use for synchronization.
- *                   The same event may be reused across multiple calls; the caller
- *                   does not need to provide a unique event each time.
+ * @param primary The stream that must not run ahead.
+ * @param secondary The stream whose already-enqueued work must complete first.
+ * @param event The CUDA event to use for synchronization. The same event may be reused
+ * across multiple calls; the caller does not need to provide an unique event each time.
  */
 void sync_streams(
     rmm::cuda_stream_view primary,
     rmm::cuda_stream_view secondary,
     cudaEvent_t const& event
 ) {
-    RAPIDSMPF_CUDA_TRY(cudaEventRecord(event, secondary));
-    RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(primary, event, 0));
+    if (primary.value() != secondary.value()) {
+        RAPIDSMPF_CUDA_TRY(cudaEventRecord(event, secondary));
+        RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(primary, event, 0));
+    }
 }
 
 }  // namespace
 
 Node shuffler(
     std::shared_ptr<Context> ctx,
+    rmm::cuda_stream_view stream,
     SharedChannel<PartitionMapChunk> ch_in,
     SharedChannel<PartitionVectorChunk> ch_out,
     OpID op_id,
@@ -96,9 +98,16 @@ Node shuffler(
     ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
 
-    // We delay the shuffler and stream creation until we got the first input chunk.
-    std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler;
-    rmm::cuda_stream_view stream;
+    rapidsmpf::shuffler::Shuffler shuffler(
+        ctx->comm(),
+        ctx->progress_thread(),
+        op_id,
+        total_num_partitions,
+        stream,
+        ctx->br(),
+        ctx->statistics(),
+        partition_owner
+    );
     CudaEventRAII event;
 
     std::uint64_t sequence_number{0};
@@ -107,27 +116,10 @@ Node shuffler(
         if (partition_map == nullptr) {
             break;
         }
+        // Make sure that the input chunk's stream is in sync with shuffler's stream.
+        sync_streams(stream, partition_map->stream, event);
 
-        if (shuffler == nullptr) {
-            // The shuffler uses the first chunk's CUDA stream.
-            stream = partition_map->stream;
-            shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-                ctx->comm(),
-                ctx->progress_thread(),
-                op_id,
-                total_num_partitions,
-                stream,
-                ctx->br(),
-                ctx->statistics(),
-                partition_owner
-            );
-        }
-        // If the shuffler's and the input chunk's stream doesn't match, we sync them.
-        if (stream.value() != partition_map->stream.value()) {
-            sync_streams(stream, partition_map->stream, event);
-        }
-
-        shuffler->insert(std::move(partition_map->data));
+        shuffler.insert(std::move(partition_map->data));
 
         // Use the highest input sequence number as the output sequence number.
         sequence_number = std::max(sequence_number, partition_map->sequence_number);
@@ -136,11 +128,11 @@ Node shuffler(
     // Tell the shuffler that we have no more input data.
     std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
     std::iota(finished.begin(), finished.end(), 0);
-    shuffler->insert_finished(std::move(finished));
+    shuffler.insert_finished(std::move(finished));
 
-    while (!shuffler->finished()) {
-        auto finished_partition = shuffler->wait_any();
-        auto packed_chunks = shuffler->extract(finished_partition);
+    while (!shuffler.finished()) {
+        auto finished_partition = shuffler.wait_any();
+        auto packed_chunks = shuffler.extract(finished_partition);
         co_await ch_out->send(
             std::make_unique<PartitionVectorChunk>(
                 sequence_number, std::move(packed_chunks)

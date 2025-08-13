@@ -227,13 +227,13 @@ Duration run(
         nodes.push_back(
             streaming::node::random_table_generator(
                 ctx,
+                stream,
                 ch1,
                 args.num_local_partitions,
                 static_cast<cudf::size_type>(args.num_columns),
                 static_cast<cudf::size_type>(args.num_local_rows),
                 min_val,
-                max_val,
-                stream
+                max_val
             )
         );
         auto ch2 = streaming::make_shared_channel<streaming::PartitionMapChunk>();
@@ -250,7 +250,7 @@ Duration run(
         );
         auto ch3 = streaming::make_shared_channel<streaming::PartitionVectorChunk>();
         nodes.push_back(
-            streaming::node::shuffler(ctx, ch2, ch3, op_id, total_num_partitions)
+            streaming::node::shuffler(ctx, stream, ch2, ch3, op_id, total_num_partitions)
         );
         auto ch4 = streaming::make_shared_channel<streaming::TableChunk>();
         nodes.push_back(streaming::node::unpack_and_concat(ctx, ch3, ch4));
