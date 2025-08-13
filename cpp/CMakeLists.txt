@@ -310,9 +310,14 @@ RAPIDSMPF.
     ]=]
 )
 
-# Export `RAPIDSMPF_HAVE_MPI/UCXX` to let downstream projects know if MPI/UCXX is supported.
-string(JOIN "\n" final_code_string "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_MPI}]=])"
-       "set(RAPIDSMPF_HAVE_UCXX [=[${RAPIDSMPF_HAVE_UCXX}]=])"
+# Export `RAPIDSMPF_HAVE_MPI/UCXX/STREAMING` to let downstream projects know what is supported.
+string(
+  JOIN
+  "\n"
+  final_code_string
+  "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_MPI}]=])"
+  "set(RAPIDSMPF_HAVE_UCXX [=[${RAPIDSMPF_HAVE_UCXX}]=])"
+  "set(RAPIDSMPF_HAVE_STREAMING [=[${RAPIDSMPF_HAVE_STREAMING}]=])"
 )
 
 rapids_export(
