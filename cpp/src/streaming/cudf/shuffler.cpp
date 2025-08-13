@@ -19,48 +19,66 @@ namespace {
  * @brief RAII wrapper for a CUDA event.
  *
  * Creates a CUDA event on construction and destroys it on destruction.
+ *
+ * TODO: move to a global place so it can be used throughout RapidsMPF.
  */
-struct CudaEventRAII {
-    cudaEvent_t event{};
-
+class CudaEventRAII {
+  public:
     CudaEventRAII(unsigned flags = cudaEventDisableTiming) {
-        RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event, flags));
+        RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event_, flags));
     }
 
     ~CudaEventRAII() {
-        if (event) {
-            cudaEventRecord(event);
-        }
+        cudaEventDestroy(event_);
     }
 
     CudaEventRAII(const CudaEventRAII&) = delete;
     CudaEventRAII& operator=(const CudaEventRAII&) = delete;
     CudaEventRAII(CudaEventRAII&&) = delete;
     CudaEventRAII& operator=(CudaEventRAII&&) = delete;
+
+    /**
+     * @brief Get the wrapped event.
+     *
+     * @return The underlying event
+     */
+    [[nodiscard]] cudaEvent_t const& value() const noexcept {
+        return event_;
+    }
+
+    /**
+     * @brief Implicit conversion to cudaEvent_t.
+     *
+     * @return The underlying event.
+     */
+    operator cudaEvent_t() const noexcept {
+        return value();
+    }
+
+  private:
+    cudaEvent_t event_{};
 };
 
 /**
  * @brief Make @p primary wait until all work currently enqueued on @p secondary
  * completes.
  *
- * Records @p ev on @p secondary and inserts a wait for that event on @p primary.
+ * Records @p event on @p secondary and inserts a wait for that event on @p primary.
  * This is fully asynchronous with respect to the host thread—no host-side blocking.
  *
  * @param primary    The stream that must not run ahead.
  * @param secondary  The stream whose already-enqueued work must complete first.
- * @param ev         The CUDA event to use for synchronization.
+ * @param event         The CUDA event to use for synchronization.
  *                   The same event may be reused across multiple calls; the caller
  *                   does not need to provide a unique event each time.
- *
- * @note Streams must be on the same device/context. Call this each time you finish
- *       enqueueing a batch on @p secondary and before enqueueing the dependent batch
- *       on @p primary.
  */
 void sync_streams(
-    rmm::cuda_stream_view primary, rmm::cuda_stream_view secondary, cudaEvent_t ev
+    rmm::cuda_stream_view primary,
+    rmm::cuda_stream_view secondary,
+    cudaEvent_t const& event
 ) {
-    RAPIDSMPF_CUDA_TRY(cudaEventRecord(ev, secondary));
-    RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(primary, ev, 0));
+    RAPIDSMPF_CUDA_TRY(cudaEventRecord(event, secondary));
+    RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(primary, event, 0));
 }
 
 }  // namespace
@@ -104,7 +122,7 @@ Node shuffler(
         }
         // If the shuffler's and the input chunk's stream doesn't match, we sync them.
         if (stream.value() != partition_map->stream.value()) {
-            sync_streams(stream, partition_map->stream, event.event);
+            sync_streams(stream, partition_map->stream, event);
         }
 
         shuffler->insert(std::move(partition_map->data));
