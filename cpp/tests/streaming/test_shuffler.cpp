@@ -78,7 +78,7 @@ TEST_F(StreamingShuffler, Basic) {
         );
 
         auto ch3 = make_shared_channel<PartitionVectorChunk>();
-        nodes.push_back(node::shuffler(ctx, ch2, ch3, op_id, num_partitions));
+        nodes.push_back(node::shuffler(ctx, stream, ch2, ch3, op_id, num_partitions));
 
         auto ch4 = make_shared_channel<TableChunk>();
         nodes.push_back(node::unpack_and_concat(ctx, ch3, ch4));
