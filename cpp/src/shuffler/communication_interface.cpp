@@ -92,12 +92,14 @@ DefaultShufflerCommunication::get_statistics() const {
 }
 
 void DefaultShufflerCommunication::receive_metadata_phase() {
+    auto& log = comm_->logger();
     while (true) {
         auto const [msg, src] = comm_->recv_any(metadata_tag_);
         if (!msg)
             break;
 
         auto chunk = detail::Chunk::deserialize(*msg, false);
+        log.debug("Received metadata from ", src, ": ", chunk);
         statistics_["metadata_received"]++;
         incoming_chunks_.insert({src, std::move(chunk)});
     }
@@ -108,8 +110,10 @@ void DefaultShufflerCommunication::setup_data_receives_phase(
     rmm::cuda_stream_view /* stream */,
     BufferResource* br
 ) {
+    auto& log = comm_->logger();
     for (auto it = incoming_chunks_.begin(); it != incoming_chunks_.end();) {
         auto& [src, chunk] = *it;
+        log.debug("checking incoming chunk data from ", src, ": ", chunk);
 
         if (chunk.concat_data_size() > 0) {
             if (!chunk.is_data_buffer_set()) {
@@ -122,24 +126,21 @@ void DefaultShufflerCommunication::setup_data_receives_phase(
             }
 
             // Extract the chunk and set up for data transfer
-            auto src_rank = src;
-            auto chunk_id = chunk.chunk_id();
-            auto data_buffer = chunk.release_data_buffer();
-            auto [extracted_src, extracted_chunk] = extract_item(incoming_chunks_, it++);
+            auto [src, chunk] = extract_item(incoming_chunks_, it++);
 
-            auto future = comm_->recv(src_rank, gpu_data_tag_, std::move(data_buffer));
+            auto future = comm_->recv(src, gpu_data_tag_, chunk.release_data_buffer());
             RAPIDSMPF_EXPECTS(
-                in_transit_futures_.insert({chunk_id, std::move(future)}).second,
+                in_transit_futures_.insert({chunk.chunk_id(), std::move(future)}).second,
                 "in transit future already exists"
             );
             RAPIDSMPF_EXPECTS(
-                in_transit_chunks_.insert({chunk_id, std::move(extracted_chunk)}).second,
+                in_transit_chunks_.insert({chunk.chunk_id(), std::move(chunk)}).second,
                 "in transit chunk already exists"
             );
 
             fire_and_forget_.push_back(comm_->send(
-                detail::ReadyForDataMessage{chunk_id}.pack(),
-                src_rank,
+                detail::ReadyForDataMessage{chunk.chunk_id()}.pack(),
+                src,
                 ready_for_data_tag_,
                 br
             ));
@@ -176,40 +177,14 @@ std::vector<detail::Chunk> DefaultShufflerCommunication::complete_data_transfers
 
     // Handle completed data transfers - use the same approach as the original code
     if (!in_transit_futures_.empty()) {
-        // Convert futures to vector and track chunk IDs
-        std::vector<std::unique_ptr<Communicator::Future>> futures_vec;
-        std::vector<detail::ChunkID> chunk_ids_vec;
-
-        // Extract futures and store chunk IDs
-        for (auto it = in_transit_futures_.begin(); it != in_transit_futures_.end(); ++it)
-        {
-            futures_vec.push_back(std::move(it->second));
-            chunk_ids_vec.push_back(it->first);
-        }
-        in_transit_futures_.clear();
-
-        // Test for completed futures
-        auto completed_futures = comm_->test_some(futures_vec);
-
-        // Process completed futures
-        // Since we have parallel arrays, completed futures are from the end
-        size_t num_completed = completed_futures.size();
-        size_t original_size = chunk_ids_vec.size();
-
-        for (size_t i = 0; i < num_completed; ++i) {
-            // Get the chunk ID from the end of the array (test_some processes from end)
-            auto chunk_id = chunk_ids_vec[original_size - num_completed + i];
-
-            auto chunk = extract_value(in_transit_chunks_, chunk_id);
-            chunk.set_data_buffer(comm_->get_gpu_data(std::move(completed_futures[i])));
+        std::vector<rapidsmpf::shuffler::detail::ChunkID> finished =
+            comm_->test_some(in_transit_futures_);
+        for (auto cid : finished) {
+            auto chunk = extract_value(in_transit_chunks_, cid);
+            auto future = extract_value(in_transit_futures_, cid);
+            chunk.set_data_buffer(comm_->get_gpu_data(std::move(future)));
             statistics_["data_received"]++;
             completed_chunks.push_back(std::move(chunk));
-        }
-
-        // Put back any remaining futures (those that weren't completed)
-        for (size_t i = 0; i < futures_vec.size(); ++i) {
-            auto chunk_id = chunk_ids_vec[i];
-            in_transit_futures_[chunk_id] = std::move(futures_vec[i]);
         }
     }
 
