@@ -171,6 +171,10 @@ Duration run(
         }
     }
 
+    // Wait for all buffers to be ready before proceeding. Since allocations are
+    // stream-ordered, we only need to check the last one in the stream.
+    recv_bufs.back()->wait_for_ready();
+
     auto const t0_elapsed = Clock::now();
 
     Tag const tag{0, 1};
