@@ -25,11 +25,13 @@ void DefaultShufflerCommunication::submit_outgoing_chunks(
     std::function<Rank(PartID)> partition_owner,
     BufferResource* br
 ) {
+    auto& log = comm_->logger();
     auto const t0 = std::chrono::steady_clock::now();
 
     // Store chunks for sending and initiate metadata transmission
     for (auto&& chunk : chunks) {
         auto dst = partition_owner(chunk.part_id(0));
+        log.trace("send metadata to ", dst, ": ", chunk);
         RAPIDSMPF_EXPECTS(dst != rank_, "sending chunk to ourselves");
 
         fire_and_forget_.push_back(
@@ -99,7 +101,7 @@ void DefaultShufflerCommunication::receive_metadata_phase() {
             break;
 
         auto chunk = detail::Chunk::deserialize(*msg, false);
-        log.debug("Received metadata from ", src, ": ", chunk);
+        log.trace("recv_any from ", src, ": ", chunk);
         incoming_chunks_.insert({src, std::move(chunk)});
     }
 
@@ -116,7 +118,7 @@ void DefaultShufflerCommunication::setup_data_receives_phase(
 
     for (auto it = incoming_chunks_.begin(); it != incoming_chunks_.end();) {
         auto& [src, chunk] = *it;
-        log.debug("checking incoming chunk data from ", src, ": ", chunk);
+        log.trace("checking incoming chunk data from ", src, ": ", chunk);
 
         if (chunk.concat_data_size() > 0) {
             if (!chunk.is_data_buffer_set()) {
