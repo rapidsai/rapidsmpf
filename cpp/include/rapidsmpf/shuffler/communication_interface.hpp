@@ -29,9 +29,9 @@ namespace rapidsmpf::shuffler {
  * to drive the communication forward while maintaining full control over the
  * underlying communication patterns and optimizations.
  */
-class ShufflerCommunicationInterface {
+class CommunicationInterface {
   public:
-    virtual ~ShufflerCommunicationInterface() = default;
+    virtual ~CommunicationInterface() = default;
 
     /**
      * @brief Submit outgoing chunks for communication.
@@ -78,23 +78,23 @@ class ShufflerCommunicationInterface {
 };
 
 /**
- * @brief Tag implementation of ShufflerCommunicationInterface.
+ * @brief Tag implementation of CommunicationInterface.
  *
  * This implementation owns and manages all communication state that was previously
  * held in the Progress class. It replicates the exact current communication behavior
  * while providing a self-contained, stateful communication manager.
  */
-class TagShufflerCommunication : public ShufflerCommunicationInterface {
+class TagCommunicationInterface : public CommunicationInterface {
   public:
     /**
-     * @brief Constructor for TagShufflerCommunication.
+     * @brief Constructor for TagCommunicationInterface.
      *
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
      * @param rank The current rank (for logging and validation).
      * @param statistics The statistics to use for tracking communication operations.
      */
-    TagShufflerCommunication(
+    TagCommunicationInterface(
         std::shared_ptr<Communicator> comm,
         OpID op_id,
         Rank rank,

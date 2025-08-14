@@ -13,7 +13,7 @@
 
 namespace rapidsmpf::shuffler {
 
-TagShufflerCommunication::TagShufflerCommunication(
+TagCommunicationInterface::TagCommunicationInterface(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
     Rank rank,
@@ -26,7 +26,7 @@ TagShufflerCommunication::TagShufflerCommunication(
       gpu_data_tag_{op_id, 3},
       statistics_{std::move(statistics)} {}
 
-void TagShufflerCommunication::submit_outgoing_chunks(
+void TagCommunicationInterface::submit_outgoing_chunks(
     std::vector<detail::Chunk>&& chunks,
     std::function<Rank(PartID)> partition_owner,
     BufferResource* br
@@ -66,7 +66,7 @@ void TagShufflerCommunication::submit_outgoing_chunks(
     );
 }
 
-std::vector<detail::Chunk> TagShufflerCommunication::process_communication(
+std::vector<detail::Chunk> TagCommunicationInterface::process_communication(
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
     rmm::cuda_stream_view stream,
     BufferResource* br
@@ -87,7 +87,7 @@ std::vector<detail::Chunk> TagShufflerCommunication::process_communication(
     return completed_chunks;
 }
 
-bool TagShufflerCommunication::is_idle() const {
+bool TagCommunicationInterface::is_idle() const {
     return fire_and_forget_.empty() && incoming_chunks_.empty()
            && outgoing_chunks_.empty() && in_transit_chunks_.empty()
            && in_transit_futures_.empty()
@@ -98,7 +98,7 @@ bool TagShufflerCommunication::is_idle() const {
            );
 }
 
-void TagShufflerCommunication::receive_metadata_phase() {
+void TagCommunicationInterface::receive_metadata_phase() {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
 
@@ -115,7 +115,7 @@ void TagShufflerCommunication::receive_metadata_phase() {
     statistics_->add_duration_stat("comms-interface-receive-metadata", Clock::now() - t0);
 }
 
-void TagShufflerCommunication::setup_data_receives_phase(
+void TagCommunicationInterface::setup_data_receives_phase(
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
     rmm::cuda_stream_view /* stream */,
     BufferResource* br
@@ -168,7 +168,7 @@ void TagShufflerCommunication::setup_data_receives_phase(
     );
 }
 
-void TagShufflerCommunication::process_ready_acks_phase() {
+void TagCommunicationInterface::process_ready_acks_phase() {
     auto const t0 = Clock::now();
 
     for (auto& [dst, futures] : ready_ack_receives_) {
@@ -191,7 +191,7 @@ void TagShufflerCommunication::process_ready_acks_phase() {
     );
 }
 
-std::vector<detail::Chunk> TagShufflerCommunication::complete_data_transfers_phase() {
+std::vector<detail::Chunk> TagCommunicationInterface::complete_data_transfers_phase() {
     auto const t0 = Clock::now();
 
     std::vector<detail::Chunk> completed_chunks;
@@ -226,7 +226,7 @@ std::vector<detail::Chunk> TagShufflerCommunication::complete_data_transfers_pha
     return completed_chunks;
 }
 
-void TagShufflerCommunication::cleanup_completed_operations() {
+void TagCommunicationInterface::cleanup_completed_operations() {
     if (!fire_and_forget_.empty()) {
         std::ignore = comm_->test_some(fire_and_forget_);
     }

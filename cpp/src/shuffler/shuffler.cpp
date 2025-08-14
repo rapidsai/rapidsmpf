@@ -292,7 +292,7 @@ Shuffler::Shuffler(
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
     PartitionOwner partition_owner,
-    std::unique_ptr<ShufflerCommunicationInterface> comm_interface
+    std::unique_ptr<CommunicationInterface> comm_interface
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{partition_owner},
@@ -311,7 +311,7 @@ Shuffler::Shuffler(
       comm_{std::move(comm)},
       comm_interface_{
           comm_interface ? std::move(comm_interface)
-                         : std::make_unique<TagShufflerCommunication>(
+                         : std::make_unique<TagCommunicationInterface>(
                                comm_, op_id, comm_->rank(), statistics
                            )
       },
