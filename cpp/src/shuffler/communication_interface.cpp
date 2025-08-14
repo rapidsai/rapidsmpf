@@ -18,20 +18,15 @@ DefaultShufflerCommunication::DefaultShufflerCommunication(
       rank_(rank),
       ready_for_data_tag_{op_id, 1},
       metadata_tag_{op_id, 2},
-      gpu_data_tag_{op_id, 3} {
-    statistics_["metadata_sent"] = 0;
-    statistics_["metadata_received"] = 0;
-    statistics_["data_sent"] = 0;
-    statistics_["data_received"] = 0;
-    statistics_["ready_signals_sent"] = 0;
-    statistics_["ready_signals_received"] = 0;
-}
+      gpu_data_tag_{op_id, 3} {}
 
 void DefaultShufflerCommunication::submit_outgoing_chunks(
     std::vector<detail::Chunk>&& chunks,
     std::function<Rank(PartID)> partition_owner,
     BufferResource* br
 ) {
+    auto const t0 = std::chrono::steady_clock::now();
+
     // Store chunks for sending and initiate metadata transmission
     for (auto&& chunk : chunks) {
         auto dst = partition_owner(chunk.part_id(0));
@@ -40,7 +35,6 @@ void DefaultShufflerCommunication::submit_outgoing_chunks(
         fire_and_forget_.push_back(
             comm_->send(chunk.serialize(), dst, metadata_tag_, br)
         );
-        statistics_["metadata_sent"]++;
 
         if (chunk.concat_data_size() > 0) {
             RAPIDSMPF_EXPECTS(
@@ -58,6 +52,10 @@ void DefaultShufflerCommunication::submit_outgoing_chunks(
             ));
         }
     }
+
+    statistics_.add_duration_stat(
+        "comms-interface-submit-outgoing-chunks", Clock::now() - t0
+    );
 }
 
 std::vector<detail::Chunk> DefaultShufflerCommunication::process_communication(
@@ -93,6 +91,8 @@ DefaultShufflerCommunication::get_statistics() const {
 
 void DefaultShufflerCommunication::receive_metadata_phase() {
     auto& log = comm_->logger();
+    auto const t0 = std::chrono::steady_clock::now();
+
     while (true) {
         auto const [msg, src] = comm_->recv_any(metadata_tag_);
         if (!msg)
@@ -100,9 +100,10 @@ void DefaultShufflerCommunication::receive_metadata_phase() {
 
         auto chunk = detail::Chunk::deserialize(*msg, false);
         log.debug("Received metadata from ", src, ": ", chunk);
-        statistics_["metadata_received"]++;
         incoming_chunks_.insert({src, std::move(chunk)});
     }
+
+    statistics_.add_duration_stat("comms-interface-receive-metadata", Clock::now() - t0);
 }
 
 void DefaultShufflerCommunication::setup_data_receives_phase(
@@ -111,6 +112,8 @@ void DefaultShufflerCommunication::setup_data_receives_phase(
     BufferResource* br
 ) {
     auto& log = comm_->logger();
+    auto const t0 = std::chrono::steady_clock::now();
+
     for (auto it = incoming_chunks_.begin(); it != incoming_chunks_.end();) {
         auto& [src, chunk] = *it;
         log.debug("checking incoming chunk data from ", src, ": ", chunk);
@@ -144,16 +147,21 @@ void DefaultShufflerCommunication::setup_data_receives_phase(
                 ready_for_data_tag_,
                 br
             ));
-            statistics_["ready_signals_sent"]++;
         } else {
             // Control/metadata-only chunk - will be handled in
             // complete_data_transfers_phase
             ++it;
         }
     }
+
+    statistics_.add_duration_stat(
+        "comms-interface-setup-data-receives", Clock::now() - t0
+    );
 }
 
 void DefaultShufflerCommunication::process_ready_acks_phase() {
+    auto const t0 = std::chrono::steady_clock::now();
+
     for (auto& [dst, futures] : ready_ack_receives_) {
         auto finished = comm_->test_some(futures);
         for (auto&& future : finished) {
@@ -162,17 +170,21 @@ void DefaultShufflerCommunication::process_ready_acks_phase() {
                 const_cast<Buffer const&>(*msg_data).host()
             );
             auto chunk = extract_value(outgoing_chunks_, msg.cid);
-            statistics_["ready_signals_received"]++;
-            statistics_["data_sent"]++;
 
             fire_and_forget_.push_back(
                 comm_->send(chunk.release_data_buffer(), dst, gpu_data_tag_)
             );
         }
     }
+
+    statistics_.add_duration_stat(
+        "comms-interface-process-ready-acks", Clock::now() - t0
+    );
 }
 
 std::vector<detail::Chunk> DefaultShufflerCommunication::complete_data_transfers_phase() {
+    auto const t0 = std::chrono::steady_clock::now();
+
     std::vector<detail::Chunk> completed_chunks;
 
     // Handle completed data transfers - use the same approach as the original code
@@ -183,7 +195,6 @@ std::vector<detail::Chunk> DefaultShufflerCommunication::complete_data_transfers
             auto chunk = extract_value(in_transit_chunks_, cid);
             auto future = extract_value(in_transit_futures_, cid);
             chunk.set_data_buffer(comm_->get_gpu_data(std::move(future)));
-            statistics_["data_received"]++;
             completed_chunks.push_back(std::move(chunk));
         }
     }
@@ -198,6 +209,10 @@ std::vector<detail::Chunk> DefaultShufflerCommunication::complete_data_transfers
             ++it;
         }
     }
+
+    statistics_.add_duration_stat(
+        "comms-interface-complete-data-transfers", Clock::now() - t0
+    );
 
     return completed_chunks;
 }
