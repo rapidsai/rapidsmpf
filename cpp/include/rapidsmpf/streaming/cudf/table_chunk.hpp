@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 #include <cudf/contiguous_split.hpp>
 #include <cudf/table/table.hpp>
@@ -177,7 +178,9 @@ class TableChunk {
     std::unique_ptr<cudf::packed_columns> packed_columns_;
     std::unique_ptr<PackedData> packed_data_;
 
-    cudf::table_view table_view_;
+    // Has value iff this TableChunk is available.
+    std::optional<cudf::table_view> table_view_;
+
     // Zero initialized data allocation size (one for each memory type).
     std::array<std::size_t, MEMORY_TYPES.size()> data_alloc_size_ = {};
     std::size_t make_available_cost_;  // For now, only device memory cost is tracked.
