@@ -73,7 +73,7 @@ std::size_t TableChunk::data_alloc_size(MemoryType mem_type) const {
 }
 
 bool TableChunk::is_available() const {
-    return table_ != nullptr || packed_columns_ != nullptr;
+    return table_view_.has_value();
 }
 
 std::size_t TableChunk::make_available_cost() const {
@@ -105,7 +105,7 @@ cudf::table_view TableChunk::table_view() const {
         "unspilled and unpacked (see `make_available`).",
         std::invalid_argument
     );
-    return table_view_;
+    return table_view_.value();
 }
 
 TableChunk TableChunk::spill_to_host(rmm::cuda_stream_view stream, BufferResource* br) {
