@@ -22,7 +22,9 @@ module = "rapidsmpf.*"
 disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=append" # Dask subprocesses fail to import RAPIDSMPF otherwise
+addopts = [
+  "--import-mode=importlib", # Dask subprocesses fail to import RAPIDSMPF otherwise
+]
 
 [tool.ruff]
 line-length = 88
