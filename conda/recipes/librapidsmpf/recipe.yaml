@@ -59,7 +59,7 @@ cache:
       - cuda-cudart-dev
       - librmm =${{ minor_version }}
       - libcudf =${{ minor_version }}
-      - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+      - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
       - ucxx ${{ ucxx_version }}
 
 outputs:
@@ -86,14 +86,14 @@ outputs:
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
         - libcudf =${{ minor_version }}
-        - openmpi
+        - openmpi >=5.0
         - ucxx ${{ ucxx_version }}
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cudart
         - librmm =${{ minor_version }}
         - libcudf =${{ minor_version }}
-        - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+        - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
         - ucxx ${{ ucxx_version }}
       ignore_run_exports:
         from_package:
@@ -128,14 +128,14 @@ outputs:
         - cuda-version =${{ cuda_version }}
         - libcudf =${{ minor_version }}
         - librmm =${{ minor_version }}
-        - openmpi
+        - openmpi >=5.0
         - ${{ pin_subpackage("librapidsmpf", exact=True) }}
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cudart
         - librmm =${{ minor_version }}
         - libcudf =${{ minor_version }}
-        - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+        - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
         - ucxx ${{ ucxx_version }}
       ignore_run_exports:
         from_package:

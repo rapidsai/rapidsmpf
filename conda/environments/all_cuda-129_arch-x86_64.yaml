@@ -33,7 +33,7 @@ dependencies:
 - ninja
 - numpydoc
 - nvidia-ml-py
-- openmpi
+- openmpi >=5.0
 - pre-commit
 - psutil
 - pydata-sphinx-theme
