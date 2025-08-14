@@ -192,7 +192,7 @@ def rapidsmpf_shuffle_graph(
         _barrier,
         (shuffle_id,),
         partition_count_out,
-        list(graph.keys()),
+        *graph.keys(),
     )
 
     # Add extraction tasks
