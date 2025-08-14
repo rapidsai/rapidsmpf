@@ -183,7 +183,7 @@ class Shuffler::Progress {
 
             if (!ready_chunks.empty()) {
                 std::vector<detail::Chunk> chunks_to_submit;
-                for (auto&& [_, chunk] : ready_chunks) {
+                for (auto&& chunk : ready_chunks) {
                     auto dst =
                         shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0));
                     log.trace("submitting chunk to ", dst, ": ", chunk);

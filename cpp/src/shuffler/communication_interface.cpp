@@ -105,7 +105,7 @@ void DefaultShufflerCommunication::receive_metadata_phase() {
 
 void DefaultShufflerCommunication::setup_data_receives_phase(
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
-    rmm::cuda_stream_view stream,
+    rmm::cuda_stream_view /* stream */,
     BufferResource* br
 ) {
     for (auto it = incoming_chunks_.begin(); it != incoming_chunks_.end();) {
@@ -174,24 +174,49 @@ void DefaultShufflerCommunication::process_ready_acks_phase() {
 std::vector<detail::Chunk> DefaultShufflerCommunication::complete_data_transfers_phase() {
     std::vector<detail::Chunk> completed_chunks;
 
-    // Handle completed data transfers
+    // Handle completed data transfers - use the same approach as the original code
     if (!in_transit_futures_.empty()) {
-        std::vector<std::pair<detail::ChunkID, std::unique_ptr<Communicator::Future>>>
-            finished;
-        for (auto it = in_transit_futures_.begin(); it != in_transit_futures_.end();) {
-            if (it->second->is_ready()) {
-                finished.emplace_back(it->first, std::move(it->second));
-                it = in_transit_futures_.erase(it);
-            } else {
-                ++it;
-            }
-        }
+        // Convert futures to vector and track chunk IDs
+        std::vector<std::unique_ptr<Communicator::Future>> futures_vec;
+        std::vector<detail::ChunkID> chunk_ids_vec;
 
-        for (auto&& [cid, future] : finished) {
-            auto chunk = extract_value(in_transit_chunks_, cid);
-            chunk.set_data_buffer(comm_->get_gpu_data(std::move(future)));
+        // Extract futures and store chunk IDs
+        for (auto it = in_transit_futures_.begin(); it != in_transit_futures_.end(); ++it)
+        {
+            futures_vec.push_back(std::move(it->second));
+            chunk_ids_vec.push_back(it->first);
+        }
+        in_transit_futures_.clear();
+
+        // Test for completed futures
+        auto completed_futures = comm_->test_some(futures_vec);
+
+        // Find which futures completed by comparing pointers
+        std::vector<detail::ChunkID> completed_chunk_ids;
+        for (auto&& completed_future : completed_futures) {
+            // Find the corresponding chunk ID
+            for (size_t i = 0; i < futures_vec.size(); ++i) {
+                if (!futures_vec[i]) {  // This future was completed and removed
+                    completed_chunk_ids.push_back(chunk_ids_vec[i]);
+                    chunk_ids_vec.erase(
+                        chunk_ids_vec.begin() + static_cast<std::ptrdiff_t>(i)
+                    );
+                    break;
+                }
+            }
+
+            // Process the completed future
+            auto chunk = extract_value(in_transit_chunks_, completed_chunk_ids.back());
+            chunk.set_data_buffer(comm_->get_gpu_data(std::move(completed_future)));
             statistics_["data_received"]++;
             completed_chunks.push_back(std::move(chunk));
+        }
+
+        // Put back any remaining futures
+        for (size_t i = 0; i < futures_vec.size(); ++i) {
+            if (futures_vec[i]) {
+                in_transit_futures_[chunk_ids_vec[i]] = std::move(futures_vec[i]);
+            }
         }
     }
 
