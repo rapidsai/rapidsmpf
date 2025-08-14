@@ -11,7 +11,7 @@
 
 namespace rapidsmpf::shuffler {
 
-DefaultShufflerCommunication::DefaultShufflerCommunication(
+TagShufflerCommunication::TagShufflerCommunication(
     std::shared_ptr<Communicator> comm, OpID op_id, Rank rank
 )
     : comm_(std::move(comm)),
@@ -20,7 +20,7 @@ DefaultShufflerCommunication::DefaultShufflerCommunication(
       metadata_tag_{op_id, 2},
       gpu_data_tag_{op_id, 3} {}
 
-void DefaultShufflerCommunication::submit_outgoing_chunks(
+void TagShufflerCommunication::submit_outgoing_chunks(
     std::vector<detail::Chunk>&& chunks,
     std::function<Rank(PartID)> partition_owner,
     BufferResource* br
@@ -60,10 +60,9 @@ void DefaultShufflerCommunication::submit_outgoing_chunks(
     );
 }
 
-std::vector<detail::Chunk> DefaultShufflerCommunication::process_communication(
+std::vector<detail::Chunk> TagShufflerCommunication::process_communication(
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
+    rmm::cuda_stream_view stream BufferResource* br
 ) {
     auto const t0 = std::chrono::steady_clock::now();
 
@@ -81,7 +80,7 @@ std::vector<detail::Chunk> DefaultShufflerCommunication::process_communication(
     return completed_chunks;
 }
 
-bool DefaultShufflerCommunication::is_idle() const {
+bool TagShufflerCommunication::is_idle() const {
     return fire_and_forget_.empty() && incoming_chunks_.empty()
            && outgoing_chunks_.empty() && in_transit_chunks_.empty()
            && in_transit_futures_.empty()
@@ -93,11 +92,11 @@ bool DefaultShufflerCommunication::is_idle() const {
 }
 
 std::unordered_map<std::string, std::size_t>
-DefaultShufflerCommunication::get_statistics() const {
+TagShufflerCommunication::get_statistics() const {
     return statistics_;
 }
 
-void DefaultShufflerCommunication::receive_metadata_phase() {
+void TagShufflerCommunication::receive_metadata_phase() {
     auto& log = comm_->logger();
     auto const t0 = std::chrono::steady_clock::now();
 
@@ -114,7 +113,7 @@ void DefaultShufflerCommunication::receive_metadata_phase() {
     statistics_.add_duration_stat("comms-interface-receive-metadata", Clock::now() - t0);
 }
 
-void DefaultShufflerCommunication::setup_data_receives_phase(
+void TagShufflerCommunication::setup_data_receives_phase(
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
     rmm::cuda_stream_view /* stream */,
     BufferResource* br
@@ -167,7 +166,7 @@ void DefaultShufflerCommunication::setup_data_receives_phase(
     );
 }
 
-void DefaultShufflerCommunication::process_ready_acks_phase() {
+void TagShufflerCommunication::process_ready_acks_phase() {
     auto const t0 = std::chrono::steady_clock::now();
 
     for (auto& [dst, futures] : ready_ack_receives_) {
@@ -190,7 +189,7 @@ void DefaultShufflerCommunication::process_ready_acks_phase() {
     );
 }
 
-std::vector<detail::Chunk> DefaultShufflerCommunication::complete_data_transfers_phase() {
+std::vector<detail::Chunk> TagShufflerCommunication::complete_data_transfers_phase() {
     auto const t0 = std::chrono::steady_clock::now();
 
     std::vector<detail::Chunk> completed_chunks;
@@ -225,7 +224,7 @@ std::vector<detail::Chunk> DefaultShufflerCommunication::complete_data_transfers
     return completed_chunks;
 }
 
-void DefaultShufflerCommunication::cleanup_completed_operations() {
+void TagShufflerCommunication::cleanup_completed_operations() {
     if (!fire_and_forget_.empty()) {
         std::ignore = comm_->test_some(fire_and_forget_);
     }

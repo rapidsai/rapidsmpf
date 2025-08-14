@@ -85,24 +85,22 @@ class ShufflerCommunicationInterface {
 };
 
 /**
- * @brief Default implementation of ShufflerCommunicationInterface.
+ * @brief Tag implementation of ShufflerCommunicationInterface.
  *
  * This implementation owns and manages all communication state that was previously
  * held in the Progress class. It replicates the exact current communication behavior
  * while providing a self-contained, stateful communication manager.
  */
-class DefaultShufflerCommunication : public ShufflerCommunicationInterface {
+class TagShufflerCommunication : public ShufflerCommunicationInterface {
   public:
     /**
-     * @brief Constructor for DefaultShufflerCommunication.
+     * @brief Constructor for TagShufflerCommunication.
      *
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
      * @param rank The current rank (for logging and validation).
      */
-    DefaultShufflerCommunication(
-        std::shared_ptr<Communicator> comm, OpID op_id, Rank rank
-    );
+    TagShufflerCommunication(std::shared_ptr<Communicator> comm, OpID op_id, Rank rank);
 
     void submit_outgoing_chunks(
         std::vector<detail::Chunk>&& chunks,
