@@ -18,163 +18,78 @@
 namespace rapidsmpf::shuffler {
 
 /**
- * @brief Abstract interface for shuffler communication operations.
+ * @brief Self-contained communication manager for shuffler operations.
  *
- * This interface abstracts the communication patterns used in the shuffler's main
- * progress loop. It provides a clean separation between the shuffler logic and the
- * underlying communication implementation, allowing for different communication
- * strategies while maintaining the same high-level shuffler behavior.
+ * This interface provides a high-level, stateful communication management layer for the
+ * shuffler. Unlike a simple wrapper, it owns and manages all communication-related state,
+ * including pending operations, incoming/outgoing chunks, and coordination logic.
  *
- * The communication pattern involves:
- * 1. Sending serialized chunk metadata to notify receivers about incoming data
- * 2. Receiving serialized chunk metadata from other ranks
- * 3. Sending "ready for data" acknowledgments to indicate readiness to receive GPU data
- * 4. Receiving "ready for data" acknowledgments from receivers
- * 5. Sending GPU data buffers to receivers
- * 6. Receiving GPU data buffers from senders
+ * The interface encapsulates the entire communication protocol and state machine,
+ * providing coarse-grained operations that the shuffler's progress loop can call
+ * to drive the communication forward while maintaining full control over the
+ * underlying communication patterns and optimizations.
  */
 class ShufflerCommunicationInterface {
   public:
     virtual ~ShufflerCommunicationInterface() = default;
 
     /**
-     * @brief Send serialized chunk metadata to a destination rank.
+     * @brief Submit outgoing chunks for communication.
      *
-     * This is step 1 of the communication protocol - notifying the receiver about an
-     * incoming chunk and its metadata.
+     * Takes ownership of ready chunks and manages their transmission, including
+     * metadata sending and coordination of data transfer.
      *
-     * @param serialized_metadata The serialized chunk metadata buffer.
-     * @param dest_rank The destination rank to send to.
-     * @param br Buffer resource for managing the send operation.
-     * @return A future representing the ongoing send operation.
+     * @param chunks Vector of chunks ready to be sent to remote ranks.
+     * @param partition_owner Function to determine destination rank for each chunk.
+     * @param br Buffer resource for communication operations.
      */
-    virtual std::unique_ptr<Communicator::Future> send_chunk_metadata(
-        std::unique_ptr<std::vector<uint8_t>> serialized_metadata,
-        Rank dest_rank,
+    virtual void submit_outgoing_chunks(
+        std::vector<detail::Chunk>&& chunks,
+        std::function<Rank(PartID)> partition_owner,
         BufferResource* br
     ) = 0;
 
     /**
-     * @brief Receive any available serialized chunk metadata.
+     * @brief Process all pending communication operations.
      *
-     * This is step 2 of the communication protocol - receiving chunk metadata from
-     * any sender rank.
+     * Advances the communication state machine by:
+     * - Receiving incoming chunk metadata and setting up data transfers
+     * - Processing ready-for-data acknowledgments and sending data
+     * - Completing data transfers and making chunks available
+     * - Cleaning up completed operations
      *
-     * @return A pair containing the received metadata buffer and the source rank.
-     *         Returns {nullptr, invalid_rank} if no message is available.
+     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
+     * @param stream CUDA stream for memory operations.
+     * @param br Buffer resource for communication operations.
+     * @return Vector of completed chunks ready for local processing.
      */
-    virtual std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank>
-    receive_chunk_metadata() = 0;
-
-    /**
-     * @brief Send a "ready for data" acknowledgment to a source rank.
-     *
-     * This is step 3 of the communication protocol - informing the sender that we
-     * are ready to receive the GPU data for a specific chunk.
-     *
-     * @param ready_msg The ready-for-data message containing the chunk ID.
-     * @param dest_rank The destination rank to send the acknowledgment to.
-     * @param br Buffer resource for managing the send operation.
-     * @return A future representing the ongoing send operation.
-     */
-    virtual std::unique_ptr<Communicator::Future> send_ready_for_data(
-        std::unique_ptr<std::vector<uint8_t>> ready_msg,
-        Rank dest_rank,
+    virtual std::vector<detail::Chunk> process_communication(
+        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
+        rmm::cuda_stream_view stream,
         BufferResource* br
     ) = 0;
 
     /**
-     * @brief Post a receive operation for a "ready for data" acknowledgment.
+     * @brief Check if all communication operations are complete.
      *
-     * This is step 4 of the communication protocol - setting up to receive
-     * acknowledgments from receivers indicating they are ready for GPU data.
-     *
-     * @param source_rank The source rank to receive from.
-     * @param buffer Buffer to receive the acknowledgment into.
-     * @return A future representing the ongoing receive operation.
+     * @return True if no pending operations remain, false otherwise.
      */
-    virtual std::unique_ptr<Communicator::Future> receive_ready_for_data(
-        Rank source_rank, std::unique_ptr<Buffer> buffer
-    ) = 0;
+    virtual bool is_idle() const = 0;
 
     /**
-     * @brief Send GPU data buffer to a destination rank.
+     * @brief Get communication statistics for monitoring.
      *
-     * This is step 5 of the communication protocol - sending the actual GPU data
-     * after receiving a ready-for-data acknowledgment.
-     *
-     * @param data_buffer The GPU data buffer to send.
-     * @param dest_rank The destination rank to send to.
-     * @return A future representing the ongoing send operation.
+     * @return A map of statistic names to values.
      */
-    virtual std::unique_ptr<Communicator::Future> send_gpu_data(
-        std::unique_ptr<Buffer> data_buffer, Rank dest_rank
-    ) = 0;
-
-    /**
-     * @brief Post a receive operation for GPU data from a source rank.
-     *
-     * This is step 6 of the communication protocol - receiving the actual GPU data
-     * after sending a ready-for-data acknowledgment.
-     *
-     * @param source_rank The source rank to receive from.
-     * @param data_buffer Buffer to receive the GPU data into.
-     * @return A future representing the ongoing receive operation.
-     */
-    virtual std::unique_ptr<Communicator::Future> receive_gpu_data(
-        Rank source_rank, std::unique_ptr<Buffer> data_buffer
-    ) = 0;
-
-    /**
-     * @brief Test completion of multiple futures and return completed ones.
-     *
-     * @param futures Container of futures to test, completed futures are removed.
-     * @return Vector of completed futures.
-     */
-    virtual std::vector<std::unique_ptr<Communicator::Future>> test_some(
-        std::vector<std::unique_ptr<Communicator::Future>>& futures
-    ) = 0;
-
-    /**
-     * @brief Test completion of futures mapped by a key type.
-     *
-     * @tparam KeyType The type of the key used in the map.
-     * @param futures_map Map of futures to test, completed futures are removed.
-     * @return Vector of keys whose futures completed.
-     */
-    template <typename KeyType>
-    std::vector<KeyType> test_some(
-        std::unordered_map<KeyType, std::unique_ptr<Communicator::Future>>& futures_map
-    ) {
-        std::vector<KeyType> completed_keys;
-        for (auto it = futures_map.begin(); it != futures_map.end();) {
-            if (it->second->is_ready()) {
-                completed_keys.push_back(it->first);
-                it = futures_map.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        return completed_keys;
-    }
-
-    /**
-     * @brief Extract the GPU data buffer from a completed future.
-     *
-     * @param future The completed future to extract data from.
-     * @return The GPU data buffer.
-     */
-    virtual std::unique_ptr<Buffer> get_gpu_data(
-        std::unique_ptr<Communicator::Future> future
-    ) = 0;
+    virtual std::unordered_map<std::string, std::size_t> get_statistics() const = 0;
 };
 
 /**
  * @brief Default implementation of ShufflerCommunicationInterface.
  *
- * This implementation uses the existing communicator API and replicates the current
- * communication behavior of the shuffler. It serves as both a reference implementation
- * and maintains backward compatibility with existing code.
+ * This implementation owns and manages all communication state that was previously
+ * held in the Progress class. It replicates the exact current communication behavior
+ * while providing a self-contained, stateful communication manager.
  */
 class DefaultShufflerCommunication : public ShufflerCommunicationInterface {
   public:
@@ -183,49 +98,66 @@ class DefaultShufflerCommunication : public ShufflerCommunicationInterface {
      *
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
+     * @param rank The current rank (for logging and validation).
      */
-    DefaultShufflerCommunication(std::shared_ptr<Communicator> comm, OpID op_id);
+    DefaultShufflerCommunication(
+        std::shared_ptr<Communicator> comm, OpID op_id, Rank rank
+    );
 
-    std::unique_ptr<Communicator::Future> send_chunk_metadata(
-        std::unique_ptr<std::vector<uint8_t>> serialized_metadata,
-        Rank dest_rank,
+    void submit_outgoing_chunks(
+        std::vector<detail::Chunk>&& chunks,
+        std::function<Rank(PartID)> partition_owner,
         BufferResource* br
     ) override;
 
-    std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank>
-    receive_chunk_metadata() override;
-
-    std::unique_ptr<Communicator::Future> send_ready_for_data(
-        std::unique_ptr<std::vector<uint8_t>> ready_msg,
-        Rank dest_rank,
+    std::vector<detail::Chunk> process_communication(
+        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
+        rmm::cuda_stream_view stream,
         BufferResource* br
     ) override;
 
-    std::unique_ptr<Communicator::Future> receive_ready_for_data(
-        Rank source_rank, std::unique_ptr<Buffer> buffer
-    ) override;
+    bool is_idle() const override;
 
-    std::unique_ptr<Communicator::Future> send_gpu_data(
-        std::unique_ptr<Buffer> data_buffer, Rank dest_rank
-    ) override;
-
-    std::unique_ptr<Communicator::Future> receive_gpu_data(
-        Rank source_rank, std::unique_ptr<Buffer> data_buffer
-    ) override;
-
-    std::vector<std::unique_ptr<Communicator::Future>> test_some(
-        std::vector<std::unique_ptr<Communicator::Future>>& futures
-    ) override;
-
-    std::unique_ptr<Buffer> get_gpu_data(
-        std::unique_ptr<Communicator::Future> future
-    ) override;
+    std::unordered_map<std::string, std::size_t> get_statistics() const override;
 
   private:
+    // Core communication infrastructure
     std::shared_ptr<Communicator> comm_;
+    Rank rank_;
     Tag ready_for_data_tag_;
     Tag metadata_tag_;
     Tag gpu_data_tag_;
+
+    // Communication state containers (moved from Progress class)
+    std::vector<std::unique_ptr<Communicator::Future>>
+        fire_and_forget_;  ///< Ongoing "fire-and-forget" operations (non-blocking sends).
+    std::multimap<Rank, detail::Chunk>
+        incoming_chunks_;  ///< Chunks ready to be received.
+    std::unordered_map<detail::ChunkID, detail::Chunk>
+        outgoing_chunks_;  ///< Chunks ready to be sent.
+    std::unordered_map<detail::ChunkID, detail::Chunk>
+        in_transit_chunks_;  ///< Chunks currently in transit.
+    std::unordered_map<detail::ChunkID, std::unique_ptr<Communicator::Future>>
+        in_transit_futures_;  ///< Futures corresponding to in-transit chunks.
+    std::unordered_map<Rank, std::vector<std::unique_ptr<Communicator::Future>>>
+        ready_ack_receives_;  ///< Receives matching ready for data messages.
+
+    // Statistics tracking
+    mutable std::unordered_map<std::string, std::size_t> statistics_;
+
+    // Helper methods for the communication protocol phases
+    void send_metadata_phase(
+        std::function<Rank(PartID)> partition_owner, BufferResource* br
+    );
+    void receive_metadata_phase();
+    void setup_data_receives_phase(
+        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
+        rmm::cuda_stream_view stream,
+        BufferResource* br
+    );
+    void process_ready_acks_phase();
+    std::vector<detail::Chunk> complete_data_transfers_phase();
+    void cleanup_completed_operations();
 };
 
 }  // namespace rapidsmpf::shuffler
