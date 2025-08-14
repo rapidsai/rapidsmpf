@@ -4,21 +4,27 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <utility>
 
 #include <rapidsmpf/shuffler/communication_interface.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf::shuffler {
 
 TagShufflerCommunication::TagShufflerCommunication(
-    std::shared_ptr<Communicator> comm, OpID op_id, Rank rank
+    std::shared_ptr<Communicator> comm,
+    OpID op_id,
+    Rank rank,
+    std::shared_ptr<Statistics> statistics
 )
     : comm_(std::move(comm)),
       rank_(rank),
       ready_for_data_tag_{op_id, 1},
       metadata_tag_{op_id, 2},
-      gpu_data_tag_{op_id, 3} {}
+      gpu_data_tag_{op_id, 3},
+      statistics_{std::move(statistics)} {}
 
 void TagShufflerCommunication::submit_outgoing_chunks(
     std::vector<detail::Chunk>&& chunks,
@@ -26,7 +32,7 @@ void TagShufflerCommunication::submit_outgoing_chunks(
     BufferResource* br
 ) {
     auto& log = comm_->logger();
-    auto const t0 = std::chrono::steady_clock::now();
+    auto const t0 = Clock::now();
 
     // Store chunks for sending and initiate metadata transmission
     for (auto&& chunk : chunks) {
@@ -55,16 +61,17 @@ void TagShufflerCommunication::submit_outgoing_chunks(
         }
     }
 
-    statistics_.add_duration_stat(
+    statistics_->add_duration_stat(
         "comms-interface-submit-outgoing-chunks", Clock::now() - t0
     );
 }
 
 std::vector<detail::Chunk> TagShufflerCommunication::process_communication(
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
-    rmm::cuda_stream_view stream BufferResource* br
+    rmm::cuda_stream_view stream,
+    BufferResource* br
 ) {
-    auto const t0 = std::chrono::steady_clock::now();
+    auto const t0 = Clock::now();
 
     // Process all phases of the communication protocol
     receive_metadata_phase();
@@ -73,7 +80,7 @@ std::vector<detail::Chunk> TagShufflerCommunication::process_communication(
     auto completed_chunks = complete_data_transfers_phase();
     cleanup_completed_operations();
 
-    statistics_.add_duration_stat(
+    statistics_->add_duration_stat(
         "comms-interface-process-communication-total", Clock::now() - t0
     );
 
@@ -91,14 +98,9 @@ bool TagShufflerCommunication::is_idle() const {
            );
 }
 
-std::unordered_map<std::string, std::size_t>
-TagShufflerCommunication::get_statistics() const {
-    return statistics_;
-}
-
 void TagShufflerCommunication::receive_metadata_phase() {
     auto& log = comm_->logger();
-    auto const t0 = std::chrono::steady_clock::now();
+    auto const t0 = Clock::now();
 
     while (true) {
         auto const [msg, src] = comm_->recv_any(metadata_tag_);
@@ -110,7 +112,7 @@ void TagShufflerCommunication::receive_metadata_phase() {
         incoming_chunks_.insert({src, std::move(chunk)});
     }
 
-    statistics_.add_duration_stat("comms-interface-receive-metadata", Clock::now() - t0);
+    statistics_->add_duration_stat("comms-interface-receive-metadata", Clock::now() - t0);
 }
 
 void TagShufflerCommunication::setup_data_receives_phase(
@@ -119,7 +121,7 @@ void TagShufflerCommunication::setup_data_receives_phase(
     BufferResource* br
 ) {
     auto& log = comm_->logger();
-    auto const t0 = std::chrono::steady_clock::now();
+    auto const t0 = Clock::now();
 
     for (auto it = incoming_chunks_.begin(); it != incoming_chunks_.end();) {
         auto& [src, chunk] = *it;
@@ -161,13 +163,13 @@ void TagShufflerCommunication::setup_data_receives_phase(
         }
     }
 
-    statistics_.add_duration_stat(
+    statistics_->add_duration_stat(
         "comms-interface-setup-data-receives", Clock::now() - t0
     );
 }
 
 void TagShufflerCommunication::process_ready_acks_phase() {
-    auto const t0 = std::chrono::steady_clock::now();
+    auto const t0 = Clock::now();
 
     for (auto& [dst, futures] : ready_ack_receives_) {
         auto finished = comm_->test_some(futures);
@@ -184,13 +186,13 @@ void TagShufflerCommunication::process_ready_acks_phase() {
         }
     }
 
-    statistics_.add_duration_stat(
+    statistics_->add_duration_stat(
         "comms-interface-process-ready-acks", Clock::now() - t0
     );
 }
 
 std::vector<detail::Chunk> TagShufflerCommunication::complete_data_transfers_phase() {
-    auto const t0 = std::chrono::steady_clock::now();
+    auto const t0 = Clock::now();
 
     std::vector<detail::Chunk> completed_chunks;
 
@@ -217,7 +219,7 @@ std::vector<detail::Chunk> TagShufflerCommunication::complete_data_transfers_pha
         }
     }
 
-    statistics_.add_duration_stat(
+    statistics_->add_duration_stat(
         "comms-interface-complete-data-transfers", Clock::now() - t0
     );
 

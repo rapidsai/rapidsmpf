@@ -75,13 +75,6 @@ class ShufflerCommunicationInterface {
      * @return True if no pending operations remain, false otherwise.
      */
     virtual bool is_idle() const = 0;
-
-    /**
-     * @brief Get communication statistics for monitoring.
-     *
-     * @return A map of statistic names to values.
-     */
-    virtual std::unordered_map<std::string, std::size_t> get_statistics() const = 0;
 };
 
 /**
@@ -99,8 +92,14 @@ class TagShufflerCommunication : public ShufflerCommunicationInterface {
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
      * @param rank The current rank (for logging and validation).
+     * @param statistics The statistics to use for tracking communication operations.
      */
-    TagShufflerCommunication(std::shared_ptr<Communicator> comm, OpID op_id, Rank rank);
+    TagShufflerCommunication(
+        std::shared_ptr<Communicator> comm,
+        OpID op_id,
+        Rank rank,
+        std::shared_ptr<Statistics> statistics
+    );
 
     void submit_outgoing_chunks(
         std::vector<detail::Chunk>&& chunks,
@@ -115,8 +114,6 @@ class TagShufflerCommunication : public ShufflerCommunicationInterface {
     ) override;
 
     bool is_idle() const override;
-
-    std::unordered_map<std::string, std::size_t> get_statistics() const override;
 
   private:
     // Core communication infrastructure
@@ -141,7 +138,7 @@ class TagShufflerCommunication : public ShufflerCommunicationInterface {
         ready_ack_receives_;  ///< Receives matching ready for data messages.
 
     // Statistics tracking
-    mutable std::unordered_map<std::string, std::size_t> statistics_;
+    std::shared_ptr<Statistics> statistics_;
 
     // Helper methods for the communication protocol phases
     void send_metadata_phase(

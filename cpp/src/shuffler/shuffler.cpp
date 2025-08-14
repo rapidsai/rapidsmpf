@@ -310,9 +310,10 @@ Shuffler::Shuffler(
       },
       comm_{std::move(comm)},
       comm_interface_{
-          comm_interface
-              ? std::move(comm_interface)
-              : std::make_unique<TagShufflerCommunication>(comm_, op_id, comm_->rank())
+          comm_interface ? std::move(comm_interface)
+                         : std::make_unique<TagShufflerCommunication>(
+                               comm_, op_id, comm_->rank(), statistics
+                           )
       },
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
