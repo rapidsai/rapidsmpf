@@ -56,7 +56,7 @@ class ArgumentParser {
                               "(default: 1)\n"
                            << "  -m <mr>    RMM memory resource {cuda, pool, async, "
                               "managed} "
-                              "(default: cuda)\n"
+                              "(default: pool)\n"
                            << "  -l <num>   Device memory limit in MiB (default:-1, "
                               "disabled)\n"
                            << "  -i         Use `concat_insert` method, instead of "
@@ -147,9 +147,9 @@ class ArgumentParser {
         if (rmm_mr == "cuda") {
             if (rank == 0) {
                 std::cout << "WARNING: using the default cuda memory resource "
-                             "(-m cuda) might leak memory! A bug in UCX means "
-                             "that device memory received through IPC is never "
-                             "freed. Hopefully, this will be fixed in UCX v1.19."
+                             "(-m cuda) might leak memory! A limitation in UCX "
+                             "means that device memory send through IPC can "
+                             "never be freed."
                           << std::endl;
             }
         }
@@ -194,7 +194,7 @@ class ArgumentParser {
     std::uint64_t num_local_rows{1 << 20};
     rapidsmpf::shuffler::PartID num_local_partitions{1};
     rapidsmpf::shuffler::PartID num_output_partitions{1};
-    std::string rmm_mr{"cuda"};
+    std::string rmm_mr{"pool"};
     std::string comm_type{"mpi"};
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
