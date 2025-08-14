@@ -65,12 +65,18 @@ std::vector<detail::Chunk> DefaultShufflerCommunication::process_communication(
     rmm::cuda_stream_view stream,
     BufferResource* br
 ) {
+    auto const t0 = std::chrono::steady_clock::now();
+
     // Process all phases of the communication protocol
     receive_metadata_phase();
     setup_data_receives_phase(allocate_buffer_fn, stream, br);
     process_ready_acks_phase();
     auto completed_chunks = complete_data_transfers_phase();
     cleanup_completed_operations();
+
+    statistics_.add_duration_stat(
+        "comms-interface-process-communication-total", Clock::now() - t0
+    );
 
     return completed_chunks;
 }
