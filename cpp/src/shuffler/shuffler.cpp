@@ -16,6 +16,7 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
+#include <rapidsmpf/shuffler/communication_interface.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -171,10 +172,7 @@ class Shuffler::Progress {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffler.Progress", p_iters++);
         auto const t0_event_loop = Clock::now();
 
-        // Tags for each stage of the shuffle
-        Tag const ready_for_data_tag{shuffler_.op_id_, 1};
-        Tag const metadata_tag{shuffler_.op_id_, 2};
-        Tag const gpu_data_tag{shuffler_.op_id_, 3};
+        // Communication interface handles tag management internally
 
         auto& log = shuffler_.comm_->logger();
         auto& stats = *shuffler_.statistics_;
@@ -194,8 +192,8 @@ class Shuffler::Progress {
                     dst != shuffler_.comm_->rank(), "sending chunk to ourselves"
                 );
 
-                fire_and_forget_.push_back(shuffler_.comm_->send(
-                    chunk.serialize(), dst, metadata_tag, shuffler_.br_
+                fire_and_forget_.push_back(shuffler_.comm_interface_->send_chunk_metadata(
+                    chunk.serialize(), dst, shuffler_.br_
                 ));
                 if (chunk.concat_data_size() > 0) {
                     RAPIDSMPF_EXPECTS(
@@ -203,15 +201,16 @@ class Shuffler::Progress {
                             .second,
                         "outgoing chunk already exist"
                     );
-                    ready_ack_receives_[dst].push_back(shuffler_.comm_->recv(
-                        dst,
-                        ready_for_data_tag,
-                        shuffler_.br_->move(
-                            std::make_unique<std::vector<std::uint8_t>>(
-                                ReadyForDataMessage::byte_size
+                    ready_ack_receives_[dst].push_back(
+                        shuffler_.comm_interface_->receive_ready_for_data(
+                            dst,
+                            shuffler_.br_->move(
+                                std::make_unique<std::vector<std::uint8_t>>(
+                                    ReadyForDataMessage::byte_size
+                                )
                             )
                         )
-                    ));
+                    );
                 }
             }
             stats.add_duration_stat(
@@ -226,7 +225,8 @@ class Shuffler::Progress {
             RAPIDSMPF_NVTX_SCOPED_RANGE("meta_recv");
             int i = 0;
             while (true) {
-                auto const [msg, src] = shuffler_.comm_->recv_any(metadata_tag);
+                auto const [msg, src] =
+                    shuffler_.comm_interface_->receive_chunk_metadata();
                 if (msg) {
                     auto chunk = Chunk::deserialize(*msg, false);
                     log.trace("recv_any from ", src, ": ", chunk);
@@ -288,8 +288,8 @@ class Shuffler::Progress {
 
                     // Setup to receive the chunk into `in_transit_*`.
                     // transfer the data buffer from the chunk to the future
-                    auto future = shuffler_.comm_->recv(
-                        src, gpu_data_tag, chunk.release_data_buffer()
+                    auto future = shuffler_.comm_interface_->receive_gpu_data(
+                        src, chunk.release_data_buffer()
                     );
                     RAPIDSMPF_EXPECTS(
                         in_transit_futures_.insert({chunk.chunk_id(), std::move(future)})
@@ -306,12 +306,13 @@ class Shuffler::Progress {
                     );
                     // Tell the source of the chunk that we are ready to receive it.
                     // All partition IDs in the chunk must map to the same key (rank).
-                    fire_and_forget_.push_back(shuffler_.comm_->send(
-                        ReadyForDataMessage{chunk.chunk_id()}.pack(),
-                        src,
-                        ready_for_data_tag,
-                        shuffler_.br_
-                    ));
+                    fire_and_forget_.push_back(
+                        shuffler_.comm_interface_->send_ready_for_data(
+                            ReadyForDataMessage{chunk.chunk_id()}.pack(),
+                            src,
+                            shuffler_.br_
+                        )
+                    );
                 } else {  // chunk contains control messages and/or metadata-only messages
                     // At this point we know we can process this item, so extract it.
                     // Note: extract_item invalidates the iterator, so must increment
@@ -356,10 +357,10 @@ class Shuffler::Progress {
             // when using the UCXX communicator. See comment in
             // ucxx.cpp::test_some.
             for (auto& [dst, futures] : ready_ack_receives_) {
-                auto finished = shuffler_.comm_->test_some(futures);
+                auto finished = shuffler_.comm_interface_->test_some(futures);
                 for (auto&& future : finished) {
                     auto const msg_data =
-                        shuffler_.comm_->get_gpu_data(std::move(future));
+                        shuffler_.comm_interface_->get_gpu_data(std::move(future));
                     auto msg = ReadyForDataMessage::unpack(
                         const_cast<Buffer const&>(*msg_data).host()
                     );
@@ -367,8 +368,8 @@ class Shuffler::Progress {
                     shuffler_.statistics_->add_bytes_stat(
                         "shuffle-payload-send", chunk.concat_data_size()
                     );
-                    fire_and_forget_.push_back(shuffler_.comm_->send(
-                        chunk.release_data_buffer(), dst, gpu_data_tag
+                    fire_and_forget_.push_back(shuffler_.comm_interface_->send_gpu_data(
+                        chunk.release_data_buffer(), dst
                     ));
                 }
             }
@@ -383,12 +384,12 @@ class Shuffler::Progress {
             RAPIDSMPF_NVTX_SCOPED_RANGE("check_fut_finish", in_transit_futures_.size());
             if (!in_transit_futures_.empty()) {
                 std::vector<ChunkID> finished =
-                    shuffler_.comm_->test_some(in_transit_futures_);
+                    shuffler_.comm_interface_->test_some(in_transit_futures_);
                 for (auto cid : finished) {
                     auto chunk = extract_value(in_transit_chunks_, cid);
                     auto future = extract_value(in_transit_futures_, cid);
                     chunk.set_data_buffer(
-                        shuffler_.comm_->get_gpu_data(std::move(future))
+                        shuffler_.comm_interface_->get_gpu_data(std::move(future))
                     );
 
                     for (size_t i = 0; i < chunk.n_messages(); ++i) {
@@ -404,7 +405,7 @@ class Shuffler::Progress {
 
             // Check if we can free some of the outstanding futures.
             if (!fire_and_forget_.empty()) {
-                std::ignore = shuffler_.comm_->test_some(fire_and_forget_);
+                std::ignore = shuffler_.comm_interface_->test_some(fire_and_forget_);
             }
             stats.add_duration_stat(
                 "event-loop-check-future-finish", Clock::now() - t0_check_future_finish
@@ -465,7 +466,8 @@ Shuffler::Shuffler(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
-    PartitionOwner partition_owner
+    PartitionOwner partition_owner,
+    std::unique_ptr<ShufflerCommunicationInterface> comm_interface
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{partition_owner},
@@ -482,6 +484,10 @@ Shuffler::Shuffler(
           static_cast<std::size_t>(total_num_partitions),
       },
       comm_{std::move(comm)},
+      comm_interface_{
+          comm_interface ? std::move(comm_interface)
+                         : std::make_unique<DefaultShufflerCommunication>(comm_, op_id)
+      },
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
       finish_counter_{

@@ -18,6 +18,7 @@
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
+#include <rapidsmpf/shuffler/communication_interface.hpp>
 #include <rapidsmpf/shuffler/finish_counter.hpp>
 #include <rapidsmpf/shuffler/postbox.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -88,6 +89,8 @@ class Shuffler {
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param statistics The statistics instance to use (disabled by default).
      * @param partition_owner Function to determine partition ownership.
+     * @param comm_interface Optional custom communication interface. If not provided,
+     * uses the default implementation.
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
@@ -97,7 +100,8 @@ class Shuffler {
         rmm::cuda_stream_view stream,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-        PartitionOwner partition_owner = round_robin
+        PartitionOwner partition_owner = round_robin,
+        std::unique_ptr<ShufflerCommunicationInterface> comm_interface = nullptr
     );
 
     ~Shuffler();
@@ -247,6 +251,7 @@ class Shuffler {
                                              ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
+    std::unique_ptr<ShufflerCommunicationInterface> comm_interface_;
     std::shared_ptr<ProgressThread> progress_thread_;
     ProgressThread::FunctionID progress_thread_function_id_;
     OpID const op_id_;
