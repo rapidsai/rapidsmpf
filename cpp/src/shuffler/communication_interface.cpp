@@ -191,32 +191,25 @@ std::vector<detail::Chunk> DefaultShufflerCommunication::complete_data_transfers
         // Test for completed futures
         auto completed_futures = comm_->test_some(futures_vec);
 
-        // Find which futures completed by comparing pointers
-        std::vector<detail::ChunkID> completed_chunk_ids;
-        for (auto&& completed_future : completed_futures) {
-            // Find the corresponding chunk ID
-            for (size_t i = 0; i < futures_vec.size(); ++i) {
-                if (!futures_vec[i]) {  // This future was completed and removed
-                    completed_chunk_ids.push_back(chunk_ids_vec[i]);
-                    chunk_ids_vec.erase(
-                        chunk_ids_vec.begin() + static_cast<std::ptrdiff_t>(i)
-                    );
-                    break;
-                }
-            }
+        // Process completed futures
+        // Since we have parallel arrays, completed futures are from the end
+        size_t num_completed = completed_futures.size();
+        size_t original_size = chunk_ids_vec.size();
 
-            // Process the completed future
-            auto chunk = extract_value(in_transit_chunks_, completed_chunk_ids.back());
-            chunk.set_data_buffer(comm_->get_gpu_data(std::move(completed_future)));
+        for (size_t i = 0; i < num_completed; ++i) {
+            // Get the chunk ID from the end of the array (test_some processes from end)
+            auto chunk_id = chunk_ids_vec[original_size - num_completed + i];
+
+            auto chunk = extract_value(in_transit_chunks_, chunk_id);
+            chunk.set_data_buffer(comm_->get_gpu_data(std::move(completed_futures[i])));
             statistics_["data_received"]++;
             completed_chunks.push_back(std::move(chunk));
         }
 
-        // Put back any remaining futures
+        // Put back any remaining futures (those that weren't completed)
         for (size_t i = 0; i < futures_vec.size(); ++i) {
-            if (futures_vec[i]) {
-                in_transit_futures_[chunk_ids_vec[i]] = std::move(futures_vec[i]);
-            }
+            auto chunk_id = chunk_ids_vec[i];
+            in_transit_futures_[chunk_id] = std::move(futures_vec[i]);
         }
     }
 
