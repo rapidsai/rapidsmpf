@@ -13,6 +13,7 @@ cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/../python/rapidsmpf/rapidsmpf
 export OMPI_ALLOW_RUN_AS_ROOT=1  # CI runs as root
 export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
+export NUMBA_CUDA_USE_NVIDIA_BINDING=0  # Temporary workaround for https://github.com/rapidsai/rapidsmpf/issues/434
 
 EXTRA_ARGS=("$@")
 run_mpirun_test() {

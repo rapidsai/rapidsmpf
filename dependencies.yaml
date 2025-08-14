@@ -155,7 +155,7 @@ dependencies:
         packages:
           - c-compiler
           - cxx-compiler
-          - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+          - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
     specific:
       - output_types: conda
         matrices:
@@ -193,7 +193,7 @@ dependencies:
     common:
       - output_types: [conda, pyproject, requirements]
         packages:
-          - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+          - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - mpi4py
   build-python:
     common:
@@ -268,7 +268,7 @@ dependencies:
       - output_types: conda
         packages:
           - *cmake_ver
-          - openmpi!=5.0.8  # See <https://github.com/rapidsai/rapidsmpf/issues/17, https://github.com/conda-forge/openmpi-feedstock/issues/203>
+          - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - valgrind
           - cuda-sanitizer-api
           - click >=8.1
