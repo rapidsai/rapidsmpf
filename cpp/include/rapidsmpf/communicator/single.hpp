@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -37,6 +38,19 @@ class Single final : public Communicator {
 
       public:
         ~Future() noexcept override = default;
+    };
+
+    /**
+     * @brief Represents the future result of an operation.
+     *
+     * This class is used to handle the result of a communication operation
+     * asynchronously.
+     */
+    class MultiFuture : public Communicator::MultiFuture {
+        friend class Single;
+
+      public:
+        ~MultiFuture() noexcept override = default;
     };
 
     /**
@@ -80,6 +94,15 @@ class Single final : public Communicator {
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
     ) override;
 
+    // clang-format off
+    /**
+     * @copydoc Communicator::send(std::unique_ptr<Buffer>, std::span<Rank> const, Tag tag)
+     */
+    // clang-format on
+    [[nodiscard]] std::vector<std::unique_ptr<Communicator::MultiFuture>> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const destinations, Tag tag
+    ) override;
+
     /**
      * @copydoc Communicator::recv
      *
@@ -112,6 +135,18 @@ class Single final : public Communicator {
 
     // clang-format off
     /**
+     * @copydoc Communicator::test_some(std::vector<std::unique_ptr<MultiFuture>>&)
+     *
+     * @throws std::runtime_error if called (single-process communicators should never
+     * send messages).
+     */
+    // clang-format on
+    std::vector<std::unique_ptr<Communicator::MultiFuture>> test_some(
+        std::vector<std::unique_ptr<Communicator::MultiFuture>>& future_vector
+    ) override;
+
+    // clang-format off
+    /**
      * @copydoc Communicator::test_some(std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const& future_map)
      *
      * @throws std::runtime_error if called (single-process communicators should never send messages).
@@ -130,6 +165,16 @@ class Single final : public Communicator {
      */
     [[nodiscard]] std::unique_ptr<Buffer> wait(
         std::unique_ptr<Communicator::Future> future
+    ) override;
+
+    /**
+     * @copydoc Communicator::wait_all
+     *
+     * @throws std::runtime_error if called (single-process communicators should never
+     * send messages)
+     */
+    [[nodiscard]] std::vector<std::unique_ptr<Buffer>> wait_all(
+        std::vector<std::unique_ptr<Communicator::Future>>&& futures
     ) override;
 
     /**
