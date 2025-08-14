@@ -63,7 +63,7 @@ class CommunicationInterface {
      * @param br Buffer resource for communication operations.
      * @return Vector of completed chunks ready for local processing.
      */
-    virtual std::vector<detail::Chunk> process_communication(
+    [[nodiscard]] virtual std::vector<detail::Chunk> process_communication(
         std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
         rmm::cuda_stream_view stream,
         BufferResource* br
@@ -74,7 +74,7 @@ class CommunicationInterface {
      *
      * @return True if no pending operations remain, false otherwise.
      */
-    virtual bool is_idle() const = 0;
+    [[nodiscard]] virtual bool is_idle() const = 0;
 };
 
 /**
