@@ -61,6 +61,19 @@ class Chunk {
 
   public:
     /**
+     * @brief move constructor
+     * @param other The chunk to move.
+     */
+    Chunk(Chunk&& other) noexcept = default;
+
+    /**
+     * @brief move assignment operator
+     * @param other The chunk to move.
+     * @return this chunk.
+     */
+    Chunk& operator=(Chunk&& other) noexcept = default;
+
+    /**
      * @brief The size of the metadata message header.
      *
      * @param n_messages The number of messages in the chunk.
@@ -352,15 +365,14 @@ class Chunk {
         std::unique_ptr<Buffer> data = nullptr
     );
 
-    ChunkID const chunk_id_;  ///< The ID of the chunk.
-    std::vector<PartID> const
-        part_ids_;  ///< The partition IDs of the messages in the
-                    ///< chunk. These partition IDs should be unique.
-    std::vector<size_t> const expected_num_chunks_;  ///< The expected number of chunks of
-                                                     ///< the messages in the chunk.
-    std::vector<uint32_t> const
+    ChunkID chunk_id_;  ///< The ID of the chunk.
+    std::vector<PartID> part_ids_;  ///< The partition IDs of the messages in the
+                                    ///< chunk. These partition IDs should be unique.
+    std::vector<size_t> expected_num_chunks_;  ///< The expected number of chunks of
+                                               ///< the messages in the chunk.
+    std::vector<uint32_t>
         meta_offsets_;  ///< The offsets of the metadata of the messages in the chunk.
-    std::vector<uint64_t> const
+    std::vector<uint64_t>
         data_offsets_;  ///< The offsets of the data of the messages in the chunk.
 
     /// Metadata buffer that contains information about the messages in the chunk.

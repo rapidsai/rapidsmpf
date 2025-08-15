@@ -4,6 +4,8 @@
  */
 
 #include <algorithm>
+#include <concepts>
+#include <functional>
 #include <memory>
 #include <numeric>
 #include <stdexcept>
@@ -762,18 +764,35 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
 std::vector<PackedData> Shuffler::extract(PartID pid) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    // Protect the chunk extraction to make sure we don't get a chunk
-    // `Shuffler::spill` is in the process of spilling.
+
     std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
     auto chunks = ready_postbox_.extract(pid);
     lock.unlock();
+
     std::vector<PackedData> ret;
     ret.reserve(chunks.size());
 
-    // Convert the chunks to packed data.
-    for (auto& [_, chunk] : chunks) {
-        ret.emplace_back(chunk.release_metadata_buffer(), chunk.release_data_buffer());
-    }
+    std::ranges::transform(chunks, std::back_inserter(ret), [](auto&& p) -> PackedData {
+        return {p.second.release_metadata_buffer(), p.second.release_data_buffer()};
+    });
+
+    return ret;
+}
+
+std::vector<detail::Chunk> Shuffler::extract_chunks(PartID pid) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+
+    std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
+    auto chunks = ready_postbox_.extract(pid);
+    lock.unlock();
+
+    std::vector<detail::Chunk> ret;
+    ret.reserve(chunks.size());
+
+    std::ranges::transform(chunks, std::back_inserter(ret), [](auto&& p) {
+        return std::move(p.second);
+    });
+
     return ret;
 }
 
@@ -835,10 +854,10 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
 }
 
 detail::ChunkID Shuffler::get_new_cid() {
-    // Place the counter in the first 38 bits (supports 256G chunks).
-    std::uint64_t upper = ++chunk_id_counter_ << 26;
-    // and place the rank in last 26 bits (supports 64M ranks).
-    auto lower = static_cast<std::uint64_t>(comm_->rank());
+    // Place the counter in the last 38 bits (supports 256G chunks).
+    std::uint64_t lower = ++chunk_id_counter_;
+    // and place the rank in the first 26 bits (supports 64M ranks).
+    auto upper = static_cast<std::uint64_t>(comm_->rank()) << chunk_id_counter_bits;
     return upper | lower;
 }
 
