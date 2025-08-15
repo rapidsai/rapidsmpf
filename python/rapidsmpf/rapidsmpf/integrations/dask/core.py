@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+import nvtx
 import ucxx._lib.libucxx as ucx_api
 from distributed import get_client, get_worker, wait
 from distributed.diagnostics.plugin import SchedulerPlugin
@@ -75,6 +76,7 @@ def get_dask_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
     return comm.rank
 
 
+@nvtx.annotate
 def global_rmpf_barrier(*dependencies: Sequence[None]) -> None:
     """
     Global barrier for RapidsMPF shuffle.

@@ -7,6 +7,7 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+import nvtx
 from distributed import get_worker
 
 from rapidsmpf.config import Options
@@ -41,6 +42,7 @@ def _get_occupied_ids_dask(client: Client) -> list[set[int]]:
     return list(client.run(_get_occupied_ids_local).values())
 
 
+@nvtx.annotate(message="worker_rmpf_barrier")
 def _worker_rmpf_barrier(
     shuffle_ids: tuple[int, ...],
     partition_count: int,
