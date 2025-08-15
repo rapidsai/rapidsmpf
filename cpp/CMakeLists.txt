@@ -305,6 +305,35 @@ install(
 )
 install(DIRECTORY include/rapidsmpf/ DESTINATION include/rapidsmpf)
 
+# Install libcoro's public headers if libcoro was fetched/built in-tree.
+if(TARGET libcoro)
+  get_target_property(_libcoro_inc_dirs libcoro INTERFACE_INCLUDE_DIRECTORIES)
+  if(_libcoro_inc_dirs)
+    set(_installed_any FALSE)
+    foreach(_inc IN LISTS _libcoro_inc_dirs)
+      if(EXISTS "${_inc}/coro")
+        message(STATUS "install libcoro headers")
+        install(DIRECTORY "${_inc}/coro" DESTINATION include)
+        set(_installed_any TRUE)
+      endif()
+    endforeach()
+    if(NOT _installed_any)
+      message(
+        FATAL_ERROR "libcoro target found, but no 'coro' include dir to install. "
+                    "This is required because RapidsMPF's public headers depend on libcoro headers."
+      )
+    endif()
+  else()
+    message(
+      FATAL_ERROR "libcoro target found, but has no INTERFACE_INCLUDE_DIRECTORIES set. "
+                  "This is required because RapidsMPF's public headers depend on libcoro headers."
+    )
+  endif()
+endif()
+
+# ##################################################################################################
+# * build export -------------------------------------------------------------------------------
+
 set(doc_string
     [=[
 RAPIDSMPF.
@@ -329,9 +358,6 @@ rapids_export(
   DOCUMENTATION doc_string
   FINAL_CODE_BLOCK final_code_string
 )
-
-# ##################################################################################################
-# * build export -------------------------------------------------------------------------------
 
 rapids_export(
   BUILD rapidsmpf
