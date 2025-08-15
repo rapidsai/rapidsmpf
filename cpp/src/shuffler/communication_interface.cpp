@@ -91,7 +91,7 @@ bool TagCommunicationInterface::is_idle() const {
     return fire_and_forget_.empty() && incoming_chunks_.empty()
            && outgoing_chunks_.empty() && in_transit_chunks_.empty()
            && in_transit_futures_.empty()
-           && std::ranges::all_of(ready_ack_receives_, [](const auto& kv) {
+           && std::ranges::all_of(ready_ack_receives_, [](auto const& kv) {
                   return kv.second.empty();
               });
 }
