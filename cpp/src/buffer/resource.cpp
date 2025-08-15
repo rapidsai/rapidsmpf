@@ -201,6 +201,7 @@ MemoryReservation reserve_or_fail(
 MemoryReservation reserve_device_memory_and_spill(
     BufferResource* br, size_t size, bool allow_overbooking
 ) {
+    // reserve device memory with overbooking
     auto [reservation, ob] = br->reserve(MemoryType::DEVICE, size, true);
 
     if (ob > 0) {  // ask the spill manager to make room for overbooking
@@ -212,7 +213,7 @@ MemoryReservation reserve_device_memory_and_spill(
         );
     }
 
-    return reservation;
+    return std::move(reservation);
 }
 
 }  // namespace rapidsmpf

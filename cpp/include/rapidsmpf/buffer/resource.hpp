@@ -487,7 +487,8 @@ MemoryReservation reserve_or_fail(
  * memory is freed to satisfy the reservation; otherwise, allows overbooking even
  * if spilling was insufficient.
  * @return The memory reservation.
- * @throw std::overflow_error if the buffer resource cannot reserve enough memory
+ * @throw std::overflow_error if allow_overbooking is false and the buffer resource
+ * cannot reserve and spill enough memory.
  */
 MemoryReservation reserve_device_memory_and_spill(
     BufferResource* br, size_t size, bool allow_overbooking
@@ -511,7 +512,8 @@ auto with_memory_reservation(MemoryReservation&& reservation, auto&& f) {
         return std::forward<F>(f)();
     } else {
         static_assert(
-            [] { return false; }(), "f must be callable with either 0 or 1 argument"
+            [] { return false; }(),
+            "f must be callable with no args or MemoryReservation&"
         );
     }
 }
