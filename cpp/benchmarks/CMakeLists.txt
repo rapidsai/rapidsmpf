@@ -113,3 +113,7 @@ install(
   DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL
 )
+
+if(RAPIDSMPF_HAVE_STREAMING)
+  add_subdirectory(streaming)
+endif()
