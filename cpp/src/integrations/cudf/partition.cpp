@@ -120,7 +120,7 @@ partition_and_split(
     auto partition_offsets =
         cudf::host_span<cudf::size_type const>(offsets.data() + 1, offsets.size() - 1);
 
-    // split would not make any copies.
+    // split does not make any copies.
     auto tbl_partitioned =
         cudf::split(partition_table->view(), partition_offsets, stream);
 
