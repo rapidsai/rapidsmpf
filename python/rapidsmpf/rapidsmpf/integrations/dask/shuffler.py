@@ -252,7 +252,7 @@ def rapidsmpf_shuffle_graph(
     # Add global barrier task
     graph[(global_barrier_1_name, 0)] = (
         global_rmpf_barrier,
-        list(graph.keys()),
+        *graph.keys(),
     )
 
     # Add worker barrier tasks
@@ -271,7 +271,7 @@ def rapidsmpf_shuffle_graph(
     # Add global barrier task
     graph[(global_barrier_2_name, 0)] = (
         global_rmpf_barrier,
-        list(worker_barriers.values()),
+        *worker_barriers.values(),
     )
 
     # Add extraction tasks
