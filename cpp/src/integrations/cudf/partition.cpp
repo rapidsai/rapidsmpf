@@ -9,6 +9,7 @@
 #include <cudf/contiguous_split.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/types.hpp>
+#include <cudf/utilities/span.hpp>
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/buffer/packed_data.hpp>
@@ -19,6 +20,61 @@
 #include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
+
+
+namespace {
+
+
+/**
+ * @brief Calculate the memory usage of a column.
+ *
+ * @param col The column to calculate the memory usage of.
+ * @return The memory usage of the column.
+ */
+size_t column_memory_usage(cudf::column_view const& col) {
+    size_t total = 0;
+
+    // Data buffer
+    total += static_cast<std::size_t>(col.size()) * cudf::size_of(col.type());
+
+    // Null mask buffer (if present)
+    if (col.nullable()) {
+        total += cudf::bitmask_allocation_size_bytes(col.size());
+    }
+
+    // Type-specific buffers
+    if (col.type().id() == cudf::type_id::STRING) {
+        // Strings: offsets buffer + chars buffer
+        auto offsets = col.child(0);
+        auto chars = col.child(1);
+        total += static_cast<std::size_t>(offsets.size()) * sizeof(cudf::size_type);
+        total += static_cast<std::size_t>(chars.size()) * sizeof(char);
+    } else if (cudf::is_nested(col.type())) {
+        // Nested types: sum recursively
+        for (auto i = 0; i < col.num_children(); ++i) {
+            total += column_memory_usage(col.child(i));
+        }
+    }
+
+    return total;
+}
+
+/**
+ * @brief Calculate the memory usage of a table.
+ *
+ * @param tbl The table to calculate the memory usage of.
+ * @return The memory usage of the table.
+ */
+size_t table_memory_usage(cudf::table_view const& tbl) {
+    size_t total = 0;
+    for (auto const& col : tbl) {
+        total += column_memory_usage(col);
+    }
+    return total;
+}
+
+
+}  // namespace
 
 std::pair<std::vector<cudf::table_view>, std::unique_ptr<cudf::table>>
 partition_and_split(
@@ -43,27 +99,32 @@ partition_and_split(
         };
     }
 
-    auto res = cudf::hash_partition(
-        table,
-        columns_to_hash,
-        num_partitions,
-        hash_function,
-        seed,
-        stream,
-        br->device_mr()
-    );
-    std::unique_ptr<cudf::table> partition_table;
-    partition_table.swap(res.first);
+    // hash_partition does a deep-copy. Therefore, we need to reserve memory for
+    // at least the size of the table.
+    auto res = reserve_device_memory_and_spill(br, table_memory_usage(table), false);
+    auto [partition_table, offsets] = with_memory_reservation(std::move(res), [&] {
+        return cudf::hash_partition(
+            table,
+            columns_to_hash,
+            num_partitions,
+            hash_function,
+            seed,
+            stream,
+            br->device_mr()
+        );
+    });
 
     // Notice, the offset argument for split() and hash_partition() doesn't align.
     // hash_partition() returns the start offset of each partition thus we have to
     // skip the first offset. See: <https://github.com/rapidsai/cudf/issues/4607>.
-    auto partition_offsets = std::vector<int>(res.second.begin() + 1, res.second.end());
+    auto partition_offsets =
+        cudf::host_span<cudf::size_type const>(offsets.data() + 1, offsets.size() - 1);
 
+    // split would not make any copies.
     auto tbl_partitioned =
         cudf::split(partition_table->view(), partition_offsets, stream);
 
-    return std::make_pair(std::move(tbl_partitioned), std::move(partition_table));
+    return {std::move(tbl_partitioned), std::move(partition_table)};
 }
 
 std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
@@ -85,15 +146,21 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
         );
         return split_and_pack(table, splits, stream, br);
     }
-    auto [reordered, split_points] = cudf::hash_partition(
-        table,
-        columns_to_hash,
-        num_partitions,
-        hash_function,
-        seed,
-        stream,
-        br->device_mr()
-    );
+
+    // hash_partition does a deep-copy. Therefore, we need to reserve memory for
+    // at least the size of the table.
+    auto res = reserve_device_memory_and_spill(br, table_memory_usage(table), false);
+    auto [reordered, split_points] = with_memory_reservation(std::move(res), [&] {
+        return cudf::hash_partition(
+            table,
+            columns_to_hash,
+            num_partitions,
+            hash_function,
+            seed,
+            stream,
+            br->device_mr()
+        );
+    });
     std::vector<cudf::size_type> splits(split_points.begin() + 1, split_points.end());
     return split_and_pack(reordered->view(), splits, stream, br);
 }
@@ -108,7 +175,14 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     std::unordered_map<shuffler::PartID, PackedData> ret;
-    auto packed = cudf::contiguous_split(table, splits, stream, br->device_mr());
+
+    // contiguous split does a deep-copy. Therefore, we need to reserve memory for
+    // at least the size of the table.
+    auto res = reserve_device_memory_and_spill(br, table_memory_usage(table), false);
+    auto packed = with_memory_reservation(std::move(res), [&] {
+        return cudf::contiguous_split(table, splits, stream, br->device_mr());
+    });
+
     for (shuffler::PartID i = 0; static_cast<std::size_t>(i) < packed.size(); i++) {
         auto pack = std::move(packed[i].data);
         ret.emplace(
@@ -133,8 +207,10 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<cudf::packed_columns> references;
     unpacked.reserve(partitions.size());
     references.reserve(partitions.size());
+    size_t concat_size = 0;
     for (auto& packed_data : partitions) {
         if (!packed_data.empty()) {
+            concat_size += packed_data.data->size;
             unpacked.push_back(
                 cudf::unpack(references.emplace_back(
                     std::move(packed_data.metadata),
@@ -143,6 +219,10 @@ std::unique_ptr<cudf::table> unpack_and_concat(
             );
         }
     }
+
+    // reserve memory for concatenation with no overbooking
+    auto reservation = reserve_device_memory_and_spill(br, concat_size, false);
+
     return cudf::concatenate(unpacked, stream, br->device_mr());
 }
 
@@ -189,19 +269,11 @@ std::vector<PackedData> unspill_partitions(
             non_device_size += data->size;
         }
     }
-    // This total sum is what we need to reserve before moving data to device.
-    auto [reservation, overbooking] =
-        br->reserve(MemoryType::DEVICE, non_device_size, true);
 
-    // Check overbooking, should we ask the spill manager to make room?
-    if (overbooking > 0) {
-        std::size_t spilled = br->spill_manager().spill(overbooking);
-        RAPIDSMPF_EXPECTS(
-            allow_overbooking || spilled >= overbooking,
-            "could not spill enough to make room to unspill all partitions",
-            std::overflow_error
-        );
-    }
+    // This total sum is what we need to reserve before moving data to device.
+    auto reservation =
+        reserve_device_memory_and_spill(br, non_device_size, allow_overbooking);
+
     // Unspill each partition.
     std::vector<PackedData> ret;
     ret.reserve(partitions.size());

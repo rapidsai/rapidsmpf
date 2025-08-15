@@ -198,4 +198,21 @@ MemoryReservation reserve_or_fail(
     RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
 }
 
+MemoryReservation reserve_device_memory_and_spill(
+    BufferResource* br, size_t size, bool allow_overbooking
+) {
+    auto [reservation, ob] = br->reserve(MemoryType::DEVICE, size, true);
+
+    if (ob > 0) {  // ask the spill manager to make room for overbooking
+        auto spilled = br->spill_manager().spill(ob);
+        RAPIDSMPF_EXPECTS(
+            allow_overbooking || spilled >= ob,
+            "failed to spill enough memory",
+            std::overflow_error
+        );
+    }
+
+    return reservation;
+}
+
 }  // namespace rapidsmpf

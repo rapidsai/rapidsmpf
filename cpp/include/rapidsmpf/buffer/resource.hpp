@@ -478,4 +478,42 @@ MemoryReservation reserve_or_fail(
     std::optional<MemoryType> const& preferred_mem_type = std::nullopt
 );
 
+/**
+ * @brief Reserve device memory and spill if necessary.
+ *
+ * @param br The buffer resource to reserve memory from.
+ * @param size The size of the memory to reserve.
+ * @param allow_overbooking Whether to allow overbooking. If false, ensures enough
+ * memory is freed to satisfy the reservation; otherwise, allows overbooking even
+ * if spilling was insufficient.
+ * @return The memory reservation.
+ * @throw std::overflow_error if the buffer resource cannot reserve enough memory
+ */
+MemoryReservation reserve_device_memory_and_spill(
+    BufferResource* br, size_t size, bool allow_overbooking
+);
+
+/**
+ * @brief Acquire a memory reservation and execute a function, which will ensure
+ * the reservation is released when the function goes out of scope.
+ *
+ * @param reservation moved memory reservation.
+ * @param f The function to execute.
+ *
+ * @return The result of the function.
+ */
+auto with_memory_reservation(MemoryReservation&& reservation, auto&& f) {
+    using F = std::decay_t<decltype(f)>;
+
+    if constexpr (std::invocable<F, MemoryReservation&>) {
+        return std::forward<F>(f)(reservation);
+    } else if constexpr (std::invocable<F>) {
+        return std::forward<F>(f)();
+    } else {
+        static_assert(
+            [] { return false; }(), "f must be callable with either 0 or 1 argument"
+        );
+    }
+}
+
 }  // namespace rapidsmpf
