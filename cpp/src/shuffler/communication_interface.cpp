@@ -91,11 +91,9 @@ bool TagCommunicationInterface::is_idle() const {
     return fire_and_forget_.empty() && incoming_chunks_.empty()
            && outgoing_chunks_.empty() && in_transit_chunks_.empty()
            && in_transit_futures_.empty()
-           && std::all_of(
-               ready_ack_receives_.begin(),
-               ready_ack_receives_.end(),
-               [](const auto& kv) { return kv.second.empty(); }
-           );
+           && std::ranges::all_of(ready_ack_receives_, [](const auto& kv) {
+                  return kv.second.empty();
+              });
 }
 
 void TagCommunicationInterface::receive_metadata_phase() {
