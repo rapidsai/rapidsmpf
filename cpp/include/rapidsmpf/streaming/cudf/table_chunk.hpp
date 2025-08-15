@@ -47,6 +47,21 @@ class TableChunk {
     );
 
     /**
+     * @brief Construct a TableChunk from a device table view.
+     *
+     * @param sequence_number Ordering identifier for the chunk.
+     * @param table_view Device-resident table view.
+     * @param device_alloc_size The number of bytes in device memory.
+     * @param stream The CUDA stream on which the table was created.
+     */
+    TableChunk(
+        std::uint64_t sequence_number,
+        cudf::table_view table_view,
+        std::size_t device_alloc_size,
+        rmm::cuda_stream_view stream
+    );
+
+    /**
      * @brief Construct a TableChunk from packed columns.
      *
      * @param sequence_number Ordering identifier for the chunk.
@@ -172,7 +187,8 @@ class TableChunk {
   private:
     std::uint64_t sequence_number_;
 
-    // Only one of the following is non-null.
+    // At most, one of the following unique pointers is non-null. If all of them are null,
+    // the TableChunk is a non-owning view.
     // TODO: use a variant and drop the unique pointers?
     std::unique_ptr<cudf::table> table_;
     std::unique_ptr<cudf::packed_columns> packed_columns_;
