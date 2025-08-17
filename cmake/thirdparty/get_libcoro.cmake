@@ -12,6 +12,7 @@ function(find_and_configure_libcoro)
   rapids_cpm_find(
     libcoro 0.15.0
     GLOBAL_TARGETS libcoro
+    BUILD_EXPORT_SET rapidsmpf-exports
     CPM_ARGS
     GIT_REPOSITORY https://github.com/jbaldwin/libcoro
     GIT_TAG main
