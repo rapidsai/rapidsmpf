@@ -76,7 +76,7 @@ TableChunk::TableChunk(
     }
 }
 
-std::uint64_t TableChunk::sequence_number() const {
+std::uint64_t TableChunk::sequence_number() const noexcept {
     return sequence_number_;
 }
 
@@ -84,11 +84,11 @@ std::size_t TableChunk::data_alloc_size(MemoryType mem_type) const {
     return data_alloc_size_.at(static_cast<std::size_t>(mem_type));
 }
 
-bool TableChunk::is_available() const {
+bool TableChunk::is_available() const noexcept {
     return table_view_.has_value();
 }
 
-std::size_t TableChunk::make_available_cost() const {
+std::size_t TableChunk::make_available_cost() const noexcept {
     return make_available_cost_;
 }
 

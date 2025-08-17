@@ -105,14 +105,14 @@ class TableChunk {
      * @brief Returns the sequence number of this chunk.
      * @return the sequence number.
      */
-    [[nodiscard]] std::uint64_t sequence_number() const;
+    [[nodiscard]] std::uint64_t sequence_number() const noexcept;
 
     /**
      * @brief Returns the CUDA stream on which this chunk was created.
      *
      * @return The CUDA stream view.
      */
-    rmm::cuda_stream_view stream() {
+    [[nodiscard]] rmm::cuda_stream_view stream() const noexcept {
         return stream_;
     }
 
@@ -130,7 +130,7 @@ class TableChunk {
      *
      * @return `true` if the table is already available; otherwise, `false`.
      */
-    [[nodiscard]] bool is_available() const;
+    [[nodiscard]] bool is_available() const noexcept;
 
     /**
      * @brief Returns the estimated cost (in bytes) of making the table available.
@@ -139,7 +139,7 @@ class TableChunk {
      *
      * @return The cost in bytes.
      */
-    [[nodiscard]] std::size_t make_available_cost() const;
+    [[nodiscard]] std::size_t make_available_cost() const noexcept;
 
     /**
      * @brief Move this table chunk into a new table chunk where the underlying cudf table
