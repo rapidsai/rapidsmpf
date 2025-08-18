@@ -78,7 +78,7 @@ void sync_streams(
 ) {
     if (primary.value() != secondary.value()) {
         RAPIDSMPF_CUDA_TRY(cudaEventRecord(event, secondary));
-        RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(primary, event, 0));
+        RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(primary, event));
     }
 }
 
