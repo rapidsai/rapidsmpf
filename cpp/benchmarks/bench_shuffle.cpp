@@ -302,7 +302,7 @@ std::vector<InputPartitionsT> generate_input_partitions(
         );
 
         // reserve at least size_lb and spill if necessary (no overbooking)
-        auto res = reserve_device_memory_and_spill(br, size_lb, false);
+        auto res = br->reserve_and_spill(rapidsmpf::MemoryType::DEVICE, size_lb, false);
         cudf::table table = with_memory_reservation(std::move(res), [&] {
             return random_table(
                 static_cast<cudf::size_type>(args.num_columns),

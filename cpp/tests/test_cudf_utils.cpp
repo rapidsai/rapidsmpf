@@ -64,7 +64,8 @@ TEST_F(BaseEstimatedMemoryUsageTest, StringType) {
         {},  // Empty column
         {"hello"},  // Single string
         {"hello", "world", "test"},  // Multiple strings
-        {"", "a", "very long string that should take more memory", "short"
+        {
+            "", "a", "very long string that should take more memory", "short"
         },  // Mixed lengths
         std::vector<std::string>(100, "repeated string")  // Many repeated strings
     };
@@ -115,8 +116,12 @@ TEST_F(BaseEstimatedMemoryUsageTest, StructType) {
         {},  // Empty struct column
         {{std::make_pair(1, "hello")}},  // Single struct
         {{std::make_pair(1, "hello"), std::make_pair(2, "world")}},  // Two structs
-        {{std::make_pair(0, ""), std::make_pair(100, "very long string"), std::make_pair(42, "short")}},  // Mixed data
-        std::vector<std::pair<int32_t, std::string>>(50, std::make_pair(42, "repeated"))  // Many repeated structs
+        {{std::make_pair(0, ""),
+          std::make_pair(100, "very long string"),
+          std::make_pair(42, "short")}},  // Mixed data
+        std::vector<std::pair<int32_t, std::string>>(
+            50, std::make_pair(42, "repeated")
+        )  // Many repeated structs
     };
 
     for (const auto& data : test_cases) {
@@ -149,6 +154,7 @@ TEST_F(BaseEstimatedMemoryUsageTest, StructType) {
         EXPECT_EQ(exp, est);
     }
 }
+
 /**
  * @brief Test suite for dictionary column memory usage estimation
  */
@@ -158,7 +164,8 @@ TEST_F(BaseEstimatedMemoryUsageTest, DictionaryType) {
         {},  // Empty column
         {"hello"},  // Single value
         {"hello", "world", "test", "hello", "world"},  // Repeated values
-        {"", "a", "very long string", "short", "a", "very long string"
+        {
+            "", "a", "very long string", "short", "a", "very long string"
         },  // Mixed with repetition
         std::vector<std::string>(100, "repeated")  // Many repeated values
     };

@@ -48,8 +48,8 @@ partition_and_split(
 
     // hash_partition does a deep-copy. Therefore, we need to reserve memory for
     // at least the size of the table.
-    auto res = reserve_device_memory_and_spill(
-        br, estimated_memory_usage(table, stream), allow_overbooking
+    auto res = br->reserve_and_spill(
+        MemoryType::DEVICE, estimated_memory_usage(table, stream), allow_overbooking
     );
     auto [partition_table, offsets] = with_memory_reservation(std::move(res), [&] {
         return cudf::hash_partition(
@@ -99,8 +99,8 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
 
     // hash_partition does a deep-copy. Therefore, we need to reserve memory for
     // at least the size of the table.
-    auto res = reserve_device_memory_and_spill(
-        br, estimated_memory_usage(table, stream), allow_overbooking
+    auto res = br->reserve_and_spill(
+        MemoryType::DEVICE, estimated_memory_usage(table, stream), allow_overbooking
     );
     auto [reordered, split_points] = with_memory_reservation(std::move(res), [&] {
         return cudf::hash_partition(
@@ -133,8 +133,8 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
 
     // contiguous split does a deep-copy. Therefore, we need to reserve memory for
     // at least the size of the table.
-    auto res = reserve_device_memory_and_spill(
-        br, estimated_memory_usage(table, stream), allow_overbooking
+    auto res = br->reserve_and_spill(
+        MemoryType::DEVICE, estimated_memory_usage(table, stream), allow_overbooking
     );
     auto packed = with_memory_reservation(std::move(res), [&] {
         return cudf::contiguous_split(table, splits, stream, br->device_mr());
@@ -180,7 +180,7 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 
     // reserve memory for concatenation
     auto reservation =
-        reserve_device_memory_and_spill(br, concat_size, allow_overbooking);
+        br->reserve_and_spill(MemoryType::DEVICE, concat_size, allow_overbooking);
 
     return cudf::concatenate(unpacked, stream, br->device_mr());
 }
@@ -199,18 +199,27 @@ std::vector<PackedData> spill_partitions(
             device_size += data->size;
         }
     }
-    auto [reservation, _] = br->reserve(MemoryType::HOST, device_size, false);
-    // Spill each partition to host memory.
-    std::vector<PackedData> ret;
-    ret.reserve(partitions.size());
-    for (auto& [metadata, data] : partitions) {
-        ret.emplace_back(
-            std::move(metadata), br->move(std::move(data), stream, reservation)
-        );
-    }
-    statistics->add_duration_stat("spill-time-device-to-host", Clock::now() - elapsed);
-    statistics->add_bytes_stat("spill-bytes-device-to-host", device_size);
-    return ret;
+
+    return br->with_reservation(
+        MemoryType::HOST,
+        device_size,
+        false,  // allow_overbooking
+        [&](auto& reservation, auto /*ob*/) {
+            // Spill each partition to host memory.
+            std::vector<PackedData> ret;
+            ret.reserve(partitions.size());
+            for (auto& [metadata, data] : partitions) {
+                ret.emplace_back(
+                    std::move(metadata), br->move(std::move(data), stream, reservation)
+                );
+            }
+            statistics->add_duration_stat(
+                "spill-time-device-to-host", Clock::now() - elapsed
+            );
+            statistics->add_bytes_stat("spill-bytes-device-to-host", device_size);
+            return ret;
+        }
+    );
 }
 
 std::vector<PackedData> unspill_partitions(
@@ -231,19 +240,23 @@ std::vector<PackedData> unspill_partitions(
 
     // This total sum is what we need to reserve before moving data to device.
     auto reservation =
-        reserve_device_memory_and_spill(br, non_device_size, allow_overbooking);
+        br->reserve_and_spill(MemoryType::DEVICE, non_device_size, allow_overbooking);
 
-    // Unspill each partition.
-    std::vector<PackedData> ret;
-    ret.reserve(partitions.size());
-    for (auto& [metadata, data] : partitions) {
-        ret.emplace_back(
-            std::move(metadata), br->move(std::move(data), stream, reservation)
+    return with_memory_reservation(std::move(reservation), [&] {
+        // Unspill each partition.
+        std::vector<PackedData> ret;
+        ret.reserve(partitions.size());
+        for (auto& [metadata, data] : partitions) {
+            ret.emplace_back(
+                std::move(metadata), br->move(std::move(data), stream, reservation)
+            );
+        }
+
+        statistics->add_duration_stat(
+            "spill-time-host-to-device", Clock::now() - elapsed
         );
-    }
-
-    statistics->add_duration_stat("spill-time-host-to-device", Clock::now() - elapsed);
-    statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
-    return ret;
+        statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
+        return ret;
+    });
 }
 }  // namespace rapidsmpf

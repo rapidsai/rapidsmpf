@@ -115,7 +115,7 @@ TEST_F(SpillingTest, SpillUnspillRoundtripPreservesDataAndMetadata) {
     std::vector<rapidsmpf::PackedData> input;
     input.push_back(create_packed_data(metadata, payload, stream, br.get()));
 
-    // Device -> Host
+    // Device -> Device (moves data)
     auto on_gpu = unspill_partitions(
         std::move(input), stream, br.get(), /*allow_overbooking=*/true
     );
@@ -123,7 +123,7 @@ TEST_F(SpillingTest, SpillUnspillRoundtripPreservesDataAndMetadata) {
     EXPECT_EQ(on_gpu[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
     EXPECT_EQ(*on_gpu[0].metadata, metadata);
 
-    // Host -> Device
+    // Device -> Host
     auto back_on_host = spill_partitions(std::move(on_gpu), stream, br.get());
     ASSERT_EQ(back_on_host.size(), 1);
     EXPECT_EQ(back_on_host[0].data->mem_type(), rapidsmpf::MemoryType::HOST);
