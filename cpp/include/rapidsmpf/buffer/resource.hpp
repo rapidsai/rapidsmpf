@@ -523,8 +523,8 @@ MemoryReservation reserve_or_fail(
  * the reservation is released when the function goes out of scope.
  *
  * Similar to `BufferResource::with_reservation`, but this function would not reserve
- * memory, but holds on to the reservation until the function is executed. Would be useful
- * in situations where the memory reservation was made with spilling.
+ * memory, but holds on to the reservation until the function is executed. Is useful in  
+ * situations where the memory reservation is made with spilling.
  *
  * @param reservation moved memory reservation.
  * @param f The function to execute.

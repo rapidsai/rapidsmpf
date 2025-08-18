@@ -5,7 +5,7 @@
 
 #include <numeric>
 
-#include <cuda/std/type_traits>
+#include <type_traits>
 
 #include <cudf/copying.hpp>
 #include <cudf/lists/lists_column_view.hpp>
