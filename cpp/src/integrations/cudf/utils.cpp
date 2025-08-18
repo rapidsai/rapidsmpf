@@ -4,7 +4,6 @@
  */
 
 #include <numeric>
-
 #include <type_traits>
 
 #include <cudf/copying.hpp>
