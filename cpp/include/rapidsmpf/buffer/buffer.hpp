@@ -20,7 +20,6 @@
 namespace rapidsmpf {
 
 class BufferResource;
-class CudaEvent;
 class MemoryReservation;
 
 /// @brief Enum representing the type of memory.
