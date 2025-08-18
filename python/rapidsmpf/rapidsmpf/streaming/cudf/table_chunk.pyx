@@ -13,7 +13,8 @@ from pylibcudf.table cimport Table
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 
 from rapidsmpf.streaming.core.context cimport Context
-from rapidsmpf.streaming.core.leaf_node cimport cpp_push_chunks_to_channel
+from rapidsmpf.streaming.core.leaf_node cimport (cpp_pull_chunks_from_channel,
+                                                 cpp_push_chunks_to_channel)
 from rapidsmpf.streaming.core.node cimport Node, cpp_Node
 
 
@@ -30,6 +31,10 @@ cdef class TableChunk:
     cdef TableChunk from_handle(
         unique_ptr[cpp_TableChunk] handle, Stream stream, object owner
     ):
+        if stream is None:
+            stream = Stream._from_cudaStream_t(
+                deref(handle).stream().value()
+            )
         cdef TableChunk ret = TableChunk.__new__(TableChunk)
         ret._handle = move(handle)
         ret._stream = stream
@@ -66,10 +71,6 @@ cdef class TableChunk:
         return deref(self._handle).sequence_number()
 
     def stream(self):
-        if self._stream is None:
-            self._stream = Stream._from_cudaStream_t(
-                deref(self._handle).stream().value()
-            )
         return self._stream
 
     def data_alloc_size(self, MemoryType mem_type):
@@ -114,3 +115,29 @@ def push_table_chunks_to_channel(Context ctx, TableChunkChannel ch_out, list chu
             ctx._handle, ch_out._handle, move(_chunks)
         )
     return Node.from_handle(move(_ret), owner)
+
+
+cdef class DeferredOutputChunks:
+    def result(self):
+        cdef list ret = []
+        for i in range(self._chunks.size()):
+            # TODO: need some locking.
+            ret.append(
+                TableChunk.from_handle(
+                    handle=move(self._chunks[i]),
+                    stream=None,
+                    owner=None,
+                )
+            )
+        return ret
+
+
+def pull_chunks_from_channel(
+    Context ctx, TableChunkChannel ch_in, DeferredOutputChunks chunks
+):
+    cdef cpp_Node _ret_node
+    with nogil:
+        _ret_node = cpp_pull_chunks_from_channel[cpp_TableChunk](
+            ctx._handle, ch_in._handle, chunks._chunks
+        )
+    return Node.from_handle(move(_ret_node), owner=None)

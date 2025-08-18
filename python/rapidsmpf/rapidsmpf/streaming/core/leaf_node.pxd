@@ -16,3 +16,10 @@ cdef extern from "<rapidsmpf/streaming/core/leaf_node.hpp>" nogil:
             cpp_SharedChannel[T] ch_out,
             vector[unique_ptr[T]] chunks,
         ) except +
+
+    cdef cpp_Node cpp_pull_chunks_from_channel \
+        "rapidsmpf::streaming::node::pull_chunks_from_channel"[T](
+            shared_ptr[cpp_Context] ctx,
+            cpp_SharedChannel[T] ch_in,
+            vector[unique_ptr[T]] output,
+        ) except +

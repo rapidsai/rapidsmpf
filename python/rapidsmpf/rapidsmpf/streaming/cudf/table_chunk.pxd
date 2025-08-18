@@ -5,6 +5,7 @@ from libc.stddef cimport size_t
 from libc.stdint cimport uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport unique_ptr
+from libcpp.vector cimport vector
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
@@ -40,3 +41,7 @@ cdef class TableChunkChannel:
 
     @staticmethod
     cdef TableChunkChannel from_handle(cpp_SharedChannel[cpp_TableChunk] handle)
+
+
+cdef class DeferredOutputChunks:
+    cdef vector[unique_ptr[cpp_TableChunk]] _chunks

@@ -28,3 +28,10 @@ class TableChunkChannel:
 def push_table_chunks_to_channel(
     ctx: Context, ch_out: TableChunkChannel, chunks: list[TableChunk]
 ) -> Node: ...
+
+class DeferredOutputChunks:
+    def result(self) -> list[TableChunk]: ...
+
+def pull_chunks_from_channel(
+    ctx: Context, ch_in: TableChunkChannel, chunks: DeferredOutputChunks
+) -> Node: ...

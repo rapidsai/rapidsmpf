@@ -8,8 +8,10 @@ from typing import TYPE_CHECKING
 import cudf
 
 from rapidsmpf.streaming.cudf.table_chunk import (
+    DeferredOutputChunks,
     TableChunk,
     TableChunkChannel,
+    pull_chunks_from_channel,
     push_table_chunks_to_channel,
 )
 
@@ -33,3 +35,5 @@ def test_roundtrip(context: Context, stream: Stream) -> None:
     nodes.append(
         push_table_chunks_to_channel(ctx=context, ch_out=ch1, chunks=table_chunks)
     )
+    output = DeferredOutputChunks()
+    nodes.append(pull_chunks_from_channel(ctx=context, ch_in=ch1, chunks=output))
