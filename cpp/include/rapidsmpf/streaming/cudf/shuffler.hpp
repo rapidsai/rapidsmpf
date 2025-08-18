@@ -20,10 +20,8 @@ namespace rapidsmpf::streaming::node {
  * This is a streaming version of `rapidsmpf::shuffler::Shuffler` that operates on
  * packed partition chunks using channels.
  *
- * It consumes partitioned input data from the input channel and redistributes it across
- * partitions based on ownership logic, producing output chunks grouped by partition ID.
- * The shuffle uses GPU memory and communication primitives to operate efficiently
- * in a distributed or multi-threaded environment.
+ * It consumes partitioned input data from the input channel and produces output chunks
+ * grouped by `partition_owner`.
  *
  * @param ctx The streaming context providing communication, memory, stream, and execution
  * resources.
@@ -31,11 +29,10 @@ namespace rapidsmpf::streaming::node {
  * input channel aren't created on `stream`, the streams are all synchronized.
  * @param ch_in Input channel providing packed partition chunks to be shuffled.
  * @param ch_out Output channel where the shuffled results are sent.
- * @param op_id Unique operation ID for this shuffle. Must not be reused until
- *              all nodes have called `Shuffler::shutdown()`.
+ * @param op_id Unique operation ID for this shuffle. Must not be reused until all nodes
+ * have called `Shuffler::shutdown()`.
  * @param total_num_partitions Total number of partitions to shuffle the data into.
  * @param partition_owner Function that maps a partition ID to its owning rank/node.
- *                        Defaults to round-robin ownership.
  *
  * @return A streaming node that completes when the shuffling has finished and the output
  * channel is drained.
