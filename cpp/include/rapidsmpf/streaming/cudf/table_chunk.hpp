@@ -50,6 +50,10 @@ class TableChunk {
     /**
      * @brief Construct a TableChunk from a device table view.
      *
+     * The TableChunk does not take ownership of the underlying data; the caller
+     * is responsible for ensuring the data remains valid for the lifetime of
+     * the TableChunk.
+     *
      * @param sequence_number Ordering identifier for the chunk.
      * @param table_view Device-resident table view.
      * @param device_alloc_size The number of bytes in device memory.
@@ -143,16 +147,17 @@ class TableChunk {
     [[nodiscard]] std::size_t make_available_cost() const noexcept;
 
     /**
-     * @brief Move this table chunk into a new table chunk where the underlying cudf table
-     * is made available, possibly performing a copy or unpack.
+     * @brief Moves this chunk into a new one with its cudf table made available.
      *
-     * @param reservation Reservation used to allocate memory if needed.
+     * As part of the move, a copy or unpack may be performed if required.
+     *
+     * @param reservation Memory reservation for allocations if needed.
      * @param stream CUDA stream to use for operations.
-     * @param br Buffer resource used for allocations.
-     * @return A new TableChunk with the data available on device.
+     * @param br Buffer resource for allocations.
+     * @return A new TableChunk with data available on device.
      *
-     * @note After this call, this object is in a has-been-moved-state and anything other
-     * than reassignment, movement, and destruction is UB.
+     * @note After this call, the current object is in a moved-from state;
+     *       only reassignment, movement, or destruction are valid.
      */
     [[nodiscard]] TableChunk make_available(
         MemoryReservation& reservation, rmm::cuda_stream_view stream, BufferResource* br
