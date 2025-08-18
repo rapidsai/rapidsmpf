@@ -16,65 +16,11 @@
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
-
-
-namespace {
-
-
-/**
- * @brief Calculate the memory usage of a column.
- *
- * @param col The column to calculate the memory usage of.
- * @return The memory usage of the column.
- */
-size_t column_memory_usage(cudf::column_view const& col) {
-    size_t total = 0;
-
-    // Data buffer
-    total += static_cast<std::size_t>(col.size()) * cudf::size_of(col.type());
-
-    // Null mask buffer (if present)
-    if (col.nullable()) {
-        total += cudf::bitmask_allocation_size_bytes(col.size());
-    }
-
-    // Type-specific buffers
-    if (col.type().id() == cudf::type_id::STRING) {
-        // Strings: offsets buffer + chars buffer
-        auto offsets = col.child(0);
-        auto chars = col.child(1);
-        total += static_cast<std::size_t>(offsets.size()) * sizeof(cudf::size_type);
-        total += static_cast<std::size_t>(chars.size()) * sizeof(char);
-    } else if (cudf::is_nested(col.type())) {
-        // Nested types: sum recursively
-        for (auto i = 0; i < col.num_children(); ++i) {
-            total += column_memory_usage(col.child(i));
-        }
-    }
-
-    return total;
-}
-
-/**
- * @brief Calculate the memory usage of a table.
- *
- * @param tbl The table to calculate the memory usage of.
- * @return The memory usage of the table.
- */
-size_t table_memory_usage(cudf::table_view const& tbl) {
-    size_t total = 0;
-    for (auto const& col : tbl) {
-        total += column_memory_usage(col);
-    }
-    return total;
-}
-
-
-}  // namespace
 
 std::pair<std::vector<cudf::table_view>, std::unique_ptr<cudf::table>>
 partition_and_split(
@@ -85,7 +31,8 @@ partition_and_split(
     uint32_t seed,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    bool allow_overbooking
 ) {
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     if (table.num_rows() == 0) {
@@ -101,7 +48,9 @@ partition_and_split(
 
     // hash_partition does a deep-copy. Therefore, we need to reserve memory for
     // at least the size of the table.
-    auto res = reserve_device_memory_and_spill(br, table_memory_usage(table), false);
+    auto res = reserve_device_memory_and_spill(
+        br, estimated_memory_usage(table, stream), allow_overbooking
+    );
     auto [partition_table, offsets] = with_memory_reservation(std::move(res), [&] {
         return cudf::hash_partition(
             table,
@@ -135,7 +84,8 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     uint32_t seed,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    bool allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
@@ -144,12 +94,14 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
         auto splits = std::vector<cudf::size_type>(
             static_cast<std::uint64_t>(num_partitions - 1), 0
         );
-        return split_and_pack(table, splits, stream, br);
+        return split_and_pack(table, splits, stream, br, statistics, allow_overbooking);
     }
 
     // hash_partition does a deep-copy. Therefore, we need to reserve memory for
     // at least the size of the table.
-    auto res = reserve_device_memory_and_spill(br, table_memory_usage(table), false);
+    auto res = reserve_device_memory_and_spill(
+        br, estimated_memory_usage(table, stream), allow_overbooking
+    );
     auto [reordered, split_points] = with_memory_reservation(std::move(res), [&] {
         return cudf::hash_partition(
             table,
@@ -162,7 +114,9 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
         );
     });
     std::vector<cudf::size_type> splits(split_points.begin() + 1, split_points.end());
-    return split_and_pack(reordered->view(), splits, stream, br);
+    return split_and_pack(
+        reordered->view(), splits, stream, br, statistics, allow_overbooking
+    );
 }
 
 std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
@@ -170,7 +124,8 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     std::vector<cudf::size_type> const& splits,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    bool allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
@@ -178,7 +133,9 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
 
     // contiguous split does a deep-copy. Therefore, we need to reserve memory for
     // at least the size of the table.
-    auto res = reserve_device_memory_and_spill(br, table_memory_usage(table), false);
+    auto res = reserve_device_memory_and_spill(
+        br, estimated_memory_usage(table, stream), allow_overbooking
+    );
     auto packed = with_memory_reservation(std::move(res), [&] {
         return cudf::contiguous_split(table, splits, stream, br->device_mr());
     });
@@ -199,7 +156,8 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    bool allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
@@ -220,8 +178,9 @@ std::unique_ptr<cudf::table> unpack_and_concat(
         }
     }
 
-    // reserve memory for concatenation with no overbooking
-    auto reservation = reserve_device_memory_and_spill(br, concat_size, false);
+    // reserve memory for concatenation
+    auto reservation =
+        reserve_device_memory_and_spill(br, concat_size, allow_overbooking);
 
     return cudf::concatenate(unpacked, stream, br->device_mr());
 }
