@@ -18,7 +18,6 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-#include <rapidsmpf/streaming/cudf/utils.hpp>
 
 namespace rapidsmpf::streaming {
 
