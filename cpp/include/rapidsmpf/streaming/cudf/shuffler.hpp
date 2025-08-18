@@ -28,9 +28,9 @@ namespace rapidsmpf::streaming::node {
  * @param ctx The streaming context providing communication, memory, stream, and execution
  * resources.
  * @param stream The CUDA stream on which to perform the shuffling. If chunks from the
- * input channel isn't created on `stream`, the streams are all synchronized.
+ * input channel aren't created on `stream`, the streams are all synchronized.
  * @param ch_in Input channel providing packed partition chunks to be shuffled.
- * @param ch_out Output channel where the shuffled result are sent.
+ * @param ch_out Output channel where the shuffled results are sent.
  * @param op_id Unique operation ID for this shuffle. Must not be reused until
  *              all nodes have called `Shuffler::shutdown()`.
  * @param total_num_partitions Total number of partitions to shuffle the data into.
