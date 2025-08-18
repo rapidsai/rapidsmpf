@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from libcpp.memory cimport unique_ptr
+from libcpp.memory cimport shared_ptr
 from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.resource cimport BufferResource
@@ -14,6 +14,6 @@ cdef extern from "<rapidsmpf/streaming/core/context.hpp>" nogil:
 
 
 cdef class Context:
-    cdef unique_ptr[cpp_Context] _handle
+    cdef shared_ptr[cpp_Context] _handle
     cdef Communicator _comm
     cdef BufferResource _br

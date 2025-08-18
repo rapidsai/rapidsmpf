@@ -8,7 +8,7 @@ from rapidsmpf.statistics cimport Statistics
 
 from rapidsmpf.config import get_environment_variables
 
-from libcpp.memory cimport make_unique
+from libcpp.memory cimport make_shared
 
 
 cdef class Context:
@@ -32,7 +32,7 @@ cdef class Context:
             statistics = Statistics(enable=False)  # Disables statistics.
 
         with nogil:
-            self._handle = make_unique[cpp_Context](
+            self._handle = make_shared[cpp_Context](
                 options._handle,
                 self._comm._handle,
                 br_,
