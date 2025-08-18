@@ -78,3 +78,15 @@ cdef class TableChunk:
         with nogil:
             ret = deref(self._handle).table_view()
         return Table.from_table_view_of_arbitrary(ret, owner=self)
+
+
+cdef class TableChunkChannel:
+    @staticmethod
+    cdef TableChunkChannel from_handle(cpp_SharedChannel[cpp_TableChunk] handle):
+        cdef TableChunkChannel ret = TableChunkChannel.__new__(TableChunkChannel)
+        ret._handle = move(handle)
+        return ret
+
+    def __dealloc__(self):
+        with nogil:
+            self._handle.reset()

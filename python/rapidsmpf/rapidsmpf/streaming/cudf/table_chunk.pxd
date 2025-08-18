@@ -12,6 +12,7 @@ from rmm.pylibrmm.stream cimport Stream
 from rapidsmpf.buffer.buffer cimport MemoryType
 from rapidsmpf.buffer.resource cimport BufferResource
 from rapidsmpf.communicator.communicator cimport Communicator
+from rapidsmpf.streaming.core.channel cimport cpp_SharedChannel
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
@@ -32,3 +33,10 @@ cdef class TableChunk:
     cdef TableChunk from_handle(
         unique_ptr[cpp_TableChunk] handle, Stream stream, object owner
     )
+
+
+cdef class TableChunkChannel:
+    cdef cpp_SharedChannel[cpp_TableChunk] _handle
+
+    @staticmethod
+    cdef TableChunkChannel from_handle(cpp_SharedChannel[cpp_TableChunk] handle)
