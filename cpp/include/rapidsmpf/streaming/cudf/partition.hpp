@@ -4,6 +4,8 @@
  */
 
 #pragma once
+#include <unordered_map>
+#include <vector>
 
 #include <cudf/partitioning.hpp>
 #include <cudf/table/table.hpp>
@@ -101,7 +103,7 @@ Node partition_and_pack(
     std::shared_ptr<Context> ctx,
     SharedChannel<TableChunk> ch_in,
     SharedChannel<PartitionMapChunk> ch_out,
-    std::vector<cudf::size_type> columns_to_hash,
+    std::vector<cudf::size_type> const& columns_to_hash,
     int num_partitions,
     cudf::hash_id hash_function,
     uint32_t seed
