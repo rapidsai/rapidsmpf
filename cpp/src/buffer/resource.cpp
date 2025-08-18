@@ -102,7 +102,7 @@ std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<std::vector<uint8_t
 std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<rmm::device_buffer> data,
     rmm::cuda_stream_view stream,
-    std::shared_ptr<Buffer::Event> event
+    std::shared_ptr<CudaEvent> event
 ) {
     return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, std::move(event)));
 }
