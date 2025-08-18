@@ -8,6 +8,7 @@ cdef extern from "<rapidsmpf/streaming/core/node.hpp>" nogil:
 
 cdef class Node:
     cdef cpp_Node _handle
+    cdef object _owner
 
     @staticmethod
-    cdef Node from_handle(cpp_Node handle)
+    cdef Node from_handle(cpp_Node handle, object owner)

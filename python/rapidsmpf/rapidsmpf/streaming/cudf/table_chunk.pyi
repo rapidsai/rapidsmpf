@@ -6,6 +6,8 @@ from pylibcudf.table import Table
 from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.buffer.buffer import MemoryType
+from rapidsmpf.streaming.core.context import Context
+from rapidsmpf.streaming.core.node import Node
 
 class TableChunk:
     @staticmethod
@@ -22,3 +24,7 @@ class TableChunk:
 
 class TableChunkChannel:
     pass
+
+def push_table_chunks_to_channel(
+    ctx: Context, ch_out: TableChunkChannel, chunks: list[TableChunk]
+) -> Node: ...

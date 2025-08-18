@@ -6,7 +6,8 @@ from libcpp.utility cimport move
 
 cdef class Node:
     @staticmethod
-    cdef Node from_handle(cpp_Node handle):
+    cdef Node from_handle(cpp_Node handle, object owner):
         cdef Node ret = Node.__new__(Node)
         ret._handle = move(handle)
+        ret._owner = owner
         return ret

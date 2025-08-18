@@ -6,10 +6,15 @@ from libc.stddef cimport size_t
 from libc.stdint cimport uint64_t
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
+from libcpp.vector cimport vector
 from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
+
+from rapidsmpf.streaming.core.context cimport Context
+from rapidsmpf.streaming.core.leaf_node cimport cpp_push_chunks_to_channel
+from rapidsmpf.streaming.core.node cimport Node, cpp_Node
 
 
 cdef class TableChunk:
@@ -90,3 +95,22 @@ cdef class TableChunkChannel:
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
+
+
+def push_table_chunks_to_channel(Context ctx, TableChunkChannel ch_out, list chunks):
+    cdef vector[unique_ptr[cpp_TableChunk]] _chunks
+    cdef TableChunk _chunk
+    owner = []
+    for chunk in chunks:
+        _chunk = <TableChunk?>chunk
+        owner.append(_chunk._owner)
+        owner.append(_chunk._stream)
+        _chunks.emplace_back(move(_chunk._handle))
+    chunks.clear()
+
+    cdef cpp_Node _ret
+    with nogil:
+        _ret = cpp_push_chunks_to_channel[cpp_TableChunk](
+            ctx._handle, ch_out._handle, move(_chunks)
+        )
+    return Node.from_handle(move(_ret), owner)
