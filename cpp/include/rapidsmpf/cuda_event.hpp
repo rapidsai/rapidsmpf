@@ -108,7 +108,7 @@ class CudaEvent {
      *
      * @throws rapidsmpf::cuda_error if cudaEventSynchronize fails.
      */
-    void wait();
+    void host_wait();
 
     /**
      * @brief Access the underlying CUDA event handle.

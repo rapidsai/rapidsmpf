@@ -56,7 +56,7 @@ void CudaEvent::record(rmm::cuda_stream_view stream) {
     return true;
 }
 
-void CudaEvent::CudaEvent::wait() {
+void CudaEvent::CudaEvent::host_wait() {
     if (!done_.load(std::memory_order_relaxed)) {
         RAPIDSMPF_CUDA_TRY(cudaEventSynchronize(event_));
         done_.store(true, std::memory_order_relaxed);

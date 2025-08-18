@@ -226,7 +226,7 @@ bool Buffer::is_ready() const {
 
 void Buffer::wait_for_ready() const {
     if (event_) {
-        event_->wait();
+        event_->host_wait();
     }
 }
 
