@@ -15,7 +15,7 @@ function(find_and_configure_libcoro)
     BUILD_EXPORT_SET rapidsmpf-exports
     CPM_ARGS
     GIT_REPOSITORY https://github.com/jbaldwin/libcoro
-    GIT_TAG main
+    GIT_TAG c52f4aa # v0.15.0
     GIT_SHALLOW TRUE
     OPTIONS "LIBCORO_FEATURE_NETWORKING OFF"
             "LIBCORO_EXTERNAL_DEPENDENCIES OFF"
