@@ -20,7 +20,9 @@ std::shared_ptr<CudaEvent> CudaEvent::make_shared_record(
 }
 
 CudaEvent::~CudaEvent() noexcept {
-    cudaEventDestroy(event_);
+    if (event_ != nullptr) {
+        cudaEventDestroy(event_);
+    }
 }
 
 CudaEvent::CudaEvent(CudaEvent&& other) noexcept
