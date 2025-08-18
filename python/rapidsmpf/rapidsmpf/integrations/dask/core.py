@@ -76,7 +76,7 @@ def get_dask_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
     return comm.rank
 
 
-@nvtx.annotate
+@nvtx.annotate()
 def global_rmpf_barrier(*dependencies: Sequence[None]) -> None:
     """
     Global barrier for RapidsMPF shuffle.
