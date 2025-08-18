@@ -33,7 +33,7 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
 
     std::vector<cudf::table> expects;
     for (int i = 0; i < num_chunks; ++i) {
-        expects.push_back(random_table_with_index(seed+i, num_rows, 0, 10));
+        expects.push_back(random_table_with_index(seed + i, num_rows, 0, 10));
     }
 
     std::vector<std::unique_ptr<TableChunk>> inputs;

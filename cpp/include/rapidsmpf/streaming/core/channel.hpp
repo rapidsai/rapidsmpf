@@ -28,10 +28,11 @@ class Channel {
     /**
      * @brief Asynchronously send a value into the channel.
      *
-     * Suspends if the buffer is full. Returns false if the channel is shut down.
+     * Suspends if the buffer is empty.
      *
      * @param value The value to send (moved).
-     * @return A coroutine that evaluates to true if the value was successfully sent.
+     * @return A coroutine that evaluates to true if the value was successfully sent or
+     * false if the channel was shut down.
      */
     coro::task<bool> send(T&& value) {
         auto result = co_await rb_.produce(std::move(value));
@@ -41,9 +42,10 @@ class Channel {
     /**
      * @brief Asynchronously receive a value from the channel.
      *
-     * Suspends if the buffer is empty. Returns std::nullopt if the channel is shut down.
+     * Suspends if the buffer is empty.
      *
-     * @return A coroutine that evaluates to an optional containing the received value.
+     * @return A coroutine that evaluates to an optional containing the received value or
+     * std::nullopt if the channel is shut down.
      */
     coro::task<std::optional<T>> receive() {
         auto msg = co_await rb_.consume();
@@ -132,8 +134,14 @@ std::shared_ptr<Channel<std::unique_ptr<T>>> make_shared_channel() {
 /**
  * @brief Helper RAII class to shut down channels when they go out of scope.
  *
- * Automatically shuts down all provided channels in reverse construction order.
- * Any pending or future send/receive operations will complete with failure/nullopt.
+ * When this object is destroyed, it invokes `shutdown()` on all provided channels
+ * (in reverse construction order). After shutdown, any pending or future
+ * send/receive operations on those channels will fail or yield `nullopt`.
+ *
+ * This is useful inside coroutine bodies to guarantee channels are shut down if an
+ * unhandled exception escapes the coroutine. Relying on a channel's own destructor
+ * is insufficient when the channel is shared (e.g., via `std::shared_ptr`), because
+ * other owners keep it alive.
  *
  * @tparam T Variadic list of channel pointer types.
  */
