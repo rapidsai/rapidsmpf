@@ -24,7 +24,7 @@ Node partition_and_pack(
 
     co_await ctx->executor()->schedule();
     while (true) {
-        std::shared_ptr<TableChunk> table = co_await ch_in->receive_or(nullptr);
+        auto table = co_await ch_in->receive_or(nullptr);
         if (table == nullptr) {
             break;
         }

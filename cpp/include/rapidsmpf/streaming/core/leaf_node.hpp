@@ -60,7 +60,7 @@ Node pull_chunks_from_channel(
     co_await ctx->executor()->schedule();
 
     while (true) {
-        std::unique_ptr<ChunkT> chunk = co_await ch_in->receive_or(nullptr);
+        auto chunk = co_await ch_in->receive_or(nullptr);
         if (chunk == nullptr) {
             break;
         }
