@@ -87,7 +87,7 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
             // if this buffer has an event, ask the current stream to wait for it, before
             // performing the memcpy
             if (event_) {
-                RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(stream, *event_));
+                event_->stream_wait(stream);
             }
 
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
@@ -170,7 +170,7 @@ std::ptrdiff_t Buffer::copy_to(
         // if this buffer has an event, ask the current stream to wait for it, before
         // performing the memcpy
         if (event_) {
-            RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(stream, *event_));
+            event_->stream_wait(stream);
         }
 
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(

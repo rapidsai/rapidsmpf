@@ -63,6 +63,10 @@ void CudaEvent::CudaEvent::host_wait() {
     }
 }
 
+void CudaEvent::stream_wait(rmm::cuda_stream_view stream) {
+    RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(stream, event_));
+}
+
 cudaEvent_t const& CudaEvent::value() const noexcept {
     return event_;
 }

@@ -111,6 +111,18 @@ class CudaEvent {
     void host_wait();
 
     /**
+     * @brief Make a CUDA stream wait on this event (non-blocking).
+     *
+     * Ensures that all operations submitted to the given stream after this call
+     * will not begin execution until this event has completed.
+     *
+     * @param stream CUDA stream that should wait for the event.
+     *
+     * @throws rapidsmpf::cuda_error if cudaStreamWaitEvent fails.
+     */
+    void stream_wait(rmm::cuda_stream_view stream);
+
+    /**
      * @brief Access the underlying CUDA event handle.
      *
      * @return Const reference to the underlying cudaEvent_t.
