@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import ucxx._lib.libucxx as ucx_api
 from distributed import get_client, get_worker, wait
@@ -50,9 +50,7 @@ def get_worker_context(
     """
     with WorkerContext.lock:
         worker = worker or get_worker()
-        if not hasattr(worker, "_rapidsmpf_worker_context"):
-            worker._rapidsmpf_worker_context = WorkerContext()
-        return cast("WorkerContext", worker._rapidsmpf_worker_context)
+        return worker._rapidsmpf_worker_context  # type: ignore[no-any-return]
 
 
 def get_dask_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
@@ -77,7 +75,7 @@ def get_dask_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
     return comm.rank
 
 
-def global_rmpf_barrier(dependencies: Sequence[None]) -> None:
+def global_rmpf_barrier(*dependencies: Sequence[None]) -> None:
     """
     Global barrier for RapidsMPF shuffle.
 
@@ -111,10 +109,12 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int, options: Options) -> byte
     bytes
         The UCXX address of the root node.
     """
-    ctx = get_worker_context()
-    ctx.comm = new_communicator(n_ranks, None, None, options)
-    ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
-    return get_root_ucxx_address(ctx.comm)
+    with WorkerContext.lock:
+        worker = get_worker()
+        comm = new_communicator(n_ranks, None, None, options)
+        worker._rapidsmpf_comm = comm
+        comm.logger.trace(f"Rank {comm.rank} created")
+        return get_root_ucxx_address(comm)
 
 
 async def rapidsmpf_ucxx_rank_setup_node(
@@ -132,15 +132,18 @@ async def rapidsmpf_ucxx_rank_setup_node(
     options
         Configuration options.
     """
-    ctx = get_worker_context()
-    if ctx.comm is None:
-        root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-        ctx.comm = new_communicator(n_ranks, None, root_address, options)
-        ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
-
-    ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier")
-    barrier(ctx.comm)
-    ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier passed")
+    with WorkerContext.lock:
+        worker = get_worker()
+        if not hasattr(worker, "_rapidsmpf_comm"):
+            # Not the root rank
+            root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
+            comm = new_communicator(n_ranks, None, root_address, options)
+            worker._rapidsmpf_comm = comm
+            comm.logger.trace(f"Rank {comm.rank} created")
+        comm = worker._rapidsmpf_comm
+        comm.logger.trace(f"Rank {comm.rank} setup barrier")
+        barrier(comm)
+        comm.logger.trace(f"Rank {comm.rank} setup barrier passed")
 
 
 def dask_worker_setup(
@@ -172,12 +175,18 @@ def dask_worker_setup(
     -----
     This function is expected to run on a Dask worker.
     """
-    rmpf_worker_setup(
-        get_worker_context,
-        dask_worker,
-        "dask_",
-        options=options,
-    )
+    try:
+        comm = dask_worker._rapidsmpf_comm
+    except AttributeError:
+        raise RuntimeError("Dask cluster not yet bootstrapped") from None
+    with WorkerContext.lock:
+        if not hasattr(dask_worker, "_rapidsmpf_worker_context"):
+            dask_worker._rapidsmpf_worker_context = rmpf_worker_setup(
+                dask_worker,
+                "dask_",
+                comm=comm,
+                options=options,
+            )
 
 
 _initialized_clusters: set[str] = set()
