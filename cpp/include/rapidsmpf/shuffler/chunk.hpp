@@ -73,6 +73,12 @@ class Chunk {
      */
     Chunk& operator=(Chunk&& other) noexcept = default;
 
+    // delete copy constructor
+    Chunk(Chunk const&) = delete;
+
+    // delete copy assignment operator
+    Chunk& operator=(Chunk const&) = delete;
+
     /**
      * @brief The size of the metadata message header.
      *
@@ -100,7 +106,7 @@ class Chunk {
      *
      * @return The number of messages in the chunk.
      */
-    [[nodiscard]] size_t n_messages() const {
+    [[nodiscard]] constexpr size_t n_messages() const {
         return part_ids_.size();
     }
 
@@ -110,7 +116,7 @@ class Chunk {
      * @param i The index of the message.
      * @return The ID of the partition.
      */
-    [[nodiscard]] PartID part_id(size_t i) const {
+    [[nodiscard]] constexpr PartID part_id(size_t i) const {
         return part_ids_.at(i);
     }
 
@@ -121,7 +127,7 @@ class Chunk {
      * @return The expected number of chunks for the message. Non-zero when the message
      * is a control message, otherwise zero (data message).
      */
-    [[nodiscard]] size_t expected_num_chunks(size_t i) const {
+    [[nodiscard]] constexpr size_t expected_num_chunks(size_t i) const {
         return expected_num_chunks_.at(i);
     }
 
@@ -131,7 +137,7 @@ class Chunk {
      * @param i The index of the message.
      * @return True if the message is a control message, false otherwise.
      */
-    [[nodiscard]] inline bool is_control_message(size_t i) const {
+    [[nodiscard]] constexpr bool is_control_message(size_t i) const {
         // We use `expected_num_chunks > 0` to flag a message as a "control message".
         return expected_num_chunks(i) > 0;
     }
@@ -164,7 +170,7 @@ class Chunk {
      * @return The size of the metadata of the message. Zero when the message is a
      * control message, otherwise the size of `PackedData::metadata`.
      */
-    [[nodiscard]] uint32_t metadata_size(size_t i) const {
+    [[nodiscard]] constexpr uint32_t metadata_size(size_t i) const {
         return i == 0 ? meta_offsets_.at(0)
                       : meta_offsets_.at(i) - meta_offsets_.at(i - 1);
     }
@@ -176,7 +182,7 @@ class Chunk {
      * @return The size of the packed data of the message. Zero when the message is a
      * control message, otherwise the size of `PackedData::data` of the message.
      */
-    [[nodiscard]] size_t data_size(size_t i) const {
+    [[nodiscard]] constexpr size_t data_size(size_t i) const {
         return i == 0 ? data_offsets_.at(0)
                       : data_offsets_.at(i) - data_offsets_.at(i - 1);
     }
@@ -224,8 +230,8 @@ class Chunk {
      *
      * @return The size of the concatenated data.
      */
-    [[nodiscard]] size_t concat_data_size() const {
-        return data_offsets_[n_messages() - 1];
+    [[nodiscard]] constexpr size_t concat_data_size() const {
+        return data_offsets_.at(n_messages() - 1);
     }
 
     /**
@@ -233,8 +239,8 @@ class Chunk {
      *
      * @return The size of the concatenated metadata.
      */
-    [[nodiscard]] size_t concat_metadata_size() const {
-        return meta_offsets_[n_messages() - 1];
+    [[nodiscard]] constexpr size_t concat_metadata_size() const {
+        return meta_offsets_.at(n_messages() - 1);
     }
 
     /**
