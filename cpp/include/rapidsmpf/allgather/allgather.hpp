@@ -9,6 +9,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <ostream>
 #include <vector>
 
@@ -17,6 +18,7 @@
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/buffer/spill_manager.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/progress_thread.hpp>
@@ -85,6 +87,14 @@ class Chunk {
      * @return True if the chunk is ready, false otherwise.
      */
     [[nodiscard]] bool is_ready() const noexcept;
+
+    /**
+     * @brief Return the memory type of the chunk.
+     *
+     * @return The memory type of the chunk.
+     * @note a finish chunk has memory type host.
+     */
+    [[nodiscard]] MemoryType memory_type() const noexcept;
 
     /**
      * @brief Check if this is a finish marker chunk.
@@ -306,6 +316,25 @@ class PostBox {
      */
     [[nodiscard]] bool empty() const noexcept;
 
+    /**
+     * @brief Spill device data from the post box.
+     *
+     * @param br The buffer resource for host and device allocations.
+     * @param log Logger instance.
+     * @param stream Stream on which device data should be spilled.
+     * @param amount Requested amount of data to spill in bytes.
+     * @return Actual amount of data spilled in bytes.
+     *
+     * @note We attempt to minimise the number of individual buffers
+     * spilled, as well as the amount of "overspill".
+     */
+    [[nodiscard]] std::size_t spill(
+        BufferResource* br,
+        Communicator::Logger& log,
+        rmm::cuda_stream_view stream,
+        std::size_t amount
+    );
+
   private:
     mutable std::mutex mutex_{};  ///< Mutex for thread-safe access
     std::vector<std::unique_ptr<Chunk>> chunks_{};  ///< Container for stored chunks
@@ -431,6 +460,13 @@ class AllGather {
      */
     void wait();
 
+    /**
+     * @brief Attempt to spill device memory
+     * @param amount Optional amount of memory to spill.
+     * @return The amount of memory actually spilled.
+     */
+    std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
+
     std::shared_ptr<Communicator> comm_;  ///< Communicator
     std::shared_ptr<ProgressThread>
         progress_thread_;  ///< Progress thread for async operations
@@ -448,7 +484,7 @@ class AllGather {
     detail::PostBox inserted_{};  ///< Postbox for chunks inserted by user/event loop
     detail::PostBox for_extraction_{};  ///< Postbox for chunks ready for user extraction
     ProgressThread::FunctionID function_id_{};  ///< Function ID in progress thread
-
+    SpillManager::SpillFunctionID spill_id_{};  ///< Function ID for spilling
     /// @brief Chunks being received from left neighbor
     std::vector<std::unique_ptr<detail::Chunk>> to_receive_{};
     /// @brief Fire-and-forget communication futures

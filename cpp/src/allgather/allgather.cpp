@@ -4,14 +4,20 @@
  */
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <numeric>
+#include <optional>
 #include <ranges>
 
 #include <rapidsmpf/allgather/allgather.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf::allgather {
 namespace detail {
@@ -34,6 +40,10 @@ Chunk::Chunk(ChunkID id)
 
 bool Chunk::is_ready() const noexcept {
     return data_size_ == 0 || (data_ && data_->is_ready());
+}
+
+MemoryType Chunk::memory_type() const noexcept {
+    return data_ == nullptr ? MemoryType::HOST : data_->mem_type();
 }
 
 bool Chunk::is_finish() const noexcept {
@@ -192,6 +202,66 @@ bool PostBox::empty() const noexcept {
     return chunks_.empty();
 }
 
+std::size_t PostBox::spill(
+    BufferResource* br,
+    Communicator::Logger& log,
+    rmm::cuda_stream_view stream,
+    std::size_t amount
+) {
+    std::lock_guard lock(mutex_);
+    auto max_spillable = std::transform_reduce(
+        chunks_.begin(), chunks_.end(), std::size_t{0}, std::plus{}, [](auto&& chunk) {
+            return chunk->data_size();
+        }
+    );
+    auto do_spill = [&](auto&& indices) {
+        for (std::size_t i : indices) {
+            auto&& chunk = chunks_[i];
+            auto [reservation, overbooking] =
+                br->reserve(MemoryType::HOST, chunk->data_size(), true);
+            if (overbooking) {
+                log.warn(
+                    "Cannot spill to host because of host memory overbooking: ",
+                    format_nbytes(overbooking)
+                );
+                continue;
+            }
+            chunk->attach_data_buffer(
+                br->move(chunk->release_data_buffer(), stream, reservation)
+            );
+        };
+    };
+    if (max_spillable < amount) {
+        // need to spill everything.
+        do_spill(std::views::iota(std::size_t{0}, chunks_.size()));
+        return max_spillable;
+    }
+    auto iota = std::views::iota(std::size_t{0}, chunks_.size());
+    std::vector<std::size_t> device_chunks(iota.begin(), iota.end());
+    std::vector<std::size_t> to_spill;
+    std::ranges::sort(device_chunks, std::less{}, [&](std::size_t i) {
+        return chunks_[i]->data_size();
+    });
+    std::size_t total_spilled{0};
+    // Try and spill the minimum number of buffers summing to the
+    // amount we need while minimising the amount of data we need to
+    // spill.
+    while (true) {
+        auto pos = std::ranges::lower_bound(
+            device_chunks, amount, std::less{}, [&](std::size_t i) {
+                return chunks_[i]->data_size();
+            }
+        );
+        auto found = pos == device_chunks.end() ? device_chunks.back() : *pos;
+        to_spill.push_back(found);
+        if ((total_spilled += chunks_[found]->data_size()) >= amount) {
+            break;
+        }
+        device_chunks.pop_back();
+    }
+    return total_spilled;
+}
+
 static std::vector<std::unique_ptr<Chunk>> test_some(
     std::vector<std::pair<std::unique_ptr<Chunk>, std::unique_ptr<Communicator::Future>>>&
         chunks,
@@ -304,6 +374,26 @@ void AllGather::wait() {
     can_extract_.wait(false, std::memory_order_acquire);
 }
 
+std::size_t AllGather::spill(std::optional<std::size_t> amount) {
+    std::size_t spill_need{0};
+    if (amount.has_value()) {
+        spill_need = amount.value();
+    } else {
+        std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE)();
+        spill_need = headroom < 0 ? static_cast<std::size_t>(std::abs(headroom)) : 0;
+    }
+    std::size_t spilled{0};
+    if (spill_need > 0) {
+        // Spill from ready post box then inserted postbox
+        spilled = for_extraction_.spill(br_, comm_->logger(), stream_, spill_need);
+        if (spilled < spill_need) {
+            spilled +=
+                inserted_.spill(br_, comm_->logger(), stream_, spill_need - spilled);
+        }
+    }
+    return spilled;
+}
+
 AllGather::~AllGather() {
     if (active_.load(std::memory_order_acquire)) {
         active_.store(false, std::memory_order_release);
@@ -330,6 +420,10 @@ AllGather::AllGather(
         progress_thread_->add_function([progress = std::make_shared<Progress>(*this)]() {
             return (*progress)();
         });
+    spill_id_ = br_->spill_manager().add_spill_function(
+        [this](std::size_t amount) -> std::size_t { return spill(amount); },
+        /* priority = */ 0
+    );
 }
 
 ProgressThread::ProgressState AllGather::event_loop() {
