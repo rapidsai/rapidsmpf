@@ -11,6 +11,14 @@ CudaEvent::CudaEvent(unsigned flags) {
     RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event_, flags));
 }
 
+std::shared_ptr<CudaEvent> CudaEvent::make_shared_record(
+    rmm::cuda_stream_view stream, unsigned flags
+) {
+    auto ret = std::make_shared<CudaEvent>(flags);
+    ret->record(stream);
+    return ret;
+}
+
 CudaEvent::~CudaEvent() noexcept {
     cudaEventDestroy(event_);
 }

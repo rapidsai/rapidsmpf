@@ -42,6 +42,23 @@ class CudaEvent {
     CudaEvent(unsigned flags = cudaEventDisableTiming);
 
     /**
+     * @brief Create and record a CUDA event on a given stream.
+     *
+     * Convenience factory that constructs a shared `CudaEvent` with the specified
+     * creation flags, immediately records it on the provided stream, and returns
+     * it as a `std::shared_ptr`.
+     *
+     * @param stream CUDA stream on which to record the event.
+     * @param flags CUDA event creation flags.
+     * @return A shared pointer to the newly created and recorded CudaEvent.
+     *
+     * @throws rapidsmpf::cuda_error if event creation or recording fails.
+     */
+    static std::shared_ptr<CudaEvent> make_shared_record(
+        rmm::cuda_stream_view stream, unsigned flags = cudaEventDisableTiming
+    );
+
+    /**
      * @brief Destroy the CUDA event.
      *
      * Automatically releases the underlying CUDA event resource.
