@@ -58,6 +58,20 @@ class CuptiMonitorTest : public ::testing::Test {
     }
 };
 
+TEST(CuptiMonitorTest, MemoryDataPointStructure) {
+    // Test that MemoryDataPoint structure is properly defined
+    rapidsmpf::MemoryDataPoint point;
+    point.timestamp = 1.0;
+    point.free_memory = 1000;
+    point.total_memory = 2000;
+    point.used_memory = 1000;
+
+    EXPECT_EQ(point.timestamp, 1.0);
+    EXPECT_EQ(point.free_memory, 1000);
+    EXPECT_EQ(point.total_memory, 2000);
+    EXPECT_EQ(point.used_memory, 1000);
+}
+
 TEST_F(CuptiMonitorTest, BasicConstruction) {
     // Test default construction
     CuptiMonitor monitor1;
