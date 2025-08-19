@@ -40,6 +40,10 @@ endfunction(rapidsmpf_mpirun_test_add)
 # ${RAPIDSMPF_BINARY_DIR}/gtests) is created to seamlessly run ctest from ${RAPIDSMPF_BINARY_DIR}.
 file(CREATE_LINK "${RAPIDSMPF_BINARY_DIR}/gtests" "${CMAKE_CURRENT_BINARY_DIR}/gtests" SYMBOLIC)
 
+if(RAPIDSMPF_HAVE_STREAMING)
+  file(GLOB STREAMING_SOURCES "streaming/*.cpp")
+endif()
+
 if(RAPIDSMPF_HAVE_MPI)
   file(GLOB SOURCES "main/mpi.cpp" "*.cpp")
   add_executable(mpi_tests ${SOURCES})
@@ -53,6 +57,7 @@ if(RAPIDSMPF_HAVE_MPI)
                CUDA_STANDARD 20
                CUDA_STANDARD_REQUIRED ON
                COMPONENT testing # custom test property, so that this could be searched later
+               LINK_FLAGS "-Wl,--allow-shlib-undefined"
   )
   target_compile_options(
     mpi_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
@@ -86,6 +91,7 @@ if(RAPIDSMPF_HAVE_MPI)
                  CUDA_STANDARD 20
                  CUDA_STANDARD_REQUIRED ON
                  COMPONENT testing # custom test property, so that this could be searched later
+                 LINK_FLAGS "-Wl,--allow-shlib-undefined"
     )
     target_compile_options(
       ucxx_tests PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
@@ -110,7 +116,7 @@ if(RAPIDSMPF_HAVE_MPI)
   endif()
 endif()
 file(GLOB SOURCES "main/single.cpp" "*.cpp")
-add_executable(single_tests ${SOURCES})
+add_executable(single_tests ${SOURCES} ${STREAMING_SOURCES})
 set_target_properties(
   single_tests
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
