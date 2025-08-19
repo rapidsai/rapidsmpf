@@ -173,8 +173,6 @@ TEST_F(CuptiMonitorTest, MemoryDataPoints) {
         EXPECT_GT(sample.total_memory, 0);
         EXPECT_LE(sample.free_memory, sample.total_memory);
         EXPECT_EQ(sample.used_memory, sample.total_memory - sample.free_memory);
-        EXPECT_GE(sample.utilization_percent, 0.0);
-        EXPECT_LE(sample.utilization_percent, 100.0);
     }
 
     // Timestamps should be in order

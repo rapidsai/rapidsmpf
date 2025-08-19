@@ -88,13 +88,17 @@ int main() {
         if (!samples.empty()) {
             auto initial_sample = samples.front();
             auto final_sample = samples.back();
+            double initial_utilization = static_cast<double>(initial_sample.used_memory)
+                                         / initial_sample.total_memory * 100.0;
+            double final_utilization = static_cast<double>(final_sample.used_memory)
+                                       / final_sample.total_memory * 100.0;
 
             std::cout << "Initial memory usage: "
                       << initial_sample.used_memory / (1024.0 * 1024.0) << " MB ("
-                      << initial_sample.utilization_percent << "%)\n";
+                      << initial_utilization << "%)\n";
             std::cout << "Final memory usage: "
                       << final_sample.used_memory / (1024.0 * 1024.0) << " MB ("
-                      << final_sample.utilization_percent << "%)\n";
+                      << final_utilization << "%)\n";
 
             // Find peak memory usage
             size_t peak_used = 0;
@@ -102,7 +106,8 @@ int main() {
             for (const auto& sample : samples) {
                 if (sample.used_memory > peak_used) {
                     peak_used = sample.used_memory;
-                    peak_utilization = sample.utilization_percent;
+                    peak_utilization = static_cast<double>(sample.used_memory)
+                                       / sample.total_memory * 100.0;
                 }
             }
 

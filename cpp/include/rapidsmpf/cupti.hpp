@@ -27,7 +27,6 @@ struct MemoryDataPoint {
     std::size_t free_memory;  ///< Free GPU memory in bytes
     std::size_t total_memory;  ///< Total GPU memory in bytes
     std::size_t used_memory;  ///< Used GPU memory in bytes
-    double utilization_percent;  ///< Memory utilization as percentage
 };
 
 /**
@@ -61,7 +60,7 @@ class CuptiMonitor {
     CuptiMonitor(CuptiMonitor const&) = delete;
     CuptiMonitor& operator=(CuptiMonitor const&) = delete;
 
-    // Delete move constructor and assignment operator (for simplicity)
+    // Delete move constructor and assignment operator
     CuptiMonitor(CuptiMonitor&&) = delete;
     CuptiMonitor& operator=(CuptiMonitor&&) = delete;
 
