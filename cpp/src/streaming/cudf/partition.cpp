@@ -37,7 +37,7 @@ Node partition_and_pack(
             .sequence_number = tbl.sequence_number(),
             .data = rapidsmpf::partition_and_pack(
                 tbl.table_view(),
-                columns_to_hash,
+                std::move(columns_to_hash),
                 num_partitions,
                 hash_function,
                 seed,
