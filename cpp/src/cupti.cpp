@@ -16,6 +16,62 @@
 
 namespace rapidsmpf {
 
+// List of CUDA Runtime API callbacks we want to monitor
+static constexpr CUpti_CallbackId MONITORED_RUNTIME_CALLBACKS[] = {
+    CUPTI_RUNTIME_TRACE_CBID_cudaMalloc_v3020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaMallocPitch_v3020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaMallocArray_v3020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaMallocHost_v3020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaMalloc3D_v3020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaMalloc3DArray_v3020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaMallocMipmappedArray_v5000,
+    CUPTI_RUNTIME_TRACE_CBID_cudaMallocManaged_v6000,
+    CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_v11020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_ptsz_v11020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_v11020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_ptsz_v11020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaFree_v3020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaFreeArray_v3020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaFreeHost_v3020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaFreeMipmappedArray_v5000,
+    CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_v11020,
+    CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_ptsz_v11020,
+};
+
+// List of CUDA Driver API callbacks we want to monitor
+static constexpr CUpti_CallbackId MONITORED_DRIVER_CALLBACKS[] = {
+    CUPTI_DRIVER_TRACE_CBID_cuMemAlloc,
+    CUPTI_DRIVER_TRACE_CBID_cuMemAllocPitch,
+    CUPTI_DRIVER_TRACE_CBID_cuMemAllocHost,
+    CUPTI_DRIVER_TRACE_CBID_cuMemAlloc_v2,
+    CUPTI_DRIVER_TRACE_CBID_cuMemAllocPitch_v2,
+    CUPTI_DRIVER_TRACE_CBID_cuMemAllocHost_v2,
+    CUPTI_DRIVER_TRACE_CBID_cuMemAllocManaged,
+    CUPTI_DRIVER_TRACE_CBID_cuMemAllocAsync,
+    CUPTI_DRIVER_TRACE_CBID_cuMemAllocAsync_ptsz,
+    CUPTI_DRIVER_TRACE_CBID_cuMemAllocFromPoolAsync,
+    CUPTI_DRIVER_TRACE_CBID_cuMemAllocFromPoolAsync_ptsz,
+    CUPTI_DRIVER_TRACE_CBID_cuMemFree,
+    CUPTI_DRIVER_TRACE_CBID_cu64MemFree,
+    CUPTI_DRIVER_TRACE_CBID_cuMemFreeHost,
+    CUPTI_DRIVER_TRACE_CBID_cuMemFree_v2,
+    CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync,
+    CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync_ptsz,
+};
+
+// Helper function to check if a callback ID is in our monitored list
+template <std::size_t N>
+bool is_monitored_callback(
+    CUpti_CallbackId cbid, const CUpti_CallbackId (&monitored_list)[N]
+) {
+    for (std::size_t i = 0; i < N; ++i) {
+        if (monitored_list[i] == cbid) {
+            return true;
+        }
+    }
+    return false;
+}
+
 CuptiMonitor::CuptiMonitor(
     bool enable_periodic_sampling, std::size_t sampling_interval_ms
 )
@@ -192,99 +248,23 @@ CUptiResult CuptiMonitor::init_cupti() {
         return cupti_err;
     }
 
-    // Enable runtime API callbacks
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_RUNTIME_API,
-        CUPTI_RUNTIME_TRACE_CBID_cudaMalloc_v3020
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_RUNTIME_API,
-        CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_v11020
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_RUNTIME_API,
-        CUPTI_RUNTIME_TRACE_CBID_cudaFree_v3020
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_RUNTIME_API,
-        CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_v11020
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_RUNTIME_API,
-        CUPTI_RUNTIME_TRACE_CBID_cudaMemcpy_v3020
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_RUNTIME_API,
-        CUPTI_RUNTIME_TRACE_CBID_cudaMemcpyAsync_v3020
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_RUNTIME_API,
-        CUPTI_RUNTIME_TRACE_CBID_cudaLaunchKernel_v7000
-    );
+    // Enable runtime API callbacks using our centralized list
+    for (const auto& cbid : MONITORED_RUNTIME_CALLBACKS) {
+        cupti_err =
+            cuptiEnableCallback(1, cupti_subscriber_, CUPTI_CB_DOMAIN_RUNTIME_API, cbid);
+        if (cupti_err != CUPTI_SUCCESS) {
+            return cupti_err;
+        }
+    }
 
-    // Enable driver API callbacks
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_DRIVER_API,
-        CUPTI_DRIVER_TRACE_CBID_cuMemAlloc_v2
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_DRIVER_API,
-        CUPTI_DRIVER_TRACE_CBID_cuMemFree_v2
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_DRIVER_API,
-        CUPTI_DRIVER_TRACE_CBID_cuMemcpyHtoD_v2
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_DRIVER_API,
-        CUPTI_DRIVER_TRACE_CBID_cuMemcpyDtoH_v2
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_DRIVER_API,
-        CUPTI_DRIVER_TRACE_CBID_cuMemcpyHtoDAsync_v2
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_DRIVER_API,
-        CUPTI_DRIVER_TRACE_CBID_cuMemcpyDtoHAsync_v2
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_DRIVER_API,
-        CUPTI_DRIVER_TRACE_CBID_cuMemcpyDtoDAsync_v2
-    );
-    cupti_err = cuptiEnableCallback(
-        1,
-        cupti_subscriber_,
-        CUPTI_CB_DOMAIN_DRIVER_API,
-        CUPTI_DRIVER_TRACE_CBID_cuLaunchKernel
-    );
+    // Enable driver API callbacks using our centralized list
+    for (const auto& cbid : MONITORED_DRIVER_CALLBACKS) {
+        cupti_err =
+            cuptiEnableCallback(1, cupti_subscriber_, CUPTI_CB_DOMAIN_DRIVER_API, cbid);
+        if (cupti_err != CUPTI_SUCCESS) {
+            return cupti_err;
+        }
+    }
 
     return cupti_err;
 }
@@ -310,55 +290,16 @@ void CuptiMonitor::cupti_callback(
 
     const CUpti_CallbackData* cbInfo = static_cast<const CUpti_CallbackData*>(cbdata);
 
+    // Check if this callback is one we're monitoring
+    bool should_monitor = false;
     if (domain == CUPTI_CB_DOMAIN_RUNTIME_API) {
-        switch (cbid) {
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMalloc_v3020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocPitch_v3020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocArray_v3020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocHost_v3020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMalloc3D_v3020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMalloc3DArray_v3020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocMipmappedArray_v5000:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocManaged_v6000:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_v11020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_ptsz_v11020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_v11020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_ptsz_v11020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaFree_v3020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaFreeArray_v3020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaFreeHost_v3020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaFreeMipmappedArray_v5000:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_v11020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_ptsz_v11020:
-            if (cbInfo->callbackSite == CUPTI_API_EXIT) {
-                capture_memory_usage_from_callback();
-            }
-            break;
-        }
+        should_monitor = is_monitored_callback(cbid, MONITORED_RUNTIME_CALLBACKS);
     } else if (domain == CUPTI_CB_DOMAIN_DRIVER_API) {
-        switch (cbid) {
-        case CUPTI_DRIVER_TRACE_CBID_cuMemAlloc:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocPitch:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocHost:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemAlloc_v2:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocPitch_v2:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocHost_v2:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocManaged:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocAsync:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocAsync_ptsz:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocFromPoolAsync:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocFromPoolAsync_ptsz:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemFree:
-        case CUPTI_DRIVER_TRACE_CBID_cu64MemFree:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemFreeHost:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemFree_v2:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync_ptsz:
-            if (cbInfo->callbackSite == CUPTI_API_EXIT) {
-                capture_memory_usage_from_callback();
-            }
-            break;
-        }
+        should_monitor = is_monitored_callback(cbid, MONITORED_DRIVER_CALLBACKS);
+    }
+
+    if (should_monitor && cbInfo->callbackSite == CUPTI_API_EXIT) {
+        capture_memory_usage_from_callback();
     }
 }
 
