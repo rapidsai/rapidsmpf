@@ -129,7 +129,7 @@ class Buffer {
      *
      * @param event The event to set.
      */
-    inline void override_event(std::shared_ptr<CudaEvent> event) {
+    void override_event(std::shared_ptr<CudaEvent> event) {
         event_ = std::move(event);
     }
 
