@@ -14,45 +14,6 @@
 
 namespace rapidsmpf {
 
-namespace {
-// Check that `ptr` isn't null.
-template <typename T>
-[[nodiscard]] std::unique_ptr<T> check_null(std::unique_ptr<T> ptr) {
-    RAPIDSMPF_EXPECTS(ptr, "unique pointer cannot be null", std::invalid_argument);
-    return ptr;
-}
-}  // namespace
-
-Buffer::Event::Event(rmm::cuda_stream_view stream) {
-    RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event_, cudaEventDisableTiming));
-    RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream));
-}
-
-Buffer::Event::~Event() {
-    // TODO: if we're being destroyed, warn the user if the event is
-    // not completed.
-    cudaEventDestroy(event_);
-}
-
-[[nodiscard]] bool Buffer::Event::is_ready() {
-    if (!done_.load(std::memory_order_acquire)) {
-        auto result = cudaEventQuery(event_);
-        done_.store(result == cudaSuccess, std::memory_order_release);
-        if (result != cudaSuccess && result != cudaErrorNotReady) {
-            RAPIDSMPF_CUDA_TRY(result);
-        }
-        return result == cudaSuccess;
-    }
-
-    return true;
-}
-
-void Buffer::Event::wait() {
-    if (!done_.load(std::memory_order_relaxed)) {
-        RAPIDSMPF_CUDA_TRY(cudaEventSynchronize(event_));
-        done_.store(true, std::memory_order_relaxed);
-    }
-}
 
 Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer)
     : size{host_buffer ? host_buffer->size() : 0},
@@ -66,7 +27,7 @@ Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer)
 Buffer::Buffer(
     std::unique_ptr<rmm::device_buffer> device_buffer,
     rmm::cuda_stream_view stream,
-    std::shared_ptr<Event> event
+    std::shared_ptr<CudaEvent> event
 )
     : size{device_buffer ? device_buffer->size() : 0},
       storage_{std::move(device_buffer)},
@@ -74,7 +35,7 @@ Buffer::Buffer(
       // async copy only if the buffer is not empty
       event_{
           event      ? event
-          : size > 0 ? std::make_shared<Event>(stream)
+          : size > 0 ? CudaEvent::make_shared_record(stream)
                      : nullptr
       } {
     RAPIDSMPF_EXPECTS(
@@ -126,7 +87,7 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
             // if this buffer has an event, ask the current stream to wait for it, before
             // performing the memcpy
             if (event_) {
-                RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(stream, event_->event()));
+                event_->stream_wait(stream);
             }
 
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
@@ -140,7 +101,7 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
             // cudaMemcpyAsync is synchronous for host-to-host copies
             // ref: https://docs.nvidia.com/cuda/cuda-runtime-api/api-sync-behavior.html
             if (kind != cudaMemcpyHostToHost) {
-                out_buf->override_event(std::make_shared<Buffer::Event>(stream));
+                out_buf->override_event(CudaEvent::make_shared_record(stream));
             }
         }
 
@@ -209,7 +170,7 @@ std::ptrdiff_t Buffer::copy_to(
         // if this buffer has an event, ask the current stream to wait for it, before
         // performing the memcpy
         if (event_) {
-            RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(stream, event_->event()));
+            event_->stream_wait(stream);
         }
 
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
@@ -222,7 +183,7 @@ std::ptrdiff_t Buffer::copy_to(
 
         // if the copy is not host-to-host, override the event to track the async copy
         if (attach_event && kind != cudaMemcpyHostToHost) {
-            dest.override_event(std::make_shared<Buffer::Event>(stream));
+            dest.override_event(CudaEvent::make_shared_record(stream));
         }
 
         return std::ptrdiff_t(size);
@@ -265,7 +226,7 @@ bool Buffer::is_ready() const {
 
 void Buffer::wait_for_ready() const {
     if (event_) {
-        event_->wait();
+        event_->host_wait();
     }
 }
 

@@ -377,7 +377,7 @@ Chunk Chunk::concat(
     }
 
     if (need_event) {  // create a new event to track the async copies
-        concat_data->override_event(std::make_shared<Buffer::Event>(stream));
+        concat_data->override_event(CudaEvent::make_shared_record(stream));
     }
 
     return Chunk(

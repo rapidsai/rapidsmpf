@@ -5,7 +5,6 @@
 #pragma once
 
 #include <array>
-#include <atomic>
 #include <memory>
 #include <variant>
 #include <vector>
@@ -14,13 +13,13 @@
 
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
 
 class BufferResource;
-class Event;
 class MemoryReservation;
 
 /// @brief Enum representing the type of memory.
@@ -46,69 +45,6 @@ class Buffer {
     friend class BufferResource;
 
   public:
-    /**
-     * @brief CUDA event to provide synchronization among set of chunks.
-     *
-     * This event is used to serve as a synchronization point for a set of chunks
-     * given a user-specified stream.
-     *
-     * @note To prevent undefined behavior due to unfinished memory operations, events
-     * should be used in the following cases, if any of the operations below was
-     * performed *asynchronously with respect to the host*:
-     * 1. Before addressing a device buffer's allocation.
-     * 2. Before accessing a device buffer's data whose data has been copied from
-     * any location, or that has been processed by a CUDA kernel.
-     * 3. Before accessing a host buffer's data whose data has been copied from device,
-     * or processed by a CUDA kernel.
-     */
-    class Event {
-      public:
-        /**
-         * @brief Construct a CUDA event for a given stream.
-         *
-         * @param stream CUDA stream used for device memory operations
-         */
-        Event(rmm::cuda_stream_view stream);
-
-        /**
-         * @brief Destructor for Event.
-         *
-         * Cleans up the CUDA event if one was created.
-         */
-        ~Event();
-
-        /**
-         * @brief Check if the CUDA event has been completed.
-         *
-         * @return true if the event has been completed, false otherwise.
-         *
-         * @throws rapidsmpf::cuda_error if cudaEventQuery fails.
-         */
-        [[nodiscard]] bool is_ready();
-
-        /**
-         * @brief Wait for the event to be completed.
-         *
-         * @throws rapidsmpf::cuda_error if cudaEventSynchronize fails.
-         */
-        void wait();
-
-        /**
-         * @brief Get the CUDA event.
-         *
-         * @return The CUDA event.
-         */
-        [[nodiscard]] constexpr cudaEvent_t event() const {
-            return event_;
-        }
-
-      private:
-        cudaEvent_t event_;  ///< CUDA event used to track device memory allocation
-        std::atomic<bool> done_{
-            false
-        };  ///< Cache of the event status to avoid unnecessary queries.
-    };
-
     /// @brief  Storage type for the device buffer.
     using DeviceStorageT = std::unique_ptr<rmm::device_buffer>;
 
@@ -193,7 +129,7 @@ class Buffer {
      *
      * @param event The event to set.
      */
-    inline void override_event(std::shared_ptr<Event> event) {
+    void override_event(std::shared_ptr<CudaEvent> event) {
         event_ = std::move(event);
     }
 
@@ -296,7 +232,7 @@ class Buffer {
     Buffer(
         std::unique_ptr<rmm::device_buffer> device_buffer,
         rmm::cuda_stream_view stream,
-        std::shared_ptr<Event> event = nullptr
+        std::shared_ptr<CudaEvent> event = nullptr
     );
 
     /**
@@ -359,7 +295,7 @@ class Buffer {
     /// applicable).
     StorageT storage_;
     /// @brief CUDA event used to track copy operations
-    std::shared_ptr<Event> event_;
+    std::shared_ptr<CudaEvent> event_;
 };
 
 }  // namespace rapidsmpf
