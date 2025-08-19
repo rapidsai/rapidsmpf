@@ -102,7 +102,7 @@ void CuptiMonitor::start_monitoring() {
         );
     }
 
-    monitoring_active_ = true;
+    monitoring_active_.store(true);
 
     // Capture initial memory state
     capture_memory_usage_impl();
@@ -114,13 +114,13 @@ void CuptiMonitor::start_monitoring() {
 }
 
 void CuptiMonitor::stop_monitoring() {
-    std::lock_guard<std::mutex> lock(mutex_);
-
-    if (!monitoring_active_) {
+    if (!monitoring_active_.load()) {
         return;  // Already stopped
     }
 
-    monitoring_active_ = false;
+    monitoring_active_.store(false);
+
+    std::lock_guard<std::mutex> lock(mutex_);
 
     // Stop periodic sampling thread
     if (sampling_thread_.joinable()) {
@@ -135,13 +135,12 @@ void CuptiMonitor::stop_monitoring() {
 }
 
 bool CuptiMonitor::is_monitoring() const noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return monitoring_active_;
+    return monitoring_active_.load();
 }
 
 void CuptiMonitor::capture_memory_sample() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (monitoring_active_) {
+    if (monitoring_active_.load()) {
+        std::lock_guard<std::mutex> lock(mutex_);
         capture_memory_usage_impl();
     }
 }
@@ -326,13 +325,6 @@ std::string CuptiMonitor::get_callback_summary() const {
     return ss.str();
 }
 
-void CuptiMonitor::capture_memory_usage_from_callback() {
-    if (monitoring_active_) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        capture_memory_usage_impl();
-    }
-}
-
 void CuptiMonitor::capture_memory_usage_impl() {
     std::size_t free_mem, total_mem;
     cudaError_t cuda_status = cudaMemGetInfo(&free_mem, &total_mem);
@@ -370,7 +362,7 @@ void CuptiMonitor::capture_memory_usage_impl() {
 }
 
 void CuptiMonitor::periodic_memory_sampling() {
-    while (monitoring_active_) {
+    while (monitoring_active_.load()) {
         capture_memory_sample();
         usleep(sampling_interval_ms_ * 1000);  // Convert ms to microseconds
     }
@@ -422,7 +414,7 @@ void CUPTIAPI CuptiMonitor::cupti_callback_wrapper(
 void CuptiMonitor::cupti_callback(
     CUpti_CallbackDomain domain, CUpti_CallbackId cbid, const void* cbdata
 ) {
-    if (!monitoring_active_)
+    if (!monitoring_active_.load())
         return;
 
     const CUpti_CallbackData* cbInfo = static_cast<const CUpti_CallbackData*>(cbdata);
@@ -442,8 +434,8 @@ void CuptiMonitor::cupti_callback(
             callback_counters_[cbid]++;
         }
 
-        // Capture memory usage
-        capture_memory_usage_from_callback();
+        // Capture memory usage using the public method
+        capture_memory_sample();
     }
 }
 

@@ -6,6 +6,7 @@
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <mutex>
@@ -169,7 +170,7 @@ class CuptiMonitor {
     bool enable_periodic_sampling_;
     std::size_t sampling_interval_ms_;
     mutable std::mutex mutex_;
-    bool monitoring_active_;
+    std::atomic<bool> monitoring_active_;
     std::vector<MemoryDataPoint> memory_samples_;
     std::thread sampling_thread_;
     CUpti_SubscriberHandle cupti_subscriber_;
@@ -218,11 +219,6 @@ class CuptiMonitor {
     void cupti_callback(
         CUpti_CallbackDomain domain, CUpti_CallbackId cbid, const void* cbdata
     );
-
-    /**
-     * @brief Called by CUPTI callback to capture memory usage
-     */
-    void capture_memory_usage_from_callback();
 };
 
 }  // namespace rapidsmpf
