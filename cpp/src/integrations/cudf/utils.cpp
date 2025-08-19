@@ -119,12 +119,6 @@ std::string str(
     return ss.str();
 }
 
-/**
- * @brief Calculate the memory usage of a column.
- *
- * @param col The column to calculate the memory usage of.
- * @return The memory usage of the column.
- */
 size_t estimated_memory_usage(
     cudf::column_view const& col, rmm::cuda_stream_view stream
 ) {
@@ -139,12 +133,6 @@ size_t estimated_memory_usage(
     );
 }
 
-/**
- * @brief Calculate the memory usage of a table.
- *
- * @param tbl The table to calculate the memory usage of.
- * @return The memory usage of the table.
- */
 size_t estimated_memory_usage(cudf::table_view const& tbl, rmm::cuda_stream_view stream) {
     return std::transform_reduce(
         tbl.begin(),

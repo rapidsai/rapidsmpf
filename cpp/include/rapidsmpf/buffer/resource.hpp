@@ -540,7 +540,7 @@ auto with_memory_reservation(MemoryReservation&& reservation, auto&& f) {
         return std::forward<F>(f)();
     } else {
         static_assert(
-            [] { return false; }(),
+            std::integral_constant<F, false>(),
             "f must be callable with no args or MemoryReservation&"
         );
     }
