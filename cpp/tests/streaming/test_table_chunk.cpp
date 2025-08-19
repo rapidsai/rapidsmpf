@@ -149,7 +149,7 @@ TEST_F(StreamingTableChunk, SpillUnspillRoundTrip) {
     // Unspill back to device memory.
     auto [res, _] =
         br->reserve(MemoryType::DEVICE, chunk_on_host.make_available_cost(), true);
-    chunk_on_device = chunk_on_host.make_available(res, stream, br.get());
+    chunk_on_device = chunk_on_host.make_available(res, stream);
 
     EXPECT_EQ(chunk_on_device.sequence_number(), seq);
     EXPECT_EQ(chunk_on_device.stream().value(), stream.value());

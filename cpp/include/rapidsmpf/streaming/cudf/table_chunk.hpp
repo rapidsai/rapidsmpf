@@ -153,14 +153,13 @@ class TableChunk {
      *
      * @param reservation Memory reservation for allocations if needed.
      * @param stream CUDA stream to use for operations.
-     * @param br Buffer resource for allocations.
      * @return A new TableChunk with data available on device.
      *
      * @note After this call, the current object is in a moved-from state;
      *       only reassignment, movement, or destruction are valid.
      */
     [[nodiscard]] TableChunk make_available(
-        MemoryReservation& reservation, rmm::cuda_stream_view stream, BufferResource* br
+        MemoryReservation& reservation, rmm::cuda_stream_view stream
     );
 
     /**

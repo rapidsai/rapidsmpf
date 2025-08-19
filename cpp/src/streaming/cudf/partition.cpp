@@ -31,7 +31,7 @@ Node partition_and_pack(
         auto reservation = ctx->br()->reserve_and_spill(
             MemoryType::DEVICE, table->make_available_cost(), false
         );
-        auto tbl = table->make_available(reservation, table->stream(), ctx->br());
+        auto tbl = table->make_available(reservation, table->stream());
 
         PartitionMapChunk partition_map{
             .sequence_number = tbl.sequence_number(),

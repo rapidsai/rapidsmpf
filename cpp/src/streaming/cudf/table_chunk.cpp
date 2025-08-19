@@ -93,7 +93,7 @@ std::size_t TableChunk::make_available_cost() const noexcept {
 }
 
 TableChunk TableChunk::make_available(
-    MemoryReservation& reservation, rmm::cuda_stream_view stream, BufferResource* br
+    MemoryReservation& reservation, rmm::cuda_stream_view stream
 ) {
     if (is_available()) {
         return std::move(*this);
@@ -104,7 +104,9 @@ TableChunk TableChunk::make_available(
         sequence_number_,
         std::make_unique<cudf::packed_columns>(
             std::move(packed_data.metadata),
-            br->move_to_device_buffer(std::move(packed_data.data), stream, reservation)
+            reservation.br()->move_to_device_buffer(
+                std::move(packed_data.data), stream, reservation
+            )
         ),
         stream
     };
