@@ -132,8 +132,8 @@ partition_and_split(
  * @return The unpacked and concatenated result.
  *
  * @throw std::overflow_error if the buffer resource cannot reserve enough memory
- * to concatenate all partitions. 
- * @std::logic_error if the partitions are not in device memory.
+ * to concatenate all partitions.
+ * @throw std::logic_error if the partitions are not in device memory.
  *
  * @see partition_and_pack
  * @see cudf::unpack
