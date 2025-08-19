@@ -19,27 +19,9 @@
 
 namespace rapidsmpf {
 
-// List of CUDA Runtime API callbacks we want to monitor
-static constexpr std::array<CUpti_CallbackId, 18> MONITORED_RUNTIME_CALLBACKS{{
-    CUPTI_RUNTIME_TRACE_CBID_cudaMalloc_v3020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaMallocPitch_v3020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaMallocArray_v3020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaMallocHost_v3020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaMalloc3D_v3020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaMalloc3DArray_v3020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaMallocMipmappedArray_v5000,
-    CUPTI_RUNTIME_TRACE_CBID_cudaMallocManaged_v6000,
-    CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_v11020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_ptsz_v11020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_v11020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_ptsz_v11020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaFree_v3020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaFreeArray_v3020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaFreeHost_v3020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaFreeMipmappedArray_v5000,
-    CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_v11020,
-    CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_ptsz_v11020,
-}};
+// List of CUDA Runtime API callbacks we want to monitor. We don't monitor any runtime
+// callbacks by default because they are redundant with the driver API callbacks.
+static constexpr std::array<CUpti_CallbackId, 0> MONITORED_RUNTIME_CALLBACKS{{}};
 
 // List of CUDA Driver API callbacks we want to monitor
 static constexpr std::array<CUpti_CallbackId, 17> MONITORED_DRIVER_CALLBACKS{{
