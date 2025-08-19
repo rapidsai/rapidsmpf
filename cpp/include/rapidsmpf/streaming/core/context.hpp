@@ -102,14 +102,6 @@ class Context {
      */
     std::shared_ptr<Statistics> statistics();
 
-    /**
-     * @brief Reserves GPU memory and optionally spills to satisfy the request.
-     *
-     * @param size Number of bytes to reserve.
-     * @return A memory reservation object managing the reserved memory.
-     */
-    MemoryReservation reserve_and_spill(std::size_t size);
-
   private:
     config::Options options_;
     std::shared_ptr<Communicator> comm_;

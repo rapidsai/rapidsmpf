@@ -56,7 +56,8 @@ Node random_table_generator(
     co_await ctx->executor()->schedule();
     auto nbytes = static_cast<std::size_t>(ncolumns * nrows) * sizeof(std::int32_t);
     for (std::uint64_t seq = 0; seq < num_blocks; ++seq) {
-        auto reservation = ctx->reserve_and_spill(nbytes);
+        auto res =
+            ctx->br()->reserve_and_spill(rapidsmpf::MemoryType::DEVICE, nbytes, false);
         co_await ch_out->send(
             std::make_unique<TableChunk>(
                 seq,

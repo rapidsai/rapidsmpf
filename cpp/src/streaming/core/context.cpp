@@ -87,19 +87,4 @@ std::shared_ptr<Statistics> Context::statistics() {
     return statistics_;
 }
 
-MemoryReservation rapidsmpf::streaming::Context::reserve_and_spill(std::size_t size) {
-    auto [reservation, overbooking] = br()->reserve(MemoryType::DEVICE, size, true);
-    if (overbooking > 0) {
-        std::size_t const spilled = br()->spill_manager().spill(overbooking);
-        if (spilled < overbooking) {
-            RAPIDSMPF_FAIL(
-                "overbooking: " + format_nbytes(overbooking)
-                    + ", need: " + format_nbytes(size),
-                std::overflow_error
-            );
-        }
-    }
-    return std::move(reservation);
-}
-
 }  // namespace rapidsmpf::streaming
