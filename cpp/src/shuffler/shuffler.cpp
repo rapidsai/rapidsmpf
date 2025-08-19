@@ -4,6 +4,8 @@
  */
 
 #include <algorithm>
+#include <concepts>
+#include <functional>
 #include <memory>
 #include <numeric>
 #include <stdexcept>
@@ -199,7 +201,7 @@ class Shuffler::Progress {
                 ));
                 if (chunk.concat_data_size() > 0) {
                     RAPIDSMPF_EXPECTS(
-                        outgoing_chunks_.insert({chunk.chunk_id(), std::move(chunk)})
+                        outgoing_chunks_.emplace(chunk.chunk_id(), std::move(chunk))
                             .second,
                         "outgoing chunk already exist"
                     );
@@ -238,7 +240,7 @@ class Shuffler::Progress {
                             == shuffler_.comm_->rank(),
                         "receiving chunk not owned by us"
                     );
-                    incoming_chunks_.insert({src, std::move(chunk)});
+                    incoming_chunks_.emplace(src, std::move(chunk));
                 } else {
                     break;
                 }
@@ -285,6 +287,8 @@ class Shuffler::Progress {
                     // Note: extract_item invalidates the iterator, so must increment
                     // here.
                     auto [src, chunk] = extract_item(incoming_chunks_, it++);
+                    auto chunk_id = chunk.chunk_id();
+                    auto data_size = chunk.concat_data_size();
 
                     // Setup to receive the chunk into `in_transit_*`.
                     // transfer the data buffer from the chunk to the future
@@ -292,22 +296,20 @@ class Shuffler::Progress {
                         src, gpu_data_tag, chunk.release_data_buffer()
                     );
                     RAPIDSMPF_EXPECTS(
-                        in_transit_futures_.insert({chunk.chunk_id(), std::move(future)})
-                            .second,
+                        in_transit_futures_.emplace(chunk_id, std::move(future)).second,
                         "in transit future already exist"
                     );
                     RAPIDSMPF_EXPECTS(
-                        in_transit_chunks_.insert({chunk.chunk_id(), std::move(chunk)})
-                            .second,
+                        in_transit_chunks_.emplace(chunk_id, std::move(chunk)).second,
                         "in transit chunk already exist"
                     );
                     shuffler_.statistics_->add_bytes_stat(
-                        "shuffle-payload-recv", chunk.concat_data_size()
+                        "shuffle-payload-recv", data_size
                     );
                     // Tell the source of the chunk that we are ready to receive it.
                     // All partition IDs in the chunk must map to the same key (rank).
                     fire_and_forget_.push_back(shuffler_.comm_->send(
-                        ReadyForDataMessage{chunk.chunk_id()}.pack(),
+                        ReadyForDataMessage{chunk_id}.pack(),
                         src,
                         ready_for_data_tag,
                         shuffler_.br_
@@ -762,18 +764,35 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
 std::vector<PackedData> Shuffler::extract(PartID pid) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    // Protect the chunk extraction to make sure we don't get a chunk
-    // `Shuffler::spill` is in the process of spilling.
+
     std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
     auto chunks = ready_postbox_.extract(pid);
     lock.unlock();
+
     std::vector<PackedData> ret;
     ret.reserve(chunks.size());
 
-    // Convert the chunks to packed data.
-    for (auto& [_, chunk] : chunks) {
-        ret.emplace_back(chunk.release_metadata_buffer(), chunk.release_data_buffer());
-    }
+    std::ranges::transform(chunks, std::back_inserter(ret), [](auto&& p) -> PackedData {
+        return {p.second.release_metadata_buffer(), p.second.release_data_buffer()};
+    });
+
+    return ret;
+}
+
+std::vector<detail::Chunk> Shuffler::extract_chunks(PartID pid) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+
+    std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
+    auto chunks = ready_postbox_.extract(pid);
+    lock.unlock();
+
+    std::vector<detail::Chunk> ret;
+    ret.reserve(chunks.size());
+
+    std::ranges::transform(chunks, std::back_inserter(ret), [](auto&& p) {
+        return std::move(p.second);
+    });
+
     return ret;
 }
 
@@ -835,10 +854,10 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
 }
 
 detail::ChunkID Shuffler::get_new_cid() {
-    // Place the counter in the first 38 bits (supports 256G chunks).
-    std::uint64_t upper = ++chunk_id_counter_ << 26;
-    // and place the rank in last 26 bits (supports 64M ranks).
-    auto lower = static_cast<std::uint64_t>(comm_->rank());
+    // Place the counter in the last 38 bits (supports 256G chunks).
+    std::uint64_t lower = ++chunk_id_counter_;
+    // and place the rank in the first 26 bits (supports 64M ranks).
+    auto upper = static_cast<std::uint64_t>(comm_->rank()) << chunk_id_counter_bits;
     return upper | lower;
 }
 
