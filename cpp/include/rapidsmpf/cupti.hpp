@@ -1,0 +1,193 @@
+/**
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#pragma once
+
+#ifdef RAPIDSMPF_HAVE_CUPTI
+
+#include <chrono>
+#include <cstddef>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include <cuda_runtime.h>
+#include <cupti.h>
+
+namespace rapidsmpf {
+
+/**
+ * @brief Structure to hold memory usage data points
+ */
+struct MemoryDataPoint {
+    double timestamp;  ///< Time when sample was taken (seconds since epoch)
+    std::size_t free_memory;  ///< Free GPU memory in bytes
+    std::size_t total_memory;  ///< Total GPU memory in bytes
+    std::size_t used_memory;  ///< Used GPU memory in bytes
+    double utilization_percent;  ///< Memory utilization as percentage
+};
+
+/**
+ * @class CuptiMonitor
+ * @brief CUDA memory monitoring using CUPTI (CUDA Profiling Tools Interface)
+ *
+ * This class provides memory monitoring capabilities for CUDA applications
+ * by intercepting CUDA runtime and driver API calls related to memory
+ * operations and kernel launches.
+ */
+class CuptiMonitor {
+  public:
+    /**
+     * @brief Constructs a CuptiMonitor instance
+     *
+     * @param enable_periodic_sampling Enable background thread for periodic memory
+     * sampling
+     * @param sampling_interval_ms Interval between periodic samples in milliseconds
+     * (default: 100ms)
+     */
+    explicit CuptiMonitor(
+        bool enable_periodic_sampling = false, std::size_t sampling_interval_ms = 100
+    );
+
+    /**
+     * @brief Destructor - automatically stops monitoring and cleans up CUPTI
+     */
+    ~CuptiMonitor();
+
+    // Delete copy constructor and assignment operator
+    CuptiMonitor(CuptiMonitor const&) = delete;
+    CuptiMonitor& operator=(CuptiMonitor const&) = delete;
+
+    // Delete move constructor and assignment operator (for simplicity)
+    CuptiMonitor(CuptiMonitor&&) = delete;
+    CuptiMonitor& operator=(CuptiMonitor&&) = delete;
+
+    /**
+     * @brief Start memory monitoring
+     *
+     * Initializes CUPTI and begins intercepting CUDA API calls.
+     *
+     * @throws std::runtime_error if CUPTI initialization fails
+     */
+    void start_monitoring();
+
+    /**
+     * @brief Stop memory monitoring
+     *
+     * Stops CUPTI callbacks and periodic sampling if enabled.
+     */
+    void stop_monitoring();
+
+    /**
+     * @brief Check if monitoring is currently active
+     *
+     * @return true if monitoring is active, false otherwise
+     */
+    bool is_monitoring() const noexcept;
+
+    /**
+     * @brief Manually capture current memory usage
+     *
+     * This can be called at any time to manually record a memory sample,
+     * regardless of whether periodic sampling is enabled.
+     */
+    void capture_memory_sample();
+
+    /**
+     * @brief Get all collected memory samples
+     *
+     * @return const reference to vector of memory data points
+     */
+    std::vector<MemoryDataPoint> const& get_memory_samples() const noexcept;
+
+    /**
+     * @brief Clear all collected memory samples
+     */
+    void clear_samples();
+
+    /**
+     * @brief Get the number of memory samples collected
+     *
+     * @return number of samples
+     */
+    std::size_t get_sample_count() const noexcept;
+
+    /**
+     * @brief Write memory samples to CSV file
+     *
+     * @param filename Output CSV filename
+     * @throws std::runtime_error if file cannot be written
+     */
+    void write_csv(std::string const& filename) const;
+
+    /**
+     * @brief Enable or disable debug output for significant memory changes
+     *
+     * @param enabled if true, prints debug info when memory usage changes significantly
+     * @param threshold_mb threshold in MB for what constitutes a "significant" change
+     * (default: 10MB)
+     */
+    void set_debug_output(bool enabled, std::size_t threshold_mb = 10);
+
+  private:
+    bool enable_periodic_sampling_;
+    std::size_t sampling_interval_ms_;
+    mutable std::mutex mutex_;
+    bool monitoring_active_;
+    std::vector<MemoryDataPoint> memory_samples_;
+    std::thread sampling_thread_;
+    CUpti_SubscriberHandle cupti_subscriber_;
+
+    // Debug output settings
+    bool debug_output_enabled_;
+    std::size_t debug_threshold_bytes_;
+    std::size_t last_used_mem_for_debug_;
+
+    /**
+     * @brief Internal method to capture memory usage without locking
+     */
+    void capture_memory_usage_impl();
+
+    /**
+     * @brief Periodic memory sampling thread function
+     */
+    void periodic_memory_sampling();
+
+    /**
+     * @brief Initialize CUPTI
+     */
+    CUptiResult init_cupti();
+
+    /**
+     * @brief Cleanup CUPTI
+     */
+    void cleanup_cupti();
+
+    /**
+     * @brief Static wrapper function for CUPTI callback
+     */
+    static void CUPTIAPI cupti_callback_wrapper(
+        void* userdata,
+        CUpti_CallbackDomain domain,
+        CUpti_CallbackId cbid,
+        const void* cbdata
+    );
+
+    /**
+     * @brief Instance method for CUPTI callback
+     */
+    void cupti_callback(
+        CUpti_CallbackDomain domain, CUpti_CallbackId cbid, const void* cbdata
+    );
+
+    /**
+     * @brief Called by CUPTI callback to capture memory usage
+     */
+    void capture_memory_usage_from_callback();
+};
+
+}  // namespace rapidsmpf
+
+#endif  // RAPIDSMPF_HAVE_CUPTI
