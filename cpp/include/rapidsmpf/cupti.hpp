@@ -11,6 +11,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <cuda_runtime.h>
@@ -131,6 +132,40 @@ class CuptiMonitor {
      */
     void set_debug_output(bool enabled, std::size_t threshold_mb = 10);
 
+    /**
+     * @brief Get callback counters for all monitored CUPTI callbacks
+     *
+     * Returns a map where keys are CUPTI callback IDs and values are the number
+     * of times each callback was triggered during monitoring.
+     *
+     * @return unordered_map from CUpti_CallbackId to call count
+     */
+    std::unordered_map<CUpti_CallbackId, std::size_t> get_callback_counters() const;
+
+    /**
+     * @brief Clear all callback counters
+     *
+     * Resets all callback counters to zero.
+     */
+    void clear_callback_counters();
+
+    /**
+     * @brief Get the total number of callbacks triggered across all monitored callback
+     * IDs
+     *
+     * @return total number of callbacks
+     */
+    std::size_t get_total_callback_count() const;
+
+    /**
+     * @brief Get a human-readable summary of callback counters
+     *
+     * Returns a formatted string showing callback names and their counts.
+     *
+     * @return string containing callback counter summary
+     */
+    std::string get_callback_summary() const;
+
   private:
     bool enable_periodic_sampling_;
     std::size_t sampling_interval_ms_;
@@ -144,6 +179,9 @@ class CuptiMonitor {
     bool debug_output_enabled_;
     std::size_t debug_threshold_bytes_;
     std::size_t last_used_mem_for_debug_;
+
+    // Callback counters
+    std::unordered_map<CUpti_CallbackId, std::size_t> callback_counters_;
 
     /**
      * @brief Internal method to capture memory usage without locking

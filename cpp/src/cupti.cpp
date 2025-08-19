@@ -5,9 +5,11 @@
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
 
+#include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 
 #include <unistd.h>
@@ -189,6 +191,144 @@ void CuptiMonitor::set_debug_output(bool enabled, std::size_t threshold_mb) {
     debug_threshold_bytes_ = threshold_mb * 1024 * 1024;  // Convert MB to bytes
 }
 
+std::unordered_map<CUpti_CallbackId, std::size_t>
+CuptiMonitor::get_callback_counters() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return callback_counters_;
+}
+
+void CuptiMonitor::clear_callback_counters() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    callback_counters_.clear();
+}
+
+std::size_t CuptiMonitor::get_total_callback_count() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::size_t total = 0;
+    for (const auto& [cbid, count] : callback_counters_) {
+        total += count;
+    }
+    return total;
+}
+
+// Helper function to get human-readable name for callback ID
+std::string get_callback_name(CUpti_CallbackId cbid) {
+    switch (cbid) {
+    // Runtime API callbacks
+    case CUPTI_RUNTIME_TRACE_CBID_cudaMalloc_v3020:
+        return "cudaMalloc";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaMallocPitch_v3020:
+        return "cudaMallocPitch";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaMallocArray_v3020:
+        return "cudaMallocArray";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaMallocHost_v3020:
+        return "cudaMallocHost";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaMalloc3D_v3020:
+        return "cudaMalloc3D";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaMalloc3DArray_v3020:
+        return "cudaMalloc3DArray";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaMallocMipmappedArray_v5000:
+        return "cudaMallocMipmappedArray";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaMallocManaged_v6000:
+        return "cudaMallocManaged";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_v11020:
+        return "cudaMallocAsync";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_ptsz_v11020:
+        return "cudaMallocAsync_ptsz";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_v11020:
+        return "cudaMallocFromPoolAsync";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_ptsz_v11020:
+        return "cudaMallocFromPoolAsync_ptsz";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaFree_v3020:
+        return "cudaFree";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaFreeArray_v3020:
+        return "cudaFreeArray";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaFreeHost_v3020:
+        return "cudaFreeHost";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaFreeMipmappedArray_v5000:
+        return "cudaFreeMipmappedArray";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_v11020:
+        return "cudaFreeAsync";
+    case CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_ptsz_v11020:
+        return "cudaFreeAsync_ptsz";
+
+    // Driver API callbacks
+    case CUPTI_DRIVER_TRACE_CBID_cuMemAlloc:
+        return "cuMemAlloc";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemAllocPitch:
+        return "cuMemAllocPitch";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemAllocHost:
+        return "cuMemAllocHost";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemAlloc_v2:
+        return "cuMemAlloc_v2";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemAllocPitch_v2:
+        return "cuMemAllocPitch_v2";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemAllocHost_v2:
+        return "cuMemAllocHost_v2";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemAllocManaged:
+        return "cuMemAllocManaged";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemAllocAsync:
+        return "cuMemAllocAsync";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemAllocAsync_ptsz:
+        return "cuMemAllocAsync_ptsz";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemAllocFromPoolAsync:
+        return "cuMemAllocFromPoolAsync";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemAllocFromPoolAsync_ptsz:
+        return "cuMemAllocFromPoolAsync_ptsz";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemFree:
+        return "cuMemFree";
+    case CUPTI_DRIVER_TRACE_CBID_cu64MemFree:
+        return "cu64MemFree";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemFreeHost:
+        return "cuMemFreeHost";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemFree_v2:
+        return "cuMemFree_v2";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync:
+        return "cuMemFreeAsync";
+    case CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync_ptsz:
+        return "cuMemFreeAsync_ptsz";
+
+    default:
+        return "Unknown_" + std::to_string(cbid);
+    }
+}
+
+std::string CuptiMonitor::get_callback_summary() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (callback_counters_.empty()) {
+        return "No callbacks recorded yet.\n";
+    }
+
+    std::ostringstream ss;
+    ss << "CUPTI Callback Counter Summary:\n";
+    ss << "==============================\n";
+
+    std::size_t total = 0;
+
+    // Sort callbacks by count (descending) for better readability
+    std::vector<std::pair<CUpti_CallbackId, std::size_t>> sorted_callbacks(
+        callback_counters_.begin(), callback_counters_.end()
+    );
+    std::sort(
+        sorted_callbacks.begin(),
+        sorted_callbacks.end(),
+        [](const auto& a, const auto& b) { return a.second > b.second; }
+    );
+
+    for (const auto& [cbid, count] : sorted_callbacks) {
+        ss << std::setw(35) << std::left << get_callback_name(cbid) << ": "
+           << std::setw(10) << std::right << count << " calls\n";
+        total += count;
+    }
+
+    ss << "==============================\n";
+    ss << std::setw(35) << std::left << "Total"
+       << ": " << std::setw(10) << std::right << total << " calls\n";
+
+    return ss.str();
+}
+
 void CuptiMonitor::capture_memory_usage_from_callback() {
     if (monitoring_active_) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -299,6 +439,13 @@ void CuptiMonitor::cupti_callback(
     }
 
     if (should_monitor && cbInfo->callbackSite == CUPTI_API_EXIT) {
+        // Increment callback counter (thread-safe)
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            callback_counters_[cbid]++;
+        }
+
+        // Capture memory usage
         capture_memory_usage_from_callback();
     }
 }
