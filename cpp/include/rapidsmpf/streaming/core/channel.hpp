@@ -30,11 +30,11 @@ class Channel {
      *
      * Suspends if the buffer is empty.
      *
-     * @param value The value to send (moved).
+     * @param value The value to send.
      * @return A coroutine that evaluates to true if the value was successfully sent or
      * false if the channel was shut down.
      */
-    coro::task<bool> send(T&& value) {
+    coro::task<bool> send(T value) {
         auto result = co_await rb_.produce(std::move(value));
         co_return result == coro::ring_buffer_result::produce::produced;
     }
