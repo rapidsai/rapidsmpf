@@ -144,9 +144,17 @@ class Shuffler {
      * @brief Extract all chunks of a specific partition.
      *
      * @param pid The partition ID.
-     * @return A vector of packed data (chunks) for the partition.
+     * @return A vector of PackedData (chunks) for the partition.
      */
     [[nodiscard]] std::vector<PackedData> extract(PartID pid);
+
+    /**
+     * @brief Extract all chunks of a specific partition.
+     *
+     * @param pid The partition ID.
+     * @return A vector of Chunks for the partition.
+     */
+    [[nodiscard]] std::vector<detail::Chunk> extract_chunks(PartID pid);
 
     /**
      * @brief Check if all partitions are finished.
@@ -161,6 +169,8 @@ class Shuffler {
      * @param timeout Optional timeout (ms) to wait.
      *
      * @return The partition ID of the next finished partition.
+     *
+     * @throw std::runtime_error if the timeout is reached.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -169,6 +179,8 @@ class Shuffler {
      *
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
+     *
+     * @throw std::runtime_error if the timeout is reached.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -178,6 +190,8 @@ class Shuffler {
      * @param timeout Optional timeout (ms) to wait.
      *
      * @return The partition IDs of all finished partitions.
+     *
+     * @throw std::runtime_error if the timeout is reached.
      */
     std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -204,6 +218,43 @@ class Shuffler {
      * @return The description.
      */
     [[nodiscard]] std::string str() const;
+
+    /**
+     * @brief The number of bits used to store the counter in a chunk ID.
+     */
+    static constexpr int chunk_id_counter_bits = 38;
+
+    /**
+     * @brief The mask for the counter in a chunk ID.
+     */
+    static constexpr uint64_t counter_mask = (uint64_t(1) << chunk_id_counter_bits) - 1;
+
+    /**
+     * @brief Extract the counter from a chunk ID.
+     * @param cid The chunk ID.
+     * @return The counter.
+     */
+    static constexpr uint64_t extract_counter(detail::ChunkID cid) {
+        return cid & counter_mask;
+    }
+
+    /**
+     * @brief Extract the rank from a chunk ID.
+     * @param cid The chunk ID.
+     * @return The rank.
+     */
+    static constexpr Rank extract_rank(detail::ChunkID cid) {
+        return static_cast<Rank>(cid >> chunk_id_counter_bits);
+    }
+
+    /**
+     * @brief Extract the rank and counter from a chunk ID.
+     * @param cid The chunk ID.
+     * @return A pair of the rank and counter.
+     */
+    static constexpr std::pair<Rank, uint64_t> extract_info(detail::ChunkID cid) {
+        return std::make_pair(extract_rank(cid), extract_counter(cid));
+    }
 
   private:
     /**
