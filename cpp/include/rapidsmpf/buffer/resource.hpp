@@ -310,7 +310,7 @@ class BufferResource {
     std::unique_ptr<Buffer> move(
         std::unique_ptr<rmm::device_buffer> data,
         rmm::cuda_stream_view stream,
-        std::shared_ptr<Buffer::Event> event = nullptr
+        std::shared_ptr<CudaEvent> event = nullptr
     );
 
     /**
