@@ -12,7 +12,7 @@ namespace rapidsmpf::streaming {
 /**
  * @brief Alias for a node in a streaming pipeline.
  *
- * Node represent coroutine-based asynchronous operations used throughout the streaming
+ * Nodes represent coroutine-based asynchronous operations used throughout the streaming
  * pipeline.
  */
 using Node = coro::task<void>;

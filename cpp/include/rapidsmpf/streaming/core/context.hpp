@@ -93,7 +93,7 @@ class Context {
                       )
                   }
               ),
-              std::move(br),
+              br,
               statistics
           ) {}
 
