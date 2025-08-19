@@ -52,7 +52,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = false
+    bool allow_overbooking = true
 );
 
 
@@ -86,7 +86,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = false
+    bool allow_overbooking = true
 );
 
 
@@ -115,7 +115,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = false
+    bool allow_overbooking = true
 );
 
 
@@ -144,7 +144,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = false
+    bool allow_overbooking = true
 );
 
 /**
