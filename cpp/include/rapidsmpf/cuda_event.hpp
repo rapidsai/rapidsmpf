@@ -21,13 +21,16 @@ namespace rapidsmpf {
  * Creates a CUDA event on construction and destroys it on destruction.
  *
  * @note To prevent undefined behavior due to unfinished memory operations, events
- * should be used in the following cases, if any of the operations below was performed
+ * should be used in the following cases if any of the operations below were performed
  * asynchronously with respect to the host:
  *   1. Before addressing a device buffer's allocation.
- *   2. Before accessing a device buffer's data whose data has been copied from
- *      any location, or that has been processed by a CUDA kernel.
- *   3. Before accessing a host buffer's data whose data has been copied from device,
+ *   2. Before accessing a device buffer's data that has been copied from
+ *      any location, or processed by a CUDA kernel.
+ *   3. Before accessing a host buffer's data that has been copied from device
  *      or processed by a CUDA kernel.
+ *
+ * @note `CudaEvent` objects must not have static storage duration, since CUDA resources
+ * are not guaranteed to be valid during program initialization or shutdown.
  */
 class CudaEvent {
   public:
