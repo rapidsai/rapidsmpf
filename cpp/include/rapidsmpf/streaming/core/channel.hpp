@@ -135,32 +135,32 @@ std::shared_ptr<Channel<std::unique_ptr<T>>> make_shared_channel() {
  * @brief Helper RAII class to shut down channels when they go out of scope.
  *
  * When this object is destroyed, it invokes `shutdown()` on all provided channels
- * (in reverse construction order). After shutdown, any pending or future
- * send/receive operations on those channels will fail or yield `nullopt`.
+ * in the order they were provided. After shutdown, any pending or future send/receive
+ * operations on those channels will fail or yield `nullopt`.
  *
  * This is useful inside coroutine bodies to guarantee channels are shut down if an
  * unhandled exception escapes the coroutine. Relying on a channel's own destructor
  * is insufficient when the channel is shared (e.g., via `std::shared_ptr`), because
  * other owners keep it alive.
  *
- * @tparam T Variadic list of channel pointer types.
+ * @tparam T Variadic list of channel handle types.
  */
 template <typename... T>
 class ShutdownAtExit {
   public:
     /**
-     * @brief Constructor accepting one or more channel shared pointers.
+     * @brief Constructor accepting one or more channel handles.
      *
      * @param channels Channels to be shut down on destruction.
      */
-    ShutdownAtExit(T... channels) : channels_{channels...} {}
+    explicit ShutdownAtExit(T... channels) : channels_{channels...} {}
 
     /**
      * @brief Destructor that synchronously shuts down all channels.
      *
-     * Ensures no dangling operations remain when exiting the scope.
+     * Calls `shutdown()` on each channel in the same order they were passed.
      */
-    ~ShutdownAtExit() {
+    ~ShutdownAtExit() noexcept {
         std::apply(
             [](auto&... ch) { (coro::sync_wait(ch->shutdown()), ...); }, channels_
         );
