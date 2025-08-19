@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -11,6 +12,7 @@ from distributed import get_worker
 
 from rapidsmpf.config import Options
 from rapidsmpf.integrations.core import (
+    _STATISTICS_KEYS,
     extract_partition,
     get_new_shuffle_id,
     get_shuffler,
@@ -25,6 +27,7 @@ from rapidsmpf.integrations.dask.core import (
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
+    from numbers import Number
 
     from distributed import Client, Worker
 
@@ -301,3 +304,55 @@ def rapidsmpf_shuffle_graph(
     )
 
     return graph
+
+
+def _gather_worker_shuffle_statistics(
+    dask_worker: Worker,
+) -> dict[str, dict[str, Number]]:
+    context = get_worker_context(dask_worker)
+    return context.get_statistics()
+
+
+def gather_shuffle_statistics(client: Client) -> dict[str, dict[str, int | float]]:
+    """
+    Gather shuffle statistics from all workers.
+
+    Parameters
+    ----------
+    client
+        The Dask client.
+
+    Returns
+    -------
+    A dictionary of statistics.
+        The keys are the names of each statistic. The values are a dictionary
+        with two keys:
+
+        - "count" is the number of times the statistic was recorded (summed
+          across all workers).
+        - "value" is value of the statistic (summed across all workers).
+
+    Notes
+    -----
+    Statistics are global across all shuffles. To measure statistics for any
+    given shuffle, gather statistics before and after the shuffle and compute
+    the difference.
+    """
+    # {address: {stat: {count: int, value: int}}}
+    # collect
+    stats: dict[str, dict[str, dict[str, Number]]] = client.run(
+        _gather_worker_shuffle_statistics
+    )  # type: ignore[arg-type]
+    # aggregate
+    result: dict[str, dict[str, int | float]] = defaultdict(
+        lambda: {"count": 0, "value": 0.0}
+    )
+
+    for stat in _STATISTICS_KEYS:
+        # the types are a bit fiddly here. We say they're "Number", but really
+        # we know that counts are ints and values ar efloats
+        for worker_stats in stats.values():
+            result[stat]["count"] += worker_stats[stat]["count"]  # type: ignore[operator]
+            result[stat]["value"] += worker_stats[stat]["value"]  # type: ignore[operator]
+
+    return dict(result)

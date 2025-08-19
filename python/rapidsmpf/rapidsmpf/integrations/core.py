@@ -28,6 +28,7 @@ from rapidsmpf.statistics import Statistics
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from numbers import Number
 
     from rapidsmpf.communicator.communicator import Communicator
 
@@ -82,6 +83,20 @@ def get_new_shuffle_id(get_occupied_ids: Callable[[], Sequence[set[int]]]) -> in
         return _shuffle_id_vacancy.pop()
 
 
+_STATISTICS_KEYS = [
+    "event-loop-check-future-finish",
+    "event-loop-init-gpu-data-send",
+    "event-loop-metadata-recv",
+    "event-loop-metadata-send",
+    "event-loop-post-incoming-chunk-recv",
+    "event-loop-total",
+    "shuffle-payload-recv",
+    "shuffle-payload-send",
+    "spill-bytes-host-to-device",
+    "spill-time-host-to-device",
+]
+
+
 @dataclass
 class WorkerContext:
     """
@@ -116,6 +131,27 @@ class WorkerContext:
     spill_collection: SpillCollection = field(default_factory=SpillCollection)
     shufflers: dict[int, Shuffler] = field(default_factory=dict)
     options: Options = field(default_factory=Options)
+
+    def get_statistics(self) -> dict[str, dict[str, Number]]:
+        """
+        Get the statistics from the worker context.
+
+        Returns
+        -------
+        statistics
+            A dictionary of statistics. The keys are the names of the statistics.
+            The values are dictionaries with two keys:
+
+            - "count" is the number of times the statistic was recorded.
+            - "value" is the value of the statistic.
+
+        Notes
+        -----
+        Statistics are global across all shuffles. To measure statistics for any
+        given shuffle, gather statistics before and after the shuffle and compute
+        the difference.
+        """
+        return {stat: self.statistics.get_stat(stat) for stat in _STATISTICS_KEYS}
 
 
 class ShufflerIntegration(Protocol[DataFrameT]):
