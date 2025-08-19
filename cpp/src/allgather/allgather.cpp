@@ -168,8 +168,8 @@ void PostBox::insert(std::vector<std::unique_ptr<Chunk>>&& chunks) {
     });
 }
 
-void PostBox::bump_goalpost(std::uint64_t increment) {
-    goalpost_.fetch_add(increment, std::memory_order_relaxed);
+void PostBox::increment_goalpost(std::uint64_t amount) {
+    goalpost_.fetch_add(amount, std::memory_order_relaxed);
 }
 
 bool PostBox::ready() {
@@ -187,6 +187,7 @@ std::vector<std::unique_ptr<Chunk>> PostBox::extract_ready() {
         result.emplace_back(std::move(chunk));
     }
     std::erase(chunks_, nullptr);
+    goalpost_.fetch_sub(result.size(), std::memory_order_relaxed);
     return result;
 }
 
@@ -194,6 +195,7 @@ std::vector<std::unique_ptr<Chunk>> PostBox::extract() {
     std::lock_guard lock(mutex_);
     std::vector<std::unique_ptr<Chunk>> result;
     std::swap(chunks_, result);
+    goalpost_.fetch_sub(result.size(), std::memory_order_relaxed);
     return result;
 }
 
@@ -370,6 +372,19 @@ std::vector<PackedData> AllGather::wait_and_extract(AllGather::Ordered ordered) 
     return result;
 }
 
+std::vector<PackedData> AllGather::extract_ready() {
+    auto chunks = for_extraction_.extract();
+    if (chunks.empty()) {
+        return {};
+    }
+    std::vector<PackedData> result;
+    result.reserve(chunks.size());
+    std::ranges::transform(chunks, std::back_inserter(result), [](auto&& chunk) {
+        return chunk->release();
+    });
+    return result;
+}
+
 void AllGather::wait() {
     can_extract_.wait(false, std::memory_order_acquire);
 }
@@ -448,7 +463,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
         for (auto&& chunk : inserted_.extract()) {
             if (chunk->is_finish()) {
                 finish_counter_.fetch_sub(1, std::memory_order_relaxed);
-                for_extraction_.bump_goalpost(chunk->sequence());
+                for_extraction_.increment_goalpost(chunk->sequence());
             } else {
                 RAPIDSMPF_EXPECTS(
                     chunk->data_size() > 0, "Not expecting zero-sized data chunks"
@@ -467,7 +482,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
                 finish_counter_.fetch_sub(1, std::memory_order_relaxed);
                 // Finish chunk contains as sequence number the
                 // number of insertions from that rank.
-                for_extraction_.bump_goalpost(chunk->sequence());
+                for_extraction_.increment_goalpost(chunk->sequence());
             } else {
                 RAPIDSMPF_EXPECTS(
                     chunk->data_size() > 0, "Not expecting zero-sized data chunks"
@@ -492,7 +507,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
                 } else {
                     // Otherwise, record we're done with data from that rank.
                     finish_counter_.fetch_sub(1, std::memory_order_relaxed);
-                    for_extraction_.bump_goalpost(chunk->sequence());
+                    for_extraction_.increment_goalpost(chunk->sequence());
                 }
             } else {
                 RAPIDSMPF_EXPECTS(

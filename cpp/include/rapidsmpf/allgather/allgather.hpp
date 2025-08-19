@@ -277,9 +277,9 @@ class PostBox {
     /**
      * @brief Increment the goalpost to a new expected chunk count.
      *
-     * @param increment An increment to the expected chunk count.
+     * @param amount The amount to move the goalpost by.
      */
-    void bump_goalpost(std::uint64_t increment);
+    void increment_goalpost(std::uint64_t amount);
 
     /**
      * @brief Check if the postbox has reached its goal.
@@ -395,6 +395,28 @@ class AllGather {
     [[nodiscard]] std::vector<PackedData> wait_and_extract(
         Ordered ordered = Ordered::YES
     );
+
+    /**
+     * @brief Extract any available partitions.
+     *
+     * @return A vector containing available data (or empty if none).
+     *
+     * @note This is a non-blocking, unordered interface.
+     *
+     * Example usage to drain an `AllGather`:
+     * @code{.cpp}
+     * auto allgather = ...; // create
+     * ...; // insert data
+     * allgather->insert_finished(); // finish inserting
+     * std::vector<PackedData> results;
+     * while (!allgather->finished()) {
+     *    std::ranges::move(allgather->extract_ready(), std::back_inserter(results));
+     * }
+     * // Extract any final chunks that may have arrived.
+     * std::ranges::move(allgather->extract_ready(), std::back_inserter(results));
+     * @endcode
+     */
+    [[nodiscard]] std::vector<PackedData> extract_ready();
 
     /**
      * @brief Construct a new allgather operation.
