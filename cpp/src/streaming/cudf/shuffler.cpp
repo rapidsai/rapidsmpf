@@ -67,7 +67,7 @@ Node shuffler(
 
     std::uint64_t sequence_number{0};
     while (true) {
-        auto partition_map = co_await ch_in->receive_or({});
+        auto partition_map = co_await ch_in->receive_or(nullptr);
         if (partition_map == nullptr) {
             break;
         }

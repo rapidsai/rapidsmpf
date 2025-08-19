@@ -63,7 +63,7 @@ Node unpack_and_concat(
     ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
     while (true) {
-        auto partition_map = co_await ch_in->receive_or({});
+        auto partition_map = co_await ch_in->receive_or(nullptr);
         if (partition_map == nullptr) {
             break;
         }
@@ -95,7 +95,7 @@ Node unpack_and_concat(
     ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
     while (true) {
-        auto partition_vec = co_await ch_in->receive_or({});
+        auto partition_vec = co_await ch_in->receive_or(nullptr);
         if (partition_vec == nullptr) {
             break;
         }
