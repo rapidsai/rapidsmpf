@@ -29,7 +29,7 @@ Node partition_and_pack(
             break;
         }
         auto reservation = ctx->br()->reserve_and_spill(
-            rapidsmpf::MemoryType::DEVICE, table->make_available_cost(), false
+            MemoryType::DEVICE, table->make_available_cost(), false
         );
         auto tbl = table->make_available(reservation, table->stream(), ctx->br());
 
