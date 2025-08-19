@@ -41,19 +41,7 @@ class Context {
         std::shared_ptr<coro::thread_pool> executor,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics
-    )
-        : options_{std::move(options)},
-          comm_{std::move(comm)},
-          progress_thread_{std::move(progress_thread)},
-          executor_{std::move(executor)},
-          br_{std::move(br)},
-          statistics_{std::move(statistics)} {
-        RAPIDSMPF_EXPECTS(comm_ != nullptr, "comm cannot be NULL");
-        RAPIDSMPF_EXPECTS(progress_thread_ != nullptr, "progress_thread cannot be NULL");
-        RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
-        RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
-        RAPIDSMPF_EXPECTS(statistics_ != nullptr, "statistics cannot be NULL");
-    }
+    );
 
     /**
      * @brief Convenience constructor with minimal configuration.
@@ -70,86 +58,49 @@ class Context {
         std::shared_ptr<Communicator> comm,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
-    )
-        : Context(
-              options,
-              comm,
-              std::make_shared<ProgressThread>(comm->logger(), statistics),
-              coro::thread_pool::make_shared(
-                  coro::thread_pool::options{
-                      .thread_count = options.get<std::uint32_t>(
-                          "num_streaming_threads",
-                          [](std::string const& s) {
-                              if (s.empty()) {
-                                  return 1;  // Default number of threads.
-                              }
-                              if (int v = std::stoi(s); v > 0) {
-                                  return v;
-                              }
-                              throw std::invalid_argument(
-                                  "num_streaming_threads must be positive"
-                              );
-                          }
-                      )
-                  }
-              ),
-              br,
-              statistics
-          ) {}
+    );
 
     /**
      * @brief Returns the configuration options.
      *
      * @return The Options instance.
      */
-    config::Options get_options() {
-        return options_;
-    }
+    config::Options get_options();
 
     /**
      * @brief Returns the communicator.
      *
      * @return Shared pointer to the communicator.
      */
-    std::shared_ptr<Communicator> comm() {
-        return comm_;
-    }
+    std::shared_ptr<Communicator> comm();
 
     /**
      * @brief Returns the progress thread.
      *
      * @return Shared pointer to the progress thread.
      */
-    std::shared_ptr<ProgressThread> progress_thread() {
-        return progress_thread_;
-    }
+    std::shared_ptr<ProgressThread> progress_thread();
 
     /**
      * @brief Returns the coroutine thread pool.
      *
      * @return Shared pointer to the thread pool.
      */
-    std::shared_ptr<coro::thread_pool> executor() {
-        return executor_;
-    }
+    std::shared_ptr<coro::thread_pool> executor();
 
     /**
      * @brief Returns the buffer resource.
      *
      * @return Raw pointer to the buffer resource.
      */
-    BufferResource* br() {
-        return br_;
-    }
+    BufferResource* br();
 
     /**
      * @brief Returns the statistics collector.
      *
      * @return Shared pointer to the statistics instance.
      */
-    std::shared_ptr<Statistics> statistics() {
-        return statistics_;
-    }
+    std::shared_ptr<Statistics> statistics();
 
     /**
      * @brief Reserves GPU memory and optionally spills to satisfy the request.
