@@ -10,7 +10,7 @@ cdef extern from "<rapidsmpf/streaming/core/node.hpp>" nogil:
         pass
 
     cdef void cpp_run_streaming_pipeline \
-        "rapidsmpf::streaming::run_streaming_pipeline"(vector[cpp_Node]) except+
+        "rapidsmpf::streaming::run_streaming_pipeline"(vector[cpp_Node]) except +
 
 
 cdef class Node:

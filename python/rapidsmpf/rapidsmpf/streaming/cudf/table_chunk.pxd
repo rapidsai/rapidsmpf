@@ -43,9 +43,6 @@ cdef class TableChunk:
 cdef class TableChunkChannel:
     cdef cpp_SharedChannel[cpp_TableChunk] _handle
 
-    @staticmethod
-    cdef TableChunkChannel from_handle(cpp_SharedChannel[cpp_TableChunk] handle)
-
 
 cdef class DeferredOutputChunks:
     cdef vector[unique_ptr[cpp_TableChunk]] _chunks

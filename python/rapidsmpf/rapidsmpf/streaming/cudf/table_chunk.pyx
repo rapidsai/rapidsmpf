@@ -12,6 +12,7 @@ from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 
+from rapidsmpf.streaming.core.channel cimport cpp_make_shared_channel
 from rapidsmpf.streaming.core.context cimport Context
 from rapidsmpf.streaming.core.leaf_node cimport (cpp_pull_chunks_from_channel,
                                                  cpp_push_chunks_to_channel)
@@ -56,7 +57,7 @@ cdef class TableChunk:
                 device_alloc_size,
                 _stream_view
             )
-        return TableChunk.from_handle(move(ret), _stream, table)
+        return TableChunk.from_handle(move(ret), stream=_stream, owner=table)
 
     def __dealloc__(self):
         with nogil:
@@ -93,11 +94,8 @@ cdef class TableChunk:
 
 
 cdef class TableChunkChannel:
-    @staticmethod
-    cdef TableChunkChannel from_handle(cpp_SharedChannel[cpp_TableChunk] handle):
-        cdef TableChunkChannel ret = TableChunkChannel.__new__(TableChunkChannel)
-        ret._handle = move(handle)
-        return ret
+    def __cinit__(self):
+        self._handle = cpp_make_shared_channel[cpp_TableChunk]()
 
     def __dealloc__(self):
         with nogil:
@@ -107,14 +105,10 @@ cdef class TableChunkChannel:
 def push_table_chunks_to_channel(Context ctx, TableChunkChannel ch_out, list chunks):
     # Warning chunks is consumed
     cdef vector[unique_ptr[cpp_TableChunk]] _chunks
-    cdef TableChunk _chunk
     owner = []
     for chunk in chunks:
-        _chunk = <TableChunk?>chunk
-        owner.append(_chunk._owner)
-        owner.append(_chunk._stream)
-        _chunks.emplace_back(move(_chunk.handle_release()))
-    chunks.clear()
+        owner.append(chunk)
+        _chunks.emplace_back(move((<TableChunk?>chunk).handle_release()))
 
     cdef cpp_Node _ret
     with nogil:

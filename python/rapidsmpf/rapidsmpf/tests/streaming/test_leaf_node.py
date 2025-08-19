@@ -15,6 +15,7 @@ from rapidsmpf.streaming.cudf.table_chunk import (
     pull_chunks_from_channel,
     push_table_chunks_to_channel,
 )
+from rapidsmpf.testing import assert_eq
 
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
@@ -40,3 +41,7 @@ def test_roundtrip(context: Context, stream: Stream) -> None:
     nodes.append(pull_chunks_from_channel(ctx=context, ch_in=ch1, chunks=output))
 
     run_streaming_pipeline(nodes)
+
+    results = output.result()
+    for seq in range(10):
+        assert_eq(results[seq].table_view(), expects[seq])

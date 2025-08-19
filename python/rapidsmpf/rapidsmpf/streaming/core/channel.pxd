@@ -4,3 +4,6 @@
 cdef extern from "<rapidsmpf/streaming/core/channel.hpp>" nogil:
     cdef cppclass cpp_SharedChannel"rapidsmpf::streaming::SharedChannel"[T]:
         void reset() noexcept
+
+    cdef cpp_SharedChannel[T] cpp_make_shared_channel \
+        "rapidsmpf::streaming::make_shared_channel"[T]() except +
