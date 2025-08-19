@@ -38,6 +38,11 @@ class MemoryReservation {
     ~MemoryReservation() noexcept;
 
     /**
+     * @brief Clear the remaining size of the reservation.
+     */
+    void clear() noexcept;
+
+    /**
      * @brief Move constructor for MemoryReservation.
      *
      * @param o The memory reservation to move from.
@@ -221,6 +226,41 @@ class BufferResource {
     std::pair<MemoryReservation, std::size_t> reserve(
         MemoryType mem_type, size_t size, bool allow_overbooking
     );
+
+    /**
+     * @brief Reserve memory and spill if necessary.
+     *
+     * @param mem_type The memory type to reserve.
+     * @param size The size of the memory to reserve.
+     * @param allow_overbooking Whether to allow overbooking. If false, ensures enough
+     * memory is freed to satisfy the reservation; otherwise, allows overbooking even
+     * if spilling was insufficient.
+     * @return The memory reservation.
+     * @throw std::overflow_error if allow_overbooking is false and the buffer resource
+     * cannot reserve and spill enough memory.
+     */
+    MemoryReservation reserve_and_spill(
+        MemoryType mem_type, size_t size, bool allow_overbooking
+    );
+
+    /**
+     * @brief Create a memory reservation and execute a function, which will ensure
+     * the reservation is released when the function goes out of scope.
+     *
+     * @param mem_type The memory type to reserve.
+     * @param size The size of the memory to reserve.
+     * @param allow_overbooking Whether to allow overbooking. If false and there is not
+     * enough memory, the function will receive an empty reservation.
+     * @param f A callable object that takes a `MemoryReservation&` and a `size_t`.
+     *
+     * @return The result of the function.
+     */
+    auto with_reservation(
+        MemoryType mem_type, std::size_t size, bool allow_overbooking, auto&& f
+    ) {
+        auto [res, ob] = reserve(mem_type, size, allow_overbooking);
+        return std::forward<decltype(f)>(f)(res, ob);
+    }
 
     /**
      * @brief Consume a portion of the reserved memory.
@@ -477,5 +517,33 @@ MemoryReservation reserve_or_fail(
     size_t size,
     std::optional<MemoryType> const& preferred_mem_type = std::nullopt
 );
+
+/**
+ * @brief Acquire a memory reservation and execute a function, which will ensure
+ * the reservation is released when the function goes out of scope.
+ *
+ * Similar to `BufferResource::with_reservation`, but this function would not reserve
+ * memory, but holds on to the reservation until the function is executed. Is useful in
+ * situations where the memory reservation is made with spilling.
+ *
+ * @param reservation moved memory reservation.
+ * @param f The function to execute.
+ *
+ * @return The result of the function.
+ */
+auto with_memory_reservation(MemoryReservation&& reservation, auto&& f) {
+    using F = std::decay_t<decltype(f)>;
+
+    if constexpr (std::invocable<F, MemoryReservation&>) {
+        return std::forward<F>(f)(reservation);
+    } else if constexpr (std::invocable<F>) {
+        return std::forward<F>(f)();
+    } else {
+        static_assert(
+            std::integral_constant<F, false>(),
+            "f must be callable with no args or MemoryReservation&"
+        );
+    }
+}
 
 }  // namespace rapidsmpf
