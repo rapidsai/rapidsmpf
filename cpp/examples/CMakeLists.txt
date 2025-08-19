@@ -39,9 +39,11 @@ if(RAPIDSMPF_HAVE_CUPTI)
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/examples>"
                CXX_STANDARD 20
                CXX_STANDARD_REQUIRED ON
+               # For std:: support of __int128_t. Can be removed once using cuda::std
                CXX_EXTENSIONS ON
                CUDA_STANDARD 20
                CUDA_STANDARD_REQUIRED ON
+               LINK_FLAGS "-Wl,--allow-shlib-undefined"
   )
   target_compile_options(
     example_cupti_monitor PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
