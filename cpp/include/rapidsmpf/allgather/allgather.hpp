@@ -109,16 +109,14 @@ class AllGather {
      * @brief Wait for all ranks to finish and extract all gathered data.
      *
      * @param timeout Optional timeout (ms) to wait.
-     * @return A pair of vectors [packed_data, n_chunks_per_rank]. `packed_data`
-     * contains the non-empty packed data ordered by rank and insertion order (size:
-     * sum(n_chunks_per_rank)). `n_chunks_per_rank` contains the number of packed data for
-     * each rank (size: number of ranks).
+     * @return A vector of non-empty packed data ordered by rank and insertion order.
      *
      * @throw std::runtime_error if the timeout is reached or if the data insertion
      * has not been finished yet.
      */
-    [[nodiscard]] std::pair<std::vector<PackedData>, std::vector<uint64_t>>
-    wait_and_extract_ordered(std::optional<std::chrono::milliseconds> timeout = {});
+    [[nodiscard]] std::vector<PackedData> wait_and_extract_ordered(
+        std::optional<std::chrono::milliseconds> timeout = {}
+    );
 
   private:
     Communicator* comm_;

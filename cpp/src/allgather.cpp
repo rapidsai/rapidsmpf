@@ -64,7 +64,6 @@ AllGather::~AllGather() {
 
 void AllGather::shutdown() {
     if (shuffler_) {
-        shuffler_->shutdown();
         shuffler_.reset();
     }
 }
@@ -118,8 +117,9 @@ std::vector<PackedData> AllGather::wait_and_extract(
     return shuffler_->extract(pid);
 }
 
-std::pair<std::vector<PackedData>, std::vector<uint64_t>>
-AllGather::wait_and_extract_ordered(std::optional<std::chrono::milliseconds> timeout) {
+std::vector<PackedData> AllGather::wait_and_extract_ordered(
+    std::optional<std::chrono::milliseconds> timeout
+) {
     RAPIDSMPF_EXPECTS(
         insert_finished_.load(), "insertion has not finished yet.", std::runtime_error
     );
@@ -131,19 +131,16 @@ AllGather::wait_and_extract_ordered(std::optional<std::chrono::milliseconds> tim
     auto chunks = shuffler_->extract_chunks(pid);
     std::ranges::sort(chunks, std::less<>{}, &shuffler::detail::Chunk::chunk_id);
 
-    std::vector<uint64_t> n_chunks_per_rank(static_cast<size_t>(comm_->nranks()), 0);
     std::vector<PackedData> packed_data;
     packed_data.reserve(chunks.size());
 
     for (auto&& chunk : chunks) {
-        auto rank = shuffler::Shuffler::extract_rank(chunk.chunk_id());
-        n_chunks_per_rank[static_cast<size_t>(rank)]++;
         packed_data.emplace_back(
             chunk.release_metadata_buffer(), chunk.release_data_buffer()
         );
     }
 
-    return {std::move(packed_data), std::move(n_chunks_per_rank)};
+    return packed_data;
 }
 
 }  // namespace rapidsmpf::allgather

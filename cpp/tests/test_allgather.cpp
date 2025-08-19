@@ -154,10 +154,8 @@ TEST_P(AllGatherTest, basic_allgather) {
     allgather->insert_finished();
 
     std::vector<rapidsmpf::PackedData> results;
-    std::vector<uint64_t> n_chunks_per_rank;
     if (ordered) {
-        std::tie(results, n_chunks_per_rank) = allgather->wait_and_extract_ordered();
-        EXPECT_EQ(comm->nranks(), n_chunks_per_rank.size());
+        results = allgather->wait_and_extract_ordered();
     } else {
         results = allgather->wait_and_extract();
     }
@@ -166,10 +164,6 @@ TEST_P(AllGatherTest, basic_allgather) {
         EXPECT_EQ(n_inserts * comm->nranks(), results.size());
 
         if (ordered) {
-            EXPECT_TRUE(std::ranges::all_of(n_chunks_per_rank, [this](uint64_t n) {
-                return n == static_cast<uint64_t>(n_inserts);
-            }));
-
             // results vector should be ordered by rank and insertion order. Values should
             // look like:
             // rank0    |0... |10...|... * n_inserts
@@ -204,11 +198,6 @@ TEST_P(AllGatherTest, basic_allgather) {
         }
     } else {  // n_elements == 0 or n_inserts == 0. No data is inserted.
         EXPECT_EQ(0, results.size());
-        if (ordered) {
-            EXPECT_TRUE(std::ranges::all_of(n_chunks_per_rank, [](uint64_t n) {
-                return n == 0;
-            }));
-        }
     }
 
     EXPECT_TRUE(allgather->finished());
@@ -240,19 +229,12 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
     allgather->insert_finished();
 
     std::vector<rapidsmpf::PackedData> results;
-    std::vector<uint64_t> n_chunks_per_rank;
     if (ordered) {
-        std::tie(results, n_chunks_per_rank) = allgather->wait_and_extract_ordered();
-        EXPECT_EQ(n_ranks, n_chunks_per_rank.size());
-        for (int r = 0; r < n_ranks; r++) {
-            // rank 0 inserts 0 elements, every other rank inserts n_inserts elements
-            EXPECT_EQ(r == 0 ? 0 : n_inserts, n_chunks_per_rank[r]);
-        }
+        results = allgather->wait_and_extract_ordered();
     } else {
         results = allgather->wait_and_extract();
     }
 
-    // results should be a triangular number of elements
     EXPECT_EQ((n_ranks - 1) * n_inserts, results.size());
 
     if (ordered) {
@@ -298,13 +280,8 @@ TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
     allgather->insert_finished();
 
     std::vector<rapidsmpf::PackedData> results;
-    std::vector<uint64_t> n_chunks_per_rank;
     if (ordered) {
-        std::tie(results, n_chunks_per_rank) = allgather->wait_and_extract_ordered();
-        EXPECT_EQ(n_ranks, n_chunks_per_rank.size());
-        for (int r = 0; r < n_ranks; r++) {
-            EXPECT_EQ(r, n_chunks_per_rank[r]);
-        }
+        results = allgather->wait_and_extract_ordered();
     } else {
         results = allgather->wait_and_extract();
     }
