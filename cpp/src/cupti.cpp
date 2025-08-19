@@ -6,6 +6,7 @@
 #ifdef RAPIDSMPF_HAVE_CUPTI
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -19,7 +20,7 @@
 namespace rapidsmpf {
 
 // List of CUDA Runtime API callbacks we want to monitor
-static constexpr CUpti_CallbackId MONITORED_RUNTIME_CALLBACKS[] = {
+static constexpr std::array<CUpti_CallbackId, 18> MONITORED_RUNTIME_CALLBACKS{{
     CUPTI_RUNTIME_TRACE_CBID_cudaMalloc_v3020,
     CUPTI_RUNTIME_TRACE_CBID_cudaMallocPitch_v3020,
     CUPTI_RUNTIME_TRACE_CBID_cudaMallocArray_v3020,
@@ -38,10 +39,10 @@ static constexpr CUpti_CallbackId MONITORED_RUNTIME_CALLBACKS[] = {
     CUPTI_RUNTIME_TRACE_CBID_cudaFreeMipmappedArray_v5000,
     CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_v11020,
     CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_ptsz_v11020,
-};
+}};
 
 // List of CUDA Driver API callbacks we want to monitor
-static constexpr CUpti_CallbackId MONITORED_DRIVER_CALLBACKS[] = {
+static constexpr std::array<CUpti_CallbackId, 17> MONITORED_DRIVER_CALLBACKS{{
     CUPTI_DRIVER_TRACE_CBID_cuMemAlloc,
     CUPTI_DRIVER_TRACE_CBID_cuMemAllocPitch,
     CUPTI_DRIVER_TRACE_CBID_cuMemAllocHost,
@@ -59,19 +60,15 @@ static constexpr CUpti_CallbackId MONITORED_DRIVER_CALLBACKS[] = {
     CUPTI_DRIVER_TRACE_CBID_cuMemFree_v2,
     CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync,
     CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync_ptsz,
-};
+}};
 
 // Helper function to check if a callback ID is in our monitored list
 template <std::size_t N>
 bool is_monitored_callback(
-    CUpti_CallbackId cbid, const CUpti_CallbackId (&monitored_list)[N]
+    CUpti_CallbackId cbid, const std::array<CUpti_CallbackId, N>& monitored_list
 ) {
-    for (std::size_t i = 0; i < N; ++i) {
-        if (monitored_list[i] == cbid) {
-            return true;
-        }
-    }
-    return false;
+    return std::find(monitored_list.begin(), monitored_list.end(), cbid)
+           != monitored_list.end();
 }
 
 CuptiMonitor::CuptiMonitor(
