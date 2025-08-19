@@ -20,19 +20,22 @@ namespace rapidsmpf::streaming::node {
  * @tparam ChunkT The type of chunk being sent.
  * @param ctx The context to use.
  * @param ch_out Output channel to which chunks will be sent.
- * @param input Input vector containing the chunks to send.
+ * @param chunks Input vector containing the chunks to send.
  * @return Streaming node representing the asynchronous operation.
  */
 template <typename ChunkT>
 Node push_chunks_to_channel(
     std::shared_ptr<Context> ctx,
     SharedChannel<ChunkT> ch_out,
-    std::vector<std::unique_ptr<ChunkT>>&& input
+    std::vector<std::unique_ptr<ChunkT>> chunks
 ) {
     ShutdownAtExit c{ch_out};
     co_await ctx->executor()->schedule();
 
-    for (auto& chunk : input) {
+    for (auto& chunk : chunks) {
+        RAPIDSMPF_EXPECTS(
+            chunk, "`chunks` cannot contain null pointers", std::invalid_argument
+        );
         co_await ch_out->send(std::move(chunk));
     }
     co_await ch_out->drain(ctx->executor());

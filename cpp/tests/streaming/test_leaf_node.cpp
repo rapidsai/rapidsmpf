@@ -37,22 +37,28 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
         expects.emplace_back(random_table_with_index(i, num_rows, 0, 10));
     }
 
-    std::vector<std::unique_ptr<TableChunk>> inputs;
-    for (int i = 0; i < num_chunks; ++i) {
-        inputs.emplace_back(
-            std::make_unique<TableChunk>(
-                i,
-                std::make_unique<cudf::table>(expects[i], stream, ctx->br()->device_mr()),
-                stream
-            )
-        );
-    }
-
     std::vector<Node> nodes;
     auto ch1 = make_shared_channel<TableChunk>();
-    nodes.push_back(
-        node::push_chunks_to_channel<TableChunk>(ctx, ch1, std::move(inputs))
-    );
+
+    // Note, we use a scope to check that coroutines keeps the input alive.
+    {
+        std::vector<std::unique_ptr<TableChunk>> inputs;
+        for (int i = 0; i < num_chunks; ++i) {
+            inputs.emplace_back(
+                std::make_unique<TableChunk>(
+                    i,
+                    std::make_unique<cudf::table>(
+                        expects[i], stream, ctx->br()->device_mr()
+                    ),
+                    stream
+                )
+            );
+        }
+
+        nodes.push_back(
+            node::push_chunks_to_channel<TableChunk>(ctx, ch1, std::move(inputs))
+        );
+    }
 
     std::vector<std::unique_ptr<TableChunk>> outputs;
     nodes.push_back(node::pull_chunks_from_channel(ctx, ch1, outputs));
