@@ -175,10 +175,6 @@ Duration run(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<rapidsmpf::Statistics> statistics
-#ifdef RAPIDSMPF_HAVE_CUPTI
-    ,
-    rapidsmpf::CuptiMonitor* cupti_monitor = nullptr
-#endif
 ) {
     // Allocate send and recv buffers and fill the send buffers with random data.
     std::vector<std::unique_ptr<Buffer>> send_bufs;
@@ -196,13 +192,6 @@ Duration run(
     // Wait for all buffers to be ready before proceeding. Since allocations are
     // stream-ordered, we only need to check the last one in the stream.
     recv_bufs.back()->wait_for_ready();
-
-#ifdef RAPIDSMPF_HAVE_CUPTI
-    // Start CUPTI monitoring for this communication run
-    if (cupti_monitor != nullptr) {
-        cupti_monitor->start_monitoring();
-    }
-#endif
 
     auto const t0_elapsed = Clock::now();
 
@@ -234,13 +223,6 @@ Duration run(
     while (!futures.empty()) {
         std::ignore = comm->test_some(futures);
     }
-
-#ifdef RAPIDSMPF_HAVE_CUPTI
-    // Stop CUPTI monitoring for this communication run
-    if (cupti_monitor != nullptr) {
-        cupti_monitor->stop_monitoring();
-    }
-#endif
 
     return Clock::now() - t0_elapsed;
 }
@@ -304,9 +286,11 @@ int main(int argc, char** argv) {
     std::unique_ptr<rapidsmpf::CuptiMonitor> cupti_monitor;
     if (args.enable_cupti_monitoring) {
         cupti_monitor = std::make_unique<rapidsmpf::CuptiMonitor>();
+        cupti_monitor->start_monitoring();
         log.print("CUPTI memory monitoring enabled");
     }
 #endif
+
 
     auto const local_messages_send =
         args.msg_size * args.num_ops * (static_cast<std::uint64_t>(comm->nranks()) - 1);
@@ -318,18 +302,7 @@ int main(int argc, char** argv) {
         if (i == args.num_warmups + args.num_runs - 1) {
             stats = std::make_shared<rapidsmpf::Statistics>();
         }
-        auto const elapsed = run(
-                                 comm,
-                                 args,
-                                 stream,
-                                 &br,
-                                 stats
-#ifdef RAPIDSMPF_HAVE_CUPTI
-                                 ,
-                                 cupti_monitor.get()
-#endif
-        )
-                                 .count();
+        auto const elapsed = run(comm, args, stream, &br, stats).count();
         std::stringstream ss;
         ss << "elapsed: " << to_precision(elapsed) << " sec"
            << " | local comm: " << format_nbytes(local_messages_send / elapsed)
@@ -352,6 +325,8 @@ int main(int argc, char** argv) {
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Save CUPTI monitoring results to CSV file
     if (args.enable_cupti_monitoring && cupti_monitor) {
+        cupti_monitor->stop_monitoring();
+
         std::string csv_filename =
             args.cupti_csv_prefix + std::to_string(comm->rank()) + ".csv";
         try {

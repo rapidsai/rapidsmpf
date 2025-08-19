@@ -231,22 +231,11 @@ rapidsmpf::Duration do_run(
     rapidsmpf::BufferResource* br,
     std::shared_ptr<rapidsmpf::Statistics>& statistics,
     auto&& shuffle_insert_fn
-#ifdef RAPIDSMPF_HAVE_CUPTI
-    ,
-    rapidsmpf::CuptiMonitor* cupti_monitor = nullptr
-#endif
 ) {
     std::vector<std::unique_ptr<cudf::table>> output_partitions;
     output_partitions.reserve(total_num_partitions);
 
     auto const t0_elapsed = rapidsmpf::Clock::now();
-
-#ifdef RAPIDSMPF_HAVE_CUPTI
-    // Start CUPTI monitoring for this shuffle run
-    if (cupti_monitor != nullptr) {
-        cupti_monitor->start_monitoring();
-    }
-#endif
 
     {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
@@ -281,13 +270,6 @@ rapidsmpf::Duration do_run(
         }
         stream.synchronize();
     }
-
-#ifdef RAPIDSMPF_HAVE_CUPTI
-    // Stop CUPTI monitoring for this shuffle run
-    if (cupti_monitor != nullptr) {
-        cupti_monitor->stop_monitoring();
-    }
-#endif
 
     auto const t1_elapsed = rapidsmpf::Clock::now();
 
@@ -410,10 +392,6 @@ rapidsmpf::Duration run_hash_partition_inline(
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br,
     std::shared_ptr<rapidsmpf::Statistics>& statistics
-#ifdef RAPIDSMPF_HAVE_CUPTI
-    ,
-    rapidsmpf::CuptiMonitor* cupti_monitor = nullptr
-#endif
 ) {
     rapidsmpf::shuffler::PartID const total_num_partitions =
         args.num_output_partitions
@@ -454,10 +432,6 @@ rapidsmpf::Duration run_hash_partition_inline(
                 args.use_concat_insert
             );
         }
-#ifdef RAPIDSMPF_HAVE_CUPTI
-        ,
-        cupti_monitor
-#endif
     );
 }
 
@@ -482,10 +456,6 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
     rmm::cuda_stream_view stream,
     rapidsmpf::BufferResource* br,
     std::shared_ptr<rapidsmpf::Statistics>& statistics
-#ifdef RAPIDSMPF_HAVE_CUPTI
-    ,
-    rapidsmpf::CuptiMonitor* cupti_monitor = nullptr
-#endif
 ) {
     rapidsmpf::shuffler::PartID const total_num_partitions =
         args.num_output_partitions
@@ -525,10 +495,6 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
                 args.use_concat_insert
             );
         }
-#ifdef RAPIDSMPF_HAVE_CUPTI
-        ,
-        cupti_monitor
-#endif
     );
 }
 
@@ -608,6 +574,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<rapidsmpf::CuptiMonitor> cupti_monitor;
     if (args.enable_cupti_monitoring) {
         cupti_monitor = std::make_unique<rapidsmpf::CuptiMonitor>();
+        cupti_monitor->start_monitoring();
         log.print("CUPTI memory monitoring enabled");
     }
 #endif
@@ -626,32 +593,13 @@ int main(int argc, char** argv) {
         double elapsed;
         if (args.hash_partition_with_datagen) {
             elapsed = run_hash_partition_with_datagen(
-                          comm,
-                          progress_thread,
-                          args,
-                          stream,
-                          &br,
-                          stats
-#ifdef RAPIDSMPF_HAVE_CUPTI
-                          ,
-                          cupti_monitor.get()
-#endif
+                          comm, progress_thread, args, stream, &br, stats
             )
                           .count();
         } else {
-            elapsed = run_hash_partition_inline(
-                          comm,
-                          progress_thread,
-                          args,
-                          stream,
-                          &br,
-                          stats
-#ifdef RAPIDSMPF_HAVE_CUPTI
-                          ,
-                          cupti_monitor.get()
-#endif
-            )
-                          .count();
+            elapsed =
+                run_hash_partition_inline(comm, progress_thread, args, stream, &br, stats)
+                    .count();
         }
         std::stringstream ss;
         ss << "elapsed: " << rapidsmpf::to_precision(elapsed)
@@ -696,6 +644,8 @@ int main(int argc, char** argv) {
 #ifdef RAPIDSMPF_HAVE_CUPTI
     // Save CUPTI monitoring results to CSV file
     if (args.enable_cupti_monitoring && cupti_monitor) {
+        cupti_monitor->stop_monitoring();
+
         std::string csv_filename =
             args.cupti_csv_prefix + std::to_string(comm->rank()) + ".csv";
         try {
