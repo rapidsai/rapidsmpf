@@ -313,12 +313,23 @@ void CuptiMonitor::cupti_callback(
     if (domain == CUPTI_CB_DOMAIN_RUNTIME_API) {
         switch (cbid) {
         case CUPTI_RUNTIME_TRACE_CBID_cudaMalloc_v3020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocPitch_v3020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocArray_v3020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocHost_v3020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaMalloc3D_v3020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaMalloc3DArray_v3020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocMipmappedArray_v5000:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocManaged_v6000:
         case CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_v11020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocAsync_ptsz_v11020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_v11020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaMallocFromPoolAsync_ptsz_v11020:
         case CUPTI_RUNTIME_TRACE_CBID_cudaFree_v3020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaFreeArray_v3020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaFreeHost_v3020:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaFreeMipmappedArray_v5000:
         case CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_v11020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMemcpy_v3020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaMemcpyAsync_v3020:
-        case CUPTI_RUNTIME_TRACE_CBID_cudaLaunchKernel_v7000:
+        case CUPTI_RUNTIME_TRACE_CBID_cudaFreeAsync_ptsz_v11020:
             if (cbInfo->callbackSite == CUPTI_API_EXIT) {
                 capture_memory_usage_from_callback();
             }
@@ -326,14 +337,23 @@ void CuptiMonitor::cupti_callback(
         }
     } else if (domain == CUPTI_CB_DOMAIN_DRIVER_API) {
         switch (cbid) {
+        case CUPTI_DRIVER_TRACE_CBID_cuMemAlloc:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocPitch:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocHost:
         case CUPTI_DRIVER_TRACE_CBID_cuMemAlloc_v2:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocPitch_v2:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocHost_v2:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocManaged:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocAsync:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocAsync_ptsz:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocFromPoolAsync:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemAllocFromPoolAsync_ptsz:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemFree:
+        case CUPTI_DRIVER_TRACE_CBID_cu64MemFree:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemFreeHost:
         case CUPTI_DRIVER_TRACE_CBID_cuMemFree_v2:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemcpyHtoD_v2:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemcpyDtoH_v2:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemcpyHtoDAsync_v2:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemcpyDtoHAsync_v2:
-        case CUPTI_DRIVER_TRACE_CBID_cuMemcpyDtoDAsync_v2:
-        case CUPTI_DRIVER_TRACE_CBID_cuLaunchKernel:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync:
+        case CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync_ptsz:
             if (cbInfo->callbackSite == CUPTI_API_EXIT) {
                 capture_memory_usage_from_callback();
             }
