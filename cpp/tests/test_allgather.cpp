@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <vector>
 
@@ -228,7 +230,14 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
     allgather->insert_finished();
 
     std::vector<rapidsmpf::PackedData> results;
-    results = allgather->wait_and_extract(ordered);
+    if (ordered == AllGather::Ordered::YES) {
+        results = allgather->wait_and_extract(ordered);
+    } else {
+        do {
+            std::ranges::move(allgather->extract_ready(), std::back_inserter(results));
+        } while (!allgather->finished());
+        std::ranges::move(allgather->extract_ready(), std::back_inserter(results));
+    }
     // results should be a triangular number of elements
     EXPECT_EQ((n_ranks - 1) * n_inserts, results.size());
 
