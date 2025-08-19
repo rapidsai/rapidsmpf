@@ -61,7 +61,7 @@ class ArgumentParser {
                               "(default: 1)\n"
                            << "  -m <mr>    RMM memory resource {cuda, pool, async, "
                               "managed} "
-                              "(default: cuda)\n"
+                              "(default: pool)\n"
                            << "  -l <num>   Device memory limit in MiB (default:-1, "
                               "disabled)\n"
                            << "  -x         Enable memory profiler (default: disabled)\n"
