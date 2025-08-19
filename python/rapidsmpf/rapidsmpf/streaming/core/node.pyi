@@ -3,5 +3,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 class Node:
     pass
+
+def run_streaming_pipeline(nodes: Iterable[Node]) -> None: ...

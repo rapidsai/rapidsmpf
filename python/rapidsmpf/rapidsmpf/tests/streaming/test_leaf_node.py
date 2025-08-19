@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import cudf
 
+from rapidsmpf.streaming.core.node import run_streaming_pipeline
 from rapidsmpf.streaming.cudf.table_chunk import (
     DeferredOutputChunks,
     TableChunk,
@@ -37,3 +38,5 @@ def test_roundtrip(context: Context, stream: Stream) -> None:
     )
     output = DeferredOutputChunks()
     nodes.append(pull_chunks_from_channel(ctx=context, ch_in=ch1, chunks=output))
+
+    run_streaming_pipeline(nodes)

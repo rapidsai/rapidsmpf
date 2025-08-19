@@ -121,7 +121,7 @@ def push_table_chunks_to_channel(Context ctx, TableChunkChannel ch_out, list chu
         _ret = cpp_push_chunks_to_channel[cpp_TableChunk](
             ctx._handle, ch_out._handle, move(_chunks)
         )
-    return Node.from_handle(move(_ret), owner)
+    return Node.from_handle(make_unique[cpp_Node](move(_ret)), owner)
 
 
 cdef class DeferredOutputChunks:
@@ -147,4 +147,4 @@ def pull_chunks_from_channel(
         _ret_node = cpp_pull_chunks_from_channel[cpp_TableChunk](
             ctx._handle, ch_in._handle, chunks._chunks
         )
-    return Node.from_handle(move(_ret_node), owner=None)
+    return Node.from_handle(make_unique[cpp_Node](move(_ret_node)), owner=None)
