@@ -33,6 +33,7 @@ namespace rapidsmpf {
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param br Buffer resource for memory allocations.
  * @param statistics The statistics instance to use (disabled by default).
+ * @param allow_overbooking If true, allow overbooking (false by default)
  *
  * @return A vector of each partition and a table that owns the device memory.
  *
@@ -50,7 +51,8 @@ partition_and_split(
     uint32_t seed,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics = Statistics::disabled()
+    std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+    bool allow_overbooking = false
 );
 
 
@@ -65,6 +67,7 @@ partition_and_split(
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param br Buffer resource for memory allocations.
  * @param statistics The statistics instance to use (disabled by default).
+ * @param allow_overbooking If true, allow overbooking (false by default)
  *
  * @return A map of partition IDs and their packed tables.
  *
@@ -82,7 +85,8 @@ partition_and_split(
     uint32_t seed,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics = Statistics::disabled()
+    std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+    bool allow_overbooking = false
 );
 
 
@@ -95,6 +99,7 @@ partition_and_split(
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param br Buffer resource for memory allocations.
  * @param statistics The statistics instance to use (disabled by default).
+ * @param allow_overbooking If true, allow overbooking (false by default)
  *
  * @return A map of partition IDs and their packed tables.
  *
@@ -109,7 +114,8 @@ partition_and_split(
     std::vector<cudf::size_type> const& splits,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics = Statistics::disabled()
+    std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+    bool allow_overbooking = false
 );
 
 
@@ -122,8 +128,12 @@ partition_and_split(
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param br Buffer resource for memory allocations.
  * @param statistics The statistics instance to use (disabled by default).
- *
+ * @param allow_overbooking If true, allow overbooking (false by default)
  * @return The unpacked and concatenated result.
+ *
+ * @throw std::overflow_error if the buffer resource cannot reserve enough memory
+ * to concatenate all partitions.
+ * @throw std::logic_error if the partitions are not in device memory.
  *
  * @see partition_and_pack
  * @see cudf::unpack
@@ -133,7 +143,8 @@ partition_and_split(
     std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics = Statistics::disabled()
+    std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+    bool allow_overbooking = false
 );
 
 /**
