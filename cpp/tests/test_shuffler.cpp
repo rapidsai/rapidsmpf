@@ -117,7 +117,9 @@ void test_shuffler(
         hash_fn,
         seed,
         stream,
-        br
+        br,
+        nullptr,  // statistics
+        true  // allow_overbooking because this is an input table
     );
 
     cudf::size_type row_offset = 0;
@@ -146,7 +148,9 @@ void test_shuffler(
                 hash_fn,
                 seed,
                 stream,
-                br
+                br,
+                nullptr,  // statistics
+                true  // allow_overbooking because this is an input table
             );
             // Add the chunks to the shuffle
             insert_fn(std::move(packed_chunks));
@@ -162,7 +166,9 @@ void test_shuffler(
         auto result = rapidsmpf::unpack_and_concat(
             rapidsmpf::unspill_partitions(std::move(packed_chunks), stream, br, true),
             stream,
-            br
+            br,
+            nullptr,  // statistics
+            true  // allow_overbooking because this is an output table
         );
 
         // We should only receive the partitions assigned to this rank.
@@ -723,8 +729,8 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     );
     cudf::table input_table = random_table_with_index(seed, 1000, 0, 10);
     auto input_chunks = rapidsmpf::partition_and_pack(
-        input_table, {1}, total_num_partitions, hash_fn, seed, stream, &br
-    );
+        input_table, {1}, total_num_partitions, hash_fn, seed, stream, &br, nullptr, true
+    );  // with overbooking
 
     // Insert spills does nothing when device memory is available, we start
     // with 2 device allocations.

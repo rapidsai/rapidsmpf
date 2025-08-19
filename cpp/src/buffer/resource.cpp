@@ -12,6 +12,10 @@ namespace rapidsmpf {
 
 
 MemoryReservation::~MemoryReservation() noexcept {
+    clear();
+}
+
+void MemoryReservation::clear() noexcept {
     if (size_ > 0) {
         br_->release(*this, size_);
     }
@@ -55,6 +59,32 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     // Make the reservation.
     reserved += size;
     return {MemoryReservation(mem_type, this, size), overbooking};
+}
+
+MemoryReservation BufferResource::reserve_and_spill(
+    MemoryType mem_type, size_t size, bool allow_overbooking
+) {
+    // reserve device memory with overbooking
+    auto [reservation, ob] = reserve(mem_type, size, true);
+
+    // ask the spill manager to make room for overbooking
+    if (ob > 0) {
+        RAPIDSMPF_EXPECTS(
+            mem_type < LowestSpillType,
+            "Allocating on the lowest spillable memory type resulted in overbooking",
+            std::overflow_error
+        );
+
+        // TODO: spill functions should be aware of the memory type it should spill to
+        auto spilled = spill_manager_.spill(ob);
+        RAPIDSMPF_EXPECTS(
+            allow_overbooking || spilled >= ob,
+            "failed to spill enough memory",
+            std::overflow_error
+        );
+    }
+
+    return std::move(reservation);
 }
 
 std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t size) {
@@ -102,7 +132,7 @@ std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<std::vector<uint8_t
 std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<rmm::device_buffer> data,
     rmm::cuda_stream_view stream,
-    std::shared_ptr<Buffer::Event> event
+    std::shared_ptr<CudaEvent> event
 ) {
     return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, std::move(event)));
 }

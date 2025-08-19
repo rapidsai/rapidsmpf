@@ -57,4 +57,23 @@ std::string str(
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref()
 );
 
+/**
+ * @brief Estimate the memory usage of a column.
+ *
+ * @param col The column to estimate the memory usage of.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @return The estimated memory usage of the column.
+ */
+size_t estimated_memory_usage(cudf::column_view const& col, rmm::cuda_stream_view stream);
+
+/**
+ * @brief Estimate the memory usage of a table.
+ *
+ * @param tbl The table to estimate the memory usage of.
+ * @param stream CUDA stream used for device memory operations and kernel launches.
+ * @return The estimated memory usage of the table.
+ */
+size_t estimated_memory_usage(cudf::table_view const& tbl, rmm::cuda_stream_view stream);
+
+
 }  // namespace rapidsmpf
