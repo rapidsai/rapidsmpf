@@ -9,55 +9,12 @@
 
 #include <rmm/cuda_stream_view.hpp>
 
+#include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/streaming/cudf/shuffler.hpp>
 
 namespace rapidsmpf::streaming::node {
 
 namespace {
-
-/**
- * @brief RAII wrapper for a CUDA event.
- *
- * Creates a CUDA event on construction and destroys it on destruction.
- *
- * TODO: move to a global place so it can be used throughout RapidsMPF.
- */
-class CudaEventRAII {
-  public:
-    CudaEventRAII(unsigned flags = cudaEventDisableTiming) {
-        RAPIDSMPF_CUDA_TRY(cudaEventCreateWithFlags(&event_, flags));
-    }
-
-    ~CudaEventRAII() noexcept {
-        cudaEventDestroy(event_);
-    }
-
-    CudaEventRAII(CudaEventRAII const&) = delete;
-    CudaEventRAII& operator=(CudaEventRAII const&) = delete;
-    CudaEventRAII(CudaEventRAII&&) = delete;
-    CudaEventRAII& operator=(CudaEventRAII&&) = delete;
-
-    /**
-     * @brief Get the wrapped event.
-     *
-     * @return The underlying event.
-     */
-    [[nodiscard]] cudaEvent_t const& value() const noexcept {
-        return event_;
-    }
-
-    /**
-     * @brief Implicit conversion to a cudaEvent_t reference.
-     *
-     * @return Const reference to the underlying event.
-     */
-    operator cudaEvent_t const&() const noexcept {
-        return event_;
-    }
-
-  private:
-    cudaEvent_t event_{};
-};
 
 /**
  * @brief Make @p primary wait until all work currently enqueued on @p secondary
@@ -106,7 +63,7 @@ Node shuffler(
         ctx->statistics(),
         partition_owner
     );
-    CudaEventRAII event;
+    CudaEvent event;
 
     std::uint64_t sequence_number{0};
     while (true) {
