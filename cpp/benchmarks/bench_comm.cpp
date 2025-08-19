@@ -55,10 +55,8 @@ class ArgumentParser {
                            << "  -r <num>   Number of runs (default: 1)\n"
                            << "  -w <num>   Number of warmup runs (default: 0)\n"
                            << "  -M <path>  Enable CUPTI memory monitoring and save CSV "
-                              "files "
-                              "with given path prefix. For example, /tmp/test will write "
-                              "files "
-                              "to /tmp/test_<rank>.csv (default: disabled)\n"
+                              "files with given path prefix. For example, /tmp/test will "
+                              "write files to /tmp/test_<rank>.csv (default: disabled)\n"
                            << "  -h         Display this help message\n";
                         if (rank == 0) {
                             std::cerr << ss.str();

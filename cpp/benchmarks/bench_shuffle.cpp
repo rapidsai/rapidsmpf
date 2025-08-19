@@ -69,10 +69,8 @@ class ArgumentParser {
                               "(default: unset, hash partition during insertion)\n"
                            << "  -x         Enable memory profiler (default: disabled)\n"
                            << "  -M <path>  Enable CUPTI memory monitoring and save CSV "
-                              "files "
-                              "with given path prefix. For example, /tmp/test will write "
-                              "files "
-                              "to /tmp/test_<rank>.csv (default: disabled)\n"
+                              "files with given path prefix. For example, /tmp/test will "
+                              "write files to /tmp/test_<rank>.csv (default: disabled)\n"
                            << "  -h         Display this help message\n";
                         if (rank == 0) {
                             std::cerr << ss.str();
@@ -236,7 +234,6 @@ rapidsmpf::Duration do_run(
     output_partitions.reserve(total_num_partitions);
 
     auto const t0_elapsed = rapidsmpf::Clock::now();
-
     {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffling", total_num_partitions);
         RAPIDSMPF_MEMORY_PROFILE(statistics, "shuffling");
