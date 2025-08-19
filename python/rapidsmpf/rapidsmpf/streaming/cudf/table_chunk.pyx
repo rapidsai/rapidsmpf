@@ -19,12 +19,7 @@ from rapidsmpf.streaming.core.node cimport Node, cpp_Node
 
 
 cdef class TableChunk:
-    def __init__(
-        self,
-        uint64_t sequence_number,
-        Table table,
-        stream,
-    ):
+    def __init__(self):
         raise ValueError("use the `from_*` factory functions")
 
     @staticmethod
@@ -67,22 +62,33 @@ cdef class TableChunk:
         with nogil:
             self._handle.reset()
 
+    cdef const cpp_TableChunk* handle_ptr(self):
+        if not self._handle:
+            raise ValueError("TableChunk is uninitialized, has it been consumed?")
+        return self._handle.get()
+
+    cdef unique_ptr[cpp_TableChunk] handle_release(self):
+        if not self._handle:
+            raise ValueError("TableChunk is uninitialized, has it been consumed?")
+        return move(self._handle)
+
     def sequence_number(self):
-        return deref(self._handle).sequence_number()
+        return deref(self.handle_ptr()).sequence_number()
 
     def stream(self):
         return self._stream
 
     def data_alloc_size(self, MemoryType mem_type):
-        return deref(self._handle).data_alloc_size(mem_type)
+        return deref(self.handle_ptr()).data_alloc_size(mem_type)
 
     def is_available(self):
-        return deref(self._handle).is_available()
+        return deref(self.handle_ptr()).is_available()
 
     def table_view(self):
+        cdef const cpp_TableChunk* handle = self.handle_ptr()
         cdef cpp_table_view ret
         with nogil:
-            ret = deref(self._handle).table_view()
+            ret = deref(handle).table_view()
         return Table.from_table_view_of_arbitrary(ret, owner=self)
 
 
@@ -99,6 +105,7 @@ cdef class TableChunkChannel:
 
 
 def push_table_chunks_to_channel(Context ctx, TableChunkChannel ch_out, list chunks):
+    # Warning chunks is consumed
     cdef vector[unique_ptr[cpp_TableChunk]] _chunks
     cdef TableChunk _chunk
     owner = []
@@ -106,7 +113,7 @@ def push_table_chunks_to_channel(Context ctx, TableChunkChannel ch_out, list chu
         _chunk = <TableChunk?>chunk
         owner.append(_chunk._owner)
         owner.append(_chunk._stream)
-        _chunks.emplace_back(move(_chunk._handle))
+        _chunks.emplace_back(move(_chunk.handle_release()))
     chunks.clear()
 
     cdef cpp_Node _ret

@@ -35,6 +35,10 @@ cdef class TableChunk:
         unique_ptr[cpp_TableChunk] handle, Stream stream, object owner
     )
 
+    cdef const cpp_TableChunk* handle_ptr(self)
+
+    cdef unique_ptr[cpp_TableChunk] handle_release(self)
+
 
 cdef class TableChunkChannel:
     cdef cpp_SharedChannel[cpp_TableChunk] _handle
