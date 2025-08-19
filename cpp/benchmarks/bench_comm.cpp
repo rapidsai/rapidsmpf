@@ -358,8 +358,17 @@ int main(int argc, char** argv) {
             cupti_monitor->write_csv(csv_filename);
             log.print(
                 "CUPTI memory data written to " + csv_filename + " ("
-                + std::to_string(cupti_monitor->get_sample_count()) + " samples)"
+                + std::to_string(cupti_monitor->get_sample_count()) + " samples, "
+                + std::to_string(cupti_monitor->get_total_callback_count())
+                + " callbacks)"
             );
+
+            // Print callback summary for rank 0
+            if (comm->rank() == 0) {
+                log.print(
+                    "CUPTI Callback Summary:\n" + cupti_monitor->get_callback_summary()
+                );
+            }
         } catch (std::exception const& e) {
             log.print("Failed to write CUPTI CSV file: " + std::string(e.what()));
         }

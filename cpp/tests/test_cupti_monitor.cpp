@@ -374,6 +374,76 @@ TEST_F(CuptiMonitorTest, LargeNumberOfSamples) {
     EXPECT_EQ(monitor.get_sample_count(), 102);  // +1 final
 }
 
+TEST_F(CuptiMonitorTest, CallbackCounters) {
+    CuptiMonitor monitor;
+
+    // Initially no callbacks
+    EXPECT_EQ(monitor.get_total_callback_count(), 0);
+    auto counters = monitor.get_callback_counters();
+    EXPECT_TRUE(counters.empty());
+
+    monitor.start_monitoring();
+
+    // Perform GPU operations that should trigger callbacks
+    perform_gpu_operations(1_MiB, 2);
+
+    monitor.stop_monitoring();
+
+    // Should have recorded some callbacks
+    EXPECT_GT(monitor.get_total_callback_count(), 0);
+
+    counters = monitor.get_callback_counters();
+    EXPECT_FALSE(counters.empty());
+
+    // Verify that callback summary doesn't crash and contains expected content
+    std::string summary = monitor.get_callback_summary();
+    EXPECT_FALSE(summary.empty());
+    EXPECT_THAT(summary, ::testing::HasSubstr("CUPTI Callback Counter Summary"));
+    EXPECT_THAT(summary, ::testing::HasSubstr("Total"));
+}
+
+TEST_F(CuptiMonitorTest, CallbackCountersClear) {
+    CuptiMonitor monitor;
+    monitor.start_monitoring();
+
+    perform_gpu_operations(1_MiB);
+
+    monitor.stop_monitoring();
+
+    // Should have some callbacks recorded
+    EXPECT_GT(monitor.get_total_callback_count(), 0);
+
+    // Clear counters
+    monitor.clear_callback_counters();
+
+    // Should be empty now
+    EXPECT_EQ(monitor.get_total_callback_count(), 0);
+    auto counters = monitor.get_callback_counters();
+    EXPECT_TRUE(counters.empty());
+
+    // Summary should indicate no callbacks
+    std::string summary = monitor.get_callback_summary();
+    EXPECT_THAT(summary, ::testing::HasSubstr("No callbacks recorded yet"));
+}
+
+TEST_F(CuptiMonitorTest, CallbackCountersAccumulate) {
+    CuptiMonitor monitor;
+    monitor.start_monitoring();
+
+    // First batch of operations
+    perform_gpu_operations(1_MiB, 1);
+    auto first_count = monitor.get_total_callback_count();
+
+    // Second batch of operations
+    perform_gpu_operations(1_MiB, 1);
+    auto second_count = monitor.get_total_callback_count();
+
+    // Should have accumulated more callbacks
+    EXPECT_GT(second_count, first_count);
+
+    monitor.stop_monitoring();
+}
+
 #else
 
 // Tests when CUPTI is not available

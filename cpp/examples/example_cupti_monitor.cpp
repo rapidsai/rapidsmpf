@@ -115,6 +115,9 @@ int main() {
         monitor.write_csv(csv_filename);
         std::cout << "Memory usage data written to " << csv_filename << "\n";
 
+        // Show callback counter summary
+        std::cout << "\n" << monitor.get_callback_summary() << "\n";
+
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
