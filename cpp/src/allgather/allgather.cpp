@@ -172,7 +172,7 @@ void PostBox::increment_goalpost(std::uint64_t amount) {
     goalpost_.fetch_add(amount, std::memory_order_relaxed);
 }
 
-bool PostBox::ready() {
+bool PostBox::ready() const noexcept {
     std::lock_guard lock(mutex_);
     return goalpost_.load(std::memory_order_acquire) == chunks_.size();
 }
@@ -353,9 +353,9 @@ void AllGather::insert_finished() {
     );
 }
 
-bool AllGather::finished() {
-    // Necessary but not sufficient condition for extracting complete data
-    return finish_counter_.load(std::memory_order_acquire) == 0;
+bool AllGather::finished() const noexcept {
+    return finish_counter_.load(std::memory_order_acquire) == 0
+           && for_extraction_.ready();
 }
 
 std::vector<PackedData> AllGather::wait_and_extract(AllGather::Ordered ordered) {
@@ -547,17 +547,16 @@ ProgressThread::ProgressState AllGather::event_loop() {
     bool const containers_empty =
         (fire_and_forget_.empty() && sent_.empty() && received_.empty()
          && to_receive_.empty() && inserted_.empty());
-    bool const finished =
-        finish_counter_.load(std::memory_order_acquire) == 0 && for_extraction_.ready();
-    bool const should_continue =
-        !active_.load(std::memory_order_acquire) || (finished && containers_empty);
-    if (finished) {
+    bool const is_finished = finished();
+    bool const is_done =
+        !active_.load(std::memory_order_acquire) && is_finished && containers_empty;
+    if (is_finished) {
         // We can release our output buffers so notify a waiter.
         can_extract_.store(true, std::memory_order_release);
         can_extract_.notify_one();
     }
-    return should_continue ? ProgressThread::ProgressState::Done
-                           : ProgressThread::ProgressState::InProgress;
+    return is_done ? ProgressThread::ProgressState::Done
+                   : ProgressThread::ProgressState::InProgress;
 }
 
 }  // namespace rapidsmpf::allgather

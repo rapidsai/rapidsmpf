@@ -287,7 +287,7 @@ class PostBox {
      * @return True if the number of stored chunks matches the current
      * goalpost, false otherwise.
      */
-    [[nodiscard]] bool ready();
+    [[nodiscard]] bool ready() const noexcept;
 
     /**
      * @brief Extract ready chunks from the postbox.
@@ -366,14 +366,10 @@ class AllGather {
     /**
      * @brief Check if the allgather operation has completed.
      *
-     * @return True if we have received finish messages from all
+     * @return True if we have received all data and finish messages from all
      * ranks.
-     *
-     * @note Although all finish messages have been received, data
-     * messages may still be in flight, use `wait`, or
-     * `wait_and_extract` to ensure that extraction is possible.
      */
-    [[nodiscard]] bool finished();
+    [[nodiscard]] bool finished() const noexcept;
 
     /// @brief Tag requesting ordering for extraction.
     enum class Ordered : bool {
