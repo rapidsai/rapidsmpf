@@ -44,8 +44,8 @@ int main() {
         monitor.start_monitoring();
 
         // Perform some CUDA memory operations to demonstrate monitoring
-        const size_t num_allocations = 3;
-        const size_t allocation_size = 64 * 1024 * 1024;  // 64MB each
+        size_t const num_allocations = 3;
+        size_t const allocation_size = 64 * 1024 * 1024;  // 64MB each
         std::vector<float*> gpu_pointers;
 
         // Use rmm::device_buffer to manage GPU memory allocations
@@ -58,7 +58,7 @@ int main() {
                 // Allocate device memory using rmm::device_buffer
                 rmm::device_buffer buf(allocation_size, rmm::cuda_stream_default);
                 device_buffers.push_back(std::move(buf));
-            } catch (const rmm::bad_alloc& e) {
+            } catch (rmm::bad_alloc& e) {
                 std::cerr << "rmm::device_buffer allocation failed: " << e.what()
                           << std::endl;
                 break;

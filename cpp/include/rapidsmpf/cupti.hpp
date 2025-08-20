@@ -210,14 +210,14 @@ class CuptiMonitor {
         void* userdata,
         CUpti_CallbackDomain domain,
         CUpti_CallbackId cbid,
-        const void* cbdata
+        void const* cbdata
     );
 
     /**
      * @brief Instance method for CUPTI callback
      */
     void cupti_callback(
-        CUpti_CallbackDomain domain, CUpti_CallbackId cbid, const void* cbdata
+        CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
     );
 };
 

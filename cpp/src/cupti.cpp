@@ -51,7 +51,7 @@ constexpr std::array<CUpti_CallbackId, 17> MONITORED_DRIVER_CALLBACKS{{
 // Helper function to check if a callback ID is in our monitored list
 template <std::size_t N>
 bool is_monitored_callback(
-    CUpti_CallbackId cbid, const std::array<CUpti_CallbackId, N>& monitored_list
+    CUpti_CallbackId cbid, std::array<CUpti_CallbackId, N> const& monitored_list
 ) {
     return std::find(monitored_list.begin(), monitored_list.end(), cbid)
            != monitored_list.end();
@@ -158,7 +158,7 @@ void CuptiMonitor::write_csv(std::string const& filename) const {
     file << "timestamp,free_memory_bytes,total_memory_bytes,used_memory_bytes\n";
 
     // Write data points
-    for (const auto& point : memory_samples_) {
+    for (auto const& point : memory_samples_) {
         file << std::fixed << std::setprecision(6) << point.timestamp << ","
              << point.free_memory << "," << point.total_memory << "," << point.used_memory
              << "\n";
@@ -185,7 +185,7 @@ void CuptiMonitor::clear_callback_counters() {
 std::size_t CuptiMonitor::get_total_callback_count() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::size_t total = 0;
-    for (const auto& [cbid, count] : callback_counters_) {
+    for (auto const& [cbid, count] : callback_counters_) {
         total += count;
     }
     return total;
@@ -293,10 +293,10 @@ std::string CuptiMonitor::get_callback_summary() const {
     std::sort(
         sorted_callbacks.begin(),
         sorted_callbacks.end(),
-        [](const auto& a, const auto& b) { return a.second > b.second; }
+        [](auto const& a, auto const& b) { return a.second > b.second; }
     );
 
-    for (const auto& [cbid, count] : sorted_callbacks) {
+    for (auto const& [cbid, count] : sorted_callbacks) {
         ss << std::setw(35) << std::left << get_callback_name(cbid) << ": "
            << std::setw(10) << std::right << count << " calls\n";
         total += count;
@@ -362,7 +362,7 @@ CUptiResult CuptiMonitor::init_cupti() {
     }
 
     // Enable runtime API callbacks using our centralized list
-    for (const auto& cbid : MONITORED_RUNTIME_CALLBACKS) {
+    for (auto const& cbid : MONITORED_RUNTIME_CALLBACKS) {
         cupti_err =
             cuptiEnableCallback(1, cupti_subscriber_, CUPTI_CB_DOMAIN_RUNTIME_API, cbid);
         if (cupti_err != CUPTI_SUCCESS) {
@@ -371,7 +371,7 @@ CUptiResult CuptiMonitor::init_cupti() {
     }
 
     // Enable driver API callbacks using our centralized list
-    for (const auto& cbid : MONITORED_DRIVER_CALLBACKS) {
+    for (auto const& cbid : MONITORED_DRIVER_CALLBACKS) {
         cupti_err =
             cuptiEnableCallback(1, cupti_subscriber_, CUPTI_CB_DOMAIN_DRIVER_API, cbid);
         if (cupti_err != CUPTI_SUCCESS) {
@@ -388,7 +388,7 @@ void CuptiMonitor::cleanup_cupti() {
 
 // Static wrapper function for CUPTI callback
 void CUPTIAPI CuptiMonitor::cupti_callback_wrapper(
-    void* userdata, CUpti_CallbackDomain domain, CUpti_CallbackId cbid, const void* cbdata
+    void* userdata, CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
 ) {
     auto* monitor = static_cast<CuptiMonitor*>(userdata);
     monitor->cupti_callback(domain, cbid, cbdata);
@@ -396,12 +396,12 @@ void CUPTIAPI CuptiMonitor::cupti_callback_wrapper(
 
 // Instance method for CUPTI callback
 void CuptiMonitor::cupti_callback(
-    CUpti_CallbackDomain domain, CUpti_CallbackId cbid, const void* cbdata
+    CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
 ) {
     if (!monitoring_active_.load())
         return;
 
-    const CUpti_CallbackData* cbInfo = static_cast<const CUpti_CallbackData*>(cbdata);
+    CUpti_CallbackData const* cbInfo = static_cast<CUpti_CallbackData const*>(cbdata);
 
     // Check if this callback is one we're monitoring
     bool should_monitor = false;
