@@ -159,8 +159,6 @@ void CuptiMonitor::write_csv(std::string const& filename) const {
              << point.free_memory << "," << point.total_memory << "," << point.used_memory
              << "\n";
     }
-
-    file.close();
 }
 
 void CuptiMonitor::set_debug_output(bool enabled, std::size_t threshold_mb) {
