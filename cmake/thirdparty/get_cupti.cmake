@@ -5,14 +5,7 @@
 
 # Find CUPTI (CUDA Profiling Tools Interface)
 
-set(BUILD_CUPTI OFF)
-
-# Check if CUPTI_SUPPORT option is enabled
-option(BUILD_CUPTI_SUPPORT "Build RapidsMPF with CUPTI support" OFF)
-
 if(BUILD_CUPTI_SUPPORT)
-  set(BUILD_CUPTI ON)
-
   # Find CUPTI headers and library
   find_path(
     CUPTI_INCLUDE_DIR
