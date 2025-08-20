@@ -12,7 +12,6 @@ from distributed import get_worker
 
 from rapidsmpf.config import Options
 from rapidsmpf.integrations.core import (
-    _STATISTICS_KEYS,
     extract_partition,
     get_new_shuffle_id,
     get_shuffler,
@@ -348,11 +347,11 @@ def gather_shuffle_statistics(client: Client) -> dict[str, dict[str, int | float
         lambda: {"count": 0, "value": 0.0}
     )
 
-    for stat in _STATISTICS_KEYS:
+    for worker_stats in stats.values():
         # the types are a bit fiddly here. We say they're "Number", but really
-        # we know that counts are ints and values ar efloats
-        for worker_stats in stats.values():
-            result[stat]["count"] += worker_stats[stat]["count"]  # type: ignore[operator]
-            result[stat]["value"] += worker_stats[stat]["value"]  # type: ignore[operator]
+        # we know that counts are ints and values are floats
+        for name, stat in worker_stats.items():
+            result[name]["count"] += stat["count"]  # type: ignore[operator]
+            result[name]["value"] += stat["value"]  # type: ignore[operator]
 
     return dict(result)

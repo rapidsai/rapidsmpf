@@ -83,20 +83,6 @@ def get_new_shuffle_id(get_occupied_ids: Callable[[], Sequence[set[int]]]) -> in
         return _shuffle_id_vacancy.pop()
 
 
-_STATISTICS_KEYS = [
-    "event-loop-check-future-finish",
-    "event-loop-init-gpu-data-send",
-    "event-loop-metadata-recv",
-    "event-loop-metadata-send",
-    "event-loop-post-incoming-chunk-recv",
-    "event-loop-total",
-    "shuffle-payload-recv",
-    "shuffle-payload-send",
-    "spill-bytes-host-to-device",
-    "spill-time-host-to-device",
-]
-
-
 @dataclass
 class WorkerContext:
     """
@@ -151,7 +137,10 @@ class WorkerContext:
         given shuffle, gather statistics before and after the shuffle and compute
         the difference.
         """
-        return {stat: self.statistics.get_stat(stat) for stat in _STATISTICS_KEYS}
+        return {
+            stat: self.statistics.get_stat(stat)
+            for stat in self.statistics.list_stat_names()
+        }
 
 
 class ShufflerIntegration(Protocol[DataFrameT]):
