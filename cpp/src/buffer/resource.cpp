@@ -79,7 +79,9 @@ MemoryReservation BufferResource::reserve_and_spill(
         auto spilled = spill_manager_.spill(ob);
         RAPIDSMPF_EXPECTS(
             allow_overbooking || spilled >= ob,
-            "failed to spill enough memory",
+            "failed to spill enough memory (reserved: " + format_nbytes(size)
+                + ", overbooking: " + format_nbytes(ob)
+                + ", spilled: " + format_nbytes(spilled) + ")",
             std::overflow_error
         );
     }
