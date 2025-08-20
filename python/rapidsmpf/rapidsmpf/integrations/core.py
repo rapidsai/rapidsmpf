@@ -8,6 +8,7 @@ import threading
 import weakref
 from dataclasses import dataclass, field
 from functools import partial
+from numbers import Number  # noqa: TC003
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, TypeVar
 
 import rmm.mr
@@ -28,7 +29,6 @@ from rapidsmpf.statistics import Statistics
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-    from numbers import Number
 
     from rapidsmpf.communicator.communicator import Communicator
 
