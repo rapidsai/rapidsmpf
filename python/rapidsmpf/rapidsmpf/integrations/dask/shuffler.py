@@ -323,7 +323,7 @@ def gather_shuffle_statistics(client: Client) -> dict[str, dict[str, int | float
 
     Returns
     -------
-    A dictionary of statistics. The keys are the names of each statistic. The values  
+    A dictionary of statistics. The keys are the names of each statistic. The values
     are a dictionary with two keys:
 
         - "count" is the number of times the statistic was recorded (summed
