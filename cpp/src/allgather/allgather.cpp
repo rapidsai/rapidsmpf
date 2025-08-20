@@ -296,7 +296,12 @@ static std::vector<std::unique_ptr<Chunk>> test_some(
         std::swap((*cit).second, *fit);
     }
     auto osize = chunks.size();
-    std::erase(chunks, std::pair{nullptr, nullptr});
+    std::erase(
+        chunks,
+        std::pair<std::unique_ptr<Chunk>, std::unique_ptr<Communicator::Future>>{
+            nullptr, nullptr
+        }
+    );
     RAPIDSMPF_EXPECTS(chunks.size() == osize - result.size(), "Something went wrong");
     return result;
 }
