@@ -78,7 +78,7 @@ struct cudf_column_data_size_fn {
     }
 
     static size_t bitmask_size(cudf::column_view const& col) {
-        return col.has_nulls() ? cudf::bitmask_allocation_size_bytes(col.size()) : 0;
+        return col.nullable() ? cudf::bitmask_allocation_size_bytes(col.size()) : 0;
     }
 };
 
