@@ -33,7 +33,7 @@ namespace rapidsmpf {
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param br Buffer resource for memory allocations.
  * @param statistics The statistics instance to use (disabled by default).
- * @param allow_overbooking If true, allow overbooking (false by default)
+ * @param allow_overbooking If true, allow overbooking (true by default)
  *
  * @return A vector of each partition and a table that owns the device memory.
  *
@@ -52,7 +52,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = false
+    bool allow_overbooking = true
 );
 
 
@@ -67,7 +67,8 @@ partition_and_split(
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param br Buffer resource for memory allocations.
  * @param statistics The statistics instance to use (disabled by default).
- * @param allow_overbooking If true, allow overbooking (false by default)
+ * @param allow_overbooking If true, allow overbooking (true by default)
+ * // TODO: disable this by default https://github.com/rapidsmpf/rapidsmpf/issues/449
  *
  * @return A map of partition IDs and their packed tables.
  *
@@ -86,7 +87,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = false
+    bool allow_overbooking = true
 );
 
 
@@ -99,7 +100,8 @@ partition_and_split(
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param br Buffer resource for memory allocations.
  * @param statistics The statistics instance to use (disabled by default).
- * @param allow_overbooking If true, allow overbooking (false by default)
+ * @param allow_overbooking If true, allow overbooking (true by default)
+ * // TODO: disable this by default https://github.com/rapidsmpf/rapidsmpf/issues/449
  *
  * @return A map of partition IDs and their packed tables.
  *
@@ -115,7 +117,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = false
+    bool allow_overbooking = true
 );
 
 
@@ -128,7 +130,9 @@ partition_and_split(
  * @param stream CUDA stream used for device memory operations and kernel launches.
  * @param br Buffer resource for memory allocations.
  * @param statistics The statistics instance to use (disabled by default).
- * @param allow_overbooking If true, allow overbooking (false by default)
+ * @param allow_overbooking If true, allow overbooking (true by default)
+ * // TODO: disable this by default https://github.com/rapidsmpf/rapidsmpf/issues/449
+ *
  * @return The unpacked and concatenated result.
  *
  * @throw std::overflow_error if the buffer resource cannot reserve enough memory
@@ -144,7 +148,7 @@ partition_and_split(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-    bool allow_overbooking = false
+    bool allow_overbooking = true
 );
 
 /**
