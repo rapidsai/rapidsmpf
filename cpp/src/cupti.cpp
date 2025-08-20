@@ -358,7 +358,7 @@ CUptiResult CuptiMonitor::init_cupti() {
     }
 
     // Enable runtime API callbacks using our centralized list
-    for (const auto& cbid : MONITORED_RUNTIME_CALLBACKS) {
+    for (auto const& cbid : MONITORED_RUNTIME_CALLBACKS) {
         cupti_err =
             cuptiEnableCallback(1, cupti_subscriber_, CUPTI_CB_DOMAIN_RUNTIME_API, cbid);
         if (cupti_err != CUPTI_SUCCESS) {
@@ -367,7 +367,7 @@ CUptiResult CuptiMonitor::init_cupti() {
     }
 
     // Enable driver API callbacks using our centralized list
-    for (const auto& cbid : MONITORED_DRIVER_CALLBACKS) {
+    for (auto const& cbid : MONITORED_DRIVER_CALLBACKS) {
         cupti_err =
             cuptiEnableCallback(1, cupti_subscriber_, CUPTI_CB_DOMAIN_DRIVER_API, cbid);
         if (cupti_err != CUPTI_SUCCESS) {
@@ -384,7 +384,7 @@ void CuptiMonitor::cleanup_cupti() {
 
 // Static wrapper function for CUPTI callback
 void CUPTIAPI CuptiMonitor::cupti_callback_wrapper(
-    void* userdata, CUpti_CallbackDomain domain, CUpti_CallbackId cbid, const void* cbdata
+    void* userdata, CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
 ) {
     auto* monitor = static_cast<CuptiMonitor*>(userdata);
     monitor->cupti_callback(domain, cbid, cbdata);
@@ -392,7 +392,7 @@ void CUPTIAPI CuptiMonitor::cupti_callback_wrapper(
 
 // Instance method for CUPTI callback
 void CuptiMonitor::cupti_callback(
-    CUpti_CallbackDomain domain, CUpti_CallbackId cbid, const void* cbdata
+    CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
 ) {
     if (!monitoring_active_.load())
         return;
