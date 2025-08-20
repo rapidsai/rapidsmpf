@@ -554,7 +554,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
          && to_receive_.empty() && inserted_.empty());
     bool const is_finished = finished();
     bool const is_done =
-        !active_.load(std::memory_order_acquire) && is_finished && containers_empty;
+        !active_.load(std::memory_order_acquire) || (is_finished && containers_empty);
     if (is_finished) {
         // We can release our output buffers so notify a waiter.
         can_extract_.store(true, std::memory_order_release);
