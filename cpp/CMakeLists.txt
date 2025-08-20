@@ -205,7 +205,8 @@ target_include_directories(
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
-  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:CUPTI::cupti> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:CUPTI::cupti>
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
 target_compile_definitions(
@@ -322,7 +323,8 @@ RAPIDSMPF.
     ]=]
 )
 
-# Export `RAPIDSMPF_HAVE_MPI/UCXX/STREAMING/CUPTI` to let downstream projects know what is supported.
+# Export `RAPIDSMPF_HAVE_MPI/UCXX/STREAMING/CUPTI` to let downstream projects know what is
+# supported.
 string(
   JOIN
   "\n"
