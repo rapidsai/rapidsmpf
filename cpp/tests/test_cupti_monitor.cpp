@@ -40,21 +40,17 @@ class CuptiMonitorTest : public ::testing::Test {
 
     // Helper function to allocate and free GPU memory
     void perform_gpu_operations(std::size_t size_bytes, int num_operations = 1) {
-        std::vector<void*> ptrs;
+        std::vector<rmm::device_buffer> buffers;
 
-        // Allocate memory
+        // Allocate memory using rmm::device_buffer
         for (int i = 0; i < num_operations; ++i) {
-            void* ptr;
-            cudaError_t err = cudaMalloc(&ptr, size_bytes);
-            ASSERT_EQ(err, cudaSuccess)
-                << "cudaMalloc failed: " << cudaGetErrorString(err);
-            ptrs.push_back(ptr);
+            try {
+                buffers.emplace_back(size_bytes, rmm::cuda_stream_default);
+            } catch (const rmm::bad_alloc& e) {
+                FAIL() << "rmm::device_buffer allocation failed: " << e.what();
+            }
         }
-
-        // Free memory
-        for (void* ptr : ptrs) {
-            cudaFree(ptr);
-        }
+        // Buffers will be automatically freed when going out of scope
     }
 };
 

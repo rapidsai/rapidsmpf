@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <cuda_runtime.h>
+#include <rmm/device_buffer.hpp>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
 #include <rapidsmpf/cupti.hpp>
@@ -46,19 +47,20 @@ int main() {
         const size_t allocation_size = 64 * 1024 * 1024;  // 64MB each
         std::vector<float*> gpu_pointers;
 
-        for (size_t i = 0; i < num_allocations; ++i) {
-            float* d_data;
+        // Use rmm::device_buffer to manage GPU memory allocations
+        std::vector<rmm::device_buffer> device_buffers;
 
+        for (size_t i = 0; i < num_allocations; ++i) {
             std::cout << "Allocating " << allocation_size / (1024 * 1024)
-                      << " MB on GPU...\n";
-            cuda_err = cudaMalloc(&d_data, allocation_size);
-            if (cuda_err != cudaSuccess) {
-                std::cerr << "cudaMalloc failed: " << cudaGetErrorString(cuda_err)
-                          << std::endl;
+                      << " MB on GPU using rmm::device_buffer...\n";
+            try {
+                // Allocate device memory using rmm::device_buffer
+                rmm::device_buffer buf(allocation_size, rmm::cuda_stream_default);
+                device_buffers.push_back(std::move(buf));
+            } catch (const rmm::bad_alloc& e) {
+                std::cerr << "rmm::device_buffer allocation failed: " << e.what() << std::endl;
                 break;
             }
-
-            gpu_pointers.push_back(d_data);
 
             // Manually capture a memory sample
             monitor.capture_memory_sample();
@@ -67,12 +69,8 @@ int main() {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
 
-        std::cout << "\nFreeing allocated memory...\n";
-
-        // Free all allocated memory
-        for (auto* ptr : gpu_pointers) {
-            cudaFree(ptr);
-        }
+        std::cout << "\nReleasing allocated memory (handled by rmm::device_buffer destructors)...\n";
+        device_buffers.clear();
 
         // Capture final state
         monitor.capture_memory_sample();
