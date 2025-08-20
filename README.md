@@ -266,9 +266,10 @@ Each configuration option includes:
 
 - **`dask_print_statistics`**
   - **Environment Variable**: `RAPIDSMPF_DASK_STATISTICS`
-  - **Default**: `False`
-  - **Description**: Print RapidsMPF statistics to stdout on Dask Worker shutdown.
-  Requires statistic collection to be enabled.
+  - **Default**: `True`
+  - **Description**: Print RapidsMPF statistics to stdout on Dask Worker shutdown
+  when `dask_statistics` is enabled.
+
 
 - **`dask_staging_spill_buffer`**
   - **Environment Variable**: `RAPIDSMPF_DASK_STAGING_SPILL_BUFFER`

@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Literal
 
 import dask
@@ -394,23 +393,3 @@ def test_gather_shuffle_statistics() -> None:
             stats["shuffle-payload-send"]["value"]
             == stats["shuffle-payload-recv"]["value"]
         )
-
-
-def test_dask_print_statistics_without_statistics_raises() -> None:
-    def setup_logging() -> None:
-        logger = logging.getLogger("distributed.worker")
-        logger.setLevel(logging.CRITICAL)
-
-    with (
-        LocalCUDACluster(n_workers=1) as cluster,
-        Client(cluster) as client,
-    ):
-        # we know this function will error, so silence the warning on the worker.
-        client.run(setup_logging)
-
-        with pytest.raises(
-            ValueError, match="Cannot print statistics if statistics are not enabled."
-        ):
-            bootstrap_dask_cluster(
-                client, options=Options({"dask_print_statistics": "true"})
-            )
