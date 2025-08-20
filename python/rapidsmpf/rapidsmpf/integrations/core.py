@@ -461,6 +461,8 @@ def rmpf_worker_setup(
         statistics = Statistics(enable=False)
 
     if options.get_or_default(f"{option_prefix}print_statistics", default_value=False):
+        if not statistics.enabled:
+            raise ValueError("Cannot print statistics if statistics are not enabled.")
         weakref.finalize(
             worker,
             lambda name, stats: print(name, stats.report()),
