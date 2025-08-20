@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <cuda_runtime.h>
+
 #include <rmm/device_buffer.hpp>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
@@ -58,7 +59,8 @@ int main() {
                 rmm::device_buffer buf(allocation_size, rmm::cuda_stream_default);
                 device_buffers.push_back(std::move(buf));
             } catch (const rmm::bad_alloc& e) {
-                std::cerr << "rmm::device_buffer allocation failed: " << e.what() << std::endl;
+                std::cerr << "rmm::device_buffer allocation failed: " << e.what()
+                          << std::endl;
                 break;
             }
 
@@ -69,7 +71,8 @@ int main() {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
 
-        std::cout << "\nReleasing allocated memory (handled by rmm::device_buffer destructors)...\n";
+        std::cout << "\nReleasing allocated memory (handled by rmm::device_buffer "
+                     "destructors)...\n";
         device_buffers.clear();
 
         // Capture final state
