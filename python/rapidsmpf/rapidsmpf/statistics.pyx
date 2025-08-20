@@ -32,10 +32,14 @@ cdef extern from *:
     std::vector<std::string> cpp_list_stat_names(rapidsmpf::Statistics const& stats) {
         return stats.list_stat_names();
     }
+    void cpp_clear_statistics(rapidsmpf::Statistics& stats) {
+        stats.clear();
+    }
     """
     size_t cpp_get_statistic_count(cpp_Statistics stats, string name) except + nogil
     double cpp_get_statistic_value(cpp_Statistics stats, string name) except + nogil
     vector[string] cpp_list_stat_names(cpp_Statistics stats) except + nogil
+    void cpp_clear_statistics(cpp_Statistics stats) except + nogil
 
 cdef class Statistics:
     """
@@ -230,6 +234,13 @@ cdef class Statistics:
         2048
         """
         return MemoryRecorder(self, self._mr, name)
+
+    def clear(self) -> None:
+        """
+        Clears all statistics and memory profiling records.
+        """
+        with nogil:
+            cpp_clear_statistics(deref(self._handle))
 
 
 @dataclass

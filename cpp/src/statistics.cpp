@@ -81,6 +81,12 @@ std::vector<std::string> Statistics::list_stat_names() const {
     return std::vector<std::string>{ks.begin(), ks.end()};
 }
 
+void Statistics::clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    stats_.clear();
+    memory_records_.clear();
+}
+
 bool Statistics::is_memory_profiling_enabled() const {
     return mr_ != nullptr;
 }

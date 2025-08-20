@@ -312,6 +312,25 @@ def _gather_worker_shuffle_statistics(
     return context.get_statistics()
 
 
+def _clear_worker_shuffle_statistics(
+    dask_worker: Worker,
+) -> None:
+    context = get_worker_context(dask_worker)
+    context.statistics.clear()
+
+
+def clear_shuffle_statistics(client: Client) -> None:
+    """
+    Clear all statistics and memory records for all workers.
+
+    Parameters
+    ----------
+    client
+        The Dask client.
+    """
+    client.run(_clear_worker_shuffle_statistics)
+
+
 def gather_shuffle_statistics(client: Client) -> dict[str, dict[str, int | float]]:
     """
     Gather shuffle statistics from all workers.
@@ -333,8 +352,8 @@ def gather_shuffle_statistics(client: Client) -> dict[str, dict[str, int | float
     Notes
     -----
     Statistics are global across all shuffles. To measure statistics for any
-    given shuffle, gather statistics before and after the shuffle and compute
-    the difference.
+    given shuffle, you can clear the accumulated statistics between runs
+    with :func:`clear_shuffle_statistics`.
     """
     # {address: {stat: {count: int, value: int}}}
     # collect

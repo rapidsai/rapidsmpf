@@ -14,6 +14,7 @@ from rapidsmpf.config import Options
 from rapidsmpf.examples.dask import DaskCudfIntegration, dask_cudf_shuffle
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import (
+    clear_shuffle_statistics,
     gather_shuffle_statistics,
     rapidsmpf_shuffle_graph,
 )
@@ -393,3 +394,23 @@ def test_gather_shuffle_statistics() -> None:
             stats["shuffle-payload-send"]["value"]
             == stats["shuffle-payload-recv"]["value"]
         )
+
+
+def test_clear_shuffle_statistics() -> None:
+    with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
+        config_options = Options(
+            {"dask_statistics": "true", "dask_print_statistics": "false"}
+        )
+
+        df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
+        shuffled = dask_cudf_shuffle(df, on=["name"], config_options=config_options)
+        shuffled.compute()
+
+        stats = gather_shuffle_statistics(client)
+        assert len(stats) > 0
+
+        clear_shuffle_statistics(client)
+        stats2 = gather_shuffle_statistics(client)
+
+        assert len(stats) > 0
+        assert len(stats2) == 0
