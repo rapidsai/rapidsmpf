@@ -19,12 +19,14 @@
 
 namespace rapidsmpf {
 
+namespace {
+
 // List of CUDA Runtime API callbacks we want to monitor. We don't monitor any runtime
 // callbacks by default because they are redundant with the driver API callbacks.
-static constexpr std::array<CUpti_CallbackId, 0> MONITORED_RUNTIME_CALLBACKS{{}};
+constexpr std::array<CUpti_CallbackId, 0> MONITORED_RUNTIME_CALLBACKS{{}};
 
 // List of CUDA Driver API callbacks we want to monitor
-static constexpr std::array<CUpti_CallbackId, 17> MONITORED_DRIVER_CALLBACKS{{
+constexpr std::array<CUpti_CallbackId, 17> MONITORED_DRIVER_CALLBACKS{{
     CUPTI_DRIVER_TRACE_CBID_cuMemAlloc,
     CUPTI_DRIVER_TRACE_CBID_cuMemAllocPitch,
     CUPTI_DRIVER_TRACE_CBID_cuMemAllocHost,
@@ -43,6 +45,8 @@ static constexpr std::array<CUpti_CallbackId, 17> MONITORED_DRIVER_CALLBACKS{{
     CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync,
     CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync_ptsz,
 }};
+
+}  // namespace
 
 // Helper function to check if a callback ID is in our monitored list
 template <std::size_t N>
