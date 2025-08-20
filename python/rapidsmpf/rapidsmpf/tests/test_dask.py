@@ -393,3 +393,16 @@ def test_gather_shuffle_statistics() -> None:
             stats["shuffle-payload-send"]["value"]
             == stats["shuffle-payload-recv"]["value"]
         )
+
+
+def test_dask_print_statistics_without_statistics_raises() -> None:
+    with (
+        LocalCUDACluster(n_workers=1) as cluster,
+        Client(cluster) as client,
+        pytest.raises(
+            ValueError, match="Cannot print statistics if statistics are not enabled."
+        ),
+    ):
+        bootstrap_dask_cluster(
+            client, options=Options({"dask_print_statistics": "true"})
+        )

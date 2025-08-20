@@ -243,6 +243,11 @@ def bootstrap_dask_cluster(
 
     # Insert missing config options from environment variables.
     options.insert_if_absent(get_environment_variables())
+    # Validate configuration options here rather than on the worker
+    if options.get_or_default(
+        "dask_print_statistics", default_value=False
+    ) and not options.get_or_default("dask_statistics", default_value=False):
+        raise ValueError("Cannot print statistics if statistics are not enabled.")
 
     # Set up the comms for the root worker
     root_address_bytes = client.submit(

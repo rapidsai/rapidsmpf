@@ -457,14 +457,16 @@ def rmpf_worker_setup(
     # Print statistics at worker shutdown.
     if options.get_or_default(f"{option_prefix}statistics", default_value=False):
         statistics = Statistics(enable=True, mr=mr)
+    else:
+        statistics = Statistics(enable=False)
+
+    if options.get_or_default(f"{option_prefix}print_statistics", default_value=False):
         weakref.finalize(
             worker,
             lambda name, stats: print(name, stats.report()),
             name=str(worker),
             stats=statistics,
         )
-    else:
-        statistics = Statistics(enable=False)
 
     # Create a buffer resource with a limiting availability function.
     total_memory = rmm.mr.available_device_memory()[1]
