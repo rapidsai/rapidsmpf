@@ -16,7 +16,7 @@
 #include <rapidsmpf/cupti.hpp>
 
 /**
- * @brief Simple example demonstrating the use of CuptiMonitor
+ * @brief Simple example demonstrating the use of CuptiMonitor.
  *
  * This example shows how to use RapidsMPF's CuptiMonitor to track
  * GPU memory usage during CUDA operations.

@@ -21,7 +21,7 @@
 namespace rapidsmpf {
 
 /**
- * @brief Structure to hold memory usage data points
+ * @brief Structure to hold memory usage data points.
  */
 struct MemoryDataPoint {
     double timestamp;  ///< Time when sample was taken (seconds since epoch)
@@ -31,8 +31,7 @@ struct MemoryDataPoint {
 };
 
 /**
- * @class CuptiMonitor
- * @brief CUDA memory monitoring using CUPTI (CUDA Profiling Tools Interface)
+ * @brief CUDA memory monitoring using CUPTI (CUDA Profiling Tools Interface).
  *
  * This class provides memory monitoring capabilities for CUDA applications
  * by intercepting CUDA runtime and driver API calls related to memory
@@ -41,55 +40,54 @@ struct MemoryDataPoint {
 class CuptiMonitor {
   public:
     /**
-     * @brief Constructs a CuptiMonitor instance
+     * @brief Constructs a `CuptiMonitor` instance.
      *
      * @param enable_periodic_sampling Enable background thread for periodic memory
-     * sampling
-     * @param sampling_interval_ms Interval between periodic samples in milliseconds
-     * (default: 100ms)
+     * sampling.
+     * @param sampling_interval_ms Interval between periodic samples in milliseconds.
      */
     explicit CuptiMonitor(
         bool enable_periodic_sampling = false, std::size_t sampling_interval_ms = 100
     );
 
     /**
-     * @brief Destructor - automatically stops monitoring and cleans up CUPTI
+     * @brief Destructor - automatically stops monitoring and cleans up CUPTI.
      */
     ~CuptiMonitor();
 
-    // Delete copy constructor and assignment operator
+    // Delete copy constructor and assignment operator.
     CuptiMonitor(CuptiMonitor const&) = delete;
     CuptiMonitor& operator=(CuptiMonitor const&) = delete;
 
-    // Delete move constructor and assignment operator
+    // Delete move constructor and assignment operator.
     CuptiMonitor(CuptiMonitor&&) = delete;
     CuptiMonitor& operator=(CuptiMonitor&&) = delete;
 
     /**
-     * @brief Start memory monitoring
+     * @brief Start memory monitoring.
      *
      * Initializes CUPTI and begins intercepting CUDA API calls.
      *
-     * @throws std::runtime_error if CUPTI initialization fails
+     * @throws std::runtime_error if CUPTI initialization fails.
      */
     void start_monitoring();
 
     /**
-     * @brief Stop memory monitoring
+     * @brief Stop memory monitoring.
      *
      * Stops CUPTI callbacks and periodic sampling if enabled.
      */
     void stop_monitoring();
 
     /**
-     * @brief Check if monitoring is currently active
+     * @brief Check if monitoring is currently active.
      *
-     * @return true if monitoring is active, false otherwise
+     * @return true if monitoring is active, false otherwise.
      */
     bool is_monitoring() const noexcept;
 
     /**
-     * @brief Manually capture current memory usage
+     * @brief Manually capture current memory usage.
      *
      * This can be called at any time to manually record a memory sample,
      * regardless of whether periodic sampling is enabled.
@@ -97,72 +95,70 @@ class CuptiMonitor {
     void capture_memory_sample();
 
     /**
-     * @brief Get all collected memory samples
+     * @brief Get all collected memory samples.
      *
-     * @return const reference to vector of memory data points
+     * @return const reference to vector of memory data points.
      */
     std::vector<MemoryDataPoint> const& get_memory_samples() const noexcept;
 
     /**
-     * @brief Clear all collected memory samples
+     * @brief Clear all collected memory samples.
      */
     void clear_samples();
 
     /**
-     * @brief Get the number of memory samples collected
+     * @brief Get the number of memory samples collected.
      *
-     * @return number of samples
+     * @return number of samples.
      */
     std::size_t get_sample_count() const noexcept;
 
     /**
-     * @brief Write memory samples to CSV file
+     * @brief Write memory samples to CSV file.
      *
-     * @param filename Output CSV filename
-     * @throws std::runtime_error if file cannot be written
+     * @param filename Output CSV filename.
+     * @throws std::runtime_error if file cannot be written.
      */
     void write_csv(std::string const& filename) const;
 
     /**
-     * @brief Enable or disable debug output for significant memory changes
+     * @brief Enable or disable debug output for significant memory changes.
      *
-     * @param enabled if true, prints debug info when memory usage changes significantly
-     * @param threshold_mb threshold in MB for what constitutes a "significant" change
-     * (default: 10MB)
+     * @param enabled if true, prints debug info when memory usage changes significantly.
+     * @param threshold_mb threshold in MB for what constitutes a "significant" change.
      */
     void set_debug_output(bool enabled, std::size_t threshold_mb = 10);
 
     /**
-     * @brief Get callback counters for all monitored CUPTI callbacks
+     * @brief Get callback counters for all monitored CUPTI callbacks.
      *
      * Returns a map where keys are CUPTI callback IDs and values are the number
      * of times each callback was triggered during monitoring.
      *
-     * @return unordered_map from CUpti_CallbackId to call count
+     * @return unordered_map from CUpti_CallbackId to call count.
      */
     std::unordered_map<CUpti_CallbackId, std::size_t> get_callback_counters() const;
 
     /**
-     * @brief Clear all callback counters
+     * @brief Clear all callback counters.
      *
      * Resets all callback counters to zero.
      */
     void clear_callback_counters();
 
     /**
-     * @brief Get the total number of callbacks triggered across all monitored callback
-     * IDs
+     * @brief Get total number of callbacks triggered across all monitored callback IDs.
      *
-     * @return total number of callbacks
+     * @return total number of callbacks.
      */
     std::size_t get_total_callback_count() const;
 
     /**
-     * @brief Get a human-readable summary of callback counters
+     * @brief Get a human-readable summary of callback counters.
      *
      * Returns a formatted string showing callback names and their counts.
      *
-     * @return string containing callback counter summary
+     * @return string containing callback counter summary.
      */
     std::string get_callback_summary() const;
 
@@ -184,27 +180,27 @@ class CuptiMonitor {
     std::unordered_map<CUpti_CallbackId, std::size_t> callback_counters_;
 
     /**
-     * @brief Internal method to capture memory usage without locking
+     * @brief Internal method to capture memory usage without locking.
      */
     void capture_memory_usage_impl();
 
     /**
-     * @brief Periodic memory sampling thread function
+     * @brief Periodic memory sampling thread function.
      */
     void periodic_memory_sampling();
 
     /**
-     * @brief Initialize CUPTI
+     * @brief Initialize CUPTI.
      */
     CUptiResult init_cupti();
 
     /**
-     * @brief Cleanup CUPTI
+     * @brief Cleanup CUPTI.
      */
     void cleanup_cupti();
 
     /**
-     * @brief Static wrapper function for CUPTI callback
+     * @brief Static wrapper function for CUPTI callback.
      */
     static void CUPTIAPI cupti_callback_wrapper(
         void* userdata,
@@ -214,7 +210,7 @@ class CuptiMonitor {
     );
 
     /**
-     * @brief Instance method for CUPTI callback
+     * @brief Instance method for CUPTI callback.
      */
     void cupti_callback(
         CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
