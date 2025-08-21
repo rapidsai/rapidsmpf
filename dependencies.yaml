@@ -176,7 +176,6 @@ dependencies:
           - matrix:
               cuda: "12.*"
             packages:
-              - cuda-cupti-dev
               - cuda-nvcc
   rapids_build_skbuild:
     common:
@@ -239,6 +238,7 @@ dependencies:
               cuda: "12.*"
             packages:
               - cuda-cudart-dev
+              - cuda-cupti-dev
               - cuda-nvrtc-dev
               - cuda-nvtx-dev
   py_version:
