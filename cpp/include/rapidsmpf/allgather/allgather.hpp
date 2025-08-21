@@ -476,7 +476,9 @@ class AllGather {
 
     /**
      * @brief Attempt to spill device memory
+     *
      * @param amount Optional amount of memory to spill.
+     *
      * @return The amount of memory actually spilled.
      */
     std::size_t spill(std::optional<std::size_t> amount = std::nullopt);

@@ -355,6 +355,10 @@ std::vector<PackedData> AllGather::wait_and_extract(AllGather::Ordered ordered) 
 }
 
 std::vector<PackedData> AllGather::extract_ready() {
+    // It is OK to extract chunks even if an individual chunk is not
+    // ready because the promise is that we deliver data valid in
+    // stream-order on the input stream. Even if an output chunk is
+    // being spilled, the user must access it in stream order, so we are fine.
     auto chunks = for_extraction_.extract();
     if (chunks.empty()) {
         return {};
@@ -421,15 +425,27 @@ AllGather::AllGather(
 }
 
 ProgressThread::ProgressState AllGather::event_loop() {
-    // Data flow:
-    // User inserts into inserted_
-    // Send side: inserted -> extract ready -> send metadata to dst
-    // and post send for buffer -> move to outbox (ready for user)
-    // Receive side: receive metadata from src -> allocate chunk -> post receive
-    // from src -> if origin == dst move to outbox else put in inserted
-    // Note: we commit at the point of sending metadata of ready
-    // messages to send data immediately. This avoids the need for one
-    // ack round-trip.
+    /*
+     * Data flow:
+     * User inserts into inserted_
+     * Send side:
+     * 1. chunk inserted
+     * 2. extract ready chunks
+     * 3. for each ready chunk: send metadata to dst and post send for buffer
+     * 4. move to chunk to for_extraction_ once send completes
+     * 5. chunk is ready for extraction by user
+     *
+     * Receive side:
+     * 1. receive metadata from src
+     * 2. allocate chunk and post receive from src
+     * 3. Once receive completes
+     *  a. If chunk origin is destination (end-of-ring), move to for_extraction_
+     *  b. Otherwise insert chunk in inserted_
+     *
+     * Note: we commit at the point of sending metadata of ready
+     * messages to send data immediately. This avoids the need for one
+     * ack round-trip.
+     */
     Rank const dst = (comm_->rank() + 1) % comm_->nranks();
     Rank const src = (comm_->rank() + comm_->nranks() - 1) % comm_->nranks();
     Tag metadata_tag{op_id_, 0};
