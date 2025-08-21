@@ -21,6 +21,7 @@ dependencies:
 - cython>=3.0.3
 - dask-cuda==25.10.*,>=0.0.0a0
 - dask-cudf==25.10.*,>=0.0.0a0
+- distributed-ucxx==0.46.*,>=0.0.0a0
 - doxygen=1.9.1
 - gcc_linux-64=14.*
 - gdb
