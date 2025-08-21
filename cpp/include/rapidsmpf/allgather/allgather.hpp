@@ -222,19 +222,15 @@ class Chunk {
 
     /// @brief Default destructor.
     ~Chunk() = default;
-
     /// @brief Move constructor.
     Chunk(Chunk&&) = default;
-
     /// @brief Move assignment operator.
     /// @return Moved this
     Chunk& operator=(Chunk&&) = default;
-
     /// @brief Deleted copy constructor.
-    Chunk(const Chunk&) = delete;
-
+    Chunk(Chunk const&) = delete;
     /// @brief Deleted copy assignment operator.
-    Chunk& operator=(const Chunk&) = delete;
+    Chunk& operator=(Chunk const&) = delete;
 };
 
 /**
@@ -251,11 +247,10 @@ class PostBox {
     PostBox() = default;
     /// @brief Default destructor.
     ~PostBox() = default;
-
     /// @brief Deleted copy constructor.
-    PostBox(const PostBox&) = delete;
+    PostBox(PostBox const&) = delete;
     /// @brief Deleted copy assignment operator.
-    PostBox& operator=(const PostBox&) = delete;
+    PostBox& operator=(PostBox const&) = delete;
     /// @brief Deleted move constructor.
     PostBox(PostBox&&) = delete;
     /// @brief Deleted move assignment operator.
