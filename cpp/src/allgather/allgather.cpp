@@ -265,6 +265,11 @@ static std::vector<std::unique_ptr<Chunk>> test_some(
     std::ranges::transform(chunks, std::back_inserter(futures), [](auto&& c) {
         return std::move(c.second);
     });
+    // Note: this will always complete a single contiguous block of
+    // futures since we only ever receive from a single source and a
+    // single tag.
+    // If either of those preconditions were to be broken we would
+    // need a different implementation here.
     auto complete = comm->test_some(futures);
     result.reserve(complete.size());
     std::ranges::transform(

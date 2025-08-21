@@ -355,6 +355,21 @@ class PostBox {
  *
  * The class provides a communication service where each rank
  * contributes data and all ranks receive all inputs on all ranks.
+ *
+ * The implementation uses a ring broadcast. Each rank receives a
+ * contribution from its left neighbour, forwards the message to its
+ * right neighbour (unless at the end of the ring) and then stores the
+ * contribution locally. The cost on `P` ranks if each rank inserts a
+ * message of size `N` is
+ *
+ * (P - 1) alpha + N ((P - 1) / P) beta
+ *
+ * Per insertion. Where alpha is the network latency and beta the
+ * inverse bandwidth. Although the latency term is linear (rather than
+ * logarithmic as is the case for Bruck's algorithm or recursive
+ * doubling) MPI implementations typically observe that for large
+ * messages ring allgorithms perform better since message passing is
+ * only nearest neighbour.
  */
 class AllGather {
   public:
