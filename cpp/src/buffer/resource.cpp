@@ -89,6 +89,27 @@ MemoryReservation BufferResource::reserve_and_spill(
     return std::move(reservation);
 }
 
+MemoryReservation BufferResource::reserve_or_fail(
+    size_t size, std::optional<MemoryType> preferred_mem_type
+) {
+    if (preferred_mem_type) {
+        auto [res, _] = reserve(*preferred_mem_type, size, false);
+        RAPIDSMPF_EXPECTS(
+            res.size() == size, "failed to reserve memory", std::runtime_error
+        );
+        return std::move(res);
+    }
+
+    // try to allocate data buffer from memory types in order [DEVICE, HOST]
+    for (auto mem_type : MEMORY_TYPES) {
+        auto [res, _] = reserve(mem_type, size, false);
+        if (res.size() == size) {
+            return std::move(res);
+        }
+    }
+    RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
+}
+
 std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t size) {
     std::lock_guard const lock(mutex_);
     RAPIDSMPF_EXPECTS(
@@ -206,28 +227,6 @@ std::shared_ptr<Statistics> BufferResource::statistics() {
 
 std::unique_ptr<Buffer> BufferResource::allocate_empty_host_buffer() {
     return std::unique_ptr<Buffer>(new Buffer(std::make_unique<std::vector<uint8_t>>(0)));
-}
-
-MemoryReservation reserve_or_fail(
-    BufferResource* br, size_t size, std::optional<MemoryType> const& preferred_mem_type
-) {
-    if (preferred_mem_type) {
-        auto [res, _] = br->reserve(*preferred_mem_type, size, false);
-        RAPIDSMPF_EXPECTS(
-            res.size() == size, "failed to reserve memory", std::runtime_error
-        );
-        return std::move(res);
-    }
-
-    // try to allocate data buffer from memory types in order [DEVICE, HOST]
-    for (auto mem_type : MEMORY_TYPES) {
-        auto [res, _] = br->reserve(mem_type, size, false);
-        if (res.size() == size) {
-            return std::move(res);
-        }
-    }
-
-    RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
 }
 
 }  // namespace rapidsmpf
