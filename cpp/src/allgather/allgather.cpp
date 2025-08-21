@@ -10,9 +10,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <numeric>
 #include <optional>
-#include <ranges>
 
 #include <rapidsmpf/allgather/allgather.hpp>
 #include <rapidsmpf/buffer/buffer.hpp>
@@ -265,10 +263,13 @@ static std::vector<std::unique_ptr<Chunk>> test_some(
         return std::move(c.second);
     });
     auto complete = comm->test_some(futures);
+    result.reserve(complete.size());
     std::ranges::transform(
         complete, chunks, std::back_inserter(result), [&](auto&& fut, auto&& c) {
             auto chunk = std::move(c.first);
-            RAPIDSMPF_EXPECTS(c.second == nullptr, "Oh no");
+            RAPIDSMPF_EXPECTS(
+                c.second == nullptr, "Expecting future to have been moved from"
+            );
             auto data = comm->get_gpu_data(std::move(fut));
             chunk->attach_data_buffer(std::move(data));
             return std::move(chunk);
@@ -277,7 +278,7 @@ static std::vector<std::unique_ptr<Chunk>> test_some(
     auto cit = chunks.begin() + static_cast<std::int64_t>(complete.size());
     auto fit = futures.begin();
     for (; cit != chunks.end() && fit != futures.end(); cit++, fit++) {
-        RAPIDSMPF_EXPECTS(*fit, "Not expecting nullptr here");
+        RAPIDSMPF_EXPECTS(*fit, "Expecting a future here");
         RAPIDSMPF_EXPECTS(!(*cit).second, "Expecting no future here");
         std::swap((*cit).second, *fit);
     }
@@ -288,7 +289,10 @@ static std::vector<std::unique_ptr<Chunk>> test_some(
             nullptr, nullptr
         }
     );
-    RAPIDSMPF_EXPECTS(chunks.size() == osize - result.size(), "Something went wrong");
+    RAPIDSMPF_EXPECTS(
+        chunks.size() == osize - result.size(),
+        "Didn't remove the expected number of chunks"
+    );
     return result;
 }
 }  // namespace detail

@@ -12,7 +12,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <ostream>
 #include <vector>
 
 #include <rmm/cuda_stream_view.hpp>
