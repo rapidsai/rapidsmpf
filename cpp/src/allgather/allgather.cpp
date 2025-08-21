@@ -4,6 +4,7 @@
  */
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -340,8 +341,10 @@ bool AllGather::finished() const noexcept {
            && for_extraction_.ready();
 }
 
-std::vector<PackedData> AllGather::wait_and_extract(AllGather::Ordered ordered) {
-    wait();
+std::vector<PackedData> AllGather::wait_and_extract(
+    AllGather::Ordered ordered, std::chrono::milliseconds timeout
+) {
+    wait(timeout);
     auto chunks = for_extraction_.extract();
     std::vector<PackedData> result;
     result.reserve(chunks.size());
@@ -371,9 +374,17 @@ std::vector<PackedData> AllGather::extract_ready() {
     return result;
 }
 
-void AllGather::wait() {
+void AllGather::wait(std::chrono::milliseconds timeout) {
     std::unique_lock lock(mutex_);
-    cv_.wait(lock, [&]() { return can_extract_; });
+    if (timeout < std::chrono::milliseconds{0}) {
+        cv_.wait(lock, [&]() { return can_extract_; });
+    } else {
+        RAPIDSMPF_EXPECTS(
+            cv_.wait_for(lock, timeout, [&]() { return can_extract_; }),
+            "wait timeout reached",
+            std::runtime_error
+        );
+    }
 }
 
 std::size_t AllGather::spill(std::optional<std::size_t> amount) {

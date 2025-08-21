@@ -5,6 +5,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <limits>
@@ -382,11 +383,14 @@ class AllGather {
      * @param ordered If the extracted data should be ordered? if
      * ordered, returned data will be ordered first by rank and then by insertion
      * order on that rank.
+     * @param timeout Optional maximum duration to wait. Negative values mean no timeout.
      *
      * @return A vector containing packed data from all participating ranks.
+     * @throw std::runtime_error If the timeout is reached.
      */
     [[nodiscard]] std::vector<PackedData> wait_and_extract(
-        Ordered ordered = Ordered::YES
+        Ordered ordered = Ordered::YES,
+        std::chrono::milliseconds timeout = std::chrono::milliseconds{-1}
     );
 
     /**
@@ -472,8 +476,12 @@ class AllGather {
 
     /**
      * @brief Wait for the allgather operation to complete.
+     *
+     * @param timeout Optional maximum duration to wait. Negative values mean no timeout.
+     *
+     * @throw std::runtime_error If the timeout is reached.
      */
-    void wait();
+    void wait(std::chrono::milliseconds timeout = std::chrono::milliseconds{-1});
 
     /**
      * @brief Attempt to spill device memory
