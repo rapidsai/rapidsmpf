@@ -30,13 +30,11 @@ Chunk::Chunk(
     : id_{id},
       metadata_{std::move(metadata)},
       data_{std::move(data)},
-      data_size_{data_ ? data_->size : 0},
-      is_finish_{false} {
+      data_size_{data_ ? data_->size : 0} {
     RAPIDSMPF_EXPECTS(metadata_ && data_, "Non-finish chunk must have metadata and data");
 }
 
-Chunk::Chunk(ChunkID id)
-    : id_{id}, metadata_{nullptr}, data_{nullptr}, data_size_{0}, is_finish_{true} {}
+Chunk::Chunk(ChunkID id) : id_{id}, metadata_{nullptr}, data_{nullptr}, data_size_{0} {}
 
 bool Chunk::is_ready() const noexcept {
     return data_size_ == 0 || (data_ && data_->is_ready());
@@ -47,7 +45,7 @@ MemoryType Chunk::memory_type() const noexcept {
 }
 
 bool Chunk::is_finish() const noexcept {
-    return is_finish_;
+    return data_ == nullptr && metadata_ == nullptr;
 }
 
 ChunkID Chunk::id() const noexcept {
@@ -87,22 +85,21 @@ std::unique_ptr<Chunk> Chunk::from_empty(ChunkID sequence, Rank origin) {
 }
 
 std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
-    auto result = std::make_unique<std::vector<std::uint8_t>>(
-        sizeof(ChunkID) + sizeof(data_size_) + sizeof(is_finish_) + metadata_size()
-    );
+    std::size_t size = sizeof(ChunkID);
+    if (!is_finish()) {
+        size += sizeof(data_size_) + metadata_size();
+    }
+    auto result = std::make_unique<std::vector<std::uint8_t>>(size);
     std::memcpy(result->data(), &id_, sizeof(ChunkID));
-    std::memcpy(result->data() + sizeof(ChunkID), &data_size_, sizeof(data_size_));
-    std::memcpy(
-        result->data() + sizeof(ChunkID) + sizeof(data_size_),
-        &is_finish_,
-        sizeof(is_finish_)
-    );
-    if (metadata_size() > 0) {
-        std::memcpy(
-            result->data() + sizeof(ChunkID) + sizeof(data_size_) + sizeof(is_finish_),
-            metadata_->data(),
-            metadata_->size()
-        );
+    if (!is_finish()) {
+        std::memcpy(result->data() + sizeof(ChunkID), &data_size_, sizeof(data_size_));
+        if (metadata_size() > 0) {
+            std::memcpy(
+                result->data() + sizeof(ChunkID) + sizeof(data_size_),
+                metadata_->data(),
+                metadata_->size()
+            );
+        }
     }
     return result;
 }
@@ -112,25 +109,19 @@ std::unique_ptr<Chunk> Chunk::deserialize(
 ) {
     ChunkID id;
     std::uint64_t data_size;
-    bool is_finish;
     std::memcpy(&id, data.data(), sizeof(ChunkID));
-    std::memcpy(&data_size, data.data() + sizeof(ChunkID), sizeof(data_size));
-    std::memcpy(
-        &is_finish, data.data() + sizeof(ChunkID) + sizeof(data_size), sizeof(is_finish)
-    );
-    if (is_finish) {
+    if (data.size() == sizeof(id)) {
         return std::unique_ptr<Chunk>(new Chunk(id));
     }
-    auto metadata = [&]() -> std::unique_ptr<std::vector<std::uint8_t>> {
-        auto size = data.size() - sizeof(ChunkID) - sizeof(data_size) - sizeof(is_finish);
-        auto metadata = std::make_unique<std::vector<std::uint8_t>>(size);
-        std::memcpy(
-            metadata->data(),
-            data.data() + sizeof(ChunkID) + sizeof(data_size) + sizeof(is_finish),
-            size
-        );
-        return metadata;
-    }();
+    std::memcpy(&data_size, data.data() + sizeof(ChunkID), sizeof(data_size));
+    auto metadata = std::make_unique<std::vector<std::uint8_t>>(
+        data.size() - sizeof(ChunkID) - sizeof(data_size)
+    );
+    std::memcpy(
+        metadata->data(),
+        data.data() + sizeof(ChunkID) + sizeof(data_size),
+        metadata->size()
+    );
     auto [r, _] = br->reserve(MemoryType::DEVICE, data_size, false);
     if (r.size() != data_size) {
         std::tie(r, std::ignore) = br->reserve(MemoryType::HOST, data_size, false);

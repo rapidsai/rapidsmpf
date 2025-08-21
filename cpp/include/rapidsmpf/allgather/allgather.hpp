@@ -51,8 +51,9 @@ class Chunk {
     ChunkID id_;  ///< Unique chunk identifier
     std::unique_ptr<std::vector<std::uint8_t>> metadata_;  ///< Serialized metadata
     std::unique_ptr<Buffer> data_;  ///< Data buffer
-    std::uint64_t data_size_;  ///< Size of data in bytes
-    bool is_finish_;  ///< Whether this is a finish marker
+    std::uint64_t
+        data_size_;  ///< Size of data in bytes (maintained separately from the data
+                     ///< buffer for validation during `attach_data_buffer`)
 
     /**
      * @brief Construct a data chunk.
