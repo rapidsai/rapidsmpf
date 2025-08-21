@@ -323,8 +323,7 @@ RAPIDSMPF.
     ]=]
 )
 
-# Export `RAPIDSMPF_HAVE_MPI/UCXX/STREAMING/CUPTI` to let downstream projects know what is
-# supported.
+# Export `RAPIDSMPF_HAVE_*` to let downstream projects know what is supported.
 string(
   JOIN
   "\n"

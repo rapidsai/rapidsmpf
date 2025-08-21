@@ -289,7 +289,6 @@ int main(int argc, char** argv) {
     }
 #endif
 
-
     auto const local_messages_send =
         args.msg_size * args.num_ops * (static_cast<std::uint64_t>(comm->nranks()) - 1);
     auto const local_messages =
