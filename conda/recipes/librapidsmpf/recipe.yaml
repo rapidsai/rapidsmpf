@@ -106,6 +106,7 @@ outputs:
           - ${{ stdlib("c") }}
         by_name:
           - cuda-cudart
+          - cuda-cupti
           - libcudf
           - openmpi
           - librmm
@@ -150,6 +151,7 @@ outputs:
           - ${{ stdlib("c") }}
         by_name:
           - cuda-cudart
+          - cuda-cupti
           - librmm
           - libcudf
           - openmpi
