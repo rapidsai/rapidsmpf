@@ -5,6 +5,7 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -494,9 +495,10 @@ class AllGather {
     std::atomic<int> nlocal_insertions_;  ///< Number of local data insertions
     OpID op_id_;  ///< Unique operation identifier
     std::atomic<bool> locally_finished_{false};  ///< Whether this rank has finished
-    std::atomic<bool> can_extract_{false};  ///< Whether data can be extracted
     std::atomic<bool> active_{true};  ///< Whether the operation is active
-
+    bool can_extract_{false};  ///< Whether data can be extracted
+    mutable std::mutex mutex_;  ///< Mutex protecting can_extract_
+    std::condition_variable cv_;  ///< Notification for waiting on can_extract_
     detail::PostBox inserted_{};  ///< Postbox for chunks inserted by user/event loop
     detail::PostBox for_extraction_{};  ///< Postbox for chunks ready for user extraction
     ProgressThread::FunctionID function_id_{};  ///< Function ID in progress thread

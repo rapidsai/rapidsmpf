@@ -372,7 +372,8 @@ std::vector<PackedData> AllGather::extract_ready() {
 }
 
 void AllGather::wait() {
-    can_extract_.wait(false, std::memory_order_acquire);
+    std::unique_lock lock(mutex_);
+    cv_.wait(lock, [&]() { return can_extract_; });
 }
 
 std::size_t AllGather::spill(std::optional<std::size_t> amount) {
@@ -547,8 +548,9 @@ ProgressThread::ProgressState AllGather::event_loop() {
         !active_.load(std::memory_order_acquire) || (is_finished && containers_empty);
     if (is_finished) {
         // We can release our output buffers so notify a waiter.
-        can_extract_.store(true, std::memory_order_release);
-        can_extract_.notify_one();
+        std::lock_guard lock(mutex_);
+        can_extract_ = true;
+        cv_.notify_one();
     }
     return is_done ? ProgressThread::ProgressState::Done
                    : ProgressThread::ProgressState::InProgress;
