@@ -149,7 +149,7 @@ class Chunk {
      * @return A unique pointer to the created chunk.
      */
     [[nodiscard]] static std::unique_ptr<Chunk> from_packed_data(
-        ChunkID sequence, Rank origin, PackedData&& packed_data
+        std::uint64_t sequence, Rank origin, PackedData&& packed_data
     );
 
     /**
@@ -161,7 +161,7 @@ class Chunk {
      * @return A unique pointer to the created finish marker chunk.
      */
     [[nodiscard]] static std::unique_ptr<Chunk> from_empty(
-        ChunkID num_local_insertions, Rank origin
+        std::uint64_t num_local_insertions, Rank origin
     );
 
     /**
@@ -181,6 +181,16 @@ class Chunk {
     /// @brief Number of bits used for the rank in the chunk identifier.
     static constexpr std::uint64_t RANK_BITS =
         sizeof(ChunkID) * std::numeric_limits<unsigned char>::digits - ID_BITS;
+
+    /**
+     * @brief Create a `ChunkID` from a sequence number and origin rank.
+     *
+     * @param sequence the sequence number.
+     * @param origin the origin rank.
+     *
+     * @return The new chunk id.
+     */
+    static constexpr ChunkID chunk_id(std::uint64_t sequence, Rank origin);
 
     /**
      * @brief Serialize the metadata of the chunk to a byte vector.
@@ -498,8 +508,8 @@ class AllGather {
     BufferResource* br_;  ///< Buffer resource for memory allocation
     std::shared_ptr<Statistics> statistics_;  ///< Statistics collection instance
     std::atomic<Rank> finish_counter_;  ///< Counter for finish markers received
-    std::atomic<detail::ChunkID> sequence_number_;  ///< Sequence number for chunks
-    std::atomic<int> nlocal_insertions_;  ///< Number of local data insertions
+    std::atomic<std::uint64_t> sequence_number_;  ///< Sequence number for chunks
+    std::atomic<std::uint32_t> nlocal_insertions_;  ///< Number of local data insertions
     OpID op_id_;  ///< Unique operation identifier
     std::atomic<bool> locally_finished_{false};  ///< Whether this rank has finished
     std::atomic<bool> active_{true};  ///< Whether the operation is active

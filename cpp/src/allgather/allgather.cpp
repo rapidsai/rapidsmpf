@@ -68,19 +68,22 @@ std::uint64_t Chunk::metadata_size() const noexcept {
 }
 
 std::unique_ptr<Chunk> Chunk::from_packed_data(
-    ChunkID sequence, Rank origin, PackedData&& packed_data
+    std::uint64_t sequence, Rank origin, PackedData&& packed_data
 ) {
-    ChunkID const id = (static_cast<std::uint64_t>(origin) << ID_BITS)
-                       | static_cast<std::uint64_t>(sequence);
-    return std::unique_ptr<Chunk>(
-        new Chunk(id, std::move(packed_data.metadata), std::move(packed_data.data))
-    );
+    return std::unique_ptr<Chunk>(new Chunk(
+        chunk_id(sequence, origin),
+        std::move(packed_data.metadata),
+        std::move(packed_data.data)
+    ));
 }
 
-std::unique_ptr<Chunk> Chunk::from_empty(ChunkID sequence, Rank origin) {
-    ChunkID const id = (static_cast<std::uint64_t>(origin) << ID_BITS)
-                       | static_cast<std::uint64_t>(sequence);
-    return std::unique_ptr<Chunk>(new Chunk(id));
+std::unique_ptr<Chunk> Chunk::from_empty(std::uint64_t sequence, Rank origin) {
+    return std::unique_ptr<Chunk>(new Chunk(chunk_id(sequence, origin)));
+}
+
+constexpr ChunkID Chunk::chunk_id(std::uint64_t sequence, Rank origin) {
+    return (static_cast<std::uint64_t>(origin) << ID_BITS)
+           | static_cast<std::uint64_t>(sequence);
 }
 
 std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
@@ -328,10 +331,7 @@ void AllGather::insert_finished() {
     locally_finished_.store(true, std::memory_order_release);
     inserted_.insert(
         detail::Chunk::from_empty(
-            static_cast<std::uint32_t>(
-                nlocal_insertions_.load(std::memory_order_acquire)
-            ),
-            comm_->rank()
+            nlocal_insertions_.load(std::memory_order_acquire), comm_->rank()
         )
     );
 }
