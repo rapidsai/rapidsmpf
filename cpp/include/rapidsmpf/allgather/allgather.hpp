@@ -511,9 +511,6 @@ class AllGather {
     std::vector<
         std::pair<std::unique_ptr<detail::Chunk>, std::unique_ptr<Communicator::Future>>>
         received_{};
-
-    /// @brief Forward declaration for progress handling implementation
-    class Progress;
 };
 
 }  // namespace rapidsmpf::allgather

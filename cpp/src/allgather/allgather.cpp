@@ -296,18 +296,6 @@ static std::vector<std::unique_ptr<Chunk>> test_some(
 }
 }  // namespace detail
 
-class AllGather::Progress {
-  public:
-    Progress(AllGather& gather) : gather_{gather} {}
-
-    ProgressThread::ProgressState operator()() {
-        return gather_.event_loop();
-    }
-
-  private:
-    AllGather& gather_;
-};
-
 void AllGather::insert(PackedData&& packed_data) {
     if (packed_data.data->size == 0) {
         // No point communicating zero-sized insertions.
@@ -425,10 +413,7 @@ AllGather::AllGather(
       statistics_{std::move(statistics)},
       finish_counter_{comm_->nranks()},
       op_id_{op_id} {
-    function_id_ =
-        progress_thread_->add_function([progress = std::make_shared<Progress>(*this)]() {
-            return (*progress)();
-        });
+    function_id_ = progress_thread_->add_function([this]() { return event_loop(); });
     spill_id_ = br_->spill_manager().add_spill_function(
         [this](std::size_t amount) -> std::size_t { return spill(amount); },
         /* priority = */ 0
