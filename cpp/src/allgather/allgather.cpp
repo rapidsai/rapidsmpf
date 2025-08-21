@@ -200,55 +200,55 @@ std::size_t PostBox::spill(
     std::size_t amount
 ) {
     std::lock_guard lock(mutex_);
-    auto max_spillable = std::transform_reduce(
-        chunks_.begin(), chunks_.end(), std::size_t{0}, std::plus{}, [](auto&& chunk) {
-            return chunk->data_size();
+    std::vector<Chunk*> spillable_chunks;
+    std::size_t max_spillable{0};
+    std::size_t total_spilled{0};
+    for (auto&& chunk : chunks_) {
+        if (chunk->memory_type() == MemoryType::DEVICE) {
+            spillable_chunks.push_back(chunk.get());
+            max_spillable += chunk->data_size();
         }
-    );
-    auto do_spill = [&](auto&& indices) {
-        for (std::size_t i : indices) {
-            auto&& chunk = chunks_[i];
-            auto [reservation, overbooking] =
-                br->reserve(MemoryType::HOST, chunk->data_size(), true);
-            if (overbooking) {
-                log.warn(
-                    "Cannot spill to host because of host memory overbooking: ",
-                    format_nbytes(overbooking)
-                );
-                continue;
-            }
-            chunk->attach_data_buffer(
-                br->move(chunk->release_data_buffer(), stream, reservation)
+    }
+    auto spill_chunk = [&](Chunk* chunk) -> std::size_t {
+        auto [reservation, overbooking] =
+            br->reserve(MemoryType::HOST, chunk->data_size(), true);
+        if (overbooking) {
+            log.warn(
+                "Cannot spill to host because of host memory overbooking: ",
+                format_nbytes(overbooking)
             );
-        };
+            return 0;
+        }
+        chunk->attach_data_buffer(
+            br->move(chunk->release_data_buffer(), stream, reservation)
+        );
+        return chunk->data_size();
     };
     if (max_spillable < amount) {
         // need to spill everything.
-        do_spill(std::views::iota(std::size_t{0}, chunks_.size()));
-        return max_spillable;
+        for (auto&& chunk : spillable_chunks) {
+            total_spilled += spill_chunk(chunk);
+        }
+        return total_spilled;
     }
-    auto iota = std::views::iota(std::size_t{0}, chunks_.size());
-    std::vector<std::size_t> device_chunks(iota.begin(), iota.end());
-    std::vector<std::size_t> to_spill;
-    std::ranges::sort(device_chunks, std::less{}, [&](std::size_t i) {
-        return chunks_[i]->data_size();
+    std::ranges::sort(spillable_chunks, std::less{}, [](Chunk* chunk) {
+        return chunk->data_size();
     });
-    std::size_t total_spilled{0};
     // Try and spill the minimum number of buffers summing to the
     // amount we need while minimising the amount of data we need to
     // spill.
-    while (true) {
+    while (!spillable_chunks.empty()) {
         auto pos = std::ranges::lower_bound(
-            device_chunks, amount, std::less{}, [&](std::size_t i) {
-                return chunks_[i]->data_size();
+            spillable_chunks, amount, std::less{}, [](Chunk* chunk) {
+                return chunk->data_size();
             }
         );
-        auto found = pos == device_chunks.end() ? device_chunks.back() : *pos;
-        to_spill.push_back(found);
-        if ((total_spilled += chunks_[found]->data_size()) >= amount) {
+        auto chunk = pos == spillable_chunks.end() ? spillable_chunks.back() : *pos;
+        total_spilled += spill_chunk(chunk);
+        if (total_spilled >= amount) {
             break;
         }
-        device_chunks.pop_back();
+        spillable_chunks.pop_back();
     }
     return total_spilled;
 }
