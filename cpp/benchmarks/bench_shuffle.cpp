@@ -287,7 +287,7 @@ template <
 std::vector<InputPartitionsT> generate_input_partitions(
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
+    rapidsmpf::BufferResource* br,
     TransformFn&& transform_fn
 ) {
     std::int32_t const min_val = 0;
@@ -296,14 +296,23 @@ std::vector<InputPartitionsT> generate_input_partitions(
     std::vector<InputPartitionsT> input_partitions;
     input_partitions.reserve(args.num_local_partitions);
     for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
-        cudf::table table = random_table(
+        size_t size_lb = random_table_size_lower_bound(
             static_cast<cudf::size_type>(args.num_columns),
-            static_cast<cudf::size_type>(args.num_local_rows),
-            min_val,
-            max_val,
-            stream,
-            mr
+            static_cast<cudf::size_type>(args.num_local_rows)
         );
+
+        // reserve at least size_lb and spill if necessary (no overbooking)
+        auto res = br->reserve_and_spill(rapidsmpf::MemoryType::DEVICE, size_lb, false);
+        cudf::table table = with_memory_reservation(std::move(res), [&] {
+            return random_table(
+                static_cast<cudf::size_type>(args.num_columns),
+                static_cast<cudf::size_type>(args.num_local_rows),
+                min_val,
+                max_val,
+                stream,
+                br->device_mr()
+            );
+        });
         input_partitions.emplace_back(transform_fn(std::move(table)));
     }
     stream.synchronize();
@@ -378,7 +387,7 @@ rapidsmpf::Duration run_hash_partition_inline(
         * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
     std::vector<cudf::table> input_partitions =
-        generate_input_partitions(args, stream, br->device_mr(), std::identity{});
+        generate_input_partitions(args, stream, br, std::identity{});
 
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
@@ -442,8 +451,8 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
         * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
     std::vector<std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData>>
-        input_partitions = generate_input_partitions(
-            args, stream, br->device_mr(), [&](cudf::table&& table) {
+        input_partitions =
+            generate_input_partitions(args, stream, br, [&](cudf::table&& table) {
                 return rapidsmpf::partition_and_pack(
                     table,
                     {0},
@@ -453,8 +462,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
                     stream,
                     br
                 );
-            }
-        );
+            });
 
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 

@@ -100,6 +100,8 @@ template <typename T>
 ) {
     auto metadata_ptr =
         std::make_unique<std::vector<uint8_t>>(metadata.begin(), metadata.end());
+
+    auto reservation = br->reserve(rapidsmpf::MemoryType::DEVICE, data.size(), true);
     auto data_ptr =
         std::make_unique<rmm::device_buffer>(data.data(), data.size(), stream);
     return rapidsmpf::PackedData{

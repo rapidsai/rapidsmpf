@@ -226,6 +226,13 @@ class Statistics {
     Duration add_duration_stat(std::string const& name, Duration seconds);
 
     /**
+     * @brief Get the names of all statistics.
+     *
+     * @return A vector of all statistic names.
+     */
+    std::vector<std::string> list_stat_names() const;
+
+    /**
      * @brief Checks whether memory profiling is enabled.
      *
      * @return True if memory profiling is active, otherwise False.
