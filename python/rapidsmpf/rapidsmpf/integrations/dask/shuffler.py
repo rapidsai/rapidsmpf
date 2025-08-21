@@ -321,7 +321,7 @@ def _clear_worker_shuffle_statistics(
 
 def clear_shuffle_statistics(client: Client) -> None:
     """
-    Clear all statistics and memory records for all workers.
+    Clear all statistics for all workers.
 
     Parameters
     ----------

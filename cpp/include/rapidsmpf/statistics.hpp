@@ -233,7 +233,7 @@ class Statistics {
     std::vector<std::string> list_stat_names() const;
 
     /**
-     * @brief Clears all statistics and memory profiling records.
+     * @brief Clears all statistics.
      */
     void clear();
 

@@ -237,7 +237,7 @@ cdef class Statistics:
 
     def clear(self) -> None:
         """
-        Clears all statistics and memory profiling records.
+        Clears all statistics.
         """
         with nogil:
             cpp_clear_statistics(deref(self._handle))

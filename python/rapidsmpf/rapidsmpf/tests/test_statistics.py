@@ -89,10 +89,9 @@ def test_list_stat_names() -> None:
     assert stats.list_stat_names() == ["stat1", "stat2"]
 
 
-def test_clear(device_mr: rmm.mr.CudaMemoryResource) -> None:
+def test_clear() -> None:
     # stats
-    mr = RmmResourceAdaptor(device_mr)
-    stats = Statistics(enable=True, mr=mr)
+    stats = Statistics(enable=True)
     stats.add_stat("stat1", 10.0)
 
     assert stats.get_stat("stat1") == {"count": 1, "value": 10.0}
@@ -101,19 +100,3 @@ def test_clear(device_mr: rmm.mr.CudaMemoryResource) -> None:
 
     stats.add_stat("stat1", 10.0)
     assert stats.get_stat("stat1") == {"count": 1, "value": 10.0}
-
-    # memory records
-    with stats.memory_profiling("outer"):
-        mr.allocate(1024)
-
-    records = stats.get_memory_records()["outer"]
-    assert records.num_calls == 1
-
-    stats.clear()
-
-    with stats.memory_profiling("outer"):
-        mr.allocate(1024)
-
-    records = stats.get_memory_records()["outer"]
-
-    assert records.num_calls == 1
