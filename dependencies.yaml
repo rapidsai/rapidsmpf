@@ -449,6 +449,7 @@ dependencies:
       - output_types: [conda, requirements, pyproject]
         packages:
           - dask-cuda==25.10.*,>=0.0.0a0
+          - distributed-ucxx==0.46.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
