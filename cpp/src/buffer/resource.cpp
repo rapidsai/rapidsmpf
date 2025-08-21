@@ -90,10 +90,10 @@ MemoryReservation BufferResource::reserve_and_spill(
 }
 
 MemoryReservation BufferResource::reserve_or_fail(
-    size_t size, std::optional<MemoryType> preferred_mem_type
+    size_t size, std::optional<MemoryType> mem_type
 ) {
-    if (preferred_mem_type) {
-        auto [res, _] = reserve(*preferred_mem_type, size, false);
+    if (mem_type) {
+        auto [res, _] = reserve(*mem_type, size, false);
         RAPIDSMPF_EXPECTS(
             res.size() == size, "failed to reserve memory", std::runtime_error
         );

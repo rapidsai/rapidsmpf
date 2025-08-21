@@ -266,12 +266,14 @@ class BufferResource {
      * @brief Make a memory reservation or fail.
      *
      * @param size The size of the buffer to allocate.
-     * @param preferred_mem_type The preferred memory type to allocate the buffer from.
+     * @param mem_type Optional memory type to allocate the buffer
+     * from. If not provided then all memory types will be tried in
+     * the order they appear in `MEMORY_TYPES`.
      * @return A memory reservation.
      * @throw std::runtime_error if no memory reservation was made.
      */
     [[nodiscard]] MemoryReservation reserve_or_fail(
-        size_t size, std::optional<MemoryType> preferred_mem_type = std::nullopt
+        size_t size, std::optional<MemoryType> mem_type = std::nullopt
     );
 
     /**
