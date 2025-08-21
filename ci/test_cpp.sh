@@ -6,7 +6,6 @@ set -euo pipefail
 
 . /opt/conda/etc/profile.d/conda.sh
 
-RAPIDS_VERSION="$(rapids-version)"
 CPP_CHANNEL=$(rapids-download-conda-from-github cpp)
 
 rapids-logger "Generate C++ testing dependencies"
@@ -17,11 +16,7 @@ rapids-dependency-file-generator \
   --prepend-channel "${CPP_CHANNEL}" \
   | tee env.yaml
 
-# Insert the two librapidsmpf packages previously built by CI.
-sed -i "/dependencies:/a \- librapidsmpf=${RAPIDS_VERSION}" env.yaml
-sed -i "/dependencies:/a \- librapidsmpf-tests=${RAPIDS_VERSION}" env.yaml
-# And create the conda environment.
-rapids-mamba-retry env create -qy -f env.yaml -n test
+rapids-mamba-retry env create --yes -f env.yaml -n test
 
 # Temporarily allow unbound variables for conda activation.
 set +u
