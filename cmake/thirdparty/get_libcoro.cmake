@@ -17,7 +17,7 @@ function(find_and_configure_libcoro)
     GIT_REPOSITORY https://github.com/jbaldwin/libcoro
     # Pick a version that incl. <https://github.com/jbaldwin/libcoro/pull/371>
     GIT_TAG 1d472a8e91e8058d637d0bfbba1d5df93fefc3f0
-    GIT_SHALLOW TRUE
+    GIT_SHALLOW FALSE
     OPTIONS "LIBCORO_FEATURE_NETWORKING OFF"
             "LIBCORO_EXTERNAL_DEPENDENCIES OFF"
             "LIBCORO_BUILD_EXAMPLES OFF"
