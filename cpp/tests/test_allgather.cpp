@@ -110,6 +110,18 @@ class BaseAllGatherTest : public ::testing::Test {
 // Test simple shutdown
 TEST_F(BaseAllGatherTest, shutdown) {}
 
+TEST_F(BaseAllGatherTest, timeout) {
+    EXPECT_THROW(
+        std::ignore = allgather->wait_and_extract(
+            AllGather::Ordered::NO, std::chrono::milliseconds{20}
+        ),
+        std::runtime_error
+    );
+    allgather->insert_finished();
+    auto result = allgather->wait_and_extract();
+    EXPECT_EQ(result.size(), 0);
+}
+
 class AllGatherTest
     : public BaseAllGatherTest,
       public ::testing::WithParamInterface<std::tuple<int, int, AllGather::Ordered>> {
