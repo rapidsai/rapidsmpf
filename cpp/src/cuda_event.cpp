@@ -31,10 +31,12 @@ CudaEvent::CudaEvent(CudaEvent&& other) noexcept
 }
 
 CudaEvent& CudaEvent::operator=(CudaEvent&& other) {
-    RAPIDSMPF_EXPECTS(
-        event_ == nullptr, "cannot move into a non-empty CudaEvent", std::invalid_argument
-    );
     if (this != &other) {
+        RAPIDSMPF_EXPECTS(
+            event_ == nullptr,
+            "cannot move into an already-initialized CudaEvent",
+            std::invalid_argument
+        );
         event_ = other.event_;
         done_.store(other.done_.load());
         other.event_ = nullptr;
