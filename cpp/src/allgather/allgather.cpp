@@ -123,13 +123,9 @@ std::unique_ptr<Chunk> Chunk::deserialize(
         data.data() + sizeof(ChunkID) + sizeof(data_size),
         metadata->size()
     );
-    auto [r, _] = br->reserve(MemoryType::DEVICE, data_size, false);
-    if (r.size() != data_size) {
-        std::tie(r, std::ignore) = br->reserve(MemoryType::HOST, data_size, false);
-        RAPIDSMPF_EXPECTS(r.size() == data_size, "Can't reserve device or host memory");
-    }
+    auto reservation = br->reserve_or_fail(data_size);
     return std::unique_ptr<Chunk>(
-        new Chunk(id, std::move(metadata), br->allocate(data_size, stream, r))
+        new Chunk(id, std::move(metadata), br->allocate(data_size, stream, reservation))
     );
 }
 
