@@ -54,7 +54,7 @@ class CuptiMonitorTest : public ::testing::Test {
     }
 };
 
-TEST(CuptiMonitorTest, MemoryDataPointStructure) {
+TEST_F(CuptiMonitorTest, MemoryDataPointStructure) {
     // Test that MemoryDataPoint structure is properly defined
     rapidsmpf::MemoryDataPoint point;
     point.timestamp = 1.0;
