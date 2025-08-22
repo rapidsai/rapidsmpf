@@ -31,6 +31,10 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> Single::recv_any(Tag) {
     return {nullptr, 0};
 }
 
+std::unique_ptr<std::vector<uint8_t>> Single::recv_from(Rank, Tag) {
+    return nullptr;
+}
+
 std::vector<std::unique_ptr<Communicator::Future>> Single::test_some(
     std::vector<std::unique_ptr<Communicator::Future>>&
 ) {

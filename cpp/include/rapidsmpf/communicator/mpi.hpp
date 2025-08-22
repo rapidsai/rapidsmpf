@@ -152,6 +152,12 @@ class MPI final : public Communicator {
     ) override;
 
     /**
+     * @copydoc Communicator::recv_from
+     */
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> recv_from(
+        Rank src, Tag tag
+    ) override;
+    /**
      * @copydoc Communicator::test_some
      */
     std::vector<std::unique_ptr<Communicator::Future>> test_some(

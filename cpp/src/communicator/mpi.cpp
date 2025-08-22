@@ -185,6 +185,36 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     return {std::move(msg), probe_status.MPI_SOURCE};
 }
 
+std::unique_ptr<std::vector<uint8_t>> MPI::recv_from(Rank src, Tag tag) {
+    int msg_available;
+    MPI_Status probe_status;
+    MPI_Message matched_msg;
+    RAPIDSMPF_MPI(
+        MPI_Improbe(src, tag, comm_, &msg_available, &matched_msg, &probe_status)
+    );
+    if (!msg_available) {
+        return nullptr;
+    }
+    RAPIDSMPF_EXPECTS(tag == probe_status.MPI_TAG, "corrupt mpi tag");
+    MPI_Count size;
+    RAPIDSMPF_MPI(MPI_Get_elements_x(&probe_status, MPI_UINT8_T, &size));
+    RAPIDSMPF_EXPECTS(
+        size <= std::numeric_limits<int>::max(), "recv buffer size exceeds MPI max count"
+    );
+    auto msg = std::make_unique<std::vector<uint8_t>>(size);  // TODO: uninitialize
+
+    MPI_Status msg_status;
+    RAPIDSMPF_MPI(
+        MPI_Mrecv(msg->data(), msg->size(), MPI_UINT8_T, &matched_msg, &msg_status)
+    );
+    RAPIDSMPF_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
+    RAPIDSMPF_EXPECTS(
+        static_cast<std::size_t>(size) == msg->size(),
+        "incorrect size of the MPI_Recv message"
+    );
+    return msg;
+}
+
 std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
     std::vector<std::unique_ptr<Communicator::Future>>& future_vector
 ) {

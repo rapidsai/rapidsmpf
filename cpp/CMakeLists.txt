@@ -145,7 +145,7 @@ target_compile_options(
 )
 target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>")
 
-file(GLOB SOURCES "src/*.cpp" "src/buffer/*.cpp" "src/communicator/*.cpp"
+file(GLOB SOURCES "src/*.cpp" "src/allgather/*.cpp" "src/buffer/*.cpp" "src/communicator/*.cpp"
      "src/integrations/cudf/*.cpp" "src/shuffler/*.cpp"
 )
 

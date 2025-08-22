@@ -76,7 +76,7 @@ Chunk Chunk::get_data(
         } else {
             std::ptrdiff_t data_slice_offset =
                 (i == 0 ? 0 : std::ptrdiff_t(data_offsets_[i - 1]));
-            auto reserve = reserve_or_fail(br, data_slice_size);
+            auto reserve = br->reserve_or_fail(data_slice_size);
             data_slice =
                 data_->copy_slice(data_slice_offset, data_slice_size, reserve, stream);
         }
@@ -296,7 +296,7 @@ Chunk Chunk::concat(
     // Create concatenated data buffer if needed
     std::unique_ptr<Buffer> concat_data;
     if (total_data_size > 0) {
-        auto reserve = reserve_or_fail(br, total_data_size, preferred_mem_type);
+        auto reserve = br->reserve_or_fail(total_data_size, preferred_mem_type);
         concat_data = br->allocate(total_data_size, stream, reserve);
     } else {  // no data, allocate an empty host buffer
         concat_data = BufferResource::allocate_empty_host_buffer();

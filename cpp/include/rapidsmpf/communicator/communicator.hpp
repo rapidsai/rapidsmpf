@@ -446,6 +446,20 @@ class Communicator {
     ) = 0;
 
     /**
+     * @brief Receives a message from a specific rank (blocking).
+     *
+     * @param src The source rank from which to receive the message.
+     * @param tag Message tag for identification.
+     * @return A unique pointer to a vector containing the received message data (host
+     * memory).
+     *
+     * @note If no message is available, this function returns a nullptr.
+     */
+    [[nodiscard]] virtual std::unique_ptr<std::vector<uint8_t>> recv_from(
+        Rank src, Tag tag
+    ) = 0;
+
+    /**
      * @brief Tests for completion of multiple futures.
      *
      * @param[inout] future_vector Vector of Future objects. Completed
