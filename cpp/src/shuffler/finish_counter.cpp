@@ -109,7 +109,7 @@ void FinishCounter::add_finished_chunk(PartID pid) {
     }
 }
 
-FinishCounter::FinishedCbId FinishCounter::on_finished_any(FinishedAnyCallback cb) {
+FinishCounter::FinishedCbId FinishCounter::on_finished_any(FinishedAnyCallback&& cb) {
     std::unique_lock lock(mutex_);
     // if there are any ready pids in the stash, notify the callback with the first pid
     // and remove it from the stash
@@ -138,7 +138,7 @@ void FinishCounter::cancel_finished_any_callback(FinishedCbId cb_id) {
     }
 }
 
-void FinishCounter::on_finished(PartID pid, FinishedCallback cb) {
+void FinishCounter::on_finished(PartID pid, FinishedCallback&& cb) {
     std::unique_lock lock(mutex_);
 
     // cb will be evaluated in the following order:

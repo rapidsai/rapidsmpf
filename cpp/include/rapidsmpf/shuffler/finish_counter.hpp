@@ -99,16 +99,17 @@ class FinishCounter {
      * completes all its chunks. Only one callback can be registered per partition.
      *
      * @param pid The partition ID to monitor.
-     * @param cb The callback to invoke when the partition is finished.
+     * @param cb The callback to invoke when the partition is finished (moved into storage).
      *
      * @note The callback will be called when the partition is finished and ready to be
      * processed. If the partition is already finished and ready, the callback will be
      * called immediately. If the partition is not finished, the callback will be called
      * when the partition is finished and ready to be processed.
+     * @note The callback must be passed as an rvalue (use std::move() for lvalues).
      *
      * @throw std::logic_error If a callback is already registered for this partition.
      */
-    void on_finished(PartID pid, FinishedCallback cb);
+    void on_finished(PartID pid, FinishedCallback&& cb);
 
     /**
      * @brief Cancel a previously registered callback for a specific partition.
@@ -149,7 +150,7 @@ class FinishCounter {
      * completes. If a partition is already finished and ready, the callback may
      * be executed immediately.
      *
-     * @param cb The callback to invoke when any partition is finished.
+     * @param cb The callback to invoke when any partition is finished (moved into storage).
      *
      * @return A callback ID that can be used to cancel the callback, or invalid_cb_id
      *         if the callback was executed immediately.
@@ -158,10 +159,11 @@ class FinishCounter {
      * processed. If the partition is already finished and ready, the callback will be
      * called immediately. If the partition is not finished, the callback will be called
      * when the partition is finished and ready to be processed.
+     * @note The callback must be passed as an rvalue (use std::move() for lvalues).
      *
      * @throw std::logic_error If all partitions are already finished.
      */
-    FinishedCbId on_finished_any(FinishedAnyCallback cb);
+    FinishedCbId on_finished_any(FinishedAnyCallback&& cb);
 
     /**
      * @brief Cancel a previously registered callback for any partition completion.
