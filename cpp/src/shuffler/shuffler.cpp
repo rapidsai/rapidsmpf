@@ -467,10 +467,10 @@ Shuffler::Shuffler(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
-    PartitionOwner partition_owner
+    PartitionOwner partition_owner_fn
 )
     : total_num_partitions{total_num_partitions},
-      partition_owner{partition_owner},
+      partition_owner{std::move(partition_owner_fn)},
       stream_{stream},
       br_{br},
       outgoing_postbox_{

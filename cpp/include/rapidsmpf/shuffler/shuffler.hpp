@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -174,6 +175,8 @@ class Shuffler {
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
+    // void on_finished_any(std::function<void(PartID, bool)> cb);
+
     /**
      * @brief Wait for a specific partition to finish (blocking).
      *
@@ -183,6 +186,8 @@ class Shuffler {
      * @throw std::runtime_error if the timeout is reached.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
+
+    // void on_finished(PartID pid, std::function<void(bool)> cb);
 
     /**
      * @brief Wait for at least one partition to finish.
@@ -311,6 +316,9 @@ class Shuffler {
     // We protect ready_postbox extraction to avoid returning a chunk that is in the
     // process of being spilled by `Shuffler::spill`.
     mutable std::mutex ready_postbox_spilling_mutex_;
+
+    // std::mutex finish_cb_reg_mutex_;  // protects the finish callback registration
+    // FinishCallback finish_cb_;
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 

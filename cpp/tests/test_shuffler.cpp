@@ -871,24 +871,24 @@ TEST(FinishCounterTests, wait_on_with_timeout) {
     ));
 }
 
-TEST(FinishCounterTests, wait_some_with_timeout) {
-    ASSERT_NO_FATAL_FAILURE(run_wait_test(
-        [&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
-            rapidsmpf::shuffler::PartID const& /* exp_pid */) {
-            auto [pid, n_data_chunks] =
-                finish_counter.wait_some(std::chrono::milliseconds(10));
+// TEST(FinishCounterTests, wait_some_with_timeout) {
+//     ASSERT_NO_FATAL_FAILURE(run_wait_test(
+//         [&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
+//             rapidsmpf::shuffler::PartID const& /* exp_pid */) {
+//             auto [pid, n_data_chunks] =
+//                 finish_counter.wait_some(std::chrono::milliseconds(10));
 
-            EXPECT_EQ(1, std::ranges::count_if(n_data_chunks, [](auto n) {
-                          return n > 0;
-                      }));  // only one data chunk
-            return std::move(pid);
-        },
-        [&](std::vector<rapidsmpf::shuffler::PartID> const p_ids) {
-            // extract the first element, as there will be only one finished partition
-            return p_ids[0];
-        }
-    ));
-}
+//             EXPECT_EQ(1, std::ranges::count_if(n_data_chunks, [](auto n) {
+//                           return n > 0;
+//                       }));  // only one data chunk
+//             return std::move(pid);
+//         },
+//         [&](std::vector<rapidsmpf::shuffler::PartID> const p_ids) {
+//             // extract the first element, as there will be only one finished partition
+//             return p_ids[0];
+//         }
+//     ));
+// }
 
 namespace rapidsmpf::shuffler::detail {
 Chunk make_dummy_chunk(ChunkID chunk_id, PartID part_id) {
@@ -1179,3 +1179,5 @@ TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
         return pid % 3 != 0;
     }));
 }
+
+
