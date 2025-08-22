@@ -323,6 +323,8 @@ def clear_shuffle_statistics(client: Client) -> None:
     """
     Clear all statistics for all workers.
 
+    Memory profiling records are not cleared.
+
     Parameters
     ----------
     client

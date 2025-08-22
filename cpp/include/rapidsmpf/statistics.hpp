@@ -234,6 +234,8 @@ class Statistics {
 
     /**
      * @brief Clears all statistics.
+     *
+     * Memory profiling records are not cleared.
      */
     void clear();
 
