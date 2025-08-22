@@ -27,7 +27,7 @@ cache:
         export CXXFLAGS=$(echo $CXXFLAGS | sed -E 's@\-fdebug\-prefix\-map[^ ]*@@g')
         set +x
 
-        ./build.sh -v -n librapidsmpf
+        ./build.sh -v -n --cmake-args=\"-DBUILD_CUPTI_SUPPORT=ON\" librapidsmpf
       secrets:
         - AWS_ACCESS_KEY_ID
         - AWS_SECRET_ACCESS_KEY
@@ -57,6 +57,7 @@ cache:
     host:
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
+      - cuda-cupti-dev
       - librmm =${{ minor_version }}
       - libcudf =${{ minor_version }}
       - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
@@ -85,12 +86,14 @@ outputs:
       host:
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
+        - cuda-cupti-dev
         - libcudf =${{ minor_version }}
         - openmpi >=5.0
         - ucxx ${{ ucxx_version }}
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cudart
+        - cuda-cupti
         - librmm =${{ minor_version }}
         - libcudf =${{ minor_version }}
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
@@ -103,6 +106,7 @@ outputs:
           - ${{ stdlib("c") }}
         by_name:
           - cuda-cudart
+          - cuda-cupti
           - libcudf
           - openmpi
           - librmm
@@ -125,6 +129,7 @@ outputs:
         - ${{ stdlib("c") }}
       host:
         - cuda-cudart-dev
+        - cuda-cupti-dev
         - cuda-version =${{ cuda_version }}
         - libcudf =${{ minor_version }}
         - librmm =${{ minor_version }}
@@ -133,6 +138,7 @@ outputs:
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cudart
+        - cuda-cupti
         - librmm =${{ minor_version }}
         - libcudf =${{ minor_version }}
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
@@ -145,6 +151,7 @@ outputs:
           - ${{ stdlib("c") }}
         by_name:
           - cuda-cudart
+          - cuda-cupti
           - librmm
           - libcudf
           - openmpi
