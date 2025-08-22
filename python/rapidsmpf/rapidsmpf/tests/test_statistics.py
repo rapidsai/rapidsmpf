@@ -87,3 +87,16 @@ def test_list_stat_names() -> None:
     assert stats.list_stat_names() == ["stat1", "stat2"]
     stats.add_stat("stat1", 3.0)
     assert stats.list_stat_names() == ["stat1", "stat2"]
+
+
+def test_clear() -> None:
+    # stats
+    stats = Statistics(enable=True)
+    stats.add_stat("stat1", 10.0)
+
+    assert stats.get_stat("stat1") == {"count": 1, "value": 10.0}
+    stats.clear()
+    assert stats.list_stat_names() == []
+
+    stats.add_stat("stat1", 10.0)
+    assert stats.get_stat("stat1") == {"count": 1, "value": 10.0}

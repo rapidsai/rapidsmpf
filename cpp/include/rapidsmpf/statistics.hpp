@@ -233,6 +233,13 @@ class Statistics {
     std::vector<std::string> list_stat_names() const;
 
     /**
+     * @brief Clears all statistics.
+     *
+     * Memory profiling records are not cleared.
+     */
+    void clear();
+
+    /**
      * @brief Checks whether memory profiling is enabled.
      *
      * @return True if memory profiling is active, otherwise False.
