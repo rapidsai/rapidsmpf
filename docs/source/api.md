@@ -102,3 +102,19 @@ libraries.
 ```{eval-rst}
 .. automodule:: rapidsmpf.config
    :members:
+```
+
+(api-statistics)=
+## Statistics
+
+```{eval-rst}
+.. automodule:: rapidsmpf.statistics
+   :members:
+```
+
+## RMM Resource Adaptor
+
+```{eval-rst}
+.. automodule:: rapidsmpf.rmm_resource_adaptor
+   :members:
+```
