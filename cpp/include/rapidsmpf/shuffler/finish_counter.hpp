@@ -196,7 +196,7 @@ class FinishCounter {
      * proper cleanup even in timeout or exception scenarios.
      *
      * @param pid The partition ID to monitor.
-     * @param cb The callback to invoke when the partition is finished.
+     * @param cb The callback to invoke when the partition is finished (moved into the guard).
      *
      * @return A CallbackGuard that will automatically cleanup the callback.
      *
@@ -204,8 +204,9 @@ class FinishCounter {
      *
      * @note The returned guard must be stored in a variable to ensure proper lifetime
      *       management. Discarding the return value will cause immediate cleanup.
+     * @note The callback must be passed as an rvalue (use std::move() for lvalues).
      */
-    CallbackGuard<PartID> on_finished_with_guard(PartID pid, FinishedCallback cb);
+    CallbackGuard<PartID> on_finished_with_guard(PartID pid, FinishedCallback&& cb);
 
     /**
      * @brief Register a callback for any partition completion with automatic cleanup.
@@ -214,7 +215,7 @@ class FinishCounter {
      * returned guard will automatically cancel the callback when it goes out of scope,
      * ensuring proper cleanup even in timeout or exception scenarios.
      *
-     * @param cb The callback to invoke when any partition is finished.
+     * @param cb The callback to invoke when any partition is finished (moved into the guard).
      *
      * @return A CallbackGuard that will automatically cleanup the callback.
      *
@@ -222,8 +223,9 @@ class FinishCounter {
      *
      * @note The returned guard must be stored in a variable to ensure proper lifetime
      *       management. Discarding the return value will cause immediate cleanup.
+     * @note The callback must be passed as an rvalue (use std::move() for lvalues).
      */
-    CallbackGuard<FinishedCbId> on_finished_any_with_guard(FinishedAnyCallback cb);
+    CallbackGuard<FinishedCbId> on_finished_any_with_guard(FinishedAnyCallback&& cb);
 
     /**
      * @brief Returns the partition ID of a finished partition that hasn't been waited on
