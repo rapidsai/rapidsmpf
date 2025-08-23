@@ -80,6 +80,17 @@ class Single final : public Communicator {
         std::unique_ptr<Buffer> msg, Rank rank, Tag tag
     ) override;
 
+    // clang-format off
+    /**
+     * @copydoc Communicator::send(std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag)
+     *
+     * @throws std::runtime_error if called (single-process communicators should never send messages).
+     */
+    // clang-format on
+    [[nodiscard]] std::unique_ptr<Communicator::Future> send(
+        std::unique_ptr<Buffer> msg, std::span<Rank> const ranks, Tag tag
+    ) override;
+
     /**
      * @copydoc Communicator::recv
      *
@@ -141,6 +152,14 @@ class Single final : public Communicator {
     [[nodiscard]] std::unique_ptr<Buffer> get_gpu_data(
         std::unique_ptr<Communicator::Future> future
     ) override;
+
+    /**
+     * @copydoc Communicator::test
+     *
+     * @throws std::runtime_error if called (single-process communicators should never
+     * send messages).
+     */
+    [[nodiscard]] bool test(Communicator::Future& future) override;
 
     /**
      * @copydoc Communicator::logger
