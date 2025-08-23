@@ -8,6 +8,7 @@ import threading
 import weakref
 from dataclasses import dataclass, field
 from functools import partial
+from numbers import Number  # noqa: TC003
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, TypeVar
 
 import rmm.mr
@@ -116,6 +117,30 @@ class WorkerContext:
     spill_collection: SpillCollection = field(default_factory=SpillCollection)
     shufflers: dict[int, Shuffler] = field(default_factory=dict)
     options: Options = field(default_factory=Options)
+
+    def get_statistics(self) -> dict[str, dict[str, Number]]:
+        """
+        Get the statistics from the worker context.
+
+        Returns
+        -------
+        statistics
+            A dictionary of statistics. The keys are the names of the statistics.
+            The values are dictionaries with two keys:
+
+            - "count" is the number of times the statistic was recorded.
+            - "value" is the value of the statistic.
+
+        Notes
+        -----
+        Statistics are global across all shuffles. To measure statistics for any
+        given shuffle, gather statistics before and after the shuffle and compute
+        the difference.
+        """
+        return {
+            stat: self.statistics.get_stat(stat)
+            for stat in self.statistics.list_stat_names()
+        }
 
 
 class ShufflerIntegration(Protocol[DataFrameT]):
@@ -432,14 +457,19 @@ def rmpf_worker_setup(
     # Print statistics at worker shutdown.
     if options.get_or_default(f"{option_prefix}statistics", default_value=False):
         statistics = Statistics(enable=True, mr=mr)
+    else:
+        statistics = Statistics(enable=False)
+
+    if (
+        options.get_or_default(f"{option_prefix}print_statistics", default_value=True)
+        and statistics.enabled
+    ):
         weakref.finalize(
             worker,
             lambda name, stats: print(name, stats.report()),
             name=str(worker),
             stats=statistics,
         )
-    else:
-        statistics = Statistics(enable=False)
 
     # Create a buffer resource with a limiting availability function.
     total_memory = rmm.mr.available_device_memory()[1]

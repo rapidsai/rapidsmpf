@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <iomanip>
+#include <ranges>
 #include <sstream>
 
 #include <rapidsmpf/error.hpp>
@@ -72,6 +73,17 @@ Duration Statistics::add_duration_stat(std::string const& name, Duration seconds
             }
         }
     ));
+}
+
+std::vector<std::string> Statistics::list_stat_names() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto ks = std::views::keys(stats_);
+    return std::vector<std::string>{ks.begin(), ks.end()};
+}
+
+void Statistics::clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    stats_.clear();
 }
 
 bool Statistics::is_memory_profiling_enabled() const {

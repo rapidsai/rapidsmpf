@@ -13,7 +13,11 @@ from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options
 from rapidsmpf.examples.dask import DaskCudfIntegration, dask_cudf_shuffle
 from rapidsmpf.integrations.dask.core import get_worker_context
-from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
+from rapidsmpf.integrations.dask.shuffler import (
+    clear_shuffle_statistics,
+    gather_shuffle_statistics,
+    rapidsmpf_shuffle_graph,
+)
 from rapidsmpf.shuffler import Shuffler
 
 dask_cuda = pytest.importorskip("dask_cuda")
@@ -356,3 +360,57 @@ def test_many_shuffles_single() -> None:
         else:
             shuffler.shutdown()
             del context.shufflers[shuffle_id]
+
+
+def test_gather_shuffle_statistics() -> None:
+    with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
+        config_options = Options({"dask_statistics": "true"})
+
+        df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
+        shuffled = dask_cudf_shuffle(df, on=["name"], config_options=config_options)
+        shuffled.compute()
+
+        stats = gather_shuffle_statistics(client)
+        expected_stats = {
+            "event-loop-check-future-finish",
+            "event-loop-init-gpu-data-send",
+            "event-loop-metadata-recv",
+            "event-loop-metadata-send",
+            "event-loop-post-incoming-chunk-recv",
+            "event-loop-total",
+            "shuffle-payload-recv",
+            "shuffle-payload-send",
+            "spill-bytes-host-to-device",
+            "spill-time-host-to-device",
+        }
+
+        assert set(stats) == expected_stats
+        for stat in expected_stats:
+            assert stats[stat]["count"] > 0
+            assert "value" in stats[stat]
+
+        assert stats["shuffle-payload-send"]["value"] > 0
+        assert (
+            stats["shuffle-payload-send"]["value"]
+            == stats["shuffle-payload-recv"]["value"]
+        )
+
+
+def test_clear_shuffle_statistics() -> None:
+    with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
+        config_options = Options(
+            {"dask_statistics": "true", "dask_print_statistics": "false"}
+        )
+
+        df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
+        shuffled = dask_cudf_shuffle(df, on=["name"], config_options=config_options)
+        shuffled.compute()
+
+        stats = gather_shuffle_statistics(client)
+        assert len(stats) > 0
+
+        clear_shuffle_statistics(client)
+        stats2 = gather_shuffle_statistics(client)
+
+        assert len(stats) > 0
+        assert len(stats2) == 0

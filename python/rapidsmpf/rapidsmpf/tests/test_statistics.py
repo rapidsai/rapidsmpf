@@ -76,3 +76,27 @@ def test_memory_profiling(device_mr: rmm.mr.CudaMemoryResource) -> None:
     assert outer.scoped.total() == 1024 + 1024 + 512 + 512
     assert outer.global_peak == 1024 + 512
     assert outer.num_calls == 1
+
+
+def test_list_stat_names() -> None:
+    stats = Statistics(enable=True)
+    assert stats.list_stat_names() == []
+    stats.add_stat("stat1", 1.0)
+    assert stats.list_stat_names() == ["stat1"]
+    stats.add_stat("stat2", 2.0)
+    assert stats.list_stat_names() == ["stat1", "stat2"]
+    stats.add_stat("stat1", 3.0)
+    assert stats.list_stat_names() == ["stat1", "stat2"]
+
+
+def test_clear() -> None:
+    # stats
+    stats = Statistics(enable=True)
+    stats.add_stat("stat1", 10.0)
+
+    assert stats.get_stat("stat1") == {"count": 1, "value": 10.0}
+    stats.clear()
+    assert stats.list_stat_names() == []
+
+    stats.add_stat("stat1", 10.0)
+    assert stats.get_stat("stat1") == {"count": 1, "value": 10.0}

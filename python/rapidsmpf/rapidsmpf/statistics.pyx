@@ -6,6 +6,7 @@ from cython.operator cimport preincrement
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport make_shared, make_unique
 from libcpp.string cimport string
+from libcpp.vector cimport vector
 
 from dataclasses import dataclass
 
@@ -28,9 +29,17 @@ cdef extern from *:
     ) {
         return stats.get_stat(name).value();
     }
+    std::vector<std::string> cpp_list_stat_names(rapidsmpf::Statistics const& stats) {
+        return stats.list_stat_names();
+    }
+    void cpp_clear_statistics(rapidsmpf::Statistics& stats) {
+        stats.clear();
+    }
     """
     size_t cpp_get_statistic_count(cpp_Statistics stats, string name) except + nogil
     double cpp_get_statistic_value(cpp_Statistics stats, string name) except + nogil
+    vector[string] cpp_list_stat_names(cpp_Statistics stats) except + nogil
+    void cpp_clear_statistics(cpp_Statistics stats) except + nogil
 
 cdef class Statistics:
     """
@@ -116,6 +125,18 @@ cdef class Statistics:
             # which we / Cython translate to a KeyError.
             raise KeyError(f"Statistic '{name}' does not exist") from None
         return {"count": count, "value": value}
+
+    def list_stat_names(self):
+        """
+        Returns a list of all statistic names.
+        """
+        cdef vector[string] names = cpp_list_stat_names(deref(self._handle))
+        cdef vector[string].iterator it = names.begin()
+        ret = []
+        while it != names.end():
+            ret.append(deref(it).decode("utf-8"))
+            preincrement(it)
+        return ret
 
     def add_stat(self, name, double value):
         """
@@ -213,6 +234,15 @@ cdef class Statistics:
         2048
         """
         return MemoryRecorder(self, self._mr, name)
+
+    def clear(self) -> None:
+        """
+        Clears all statistics.
+
+        Memory profiling records are not cleared.
+        """
+        with nogil:
+            cpp_clear_statistics(deref(self._handle))
 
 
 @dataclass

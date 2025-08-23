@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,7 @@ from rapidsmpf.integrations.dask.core import (
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
+    from numbers import Number
 
     from distributed import Client, Worker
 
@@ -301,3 +303,75 @@ def rapidsmpf_shuffle_graph(
     )
 
     return graph
+
+
+def _gather_worker_shuffle_statistics(
+    dask_worker: Worker,
+) -> dict[str, dict[str, Number]]:
+    context = get_worker_context(dask_worker)
+    return context.get_statistics()
+
+
+def _clear_worker_shuffle_statistics(
+    dask_worker: Worker,
+) -> None:
+    context = get_worker_context(dask_worker)
+    context.statistics.clear()
+
+
+def clear_shuffle_statistics(client: Client) -> None:
+    """
+    Clear all statistics for all workers.
+
+    Memory profiling records are not cleared.
+
+    Parameters
+    ----------
+    client
+        The Dask client.
+    """
+    client.run(_clear_worker_shuffle_statistics)
+
+
+def gather_shuffle_statistics(client: Client) -> dict[str, dict[str, int | float]]:
+    """
+    Gather shuffle statistics from all workers.
+
+    Parameters
+    ----------
+    client
+        The Dask client.
+
+    Returns
+    -------
+    A dictionary of statistics. The keys are the names of each statistic. The values
+    are a dictionary with two keys:
+
+        - "count" is the number of times the statistic was recorded (summed
+          across all workers).
+        - "value" is value of the statistic (summed across all workers).
+
+    Notes
+    -----
+    Statistics are global across all shuffles. To measure statistics for any
+    given shuffle, you can clear the accumulated statistics between runs
+    with :func:`clear_shuffle_statistics`.
+    """
+    # {address: {stat: {count: int, value: int}}}
+    # collect
+    stats: dict[str, dict[str, dict[str, Number]]] = client.run(
+        _gather_worker_shuffle_statistics
+    )  # type: ignore[arg-type]
+    # aggregate
+    result: dict[str, dict[str, int | float]] = defaultdict(
+        lambda: {"count": 0, "value": 0.0}
+    )
+
+    for worker_stats in stats.values():
+        # the types are a bit fiddly here. We say they're "Number", but really
+        # we know that counts are ints and values are floats
+        for name, stat in worker_stats.items():
+            result[name]["count"] += stat["count"]  # type: ignore[operator]
+            result[name]["value"] += stat["value"]  # type: ignore[operator]
+
+    return dict(result)

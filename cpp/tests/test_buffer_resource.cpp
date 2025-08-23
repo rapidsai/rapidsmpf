@@ -374,7 +374,7 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
                 stream
             ));
             // add an event to guarantee async copy is complete
-            buf->override_event(std::make_shared<Buffer::Event>(stream));
+            buf->override_event(CudaEvent::make_shared_record(stream));
         } else {
             // copy the host pattern to the host buffer
             std::memcpy(const_cast<void*>(buf->data()), host_pattern.data(), size);
@@ -611,7 +611,7 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
             cudaMemcpyHostToDevice,
             stream
         ));
-        buf1->override_event(std::make_shared<Buffer::Event>(stream));
+        buf1->override_event(CudaEvent::make_shared_record(stream));
         buf1->wait_for_ready();
 
         EXPECT_EQ(mr1->get_main_record().total(), buffer_size);
