@@ -75,6 +75,8 @@ files:
       - depends_on_dask_cuda
       - depends_on_rmm
       - depends_on_ucxx
+      - depends_on_librapidsmpf
+      - depends_on_rapidsmpf
       - docs
       - py_version
   py_build_librapidsmpf:
