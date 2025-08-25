@@ -11,37 +11,6 @@
 
 namespace rapidsmpf::shuffler::detail {
 
-// CallbackGuard template implementation
-template <typename T>
-    requires std::same_as<T, PartID> || std::same_as<T, FinishCounter::FinishedCbId>
-struct FinishCounter::CallbackGuard {
-    friend class FinishCounter;
-
-    // Delete copy and move operations to ensure unique ownership
-    CallbackGuard(const CallbackGuard&) = delete;
-    CallbackGuard& operator=(const CallbackGuard&) = delete;
-    CallbackGuard(CallbackGuard&&) = delete;
-    CallbackGuard& operator=(CallbackGuard&&) = delete;
-
-    ~CallbackGuard() {
-        if constexpr (std::same_as<T, FinishCounter::FinishedCbId>) {
-            fc_.cancel_finished_any_callback(cb_id_);
-        } else {
-            fc_.cancel_finished_callback(cb_id_);
-        }
-    }
-
-  private:
-    CallbackGuard(FinishCounter& fc, T cb_id) : fc_(fc), cb_id_(cb_id) {}
-
-    FinishCounter& fc_;
-    T cb_id_;
-};
-
-// Explicit template instantiations
-template struct FinishCounter::CallbackGuard<PartID>;
-template struct FinishCounter::CallbackGuard<FinishCounter::FinishedCbId>;
-
 // Function definitions that use CallbackGuard
 FinishCounter::CallbackGuard<PartID> FinishCounter::on_finished_with_guard(
     PartID pid, FinishedCallback&& cb
@@ -68,7 +37,7 @@ FinishCounter::FinishCounter(
     for (auto pid : local_partitions) {
         goalposts_.emplace(pid, PartitionInfo{});
     }
-    remaining_cb_regs_ = local_partitions.size();
+    remaining_cb_regs_ = static_cast<int32_t>(local_partitions.size());
 }
 
 bool FinishCounter::all_finished() const {
@@ -123,7 +92,6 @@ void FinishCounter::add_finished_chunk(PartID pid) {
 
 FinishCounter::FinishedCbId FinishCounter::on_finished_any(FinishedCallback&& cb) {
     std::unique_lock lock(mutex_);
-
     RAPIDSMPF_EXPECTS(remaining_cb_regs_-- > 0, "all callbacks have been registered");
 
     // if there are any ready pids in the stash, notify the callback with the first pid

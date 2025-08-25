@@ -182,6 +182,17 @@ class Shuffler {
     /// @copydoc detail::FinishCounter::cancel_finished_any_callback
     void cancel_finished_any_callback(FinishedCbId callback_id);
 
+    /// @copydoc detail::FinishCounter::CallbackGuard
+    template <typename T>
+        requires std::same_as<T, PartID> || std::same_as<T, FinishedCbId>
+    using CallbackGuard = detail::FinishCounter::CallbackGuard<T>;
+
+    /// @copydoc detail::FinishCounter::on_finished_with_guard
+    CallbackGuard<PartID> on_finished_with_guard(PartID pid, FinishedCallback&& cb);
+
+    /// @copydoc detail::FinishCounter::on_finished_any_with_guard
+    CallbackGuard<FinishedCbId> on_finished_any_with_guard(FinishedCallback&& cb);
+
     /**
      * @brief Wait for any partition to finish.
      *

@@ -204,7 +204,58 @@ class FinishCounter {
      */
     template <typename T>
         requires std::same_as<T, PartID> || std::same_as<T, FinishedCbId>
-    struct CallbackGuard;
+    struct CallbackGuard {
+        friend class FinishCounter;
+
+        // Delete copy operations to ensure unique ownership
+        CallbackGuard(const CallbackGuard&) = delete;
+        CallbackGuard& operator=(const CallbackGuard&) = delete;
+
+        /// @brief Custom move operations that handle ownership transfer
+        /// @param other The object to move from.
+        CallbackGuard(CallbackGuard&& other) noexcept
+            : fc_(other.fc_), cb_id_(other.cb_id_), valid_(other.valid_) {
+            other.valid_ = false;
+        }
+
+        /// @brief Custom move assignment operator that handles ownership transfer
+        /// @param other The object to move from.
+        /// @return A reference to the moved-to object.
+        CallbackGuard& operator=(CallbackGuard&& other) noexcept {
+            if (this != &other) {
+                cleanup();
+                fc_ = other.fc_;
+                cb_id_ = other.cb_id_;
+                valid_ = other.valid_;
+
+                other.valid_ = false;
+            }
+            return *this;
+        }
+
+        ~CallbackGuard() {
+            cleanup();
+        }
+
+      private:
+        CallbackGuard(FinishCounter& fc, T cb_id)
+            : fc_(fc), cb_id_(cb_id), valid_(true) {}
+
+        void cleanup() {
+            if (valid_) {
+                if constexpr (std::same_as<T, FinishCounter::FinishedCbId>) {
+                    fc_.cancel_finished_any_callback(cb_id_);
+                } else {
+                    fc_.cancel_finished_callback(cb_id_);
+                }
+                valid_ = false;
+            }
+        }
+
+        FinishCounter& fc_;
+        T cb_id_;
+        bool valid_;  ///< sentinel to prevent double cleanup
+    };
 
     /**
      * @brief Register a callback for a specific partition with automatic cleanup.
@@ -219,7 +270,8 @@ class FinishCounter {
      *
      * @return A CallbackGuard that will automatically cleanup the callback.
      *
-     * @throw std::logic_error If a callback is already registered for this partition.
+     * @throw std::logic_error If a callback is already registered for this partition or
+     * if all callbacks have been registered (cb will not be executed).
      *
      * @note The returned guard must be stored in a variable to ensure proper lifetime
      *       management. Discarding the return value will cause immediate cleanup.
@@ -239,7 +291,8 @@ class FinishCounter {
      *
      * @return A CallbackGuard that will automatically cleanup the callback.
      *
-     * @throw std::logic_error If all partitions are already finished.
+     * @throw std::logic_error If all partitions are already finished or if all callbacks
+     * have been registered (cb will not be executed).
      *
      * @note The returned guard must be stored in a variable to ensure proper lifetime
      *       management. Discarding the return value will cause immediate cleanup.
@@ -299,13 +352,12 @@ class FinishCounter {
         Rank rank_count{0};  ///< number of ranks that have reported their chunk count.
         ChunkID chunk_goal{0};  ///< the goal of a partition. This keeps increasing until
                                 ///< all ranks have reported their chunk count.
-        ChunkID finished_chunk_count{
-            0
+        ChunkID finished_chunk_count{0
         };  ///< The finished chunk counter of each partition. The goal of a partition has
         ///< been reached when its counter equals the goalpost.
 
-        FinishedCallback
-            finished_cb{};  ///< callback to notify when the partition is finished
+        FinishedCallback finished_cb{
+        };  ///< callback to notify when the partition is finished
 
         constexpr PartitionInfo() = default;
 
@@ -346,14 +398,13 @@ class FinishCounter {
     // when all ranks has reported their goal that the goalpost is final.
     std::unordered_map<PartID, PartitionInfo> goalposts_;
 
-    std::unordered_map<PartID, bool>
-        ready_pids_stash_{};  ///< partition IDs of ready partitions
+    std::unordered_map<PartID, bool> ready_pids_stash_{
+    };  ///< partition IDs of ready partitions
 
-    std::unordered_map<FinishedCbId, FinishedCallback>
-        finished_any_cbs_{};  ///< callbacks to notify when any partition is finished
+    std::unordered_map<FinishedCbId, FinishedCallback> finished_any_cbs_{
+    };  ///< callbacks to notify when any partition is finished
     FinishedCbId next_finished_cb_id_{0};  ///< next callback ID to assign
-    size_t remaining_cb_regs_{
-        0
+    int32_t remaining_cb_regs_{0
     };  ///< number of callbacks that have not been executed yet.
 
     mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?

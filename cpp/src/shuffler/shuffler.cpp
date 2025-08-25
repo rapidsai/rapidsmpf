@@ -819,6 +819,28 @@ Shuffler::FinishedCbId Shuffler::on_finished_any(FinishedCallback&& cb) {
     return finish_counter_.on_finished_any(std::forward<FinishedCallback>(cb));
 }
 
+void Shuffler::cancel_finished_callback(PartID pid) {
+    finish_counter_.cancel_finished_callback(pid);
+}
+
+void Shuffler::cancel_finished_any_callback(FinishedCbId callback_id) {
+    finish_counter_.cancel_finished_any_callback(callback_id);
+}
+
+Shuffler::CallbackGuard<PartID> Shuffler::on_finished_with_guard(
+    PartID pid, FinishedCallback&& cb
+) {
+    return finish_counter_.on_finished_with_guard(
+        pid, std::forward<FinishedCallback>(cb)
+    );
+}
+
+Shuffler::CallbackGuard<Shuffler::FinishedCbId> Shuffler::on_finished_any_with_guard(
+    FinishedCallback&& cb
+) {
+    return finish_counter_.on_finished_any_with_guard(std::forward<FinishedCallback>(cb));
+}
+
 void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     finish_counter_.wait_on(pid, std::move(timeout));

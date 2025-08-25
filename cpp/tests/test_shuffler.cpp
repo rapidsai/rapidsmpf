@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <atomic>
 #include <future>
 #include <memory>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -17,6 +19,7 @@
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/shuffler/finish_counter.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -370,19 +373,17 @@ class ConcurrentShuffleTest
 
         for (int t_id = 0; t_id < num_shufflers; t_id++) {
             // pass a copy of the insert_fn and insert_finished_fn to each thread
-            futures.push_back(
-                std::async(
-                    std::launch::async,
-                    [this,
-                     t_id,
-                     insert_fn1 = insert_fn,
-                     insert_finished_fn1 = insert_finished_fn] {
-                        ASSERT_NO_FATAL_FAILURE(this->RunTest(
-                            t_id, std::move(insert_fn1), std::move(insert_finished_fn1)
-                        ));
-                    }
-                )
-            );
+            futures.push_back(std::async(
+                std::launch::async,
+                [this,
+                 t_id,
+                 insert_fn1 = insert_fn,
+                 insert_finished_fn1 = insert_finished_fn] {
+                    ASSERT_NO_FATAL_FAILURE(this->RunTest(
+                        t_id, std::move(insert_fn1), std::move(insert_finished_fn1)
+                    ));
+                }
+            ));
         }
 
         for (auto& f : futures) {
@@ -482,9 +483,9 @@ class ShuffleInsertGroupedTest
 
         stream = cudf::get_default_stream();
 
-        progress_thread = std::make_shared<rapidsmpf::ProgressThread>(
-            GlobalEnvironment->comm_->logger()
-        );
+        progress_thread =
+            std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger()
+            );
 
         GlobalEnvironment->barrier();
     }
@@ -702,9 +703,8 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmpf::BufferResource br{
         mr,
         {{rapidsmpf::MemoryType::DEVICE,
-          [&device_memory_available]() -> std::int64_t {
-              return device_memory_available;
-          }}},
+          [&device_memory_available]() -> std::int64_t { return device_memory_available; }
+        }},
         std::nullopt  // disable periodic spill check
     };
     EXPECT_EQ(
@@ -862,6 +862,133 @@ TEST(FinishCounterTests, wait_on_with_timeout) {
     );
 }
 
+class FinishCounterMultithreadingTest
+    : public ::testing::TestWithParam<std::tuple<rapidsmpf::shuffler::PartID, uint32_t>> {
+  protected:
+    void run_test(auto on_finished_fn) {
+        // determine the type of the guard returned by on_finished_fn
+        using guard_type = typename std::invoke_result_t<
+            decltype(on_finished_fn),
+            rapidsmpf::shuffler::detail::FinishCounter&,
+            rapidsmpf::shuffler::PartID,
+            rapidsmpf::shuffler::detail::FinishCounter::FinishedCallback&&>;
+
+        auto [npartitions, nthreads] = GetParam();
+        auto comm = GlobalEnvironment->comm_;
+
+        constexpr rapidsmpf::Rank nranks = 1;  // simulate a single rank
+
+        // Create local partition IDs
+        auto local_partitions = iota_vector<rapidsmpf::shuffler::PartID>(npartitions);
+
+        std::atomic<uint32_t> empty_pid_count{0};
+        rapidsmpf::shuffler::detail::FinishCounter finish_counter(
+            nranks,
+            local_partitions,
+            [&](rapidsmpf::shuffler::PartID) {
+                empty_pid_count.fetch_add(1, std::memory_order_relaxed);
+            }
+        );
+
+        std::mutex mtx;
+        std::condition_variable cv;
+        std::chrono::milliseconds const timeout{100};
+        uint32_t callback_count{0};
+
+        // Create consumer threads
+        std::vector<std::thread> consumer_threads;
+        consumer_threads.reserve(nthreads);
+        for (uint32_t tid = 0; tid < nthreads; tid++) {
+            consumer_threads.emplace_back([&, tid] {
+                std::vector<guard_type> guards;
+                for (rapidsmpf::shuffler::PartID i = tid; i < npartitions; i += nthreads)
+                {
+                    guards.emplace_back(on_finished_fn(
+                        finish_counter,
+                        i,
+                        [&](rapidsmpf::shuffler::PartID /*pid*/) {
+                            {
+                                std::lock_guard lock(mtx);
+                                callback_count++;
+                            }
+                            cv.notify_all();
+                        }
+                    ));
+                }
+
+                std::unique_lock lock(mtx);
+                EXPECT_TRUE(cv.wait_for(lock, timeout, [&]() {
+                    return callback_count == npartitions;
+                }));
+            });
+        }
+
+        // Main caller thread: Insert data into the finish counter
+        for (auto& pid : local_partitions) {
+            finish_counter.move_goalpost(pid, 1);  // move goalpost for finished msg
+            finish_counter.add_finished_chunk(pid);
+        }
+
+        for (auto& thread : consumer_threads) {  // Wait for consumer threads to complete
+            thread.join();
+        }
+
+        EXPECT_EQ(npartitions, callback_count);
+        EXPECT_EQ(npartitions, empty_pid_count);  // all partitions should be empty
+
+        EXPECT_TRUE(finish_counter.all_finished());
+    }
+};
+
+// Parametrize on number of partitions and number of consumer threads
+INSTANTIATE_TEST_SUITE_P(
+    FinishCounterMultithreadingTestP,
+    FinishCounterMultithreadingTest,
+    testing::Combine(testing::Values(1, 2, 100, 101), testing::Values(1, 2, 3)),
+    [](const auto& info) {
+        return "npartitions_" + std::to_string(std::get<0>(info.param)) + "__nthreads_"
+               + std::to_string(std::get<1>(info.param));
+    }
+);
+
+TEST_P(FinishCounterMultithreadingTest, on_finished) {
+    EXPECT_NO_FATAL_FAILURE(
+        run_test([](auto& finish_counter, auto const& pid, auto&& on_finished_fn) {
+            return finish_counter.on_finished_with_guard(pid, std::move(on_finished_fn));
+        })
+    );
+}
+
+TEST_P(FinishCounterMultithreadingTest, on_finished_any) {
+    EXPECT_NO_FATAL_FAILURE(
+        run_test([](auto& finish_counter, auto const& /* pid */, auto&& on_finished_fn) {
+            return finish_counter.on_finished_any_with_guard(std::move(on_finished_fn));
+        })
+    );
+}
+
+TEST(FinishCounterTests, edge_cases) {
+    if (GlobalEnvironment->comm_->rank() != 0) {
+        GTEST_SKIP() << "Test only runs on rank 0";
+    }
+
+    auto local_partitions = iota_vector<rapidsmpf::shuffler::PartID>(1);
+    rapidsmpf::shuffler::detail::FinishCounter finish_counter(1, local_partitions);
+
+    int cb_count = 0;
+    auto cb = [&](rapidsmpf::shuffler::PartID) { cb_count++; };
+    auto guard = finish_counter.on_finished_with_guard(0, cb);
+
+    // pid 0 already has a callback registered
+    EXPECT_THROW(finish_counter.on_finished_with_guard(0, cb), std::logic_error);
+    // pid 1 is not a local partition
+    EXPECT_THROW(finish_counter.on_finished_with_guard(1, cb), std::logic_error);
+    // all callbacks have been registered
+    EXPECT_THROW(finish_counter.on_finished_any_with_guard(cb), std::logic_error);
+
+    EXPECT_EQ(0, cb_count);  // no callbacks should have been executed
+}
+
 namespace rapidsmpf::shuffler::detail {
 Chunk make_dummy_chunk(ChunkID chunk_id, PartID part_id) {
     return Chunk(chunk_id, {part_id}, {0}, {0}, {0}, nullptr, nullptr);
@@ -944,19 +1071,16 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
 
 TEST(ReadyPostBoxTest, MarkEmpty) {
     auto postbox = std::make_unique<
-        rapidsmpf::shuffler::detail::PostBox<rapidsmpf::shuffler::PartID>>(
-        std::identity{}
+        rapidsmpf::shuffler::detail::PostBox<rapidsmpf::shuffler::PartID>>(std::identity{}
     );
 
     rapidsmpf::shuffler::PartID pid = 0, pid1 = 1;
     postbox->mark_empty(pid);
     EXPECT_NO_THROW(postbox->mark_empty(pid));  // should not raise an error
 
-    postbox->insert(
-        rapidsmpf::shuffler::detail::make_dummy_chunk(
-            rapidsmpf::shuffler::detail::ChunkID{0}, pid1
-        )
-    );
+    postbox->insert(rapidsmpf::shuffler::detail::make_dummy_chunk(
+        rapidsmpf::shuffler::detail::ChunkID{0}, pid1
+    ));
     EXPECT_THROW(postbox->mark_empty(pid1), std::logic_error);  // should raise an error
 
     EXPECT_EQ(0, postbox->extract_by_key(pid).size());
@@ -1147,7 +1271,6 @@ TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
     }
 
     insert_chunks(std::move(chunks));
-    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto pid) {
-        return pid % 3 != 0;
-    }));
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto pid) { return pid % 3 != 0; })
+    );
 }
