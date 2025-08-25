@@ -139,6 +139,10 @@ class FinishCounter {
      * @brief Type used to identify callbacks registered with on_finished_any.
      */
     using FinishedCbId = size_t;
+    static_assert(
+        !std::is_same_v<FinishedCbId, PartID>,
+        "FinishedCbId should not be the same as PartID"
+    );
 
     /**
      * @brief Special constant indicating an invalid or immediately-executed callback ID.
