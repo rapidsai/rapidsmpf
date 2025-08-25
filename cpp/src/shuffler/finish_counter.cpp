@@ -68,6 +68,7 @@ FinishCounter::FinishCounter(
     for (auto pid : local_partitions) {
         goalposts_.emplace(pid, PartitionInfo{});
     }
+    remaining_cb_regs_ = local_partitions.size();
 }
 
 bool FinishCounter::all_finished() const {
@@ -122,6 +123,9 @@ void FinishCounter::add_finished_chunk(PartID pid) {
 
 FinishCounter::FinishedCbId FinishCounter::on_finished_any(FinishedCallback&& cb) {
     std::unique_lock lock(mutex_);
+
+    RAPIDSMPF_EXPECTS(remaining_cb_regs_-- > 0, "all callbacks have been registered");
+
     // if there are any ready pids in the stash, notify the callback with the first pid
     // and remove it from the stash
     if (!ready_pids_stash_.empty()) {
@@ -146,11 +150,14 @@ void FinishCounter::cancel_finished_any_callback(FinishedCbId cb_id) {
     if (cb_id != invalid_cb_id) {
         std::unique_lock<std::mutex> lock(mutex_);
         finished_any_cbs_.erase(cb_id);
+        ++remaining_cb_regs_;
     }
 }
 
 void FinishCounter::on_finished(PartID pid, FinishedCallback&& cb) {
     std::unique_lock lock(mutex_);
+
+    RAPIDSMPF_EXPECTS(remaining_cb_regs_-- > 0, "all callbacks have been registered");
 
     // cb will be evaluated in the following order:
     // 1. if pid is in the goalposts_ map, check if the callback is already registered
@@ -193,6 +200,7 @@ void FinishCounter::cancel_finished_callback(PartID pid) {
     if (it != goalposts_.end()) {
         auto& p_info = it->second;
         p_info.finished_cb = nullptr;
+        ++remaining_cb_regs_;
     }
 }
 

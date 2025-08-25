@@ -164,6 +164,24 @@ class Shuffler {
      */
     [[nodiscard]] bool finished() const;
 
+    /// @copydoc detail::FinishCounter::FinishedCallback
+    using FinishedCallback = detail::FinishCounter::FinishedCallback;
+
+    /// @copydoc detail::FinishCounter::FinishedCbId
+    using FinishedCbId = detail::FinishCounter::FinishedCbId;
+
+    /// @copydoc detail::FinishCounter::on_finished
+    void on_finished(PartID pid, FinishedCallback&& cb);
+
+    /// @copydoc detail::FinishCounter::cancel_finished_callback
+    void cancel_finished_callback(PartID pid);
+
+    /// @copydoc detail::FinishCounter::on_finished_any
+    FinishedCbId on_finished_any(FinishedCallback&& cb);
+
+    /// @copydoc detail::FinishCounter::cancel_finished_any_callback
+    void cancel_finished_any_callback(FinishedCbId callback_id);
+
     /**
      * @brief Wait for any partition to finish.
      *
@@ -175,8 +193,6 @@ class Shuffler {
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
-    // void on_finished_any(std::function<void(PartID, bool)> cb);
-
     /**
      * @brief Wait for a specific partition to finish (blocking).
      *
@@ -186,8 +202,6 @@ class Shuffler {
      * @throw std::runtime_error if the timeout is reached.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
-
-    // void on_finished(PartID pid, std::function<void(bool)> cb);
 
     /**
      * @brief Spills data to device if necessary.

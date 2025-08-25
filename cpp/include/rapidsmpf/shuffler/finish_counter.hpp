@@ -102,6 +102,13 @@ class FinishCounter {
      * `on_finished_any`, it will be identified by the FinishedCbId returned. So, if a
      * callback needs to be preemptively canceled, corresponding identifier needs to be
      * provided.
+     *
+     * @note At most, one callback can be registered per partition. This means that there
+     * can be at most local_partitions.size() callback invocations.
+     *
+     * @note `wait*` methods are also implemented using callbacks. Therefore, if a
+     * callback is registered for a partition ID, it can not be waited upon, and vice
+     * versa.
      */
     using FinishedCallback = std::function<void(PartID)>;
 
@@ -119,7 +126,6 @@ class FinishCounter {
      * processed. If the partition is already finished and ready, the callback will be
      * called immediately. If the partition is not finished, the callback will be called
      * when the partition is finished and ready to be processed.
-     * @note The callback must be passed as an rvalue (use std::move() for lvalues).
      *
      * @throw std::logic_error If a callback is already registered for this partition.
      */
@@ -170,7 +176,6 @@ class FinishCounter {
      * processed. If the partition is already finished and ready, the callback will be
      * called immediately. If the partition is not finished, the callback will be called
      * when the partition is finished and ready to be processed.
-     * @note The callback must be passed as an rvalue (use std::move() for lvalues).
      *
      * @throw std::logic_error If all partitions are already finished.
      */
@@ -346,7 +351,10 @@ class FinishCounter {
 
     std::unordered_map<FinishedCbId, FinishedCallback>
         finished_any_cbs_{};  ///< callbacks to notify when any partition is finished
-    FinishedCbId next_finished_cb_id_{0};
+    FinishedCbId next_finished_cb_id_{0};  ///< next callback ID to assign
+    size_t remaining_cb_regs_{
+        0
+    };  ///< number of callbacks that have not been executed yet.
 
     mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
 
