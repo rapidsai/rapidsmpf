@@ -113,9 +113,6 @@ rapids_find_package(
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
-if(RAPIDSMPF_HAVE_CUPTI)
-  include(../cmake/thirdparty/get_cupti.cmake)
-endif()
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
     UCX REQUIRED
@@ -205,7 +202,7 @@ target_include_directories(
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
-  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:CUPTI::cupti>
+  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
           $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
