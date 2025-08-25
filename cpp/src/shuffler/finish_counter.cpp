@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <utility>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/shuffler/finish_counter.hpp>
@@ -50,13 +51,18 @@ FinishCounter::CallbackGuard<PartID> FinishCounter::on_finished_with_guard(
 }
 
 FinishCounter::CallbackGuard<FinishCounter::FinishedCbId>
-FinishCounter::on_finished_any_with_guard(FinishedAnyCallback&& cb) {
+FinishCounter::on_finished_any_with_guard(FinishedCallback&& cb) {
     auto cb_id = on_finished_any(std::move(cb));
     return CallbackGuard<FinishedCbId>(*this, cb_id);
 }
 
-FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions)
-    : nranks_{nranks} {
+FinishCounter::FinishCounter(
+    Rank nranks,
+    std::vector<PartID> const& local_partitions,
+    std::function<void(PartID)>&& empty_partition_cb
+)
+    : nranks_{nranks},
+      empty_partition_cb_{std::forward<std::function<void(PartID)>>(empty_partition_cb)} {
     // Initially, none of the partitions are ready to wait on.
     goalposts_.reserve(local_partitions.size());
     for (auto pid : local_partitions) {
@@ -88,17 +94,22 @@ void FinishCounter::add_finished_chunk(PartID pid) {
         auto& extracted_p_info = nh.mapped();
         bool has_data = extracted_p_info.data_chunk_goal() != 0;
 
+        // Call empty partition callback if partition has no data
+        if (!has_data && empty_partition_cb_) {
+            empty_partition_cb_(pid);
+        }
+
         if (extracted_p_info.finished_cb != nullptr) {
             // FinishedCallback already registered for this pid. Notify and release it.
             lock.unlock();
-            extracted_p_info.finished_cb(has_data);
+            extracted_p_info.finished_cb(pid);
         } else if (!finished_any_cbs_.empty()) {
             // there are some FinishedAnyCallbacks available. Notify the one in FIFO
             // order.
             auto first_nh = finished_any_cbs_.extract(finished_any_cbs_.begin());
             lock.unlock();
 
-            first_nh.mapped()(pid, has_data);
+            first_nh.mapped()(pid);
         } else {
             // no callbacks registered. Add the pid to the ready_pids_ map. (still locked)
             RAPIDSMPF_EXPECTS(
@@ -109,14 +120,14 @@ void FinishCounter::add_finished_chunk(PartID pid) {
     }
 }
 
-FinishCounter::FinishedCbId FinishCounter::on_finished_any(FinishedAnyCallback&& cb) {
+FinishCounter::FinishedCbId FinishCounter::on_finished_any(FinishedCallback&& cb) {
     std::unique_lock lock(mutex_);
     // if there are any ready pids in the stash, notify the callback with the first pid
     // and remove it from the stash
     if (!ready_pids_stash_.empty()) {
         auto nh = ready_pids_stash_.extract(ready_pids_stash_.begin());
         lock.unlock();
-        cb(nh.key(), nh.mapped());
+        cb(nh.key());
         return invalid_cb_id;
     } else if (!goalposts_.empty()) {
         // no ready pids in the stash, but there are some partitions in the goalposts_ map
@@ -157,11 +168,10 @@ void FinishCounter::on_finished(PartID pid, FinishedCallback&& cb) {
         } else if (p_info.is_finished(nranks_)) {
             // partition is already finished (unlikely case), call the callback
             // immediately by extracting the partition from the goalposts_ map
-            auto extracted_nh = goalposts_.extract(it);
-            auto& extracted_p_info = extracted_nh.mapped();
+            std::ignore = goalposts_.extract(it);
             lock.unlock();
 
-            cb(extracted_p_info.data_chunk_goal() != 0);
+            cb(pid);
         } else {  // register the callback
             p_info.finished_cb = std::move(cb);
         }
@@ -170,7 +180,7 @@ void FinishCounter::on_finished(PartID pid, FinishedCallback&& cb) {
         auto nh = ready_pids_stash_.extract(it1);
         lock.unlock();
 
-        cb(nh.mapped());
+        cb(pid);
     } else {
         // pid is not in the goalposts_ map or the ready_pids_stash_ map. raise an error
         RAPIDSMPF_FAIL("Partition already finished " + std::to_string(pid));
@@ -222,88 +232,43 @@ void wait_for_if_timeout_else_wait(
 
 }  // namespace
 
-std::pair<PartID, bool> FinishCounter::wait_any(
-    std::optional<std::chrono::milliseconds> timeout
-) {
-    std::pair<PartID, bool> result{std::numeric_limits<PartID>::max(), false};
-    bool finished{false};
-    auto cb_guard = on_finished_any_with_guard(
-        [this, &result, &finished](PartID cb_run_pid, bool cb_run_has_data) {
+PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout) {
+    PartID result{std::numeric_limits<PartID>::max()};
+    auto cb_guard = on_finished_any_with_guard([this, &result](PartID cb_run_pid) {
+        {
             {
-                {
-                    std::lock_guard<std::mutex> lock(this->wait_mutex_);
-                    result.first = cb_run_pid;
-                    result.second = cb_run_has_data;
-                    finished = true;
-                }
-                this->wait_cv_.notify_one();
+                std::lock_guard<std::mutex> lock(this->wait_mutex_);
+                result = cb_run_pid;
             }
+            this->wait_cv_.notify_one();
         }
-    );
-
-    std::unique_lock<std::mutex> lock(this->wait_mutex_);
-    wait_for_if_timeout_else_wait(lock, this->wait_cv_, timeout, [&finished] {
-        return finished;
     });
 
-    RAPIDSMPF_EXPECTS(
-        result.first != std::numeric_limits<PartID>::max(),
-        "no partition finished",
-        std::runtime_error
-    );
+    std::unique_lock<std::mutex> lock(this->wait_mutex_);
+    wait_for_if_timeout_else_wait(lock, this->wait_cv_, timeout, [&result] {
+        return result != std::numeric_limits<PartID>::max();
+    });
 
     return result;
 }
 
-bool FinishCounter::wait_on(
+void FinishCounter::wait_on(
     PartID pid, std::optional<std::chrono::milliseconds> timeout
 ) {
-    bool has_data{false}, finished{false};
-    auto cb_guard =
-        on_finished_with_guard(pid, [this, &has_data, &finished](bool cb_run_has_data) {
-            {
-                std::lock_guard<std::mutex> lock(this->wait_mutex_);
-                has_data = cb_run_has_data;
-                finished = true;
-            }
-            this->wait_cv_.notify_one();
-        });
+    bool finished{false};
+    auto cb_guard = on_finished_with_guard(pid, [this, &finished](PartID /* cb_pid */) {
+        // TODO: in a debug build, check pid == cb_pid
+        {
+            std::lock_guard<std::mutex> lock(this->wait_mutex_);
+            finished = true;
+        }
+        this->wait_cv_.notify_one();
+    });
 
     std::unique_lock<std::mutex> lock(this->wait_mutex_);
     wait_for_if_timeout_else_wait(lock, this->wait_cv_, timeout, [&finished] {
         return finished;
     });
-    return has_data;
-}
-
-std::pair<std::vector<PartID>, std::vector<bool>> FinishCounter::wait_some(
-    std::optional<std::chrono::milliseconds> /* timeout */
-) {
-    // std::unique_lock<std::mutex> lock(mutex_);
-    // RAPIDSMPF_EXPECTS(
-    //     !goalposts_.empty(), "no more partitions to wait on", std::out_of_range
-    // );
-
-    // wait_for_if_timeout_else_wait(lock, cv_, timeout, [&]() {
-    //     return std::ranges::any_of(goalposts_, [nranks = nranks_](auto const& item) {
-    //         return item.second.is_finished(nranks);
-    //     });
-    // });
-
-    // std::vector<PartID> pids{};
-    // std::vector<bool> contains_data{};
-    // for (auto it = goalposts_.begin(); it != goalposts_.end();) {
-    //     auto& [pid, p_info] = *it;
-    //     if (p_info.is_finished(nranks_)) {
-    //         pids.push_back(pid);
-    //         contains_data.push_back(p_info.data_chunk_goal() != 0);
-    //         it = goalposts_.erase(it);
-    //     } else {
-    //         ++it;
-    //     }
-    // }
-    // return {std::move(pids), std::move(contains_data)};
-    return {};
 }
 
 std::string detail::FinishCounter::str() const {

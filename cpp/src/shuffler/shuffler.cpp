@@ -487,7 +487,13 @@ Shuffler::Shuffler(
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
       finish_counter_{
-          comm_->nranks(), local_partitions(comm_, total_num_partitions, partition_owner)
+          comm_->nranks(),
+          local_partitions(comm_, total_num_partitions, partition_owner),
+          [read_postbox = &ready_postbox_](PartID pid) {
+              // Ready postbox would not receive any empty partitions. Therefore, mark the
+              // partition as empty in the ready postbox.
+              read_postbox->mark_empty(pid);
+          }
       },
       statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
@@ -802,35 +808,12 @@ bool Shuffler::finished() const {
 
 PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    auto [pid, contains_data] = finish_counter_.wait_any(std::move(timeout));
-    if (!contains_data) {
-        // there will be no data chunks for this pid in the ready postbox. Therefore,
-        // insert an empty container for this partition.
-        ready_postbox_.mark_empty(pid);
-    }
-    return pid;
+    return finish_counter_.wait_any(std::move(timeout));
 }
 
 void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    if (!finish_counter_.wait_on(pid, std::move(timeout))) {
-        // there will be no data chunks for this pid in the ready postbox. Therefore,
-        // insert an empty container for this partition.
-        ready_postbox_.mark_empty(pid);
-    }
-}
-
-std::vector<PartID> Shuffler::wait_some(
-    std::optional<std::chrono::milliseconds> timeout
-) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-    auto [pids, contains_data] = finish_counter_.wait_some(std::move(timeout));
-    for (size_t i = 0; i < pids.size(); ++i) {
-        if (!contains_data[i]) {
-            ready_postbox_.mark_empty(pids[i]);
-        }
-    }
-    return std::move(pids);
+    finish_counter_.wait_on(pid, std::move(timeout));
 }
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {

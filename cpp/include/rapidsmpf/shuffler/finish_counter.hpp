@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
@@ -48,8 +49,14 @@ class FinishCounter {
      *
      * @param nranks The total number of ranks participating in the shuffle.
      * @param local_partitions The partition IDs local to the current rank.
+     * @param empty_partition_cb Callback to be called when a partition finishes with no
+     * data.
      */
-    FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions);
+    FinishCounter(
+        Rank nranks,
+        std::vector<PartID> const& local_partitions,
+        std::function<void(PartID)>&& empty_partition_cb = nullptr
+    );
 
     /**
      * @brief Move the goalpost for a specific rank and partition.
@@ -86,11 +93,17 @@ class FinishCounter {
     [[nodiscard]] bool all_finished() const;
 
     /**
-     * @brief Callback function type called when a specific partition is finished.
+     * @brief Callback function type called when any partition is finished.
      *
-     * The callback receives a boolean indicating whether the partition contains data.
+     * The callback receives the partition ID of the finished partition.
+     *
+     * @note when a callback is registered with `on_finished`, it will be identified by
+     * the provided partition ID. On contrary, when a callback is registered with
+     * `on_finished_any`, it will be identified by the FinishedCbId returned. So, if a
+     * callback needs to be preemptively canceled, corresponding identifier needs to be
+     * provided.
      */
-    using FinishedCallback = std::function<void(bool)>;
+    using FinishedCallback = std::function<void(PartID)>;
 
     /**
      * @brief Register a callback to be notified when a specific partition is finished.
@@ -99,7 +112,8 @@ class FinishCounter {
      * completes all its chunks. Only one callback can be registered per partition.
      *
      * @param pid The partition ID to monitor.
-     * @param cb The callback to invoke when the partition is finished (moved into storage).
+     * @param cb The callback to invoke when the partition is finished (moved into
+     * storage).
      *
      * @note The callback will be called when the partition is finished and ready to be
      * processed. If the partition is already finished and ready, the callback will be
@@ -122,14 +136,6 @@ class FinishCounter {
     void cancel_finished_callback(PartID pid);
 
     /**
-     * @brief Callback function type called when any partition is finished.
-     *
-     * The callback receives the partition ID and a boolean indicating whether
-     * the partition contains data.
-     */
-    using FinishedAnyCallback = std::function<void(PartID, bool)>;
-
-    /**
      * @brief Type used to identify callbacks registered with on_finished_any.
      */
     using FinishedCbId = size_t;
@@ -150,7 +156,8 @@ class FinishCounter {
      * completes. If a partition is already finished and ready, the callback may
      * be executed immediately.
      *
-     * @param cb The callback to invoke when any partition is finished (moved into storage).
+     * @param cb The callback to invoke when any partition is finished (moved into
+     * storage).
      *
      * @return A callback ID that can be used to cancel the callback, or invalid_cb_id
      *         if the callback was executed immediately.
@@ -163,7 +170,7 @@ class FinishCounter {
      *
      * @throw std::logic_error If all partitions are already finished.
      */
-    FinishedCbId on_finished_any(FinishedAnyCallback&& cb);
+    FinishedCbId on_finished_any(FinishedCallback&& cb);
 
     /**
      * @brief Cancel a previously registered callback for any partition completion.
@@ -198,7 +205,8 @@ class FinishCounter {
      * proper cleanup even in timeout or exception scenarios.
      *
      * @param pid The partition ID to monitor.
-     * @param cb The callback to invoke when the partition is finished (moved into the guard).
+     * @param cb The callback to invoke when the partition is finished (moved into the
+     * guard).
      *
      * @return A CallbackGuard that will automatically cleanup the callback.
      *
@@ -217,7 +225,8 @@ class FinishCounter {
      * returned guard will automatically cancel the callback when it goes out of scope,
      * ensuring proper cleanup even in timeout or exception scenarios.
      *
-     * @param cb The callback to invoke when any partition is finished (moved into the guard).
+     * @param cb The callback to invoke when any partition is finished (moved into the
+     * guard).
      *
      * @return A CallbackGuard that will automatically cleanup the callback.
      *
@@ -227,7 +236,7 @@ class FinishCounter {
      *       management. Discarding the return value will cause immediate cleanup.
      * @note The callback must be passed as an rvalue (use std::move() for lvalues).
      */
-    CallbackGuard<FinishedCbId> on_finished_any_with_guard(FinishedAnyCallback&& cb);
+    CallbackGuard<FinishedCbId> on_finished_any_with_guard(FinishedCallback&& cb);
 
     /**
      * @brief Returns the partition ID of a finished partition that hasn't been waited on
@@ -239,16 +248,13 @@ class FinishCounter {
      *
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @return The partition ID of a finished partition and a boolean indicating if the
-     * partition contains data.
+     * @return The partition ID of a finished partition that contains data.
      *
      * @throw std::out_of_range If all partitions have already been waited on.
      * std::runtime_error If timeout was set and no partitions have been finished by the
      * expiration.
      */
-    std::pair<PartID, bool> wait_any(
-        std::optional<std::chrono::milliseconds> timeout = {}
-    );
+    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Wait for a specific partition to be finished (blocking). Optionally a
@@ -256,41 +262,17 @@ class FinishCounter {
      *
      * This function blocks until the desired partition is finished and ready
      * to be processed. If the timeout is set and the requested partition is not available
-     * by the time, a std::runtime_error will be thrown.
+     * by the time, a std::runtime_error will be thrown. Empty partitions are handled
+     * by the empty_partition_cb and will not cause this method to return.
      *
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
-     *
-     * @return A boolean indicating if the partition contains data.
      *
      * @throw std::out_of_range If the desired partition is unavailable.
      * std::runtime_error If timeout was set and requested partition has been finished by
      * the expiration.
      */
-    bool wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
-
-    /**
-     * @brief Returns a vector of partition ids that are finished and haven't been waited
-     * on (blocking). Optionally a timeout (in ms) can be provided.
-     *
-     * This function blocks until at least one partition is finished and ready to be
-     * processed. If the timeout is set and no partition is available by the time, a
-     * std::runtime_error will be thrown.
-     *
-     * @param timeout Optional timeout (ms) to wait.
-     *
-     * @note It is the caller's responsibility to process all returned partition IDs.
-     *
-     * @return A pair of vectors of finished partitions and a boolean indicating if the
-     * partition contains data for each partition.
-     *
-     * @throw std::out_of_range If all partitions have been waited on.
-     * std::runtime_error If timeout was set and no partitions have been finished by the
-     * expiration.
-     */
-    std::pair<std::vector<PartID>, std::vector<bool>> wait_some(
-        std::optional<std::chrono::milliseconds> timeout = {}
-    );
+    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Returns a description of this instance.
@@ -301,18 +283,20 @@ class FinishCounter {
 
   private:
     Rank const nranks_;
+    std::function<void(PartID)> empty_partition_cb_;
 
     /// @brief Information about a local partition.
     struct PartitionInfo {
         Rank rank_count{0};  ///< number of ranks that have reported their chunk count.
         ChunkID chunk_goal{0};  ///< the goal of a partition. This keeps increasing until
                                 ///< all ranks have reported their chunk count.
-        ChunkID finished_chunk_count{0
+        ChunkID finished_chunk_count{
+            0
         };  ///< The finished chunk counter of each partition. The goal of a partition has
         ///< been reached when its counter equals the goalpost.
 
-        FinishedCallback finished_cb{
-        };  ///< callback to notify when the partition is finished
+        FinishedCallback
+            finished_cb{};  ///< callback to notify when the partition is finished
 
         constexpr PartitionInfo() = default;
 
@@ -353,11 +337,11 @@ class FinishCounter {
     // when all ranks has reported their goal that the goalpost is final.
     std::unordered_map<PartID, PartitionInfo> goalposts_;
 
-    std::unordered_map<PartID, bool> ready_pids_stash_{
-    };  ///< partition IDs of ready partitions
+    std::unordered_map<PartID, bool>
+        ready_pids_stash_{};  ///< partition IDs of ready partitions
 
-    std::unordered_map<FinishedCbId, FinishedAnyCallback> finished_any_cbs_{
-    };  ///< callbacks to notify when any partition is finished
+    std::unordered_map<FinishedCbId, FinishedCallback>
+        finished_any_cbs_{};  ///< callbacks to notify when any partition is finished
     FinishedCbId next_finished_cb_id_{0};
 
     mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
