@@ -331,9 +331,6 @@ class Shuffler {
     // process of being spilled by `Shuffler::spill`.
     mutable std::mutex ready_postbox_spilling_mutex_;
 
-    // std::mutex finish_cb_reg_mutex_;  // protects the finish callback registration
-    // FinishCallback finish_cb_;
-
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 
     std::shared_ptr<Statistics> statistics_;
