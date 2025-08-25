@@ -109,6 +109,11 @@ class FinishCounter {
      * @note `wait*` methods are also implemented using callbacks. Therefore, if a
      * callback is registered for a partition ID, it can not be waited upon, and vice
      * versa.
+     *
+     * @note caller needs to be careful when using both `on_finished` and
+     * `on_finished_any` callbacks together, because `on_finished_any` callback could
+     * receive a partition intended to be sent to an `on_finished` callback, before it
+     * gets registered. At that point, the FinishCounter will throw during registration.
      */
     using FinishedCallback = std::function<void(PartID)>;
 
@@ -196,8 +201,8 @@ class FinishCounter {
      *
      * CallbackGuard provides automatic cleanup of registered callbacks when the guard
      * goes out of scope. This ensures that callbacks are properly cleaned up even if
-     * exceptions occur or timeouts happen. The guard is non-copyable and non-movable
-     * to prevent double cleanup and ensure unique ownership.
+     * exceptions occur or timeouts happen. The guard is non-copyable and moving makes
+     * the moved guard invalid to prevent double cleanup.
      *
      * @tparam T Either PartID for partition-specific callbacks or FinishedCbId for
      *           any-partition callbacks.
@@ -352,12 +357,13 @@ class FinishCounter {
         Rank rank_count{0};  ///< number of ranks that have reported their chunk count.
         ChunkID chunk_goal{0};  ///< the goal of a partition. This keeps increasing until
                                 ///< all ranks have reported their chunk count.
-        ChunkID finished_chunk_count{0
+        ChunkID finished_chunk_count{
+            0
         };  ///< The finished chunk counter of each partition. The goal of a partition has
         ///< been reached when its counter equals the goalpost.
 
-        FinishedCallback finished_cb{
-        };  ///< callback to notify when the partition is finished
+        FinishedCallback
+            finished_cb{};  ///< callback to notify when the partition is finished
 
         constexpr PartitionInfo() = default;
 
@@ -398,13 +404,14 @@ class FinishCounter {
     // when all ranks has reported their goal that the goalpost is final.
     std::unordered_map<PartID, PartitionInfo> goalposts_;
 
-    std::unordered_map<PartID, bool> ready_pids_stash_{
-    };  ///< partition IDs of ready partitions
+    std::unordered_map<PartID, bool>
+        ready_pids_stash_{};  ///< partition IDs of ready partitions
 
-    std::unordered_map<FinishedCbId, FinishedCallback> finished_any_cbs_{
-    };  ///< callbacks to notify when any partition is finished
+    std::unordered_map<FinishedCbId, FinishedCallback>
+        finished_any_cbs_{};  ///< callbacks to notify when any partition is finished
     FinishedCbId next_finished_cb_id_{0};  ///< next callback ID to assign
-    int32_t remaining_cb_regs_{0
+    int32_t remaining_cb_regs_{
+        0
     };  ///< number of callbacks that have not been executed yet.
 
     mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
