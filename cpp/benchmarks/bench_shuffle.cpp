@@ -68,9 +68,11 @@ class ArgumentParser {
                            << "  -g         Use pre-partitioned (hash) input tables "
                               "(default: unset, hash partition during insertion)\n"
                            << "  -x         Enable memory profiler (default: disabled)\n"
+#ifdef RAPIDSMPF_HAVE_CUPTI
                            << "  -M <path>  Enable CUPTI memory monitoring and save CSV "
                               "files with given path prefix. For example, /tmp/test will "
                               "write files to /tmp/test_<rank>.csv (default: disabled)\n"
+#endif
                            << "  -h         Display this help message\n";
                         if (rank == 0) {
                             std::cerr << ss.str();
