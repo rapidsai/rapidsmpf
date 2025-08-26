@@ -29,7 +29,7 @@ class BaseChunk {
     constexpr BaseChunk(
         std::uint64_t sequence_number, rmm::cuda_stream_view stream
     ) noexcept
-        : _sequence_number{sequence_number}, _stream{stream} {}
+        : sequence_number_{sequence_number}, stream_{stream} {}
 
     /**
      * @brief Virtual destructor.
@@ -56,7 +56,7 @@ class BaseChunk {
      * @return The sequence number.
      */
     [[nodiscard]] constexpr std::uint64_t sequence_number() const noexcept {
-        return _sequence_number;
+        return sequence_number_;
     }
 
     /**
@@ -65,12 +65,12 @@ class BaseChunk {
      * @return The associated rmm::cuda_stream_view.
      */
     [[nodiscard]] rmm::cuda_stream_view stream() const noexcept {
-        return _stream;
+        return stream_;
     }
 
   private:
-    std::uint64_t _sequence_number;
-    rmm::cuda_stream_view _stream;
+    std::uint64_t sequence_number_;
+    rmm::cuda_stream_view stream_;
 };
 
 }  // namespace rapidsmpf::streaming

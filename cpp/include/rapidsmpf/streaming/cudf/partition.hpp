@@ -26,7 +26,7 @@ namespace rapidsmpf::streaming {
  * @brief Chunk of packed partitions identified by partition ID.
  *
  * Represents a single unit of work in a streaming pipeline where each entry
- * maps a `shuffler::PartID` to its packed (serialized) data payload.
+ * maps a `shuffler::PartID` to its packed (serialized) data.
  *
  * The sequence number from BaseChunk is used to preserve cross-chunk ordering.
  */
@@ -41,10 +41,10 @@ class PartitionMapChunk : public BaseChunk {
      */
     PartitionMapChunk(
         std::uint64_t sequence_number,
-        rmm::cuda_stream_view stream,
-        std::unordered_map<shuffler::PartID, PackedData>&& data
+        std::unordered_map<shuffler::PartID, PackedData>&& data,
+        rmm::cuda_stream_view stream
     )
-        : BaseChunk(sequence_number, stream), _data(std::move(data)) {}
+        : BaseChunk(sequence_number, stream), data_(std::move(data)) {}
 
     ~PartitionMapChunk() override = default;
 
@@ -67,11 +67,11 @@ class PartitionMapChunk : public BaseChunk {
      * @return Mutable reference to the partition → packed-data map.
      */
     [[nodiscard]] auto& data() noexcept {
-        return _data;
+        return data_;
     }
 
   private:
-    std::unordered_map<shuffler::PartID, PackedData> _data;
+    std::unordered_map<shuffler::PartID, PackedData> data_;
 };
 
 /**
@@ -91,10 +91,10 @@ class PartitionVectorChunk : public BaseChunk {
      */
     PartitionVectorChunk(
         std::uint64_t sequence_number,
-        rmm::cuda_stream_view stream,
-        std::vector<PackedData>&& data
+        std::vector<PackedData>&& data,
+        rmm::cuda_stream_view stream
     )
-        : BaseChunk(sequence_number, stream), _data(std::move(data)) {}
+        : BaseChunk(sequence_number, stream), data_(std::move(data)) {}
 
     ~PartitionVectorChunk() override = default;
 
@@ -117,11 +117,11 @@ class PartitionVectorChunk : public BaseChunk {
      * @return Packed data for each partition stored in a vector.
      */
     [[nodiscard]] auto& data() noexcept {
-        return _data;
+        return data_;
     }
 
   private:
-    std::vector<PackedData> _data;
+    std::vector<PackedData> data_;
 };
 
 namespace node {

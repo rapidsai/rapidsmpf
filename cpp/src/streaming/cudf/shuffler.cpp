@@ -90,7 +90,7 @@ Node shuffler(
         auto packed_chunks = shuffler.extract(finished_partition);
         co_await ch_out->send(
             std::make_unique<PartitionVectorChunk>(
-                sequence_number, stream, std::move(packed_chunks)
+                sequence_number, std::move(packed_chunks), stream
             )
         );
     }

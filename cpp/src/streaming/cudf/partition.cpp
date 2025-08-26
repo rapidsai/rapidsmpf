@@ -35,7 +35,6 @@ Node partition_and_pack(
 
         PartitionMapChunk partition_map{
             tbl.sequence_number(),
-            tbl.stream(),
             rapidsmpf::partition_and_pack(
                 tbl.table_view(),
                 std::move(columns_to_hash),
@@ -45,7 +44,8 @@ Node partition_and_pack(
                 table->stream(),
                 ctx->br(),
                 ctx->statistics()
-            )
+            ),
+            tbl.stream()
         };
 
         co_await ch_out->send(
