@@ -197,21 +197,22 @@ cdef class Statistics:
         Returns a context manager that tracks memory allocations and
         deallocations made through the associated memory resource while
         the context is active. The profiling data is aggregated under
-        the provided `name` and made available via `get_memory_records()`.
+        the provided ``name`` and made available via
+        :meth:`Statistics.get_memory_records()`.
 
         The statistics include:
-        - Total and peak memory allocated within the scope (`scoped`)
-        - Global peak memory usage during the scope (`global_peak`)
-        - Number of times the named scope was entered (`num_calls`)
+        - Total and peak memory allocated within the scope (``scoped``)
+        - Global peak memory usage during the scope (``global_peak``)
+        - Number of times the named scope was entered (``num_calls``)
 
-        If memory profiling is disabled or the memory resource is `None`,
+        If memory profiling is disabled or the memory resource is ``None``,
         this is a no-op.
 
         Parameters
         ----------
         name
             A unique identifier for the profiling scope. Used as a key
-            when accessing profiling data via `get_memory_records()`.
+            when accessing profiling data via :meth:`Statistics.get_memory_records`.
 
         Returns
         -------
@@ -280,7 +281,7 @@ cdef class MemoryRecorder:
     A context manager for recording memory allocation statistics within a code block.
 
     This class is not intended to be used directly by end users. Instead, use
-    `Statistics.memory_profiling(name)`, which creates and manages an instance
+    :meth:`Statistics.memory_profiling`, which creates and manages an instance
     of this class.
 
     Parameters
