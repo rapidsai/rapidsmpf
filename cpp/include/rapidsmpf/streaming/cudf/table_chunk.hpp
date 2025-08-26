@@ -16,6 +16,7 @@
 
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/streaming/core/base_chunk.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
@@ -32,7 +33,7 @@ namespace rapidsmpf::streaming {
  * TableChunks may be initially unavailable (e.g., if the data is packed or spilled),
  * and can be made available (i.e., materialized to device memory) on demand.
  */
-class TableChunk {
+class TableChunk : public BaseChunk {
   public:
     /**
      * @brief Construct a TableChunk from a device table.
@@ -92,7 +93,7 @@ class TableChunk {
         rmm::cuda_stream_view stream
     );
 
-    ~TableChunk() = default;
+    ~TableChunk() override = default;
 
     /// @brief TableChunk is moveable
     TableChunk(TableChunk&&) = default;
@@ -105,21 +106,6 @@ class TableChunk {
     TableChunk& operator=(TableChunk&&) = default;
     TableChunk(TableChunk const&) = delete;
     TableChunk& operator=(TableChunk const&) = delete;
-
-    /**
-     * @brief Returns the sequence number of this chunk.
-     * @return the sequence number.
-     */
-    [[nodiscard]] std::uint64_t sequence_number() const noexcept;
-
-    /**
-     * @brief Returns the CUDA stream on which this chunk was created.
-     *
-     * @return The CUDA stream view.
-     */
-    [[nodiscard]] rmm::cuda_stream_view stream() const noexcept {
-        return stream_;
-    }
 
     /**
      * @brief Number of bytes allocated for the data in the specified memory type.
@@ -190,8 +176,6 @@ class TableChunk {
     );
 
   private:
-    std::uint64_t sequence_number_;
-
     // At most, one of the following unique pointers is non-null. If all of them are null,
     // the TableChunk is a non-owning view.
     // TODO: use a variant and drop the unique pointers?
@@ -205,8 +189,6 @@ class TableChunk {
     // Zero initialized data allocation size (one for each memory type).
     std::array<std::size_t, MEMORY_TYPES.size()> data_alloc_size_ = {};
     std::size_t make_available_cost_;  // For now, only device memory cost is tracked.
-
-    rmm::cuda_stream_view stream_;
 };
 
 }  // namespace rapidsmpf::streaming
