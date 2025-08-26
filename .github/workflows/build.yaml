@@ -85,8 +85,8 @@ jobs:
       script: ci/build_wheel_librapidsmpf.sh
       package-name: librapidsmpf
       package-type: cpp
-      # build for every combination of arch on CUDA 12 and latest Python
-      matrix_filter: group_by([.ARCH]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
+      # build for every combination of arch and CUDA version, but only for the latest Python version
+      matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
   wheel-publish-librapidsmpf:
     needs: wheel-build-librapidsmpf
     secrets: inherit
@@ -133,5 +133,5 @@ jobs:
       script: ci/build_wheel_singlecomm.sh
       package-name: rapidsmpf-singlecomm
       package-type: python
-      # build for every combination of arch on CUDA 12 and latest Python
-      matrix_filter: group_by([.ARCH]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
+      # build for every combination of arch and CUDA version, but only for the latest Python version
+      matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
