@@ -50,6 +50,7 @@ cache:
       - ${{ compiler("c") }}
       - ${{ compiler("cxx") }}
       - ${{ compiler("cuda") }} =${{ cuda_version }}
+      - cuda-cupti-dev
       - cuda-version =${{ cuda_version }}
       - cmake ${{ cmake_version }}
       - ninja
@@ -57,7 +58,6 @@ cache:
     host:
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
-      - cuda-cupti-dev
       - librmm =${{ minor_version }}
       - libcudf =${{ minor_version }}
       - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
@@ -82,11 +82,11 @@ outputs:
     requirements:
       build:
         - cmake ${{ cmake_version }}
+        - cuda-cupti-dev
         - ${{ stdlib("c") }}
       host:
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
-        - cuda-cupti-dev
         - libcudf =${{ minor_version }}
         - openmpi >=5.0
         - ucxx ${{ ucxx_version }}
@@ -126,10 +126,10 @@ outputs:
     requirements:
       build:
         - cmake ${{ cmake_version }}
+        - cuda-cupti-dev
         - ${{ stdlib("c") }}
       host:
         - cuda-cudart-dev
-        - cuda-cupti-dev
         - cuda-version =${{ cuda_version }}
         - libcudf =${{ minor_version }}
         - librmm =${{ minor_version }}
