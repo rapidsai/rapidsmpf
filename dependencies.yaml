@@ -32,25 +32,24 @@ files:
     output: none
     includes:
       - cuda_version
+      - depends_on_librapidsmpf
+      - depends_on_librapidsmpf_tests
       - test_cpp
   test_python:
-    output: pyproject
-    pyproject_dir: python/rapidsmpf
-    extras:
-      table: project.optional-dependencies
-      key: test
+    output: none
     includes:
       - cuda_version
       - depends_on_cudf
       - depends_on_dask_cuda
       - depends_on_dask_cudf
       - depends_on_libcudf
+      - depends_on_librapidsmpf
       - depends_on_librmm
+      - depends_on_rapidsmpf
       - depends_on_ucxx
       - py_version
       - run_rapidsmpf
       - test_python
-      - test_rapidsmpf
   checks:
     output: none
     includes:
@@ -76,9 +75,10 @@ files:
       - depends_on_dask_cuda
       - depends_on_rmm
       - depends_on_ucxx
+      - depends_on_librapidsmpf
+      - depends_on_rapidsmpf
       - docs
       - py_version
-      - test_rapidsmpf
   py_build_librapidsmpf:
     output: pyproject
     pyproject_dir: python/librapidsmpf
@@ -94,6 +94,15 @@ files:
       key: requires
     includes:
       - build-universal
+      - depends_on_libcudf
+      - depends_on_librmm
+      - depends_on_libucxx
+  py_run_librapidsmpf:
+    output: pyproject
+    pyproject_dir: python/librapidsmpf
+    extras:
+      table: project
+    includes:
       - depends_on_libcudf
       - depends_on_librmm
       - depends_on_libucxx
@@ -129,15 +138,18 @@ files:
       - depends_on_rmm
       - depends_on_pylibcudf
       - depends_on_librapidsmpf
-  py_run_librapidsmpf:
+  py_test_rapidsmpf:
     output: pyproject
-    pyproject_dir: python/librapidsmpf
+    pyproject_dir: python/rapidsmpf
     extras:
-      table: project
+      table: project.optional-dependencies
+      key: test
     includes:
-      - depends_on_libcudf
-      - depends_on_librmm
-      - depends_on_libucxx
+      - depends_on_cudf
+      - depends_on_dask_cuda
+      - depends_on_dask_cudf
+      - depends_on_ucxx
+      - test_python
 channels:
   - rapidsai
   - rapidsai-nightly
@@ -273,11 +285,6 @@ dependencies:
           - valgrind
           - cuda-sanitizer-api
           - click >=8.1
-  test_rapidsmpf:
-    common:
-      - output_types: conda
-        packages:
-          - rapidsmpf==25.10.*,>=0.0.0a0
   test_python:
     common:
       - output_types: conda
@@ -345,6 +352,30 @@ dependencies:
             packages:
               - librapidsmpf-cu12==25.10.*,>=0.0.0a0
           - {matrix: null, packages: [*librapidsmpf_unsuffixed]}
+  depends_on_librapidsmpf_tests:
+    common:
+      - output_types: conda
+        packages:
+          - librapidsmpf-tests==25.10.*,>=0.0.0a0
+  depends_on_rapidsmpf:
+    common:
+      - output_types: conda
+        packages:
+          - &rapidsmpf_unsuffixed rapidsmpf==25.10.*,>=0.0.0a0
+      - output_types: requirements
+        packages:
+          # pip recognizes the index as a global option for the requirements.txt file
+          - --extra-index-url=https://pypi.nvidia.com
+          - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
+    specific:
+      - output_types: [requirements, pyproject]
+        matrices:
+          - matrix:
+              cuda: "12.*"
+              cuda_suffixed: "true"
+            packages:
+              - rapidsmpf-cu12==25.10.*,>=0.0.0a0
+          - {matrix: null, packages: [*rapidsmpf_unsuffixed]}
   clang_tidy:
     common:
       - output_types: conda
