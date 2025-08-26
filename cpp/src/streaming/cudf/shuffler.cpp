@@ -88,9 +88,11 @@ Node shuffler(
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any();
         auto packed_chunks = shuffler.extract(finished_partition);
-        co_await ch_out->send(std::make_unique<PartitionVectorChunk>(
-            sequence_number, std::move(packed_chunks)
-        ));
+        co_await ch_out->send(
+            std::make_unique<PartitionVectorChunk>(
+                sequence_number, std::move(packed_chunks)
+            )
+        );
     }
     co_await ch_out->drain(ctx->executor());
 }
@@ -162,9 +164,11 @@ Node shuffler_nb(
         if (result.has_value()) {
             auto finished_partition = result.value();
             auto packed_chunks = shuffler.extract(finished_partition);
-            co_await ch_out->send(std::make_unique<PartitionVectorChunk>(
-                sequence_number, std::move(packed_chunks)
-            ));
+            co_await ch_out->send(
+                std::make_unique<PartitionVectorChunk>(
+                    sequence_number, std::move(packed_chunks)
+                )
+            );
             remaining_partitions--;
         } else {
             // Handle queue shutdown gracefully
