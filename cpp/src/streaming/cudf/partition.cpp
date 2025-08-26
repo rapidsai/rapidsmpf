@@ -101,15 +101,18 @@ Node unpack_and_concat(
         }
         std::unique_ptr<cudf::table> ret = rapidsmpf::unpack_and_concat(
             rapidsmpf::unspill_partitions(
-                std::move(partition_vec->data), partition_vec->stream, ctx->br(), false
+                std::move(partition_vec->data()),
+                partition_vec->stream(),
+                ctx->br(),
+                false
             ),
-            partition_vec->stream,
+            partition_vec->stream(),
             ctx->br(),
             ctx->statistics()
         );
         co_await ch_out->send(
             std::make_unique<TableChunk>(
-                partition_vec->sequence_number, std::move(ret), partition_vec->stream
+                partition_vec->sequence_number(), std::move(ret), partition_vec->stream()
             )
         );
     }
