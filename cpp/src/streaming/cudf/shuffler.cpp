@@ -88,11 +88,9 @@ Node shuffler(
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any();
         auto packed_chunks = shuffler.extract(finished_partition);
-        co_await ch_out->send(
-            std::make_unique<PartitionVectorChunk>(
-                sequence_number, std::move(packed_chunks)
-            )
-        );
+        co_await ch_out->send(std::make_unique<PartitionVectorChunk>(
+            sequence_number, std::move(packed_chunks)
+        ));
     }
     co_await ch_out->drain(ctx->executor());
 }
@@ -121,6 +119,8 @@ Node shuffler_nb(
     );
     CudaEvent event;
 
+    // TODO: sequence number forces the consumer tasks to be scheduled after insertion.
+    // It's not strictly necessary.
     std::uint64_t sequence_number{0};
     while (true) {
         auto partition_map = co_await ch_in->receive_or(nullptr);
@@ -162,11 +162,9 @@ Node shuffler_nb(
         if (result.has_value()) {
             auto finished_partition = result.value();
             auto packed_chunks = shuffler.extract(finished_partition);
-            co_await ch_out->send(
-                std::make_unique<PartitionVectorChunk>(
-                    sequence_number, std::move(packed_chunks)
-                )
-            );
+            co_await ch_out->send(std::make_unique<PartitionVectorChunk>(
+                sequence_number, std::move(packed_chunks)
+            ));
             remaining_partitions--;
         } else {
             // Handle queue shutdown gracefully
