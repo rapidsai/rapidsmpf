@@ -48,4 +48,16 @@ Node shuffler(
 );
 
 
+/// @copydoc shuffler
+Node shuffler_nb(
+    std::shared_ptr<Context> ctx,
+    rmm::cuda_stream_view stream,
+    SharedChannel<PartitionMapChunk> ch_in,
+    SharedChannel<PartitionVectorChunk> ch_out,
+    OpID op_id,
+    shuffler::PartID total_num_partitions,
+    shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin
+);
+
+
 }  // namespace rapidsmpf::streaming::node

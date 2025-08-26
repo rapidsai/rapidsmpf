@@ -877,8 +877,6 @@ class FinishCounterMultithreadingTest
             rapidsmpf::shuffler::detail::FinishCounter::FinishedCallback&&>;
 
         auto [npartitions, nthreads] = GetParam();
-        auto comm = GlobalEnvironment->comm_;
-
         constexpr rapidsmpf::Rank nranks = 1;  // simulate a single rank
 
         // Create local partition IDs

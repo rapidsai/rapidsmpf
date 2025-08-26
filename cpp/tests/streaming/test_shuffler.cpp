@@ -99,3 +99,28 @@ TEST_F(StreamingShuffler, Basic) {
         sort_table(result_table->view()), sort_table(full_input_table.view())
     );
 }
+
+
+TEST_F(StreamingShuffler, callbacks) {
+    shuffler::PartID npartitions = 10;
+    uint32_t n_consumers = 3;
+    auto local_partitions = iota_vector<shuffler::PartID>(npartitions);
+
+    auto shuffler = std::make_shared<shuffler::Shuffler>(
+        ctx->comm(),
+        ctx->progress_thread(),
+        0,
+        npartitions,
+        stream,
+        ctx->br(),
+        ctx->statistics()
+    );
+
+
+    std::vector<Node> nodes;
+    auto ch1 = make_shared_channel<TableChunk>();
+
+    {
+        std::vector<std::unique_ptr<TableChunk>> inputs;
+    }
+}
