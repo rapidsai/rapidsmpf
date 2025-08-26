@@ -11,11 +11,12 @@ from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
 ctypedef cpp_RmmResourceAdaptor* cpp_RmmResourceAdaptor_ptr
 
 cdef class ScopedMemoryRecord:
+    """Scoped memory record for tracking memory usage statistics."""
     @staticmethod
     cdef ScopedMemoryRecord from_handle(cpp_ScopedMemoryRecord handle):
         """Create a new scoped memory record from a C++ handle
 
-        This is copying `handle`, which is a POD struct.
+        This is copying ``handle``, which is a POD struct.
 
         Parameters
         ----------
@@ -140,6 +141,7 @@ cdef class ScopedMemoryRecord:
 
 
 cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
+    """A RMM memory resource adaptor tailored to RapidsMPF."""
     def __cinit__(
         self,
         DeviceMemoryResource upstream_mr,
@@ -160,7 +162,7 @@ cdef class RmmResourceAdaptor(UpstreamResourceAdaptor):
 
         fallback_mr
             If specified, a fallback device memory resource used when allocation from
-            the primary resource throws `rmm::out_of_memory`.
+            the primary resource throws ``rmm::out_of_memory``.
         """
         self.fallback_mr = fallback_mr
 
