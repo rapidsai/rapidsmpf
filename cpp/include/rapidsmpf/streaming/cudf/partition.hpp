@@ -66,7 +66,7 @@ class PartitionMapChunk : public BaseChunk {
      *
      * @return Mutable reference to the partition → packed-data map.
      */
-    [[nodiscard]] auto& data() noexcept {
+    [[nodiscard]] constexpr auto& data() noexcept {
         return data_;
     }
 
