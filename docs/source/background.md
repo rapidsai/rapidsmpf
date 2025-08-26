@@ -5,21 +5,20 @@ This document provides some background into the `rapidsmpf` is designed to solve
 ## Architecture
 
 `rapidsmpf` uses a network of **nodes** to process data. Typically you'll have
-one `rapidsmpf` node per GPU. On a multi-GPU machine you might have multiple
-`rapidsmpf` nodes. Or you might bring together many single- or multi-GPU
-machines to form a large network of `rapidsmpf` nodes.
+one `rapidsmpf` node per GPU. You might form a rapidsmpf network on a single
+machine with multiple GPUs, or from multiple machines, each with one or more
+GPUs.
 
 All nodes in the network can pass messages and data to each other using an
 underlying communication transport like [UCX](https://openucx.org/) or MPI.
 Nodes work together to perform an operation like a Shuffle.
 
-At a high level, a shuffle operation involves
+At a high level, a shuffle operation involves these steps:
 
 1. Your program *inserts* **chunks** of data to the Shuffler on each node.
-2. The Shuffler on that node processes that chunk
-  - Chunks intended for another node are placed in an *Outgoing* message box
-  - Chunks intended for that node are immediately placed in a *Ready* message box
-3. Your program *extracts* chunks data from each node
+2. The Shuffler on that node processes that chunk by either sending it to
+   another node or keeping it for itself.
+3. Your program *extracts* chunks data from each node once it's ready
 
 There are more details around how chunks are assigned to nodes and how memory is
 managed. But at a high level, your program is responsible for inserting chunks
@@ -48,7 +47,7 @@ box and then working to send it (shown by the black lines connecting the nodes).
 
 Internally, the nodes involved in a shuffle continuously
 
-- receive new chunks from your program
+- receive newly inserted chunks from your program
 - move chunks to their intended nodes
 - receive chunks from other nodes
 - hand off *ready* chunks when your program extracts them
