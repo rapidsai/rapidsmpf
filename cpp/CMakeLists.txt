@@ -113,57 +113,6 @@ rapids_find_package(
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
-if(RAPIDSMPF_HAVE_CUPTI)
-  # Check if CUPTI target exists
-  if(TARGET CUDA::cupti)
-    message(STATUS "CUDA::cupti target found")
-    get_target_property(CUPTI_LOCATION CUDA::cupti IMPORTED_LOCATION)
-    get_target_property(CUPTI_INCLUDE_DIRS CUDA::cupti INTERFACE_INCLUDE_DIRECTORIES)
-    message(STATUS "CUPTI library location: ${CUPTI_LOCATION}")
-    message(STATUS "CUPTI include directories: ${CUPTI_INCLUDE_DIRS}")
-  else()
-    message(STATUS "CUDA::cupti target NOT found, checking common CUPTI locations")
-
-    # Check for CUPTI headers
-    find_path(
-      CUPTI_HEADER_CHECK cupti.h
-      HINTS ${CUDAToolkit_INCLUDE_DIRS}
-      PATHS ${CUDAToolkit_BIN_DIR}/../include
-            ${CUDAToolkit_BIN_DIR}/../extras/CUPTI/include
-            /usr/local/cuda/include
-            /usr/local/cuda/extras/CUPTI/include
-            ${CMAKE_PREFIX_PATH}/include
-    )
-
-    # Check for CUPTI library
-    find_library(
-      CUPTI_LIB_CHECK cupti
-      HINTS ${CUDAToolkit_LIBRARY_DIR}
-      PATHS ${CUDAToolkit_BIN_DIR}/../lib64 ${CUDAToolkit_BIN_DIR}/../extras/CUPTI/lib64
-            /usr/local/cuda/lib64 /usr/local/cuda/extras/CUPTI/lib64 ${CMAKE_PREFIX_PATH}/lib
-    )
-
-    # If we found both header and library, create the target manually
-    if(CUPTI_HEADER_CHECK AND CUPTI_LIB_CHECK)
-      message(STATUS "CUPTI files found, creating CUDA::cupti target")
-      add_library(CUDA::cupti SHARED IMPORTED)
-      set_target_properties(
-        CUDA::cupti PROPERTIES IMPORTED_LOCATION "${CUPTI_LIB_CHECK}" INTERFACE_INCLUDE_DIRECTORIES
-                                                                      "${CUPTI_HEADER_CHECK}"
-      )
-      message(STATUS "Created CUDA::cupti target:")
-      message(STATUS "  Library: ${CUPTI_LIB_CHECK}")
-      message(STATUS "  Include: ${CUPTI_HEADER_CHECK}")
-    else()
-      message(
-        FATAL_ERROR
-          "CUPTI target not found and search failed. CUPTI support was requested (BUILD_CUPTI_SUPPORT=ON) "
-          "but neither FindCUDAToolkit nor search could locate CUPTI. "
-          "Search results: Header=${CUPTI_HEADER_CHECK}, Library=${CUPTI_LIB_CHECK}"
-      )
-    endif()
-  endif()
-endif()
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
     UCX REQUIRED
