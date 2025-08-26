@@ -46,6 +46,21 @@ class PartitionMapChunk : public BaseChunk {
     )
         : BaseChunk(sequence_number, stream), _data(std::move(data)) {}
 
+    ~PartitionMapChunk() override = default;
+
+    /**
+     * @brief move constructor
+     */
+    PartitionMapChunk(PartitionMapChunk&&) noexcept = default;
+
+    /**
+     * @brief move assignment operator
+     * @return this chunk.
+     */
+    PartitionMapChunk& operator=(PartitionMapChunk&&) noexcept = default;
+    PartitionMapChunk(PartitionMapChunk const&) = delete;
+    PartitionMapChunk& operator=(PartitionMapChunk const&) = delete;
+
     /**
      * @brief Access the packed data for each partition.
      *
@@ -81,6 +96,21 @@ class PartitionVectorChunk : public BaseChunk {
     )
         : BaseChunk(sequence_number, stream), _data(std::move(data)) {}
 
+    ~PartitionVectorChunk() override = default;
+
+    /**
+     * @brief move constructor
+     */
+    PartitionVectorChunk(PartitionVectorChunk&&) noexcept = default;
+
+    /**
+     * @brief move assignment operator
+     * @return this chunk.
+     */
+    PartitionVectorChunk& operator=(PartitionVectorChunk&&) noexcept = default;
+    PartitionVectorChunk(PartitionVectorChunk const&) = delete;
+    PartitionVectorChunk& operator=(PartitionVectorChunk const&) = delete;
+
     /**
      * @brief Access the packed data.
      *
@@ -95,7 +125,6 @@ class PartitionVectorChunk : public BaseChunk {
 };
 
 namespace node {
-
 
 /**
  * @brief Asynchronously partitions input tables into multiple packed (serialized) tables.
@@ -156,7 +185,6 @@ Node unpack_and_concat(
     SharedChannel<PartitionMapChunk> ch_in,
     SharedChannel<TableChunk> ch_out
 );
-
 
 /**
  * @brief Asynchronously unpacks and concatenates vectors of packed partitions.
