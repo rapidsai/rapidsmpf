@@ -34,8 +34,9 @@ Node partition_and_pack(
         auto tbl = table->make_available(reservation, table->stream());
 
         PartitionMapChunk partition_map{
-            .sequence_number = tbl.sequence_number(),
-            .data = rapidsmpf::partition_and_pack(
+            tbl.sequence_number(),
+            tbl.stream(),
+            rapidsmpf::partition_and_pack(
                 tbl.table_view(),
                 std::move(columns_to_hash),
                 num_partitions,
@@ -44,8 +45,7 @@ Node partition_and_pack(
                 table->stream(),
                 ctx->br(),
                 ctx->statistics()
-            ),
-            .stream = tbl.stream()
+            )
         };
 
         co_await ch_out->send(
@@ -69,18 +69,18 @@ Node unpack_and_concat(
         }
         std::unique_ptr<cudf::table> ret = rapidsmpf::unpack_and_concat(
             rapidsmpf::unspill_partitions(
-                to_vector(std::move(partition_map->data)),
-                partition_map->stream,
+                to_vector(std::move(partition_map->data())),
+                partition_map->stream(),
                 ctx->br(),
                 false
             ),
-            partition_map->stream,
+            partition_map->stream(),
             ctx->br(),
             ctx->statistics()
         );
         co_await ch_out->send(
             std::make_unique<TableChunk>(
-                partition_map->sequence_number, std::move(ret), partition_map->stream
+                partition_map->sequence_number(), std::move(ret), partition_map->stream()
             )
         );
     }

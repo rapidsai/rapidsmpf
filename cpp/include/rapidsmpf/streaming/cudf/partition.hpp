@@ -14,6 +14,7 @@
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/streaming/core/base_chunk.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
@@ -24,26 +25,48 @@ namespace rapidsmpf::streaming {
 /**
  * @brief Chunk of packed partitions identified by partition ID.
  *
- * Represents a single unit of work in a streaming pipeline where each partition
- * is associated with a `PartID` and contains packed (serialized) data.
+ * Represents a single unit of work in a streaming pipeline where each entry
+ * maps a `shuffler::PartID` to its packed (serialized) data payload.
  *
- * The `sequence_number` is used to preserve ordering across chunks.
+ * The sequence number from BaseChunk is used to preserve cross-chunk ordering.
  */
-struct PartitionMapChunk {
+class PartitionMapChunk : public BaseChunk {
+  public:
     /**
-     * @brief Sequence number used to preserve chunk ordering.
+     * @brief Construct a chunk with a partition map.
+     *
+     * @param sequence_number Ordering identifier for the chunk.
+     * @param stream CUDA stream associated with buffers referenced by the packed data.
+     * @param data The partition → packed-data map to take ownership of (moved).
      */
-    std::uint64_t sequence_number;
+    PartitionMapChunk(
+        std::uint64_t sequence_number,
+        rmm::cuda_stream_view stream,
+        std::unordered_map<shuffler::PartID, PackedData>&& data
+    )
+        : BaseChunk(sequence_number, stream), _data(std::move(data)) {}
 
     /**
-     * @brief Packed data for each partition, keyed by partition ID.
+     * @brief Access the packed data for each partition.
+     *
+     * @return Mutable reference to the partition → packed-data map.
      */
-    std::unordered_map<shuffler::PartID, PackedData> data;
+    [[nodiscard]] auto& data() noexcept {
+        return _data;
+    }
 
     /**
-     * @brief The CUDA stream on which this chunk was created.
+     * @brief Access the packed data for each partition.
+     *
+     * @return Const reference to the partition → packed-data map.
      */
-    rmm::cuda_stream_view stream;
+    [[nodiscard]] auto const& data() const noexcept {
+        return _data;
+    }
+
+  private:
+    /// @brief Packed data for each partition, keyed by partition ID.
+    std::unordered_map<shuffler::PartID, PackedData> _data;
 };
 
 /**
@@ -51,8 +74,6 @@ struct PartitionMapChunk {
  *
  * Represents a single unit of work in a streaming pipeline where the partitions
  * are stored in a vector.
- *
- * The `sequence_number` is used to preserve ordering across chunks.
  */
 struct PartitionVectorChunk {
     /**
