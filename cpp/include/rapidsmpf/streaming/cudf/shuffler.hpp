@@ -47,7 +47,6 @@ Node shuffler(
     shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin
 );
 
-
 /// @copydoc shuffler
 Node shuffler_nb(
     std::shared_ptr<Context> ctx,

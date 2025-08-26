@@ -141,25 +141,40 @@ Node shuffler_nb(
     std::iota(finished.begin(), finished.end(), 0);
     shuffler.insert_finished(std::move(finished));
 
-    // while (!shuffler.finished()) {
-    //     auto finished_partition = shuffler.wait_any();
-    //     auto packed_chunks = shuffler.extract(finished_partition);
-    //     co_await ch_out->send(
-    //         std::make_unique<PartitionVectorChunk>(
-    //             sequence_number, std::move(packed_chunks)
-    //         )
-    //     );
-    // }
-    // co_await ch_out->drain(ctx->executor());
     auto local_partitions = shuffler::Shuffler::local_partitions(
         ctx->comm(), total_num_partitions, partition_owner
     );
-    for (auto pid : local_partitions) {
-        
 
-        auto packed_chunks = shuffler.extract(pid);
-        co_await ch_out->send(std::make_unique<PartitionVectorChunk>(sequence_number, std::move(packed_chunks)));
+    coro::queue<rapidsmpf::shuffler::PartID> finished_pids;
+
+    // Register callbacks for each local partition
+    for (auto pid : local_partitions) {
+        shuffler.on_finished(pid, [&](rapidsmpf::shuffler::PartID cb_pid) {
+            // Use sync_wait to make the async push operation synchronous
+            coro::sync_wait(finished_pids.push(cb_pid));
+        });
     }
+
+    // Process finished partitions
+    std::size_t remaining_partitions = local_partitions.size();
+    while (remaining_partitions > 0) {
+        auto result = co_await finished_pids.pop();
+        if (result.has_value()) {
+            auto finished_partition = result.value();
+            auto packed_chunks = shuffler.extract(finished_partition);
+            co_await ch_out->send(
+                std::make_unique<PartitionVectorChunk>(
+                    sequence_number, std::move(packed_chunks)
+                )
+            );
+            remaining_partitions--;
+        } else {
+            // Handle queue shutdown gracefully
+            break;
+        }
+    }
+
+    co_await ch_out->drain(ctx->executor());
 }
 
 }  // namespace rapidsmpf::streaming::node

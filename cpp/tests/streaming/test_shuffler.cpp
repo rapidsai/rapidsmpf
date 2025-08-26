@@ -25,102 +25,94 @@ using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
 namespace node = rapidsmpf::streaming::node;
 
-using StreamingShuffler = BaseStreamingFixture;
+class StreamingShuffler : public BaseStreamingFixture {
+  public:
+    void run_test(auto make_shuffler_node_fn) {
+        constexpr unsigned int num_partitions = 10;
+        constexpr unsigned int num_rows = 1000;
+        constexpr unsigned int num_chunks = 5;
+        constexpr unsigned int chunk_size = num_rows / num_chunks;
+        constexpr std::int64_t seed = 42;
+        constexpr cudf::hash_id hash_function = cudf::hash_id::HASH_MURMUR3;
+        constexpr OpID op_id = 0;
+
+        // Create the full input table and slice it into chunks.
+        cudf::table full_input_table = random_table_with_index(seed, num_rows, 0, 10);
+        std::vector<std::unique_ptr<TableChunk>> full_input_table_chunks;
+        for (unsigned int i = 0; i < num_chunks; ++i) {
+            full_input_table_chunks.emplace_back(
+                std::make_unique<TableChunk>(
+                    i,
+                    std::make_unique<cudf::table>(
+                        cudf::slice(
+                            full_input_table,
+                            {static_cast<cudf::size_type>(i * chunk_size),
+                             static_cast<cudf::size_type>((i + 1) * chunk_size)},
+                            stream
+                        )
+                            .at(0),
+                        stream,
+                        ctx->br()->device_mr()
+                    ),
+                    stream
+                )
+            );
+        }
+
+        // Create and run the streaming pipeline.
+        std::vector<std::unique_ptr<TableChunk>> output_chunks;
+        {
+            std::vector<Node> nodes;
+            auto ch1 = make_shared_channel<TableChunk>();
+            nodes.push_back(
+                node::push_chunks_to_channel<TableChunk>(
+                    ctx, ch1, std::move(full_input_table_chunks)
+                )
+            );
+
+            auto ch2 = make_shared_channel<PartitionMapChunk>();
+            nodes.push_back(
+                node::partition_and_pack(
+                    ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
+                )
+            );
+
+            auto ch3 = make_shared_channel<PartitionVectorChunk>();
+            nodes.push_back(make_shuffler_node_fn(
+                ctx,
+                stream,
+                ch2,
+                ch3,
+                op_id,
+                num_partitions,
+                shuffler::Shuffler::round_robin
+            ));
+
+            auto ch4 = make_shared_channel<TableChunk>();
+            nodes.push_back(node::unpack_and_concat(ctx, ch3, ch4));
+
+            nodes.push_back(node::pull_chunks_from_channel(ctx, ch4, output_chunks));
+
+            run_streaming_pipeline(std::move(nodes));
+        }
+
+        // Concat all output chunks to a single table.
+        std::vector<cudf::table_view> output_chunks_as_views;
+        for (auto const& chunk : output_chunks) {
+            output_chunks_as_views.push_back(chunk->table_view());
+        }
+        auto result_table = cudf::concatenate(output_chunks_as_views);
+
+        CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
+            sort_table(result_table->view()), sort_table(full_input_table.view())
+        );
+    }
+};
 
 TEST_F(StreamingShuffler, Basic) {
-    constexpr unsigned int num_partitions = 10;
-    constexpr unsigned int num_rows = 1000;
-    constexpr unsigned int num_chunks = 5;
-    constexpr unsigned int chunk_size = num_rows / num_chunks;
-    constexpr std::int64_t seed = 42;
-    constexpr cudf::hash_id hash_function = cudf::hash_id::HASH_MURMUR3;
-    constexpr OpID op_id = 0;
-
-    // Create the full input table and slice it into chunks.
-    cudf::table full_input_table = random_table_with_index(seed, num_rows, 0, 10);
-    std::vector<std::unique_ptr<TableChunk>> full_input_table_chunks;
-    for (unsigned int i = 0; i < num_chunks; ++i) {
-        full_input_table_chunks.emplace_back(
-            std::make_unique<TableChunk>(
-                i,
-                std::make_unique<cudf::table>(
-                    cudf::slice(
-                        full_input_table,
-                        {static_cast<cudf::size_type>(i * chunk_size),
-                         static_cast<cudf::size_type>((i + 1) * chunk_size)},
-                        stream
-                    )
-                        .at(0),
-                    stream,
-                    ctx->br()->device_mr()
-                ),
-                stream
-            )
-        );
-    }
-
-    // Create and run the streaming pipeline.
-    std::vector<std::unique_ptr<TableChunk>> output_chunks;
-    {
-        std::vector<Node> nodes;
-        auto ch1 = make_shared_channel<TableChunk>();
-        nodes.push_back(
-            node::push_chunks_to_channel<TableChunk>(
-                ctx, ch1, std::move(full_input_table_chunks)
-            )
-        );
-
-        auto ch2 = make_shared_channel<PartitionMapChunk>();
-        nodes.push_back(
-            node::partition_and_pack(
-                ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
-            )
-        );
-
-        auto ch3 = make_shared_channel<PartitionVectorChunk>();
-        nodes.push_back(node::shuffler(ctx, stream, ch2, ch3, op_id, num_partitions));
-
-        auto ch4 = make_shared_channel<TableChunk>();
-        nodes.push_back(node::unpack_and_concat(ctx, ch3, ch4));
-
-        nodes.push_back(node::pull_chunks_from_channel(ctx, ch4, output_chunks));
-
-        run_streaming_pipeline(std::move(nodes));
-    }
-
-    // Concat all output chunks to a single table.
-    std::vector<cudf::table_view> output_chunks_as_views;
-    for (auto const& chunk : output_chunks) {
-        output_chunks_as_views.push_back(chunk->table_view());
-    }
-    auto result_table = cudf::concatenate(output_chunks_as_views);
-
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
-        sort_table(result_table->view()), sort_table(full_input_table.view())
-    );
+    run_test(node::shuffler);
 }
 
-
 TEST_F(StreamingShuffler, callbacks) {
-    shuffler::PartID npartitions = 10;
-    uint32_t n_consumers = 3;
-    auto local_partitions = iota_vector<shuffler::PartID>(npartitions);
-
-    auto shuffler = std::make_shared<shuffler::Shuffler>(
-        ctx->comm(),
-        ctx->progress_thread(),
-        0,
-        npartitions,
-        stream,
-        ctx->br(),
-        ctx->statistics()
-    );
-
-
-    std::vector<Node> nodes;
-    auto ch1 = make_shared_channel<TableChunk>();
-
-    {
-        std::vector<std::unique_ptr<TableChunk>> inputs;
-    }
+    run_test(node::shuffler_nb);
 }
