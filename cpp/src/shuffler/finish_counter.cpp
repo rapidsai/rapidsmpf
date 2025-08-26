@@ -16,13 +16,13 @@ FinishCounter::CallbackGuard<PartID> FinishCounter::on_finished_with_guard(
     PartID pid, FinishedCallback&& cb
 ) {
     on_finished(pid, std::move(cb));
-    return CallbackGuard<PartID>(*this, pid);
+    return CallbackGuard<PartID>(this, pid);
 }
 
 FinishCounter::CallbackGuard<FinishCounter::FinishedCbId>
 FinishCounter::on_finished_any_with_guard(FinishedCallback&& cb) {
     auto cb_id = on_finished_any(std::move(cb));
-    return CallbackGuard<FinishedCbId>(*this, cb_id);
+    return CallbackGuard<FinishedCbId>(this, cb_id);
 }
 
 FinishCounter::FinishCounter(

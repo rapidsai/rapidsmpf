@@ -243,23 +243,22 @@ class FinishCounter {
         }
 
       private:
-        CallbackGuard(FinishCounter& fc, T cb_id)
-            : fc_(fc), cb_id_(cb_id), valid_(true) {}
+        CallbackGuard(FinishCounter* fc, T cb_id) : fc_(fc), cb_id_(cb_id) {}
 
         void cleanup() {
             if (valid_) {
                 if constexpr (std::same_as<T, FinishCounter::FinishedCbId>) {
-                    fc_.cancel_finished_any_callback(cb_id_);
+                    fc_->cancel_finished_any_callback(cb_id_);
                 } else {
-                    fc_.cancel_finished_callback(cb_id_);
+                    fc_->cancel_finished_callback(cb_id_);
                 }
                 valid_ = false;
             }
         }
 
-        FinishCounter& fc_;
+        FinishCounter* fc_;
         T cb_id_;
-        bool valid_;  ///< sentinel to prevent double cleanup
+        bool valid_{true};  ///< sentinel to prevent double cleanup
     };
 
     /**
