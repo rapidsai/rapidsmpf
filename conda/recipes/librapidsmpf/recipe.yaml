@@ -58,6 +58,7 @@ cache:
     host:
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
+      - cuda-cupti-dev
       - librmm =${{ minor_version }}
       - libcudf =${{ minor_version }}
       - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
@@ -87,6 +88,7 @@ outputs:
       host:
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
+        - cuda-cupti-dev
         - libcudf =${{ minor_version }}
         - openmpi >=5.0
         - ucxx ${{ ucxx_version }}
@@ -130,6 +132,7 @@ outputs:
         - ${{ stdlib("c") }}
       host:
         - cuda-cudart-dev
+        - cuda-cupti-dev
         - cuda-version =${{ cuda_version }}
         - libcudf =${{ minor_version }}
         - librmm =${{ minor_version }}
