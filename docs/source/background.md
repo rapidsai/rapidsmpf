@@ -18,7 +18,7 @@ At a high level, a shuffle operation involves these steps:
 1. Your program *inserts* **chunks** of data to the Shuffler on each node.
 2. The Shuffler on that node processes that chunk by either sending it to
    another node or keeping it for itself.
-3. Your program *extracts* chunks data from each node once it's ready
+3. Your program *extracts* chunks of data from each node once it's ready
 
 There are more details around how chunks are assigned to nodes and how memory is
 managed. But at a high level, your program is responsible for inserting chunks
