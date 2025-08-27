@@ -263,6 +263,20 @@ class BufferResource {
     }
 
     /**
+     * @brief Make a memory reservation or fail.
+     *
+     * @param size The size of the buffer to allocate.
+     * @param mem_type Optional memory type to allocate the buffer
+     * from. If not provided then all memory types will be tried in
+     * the order they appear in `MEMORY_TYPES`.
+     * @return A memory reservation.
+     * @throw std::runtime_error if no memory reservation was made.
+     */
+    [[nodiscard]] MemoryReservation reserve_or_fail(
+        size_t size, std::optional<MemoryType> mem_type = std::nullopt
+    );
+
+    /**
      * @brief Consume a portion of the reserved memory.
      *
      * Reduces the remaining size of the reserved memory by the specified amount.
@@ -502,21 +516,6 @@ class LimitAvailableMemory {
   private:
     RmmResourceAdaptor const* mr_;
 };
-
-/**
- * @brief Make a memory reservation or fail.
- *
- * @param br The buffer resource.
- * @param size The size of the buffer to allocate.
- * @param preferred_mem_type The preferred memory type to allocate the buffer from.
- * @return A memory reservation.
- * @throw std::runtime_error if no memory reservation was made.
- */
-MemoryReservation reserve_or_fail(
-    BufferResource* br,
-    size_t size,
-    std::optional<MemoryType> const& preferred_mem_type = std::nullopt
-);
 
 /**
  * @brief Acquire a memory reservation and execute a function, which will ensure
