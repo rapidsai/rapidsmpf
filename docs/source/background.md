@@ -34,12 +34,15 @@ serves.
 
 This diagram shows a network of with three nodes in the middle of a Shuffle operation.
 
-![](_static/rapidsmpf-shuffler-transparent-fs8.png)
+![A diagram showing a shuffle.](_static/rapidsmpf-shuffler-transparent-fs8.png)
 
 As your program inserts chunks of data into a node (see below), it's assigned to
 a particular node. In the diagram above, this is shown by color: each node has a
 particular color (the color of its circle) and each chunk with that color will
-be sent to its matching node.
+be sent to its matching node. So, for example, all of the green chunks will be
+extracted from the green ndoe in the top-left. Note that the number of different
+chunk types (colors in this diagram) is typically larger than the number of nodes,
+and so each node will be responsible for multiple output chunk types.
 
 The node you insert the chunk into is responsible for getting the data to the
 correct output node. It does so by placing the chunk in its **Outgoing** message
@@ -67,12 +70,13 @@ of a Shuffle Join implementation.
 This diagram shows multiple nodes working together to shuffle a large, logical
 Table.
 
-![](_static/rapidsmpf-shuffle-table-fs8.png)
+![A diagram showing how to use rapidsmpf to shuffle a table.](_static/rapidsmpf-shuffle-table-fs8.png)
 
 Suppose you have a large logical table that's split into a number of partitions.
 In the diagram above, this is shown as the different dashed boxes on the
 left-hand side. In this example, we've shown four partitions, but this could be
-much larger.
+much larger. Each row in the table is assigned to some group (by the hash of the
+columns you're joining on, say), which is shown by the color of the row.
 
 Your program **inserts** data to the shuffler. In this case, it's inserting
 chunks that represent pieces of the table that have been partitioned (by hash
@@ -81,12 +85,12 @@ nodes, typically the node running on the same GPU as the in-memory partition.
 
 Each node involved in the shuffle knows which nodes are responsible for which
 hash keys. For example, Node 1 knows that it's responsible for the purple
-chunks, needs to red chunks to Node 2, etc.
+chunks, needs to send red chunks to Node 2, etc.
 
-The chunks inserted by each partition possibly include data for each hash key.
-All the nodes involved in the shuffle move data to get all the chunks with a
-particular hash key on the correct node (spilling if needed). This is shown in
-the middle section.
+Each input partition possibly includes data for each hash key. All the nodes
+involved in the shuffle move data to get all the chunks with a particular hash
+key on the correct node (spilling if needed). This is shown in the middle
+section.
 
 As chunks become "ready" (see above), your program can **extract** chunks and
 process them as necessary. This is shown on the right-hand side.
