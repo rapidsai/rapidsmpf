@@ -452,7 +452,6 @@ def rmpf_worker_setup(
             else None
         ),
     )
-    rmm.mr.set_current_device_resource(mr)
 
     # Print statistics at worker shutdown.
     if options.get_or_default(f"{option_prefix}statistics", default_value=False):
