@@ -50,7 +50,8 @@ class FinishCounter {
      * @param nranks The total number of ranks participating in the shuffle.
      * @param local_partitions The partition IDs local to the current rank.
      * @param empty_partition_cb Callback to be called when a partition finishes with no
-     * data.
+     * data. This callback is invoked immediately when a partition is detected as empty
+     * (by the progress thread).
      */
     FinishCounter(
         Rank nranks,
@@ -93,216 +94,66 @@ class FinishCounter {
     [[nodiscard]] bool all_finished() const;
 
     /**
-     * @brief Callback function type called when any partition is finished.
+     * @brief Callback function type called when a partition is finished.
      *
      * The callback receives the partition ID of the finished partition.
      *
-     * @note when a callback is registered with `on_finished`, it will be identified by
-     * the provided partition ID. On contrary, when a callback is registered with
-     * `on_finished_any`, it will be identified by the FinishedCbId returned. So, if a
-     * callback needs to be preemptively canceled, corresponding identifier needs to be
-     * provided.
+     * @note When a callback is registered, it will be identified by the
+     * FinishedCbId returned. So, if a callback needs to be preemptively canceled,
+     * the corresponding identifier needs to be provided.
      *
-     * @note At most, one callback can be registered per partition. This means that there
-     * can be at most local_partitions.size() callback invocations.
+     * @note Every callback will be called `n_local_partitions_` times, as and when each
+     * partition is finished. If there were finished partitions before the callback was
+     * registered, the callback will be called for them immediately by the caller thread.
+     * Else, the callback will be called by the progress thread.
      *
-     * @note `wait*` methods are also implemented using callbacks. Therefore, if a
-     * callback is registered for a partition ID, it can not be waited upon, and vice
-     * versa.
-     *
-     * @note caller needs to be careful when using both `on_finished` and
-     * `on_finished_any` callbacks together, because `on_finished_any` callback could
-     * receive a partition intended to be sent to an `on_finished` callback, before it
-     * gets registered. At that point, the FinishCounter will throw during registration.
+     * @note Caller needs to be careful when using both callbacks and wait* methods
+     * together.
      */
     using FinishedCallback = std::function<void(PartID)>;
 
     /**
-     * @brief Register a callback to be notified when a specific partition is finished.
-     *
-     * This function registers a callback that will be called when the specified partition
-     * completes all its chunks. Only one callback can be registered per partition.
-     *
-     * @param pid The partition ID to monitor.
-     * @param cb The callback to invoke when the partition is finished (moved into
-     * storage).
-     *
-     * @note The callback will be called when the partition is finished and ready to be
-     * processed. If the partition is already finished and ready, the callback will be
-     * called immediately. If the partition is not finished, the callback will be called
-     * when the partition is finished and ready to be processed.
-     *
-     * @throw std::logic_error If a callback is already registered for this partition.
-     */
-    void on_finished(PartID pid, FinishedCallback&& cb);
-
-    /**
-     * @brief Cancel a previously registered callback for a specific partition.
-     *
-     * This function removes any callback registered for the specified partition.
-     * It is safe to call this even if no callback is registered.
-     *
-     * @param pid The partition ID whose callback should be cancelled.
-     */
-    void cancel_finished_callback(PartID pid);
-
-    /**
-     * @brief Type used to identify callbacks registered with on_finished_any.
+     * @brief Type used to identify callbacks.
      */
     using FinishedCbId = size_t;
-    static_assert(
-        !std::is_same_v<FinishedCbId, PartID>,
-        "FinishedCbId should not be the same as PartID"
-    );
+
+    /**
+     * @brief Register a callback to be notified when any partition is finished.
+     *
+     * This function registers a callback that will be called for all partitions that
+     * are finished or become finished. The callback receives partition IDs as they
+     * complete. If all partitions are already finished, the callback is executed
+     * immediately for all partitions and invalid_cb_id is returned.
+     *
+     * @param cb The callback to invoke when partitions are finished.
+     *
+     * @return A unique callback ID that can be used to cancel the callback, or
+     * invalid_cb_id if the callback was executed immediately.
+     *
+     * @note The callback will be called for all currently finished partitions
+     * immediately by the caller thread, then for any future partitions as they complete
+     * by the progress thread.
+     */
+    FinishedCbId register_finished_callback(FinishedCallback&& cb);
 
     /**
      * @brief Special constant indicating an invalid or immediately-executed callback ID.
      *
-     * This value is returned by on_finished_any when the callback is executed
-     * immediately (e.g., when a partition is already ready).
+     * This value is returned by register_finished_callback when the callback is executed
+     * immediately (e.g., when all partitions are already finished).
      */
     static constexpr FinishedCbId invalid_cb_id =
         std::numeric_limits<FinishedCbId>::max();
 
     /**
-     * @brief Register a callback to be notified when any partition is finished.
+     * @brief Cancel a previously registered callback.
      *
-     * This function registers a callback that will be called when any partition
-     * completes. If a partition is already finished and ready, the callback may
-     * be executed immediately.
+     * This function removes a callback registered with register_finished_callback using
+     * its ID. It is safe to call this with invalid_cb_id or an already-cancelled ID.
      *
-     * @param cb The callback to invoke when any partition is finished (moved into
-     * storage).
-     *
-     * @return A callback ID that can be used to cancel the callback, or invalid_cb_id
-     *         if the callback was executed immediately.
-     *
-     * @note The callback will be called when the partition is finished and ready to be
-     * processed. If the partition is already finished and ready, the callback will be
-     * called immediately. If the partition is not finished, the callback will be called
-     * when the partition is finished and ready to be processed.
-     *
-     * @throw std::logic_error If all partitions are already finished.
+     * @param callback_id callback ID.
      */
-    FinishedCbId on_finished_any(FinishedCallback&& cb);
-
-    /**
-     * @brief Cancel a previously registered callback for any partition completion.
-     *
-     * This function removes a callback registered with on_finished_any using its ID.
-     * It is safe to call this with invalid_cb_id or an already-cancelled ID.
-     *
-     * @param callback_id The ID returned by on_finished_any to cancel.
-     */
-    void cancel_finished_any_callback(FinishedCbId callback_id);
-
-    /**
-     * @brief RAII guard for automatic callback cleanup.
-     *
-     * CallbackGuard provides automatic cleanup of registered callbacks when the guard
-     * goes out of scope. This ensures that callbacks are properly cleaned up even if
-     * exceptions occur or timeouts happen. The guard is non-copyable and moving makes
-     * the moved guard invalid to prevent double cleanup.
-     *
-     * @tparam T Either PartID for partition-specific callbacks or FinishedCbId for
-     *           any-partition callbacks.
-     */
-    template <typename T>
-        requires std::same_as<T, PartID> || std::same_as<T, FinishedCbId>
-    struct CallbackGuard {
-        friend class FinishCounter;
-
-        // Delete copy operations to ensure unique ownership
-        CallbackGuard(const CallbackGuard&) = delete;
-        CallbackGuard& operator=(const CallbackGuard&) = delete;
-
-        /// @brief Custom move operations that handle ownership transfer
-        /// @param other The object to move from.
-        CallbackGuard(CallbackGuard&& other) noexcept
-            : fc_(other.fc_), cb_id_(other.cb_id_), valid_(other.valid_) {
-            other.valid_ = false;
-        }
-
-        /// @brief Custom move assignment operator that handles ownership transfer
-        /// @param other The object to move from.
-        /// @return A reference to the moved-to object.
-        CallbackGuard& operator=(CallbackGuard&& other) noexcept {
-            if (this != &other) {
-                cleanup();
-                fc_ = other.fc_;
-                cb_id_ = other.cb_id_;
-                valid_ = other.valid_;
-
-                other.valid_ = false;
-            }
-            return *this;
-        }
-
-        ~CallbackGuard() {
-            cleanup();
-        }
-
-      private:
-        CallbackGuard(FinishCounter* fc, T cb_id) : fc_(fc), cb_id_(cb_id) {}
-
-        void cleanup() {
-            if (valid_) {
-                if constexpr (std::same_as<T, FinishCounter::FinishedCbId>) {
-                    fc_->cancel_finished_any_callback(cb_id_);
-                } else {
-                    fc_->cancel_finished_callback(cb_id_);
-                }
-                valid_ = false;
-            }
-        }
-
-        FinishCounter* fc_;
-        T cb_id_;
-        bool valid_{true};  ///< sentinel to prevent double cleanup
-    };
-
-    /**
-     * @brief Register a callback for a specific partition with automatic cleanup.
-     *
-     * This function combines on_finished() with automatic cleanup via RAII. The returned
-     * guard will automatically cancel the callback when it goes out of scope, ensuring
-     * proper cleanup even in timeout or exception scenarios.
-     *
-     * @param pid The partition ID to monitor.
-     * @param cb The callback to invoke when the partition is finished (moved into the
-     * guard).
-     *
-     * @return A CallbackGuard that will automatically cleanup the callback.
-     *
-     * @throw std::logic_error If a callback is already registered for this partition or
-     * if all callbacks have been registered (cb will not be executed).
-     *
-     * @note The returned guard must be stored in a variable to ensure proper lifetime
-     *       management. Discarding the return value will cause immediate cleanup.
-     * @note The callback must be passed as an rvalue (use std::move() for lvalues).
-     */
-    CallbackGuard<PartID> on_finished_with_guard(PartID pid, FinishedCallback&& cb);
-
-    /**
-     * @brief Register a callback for any partition completion with automatic cleanup.
-     *
-     * This function combines on_finished_any() with automatic cleanup via RAII. The
-     * returned guard will automatically cancel the callback when it goes out of scope,
-     * ensuring proper cleanup even in timeout or exception scenarios.
-     *
-     * @param cb The callback to invoke when any partition is finished (moved into the
-     * guard).
-     *
-     * @return A CallbackGuard that will automatically cleanup the callback.
-     *
-     * @throw std::logic_error If all partitions are already finished or if all callbacks
-     * have been registered (cb will not be executed).
-     *
-     * @note The returned guard must be stored in a variable to ensure proper lifetime
-     *       management. Discarding the return value will cause immediate cleanup.
-     * @note The callback must be passed as an rvalue (use std::move() for lvalues).
-     */
-    CallbackGuard<FinishedCbId> on_finished_any_with_guard(FinishedCallback&& cb);
+    void remove_finished_callback(FinishedCbId callback_id);
 
     /**
      * @brief Returns the partition ID of a finished partition that hasn't been waited on
@@ -310,15 +161,16 @@ class FinishCounter {
      *
      * This function blocks until a partition is finished and ready to be processed. If
      * the timeout is set and a partition is not available by the time, a
-     * std::runtime_error will be thrown.
+     * std::runtime_error will be thrown. The partition is removed from the internal
+     * tracking after being returned.
      *
      * @param timeout Optional timeout (ms) to wait.
      *
      * @return The partition ID of a finished partition that contains data.
      *
      * @throw std::out_of_range If all partitions have already been waited on.
-     * std::runtime_error If timeout was set and no partitions have been finished by the
-     * expiration.
+     * @throw std::runtime_error If timeout was set and no partitions have been finished
+     * by the expiration.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -330,15 +182,36 @@ class FinishCounter {
      * to be processed. If the timeout is set and the requested partition is not available
      * by the time, a std::runtime_error will be thrown. Empty partitions are handled
      * by the empty_partition_cb and will not cause this method to return.
+     * The partition is removed from the internal tracking after being waited on.
      *
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
      * @throw std::out_of_range If the desired partition is unavailable.
-     * std::runtime_error If timeout was set and requested partition has been finished by
-     * the expiration.
+     * @throw std::runtime_error If timeout was set and requested partition has not been
+     * finished by the expiration.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
+
+    /**
+     * @brief Returns a vector of partition ids that are finished and haven't been waited
+     * on (blocking). Optionally a timeout (in ms) can be provided.
+     *
+     * This function blocks until at least one partition is finished and ready to be
+     * processed. The partitions are removed from the internal tracking after being waited
+     * on.
+     *
+     * @param timeout Optional timeout (ms) to wait.
+     *
+     * @note It is the caller's responsibility to process all returned partition IDs.
+     *
+     * @return A vector of finished partitions.
+     *
+     * @throw std::out_of_range If all partitions have been waited on.
+     * @throw std::runtime_error If timeout was set and no partitions have been finished
+     * by the expiration.
+     */
+    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Returns a description of this instance.
@@ -346,10 +219,11 @@ class FinishCounter {
      */
     [[nodiscard]] std::string str() const;
 
-
   private:
     Rank const nranks_;
-    std::function<void(PartID)> empty_partition_cb_;
+    size_t n_local_partitions_;
+    std::function<void(PartID)>
+        empty_partition_cb_;  ///< callback to notify when a partition is empty
 
     /// @brief Information about a local partition.
     struct PartitionInfo {
@@ -360,9 +234,6 @@ class FinishCounter {
             0
         };  ///< The finished chunk counter of each partition. The goal of a partition has
         ///< been reached when its counter equals the goalpost.
-
-        FinishedCallback
-            finished_cb{};  ///< callback to notify when the partition is finished
 
         constexpr PartitionInfo() = default;
 
@@ -403,20 +274,29 @@ class FinishCounter {
     // when all ranks has reported their goal that the goalpost is final.
     std::unordered_map<PartID, PartitionInfo> goalposts_;
 
-    std::unordered_map<PartID, bool>
-        ready_pids_stash_{};  ///< partition IDs of ready partitions
+    std::vector<PartID> finished_partitions_{};  ///< partition IDs of finished partitions
 
-    std::unordered_map<FinishedCbId, FinishedCallback>
-        finished_any_cbs_{};  ///< callbacks to notify when any partition is finished
+    std::mutex finished_cbs_mutex_;  ///< mutex to protect the finished_cbs_ and
+                                     ///< next_finished_cb_id_
+
+    struct CallbackContainer {
+        FinishedCbId cb_id;  ///< callback ID to identify the callback
+
+        // index of the next partition that the callback is interested in. cb will
+        // called from next_pid_idx to end of finished_partitions_
+        size_t next_pid_idx;
+
+        FinishedCallback cb;
+    };
+
+    std::vector<CallbackContainer> finished_cbs_{};
     FinishedCbId next_finished_cb_id_{0};  ///< next callback ID to assign
-    int32_t remaining_cb_regs_{
-        0
-    };  ///< number of callbacks that have not been executed yet.
 
+    // mutex to control access between the progress thread and the caller thread on shared
+    // resources
     mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
 
-    std::mutex wait_mutex_;  ///< mutex to protect the wait_cv_
-    std::condition_variable wait_cv_;  ///< condition variable to wait on by wait* methods
+    std::condition_variable cv_;  // signal wait* methods
 };
 
 }  // namespace detail

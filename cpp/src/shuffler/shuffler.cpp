@@ -811,39 +811,28 @@ PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
     return finish_counter_.wait_any(std::move(timeout));
 }
 
-void Shuffler::on_finished(PartID pid, FinishedCallback&& cb) {
-    finish_counter_.on_finished(pid, std::forward<FinishedCallback>(cb));
-}
-
-Shuffler::FinishedCbId Shuffler::on_finished_any(FinishedCallback&& cb) {
-    return finish_counter_.on_finished_any(std::forward<FinishedCallback>(cb));
-}
-
-void Shuffler::cancel_finished_callback(PartID pid) {
-    finish_counter_.cancel_finished_callback(pid);
-}
-
-void Shuffler::cancel_finished_any_callback(FinishedCbId callback_id) {
-    finish_counter_.cancel_finished_any_callback(callback_id);
-}
-
-Shuffler::CallbackGuard<PartID> Shuffler::on_finished_with_guard(
-    PartID pid, FinishedCallback&& cb
-) {
-    return finish_counter_.on_finished_with_guard(
-        pid, std::forward<FinishedCallback>(cb)
-    );
-}
-
-Shuffler::CallbackGuard<Shuffler::FinishedCbId> Shuffler::on_finished_any_with_guard(
-    FinishedCallback&& cb
-) {
-    return finish_counter_.on_finished_any_with_guard(std::forward<FinishedCallback>(cb));
-}
-
 void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     finish_counter_.wait_on(pid, std::move(timeout));
+}
+
+std::vector<PartID> Shuffler::wait_some(
+    std::optional<std::chrono::milliseconds> timeout
+) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+    return finish_counter_.wait_some(std::move(timeout));
+}
+
+Shuffler::FinishedCbId Shuffler::register_finished_callback(
+    FinishedCallback&& on_finished_cb
+) {
+    return finish_counter_.register_finished_callback(
+        std::forward<FinishedCallback>(on_finished_cb)
+    );
+}
+
+void Shuffler::remove_finished_callback(FinishedCbId callback_id) {
+    finish_counter_.remove_finished_callback(callback_id);
 }
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {

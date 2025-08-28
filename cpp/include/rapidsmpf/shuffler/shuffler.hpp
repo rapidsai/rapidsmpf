@@ -170,28 +170,11 @@ class Shuffler {
     /// @copydoc detail::FinishCounter::FinishedCbId
     using FinishedCbId = detail::FinishCounter::FinishedCbId;
 
-    /// @copydoc detail::FinishCounter::on_finished
-    void on_finished(PartID pid, FinishedCallback&& cb);
+    /// @copydoc detail::FinishCounter::register_finished_callback
+    FinishedCbId register_finished_callback(FinishedCallback&& cb);
 
-    /// @copydoc detail::FinishCounter::cancel_finished_callback
-    void cancel_finished_callback(PartID pid);
-
-    /// @copydoc detail::FinishCounter::on_finished_any
-    FinishedCbId on_finished_any(FinishedCallback&& cb);
-
-    /// @copydoc detail::FinishCounter::cancel_finished_any_callback
-    void cancel_finished_any_callback(FinishedCbId callback_id);
-
-    /// @copydoc detail::FinishCounter::CallbackGuard
-    template <typename T>
-        requires std::same_as<T, PartID> || std::same_as<T, FinishedCbId>
-    using CallbackGuard = detail::FinishCounter::CallbackGuard<T>;
-
-    /// @copydoc detail::FinishCounter::on_finished_with_guard
-    CallbackGuard<PartID> on_finished_with_guard(PartID pid, FinishedCallback&& cb);
-
-    /// @copydoc detail::FinishCounter::on_finished_any_with_guard
-    CallbackGuard<FinishedCbId> on_finished_any_with_guard(FinishedCallback&& cb);
+    /// @copydoc detail::FinishCounter::remove_finished_callback
+    void remove_finished_callback(FinishedCbId callback_id);
 
     /**
      * @brief Wait for any partition to finish.
@@ -213,6 +196,17 @@ class Shuffler {
      * @throw std::runtime_error if the timeout is reached.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
+
+    /**
+     * @brief Wait for at least one partition to finish.
+     *
+     * @param timeout Optional timeout (ms) to wait.
+     *
+     * @return The partition IDs of all finished partitions.
+     *
+     * @throw std::runtime_error if the timeout is reached.
+     */
+    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Spills data to device if necessary.
