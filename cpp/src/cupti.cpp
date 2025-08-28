@@ -66,15 +66,13 @@ CuptiMonitor::CuptiMonitor(
       last_used_mem_for_debug_(0) {}
 
 CuptiMonitor::~CuptiMonitor() {
-    if (monitoring_active_) {
-        stop_monitoring();
-    }
+    stop_monitoring();
 }
 
 void CuptiMonitor::start_monitoring() {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    if (monitoring_active_) {
+    if (monitoring_active_.load()) {
         return;  // Already monitoring
     }
 
@@ -98,13 +96,13 @@ void CuptiMonitor::start_monitoring() {
 }
 
 void CuptiMonitor::stop_monitoring() {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     if (!monitoring_active_.load()) {
         return;  // Already stopped
     }
 
     monitoring_active_.store(false);
-
-    std::lock_guard<std::mutex> lock(mutex_);
 
     // Stop periodic sampling thread
     if (sampling_thread_.joinable()) {
