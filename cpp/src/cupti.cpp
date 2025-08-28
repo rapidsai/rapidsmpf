@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <ranges>
 #include <sstream>
 #include <stdexcept>
 
@@ -286,11 +287,9 @@ std::string CuptiMonitor::get_callback_summary() const {
     std::vector<std::pair<CUpti_CallbackId, std::size_t>> sorted_callbacks(
         callback_counters_.begin(), callback_counters_.end()
     );
-    std::sort(
-        sorted_callbacks.begin(),
-        sorted_callbacks.end(),
-        [](auto const& a, auto const& b) { return a.second > b.second; }
-    );
+    std::ranges::sort(sorted_callbacks, std::greater{}, [](auto const& v) {
+        return v.second;
+    });
 
     for (auto const& [cbid, count] : sorted_callbacks) {
         ss << std::setw(35) << std::left << get_callback_name(cbid) << ": "
