@@ -74,10 +74,9 @@ void CuptiMonitor::start_monitoring() {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (monitoring_active_.load()) {
-        return;  // Already monitoring
+        return;
     }
 
-    // Initialize CUPTI
     CUptiResult cupti_err = subscribe();
     if (cupti_err != CUPTI_SUCCESS) {
         throw std::runtime_error(
@@ -90,7 +89,6 @@ void CuptiMonitor::start_monitoring() {
     // Capture initial memory state
     capture_memory_usage_impl();
 
-    // Start periodic sampling thread if enabled
     if (enable_periodic_sampling_) {
         sampling_thread_ = std::thread(&CuptiMonitor::periodic_memory_sampling, this);
     }
@@ -100,12 +98,11 @@ void CuptiMonitor::stop_monitoring() {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (!monitoring_active_.load()) {
-        return;  // Already stopped
+        return;
     }
 
     monitoring_active_.store(false);
 
-    // Stop periodic sampling thread
     if (sampling_thread_.joinable()) {
         sampling_thread_.join();
     }
@@ -379,7 +376,6 @@ void CuptiMonitor::unsubscribe() {
     cuptiUnsubscribe(cupti_subscriber_);
 }
 
-// Static wrapper function for CUPTI callback
 void CUPTIAPI CuptiMonitor::callback_wrapper(
     void* userdata, CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
 ) {
@@ -387,7 +383,6 @@ void CUPTIAPI CuptiMonitor::callback_wrapper(
     monitor->callback(domain, cbid, cbdata);
 }
 
-// Instance method for CUPTI callback
 void CuptiMonitor::callback(
     CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
 ) {
@@ -405,13 +400,11 @@ void CuptiMonitor::callback(
     }
 
     if (should_monitor && cbInfo->callbackSite == CUPTI_API_EXIT) {
-        // Increment callback counter (thread-safe)
         {
             std::lock_guard<std::mutex> lock(mutex_);
             callback_counters_[cbid]++;
         }
 
-        // Capture memory usage using the public method
         capture_memory_sample();
     }
 }
