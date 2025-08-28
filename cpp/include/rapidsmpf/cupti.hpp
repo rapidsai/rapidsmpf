@@ -164,21 +164,20 @@ class CuptiMonitor {
     std::string get_callback_summary() const;
 
   private:
+    // Boolean fields grouped together at the end to reduce padding
     bool enable_periodic_sampling_;
-    std::chrono::milliseconds sampling_interval_ms_;
-    mutable std::mutex mutex_;
     std::atomic<bool> monitoring_active_;
-    std::vector<MemoryDataPoint> memory_samples_;
-    std::thread sampling_thread_;
-    CUpti_SubscriberHandle cupti_subscriber_;
-
-    // Debug output settings
     bool debug_output_enabled_;
+
+    std::chrono::milliseconds sampling_interval_ms_;
     std::size_t debug_threshold_bytes_;
     std::size_t last_used_mem_for_debug_;
+    CUpti_SubscriberHandle cupti_subscriber_;
+    std::thread sampling_thread_;
 
-    // Callback counters
     std::unordered_map<CUpti_CallbackId, std::size_t> callback_counters_;
+    mutable std::mutex mutex_;
+    std::vector<MemoryDataPoint> memory_samples_;
 
     /**
      * @brief Internal method to capture memory usage without locking.

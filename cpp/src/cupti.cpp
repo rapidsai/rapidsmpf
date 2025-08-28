@@ -59,9 +59,9 @@ CuptiMonitor::CuptiMonitor(
     bool enable_periodic_sampling, std::chrono::milliseconds sampling_interval_ms
 )
     : enable_periodic_sampling_(enable_periodic_sampling),
-      sampling_interval_ms_(sampling_interval_ms),
       monitoring_active_(false),
       debug_output_enabled_(false),
+      sampling_interval_ms_(sampling_interval_ms),
       debug_threshold_bytes_(10 * 1024 * 1024),  // 10MB default
       last_used_mem_for_debug_(0) {}
 
