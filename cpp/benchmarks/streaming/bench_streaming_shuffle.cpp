@@ -193,14 +193,13 @@ class ArgumentParser {
 
 rapidsmpf::streaming::Node consumer(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    rapidsmpf::streaming::SharedChannel<rapidsmpf::streaming::TableChunk> ch_in
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in};
     co_await ctx->executor()->schedule();
     while (true) {
-        std::shared_ptr<rapidsmpf::streaming::TableChunk> table =
-            co_await ch_in->receive_or(nullptr);
-        if (table == nullptr) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
             break;
         }
     }
@@ -223,8 +222,7 @@ rapidsmpf::Duration run(
     // Create streaming pipeline.
     std::vector<rapidsmpf::streaming::Node> nodes;
     {
-        auto ch1 =
-            rapidsmpf::streaming::make_shared_channel<rapidsmpf::streaming::TableChunk>();
+        auto ch1 = std::make_shared<rapidsmpf::streaming::Channel>();
         nodes.push_back(
             rapidsmpf::streaming::node::random_table_generator(
                 ctx,
@@ -237,8 +235,7 @@ rapidsmpf::Duration run(
                 max_val
             )
         );
-        auto ch2 = rapidsmpf::streaming::make_shared_channel<
-            rapidsmpf::streaming::PartitionMapChunk>();
+        auto ch2 = std::make_shared<rapidsmpf::streaming::Channel>();
         nodes.push_back(
             rapidsmpf::streaming::node::partition_and_pack(
                 ctx,
@@ -250,15 +247,13 @@ rapidsmpf::Duration run(
                 seed
             )
         );
-        auto ch3 = rapidsmpf::streaming::make_shared_channel<
-            rapidsmpf::streaming::PartitionVectorChunk>();
+        auto ch3 = std::make_shared<rapidsmpf::streaming::Channel>();
         nodes.push_back(
             rapidsmpf::streaming::node::shuffler(
                 ctx, stream, ch2, ch3, op_id, total_num_partitions
             )
         );
-        auto ch4 =
-            rapidsmpf::streaming::make_shared_channel<rapidsmpf::streaming::TableChunk>();
+        auto ch4 = std::make_shared<rapidsmpf::streaming::Channel>();
         nodes.push_back(rapidsmpf::streaming::node::unpack_and_concat(ctx, ch3, ch4));
         nodes.push_back(consumer(ctx, ch4));
     }

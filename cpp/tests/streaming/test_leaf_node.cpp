@@ -38,11 +38,11 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
     }
 
     std::vector<Node> nodes;
-    auto ch1 = make_shared_channel<TableChunk>();
+    auto ch1 = std::make_shared<Channel>();
 
     // Note, we use a scope to check that coroutines keeps the input alive.
     {
-        std::vector<std::unique_ptr<TableChunk>> inputs;
+        std::vector<Message> inputs;
         for (int i = 0; i < num_chunks; ++i) {
             inputs.emplace_back(
                 std::make_unique<TableChunk>(
@@ -55,19 +55,19 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
             );
         }
 
-        nodes.push_back(
-            node::push_chunks_to_channel<TableChunk>(ctx, ch1, std::move(inputs))
-        );
+        nodes.push_back(node::push_to_channel(ctx, ch1, std::move(inputs)));
     }
 
-    std::vector<std::unique_ptr<TableChunk>> outputs;
-    nodes.push_back(node::pull_chunks_from_channel(ctx, ch1, outputs));
+    std::vector<Message> outputs;
+    nodes.push_back(node::pull_from_channel(ctx, ch1, outputs));
 
     run_streaming_pipeline(std::move(nodes));
 
     EXPECT_EQ(expects.size(), outputs.size());
     for (std::size_t i = 0; i < expects.size(); ++i) {
-        EXPECT_EQ(outputs[i]->sequence_number(), i);
-        CUDF_TEST_EXPECT_TABLES_EQUIVALENT(outputs[i]->table_view(), expects[i].view());
+        EXPECT_EQ(outputs[i].get<TableChunk>()->sequence_number(), i);
+        CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
+            outputs[i].get<TableChunk>()->table_view(), expects[i].view()
+        );
     }
 }
