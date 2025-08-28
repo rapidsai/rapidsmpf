@@ -62,10 +62,10 @@ class Message {
     }
 
     /**
-     * @brief Checks if the stored payload is std::shared_ptr<T>.
+     * @brief Compare the payload type.
      *
      * @tparam T Expected payload type.
-     * @return true if the payload is std::shared_ptr<T>, false otherwise.
+     * @return true if the payload is `T`, false otherwise.
      */
     template <typename T>
     [[nodiscard]] bool holds() const noexcept {
@@ -102,10 +102,10 @@ class Message {
 
   private:
     /**
-     * @brief Returns a shared handle to the payload.
+     * @brief Returns a shared pointer to the payload.
      *
      * @tparam T Payload type.
-     * @return std::shared_ptr<T> to the stored object.
+     * @return std::shared_ptr<T> to the payload.
      * @throws std::invalid_argument if empty or type mismatch.
      */
     template <typename T>
