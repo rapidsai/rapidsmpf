@@ -13,8 +13,6 @@
 #include <sstream>
 #include <stdexcept>
 
-#include <unistd.h>
-
 #include <rapidsmpf/cupti.hpp>
 
 namespace rapidsmpf {
@@ -348,7 +346,7 @@ void CuptiMonitor::capture_memory_usage_impl() {
 void CuptiMonitor::periodic_memory_sampling() {
     while (monitoring_active_.load()) {
         capture_memory_sample();
-        usleep(sampling_interval_ms_.count() * 1000);  // Convert ms to microseconds
+        std::this_thread::sleep_for(sampling_interval_ms_);
     }
 }
 
