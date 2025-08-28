@@ -74,12 +74,12 @@ Node shuffler(
         auto partition_map = msg.release<PartitionMapChunk>();
 
         // Make sure that the input chunk's stream is in sync with shuffler's stream.
-        sync_streams(stream, partition_map->stream, event);
+        sync_streams(stream, partition_map.stream, event);
 
-        shuffler.insert(std::move(partition_map->data));
+        shuffler.insert(std::move(partition_map.data));
 
         // Use the highest input sequence number as the output sequence number.
-        sequence_number = std::max(sequence_number, partition_map->sequence_number);
+        sequence_number = std::max(sequence_number, partition_map.sequence_number);
     }
 
     // Tell the shuffler that we have no more input data.

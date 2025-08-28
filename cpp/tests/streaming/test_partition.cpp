@@ -72,9 +72,9 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
     EXPECT_EQ(expects.size(), outputs.size());
     for (std::size_t i = 0; i < expects.size(); ++i) {
         auto output = outputs[i].release<TableChunk>();
-        EXPECT_EQ(output->sequence_number(), i);
+        EXPECT_EQ(output.sequence_number(), i);
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
-            sort_table(output->table_view()), sort_table(expects[i].view())
+            sort_table(output.table_view()), sort_table(expects[i].view())
         );
     }
 }

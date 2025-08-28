@@ -26,6 +26,7 @@ class Message {
 
     /**
      * @brief Construct from a unique pointer (promoted to shared_ptr).
+     *
      * @tparam T Payload type.
      * @param ptr Non-null unique pointer.
      * @throws std::invalid_argument if @p ptr is null.
@@ -53,6 +54,7 @@ class Message {
 
     /**
      * @brief Returns true when no payload is stored.
+     *
      * @return true if empty, false otherwise.
      */
     [[nodiscard]] bool empty() const noexcept {
@@ -61,6 +63,7 @@ class Message {
 
     /**
      * @brief Checks if the stored payload is std::shared_ptr<T>.
+     *
      * @tparam T Expected payload type.
      * @return true if the payload is std::shared_ptr<T>, false otherwise.
      */
@@ -70,29 +73,46 @@ class Message {
     }
 
     /**
-     * @brief Returns a shared handle to the payload.
+     * @brief Extracts the payload and resets the message.
+     *
      * @tparam T Payload type.
-     * @return std::shared_ptr<T> to the stored object.
+     * @return The payload.
      * @throws std::invalid_argument if empty or type mismatch.
      */
     template <typename T>
-    std::shared_ptr<T> get() {
-        RAPIDSMPF_EXPECTS(!empty(), "message is empty", std::invalid_argument);
-        RAPIDSMPF_EXPECTS(holds<T>(), "wrong message type", std::invalid_argument);
-        return std::any_cast<std::shared_ptr<T>>(data_);
+    T release() {
+        auto ret = get_ptr<T>();
+        reset();
+        return std::move(*ret);
     }
 
     /**
-     * @brief Extracts the payload and clears the message.
+     * @brief Reference to the payload.
+     *
+     * It is UB to access the reference after a call to `.release()`.
+     *
+     * @tparam T Payload type.
+     * @return Reference to the payload.
+     * @throws std::invalid_argument if empty or type mismatch.
+     */
+    template <typename T>
+    T const& get() {
+        return *get_ptr<T>();
+    }
+
+  private:
+    /**
+     * @brief Returns a shared handle to the payload.
+     *
      * @tparam T Payload type.
      * @return std::shared_ptr<T> to the stored object.
      * @throws std::invalid_argument if empty or type mismatch.
      */
     template <typename T>
-    std::shared_ptr<T> release() {
-        auto ret = get<T>();
-        data_.reset();
-        return ret;
+    std::shared_ptr<T> get_ptr() const {
+        RAPIDSMPF_EXPECTS(!empty(), "message is empty", std::invalid_argument);
+        RAPIDSMPF_EXPECTS(holds<T>(), "wrong message type", std::invalid_argument);
+        return std::any_cast<std::shared_ptr<T>>(data_);
     }
 
   private:
