@@ -109,7 +109,7 @@ class Message {
      * @throws std::invalid_argument if empty or type mismatch.
      */
     template <typename T>
-    std::shared_ptr<T> get_ptr() const {
+    [[nodiscard]] std::shared_ptr<T> get_ptr() const {
         RAPIDSMPF_EXPECTS(!empty(), "message is empty", std::invalid_argument);
         RAPIDSMPF_EXPECTS(holds<T>(), "wrong message type", std::invalid_argument);
         return std::any_cast<std::shared_ptr<T>>(data_);
