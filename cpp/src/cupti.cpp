@@ -353,7 +353,6 @@ void CuptiMonitor::periodic_memory_sampling() {
 CUptiResult CuptiMonitor::init_cupti() {
     CUptiResult cupti_err;
 
-    // Subscribe to runtime API callbacks
     cupti_err = cuptiSubscribe(&cupti_subscriber_, cupti_callback_wrapper, this);
     if (cupti_err != CUPTI_SUCCESS) {
         return cupti_err;
