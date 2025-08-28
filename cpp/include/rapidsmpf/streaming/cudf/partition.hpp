@@ -109,6 +109,23 @@ Node partition_and_pack(
     uint32_t seed
 );
 
+Node partition_and_pack2(
+    std::shared_ptr<Context> ctx,
+    std::shared_ptr<Channel2> ch_in,
+    std::shared_ptr<Channel2> ch_out,
+    std::vector<cudf::size_type> columns_to_hash,
+    int num_partitions,
+    cudf::hash_id hash_function,
+    uint32_t seed
+);
+
+
+Node unpack_and_concat2(
+    std::shared_ptr<Context> ctx,
+    std::shared_ptr<Channel2> ch_in,
+    std::shared_ptr<Channel2> ch_out
+);
+
 /**
  * @brief Asynchronously unpacks and concatenates packed partitions.
  *

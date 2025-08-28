@@ -6,13 +6,126 @@
 #pragma once
 
 
+#include <any>
+#include <memory>
 #include <optional>
+#include <typeinfo>
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 
 #include <coro/coro.hpp>
 
 namespace rapidsmpf::streaming {
+
+class Message {
+  public:
+    Message() = default;
+
+    template <typename T>
+    Message(std::unique_ptr<T> ptr) {
+        RAPIDSMPF_EXPECTS(ptr != nullptr, "nullptr not allowed", std::invalid_argument);
+        data_ = std::shared_ptr<T>(std::move(ptr));
+    }
+
+    // --- Move-only semantics ---
+    Message(Message&&) noexcept = default;
+    Message& operator=(Message&&) noexcept = default;
+    Message(Message const&) = delete;
+    Message& operator=(Message const&) = delete;
+
+    [[nodiscard]] bool empty() const noexcept {
+        return !data_.has_value();
+    }
+
+    template <typename T>
+    [[nodiscard]] bool holds() const noexcept {
+        return data_.type() == typeid(std::shared_ptr<T>);
+    }
+
+    template <typename T>
+    std::shared_ptr<T> release() {
+        RAPIDSMPF_EXPECTS(
+            !empty(), "cannot release an empty message", std::invalid_argument
+        );
+        RAPIDSMPF_EXPECTS(holds<T>(), "wrong message type", std::invalid_argument);
+        auto ret = std::any_cast<std::shared_ptr<T>>(data_);
+        data_.reset();
+        return ret;
+    }
+
+  private:
+    std::any data_;
+};
+
+class Channel2 {
+  public:
+    /**
+     * @brief Asynchronously send a value into the channel.
+     *
+     * Suspends if the channel is empty.
+     *
+     * @param value The value to send.
+     * @return A coroutine that evaluates to true if the value was successfully sent or
+     * false if the channel was shut down.
+     */
+    coro::task<bool> send(Message value) {
+        auto result = co_await rb_.produce(std::move(value));
+        co_return result == coro::ring_buffer_result::produce::produced;
+    }
+
+    /**
+     * @brief Asynchronously receive a value from the channel.
+     *
+     * Suspends if the channel is empty.
+     *
+     * @return A coroutine that evaluates to the message, which will be empty if the
+     * channel is shut down.
+     */
+    coro::task<Message> receive() {
+        auto msg = co_await rb_.consume();
+        if (msg.has_value()) {
+            co_return std::move(*msg);
+        } else {
+            co_return Message{};
+        }
+    }
+
+    /**
+     * @brief Drains all pending items from the channel and shuts it down.
+     *
+     * This is intended to ensure all remaining messages are processed.
+     *
+     * @param executor The thread pool used to process remaining messages.
+     * @return A coroutine representing the completion of the shutdown drain.
+     */
+    Node drain(std::shared_ptr<coro::thread_pool> executor) {
+        return rb_.shutdown_drain(std::move(executor));
+    }
+
+    /**
+     * @brief Immediately shuts down the channel.
+     *
+     * Any pending or future send/receive operations will complete with failure/nullopt.
+     *
+     * @return A coroutine representing the completion of the shutdown.
+     */
+    Node shutdown() {
+        return rb_.shutdown();
+    }
+
+    /**
+     * @brief Check whether the channel is empty.
+     *
+     * @return True if there are no messages in the buffer.
+     */
+    [[nodiscard]] bool empty() const noexcept {
+        return rb_.empty();
+    }
+
+  private:
+    coro::ring_buffer<Message, 1> rb_;
+};
 
 /**
  * @brief A coroutine-based channel for sending and receiving messages asynchronously.
