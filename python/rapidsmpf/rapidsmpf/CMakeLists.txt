@@ -18,3 +18,7 @@ add_subdirectory(buffer)
 add_subdirectory(communicator)
 add_subdirectory(integrations/cudf)
 add_subdirectory(utils)
+
+if(RAPIDSMPF_HAVE_STREAMING)
+  add_subdirectory(streaming)
+endif()
