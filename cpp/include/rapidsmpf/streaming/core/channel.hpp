@@ -89,7 +89,7 @@ class Message {
     /**
      * @brief Reference to the payload.
      *
-     * It is UB to access the reference after a call to `.release()`.
+     * It is UB to access the reference after the message has been reset.
      *
      * @tparam T Payload type.
      * @return Reference to the payload.
