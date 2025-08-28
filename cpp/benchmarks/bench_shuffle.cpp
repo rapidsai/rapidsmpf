@@ -133,10 +133,12 @@ class ArgumentParser {
                 case 'x':
                     enable_memory_profiler = true;
                     break;
+#ifdef RAPIDSMPF_HAVE_CUPTI
                 case 'M':
                     cupti_csv_prefix = std::string{optarg};
                     enable_cupti_monitoring = true;
                     break;
+#endif
                 case '?':
                     RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     break;
