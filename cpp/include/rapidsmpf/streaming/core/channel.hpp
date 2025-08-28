@@ -45,6 +45,13 @@ class Message {
     Message& operator=(Message const&) = delete;
 
     /**
+     * @brief Reset the message to empty.
+     */
+    void reset() noexcept {
+        return data_.reset();
+    }
+
+    /**
      * @brief Returns true when no payload is stored.
      * @return true if empty, false otherwise.
      */
