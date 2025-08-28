@@ -127,7 +127,7 @@ class Channel {
     /**
      * @brief Asynchronously send a message into the channel.
      *
-     * Suspends if the channel is empty.
+     * Suspends if the channel is full.
      *
      * @param msg The msg to send.
      * @return A coroutine that evaluates to true if the msg was successfully sent or

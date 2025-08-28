@@ -84,8 +84,8 @@ namespace node {
  * partitions, and sends them to an output channel.
  *
  * @param ctx The context to use.
- * @param ch_in Input channel providing TableChunk to partition.
- * @param ch_out Output channel to which PartitionMapChunk are sent.
+ * @param ch_in Input channel providing `TableChunk`s to partition.
+ * @param ch_out Output channel to which `PartitionMapChunk`s are sent.
  * @param columns_to_hash Indices of input columns to hash.
  * @param num_partitions The number of partitions to use.
  * @param hash_function Hash function to use for partitioning.
