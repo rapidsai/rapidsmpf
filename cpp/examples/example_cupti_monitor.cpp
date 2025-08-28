@@ -35,7 +35,7 @@ int main() {
         }
 
         // Create a CuptiMonitor with periodic sampling enabled (every 100ms)
-        rapidsmpf::CuptiMonitor monitor(true, 100);
+        rapidsmpf::CuptiMonitor monitor(true, std::chrono::milliseconds(100));
 
         // Enable debug output for memory changes > 5MB
         monitor.set_debug_output(true, 5);

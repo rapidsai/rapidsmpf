@@ -47,7 +47,8 @@ class CuptiMonitor {
      * @param sampling_interval_ms Interval between periodic samples in milliseconds.
      */
     explicit CuptiMonitor(
-        bool enable_periodic_sampling = false, std::size_t sampling_interval_ms = 100
+        bool enable_periodic_sampling = false,
+        std::chrono::milliseconds sampling_interval_ms = std::chrono::milliseconds(100)
     );
 
     /**
@@ -164,7 +165,7 @@ class CuptiMonitor {
 
   private:
     bool enable_periodic_sampling_;
-    std::size_t sampling_interval_ms_;
+    std::chrono::milliseconds sampling_interval_ms_;
     mutable std::mutex mutex_;
     std::atomic<bool> monitoring_active_;
     std::vector<MemoryDataPoint> memory_samples_;

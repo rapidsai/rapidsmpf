@@ -75,7 +75,9 @@ TEST_F(CuptiMonitorTest, BasicConstruction) {
     EXPECT_EQ(monitor1.get_sample_count(), 0);
 
     // Test construction with parameters
-    CuptiMonitor monitor2(true, 50);  // periodic sampling every 50ms
+    CuptiMonitor monitor2(
+        true, std::chrono::milliseconds(50)
+    );  // periodic sampling every 50ms
     EXPECT_FALSE(monitor2.is_monitoring());
     EXPECT_EQ(monitor2.get_sample_count(), 0);
 }
@@ -213,7 +215,7 @@ TEST_F(CuptiMonitorTest, ClearSamples) {
 
 TEST_F(CuptiMonitorTest, PeriodicSampling) {
     // Monitor with periodic sampling every 50ms
-    CuptiMonitor monitor(true, 50);
+    CuptiMonitor monitor(true, std::chrono::milliseconds(50));
     monitor.start_monitoring();
 
     auto initial_count = monitor.get_sample_count();
@@ -231,7 +233,7 @@ TEST_F(CuptiMonitorTest, PeriodicSampling) {
 
 TEST_F(CuptiMonitorTest, NoPeriodicSampling) {
     // Monitor without periodic sampling
-    CuptiMonitor monitor(false, 50);
+    CuptiMonitor monitor(false, std::chrono::milliseconds(50));
     monitor.start_monitoring();
 
     auto initial_count = monitor.get_sample_count();

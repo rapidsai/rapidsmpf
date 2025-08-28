@@ -58,7 +58,7 @@ bool is_monitored_callback(
 }
 
 CuptiMonitor::CuptiMonitor(
-    bool enable_periodic_sampling, std::size_t sampling_interval_ms
+    bool enable_periodic_sampling, std::chrono::milliseconds sampling_interval_ms
 )
     : enable_periodic_sampling_(enable_periodic_sampling),
       sampling_interval_ms_(sampling_interval_ms),
@@ -348,7 +348,7 @@ void CuptiMonitor::capture_memory_usage_impl() {
 void CuptiMonitor::periodic_memory_sampling() {
     while (monitoring_active_.load()) {
         capture_memory_sample();
-        usleep(sampling_interval_ms_ * 1000);  // Convert ms to microseconds
+        usleep(sampling_interval_ms_.count() * 1000);  // Convert ms to microseconds
     }
 }
 
