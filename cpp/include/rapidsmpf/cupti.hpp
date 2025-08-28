@@ -190,19 +190,19 @@ class CuptiMonitor {
     void periodic_memory_sampling();
 
     /**
-     * @brief Initialize CUPTI.
+     * @brief Subscribe to CUPTI callbacks.
      */
-    CUptiResult init_cupti();
+    CUptiResult subscribe();
 
     /**
-     * @brief Cleanup CUPTI.
+     * @brief Unsubscribe from CUPTI callbacks.
      */
-    void cleanup_cupti();
+    void unsubscribe();
 
     /**
      * @brief Static wrapper function for CUPTI callback.
      */
-    static void CUPTIAPI cupti_callback_wrapper(
+    static void CUPTIAPI callback_wrapper(
         void* userdata,
         CUpti_CallbackDomain domain,
         CUpti_CallbackId cbid,
@@ -212,9 +212,7 @@ class CuptiMonitor {
     /**
      * @brief Instance method for CUPTI callback.
      */
-    void cupti_callback(
-        CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
-    );
+    void callback(CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata);
 };
 
 }  // namespace rapidsmpf

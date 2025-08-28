@@ -45,8 +45,6 @@ constexpr std::array<CUpti_CallbackId, 17> MONITORED_DRIVER_CALLBACKS{{
     CUPTI_DRIVER_TRACE_CBID_cuMemFreeAsync_ptsz,
 }};
 
-}  // namespace
-
 // Helper function to check if a callback ID is in our monitored list
 template <std::size_t N>
 bool is_monitored_callback(
@@ -55,6 +53,8 @@ bool is_monitored_callback(
     return std::find(monitored_list.begin(), monitored_list.end(), cbid)
            != monitored_list.end();
 }
+
+}  // namespace
 
 CuptiMonitor::CuptiMonitor(
     bool enable_periodic_sampling, std::chrono::milliseconds sampling_interval_ms
@@ -78,7 +78,7 @@ void CuptiMonitor::start_monitoring() {
     }
 
     // Initialize CUPTI
-    CUptiResult cupti_err = init_cupti();
+    CUptiResult cupti_err = subscribe();
     if (cupti_err != CUPTI_SUCCESS) {
         throw std::runtime_error(
             "Failed to initialize CUPTI: " + std::to_string(cupti_err)
@@ -113,8 +113,7 @@ void CuptiMonitor::stop_monitoring() {
     // Capture final memory state
     capture_memory_usage_impl();
 
-    // Cleanup CUPTI
-    cleanup_cupti();
+    unsubscribe();
 }
 
 bool CuptiMonitor::is_monitoring() const noexcept {
@@ -347,10 +346,10 @@ void CuptiMonitor::periodic_memory_sampling() {
     }
 }
 
-CUptiResult CuptiMonitor::init_cupti() {
+CUptiResult CuptiMonitor::subscribe() {
     CUptiResult cupti_err;
 
-    cupti_err = cuptiSubscribe(&cupti_subscriber_, cupti_callback_wrapper, this);
+    cupti_err = cuptiSubscribe(&cupti_subscriber_, callback_wrapper, this);
     if (cupti_err != CUPTI_SUCCESS) {
         return cupti_err;
     }
@@ -376,20 +375,20 @@ CUptiResult CuptiMonitor::init_cupti() {
     return cupti_err;
 }
 
-void CuptiMonitor::cleanup_cupti() {
+void CuptiMonitor::unsubscribe() {
     cuptiUnsubscribe(cupti_subscriber_);
 }
 
 // Static wrapper function for CUPTI callback
-void CUPTIAPI CuptiMonitor::cupti_callback_wrapper(
+void CUPTIAPI CuptiMonitor::callback_wrapper(
     void* userdata, CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
 ) {
     auto* monitor = static_cast<CuptiMonitor*>(userdata);
-    monitor->cupti_callback(domain, cbid, cbdata);
+    monitor->callback(domain, cbid, cbdata);
 }
 
 // Instance method for CUPTI callback
-void CuptiMonitor::cupti_callback(
+void CuptiMonitor::callback(
     CUpti_CallbackDomain domain, CUpti_CallbackId cbid, void const* cbdata
 ) {
     if (!monitoring_active_.load())
