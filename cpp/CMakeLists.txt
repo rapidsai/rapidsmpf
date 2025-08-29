@@ -41,6 +41,7 @@ rapids_cmake_build_type(Release)
 option(BUILD_MPI_SUPPORT "Build RapidsMPF with MPI support" ON)
 option(BUILD_UCXX_SUPPORT "Build RapidsMPF with UCXX support" ON)
 option(BUILD_STREAMING_SUPPORT "Build RapidsMPF with streaming support" ON)
+option(BUILD_CUPTI_SUPPORT "Build RapidsMPF with CUPTI support" OFF)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
@@ -54,6 +55,7 @@ message(STATUS "librapidsmpf build options:")
 message(STATUS "  BUILD_MPI_SUPPORT       : ${BUILD_MPI_SUPPORT}")
 message(STATUS "  BUILD_UCXX_SUPPORT      : ${BUILD_UCXX_SUPPORT}")
 message(STATUS "  BUILD_STREAMING_SUPPORT : ${BUILD_STREAMING_SUPPORT}")
+message(STATUS "  BUILD_CUPTI_SUPPORT     : ${BUILD_CUPTI_SUPPORT}")
 message(STATUS "  BUILD_TESTS             : ${BUILD_TESTS}")
 message(STATUS "  BUILD_BENCHMARKS        : ${BUILD_BENCHMARKS}")
 message(STATUS "  BUILD_EXAMPLES          : ${BUILD_EXAMPLES}")
@@ -66,6 +68,7 @@ message(STATUS "  RAPIDSMPF_ASAN          : ${RAPIDSMPF_ASAN}")
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_HAVE_UCXX ${BUILD_UCXX_SUPPORT})
 set(RAPIDSMPF_HAVE_STREAMING ${BUILD_STREAMING_SUPPORT})
+set(RAPIDSMPF_HAVE_CUPTI ${BUILD_CUPTI_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
@@ -163,6 +166,10 @@ if(NOT RAPIDSMPF_HAVE_MPI)
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/mpi.cpp")
   list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx_utils.cpp")
 endif()
+# Without CUPTI support, remove the CUPTI monitor from the source list.
+if(NOT RAPIDSMPF_HAVE_CUPTI)
+  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/cupti.cpp")
+endif()
 
 add_library(rapidsmpf ${SOURCES} ${STREAMING_SOURCES})
 
@@ -195,7 +202,8 @@ target_include_directories(
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
-  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
 target_compile_definitions(
@@ -203,6 +211,7 @@ target_compile_definitions(
   PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>
          $<$<BOOL:${RAPIDSMPF_HAVE_UCXX}>:RAPIDSMPF_HAVE_UCXX>
          $<$<BOOL:${RAPIDSMPF_HAVE_STREAMING}>:RAPIDSMPF_HAVE_STREAMING>
+         $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:RAPIDSMPF_HAVE_CUPTI>
 )
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
@@ -311,7 +320,7 @@ RAPIDSMPF.
     ]=]
 )
 
-# Export `RAPIDSMPF_HAVE_MPI/UCXX/STREAMING` to let downstream projects know what is supported.
+# Export `RAPIDSMPF_HAVE_*` to let downstream projects know what is supported.
 string(
   JOIN
   "\n"
@@ -319,6 +328,7 @@ string(
   "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_MPI}]=])"
   "set(RAPIDSMPF_HAVE_UCXX [=[${RAPIDSMPF_HAVE_UCXX}]=])"
   "set(RAPIDSMPF_HAVE_STREAMING [=[${RAPIDSMPF_HAVE_STREAMING}]=])"
+  "set(RAPIDSMPF_HAVE_CUPTI [=[${RAPIDSMPF_HAVE_CUPTI}]=])"
 )
 
 rapids_export(

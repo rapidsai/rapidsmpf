@@ -215,9 +215,8 @@ std::unique_ptr<std::vector<uint8_t>> MPI::recv_from(Rank src, Tag tag) {
     return msg;
 }
 
-std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
-    std::vector<std::unique_ptr<Communicator::Future>>& future_vector
-) {
+std::pair<std::vector<std::unique_ptr<Communicator::Future>>, std::vector<std::size_t>>
+MPI::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vector) {
     if (future_vector.empty()) {
         return {};
     }
@@ -250,7 +249,10 @@ std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
         [&](std::size_t i) { return std::move(future_vector[i]); }
     );
     std::erase(future_vector, nullptr);
-    return completed;
+    return {
+        std::move(completed),
+        std::vector<std::size_t>(indices.begin(), indices.begin() + num_completed)
+    };
 }
 
 std::vector<std::size_t> MPI::test_some(
