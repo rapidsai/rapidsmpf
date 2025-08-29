@@ -85,8 +85,10 @@ Node shuffler(
     std::iota(finished.begin(), finished.end(), 0);
     shuffler.insert_finished(std::move(finished));
 
+    std::cout << "shuffler.finished(): " << shuffler.finished() << std::endl;
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any();
+        std::cout << "finished_partition: " << finished_partition << std::endl;
         auto packed_chunks = shuffler.extract(finished_partition);
         co_await ch_out->send(
             std::make_unique<PartitionVectorChunk>(
@@ -97,7 +99,7 @@ Node shuffler(
     co_await ch_out->drain(ctx->executor());
 }
 
-Node shuffler_nb(
+std::pair<Node, Node> shuffler_nb(
     std::shared_ptr<Context> ctx,
     rmm::cuda_stream_view stream,
     SharedChannel<PartitionMapChunk> ch_in,
@@ -106,10 +108,8 @@ Node shuffler_nb(
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner
 ) {
-    ShutdownAtExit c{ch_in, ch_out};
-    co_await ctx->executor()->schedule();
-
-    rapidsmpf::shuffler::Shuffler shuffler(
+    // make a shared_ptr to the shuffler so that it can be passed into multiple coroutines
+    auto shuffler = std::make_shared<rapidsmpf::shuffler::Shuffler>(
         ctx->comm(),
         ctx->progress_thread(),
         op_id,
@@ -117,66 +117,93 @@ Node shuffler_nb(
         stream,
         ctx->br(),
         ctx->statistics(),
-        partition_owner
-    );
-    CudaEvent event;
-
-    // TODO: sequence number forces the consumer tasks to be scheduled after insertion.
-    // It's not strictly necessary.
-    std::uint64_t sequence_number{0};
-    while (true) {
-        auto partition_map = co_await ch_in->receive_or(nullptr);
-        if (partition_map == nullptr) {
-            break;
-        }
-        // Make sure that the input chunk's stream is in sync with shuffler's stream.
-        sync_streams(stream, partition_map->stream, event);
-
-        shuffler.insert(std::move(partition_map->data));
-
-        // Use the highest input sequence number as the output sequence number.
-        sequence_number = std::max(sequence_number, partition_map->sequence_number);
-    }
-
-    // Tell the shuffler that we have no more input data.
-    std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
-    std::iota(finished.begin(), finished.end(), 0);
-    shuffler.insert_finished(std::move(finished));
-
-    auto local_partitions = shuffler::Shuffler::local_partitions(
-        ctx->comm(), total_num_partitions, partition_owner
+        std::move(partition_owner)
     );
 
-    coro::queue<rapidsmpf::shuffler::PartID> finished_pids;
+    // insert task: insert the partition map chunks into the shuffler
+    auto insert_task =
+        [](
+            auto shuffler, auto ctx, auto total_num_partitions, auto stream, auto ch_in
+        ) -> Node {
+        ShutdownAtExit c{ch_in};
+        co_await ctx->executor()->schedule();
+        CudaEvent event;
 
-    // Register callbacks for each local partition
-    for (auto pid : local_partitions) {
-        shuffler.on_finished(pid, [&](rapidsmpf::shuffler::PartID cb_pid) {
-            // Use sync_wait to make the async push operation synchronous
-            coro::sync_wait(finished_pids.push(cb_pid));
-        });
-    }
+        while (true) {
+            auto partition_map = co_await ch_in->receive_or(nullptr);
+            if (partition_map == nullptr) {
+                break;
+            }
+            // Make sure that the input chunk's stream is in sync with shuffler's stream.
+            sync_streams(stream, partition_map->stream, event);
 
-    // Process finished partitions
-    std::size_t remaining_partitions = local_partitions.size();
-    while (remaining_partitions > 0) {
-        auto result = co_await finished_pids.pop();
-        if (result.has_value()) {
-            auto finished_partition = result.value();
-            auto packed_chunks = shuffler.extract(finished_partition);
-            co_await ch_out->send(
-                std::make_unique<PartitionVectorChunk>(
-                    sequence_number, std::move(packed_chunks)
-                )
-            );
-            remaining_partitions--;
-        } else {
-            // Handle queue shutdown gracefully
-            break;
+            shuffler->insert(std::move(partition_map->data));
         }
-    }
 
-    co_await ch_out->drain(ctx->executor());
+        // Tell the shuffler that we have no more input data.
+        std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
+        std::iota(finished.begin(), finished.end(), 0);
+        shuffler->insert_finished(std::move(finished));
+        co_return;
+    };
+
+    // extract task: extract the packed chunks from the shuffler and send them to the
+    // output channel
+    auto extract_task = [](auto shuffler, auto ctx, auto ch_out) -> Node {
+        ShutdownAtExit c{ch_out};
+        co_await ctx->executor()->schedule();
+
+        coro::mutex mtx{};
+        coro::condition_variable cv{};
+        bool finished{false};
+
+        shuffler->register_finished_callback(
+            [shuffler, ctx, ch_out, &mtx, &cv, &finished](auto pid) {
+                // task to extract and send each finished partition
+                auto extract_and_send = [](auto shuffler,
+                                           auto ctx,
+                                           auto ch_out,
+                                           auto pid,
+                                           coro::condition_variable& cv,
+                                           coro::mutex& mtx,
+                                           bool& finished) -> Node {
+                    co_await ctx->executor()->schedule();
+                    auto packed_chunks = shuffler->extract(pid);
+                    co_await ch_out->send(
+                        std::make_unique<PartitionVectorChunk>(
+                            pid, std::move(packed_chunks)
+                        )
+                    );
+
+                    // signal that all partitions have been finished
+                    if (shuffler->finished()) {
+                        {
+                            auto lock = co_await mtx.scoped_lock();
+                            finished = true;
+                        }
+                        co_await cv.notify_one();
+                    }
+                };
+                // schedule a detached task to extract and send the packed chunks
+                ctx->executor()->spawn(
+                    extract_and_send(shuffler, ctx, ch_out, pid, cv, mtx, finished)
+                );
+            }
+        );
+
+        // wait for all partitions to be finished
+        {
+            auto lock = co_await mtx.scoped_lock();
+            co_await cv.wait(lock, [&finished]() { return finished; });
+        }
+
+        co_await ch_out->drain(ctx->executor());
+    };
+
+    return {
+        insert_task(shuffler, ctx, total_num_partitions, stream, std::move(ch_in)),
+        extract_task(std::move(shuffler), std::move(ctx), std::move(ch_out))
+    };
 }
 
 }  // namespace rapidsmpf::streaming::node

@@ -803,7 +803,7 @@ std::vector<detail::Chunk> Shuffler::extract_chunks(PartID pid) {
 }
 
 bool Shuffler::finished() const {
-    return finish_counter_.all_finished();
+    return finish_counter_.all_finished() && ready_postbox_.empty();
 }
 
 PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {

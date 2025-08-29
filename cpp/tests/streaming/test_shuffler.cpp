@@ -27,15 +27,15 @@ namespace node = rapidsmpf::streaming::node;
 
 class StreamingShuffler : public BaseStreamingFixture {
   public:
-    void run_test(auto make_shuffler_node_fn) {
-        constexpr unsigned int num_partitions = 10;
-        constexpr unsigned int num_rows = 1000;
-        constexpr unsigned int num_chunks = 5;
-        constexpr unsigned int chunk_size = num_rows / num_chunks;
-        constexpr std::int64_t seed = 42;
-        constexpr cudf::hash_id hash_function = cudf::hash_id::HASH_MURMUR3;
-        constexpr OpID op_id = 0;
+    const unsigned int num_partitions = 10;
+    const unsigned int num_rows = 1000;
+    const unsigned int num_chunks = 5;
+    const unsigned int chunk_size = num_rows / num_chunks;
+    const std::int64_t seed = 42;
+    const cudf::hash_id hash_function = cudf::hash_id::HASH_MURMUR3;
+    const OpID op_id = 0;
 
+    void run_test(auto make_shuffler_node_fn) {
         // Create the full input table and slice it into chunks.
         cudf::table full_input_table = random_table_with_index(seed, num_rows, 0, 10);
         std::vector<std::unique_ptr<TableChunk>> full_input_table_chunks;
@@ -78,15 +78,7 @@ class StreamingShuffler : public BaseStreamingFixture {
             );
 
             auto ch3 = make_shared_channel<PartitionVectorChunk>();
-            nodes.push_back(make_shuffler_node_fn(
-                ctx,
-                stream,
-                ch2,
-                ch3,
-                op_id,
-                num_partitions,
-                shuffler::Shuffler::round_robin
-            ));
+            make_shuffler_node_fn(ctx, ch2, ch3, nodes);
 
             auto ch4 = make_shared_channel<TableChunk>();
             nodes.push_back(node::unpack_and_concat(ctx, ch3, ch4));
@@ -110,9 +102,31 @@ class StreamingShuffler : public BaseStreamingFixture {
 };
 
 TEST_F(StreamingShuffler, Basic) {
-    run_test(node::shuffler);
+    run_test([&](auto ctx, auto ch_in, auto ch_out, std::vector<Node>& nodes) {
+        nodes.emplace_back(
+            node::shuffler(
+                std::move(ctx),
+                stream,
+                std::move(ch_in),
+                std::move(ch_out),
+                op_id,
+                num_partitions
+            )
+        );
+    });
 }
 
 TEST_F(StreamingShuffler, callbacks) {
-    run_test(node::shuffler_nb);
+    run_test([&](auto ctx, auto ch_in, auto ch_out, std::vector<Node>& nodes) {
+        auto [insert_node, extract_node] = node::shuffler_nb(
+            std::move(ctx),
+            stream,
+            std::move(ch_in),
+            std::move(ch_out),
+            op_id,
+            num_partitions
+        );
+        nodes.emplace_back(std::move(insert_node));
+        nodes.emplace_back(std::move(extract_node));
+    });
 }

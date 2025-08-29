@@ -883,6 +883,81 @@ TEST(FinishCounterTests, wait_some_with_timeout) {
 
 class FinishCounterMultithreadingTest
     : public ::testing::TestWithParam<std::tuple<rapidsmpf::shuffler::PartID, uint32_t>> {
+  protected:
+    std::chrono::milliseconds const timeout{500};
+    rapidsmpf::Rank const nranks{1};  // simulate a single rank
+
+    std::unique_ptr<rapidsmpf::shuffler::detail::FinishCounter> finish_counter;
+    std::vector<rapidsmpf::shuffler::PartID> local_partitions;
+    std::atomic<uint32_t> empty_pid_count;
+    rapidsmpf::shuffler::PartID npartitions;
+    uint32_t nthreads;
+
+    void SetUp() override {
+        std::tie(npartitions, nthreads) = GetParam();
+        local_partitions = iota_vector<rapidsmpf::shuffler::PartID>(npartitions);
+
+        finish_counter = std::make_unique<rapidsmpf::shuffler::detail::FinishCounter>(
+            nranks, local_partitions, [&](rapidsmpf::shuffler::PartID) {
+                empty_pid_count.fetch_add(1, std::memory_order_relaxed);
+            }
+        );
+    }
+
+    auto create_consumer_threads_with_cb() {
+        std::vector<std::future<void>> futures;
+        futures.reserve(nthreads);
+        for (uint32_t tid = 0; tid < nthreads; tid++) {
+            futures.emplace_back(std::async(std::launch::async, [&] {
+                std::mutex mtx;
+                std::condition_variable cv;
+                uint32_t n_callback_calls{0};
+
+                auto cb_id = finish_counter->register_finished_callback(
+                    [&](rapidsmpf::shuffler::PartID /*pid*/) {
+                        {
+                            std::lock_guard lock(mtx);
+                            n_callback_calls++;
+                        }
+                        cv.notify_one();  // notify this consumer thread
+                    }
+                );
+
+                std::unique_lock lock(mtx);
+                EXPECT_TRUE(cv.wait_for(lock, timeout, [&]() {
+                    return n_callback_calls == npartitions;
+                }));
+
+                finish_counter->remove_finished_callback(cb_id);
+
+                // each callback should have been called for all finished partitions
+                EXPECT_EQ(npartitions, n_callback_calls);
+            }));
+        }
+        return futures;
+    }
+
+    auto create_consumer_threads_with_wait(
+        std::atomic<uint32_t>& n_wait_calls, auto&& wait_fn
+    ) {
+        std::vector<std::future<void>> futures;
+        for (uint32_t tid = 0; tid < nthreads; tid++) {
+            futures.emplace_back(std::async(std::launch::async, [&, tid] {
+                for (uint32_t i = tid; i < npartitions; i += nthreads) {
+                    wait_fn(static_cast<rapidsmpf::shuffler::PartID>(i));
+                    n_wait_calls.fetch_add(1, std::memory_order_relaxed);
+                }
+            }));
+        }
+        return futures;
+    }
+
+    void produce_data() {
+        for (auto& pid : local_partitions) {
+            finish_counter->move_goalpost(pid, 1);  // move goalpost for finished msg
+            finish_counter->add_finished_chunk(pid);
+        }
+    }
 };
 
 // Parametrize on number of partitions and number of consumer threads
@@ -896,65 +971,50 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
-TEST_P(FinishCounterMultithreadingTest, register_finished_callback) {
-    auto [npartitions, nthreads] = GetParam();
-    constexpr rapidsmpf::Rank nranks = 1;  // simulate a single rank
+TEST_P(FinishCounterMultithreadingTest, consume_then_produce) {
+    auto futures = create_consumer_threads_with_cb();
+    produce_data();
+    EXPECT_EQ(npartitions, empty_pid_count);  // all partitions should be empty
+    EXPECT_TRUE(finish_counter->all_finished());
+}
 
-    // Create local partition IDs
-    auto local_partitions = iota_vector<rapidsmpf::shuffler::PartID>(npartitions);
+TEST_P(FinishCounterMultithreadingTest, produce_then_consume) {
+    produce_data();
+    auto futures = create_consumer_threads_with_cb();
+    EXPECT_EQ(npartitions, empty_pid_count);  // all partitions should be empty
+    EXPECT_TRUE(finish_counter->all_finished());
+}
 
-    std::atomic<uint32_t> empty_pid_count{0};
-    rapidsmpf::shuffler::detail::FinishCounter finish_counter(
-        nranks, local_partitions, [&](rapidsmpf::shuffler::PartID) {
-            empty_pid_count.fetch_add(1, std::memory_order_relaxed);
-        }
-    );
+TEST_P(FinishCounterMultithreadingTest, wait_any) {
+    produce_data();
 
-    std::chrono::milliseconds const timeout{100};
+    std::atomic<uint32_t> n_wait_calls{0};
+    auto futures = create_consumer_threads_with_wait(n_wait_calls, [&](auto /* pid */) {
+        finish_counter->wait_any(timeout);
+    });
 
-    // Create consumer threads
-    std::vector<std::future<void>> futures;
-    futures.reserve(nthreads);
-    for (uint32_t tid = 0; tid < nthreads; tid++) {
-        futures.emplace_back(std::async(std::launch::async, [&] {
-            std::mutex mtx;
-            std::condition_variable cv;
-            uint32_t n_callback_calls{0};
-
-            auto cb_id = finish_counter.register_finished_callback(
-                [&](rapidsmpf::shuffler::PartID /*pid*/) {
-                    {
-                        std::lock_guard lock(mtx);
-                        n_callback_calls++;
-                    }
-                    cv.notify_one();  // notify this consumer thread
-                }
-            );
-
-            std::unique_lock lock(mtx);
-            EXPECT_TRUE(cv.wait_for(lock, timeout, [&]() {
-                return n_callback_calls == npartitions;
-            }));
-
-            finish_counter.remove_finished_callback(cb_id);
-
-            // each callback should have been called for all finished partitions
-            EXPECT_EQ(npartitions, n_callback_calls);
-        }));
-    }
-
-    // Main caller thread: Insert data into the finish counter
-    for (auto& pid : local_partitions) {
-        finish_counter.move_goalpost(pid, 1);  // move goalpost for finished msg
-        finish_counter.add_finished_chunk(pid);
-    }
-
-    for (auto& future : futures) {  // Wait for consumer threads to complete
+    for (auto& future : futures) {
         EXPECT_NO_THROW(future.get());
     }
 
-    EXPECT_EQ(npartitions, empty_pid_count);  // all partitions should be empty
-    EXPECT_TRUE(finish_counter.all_finished());
+    EXPECT_EQ(npartitions, n_wait_calls);
+    EXPECT_TRUE(finish_counter->all_finished());
+}
+
+TEST_P(FinishCounterMultithreadingTest, wait_on) {
+    produce_data();
+
+    std::atomic<uint32_t> n_wait_calls{0};
+    auto futures = create_consumer_threads_with_wait(n_wait_calls, [&](auto pid) {
+        finish_counter->wait_on(pid, timeout);
+    });
+
+    for (auto& future : futures) {
+        EXPECT_NO_THROW(future.get());
+    }
+
+    EXPECT_EQ(npartitions, n_wait_calls);
+    EXPECT_TRUE(finish_counter->all_finished());
 }
 
 // TEST(FinishCounterTests, edge_cases) {

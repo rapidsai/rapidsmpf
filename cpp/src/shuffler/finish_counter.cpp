@@ -28,7 +28,7 @@ FinishCounter::FinishCounter(
 
 bool FinishCounter::all_finished() const {
     std::unique_lock<std::mutex> lock(mutex_);
-    return goalposts_.empty() || finished_partitions_.size() == n_local_partitions_;
+    return finished_partitions_.size() == n_local_partitions_;
 }
 
 void FinishCounter::move_goalpost(PartID pid, ChunkID nchunks) {
@@ -71,7 +71,10 @@ FinishCounter::FinishedCbId FinishCounter::register_finished_callback(
 ) {
     std::unique_lock lock(mutex_);
 
-    if (finished_partitions_.size() == n_local_partitions_)
+    // capture the current size and iterate over existing elements without copying.
+    auto curr_finished_pid_count = finished_partitions_.size();
+
+    if (curr_finished_pid_count == n_local_partitions_)
     {  // all partitions have already finished. So, finished_partitions_ vector would not
         // be updated further.
         lock.unlock();
@@ -81,19 +84,24 @@ FinishCounter::FinishedCbId FinishCounter::register_finished_callback(
         return invalid_cb_id;  // no need to register the callback
     }
 
-    // take a copy of the finished_partitions_ vector and unlock the mutex
-    std::vector<PartID> finished_partitions = finished_partitions_;
-    auto curr_finished_pid_count = finished_partitions_.size();
+    // while holding the lock, register the callback, so that any finished partitions will
+    // be passed to the callback from the progress thread.
+    auto cb_id = invalid_cb_id;
+    FinishedCallback cb_copy = cb;
+    {
+        std::lock_guard cb_container_lock(finished_cbs_mutex_);
+        cb_id = next_finished_cb_id_++;
+        finished_cbs_.emplace_back(cb_id, curr_finished_pid_count, std::move(cb));
+    }
     lock.unlock();
 
-    // call the callback for each partition that has finished
-    for (auto& pid : finished_partitions) {
-        cb(pid);
+    // call the callback for each partition that has finished so far
+    // Note: finished_partitions_ is already reserved and can only grow, never shrink or
+    // reorder, so it's safe to iterate up to curr_finished_pid_count even after unlocking
+    for (size_t i = 0; i < curr_finished_pid_count; ++i) {
+        cb_copy(finished_partitions_[i]);
     }
 
-    std::lock_guard cb_container_lock(finished_cbs_mutex_);
-    auto cb_id = next_finished_cb_id_++;
-    finished_cbs_.emplace_back(cb_id, curr_finished_pid_count, std::move(cb));
     return cb_id;
 }
 
