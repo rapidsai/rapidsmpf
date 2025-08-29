@@ -152,7 +152,7 @@ add_library(
   rapidsmpf
   src/config.cpp
   src/cuda_event.cpp
-  src/plausible_thread_loop.cpp
+  src/pausable_thread_loop.cpp
   src/progress_thread.cpp
   src/rmm_resource_adaptor.cpp
   src/statistics.cpp
