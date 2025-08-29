@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # =================================================================================
 
-add_library(bench_utils OBJECT utils/random_data.cu)
+add_library(bench_utils INTERFACE)
+target_sources(bench_utils INTERFACE utils/random_data.cu)
 add_executable(bench_shuffle "bench_shuffle.cpp")
 set_target_properties(
   bench_shuffle
