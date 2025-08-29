@@ -164,7 +164,7 @@ class CuptiMonitor {
     std::string get_callback_summary() const;
 
   private:
-    // Boolean fields grouped together at the end to reduce padding
+    // Boolean fields grouped together at beginning to reduce padding
     bool enable_periodic_sampling_;
     std::atomic<bool> monitoring_active_;
     bool debug_output_enabled_;
