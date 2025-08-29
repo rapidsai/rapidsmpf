@@ -464,11 +464,11 @@ class Communicator {
      *
      * @param[inout] future_vector Vector of Future objects. Completed
      * futures are erased from the vector.
-     * @return Completed futures.
+     * @return Pair of completed futures and indices of input vector that were completed.
      */
-    [[nodiscard]] virtual std::vector<std::unique_ptr<Future>> test_some(
-        std::vector<std::unique_ptr<Future>>& future_vector
-    ) = 0;
+    [[nodiscard]] virtual std::
+        pair<std::vector<std::unique_ptr<Future>>, std::vector<std::size_t>>
+        test_some(std::vector<std::unique_ptr<Future>>& future_vector) = 0;
 
     /**
      * @brief Tests for completion of multiple futures in a map.

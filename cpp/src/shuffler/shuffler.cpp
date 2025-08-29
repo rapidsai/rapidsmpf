@@ -358,7 +358,7 @@ class Shuffler::Progress {
             // when using the UCXX communicator. See comment in
             // ucxx.cpp::test_some.
             for (auto& [dst, futures] : ready_ack_receives_) {
-                auto finished = shuffler_.comm_->test_some(futures);
+                auto [finished, _] = shuffler_.comm_->test_some(futures);
                 for (auto&& future : finished) {
                     auto const msg_data =
                         shuffler_.comm_->get_gpu_data(std::move(future));
