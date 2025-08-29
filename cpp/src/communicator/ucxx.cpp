@@ -1143,9 +1143,36 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     return {std::move(msg), sender_rank};
 }
 
-std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
-    std::vector<std::unique_ptr<Communicator::Future>>& future_vector
-) {
+std::unique_ptr<std::vector<uint8_t>> UCXX::recv_from(Rank src, Tag tag) {
+    auto probe = shared_resources_->get_worker()->tagProbe(
+        tag_with_rank(src, static_cast<int>(tag)), ::ucxx::TagMaskFull
+    );
+    auto msg_available = probe.first;
+    auto info = probe.second;
+    if (!msg_available) {
+        return nullptr;
+    }
+    auto msg = std::make_unique<std::vector<uint8_t>>(
+        info.length
+    );  // TODO: choose between host and device
+
+    auto req = shared_resources_->get_worker()->tagRecv(
+        msg->data(),
+        msg->size(),
+        tag_with_rank(src, static_cast<int>(tag)),
+        ::ucxx::TagMaskFull
+    );
+
+    while (!req->isCompleted()) {
+        progress_worker();
+    }
+    req->checkError();
+
+    return msg;
+}
+
+std::pair<std::vector<std::unique_ptr<Communicator::Future>>, std::vector<std::size_t>>
+UCXX::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vector) {
     if (future_vector.empty()) {
         return {};
     }
@@ -1182,7 +1209,7 @@ std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
         return std::move(future_vector[i]);
     });
     std::erase(future_vector, nullptr);
-    return completed;
+    return {std::move(completed), std::move(indices)};
 }
 
 std::vector<std::size_t> UCXX::test_some(

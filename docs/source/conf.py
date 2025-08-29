@@ -86,6 +86,11 @@ nitpick_ignore_regex = [
     ("py:obj", "rapidsmpf.communicator.communicator.LOG_LEVEL.*"),
     ("py:obj", "rapidsmpf.buffer.buffer.MemoryType.*"),
     ("py:obj", "(denominator|imag|numerator|real)"),
+    ('py:obj', 'rapidsmpf.rmm_resource_adaptor.AllocType.*'),
     ('py:class', 'rmm.pylibrmm.stream.Stream'),
     ('py:class', 'rmm.pylibrmm.memory_resource.DeviceMemoryResource'),
+    # We're subclassing this from RMM, and sphinx can't find these methods.
+    ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.allocate"),
+    ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.deallocate"),
+    ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.get_upstream"),
 ]

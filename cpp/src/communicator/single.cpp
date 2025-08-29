@@ -31,9 +31,12 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> Single::recv_any(Tag) {
     return {nullptr, 0};
 }
 
-std::vector<std::unique_ptr<Communicator::Future>> Single::test_some(
-    std::vector<std::unique_ptr<Communicator::Future>>&
-) {
+std::unique_ptr<std::vector<uint8_t>> Single::recv_from(Rank, Tag) {
+    return nullptr;
+}
+
+std::pair<std::vector<std::unique_ptr<Communicator::Future>>, std::vector<std::size_t>>
+Single::test_some(std::vector<std::unique_ptr<Communicator::Future>>&) {
     RAPIDSMPF_FAIL("Unexpected test_some from self", std::runtime_error);
 }
 

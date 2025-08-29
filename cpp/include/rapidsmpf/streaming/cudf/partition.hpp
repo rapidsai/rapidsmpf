@@ -73,7 +73,6 @@ struct PartitionVectorChunk {
 
 namespace node {
 
-
 /**
  * @brief Asynchronously partitions input tables into multiple packed (serialized) tables.
  *
@@ -85,8 +84,8 @@ namespace node {
  * partitions, and sends them to an output channel.
  *
  * @param ctx The context to use.
- * @param ch_in Input channel providing tables to partition.
- * @param ch_out Output channel to which packed partitioned table are sent.
+ * @param ch_in Input channel providing `TableChunk`s to partition.
+ * @param ch_out Output channel to which `PartitionMapChunk`s are sent.
  * @param columns_to_hash Indices of input columns to hash.
  * @param num_partitions The number of partitions to use.
  * @param hash_function Hash function to use for partitioning.
@@ -101,13 +100,14 @@ namespace node {
  */
 Node partition_and_pack(
     std::shared_ptr<Context> ctx,
-    SharedChannel<TableChunk> ch_in,
-    SharedChannel<PartitionMapChunk> ch_out,
+    std::shared_ptr<Channel> ch_in,
+    std::shared_ptr<Channel> ch_out,
     std::vector<cudf::size_type> columns_to_hash,
     int num_partitions,
     cudf::hash_id hash_function,
     uint32_t seed
 );
+
 
 /**
  * @brief Asynchronously unpacks and concatenates packed partitions.
@@ -120,7 +120,8 @@ Node partition_and_pack(
  * ignored.
  *
  * @param ctx The context to use.
- * @param ch_in Input channel providing packed partition chunks.
+ * @param ch_in Input channel providing packed partitions as PartitionMapChunk or
+ * PartitionVectorChunk.
  * @param ch_out Output channel to which unpacked and concatenated tables table are sent.
  *
  * @return Streaming node representing the asynchronous unpacking and concatenation
@@ -130,34 +131,8 @@ Node partition_and_pack(
  */
 Node unpack_and_concat(
     std::shared_ptr<Context> ctx,
-    SharedChannel<PartitionMapChunk> ch_in,
-    SharedChannel<TableChunk> ch_out
-);
-
-
-/**
- * @brief Asynchronously unpacks and concatenates vectors of packed partitions.
- *
- * This is a streaming version of `rapidsmpf::unpack_and_concat` that operates on
- * vectors of packed partition chunks using channels.
- *
- * It receives vectors of packed partitions from the input channel, deserializes and
- * concatenates them, and sends the resulting tables to the output channel. Empty
- * partitions are ignored.
- *
- * @param ctx The context to use.
- * @param ch_in Input channel providing vectors of packed partition chunks.
- * @param ch_out Output channel to which unpacked and concatenated tables table are sent.
- *
- * @return Streaming node representing the asynchronous unpacking and concatenation
- * operation.
- *
- * @see rapidsmpf::unpack_and_concat
- */
-Node unpack_and_concat(
-    std::shared_ptr<Context> ctx,
-    SharedChannel<PartitionVectorChunk> ch_in,
-    SharedChannel<TableChunk> ch_out
+    std::shared_ptr<Channel> ch_in,
+    std::shared_ptr<Channel> ch_out
 );
 
 }  // namespace node

@@ -180,13 +180,24 @@ class UCXX final : public Communicator {
     ) override;
 
     /**
+     * @copydoc Communicator::recv_from
+     *
+     * @throws ucxx::Error if there is a message but the receive does not complete
+     * successfully.
+     */
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> recv_from(
+        Rank src, Tag tag
+    ) override;
+
+    /**
      * @copydoc Communicator::test_some
      *
      * @throws ucxx::Error if any completed futures did not complete successfully.
      */
-    std::vector<std::unique_ptr<Communicator::Future>> test_some(
-        std::vector<std::unique_ptr<Communicator::Future>>& future_vector
-    ) override;
+    std::pair<
+        std::vector<std::unique_ptr<Communicator::Future>>,
+        std::vector<std::size_t>>
+    test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vector) override;
 
     // clang-format off
     /**
