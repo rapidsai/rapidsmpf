@@ -40,13 +40,28 @@ endfunction(rapidsmpf_mpirun_test_add)
 # ${RAPIDSMPF_BINARY_DIR}/gtests) is created to seamlessly run ctest from ${RAPIDSMPF_BINARY_DIR}.
 file(CREATE_LINK "${RAPIDSMPF_BINARY_DIR}/gtests" "${CMAKE_CURRENT_BINARY_DIR}/gtests" SYMBOLIC)
 
-if(RAPIDSMPF_HAVE_STREAMING)
-  file(GLOB STREAMING_SOURCES "streaming/*.cpp")
-endif()
+add_library(
+  test_sources OBJECT
+  error_macros_tests.cpp
+  test_allgather.cpp
+  test_buffer_resource.cpp
+  test_chunk.cpp
+  test_communicator.cpp
+  test_config.cpp
+  test_cudf_utils.cpp
+  test_cupti_monitor.cpp
+  test_partition.cpp
+  test_pausable_thread_loop.cpp
+  test_progress_thread.cpp
+  test_rmm_resource_adaptor.cpp
+  test_shuffler.cpp
+  test_spill_manager.cpp
+  test_statistics.cpp
+  test_utils.cpp
+)
 
 if(RAPIDSMPF_HAVE_MPI)
-  file(GLOB SOURCES "main/mpi.cpp" "*.cpp")
-  add_executable(mpi_tests ${SOURCES})
+  add_executable(mpi_tests main/mpi.cpp)
   set_target_properties(
     mpi_tests
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
@@ -73,14 +88,14 @@ if(RAPIDSMPF_HAVE_MPI)
             $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
             $<TARGET_NAME_IF_EXISTS:conda_env>
             maybe_asan
+            test_sources
   )
   disable_sign_conversion_warning(mpi_tests)
 
   rapidsmpf_mpirun_test_add(TEST_TARGET mpi_tests)
 
   if(RAPIDSMPF_HAVE_UCXX)
-    file(GLOB SOURCES "main/ucxx.cpp" "*.cpp")
-    add_executable(ucxx_tests ${SOURCES})
+    add_executable(ucxx_tests main/ucxx.cpp)
     set_target_properties(
       ucxx_tests
       PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
@@ -109,14 +124,21 @@ if(RAPIDSMPF_HAVE_MPI)
               $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
               $<TARGET_NAME_IF_EXISTS:conda_env>
               maybe_asan
+              test_sources
     )
     disable_sign_conversion_warning(ucxx_tests)
 
     rapidsmpf_mpirun_test_add(TEST_TARGET ucxx_tests)
   endif()
 endif()
-file(GLOB SOURCES "main/single.cpp" "*.cpp")
-add_executable(single_tests ${SOURCES} ${STREAMING_SOURCES})
+add_executable(single_tests main/single.cpp)
+if(RAPIDSMPF_HAVE_STREAMING)
+  target_sources(
+    single_tests
+    PRIVATE streaming/test_error_handling.cpp streaming/test_leaf_node.cpp
+            streaming/test_partition.cpp streaming/test_shuffler.cpp streaming/test_table_chunk.cpp
+  )
+endif()
 set_target_properties(
   single_tests
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"
@@ -134,7 +156,7 @@ target_compile_options(
 )
 target_link_libraries(
   single_tests PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
-                       GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+                       GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan test_sources
 )
 disable_sign_conversion_warning(single_tests)
 add_test(NAME single_tests COMMAND "gtests/single_tests")
