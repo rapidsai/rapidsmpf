@@ -42,10 +42,10 @@ namespace rapidsmpf::streaming::node {
  * @return A streaming node that completes once all random tables have been generated
  *         and sent, and the channel has been drained.
  */
-Node random_table_generator(
+inline Node random_table_generator(
     std::shared_ptr<Context> ctx,
     rmm::cuda_stream_view stream,
-    SharedChannel<TableChunk> ch_out,
+    std::shared_ptr<Channel> ch_out,
     std::uint64_t num_blocks,
     cudf::size_type ncolumns,
     cudf::size_type nrows,
