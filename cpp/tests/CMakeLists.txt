@@ -40,26 +40,26 @@ endfunction(rapidsmpf_mpirun_test_add)
 # ${RAPIDSMPF_BINARY_DIR}/gtests) is created to seamlessly run ctest from ${RAPIDSMPF_BINARY_DIR}.
 file(CREATE_LINK "${RAPIDSMPF_BINARY_DIR}/gtests" "${CMAKE_CURRENT_BINARY_DIR}/gtests" SYMBOLIC)
 
-add_library(
-  test_sources OBJECT
-  error_macros_tests.cpp
-  test_allgather.cpp
-  test_buffer_resource.cpp
-  test_chunk.cpp
-  test_communicator.cpp
-  test_config.cpp
-  test_cudf_utils.cpp
-  test_cupti_monitor.cpp
-  test_partition.cpp
-  test_pausable_thread_loop.cpp
-  test_progress_thread.cpp
-  test_rmm_resource_adaptor.cpp
-  test_shuffler.cpp
-  test_spill_manager.cpp
-  test_statistics.cpp
-  test_utils.cpp
+add_library(test_sources INTERFACE)
+target_sources(
+  test_sources
+  INTERFACE error_macros_tests.cpp
+            test_allgather.cpp
+            test_buffer_resource.cpp
+            test_chunk.cpp
+            test_communicator.cpp
+            test_config.cpp
+            test_cudf_utils.cpp
+            test_cupti_monitor.cpp
+            test_partition.cpp
+            test_pausable_thread_loop.cpp
+            test_progress_thread.cpp
+            test_rmm_resource_adaptor.cpp
+            test_shuffler.cpp
+            test_spill_manager.cpp
+            test_statistics.cpp
+            test_utils.cpp
 )
-target_link_libraries(test_sources PRIVATE GTest::gtest)
 
 if(RAPIDSMPF_HAVE_MPI)
   add_executable(mpi_tests main/mpi.cpp)
