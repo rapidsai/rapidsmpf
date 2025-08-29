@@ -45,13 +45,13 @@ void FinishCounter::add_finished_chunk(PartID pid) {
 
     if (p_info.is_finished(nranks_)) {
         finished_partitions_.emplace_back(pid);
-        bool is_empty = p_info.data_chunk_goal() == 0;
-        lock.unlock();  // no longer need the lock
 
-        // Call empty partition callback if partition has no data
-        if (is_empty && empty_partition_cb_) {
+        // Call empty partition callback if partition has no data, while holding the lock
+        // (to prevent caller threads from extracting the empty partition)
+        if (p_info.data_chunk_goal() == 0 && empty_partition_cb_) {
             empty_partition_cb_(pid);
         }
+        lock.unlock();
 
         cv_.notify_all();  // notify any waiting threads
 
