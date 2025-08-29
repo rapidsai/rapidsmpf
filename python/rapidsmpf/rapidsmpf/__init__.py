@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from rapidsmpf._version import __git_commit__, __version__  # noqa: F401
 
 # If librapidsmpf was installed as a wheel, we must request it to load the
@@ -16,3 +18,7 @@ except ModuleNotFoundError:
 else:
     librapidsmpf.load_library()
     del librapidsmpf
+
+# Import CUPTI module if available (only built when CUPTI is found)
+with contextlib.suppress(ImportError):
+    from rapidsmpf import cupti  # noqa: F401

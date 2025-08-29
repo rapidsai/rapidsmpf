@@ -7,6 +7,11 @@ set(cython_modules config.pyx progress_thread.pyx rmm_resource_adaptor.pyx shuff
                    statistics.pyx
 )
 
+# Add cupti module conditionally if CUPTI support is enabled
+if(RAPIDSMPF_HAVE_CUPTI)
+  list(APPEND cython_modules cupti.pyx)
+endif()
+
 rapids_cython_create_modules(
   CXX
   SOURCE_FILES "${cython_modules}"
