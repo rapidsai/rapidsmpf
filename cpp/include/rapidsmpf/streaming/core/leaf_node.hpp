@@ -21,8 +21,9 @@ namespace rapidsmpf::streaming::node {
  * @param ctx The context to use.
  * @param ch_out Output channel to which messages will be sent.
  * @param messages Input vector containing the messages to send.
- * @throws std::invalid_argument if any of the elements in messages is empty.
  * @return Streaming node representing the asynchronous operation.
+ *
+ * @throws std::invalid_argument if any of the elements in messages is empty.
  */
 Node push_to_channel(
     std::shared_ptr<Context> ctx,
