@@ -98,11 +98,12 @@ Node shuffler(
     }
     co_await ch_out->drain(ctx->executor());
 }
+
 std::pair<Node, Node> shuffler_nb(
     std::shared_ptr<Context> ctx,
     rmm::cuda_stream_view stream,
-    SharedChannel<PartitionMapChunk> ch_in,
-    SharedChannel<PartitionVectorChunk> ch_out,
+    std::shared_ptr<Channel> ch_in,
+    std::shared_ptr<Channel> ch_out,
     OpID op_id,
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner
@@ -129,14 +130,16 @@ std::pair<Node, Node> shuffler_nb(
         CudaEvent event;
 
         while (true) {
-            auto partition_map = co_await ch_in->receive_or(nullptr);
-            if (partition_map == nullptr) {
+            auto msg = co_await ch_in->receive();
+            if (msg.empty()) {
                 break;
             }
-            // Make sure that the input chunk's stream is in sync with shuffler's stream.
-            sync_streams(stream, partition_map->stream, event);
+            auto partition_map = msg.template release<PartitionMapChunk>();
 
-            shuffler->insert(std::move(partition_map->data));
+            // Make sure that the input chunk's stream is in sync with shuffler's stream.
+            sync_streams(stream, partition_map.stream, event);
+
+            shuffler->insert(std::move(partition_map.data));
         }
 
         // Tell the shuffler that we have no more input data.
