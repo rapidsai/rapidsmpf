@@ -89,7 +89,7 @@ class Message {
     /**
      * @brief Reference to the payload.
      *
-     * The returned reference is valid until the message is reset.
+     * The returned reference remains valid until the message is released or reset.
      *
      * @tparam T Payload type.
      * @return Reference to the payload.
