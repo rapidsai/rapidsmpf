@@ -65,7 +65,7 @@ class Message {
      * @brief Compare the payload type.
      *
      * @tparam T Expected payload type.
-     * @return true if the payload is `T`, false otherwise.
+     * @return true if the payload is `typeid(T)`, false otherwise.
      */
     template <typename T>
     [[nodiscard]] bool holds() const noexcept {
