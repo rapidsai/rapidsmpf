@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # =================================================================================
 
-add_executable(bench_streaming_shuffle "bench_streaming_shuffle.cpp" ${UTILS_SOURCES})
+add_executable(bench_streaming_shuffle "bench_streaming_shuffle.cpp")
 set_target_properties(
   bench_streaming_shuffle
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
@@ -20,7 +20,7 @@ target_compile_options(
 target_link_libraries(
   bench_streaming_shuffle
   PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
-          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan bench_utils
 )
 install(
   TARGETS bench_streaming_shuffle
