@@ -539,14 +539,14 @@ class AllGather {
     std::vector<std::unique_ptr<detail::Chunk>> to_receive_{};
     /// @brief Fire-and-forget communication futures
     std::vector<std::unique_ptr<Communicator::Future>> fire_and_forget_{};
-    /// @brief Chunks that have been sent with their communication futures
-    std::vector<
-        std::pair<std::unique_ptr<detail::Chunk>, std::unique_ptr<Communicator::Future>>>
-        sent_{};
-    /// @brief Chunks that have been received with their communication futures
-    std::vector<
-        std::pair<std::unique_ptr<detail::Chunk>, std::unique_ptr<Communicator::Future>>>
-        received_{};
+    /// @brief Chunks for which a send future is posted
+    std::vector<std::unique_ptr<detail::Chunk>> sent_posted_{};
+    /// @brief Futures for posted sends. Order matches
+    std::vector<std::unique_ptr<Communicator::Future>> sent_futures_{};
+    /// @brief Chunks for which a receive future is posted
+    std::vector<std::unique_ptr<detail::Chunk>> receive_posted_{};
+    /// @brief Futures for posted receives. Order matches.
+    std::vector<std::unique_ptr<Communicator::Future>> receive_futures_{};
 };
 
 }  // namespace rapidsmpf::allgather
