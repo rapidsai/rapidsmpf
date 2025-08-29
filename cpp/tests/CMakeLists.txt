@@ -59,6 +59,7 @@ add_library(
   test_statistics.cpp
   test_utils.cpp
 )
+target_link_libraries(test_sources PRIVATE GTest::gtest)
 
 if(RAPIDSMPF_HAVE_MPI)
   add_executable(mpi_tests main/mpi.cpp)
