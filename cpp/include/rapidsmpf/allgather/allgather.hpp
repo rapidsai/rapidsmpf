@@ -499,6 +499,14 @@ class AllGather {
     void insert(std::unique_ptr<detail::Chunk> chunk);
 
     /**
+     * @brief Handle a finish message.
+     *
+     * @param expected_chunks The expected number of chunks we expect
+     * from the rank this finish message is from.
+     */
+    void mark_finish(std::uint64_t expected_chunks) noexcept;
+
+    /**
      * @brief Wait for the allgather operation to complete.
      *
      * @param timeout Optional maximum duration to wait. Negative values mean no timeout.
