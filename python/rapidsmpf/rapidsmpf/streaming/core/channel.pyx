@@ -316,7 +316,7 @@ cdef class Channel:
                 cython_invoke_python_function,
                 <void *>set_result
             )
-       await ret
+        await ret
 
     async def send(self, Context ctx, Message msg):
         """
