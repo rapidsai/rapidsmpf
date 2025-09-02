@@ -10,6 +10,22 @@ from rapidsmpf.streaming.core.context import Context
 PayloadT = TypeVar("PayloadT", bound=Payload)
 
 class Payload(Protocol):
+    """
+    Protocol for the payload of a Message.
+
+    Any object sent through a Channel must implement this protocol.
+    It defines how to reconstruct the payload from a message and how to
+    insert it back into a message.
+
+    Methods
+    -------
+    from_message(message)
+        Construct a payload instance by consuming a message.
+    into_message(message)
+        Insert the payload into a message. The payload instance is consumed
+        in the process.
+    """
+
     @classmethod
     def from_message(cls: PayloadT, message: Message[PayloadT]) -> PayloadT: ...
     def into_message(self: PayloadT, message: Message[PayloadT]) -> None: ...

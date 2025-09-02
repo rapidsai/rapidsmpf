@@ -15,7 +15,7 @@ from rapidsmpf.streaming.core.channel import Channel
 
 cdef class CppNode:
     """
-    A streaming node (coroutine) implemented in C++.
+    A streaming node implemented in C++.
 
     This represents a native C++ coroutine that runs with minimal Python
     overhead.
@@ -79,7 +79,7 @@ cdef class CppNode:
 
 class PyNode(Awaitable[None]):
     """
-    A streaming node (coroutine) implemented in Python.
+    A streaming node implemented in Python.
 
     This runs as an Python coroutine (asyncio), which means it comes with a significant
     Python overhead. The GIL is release on `await` and when calling the C++ API.

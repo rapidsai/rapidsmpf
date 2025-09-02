@@ -319,9 +319,7 @@ cdef class Channel:
 
     async def send(self, Context ctx, Message msg):
         """
-        Send a message into the channel (asynchronously).
-
-        Completes when the send operation finishes.
+        Send a message into the channel.
 
         Parameters
         ----------
@@ -329,11 +327,6 @@ cdef class Channel:
             The current streaming context.
         msg
             Message to send. **Consumed** by this call (moved).
-
-        Returns
-        -------
-        None
-            Completes when the send operation finishes.
 
         Warnings
         --------
@@ -357,7 +350,7 @@ cdef class Channel:
 
     async def recv(self, Context ctx):
         """
-        Receive the next message from the channel (asynchronously).
+        Receive the next message from the channel.
 
         Parameters
         ----------
