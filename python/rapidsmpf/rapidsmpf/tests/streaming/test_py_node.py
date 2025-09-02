@@ -34,7 +34,7 @@ def test_send_table_chunks(
 
     ch1: Channel[TableChunk] = Channel()
 
-    # The node access `ch1` both from coroutine a parameter and the closure.
+    # The node access `ch1` both through the `ch_out` parameter and the closure.
     @define_py_node(context, channels=(ch1,))
     async def node1(ch_out: Channel) -> None:
         for seq, chunk in enumerate(expects):
