@@ -206,8 +206,8 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
     ValueError
         If Python nodes are present but no executor is provided.
     Exception
-        Any unhandled exception from any node is re-raised after execution. If multiple
-        nodes raise unhandled exceptions, only one (unspecified) exception is re-raised.
+        Any unhandled exception from a node is re-raised after execution. If multiple
+        nodes raise exceptions, only one is re-raised, and it is unspecified which one.
     TypeError
         If nodes contains an unknown node type.
 
