@@ -15,7 +15,8 @@ from rapidsmpf.progress_thread cimport cpp_ProgressThread
 from rapidsmpf.statistics cimport cpp_Statistics
 
 
-cdef extern from "<rapidsmpf/allgather/allgather.hpp>" namespace "rapidsmpf::allgather::AllGather" nogil:
+cdef extern from "<rapidsmpf/allgather/allgather.hpp>" namespace \
+        "rapidsmpf::allgather::AllGather" nogil:
     cpdef enum class Ordered(bool):
         NO
         YES

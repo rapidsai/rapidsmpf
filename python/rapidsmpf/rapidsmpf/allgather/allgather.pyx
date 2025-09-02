@@ -3,17 +3,18 @@
 """The AllGather interface for RapidsMPF."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport int64_t, uint8_t
+from libc.stdint cimport uint8_t
 from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf.allgather.allgather cimport cpp_AllGather, Ordered, milliseconds_t
+from rapidsmpf.allgather.allgather cimport (Ordered, cpp_AllGather,
+                                            milliseconds_t)
 from rapidsmpf.buffer.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
-from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource  
+from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics
@@ -23,11 +24,11 @@ cdef class AllGather:
     """
     AllGather communication service for distributed operations.
 
-    The `rapidsmpf.allgather.AllGather` class provides a communication service 
+    The `rapidsmpf.allgather.AllGather` class provides a communication service
     where each rank contributes data and all ranks receive all inputs from all ranks.
-    
-    The implementation uses a ring broadcast algorithm where each rank receives a 
-    contribution from its left neighbor, forwards the message to its right neighbor 
+
+    The implementation uses a ring broadcast algorithm where each rank receives a
+    contribution from its left neighbor, forwards the message to its right neighbor
     (unless at the end of the ring) and then stores the contribution locally.
 
     Parameters
@@ -37,7 +38,7 @@ cdef class AllGather:
     progress_thread
         The progress thread for asynchronous operations.
     op_id
-        Unique operation identifier for this allgather. Must have a value 
+        Unique operation identifier for this allgather. Must have a value
         between 0 and 255.
     stream
         CUDA stream for memory operations.
@@ -48,8 +49,8 @@ cdef class AllGather:
 
     Notes
     -----
-    The caller promises that all inserted data is stream-ordered with respect 
-    to `stream`. Extracted data is guaranteed to be stream-ordered with respect 
+    The caller promises that all inserted data is stream-ordered with respect
+    to `stream`. Extracted data is guaranteed to be stream-ordered with respect
     to `stream`.
     """
 
@@ -112,7 +113,7 @@ cdef class AllGather:
         """
         if not packed_data.c_obj:
             raise ValueError("PackedData was empty")
-        
+
         with nogil:
             deref(self._handle).insert(move(deref(packed_data.c_obj)))
 
@@ -152,7 +153,7 @@ cdef class AllGather:
         Parameters
         ----------
         ordered
-            If True, returned data will be ordered first by rank and then by 
+            If True, returned data will be ordered first by rank and then by
             insertion order on that rank. If False, extraction is unordered.
         timeout_ms
             Maximum duration to wait in milliseconds. Negative values mean no timeout.
@@ -169,7 +170,7 @@ cdef class AllGather:
         cdef vector[cpp_PackedData] _ret
         cdef milliseconds_t _timeout_ms = <milliseconds_t>timeout_ms
         cdef Ordered _ordered = <Ordered>ordered
-        
+
         with nogil:
             _ret = deref(self._handle).wait_and_extract(_ordered, _timeout_ms)
         return packed_data_vector_to_list(move(_ret))
