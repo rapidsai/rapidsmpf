@@ -82,13 +82,13 @@ def main() -> None:
                 # Before exiting, drain the output channel to close it gracefully.
                 return await ch_out.drain(ctx)
 
-            # Convert the message back into a table chunk (consumes the message).
+            # Convert the message back into a table chunk (releases the message).
             table = TableChunk.from_message(msg)
 
             # Accumulate the number of rows.
             total_num_rows[0] += table.table_view().num_rows()
 
-            # The message is now empty since it was consumed.
+            # The message is now empty since it was released.
             assert msg.empty() is True
 
             # Wrap the table chunk in a new message.

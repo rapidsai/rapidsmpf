@@ -65,7 +65,7 @@ cdef class CppNode:
         Raises
         ------
         ValueError
-            If the node is uninitialized or has already been consumed.
+            If the node is uninitialized or has already been released.
 
         Notes
         -----
@@ -73,7 +73,7 @@ cdef class CppNode:
         used.
         """
         if not self._handle:
-            raise ValueError("CppNode is uninitialized, has it been consumed?")
+            raise ValueError("CppNode is uninitialized, has it been released?")
         return move(self._handle)
 
 
@@ -199,7 +199,7 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
 
     Warnings
     --------
-    C++ nodes are **consumed** (moved) and must not be used after this call.
+    C++ nodes are released and must not be used after this call.
 
     Raises
     ------

@@ -41,8 +41,7 @@ def push_to_channel(Context ctx, Channel ch_out, object messages):
     ch_out
         Output channel that will receive the messages.
     messages
-        Iterable of messages to send. Each element is **consumed** (moved)
-        into this message.
+        Iterable of messages to send. Each element is moved into this message.
 
     Returns
     -------
@@ -50,7 +49,7 @@ def push_to_channel(Context ctx, Channel ch_out, object messages):
 
     Warnings
     --------
-    Input messages are consumed and must not be used after this call.
+    Input messages are released and left empty after this call.
 
     Raises
     ------

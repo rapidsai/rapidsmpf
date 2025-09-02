@@ -22,7 +22,7 @@ class Payload(Protocol):
     from_message(message)
         Construct a payload instance by consuming a message.
     into_message(message)
-        Insert the payload into a message. The payload instance is consumed
+        Insert the payload into a message. The payload instance is released
         in the process.
     """
 

@@ -48,11 +48,11 @@ cdef class Message:
     ----------
     payload
         A payload object that implements the `Payload` protocol. The payload is
-        **consumed** (moved) into this message.
+        moved into this message.
 
     Warnings
     --------
-    `payload` is consumed by this call and must not be used afterwards.
+    `payload` is released by this call and must not be used afterwards.
     """
     def __init__(self, payload):
         payload.into_message(self)
@@ -327,11 +327,11 @@ cdef class Channel:
         ctx
             The current streaming context.
         msg
-            Message to send. **Consumed** by this call (moved).
+            Message to move into the channel.
 
         Warnings
         --------
-        `msg` is **consumed**. Do not use it after calling ``send``.
+        `msg` is released and left empty after this call.
         """
         loop = asyncio.get_running_loop()
         ret = loop.create_future()

@@ -58,7 +58,7 @@ cdef class PartitionMapChunk:
         Parameters
         ----------
         message
-            Message containing a PartitionMapChunk. The message is consumed
+            Message containing a PartitionMapChunk. The message is released
             and is empty after this call.
 
         Returns
@@ -91,10 +91,9 @@ cdef class PartitionMapChunk:
         ValueError
             If the provided message is not empty.
 
-        Notes
-        -----
-        This operation consumes the PartitionMapChunk. After the call, the current
-        object is in a moved-from state and must not be accessed.
+        Warnings
+        --------
+        The PartitionMapChunk is released and must not be used after this call.
         """
         message._handle = cpp_Message(self.release_handle())
 
@@ -112,7 +111,7 @@ cdef class PartitionMapChunk:
             If the PartitionMapChunk is uninitialized.
         """
         if not self._handle:
-            raise ValueError("is uninitialized, has it been consumed?")
+            raise ValueError("is uninitialized, has it been released?")
         return self._handle.get()
 
     cdef unique_ptr[cpp_PartitionMapChunk] release_handle(self):
@@ -132,7 +131,7 @@ cdef class PartitionMapChunk:
             If the PartitionMapChunk is uninitialized.
         """
         if not self._handle:
-            raise ValueError("is uninitialized, has it been consumed?")
+            raise ValueError("is uninitialized, has it been released?")
         return move(self._handle)
 
     def sequence_number(self):

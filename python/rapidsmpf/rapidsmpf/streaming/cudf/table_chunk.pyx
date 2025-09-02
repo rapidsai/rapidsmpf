@@ -136,8 +136,8 @@ cdef class TableChunk:
         Parameters
         ----------
         message
-            Message containing a TableChunk. The message is consumed
-            and is empty after this call.
+            Message containing a TableChunk. The message is released and is empty
+            after this call.
 
         Returns
         -------
@@ -167,10 +167,9 @@ cdef class TableChunk:
         ValueError
             If the provided message is not empty.
 
-        Notes
-        -----
-        This operation consumes the TableChunk. After the call, the current
-        object is in a moved-from state and must not be accessed.
+        Warnings
+        --------
+        The TableChunk is released and must not be used after this call.
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
@@ -190,7 +189,7 @@ cdef class TableChunk:
             If the TableChunk is uninitialized.
         """
         if not self._handle:
-            raise ValueError("TableChunk is uninitialized, has it been consumed?")
+            raise ValueError("TableChunk is uninitialized, has it been released?")
         return self._handle.get()
 
     cdef unique_ptr[cpp_TableChunk] release_handle(self):
@@ -210,7 +209,7 @@ cdef class TableChunk:
             If the TableChunk is uninitialized.
         """
         if not self._handle:
-            raise ValueError("TableChunk is uninitialized, has it been consumed?")
+            raise ValueError("TableChunk is uninitialized, has it been released?")
         return move(self._handle)
 
     def sequence_number(self):
