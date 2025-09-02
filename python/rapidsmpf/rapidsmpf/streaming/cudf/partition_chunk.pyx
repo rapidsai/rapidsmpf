@@ -96,7 +96,7 @@ cdef class PartitionMapChunk:
         This operation consumes the PartitionMapChunk. After the call, the current
         object is in a moved-from state and must not be accessed.
         """
-        message._handle = cpp_Message(self.handle_release())
+        message._handle = cpp_Message(self.release_handle())
 
     cdef const cpp_PartitionMapChunk* handle_ptr(self):
         """
@@ -115,7 +115,7 @@ cdef class PartitionMapChunk:
             raise ValueError("is uninitialized, has it been consumed?")
         return self._handle.get()
 
-    cdef unique_ptr[cpp_PartitionMapChunk] handle_release(self):
+    cdef unique_ptr[cpp_PartitionMapChunk] release_handle(self):
         """
         Release ownership of the underlying C++ PartitionMapChunk.
 

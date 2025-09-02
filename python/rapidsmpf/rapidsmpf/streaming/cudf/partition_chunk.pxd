@@ -27,4 +27,4 @@ cdef class PartitionMapChunk:
         unique_ptr[cpp_PartitionMapChunk] handle, Stream stream, object owner
     )
     cdef const cpp_PartitionMapChunk* handle_ptr(self)
-    cdef unique_ptr[cpp_PartitionMapChunk] handle_release(self)
+    cdef unique_ptr[cpp_PartitionMapChunk] release_handle(self)

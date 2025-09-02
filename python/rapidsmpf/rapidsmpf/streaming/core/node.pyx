@@ -54,7 +54,7 @@ cdef class CppNode:
         with nogil:
             self._handle.reset()
 
-    cdef unique_ptr[cpp_Node] handle_release(self):
+    cdef unique_ptr[cpp_Node] release_handle(self):
         """
         Release and return the underlying native handle.
 
@@ -240,7 +240,7 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
     cdef list py_nodes = []
     for node in nodes:
         if isinstance(node, CppNode):
-            cpp_nodes.push_back(move(deref((<CppNode>node).handle_release())))
+            cpp_nodes.push_back(move(deref((<CppNode>node).release_handle())))
         elif isinstance(node, PyNode):
             py_nodes.append(node)
         else:

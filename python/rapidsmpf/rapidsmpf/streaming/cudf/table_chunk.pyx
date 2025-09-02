@@ -174,7 +174,7 @@ cdef class TableChunk:
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
-        message._handle = cpp_Message(self.handle_release())
+        message._handle = cpp_Message(self.release_handle())
 
     cdef const cpp_TableChunk* handle_ptr(self):
         """
@@ -193,7 +193,7 @@ cdef class TableChunk:
             raise ValueError("TableChunk is uninitialized, has it been consumed?")
         return self._handle.get()
 
-    cdef unique_ptr[cpp_TableChunk] handle_release(self):
+    cdef unique_ptr[cpp_TableChunk] release_handle(self):
         """
         Release ownership of the underlying C++ TableChunk.
 

@@ -20,4 +20,4 @@ cdef class CppNode:
     @staticmethod
     cdef CppNode from_handle(unique_ptr[cpp_Node] handle, object owner)
 
-    cdef unique_ptr[cpp_Node] handle_release(self)
+    cdef unique_ptr[cpp_Node] release_handle(self)
