@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Collection, Generator
 from concurrent.futures import ThreadPoolExecutor
-from typing import ParamSpec
+from typing import Concatenate, ParamSpec
 
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
@@ -18,11 +18,14 @@ class CppNode:
 class PyNode(Awaitable[None]):
     def __await__(self) -> Generator[object, None, None]: ...
 
+def define_py_node(
+    *, extra_channels: Collection[Channel] = ()
+) -> Callable[
+    [Callable[Concatenate[Context, P], Awaitable[None]]],
+    Callable[Concatenate[Context, P], PyNode],
+]: ...
 def run_streaming_pipeline(
     *,
     nodes: Collection[CppNode | Awaitable[None]],
     py_executor: ThreadPoolExecutor | None = None,
 ) -> None: ...
-def define_py_node(
-    ctx: Context, *, channels: Collection[Channel] = ()
-) -> Callable[[Callable[P, Awaitable[None]]], Callable[P, PyNode]]: ...

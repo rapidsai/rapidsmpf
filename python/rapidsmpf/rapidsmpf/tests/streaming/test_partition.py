@@ -37,11 +37,11 @@ def test_partition_and_pack_unpack(
         for seq, expect in enumerate(expects)
     ]
     ch1: Channel[TableChunk] = Channel()
-    node1 = push_to_channel(ctx=context, ch_out=ch1, messages=table_chunks)
+    node1 = push_to_channel(context, ch_out=ch1, messages=table_chunks)
 
     ch2: Channel[PartitionMapChunk] = Channel()
     node2 = partition_and_pack(
-        ctx=context,
+        context,
         ch_in=ch1,
         ch_out=ch2,
         columns_to_hash=(1,),
@@ -50,12 +50,12 @@ def test_partition_and_pack_unpack(
 
     ch3: Channel[TableChunk] = Channel()
     node3 = unpack_and_concat(
-        ctx=context,
+        context,
         ch_in=ch2,
         ch_out=ch3,
     )
 
-    node4, output = pull_from_channel(ctx=context, ch_in=ch3)
+    node4, output = pull_from_channel(context, ch_in=ch3)
     run_streaming_pipeline(nodes=(node1, node2, node3, node4))
 
     results = output.release()

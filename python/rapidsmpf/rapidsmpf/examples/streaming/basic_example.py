@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from rapidsmpf.streaming.core.node import CppNode, PyNode
 
 
-def main() -> None:
+def main() -> int:
     """Basic example of a streaming pipeline."""
     # Initialize configuration options from environment variables.
     options = Options(get_environment_variables())
@@ -65,14 +65,14 @@ def main() -> None:
 
     # Node 1: producer that pushes messages into the pipeline.
     # This is a native C++ node that runs as a coroutine with minimal Python overhead.
-    node1: CppNode = push_to_channel(ctx=ctx, ch_out=ch1, messages=table_chunks)
+    node1: CppNode = push_to_channel(ctx, ch_out=ch1, messages=table_chunks)
 
     # Node 2: Python node that counts the total number of rows.
     # Runs as a Python coroutine (asyncio), which comes with overhead,
     # but releases the GIL on `await` and when calling into C++ APIs.
-    @define_py_node(ctx)
+    @define_py_node()
     async def count_num_rows(
-        ch_in: Channel, ch_out: Channel, total_num_rows: list[int]
+        ctx: Context, ch_in: Channel, ch_out: Channel, total_num_rows: list[int]
     ) -> None:
         assert len(total_num_rows) == 1, "should be a scalar"
         while True:
@@ -100,12 +100,14 @@ def main() -> None:
     # Nodes return None, so if we want an "output" value we can use either a closure
     # or an output parameter like `total_num_rows`.
     total_num_rows = [0]  # Wrap scalar in a list to make it mutable in-place.
-    node2: PyNode = count_num_rows(ch_in=ch1, ch_out=ch2, total_num_rows=total_num_rows)
+    node2: PyNode = count_num_rows(
+        ctx, ch_in=ch1, ch_out=ch2, total_num_rows=total_num_rows
+    )
 
     # Node 3: consumer that pulls messages from the pipeline.
     # Like push_to_channel(), it returns a CppNode. It also returns a placeholder
     # object that will be populated with the pulled messages after execution.
-    node3, out_messages = pull_from_channel(ctx=ctx, ch_in=ch2)
+    node3, out_messages = pull_from_channel(ctx, ch_in=ch2)
 
     # Run all nodes. This blocks until every node has completed.
     run_streaming_pipeline(
@@ -123,9 +125,8 @@ def main() -> None:
         table = TableChunk.from_message(msg).table_view()
         expect += table.num_rows()
     assert total_num_rows[0] == expect
-
-    print(f"total_num_rows: {total_num_rows[0]}")
+    return total_num_rows[0]
 
 
 if __name__ == "__main__":
-    main()
+    print(f"total_num_rows: {main()}")

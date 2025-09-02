@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Iterable, Iterator, Mapping
 from functools import wraps
 
 from rapidsmpf.streaming.core.channel import Channel
+from rapidsmpf.streaming.core.context import Context
 
 
 cdef class CppNode:
@@ -91,86 +92,84 @@ class PyNode(Awaitable[None]):
         return self._coro.__await__()
 
 
-def define_py_node(ctx, *, channels = ()):
+def define_py_node(*, extra_channels=()):
     """
-    Create a decorator that defines a Python streaming node.
+    Create a decorator for defining a Python streaming node.
 
-    This factory wraps an async function into a `PyNode`. It ensures that the function
-    behaves as a streaming node in the pipeline, and it takes care of shutting down
-    channels automatically when the node finishes (whether normally or due to an
-    exception).
+    The decorated coroutine must take a `Context` as its first positional argument
+    and return None. When the coroutine finishes (whether successfully or with an
+    exception), the wrapper automatically shuts down:
+      * any channels discovered from the coroutine's arguments.
+      * all channels listed in ``extra_channels``.
+
+    Channels are discovered by recursively inspecting the coroutine's bound arguments.
+    Mapping values and general iterables are traversed but byte-like objects (``str``,
+    ``bytes``, ``bytearray``, ``memoryview``) are skipped.
 
     Parameters
     ----------
-    ctx
-        The streaming context of the decorated function.
-    channels
-        Additional channels to shut down after the decorated function completes. Useful
-        when the node uses channels that are not passed as coroutine arguments.
+    extra_channels
+        Additional channels to shut down after the decorated coroutine completes.
 
     Returns
     -------
     decorator
-        A decorator to apply to an async function, returning a `PyNode`.
+        A decorator for an async function that defines a Python node.
 
     Raises
     ------
     TypeError
-        If the decorated function is not declared ``async``.
-
-    Notes
-    -----
-    - Channels are discovered by recursively inspecting the bound arguments:
-      * Direct arguments are inspected.
-      * Mapping values and general iterables are traversed.
-      * Text-like objects (``str``, ``bytes``, ``bytearray``, ``memoryview``)
-        are skipped.
+        If the decorated function is not async.
 
     Examples
     --------
-    >>> @define_py_node(ctx, channels=(ch_extra,))
-    ... async def my_node(ch_out):
-    ...     await ch_out.send(...)
-    ...     # both ch_out and ch_extra will be shut down on exit
+    In the following example, `python_node` is defined as a Python node.
+    When it completes, ``ch1`` is shut down automatically because it is passed
+    as a coroutine argument, and ``ch2`` is shut down because it is listed in
+    ``extra_channels``:
+    >>> ch1: Channel[TableChunk] = Channel()
+    >>> ch2: Channel[TableChunk] = Channel()
+    ...
+    >>> @define_py_node(extra_channels=(ch2,))
+    ... async def python_node(ctx: Context, /, ch_in: Channel) -> None:
+    ...     msg = await ch_in.recv()
+    ...     await ch2.send(msg)
     """
 
-    def get_channels(arguments):
-        ret = []
-
-        def collect(obj) -> None:
-            if isinstance(obj, Channel):
-                ret.append(obj)
-            elif isinstance(obj, (str, bytes, bytearray, memoryview)):
-                return
-            elif isinstance(obj, Mapping):
-                for v in obj.values():
-                    collect(v)
-            elif isinstance(obj, Iterable):
-                for v in obj:
-                    collect(v)
-
-        collect(arguments)
-        return ret
+    def _collect_channels(obj, out):
+        if isinstance(obj, Channel):
+            out.append(obj)
+        elif isinstance(obj, (str, bytes, bytearray, memoryview)):
+            return
+        elif isinstance(obj, Mapping):
+            for v in obj.values():
+                _collect_channels(v, out)
+        elif isinstance(obj, Iterable):
+            for v in obj:
+                _collect_channels(v, out)
 
     def decorator(func):
         if not inspect.iscoroutinefunction(func):
-            raise TypeError("can only decorate async functions")
-
-        sig = inspect.signature(func)
+            raise TypeError(f"`{func.__qualname__}` must be an async function")
 
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Discover channels from the bound arguments at call time.
-            bound = sig.bind_partial(*args, **kwargs)
-            bound.apply_defaults()
-            found_channels = get_channels(bound.arguments)
+            if len(args) < 1 or not isinstance(args[0], Context):
+                raise TypeError(
+                    "expect a Context as the first positional argument "
+                    "(not as a keyword argument)"
+                )
+            ctx = args[0]
+
+            found = []
+            _collect_channels(args, found)
+            _collect_channels(kwargs, found)
 
             async def run() -> None:
                 try:
                     await func(*args, **kwargs)
                 finally:
-                    # Always attempt shutdown (found first, then extra)
-                    for ch in (*found_channels, *channels):
+                    for ch in (*found, *extra_channels):
                         await ch.shutdown(ctx)
 
             return PyNode(run())
@@ -214,10 +213,10 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
     Examples
     --------
     >>> ch: Channel[TableChunk] = Channel()
-    >>> cpp_node, output = pull_from_channel(ctx=context, ch_in=ch)
+    >>> cpp_node, output = pull_from_channel(context, ch_in=ch)
     ...
-    >>> @define_py_node(context)
-    ... async def python_node(ch_out: Channel) -> None:
+    >>> @define_py_node()
+    ... async def python_node(ctx: Context, ch_out: Channel) -> None:
     ...     # Send one message and close.
     ...     await ch_out.send(
     ...         context,
@@ -226,7 +225,7 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
     ...     await ch_out.drain(context)
     ...
     >>> run_streaming_pipeline(
-    ...     nodes=[cpp_node, python_node(ch_out=ch)],
+    ...     nodes=[cpp_node, python_node(context, ch_out=ch)],
     ...     py_executor=ThreadPoolExecutor(max_workers=1),
     ... )
     >>> results = output.release()

@@ -30,8 +30,8 @@ def test_roundtrip(context: Context, stream: Stream) -> None:
         for seq, expect in enumerate(expects)
     ]
     ch1: Channel[TableChunk] = Channel()
-    node1 = push_to_channel(ctx=context, ch_out=ch1, messages=table_chunks)
-    node2, output = pull_from_channel(ctx=context, ch_in=ch1)
+    node1 = push_to_channel(context, ch_out=ch1, messages=table_chunks)
+    node2, output = pull_from_channel(context, ch_in=ch1)
     run_streaming_pipeline(nodes=(node1, node2))
 
     results = output.release()

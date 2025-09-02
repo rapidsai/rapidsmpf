@@ -35,8 +35,8 @@ def test_send_table_chunks(
     ch1: Channel[TableChunk] = Channel()
 
     # The node access `ch1` both through the `ch_out` parameter and the closure.
-    @define_py_node(context, channels=(ch1,))
-    async def node1(ch_out: Channel) -> None:
+    @define_py_node(extra_channels=(ch1,))
+    async def node1(ctx: Context, /, ch_out: Channel) -> None:
         for seq, chunk in enumerate(expects):
             await ch1.send(
                 context,
@@ -50,11 +50,11 @@ def test_send_table_chunks(
             )
         await ch_out.drain(context)
 
-    node2, output = pull_from_channel(ctx=context, ch_in=ch1)
+    node2, output = pull_from_channel(context, ch_in=ch1)
 
     run_streaming_pipeline(
         nodes=[
-            node1(ch_out=ch1),
+            node1(context, ch_out=ch1),
             node2,
         ],
         py_executor=py_executor,
@@ -68,18 +68,18 @@ def test_send_table_chunks(
 
 
 def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
-    @define_py_node(context)
-    async def node1(ch_out: Channel[TableChunk]) -> None:
-        await ch_out.shutdown(context)
+    @define_py_node()
+    async def node1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
+        await ch_out.shutdown(ctx)
         # Calling shutdown multiple times is allowed.
-        await ch_out.shutdown(context)
+        await ch_out.shutdown(ctx)
 
     ch1: Channel[TableChunk] = Channel()
-    node2, output = pull_from_channel(ctx=context, ch_in=ch1)
+    node2, output = pull_from_channel(context, ch_in=ch1)
 
     run_streaming_pipeline(
         nodes=[
-            node1(ch_out=ch1),
+            node1(context, ch_out=ch1),
             node2,
         ],
         py_executor=py_executor,
@@ -89,12 +89,12 @@ def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
 
 
 def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
-    @define_py_node(context)
-    async def node1(ch_out: Channel[TableChunk]) -> None:
+    @define_py_node()
+    async def node1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         raise RuntimeError("MyError")
 
     ch1: Channel[TableChunk] = Channel()
-    node2, output = pull_from_channel(ctx=context, ch_in=ch1)
+    node2, output = pull_from_channel(context, ch_in=ch1)
 
     with pytest.raises(
         RuntimeError,
@@ -102,7 +102,7 @@ def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
     ):
         run_streaming_pipeline(
             nodes=[
-                node1(ch_out=ch1),
+                node1(context, ch_out=ch1),
                 node2,
             ],
             py_executor=py_executor,
@@ -125,8 +125,8 @@ def test_recv_table_chunks(
 
     results: list[Message[TableChunk]] = []
 
-    @define_py_node(context)
-    async def node1(ch_in: Channel[TableChunk]) -> None:
+    @define_py_node()
+    async def node1(ctx: Context, ch_in: Channel[TableChunk]) -> None:
         while True:
             chunk = await ch_in.recv(context)
             if chunk is None:
@@ -137,8 +137,8 @@ def test_recv_table_chunks(
 
     run_streaming_pipeline(
         nodes=[
-            push_to_channel(ctx=context, ch_out=ch1, messages=table_chunks),
-            node1(ch_in=ch1),
+            push_to_channel(context, ch_out=ch1, messages=table_chunks),
+            node1(context, ch_in=ch1),
         ],
         py_executor=py_executor,
     )
