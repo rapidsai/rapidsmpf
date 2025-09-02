@@ -82,7 +82,7 @@ class PyNode(Awaitable[None]):
     A streaming node implemented in Python.
 
     This runs as an Python coroutine (asyncio), which means it comes with a significant
-    Python overhead. The GIL is release on `await` and when calling the C++ API.
+    Python overhead. The GIL is released on `await` and when calling the C++ API.
     """
     def __init__(self, coro: Awaitable[None]) -> None:
         self._coro = coro
@@ -208,9 +208,6 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
     Exception
         Any unhandled exception from any node is re-raised after execution. If multiple
         nodes raise unhandled exceptions, only one (unspecified) exception is re-raised.
-
-    Raises
-    ------
     TypeError
         If nodes contains an unknown node type.
 
