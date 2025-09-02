@@ -6,6 +6,8 @@ from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.resource cimport BufferResource
 from rapidsmpf.communicator.communicator cimport Communicator
+from rapidsmpf.config cimport Options
+from rapidsmpf.statistics cimport Statistics
 
 
 cdef extern from "<rapidsmpf/streaming/core/context.hpp>" nogil:
@@ -17,3 +19,5 @@ cdef class Context:
     cdef shared_ptr[cpp_Context] _handle
     cdef Communicator _comm
     cdef BufferResource _br
+    cdef Options _options
+    cdef Statistics _statistics

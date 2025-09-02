@@ -36,24 +36,38 @@ cdef class Context:
     ):
         self._comm = comm
         self._br = br
-        cdef cpp_BufferResource* br_ = br.ptr()
+        cdef cpp_BufferResource* _br = br.ptr()
 
-        if options is None:
-            options = Options()
+        self._options = options
+        if self._options is None:
+            self._options = Options()
         # Insert missing config options from environment variables.
-        options.insert_if_absent(get_environment_variables())
+        self._options.insert_if_absent(get_environment_variables())
 
+        self._statistics = statistics
         if statistics is None:
-            statistics = Statistics(enable=False)  # Disables statistics.
+            self._statistics = Statistics(enable=False)  # Disables statistics.
 
         with nogil:
             self._handle = make_shared[cpp_Context](
-                options._handle,
+                self._options._handle,
                 self._comm._handle,
-                br_,
-                statistics._handle,
+                _br,
+                self._statistics._handle,
             )
 
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
+
+    def options(self):
+        return self._options
+
+    def comm(self):
+        return self._options
+
+    def br(self):
+        return self._br
+
+    def statistics(self):
+        return self._statistics
