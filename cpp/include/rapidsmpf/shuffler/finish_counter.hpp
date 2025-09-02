@@ -98,14 +98,19 @@ class FinishCounter {
      *
      * The callback receives the partition ID of the finished partition.
      *
+     * @warning A callback must be fast and non-blocking and should not call any of the
+     * `wait*` methods. And be very careful if acquiring locks. Ideally it should be used
+     * to signal a separate thread to do the actual processing.
+     *
      * @note When a callback is registered, it will be identified by the
      * FinishedCbId returned. So, if a callback needs to be preemptively canceled,
      * the corresponding identifier needs to be provided.
      *
-     * @note Every callback will be called `n_local_partitions_` times, as and when each
-     * partition is finished. If there were finished partitions before the callback was
-     * registered, the callback will be called for them immediately by the caller thread.
-     * Else, the callback will be called by the progress thread.
+     * @note Every callback will be called as and when each partition is finished. If
+     * there were finished partitions before the callback was registered, the callback
+     * will be called for them immediately by the caller thread. Else, the callback will
+     * be called by the progress thread (Therefore, it will be called
+     * `n_local_partitions_` times in total).
      *
      * @note Caller needs to be careful when using both callbacks and wait* methods
      * together.
@@ -120,19 +125,15 @@ class FinishCounter {
     /**
      * @brief Register a callback to be notified when any partition is finished.
      *
-     * This function registers a callback that will be called for all partitions that
-     * are finished or become finished. The callback receives partition IDs as they
-     * complete. If all partitions are already finished, the callback is executed
+     * This function registers a callback that will be called when a partition is finished
+     * (and for all currently finished partitions). The callback receives partition IDs as
+     * they complete. If all partitions are already finished, the callback is executed
      * immediately for all partitions and invalid_cb_id is returned.
      *
      * @param cb The callback to invoke when partitions are finished.
      *
      * @return A unique callback ID that can be used to cancel the callback, or
      * invalid_cb_id if the callback was executed immediately.
-     *
-     * @note The callback will be called for all currently finished partitions
-     * immediately by the caller thread, then for any future partitions as they complete
-     * by the progress thread.
      */
     FinishedCbId register_finished_callback(FinishedCallback&& cb);
 

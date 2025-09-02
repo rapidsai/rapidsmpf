@@ -962,6 +962,9 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(FinishCounterMultithreadingTest, consume_then_produce) {
     auto futures = create_consumer_threads_with_cb();
     produce_data();
+
+    EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
+
     EXPECT_EQ(npartitions, empty_pid_count);  // all partitions should be empty
     EXPECT_TRUE(finish_counter->all_finished());
 }
@@ -969,6 +972,8 @@ TEST_P(FinishCounterMultithreadingTest, consume_then_produce) {
 TEST_P(FinishCounterMultithreadingTest, produce_then_consume) {
     produce_data();
     auto futures = create_consumer_threads_with_cb();
+    EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
+
     EXPECT_EQ(npartitions, empty_pid_count);  // all partitions should be empty
     EXPECT_TRUE(finish_counter->all_finished());
 }
@@ -982,12 +987,14 @@ TEST_P(FinishCounterMultithreadingTest, wait_any) {
         n_wait_calls.fetch_add(1, std::memory_order_relaxed);
     });
 
-    for (auto& future : futures) {
-        EXPECT_NO_THROW(future.get());
-    }
+    EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
 
     EXPECT_EQ(npartitions, n_wait_calls);
     EXPECT_TRUE(finish_counter->all_finished());
+
+    // callbacks should still receive all finished partitions, even after the wait_any
+    auto cb_futures = create_consumer_threads_with_cb();
+    EXPECT_NO_THROW(std::ranges::for_each(cb_futures, [](auto& f) { f.get(); }));
 }
 
 TEST_P(FinishCounterMultithreadingTest, wait_on) {
@@ -999,12 +1006,14 @@ TEST_P(FinishCounterMultithreadingTest, wait_on) {
         n_wait_calls.fetch_add(1, std::memory_order_relaxed);
     });
 
-    for (auto& future : futures) {
-        EXPECT_NO_THROW(future.get());
-    }
+    EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
 
     EXPECT_EQ(npartitions, n_wait_calls);
     EXPECT_TRUE(finish_counter->all_finished());
+
+    // callbacks should still receive all finished partitions, even after the wait_on
+    auto cb_futures = create_consumer_threads_with_cb();
+    EXPECT_NO_THROW(std::ranges::for_each(cb_futures, [](auto& f) { f.get(); }));
 }
 
 namespace rapidsmpf::shuffler::detail {
