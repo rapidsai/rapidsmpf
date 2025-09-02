@@ -32,7 +32,10 @@ def test_send_table_chunks(
         for seq in range(10)
     ]
 
-    @define_py_node(context)
+    ch1: Channel[TableChunk] = Channel()
+
+    # The node access `ch1` both from coroutine a parameter and the closure.
+    @define_py_node(context, channels=(ch1,))
     async def node1(ch_out: Channel) -> None:
         for seq, chunk in enumerate(expects):
             await ch1.send(
@@ -47,7 +50,6 @@ def test_send_table_chunks(
             )
         await ch_out.drain(context)
 
-    ch1: Channel[TableChunk] = Channel()
     node2, output = pull_from_channel(ctx=context, ch_in=ch1)
 
     run_streaming_pipeline(
