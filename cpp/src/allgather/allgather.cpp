@@ -158,7 +158,7 @@ void PostBox::insert(std::vector<std::unique_ptr<Chunk>>&& chunks) {
 }
 
 void PostBox::increment_goalpost(std::uint64_t amount) {
-    goalpost_.fetch_add(amount, std::memory_order_relaxed);
+    goalpost_.fetch_add(amount, std::memory_order_acq_rel);
 }
 
 bool PostBox::ready() const noexcept {
@@ -252,55 +252,27 @@ std::size_t PostBox::spill(
 }
 
 static std::vector<std::unique_ptr<Chunk>> test_some(
-    std::vector<std::pair<std::unique_ptr<Chunk>, std::unique_ptr<Communicator::Future>>>&
-        chunks,
+    std::vector<std::unique_ptr<Chunk>>& chunks,
+    std::vector<std::unique_ptr<Communicator::Future>>& futures,
     Communicator* comm
 ) {
+    RAPIDSMPF_EXPECTS(
+        chunks.size() == futures.size(), "Mismatching size for chunks and futures"
+    );
     if (chunks.empty()) {
         return {};
     }
+    auto [complete_futures, indices] = comm->test_some(futures);
     std::vector<std::unique_ptr<Chunk>> result;
-    std::vector<std::unique_ptr<Communicator::Future>> futures;
-    futures.reserve(chunks.size());
-    std::ranges::transform(chunks, std::back_inserter(futures), [](auto&& c) {
-        return std::move(c.second);
-    });
-    // Note: this will always complete a single contiguous block of
-    // futures since we only ever receive from a single source and a
-    // single tag.
-    // If either of those preconditions were to be broken we would
-    // need a different implementation here.
-    auto complete = comm->test_some(futures);
-    result.reserve(complete.size());
+    result.reserve(complete_futures.size());
     std::ranges::transform(
-        complete, chunks, std::back_inserter(result), [&](auto&& fut, auto&& c) {
-            auto chunk = std::move(c.first);
-            RAPIDSMPF_EXPECTS(
-                c.second == nullptr, "Expecting future to have been moved from"
-            );
-            auto data = comm->get_gpu_data(std::move(fut));
-            chunk->attach_data_buffer(std::move(data));
+        indices, complete_futures, std::back_inserter(result), [&](auto i, auto&& fut) {
+            auto chunk = std::move(chunks[i]);
+            chunk->attach_data_buffer(comm->get_gpu_data(std::move(fut)));
             return std::move(chunk);
         }
     );
-    auto cit = chunks.begin() + static_cast<std::int64_t>(complete.size());
-    auto fit = futures.begin();
-    for (; cit != chunks.end() && fit != futures.end(); cit++, fit++) {
-        RAPIDSMPF_EXPECTS(*fit, "Expecting a future here");
-        RAPIDSMPF_EXPECTS(!(*cit).second, "Expecting no future here");
-        std::swap((*cit).second, *fit);
-    }
-    auto osize = chunks.size();
-    std::erase(
-        chunks,
-        std::pair<std::unique_ptr<Chunk>, std::unique_ptr<Communicator::Future>>{
-            nullptr, nullptr
-        }
-    );
-    RAPIDSMPF_EXPECTS(
-        chunks.size() == osize - result.size(),
-        "Didn't remove the expected number of chunks"
-    );
+    std::erase(chunks, nullptr);
     return result;
 }
 }  // namespace detail
@@ -339,6 +311,14 @@ void AllGather::insert_finished() {
             nlocal_insertions_.load(std::memory_order_acquire), comm_->rank()
         )
     );
+}
+
+void AllGather::mark_finish(std::uint64_t expected_chunks) noexcept {
+    // We must increment the goalpost before decrementing the finish
+    // counter so that we cannot, on another thread, observe a finish
+    // counter of zero with chunks still to be received.
+    for_extraction_.increment_goalpost(expected_chunks);
+    finish_counter_.fetch_sub(1, std::memory_order_relaxed);
 }
 
 bool AllGather::finished() const noexcept {
@@ -474,8 +454,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
         // the allgather instance.
         for (auto&& chunk : inserted_.extract()) {
             if (chunk->is_finish()) {
-                finish_counter_.fetch_sub(1, std::memory_order_relaxed);
-                for_extraction_.increment_goalpost(chunk->sequence());
+                mark_finish(chunk->sequence());
             } else {
                 RAPIDSMPF_EXPECTS(
                     chunk->data_size() > 0, "Not expecting zero-sized data chunks"
@@ -491,17 +470,17 @@ ProgressThread::ProgressState AllGather::event_loop() {
                 comm_->send(chunk->serialize(), dst, metadata_tag, br_)
             );
             if (chunk->is_finish()) {
-                finish_counter_.fetch_sub(1, std::memory_order_relaxed);
-                // Finish chunk contains as sequence number the
-                // number of insertions from that rank.
-                for_extraction_.increment_goalpost(chunk->sequence());
+                // Finish chunk contains as sequence number the number
+                // of insertions from that rank.
+                mark_finish(chunk->sequence());
             } else {
                 RAPIDSMPF_EXPECTS(
                     chunk->data_size() > 0, "Not expecting zero-sized data chunks"
                 );
                 auto buf = chunk->release_data_buffer();
-                sent_.emplace_back(
-                    std::move(chunk), comm_->send(std::move(buf), dst, gpu_data_tag)
+                sent_posted_.emplace_back(std::move(chunk));
+                sent_futures_.emplace_back(
+                    comm_->send(std::move(buf), dst, gpu_data_tag)
                 );
             }
         }
@@ -518,8 +497,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
                     inserted_.insert(std::move(chunk));
                 } else {
                     // Otherwise, record we're done with data from that rank.
-                    finish_counter_.fetch_sub(1, std::memory_order_relaxed);
-                    for_extraction_.increment_goalpost(chunk->sequence());
+                    mark_finish(chunk->sequence());
                 }
             } else {
                 RAPIDSMPF_EXPECTS(
@@ -536,14 +514,14 @@ ProgressThread::ProgressState AllGather::event_loop() {
                 break;
             }
             auto buf = chunk->release_data_buffer();
-            received_.emplace_back(
-                std::move(chunk), comm_->recv(src, gpu_data_tag, std::move(buf))
-            );
+            receive_posted_.emplace_back(std::move(chunk));
+            receive_futures_.emplace_back(comm_->recv(src, gpu_data_tag, std::move(buf)));
         }
         std::erase(to_receive_, nullptr);
 
         std::ranges::for_each(
-            detail::test_some(received_, comm_.get()), [&](auto&& chunk) {
+            detail::test_some(receive_posted_, receive_futures_, comm_.get()),
+            [&](auto&& chunk) {
                 if (chunk->origin() == dst) {
                     for_extraction_.insert(std::move(chunk));
                 } else {
@@ -551,14 +529,17 @@ ProgressThread::ProgressState AllGather::event_loop() {
                 }
             }
         );
-        for_extraction_.insert(detail::test_some(sent_, comm_.get()));
+        for_extraction_.insert(
+            detail::test_some(sent_posted_, sent_futures_, comm_.get())
+        );
         if (!fire_and_forget_.empty()) {
             std::ignore = comm_->test_some(fire_and_forget_);
         }
     }
     bool const containers_empty =
-        (fire_and_forget_.empty() && sent_.empty() && received_.empty()
-         && to_receive_.empty() && inserted_.empty());
+        (fire_and_forget_.empty() && sent_posted_.empty() && receive_posted_.empty()
+         && sent_futures_.empty() && receive_futures_.empty() && to_receive_.empty()
+         && inserted_.empty());
     bool const is_finished = finished();
     bool const is_done =
         !active_.load(std::memory_order_acquire) || (is_finished && containers_empty);

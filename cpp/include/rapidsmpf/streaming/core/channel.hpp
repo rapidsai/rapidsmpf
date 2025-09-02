@@ -6,8 +6,11 @@
 #pragma once
 
 
-#include <optional>
+#include <any>
+#include <memory>
+#include <typeinfo>
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 
 #include <coro/coro.hpp>
@@ -15,67 +18,145 @@
 namespace rapidsmpf::streaming {
 
 /**
- * @brief A coroutine-based channel for sending and receiving messages asynchronously.
- *
- * The default capacity is 1, making it suitable for CSP-style rendezvous communication.
- *
- * @tparam T Type of the message passed through the channel.
- * @tparam Capacity Maximum number of messages the channel can buffer.
+ * @brief Move-only, type-erased message holding a payload as shared pointer.
  */
-template <typename T, std::size_t Capacity = 1>
+class Message {
+  public:
+    Message() = default;
+
+    /**
+     * @brief Construct from a unique pointer (promoted to shared_ptr).
+     *
+     * @tparam T Payload type.
+     * @param ptr Non-null unique pointer.
+     * @throws std::invalid_argument if @p ptr is null.
+     */
+    template <typename T>
+    Message(std::unique_ptr<T> ptr) {
+        RAPIDSMPF_EXPECTS(ptr != nullptr, "nullptr not allowed", std::invalid_argument);
+        data_ = std::shared_ptr<T>(std::move(ptr));
+    }
+
+    /** @brief Move construct. @param other Source message. */
+    Message(Message&& other) noexcept = default;
+
+    /** @brief Move assign. @param other Source message. @return *this. */
+    Message& operator=(Message&& other) noexcept = default;
+    Message(Message const&) = delete;
+    Message& operator=(Message const&) = delete;
+
+    /**
+     * @brief Reset the message to empty.
+     */
+    void reset() noexcept {
+        return data_.reset();
+    }
+
+    /**
+     * @brief Returns true when no payload is stored.
+     *
+     * @return true if empty, false otherwise.
+     */
+    [[nodiscard]] bool empty() const noexcept {
+        return !data_.has_value();
+    }
+
+    /**
+     * @brief Compare the payload type.
+     *
+     * @tparam T Expected payload type.
+     * @return true if the payload is `typeid(T)`, false otherwise.
+     */
+    template <typename T>
+    [[nodiscard]] bool holds() const noexcept {
+        return data_.type() == typeid(std::shared_ptr<T>);
+    }
+
+    /**
+     * @brief Extracts the payload and resets the message.
+     *
+     * @tparam T Payload type.
+     * @return The payload.
+     * @throws std::invalid_argument if empty or type mismatch.
+     */
+    template <typename T>
+    T release() {
+        auto ret = get_ptr<T>();
+        reset();
+        return std::move(*ret);
+    }
+
+    /**
+     * @brief Reference to the payload.
+     *
+     * The returned reference remains valid until the message is released or reset.
+     *
+     * @tparam T Payload type.
+     * @return Reference to the payload.
+     * @throws std::invalid_argument if empty or type mismatch.
+     */
+    template <typename T>
+    T const& get() {
+        return *get_ptr<T>();
+    }
+
+  private:
+    /**
+     * @brief Returns a shared pointer to the payload.
+     *
+     * @tparam T Payload type.
+     * @return std::shared_ptr<T> to the payload.
+     * @throws std::invalid_argument if empty or type mismatch.
+     */
+    template <typename T>
+    [[nodiscard]] std::shared_ptr<T> get_ptr() const {
+        RAPIDSMPF_EXPECTS(!empty(), "message is empty", std::invalid_argument);
+        RAPIDSMPF_EXPECTS(holds<T>(), "wrong message type", std::invalid_argument);
+        return std::any_cast<std::shared_ptr<T>>(data_);
+    }
+
+  private:
+    std::any data_;
+};
+
+/**
+ * @brief A coroutine-based channel for sending and receiving messages asynchronously.
+ */
 class Channel {
   public:
     /**
-     * @brief Asynchronously send a value into the channel.
+     * @brief Asynchronously send a message into the channel.
      *
-     * Suspends if the buffer is empty.
+     * Suspends if the channel is full.
      *
-     * @param value The value to send.
-     * @return A coroutine that evaluates to true if the value was successfully sent or
+     * @param msg The msg to send.
+     * @return A coroutine that evaluates to true if the msg was successfully sent or
      * false if the channel was shut down.
      */
-    coro::task<bool> send(T value) {
-        auto result = co_await rb_.produce(std::move(value));
+    coro::task<bool> send(Message msg) {
+        auto result = co_await rb_.produce(std::move(msg));
         co_return result == coro::ring_buffer_result::produce::produced;
     }
 
     /**
-     * @brief Asynchronously receive a value from the channel.
+     * @brief Asynchronously receive a message from the channel.
      *
-     * Suspends if the buffer is empty.
+     * Suspends if the channel is empty.
      *
-     * @return A coroutine that evaluates to an optional containing the received value or
-     * std::nullopt if the channel is shut down.
+     * @return A coroutine that evaluates to the message, which will be empty if the
+     * channel is shut down.
      */
-    coro::task<std::optional<T>> receive() {
-        auto msg = co_await rb_.consume();
-        if (msg.has_value()) {
-            co_return std::make_optional(std::move(*msg));
-        } else {
-            co_return std::nullopt;
-        }
-    }
-
-    /**
-     * @brief Asynchronously receive a value, or return a default if the channel is
-     * closed.
-     *
-     * Useful for fallback behavior when shutdown might occur.
-     *
-     * @param default_value The value to return if the channel is closed (moved).
-     * @return A coroutine that evaluates to the received value or the default.
-     */
-    coro::task<T> receive_or(T default_value) {
+    coro::task<Message> receive() {
         auto msg = co_await rb_.consume();
         if (msg.has_value()) {
             co_return std::move(*msg);
         } else {
-            co_return default_value;
+            co_return Message{};
         }
     }
 
     /**
-     * @brief Drains all pending items from the channel and shuts it down.
+     * @brief Drains all pending messages from the channel and shuts it down.
      *
      * This is intended to ensure all remaining messages are processed.
      *
@@ -89,7 +170,7 @@ class Channel {
     /**
      * @brief Immediately shuts down the channel.
      *
-     * Any pending or future send/receive operations will complete with failure/nullopt.
+     * Any pending or future send/receive operations will complete with failure.
      *
      * @return A coroutine representing the completion of the shutdown.
      */
@@ -107,29 +188,8 @@ class Channel {
     }
 
   private:
-    coro::ring_buffer<T, Capacity> rb_;
+    coro::ring_buffer<Message, 1> rb_;
 };
-
-/**
- * @brief Type alias for a shared pointer to a channel of unique pointers.
- *
- * This alias is used throughout rapidsmpf.
- *
- * @tparam T The type held inside the shared pointer.
- */
-template <typename T>
-using SharedChannel = std::shared_ptr<Channel<std::unique_ptr<T>>>;
-
-/**
- * @brief Creates a new shared channel for shared pointer values.
- *
- * @tparam T The type held inside the shared pointer.
- * @return A shared pointer to a new Channel instance.
- */
-template <typename T>
-std::shared_ptr<Channel<std::unique_ptr<T>>> make_shared_channel() {
-    return std::make_shared<Channel<std::unique_ptr<T>>>();
-}
 
 /**
  * @brief Helper RAII class to shut down channels when they go out of scope.

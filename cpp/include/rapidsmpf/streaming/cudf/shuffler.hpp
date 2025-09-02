@@ -27,8 +27,8 @@ namespace rapidsmpf::streaming::node {
  * resources.
  * @param stream The CUDA stream on which to perform the shuffling. If chunks from the
  * input channel aren't created on `stream`, the streams are all synchronized.
- * @param ch_in Input channel providing packed partition chunks to be shuffled.
- * @param ch_out Output channel where the shuffled results are sent.
+ * @param ch_in Input channel providing PartitionMapChunk to be shuffled.
+ * @param ch_out Output channel where the resulting PartitionVectorChunks are sent.
  * @param op_id Unique operation ID for this shuffle. Must not be reused until all nodes
  * have called `Shuffler::shutdown()`.
  * @param total_num_partitions Total number of partitions to shuffle the data into.
@@ -40,8 +40,8 @@ namespace rapidsmpf::streaming::node {
 Node shuffler(
     std::shared_ptr<Context> ctx,
     rmm::cuda_stream_view stream,
-    SharedChannel<PartitionMapChunk> ch_in,
-    SharedChannel<PartitionVectorChunk> ch_out,
+    std::shared_ptr<Channel> ch_in,
+    std::shared_ptr<Channel> ch_out,
     OpID op_id,
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin

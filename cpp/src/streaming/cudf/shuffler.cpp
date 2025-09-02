@@ -44,8 +44,8 @@ void sync_streams(
 Node shuffler(
     std::shared_ptr<Context> ctx,
     rmm::cuda_stream_view stream,
-    SharedChannel<PartitionMapChunk> ch_in,
-    SharedChannel<PartitionVectorChunk> ch_out,
+    std::shared_ptr<Channel> ch_in,
+    std::shared_ptr<Channel> ch_out,
     OpID op_id,
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner
@@ -67,17 +67,19 @@ Node shuffler(
 
     std::uint64_t sequence_number{0};
     while (true) {
-        auto partition_map = co_await ch_in->receive_or(nullptr);
-        if (partition_map == nullptr) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
             break;
         }
-        // Make sure that the input chunk's stream is in sync with shuffler's stream.
-        sync_streams(stream, partition_map->stream, event);
+        auto partition_map = msg.release<PartitionMapChunk>();
 
-        shuffler.insert(std::move(partition_map->data));
+        // Make sure that the input chunk's stream is in sync with shuffler's stream.
+        sync_streams(stream, partition_map.stream, event);
+
+        shuffler.insert(std::move(partition_map.data));
 
         // Use the highest input sequence number as the output sequence number.
-        sequence_number = std::max(sequence_number, partition_map->sequence_number);
+        sequence_number = std::max(sequence_number, partition_map.sequence_number);
     }
 
     // Tell the shuffler that we have no more input data.
@@ -96,6 +98,5 @@ Node shuffler(
     }
     co_await ch_out->drain(ctx->executor());
 }
-
 
 }  // namespace rapidsmpf::streaming::node

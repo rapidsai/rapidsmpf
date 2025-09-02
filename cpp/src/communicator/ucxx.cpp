@@ -1171,9 +1171,8 @@ std::unique_ptr<std::vector<uint8_t>> UCXX::recv_from(Rank src, Tag tag) {
     return msg;
 }
 
-std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
-    std::vector<std::unique_ptr<Communicator::Future>>& future_vector
-) {
+std::pair<std::vector<std::unique_ptr<Communicator::Future>>, std::vector<std::size_t>>
+UCXX::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vector) {
     if (future_vector.empty()) {
         return {};
     }
@@ -1210,7 +1209,7 @@ std::vector<std::unique_ptr<Communicator::Future>> UCXX::test_some(
         return std::move(future_vector[i]);
     });
     std::erase(future_vector, nullptr);
-    return completed;
+    return {std::move(completed), std::move(indices)};
 }
 
 std::vector<std::size_t> UCXX::test_some(

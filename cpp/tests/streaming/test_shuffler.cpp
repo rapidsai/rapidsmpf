@@ -38,9 +38,9 @@ TEST_F(StreamingShuffler, Basic) {
 
     // Create the full input table and slice it into chunks.
     cudf::table full_input_table = random_table_with_index(seed, num_rows, 0, 10);
-    std::vector<std::unique_ptr<TableChunk>> full_input_table_chunks;
+    std::vector<Message> input_chunks;
     for (unsigned int i = 0; i < num_chunks; ++i) {
-        full_input_table_chunks.emplace_back(
+        input_chunks.emplace_back(
             std::make_unique<TableChunk>(
                 i,
                 std::make_unique<cudf::table>(
@@ -60,38 +60,33 @@ TEST_F(StreamingShuffler, Basic) {
     }
 
     // Create and run the streaming pipeline.
-    std::vector<std::unique_ptr<TableChunk>> output_chunks;
+    std::vector<Message> output_chunks;
     {
         std::vector<Node> nodes;
-        auto ch1 = make_shared_channel<TableChunk>();
-        nodes.push_back(
-            node::push_chunks_to_channel<TableChunk>(
-                ctx, ch1, std::move(full_input_table_chunks)
-            )
-        );
+        auto ch1 = std::make_shared<Channel>();
+        nodes.push_back(node::push_to_channel(ctx, ch1, std::move(input_chunks)));
 
-        auto ch2 = make_shared_channel<PartitionMapChunk>();
+        auto ch2 = std::make_shared<Channel>();
         nodes.push_back(
             node::partition_and_pack(
                 ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
             )
         );
 
-        auto ch3 = make_shared_channel<PartitionVectorChunk>();
+        auto ch3 = std::make_shared<Channel>();
         nodes.push_back(node::shuffler(ctx, stream, ch2, ch3, op_id, num_partitions));
 
-        auto ch4 = make_shared_channel<TableChunk>();
+        auto ch4 = std::make_shared<Channel>();
         nodes.push_back(node::unpack_and_concat(ctx, ch3, ch4));
 
-        nodes.push_back(node::pull_chunks_from_channel(ctx, ch4, output_chunks));
+        nodes.push_back(node::pull_from_channel(ctx, ch4, output_chunks));
 
         run_streaming_pipeline(std::move(nodes));
     }
-
     // Concat all output chunks to a single table.
     std::vector<cudf::table_view> output_chunks_as_views;
-    for (auto const& chunk : output_chunks) {
-        output_chunks_as_views.push_back(chunk->table_view());
+    for (auto& chunk : output_chunks) {
+        output_chunks_as_views.push_back(chunk.get<TableChunk>().table_view());
     }
     auto result_table = cudf::concatenate(output_chunks_as_views);
 

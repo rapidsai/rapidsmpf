@@ -36,7 +36,7 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
         expects.push_back(random_table_with_index(seed + i, num_rows, 0, 10));
     }
 
-    std::vector<std::unique_ptr<TableChunk>> inputs;
+    std::vector<Message> inputs;
     for (int i = 0; i < num_chunks; ++i) {
         inputs.emplace_back(
             std::make_unique<TableChunk>(
@@ -48,34 +48,33 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
     }
 
     // Create and run the streaming pipeline.
-    std::vector<std::unique_ptr<TableChunk>> outputs;
+    std::vector<Message> outputs;
     {
         std::vector<Node> nodes;
-        auto ch1 = make_shared_channel<TableChunk>();
-        nodes.push_back(
-            node::push_chunks_to_channel<TableChunk>(ctx, ch1, std::move(inputs))
-        );
+        auto ch1 = std::make_shared<Channel>();
+        nodes.push_back(node::push_to_channel(ctx, ch1, std::move(inputs)));
 
-        auto ch2 = make_shared_channel<PartitionMapChunk>();
+        auto ch2 = std::make_shared<Channel>();
         nodes.push_back(
             node::partition_and_pack(
                 ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
             )
         );
 
-        auto ch3 = make_shared_channel<TableChunk>();
+        auto ch3 = std::make_shared<Channel>();
         nodes.push_back(node::unpack_and_concat(ctx, ch2, ch3));
 
-        nodes.push_back(node::pull_chunks_from_channel(ctx, ch3, outputs));
+        nodes.push_back(node::pull_from_channel(ctx, ch3, outputs));
 
         run_streaming_pipeline(std::move(nodes));
     }
 
     EXPECT_EQ(expects.size(), outputs.size());
     for (std::size_t i = 0; i < expects.size(); ++i) {
-        EXPECT_EQ(outputs[i]->sequence_number(), i);
+        auto output = outputs[i].release<TableChunk>();
+        EXPECT_EQ(output.sequence_number(), i);
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
-            sort_table(outputs[i]->table_view()), sort_table(expects[i].view())
+            sort_table(output.table_view()), sort_table(expects[i].view())
         );
     }
 }
