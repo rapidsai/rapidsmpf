@@ -268,16 +268,12 @@ cdef class Channel:
         ----------
         ctx
             The current streaming context.
-
-        Returns
-        -------
-        ``True`` when the drain-and-shutdown has completed.
         """
         loop = asyncio.get_running_loop()
         ret = loop.create_future()
 
         def set_result():
-            loop.call_soon_threadsafe(ret.set_result, True)
+            loop.call_soon_threadsafe(ret.set_result, None)
 
         with nogil:
             cpp_channel_drain(
@@ -286,7 +282,7 @@ cdef class Channel:
                 cython_invoke_python_function,
                 <void *>set_result
             )
-        return await ret
+        await ret
 
     async def shutdown(self, Context ctx):
         """
@@ -307,7 +303,7 @@ cdef class Channel:
         ret = loop.create_future()
 
         def set_result():
-            loop.call_soon_threadsafe(ret.set_result, True)
+            loop.call_soon_threadsafe(ret.set_result, None)
 
         with nogil:
             cpp_channel_shutdown(
@@ -337,7 +333,7 @@ cdef class Channel:
         ret = loop.create_future()
 
         def set_result():
-            loop.call_soon_threadsafe(ret.set_result, True)
+            loop.call_soon_threadsafe(ret.set_result, None)
 
         with nogil:
             cpp_channel_send(
