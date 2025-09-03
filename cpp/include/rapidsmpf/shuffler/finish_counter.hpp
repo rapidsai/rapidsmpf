@@ -116,13 +116,11 @@ class FinishCounter {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @return A boolean indicating if the partition contains data.
-     *
      * @throw std::out_of_range If the desired partition is unavailable.
      * std::runtime_error If timeout was set and requested partition has been finished by
      * the expiration.
      */
-    bool wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
+    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Returns a vector of partition ids that are finished and haven't been waited

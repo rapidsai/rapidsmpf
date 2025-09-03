@@ -102,7 +102,7 @@ std::pair<PartID, bool> FinishCounter::wait_any(
     return {finished_key, p_info.mapped().data_chunk_goal() != 0};
 }
 
-bool FinishCounter::wait_on(
+void FinishCounter::wait_on(
     PartID pid, std::optional<std::chrono::milliseconds> timeout
 ) {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -113,8 +113,7 @@ bool FinishCounter::wait_on(
         );
         return it->second.is_finished(nranks_);
     });
-    auto p_info = goalposts_.extract(pid);
-    return p_info.mapped().data_chunk_goal() != 0;
+    goalposts_.erase(pid);
 }
 
 std::pair<std::vector<PartID>, std::vector<bool>> FinishCounter::wait_some(

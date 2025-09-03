@@ -862,9 +862,7 @@ TEST(FinishCounterTests, wait_on_with_timeout) {
     ASSERT_NO_FATAL_FAILURE(run_wait_test(
         [&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
             rapidsmpf::shuffler::PartID const& exp_pid) {
-            EXPECT_EQ(
-                1, finish_counter.wait_on(exp_pid, std::chrono::milliseconds(10))
-            );  // only one data chunk
+            finish_counter.wait_on(exp_pid, std::chrono::milliseconds(10));
             return exp_pid;  // return expected PID as wait_on return void
         },
         [&](rapidsmpf::shuffler::PartID const p_id) { return p_id; }  // pass through
