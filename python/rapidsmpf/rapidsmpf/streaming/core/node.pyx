@@ -134,6 +134,10 @@ def define_py_node(*, extra_channels=()):
     ... async def python_node(ctx: Context, /, ch_in: Channel) -> None:
     ...     msg = await ch_in.recv()
     ...     await ch2.send(msg)
+    ...
+    ... # Calling the coroutine doesn't run it but we can provide its arguments.
+    >>> node = python_node(context, ch_in=ch1)
+    ... # Later we need to call run_streaming_pipeline() to actually run the node.
     """
 
     def _collect_channels(obj, out):
