@@ -99,7 +99,7 @@ cdef class AllGather:
 
     def insert(self, PackedData packed_data):
         """
-        Insert packed data into the allgather operation.
+        Insert packed data into the allgather operation (non-blocking).
 
         Parameters
         ----------
