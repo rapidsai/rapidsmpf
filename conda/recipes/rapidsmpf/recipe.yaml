@@ -66,21 +66,24 @@ requirements:
     - cython >=3.0.0
     - librapidsmpf =${{ version }}
     - mpi4py
-    - openmpi
+    - openmpi >=5.0
     - pip
     - pylibcudf =${{ minor_version }}
     - python =${{ py_version }}
-    - rapids-build-backend >=0.3.0,<0.4.0.dev0
+    - rapids-build-backend >=0.4.0,<0.5.0.dev0
     - rmm =${{ minor_version }}
     - scikit-build-core >=0.10.0
   run:
     - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
+    - if: cuda_major == "12"
+      then: cuda-python >=12.9.2,<13.0a0
+      else: cuda-python >=13.0.1,<14.0a0
     - cudf =${{ minor_version }}
-    - cupy >=12.0.0
+    - cupy >=13.6.0
     - librapidsmpf =${{ version }}
     - mpi4py
     - numpy >=1.23,<3.0a0
-    - openmpi
+    - openmpi >=5.0
     - pylibcudf =${{ minor_version }}
     - python =${{ py_version }}
     - rmm =${{ minor_version }}

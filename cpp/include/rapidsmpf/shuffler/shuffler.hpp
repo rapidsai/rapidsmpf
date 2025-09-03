@@ -110,13 +110,6 @@ class Shuffler {
     void shutdown();
 
     /**
-     * @brief Insert a chunk into the shuffle.
-     *
-     * @param chunk The chunk to insert.
-     */
-    void insert(detail::Chunk&& chunk);
-
-    /**
      * @brief Insert a map of packed data, grouping them by destination rank, and
      * concatenating into a single chunk per rank.
      *
@@ -151,18 +144,24 @@ class Shuffler {
      * @brief Extract all chunks of a specific partition.
      *
      * @param pid The partition ID.
-     * @return A vector of packed data (chunks) for the partition.
+     * @return A vector of PackedData (chunks) for the partition.
      */
     [[nodiscard]] std::vector<PackedData> extract(PartID pid);
+
+    /**
+     * @brief Extract all chunks of a specific partition.
+     *
+     * @param pid The partition ID.
+     * @return A vector of Chunks for the partition.
+     */
+    [[nodiscard]] std::vector<detail::Chunk> extract_chunks(PartID pid);
 
     /**
      * @brief Check if all partitions are finished.
      *
      * @return True if all partitions are finished, otherwise False.
      */
-    [[nodiscard]] bool finished() const {
-        return finish_counter_.all_finished();
-    }
+    [[nodiscard]] bool finished() const;
 
     /**
      * @brief Wait for any partition to finish.
@@ -170,22 +169,20 @@ class Shuffler {
      * @param timeout Optional timeout (ms) to wait.
      *
      * @return The partition ID of the next finished partition.
+     *
+     * @throw std::runtime_error if the timeout is reached.
      */
-    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {}) {
-        RAPIDSMPF_NVTX_FUNC_RANGE();
-        return finish_counter_.wait_any(std::move(timeout));
-    }
+    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Wait for a specific partition to finish (blocking).
      *
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
+     *
+     * @throw std::runtime_error if the timeout is reached.
      */
-    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {}) {
-        RAPIDSMPF_NVTX_FUNC_RANGE();
-        finish_counter_.wait_on(pid, std::move(timeout));
-    }
+    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Wait for at least one partition to finish.
@@ -193,11 +190,10 @@ class Shuffler {
      * @param timeout Optional timeout (ms) to wait.
      *
      * @return The partition IDs of all finished partitions.
+     *
+     * @throw std::runtime_error if the timeout is reached.
      */
-    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {}) {
-        RAPIDSMPF_NVTX_FUNC_RANGE();
-        return finish_counter_.wait_some(std::move(timeout));
-    }
+    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Spills data to device if necessary.
@@ -223,7 +219,51 @@ class Shuffler {
      */
     [[nodiscard]] std::string str() const;
 
+    /**
+     * @brief The number of bits used to store the counter in a chunk ID.
+     */
+    static constexpr int chunk_id_counter_bits = 38;
+
+    /**
+     * @brief The mask for the counter in a chunk ID.
+     */
+    static constexpr uint64_t counter_mask = (uint64_t(1) << chunk_id_counter_bits) - 1;
+
+    /**
+     * @brief Extract the counter from a chunk ID.
+     * @param cid The chunk ID.
+     * @return The counter.
+     */
+    static constexpr uint64_t extract_counter(detail::ChunkID cid) {
+        return cid & counter_mask;
+    }
+
+    /**
+     * @brief Extract the rank from a chunk ID.
+     * @param cid The chunk ID.
+     * @return The rank.
+     */
+    static constexpr Rank extract_rank(detail::ChunkID cid) {
+        return static_cast<Rank>(cid >> chunk_id_counter_bits);
+    }
+
+    /**
+     * @brief Extract the rank and counter from a chunk ID.
+     * @param cid The chunk ID.
+     * @return A pair of the rank and counter.
+     */
+    static constexpr std::pair<Rank, uint64_t> extract_info(detail::ChunkID cid) {
+        return std::make_pair(extract_rank(cid), extract_counter(cid));
+    }
+
   private:
+    /**
+     * @brief Insert a chunk into the shuffle.
+     *
+     * @param chunk The chunk to insert.
+     */
+    void insert(detail::Chunk&& chunk);
+
     /**
      * @brief Insert a chunk into the outbox (the chunk is ready for the user).
      *
@@ -240,14 +280,9 @@ class Shuffler {
      * The chunk is assigned a new unique ID using `get_new_cid()`.
      *
      * @param pid The partition ID of the new chunk.
-     * @param metadata The metadata of the new chunk, can be null.
-     * @param gpu_data The gpu data of the new chunk, can be null.
-     * @param stream The CUDA stream for BufferResource memory operations.
-     * @param event The event to use for the new chunk.
+     * @param packed_data The pack data of the new chunk.
      */
-    [[nodiscard]] detail::Chunk create_chunk(
-        PartID pid, PackedData&& packed_data, std::shared_ptr<Buffer::Event> event
-    );
+    [[nodiscard]] detail::Chunk create_chunk(PartID pid, PackedData&& packed_data);
 
   public:
     PartID const total_num_partitions;  ///< Total number of partition in the shuffle.

@@ -5,7 +5,6 @@
 #pragma once
 
 #include <array>
-#include <atomic>
 #include <memory>
 #include <variant>
 #include <vector>
@@ -14,12 +13,13 @@
 
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
 
 class BufferResource;
-class Event;
 class MemoryReservation;
 
 /// @brief Enum representing the type of memory.
@@ -28,20 +28,12 @@ enum class MemoryType : int {
     HOST = 1  ///< Host memory
 };
 
+/// @brief The lowest memory type that can be spilled to.
+constexpr MemoryType LowestSpillType = MemoryType::HOST;
+
 /// @brief Array of all the different memory types.
+/// @note Ensure that this array is always sorted in decreasing order of preference.
 constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
-
-namespace {
-/// @brief Helper for overloaded lambdas using std::visit.
-template <class... Ts>
-struct overloaded : Ts... {
-    using Ts::operator()...;
-};
-/// @brief Explicit deduction guide
-template <class... Ts>
-overloaded(Ts...) -> overloaded<Ts...>;
-
-}  // namespace
 
 /**
  * @brief Buffer representing device or host memory.
@@ -57,68 +49,6 @@ class Buffer {
     friend class BufferResource;
 
   public:
-    /**
-     * @brief CUDA event to provide synchronization among set of chunks.
-     *
-     * This event is used to serve as a synchronization point for a set of chunks
-     * given a user-specified stream.
-     *
-     * @note To prevent undefined behavior due to unfinished memory operations, events
-     * should be used in the following cases, if any of the operations below was
-     * performed *asynchronously with respect to the host*:
-     * 1. Before addressing a device buffer's allocation.
-     * 2. Before accessing a device buffer's data whose data has been copied from
-     * any location, or that has been processed by a CUDA kernel.
-     * 3. Before accessing a host buffer's data whose data has been copied from device,
-     * or processed by a CUDA kernel.
-     */
-    class Event {
-      public:
-        /**
-         * @brief Construct a CUDA event for a given stream.
-         *
-         * @param stream CUDA stream used for device memory operations
-         */
-        Event(rmm::cuda_stream_view stream);
-
-        /**
-         * @brief Destructor for Event.
-         *
-         * Cleans up the CUDA event if one was created.
-         */
-        ~Event();
-
-        /**
-         * @brief Check if the CUDA event has been completed.
-         *
-         * @return true if the event has been completed, false otherwise.
-         *
-         * @throws rapidsmpf::cuda_error if cudaEventQuery fails.
-         */
-        [[nodiscard]] bool is_ready();
-
-        /**
-         * @brief Wait for the event to be completed.
-         *
-         * @throws rapidsmpf::cuda_error if cudaEventSynchronize fails.
-         */
-        void wait();
-
-        /**
-         * @brief Get the CUDA event.
-         *
-         * @return The CUDA event.
-         */
-        [[nodiscard]] constexpr cudaEvent_t event() const {
-            return event_;
-        }
-
-      private:
-        cudaEvent_t event_;  ///< CUDA event used to track device memory allocation
-        std::atomic<bool> done_{false
-        };  ///< Cache of the event status to avoid unnecessary queries.
-    };
-
     /// @brief  Storage type for the device buffer.
     using DeviceStorageT = std::unique_ptr<rmm::device_buffer>;
 
@@ -203,7 +133,7 @@ class Buffer {
      *
      * @param event The event to set.
      */
-    inline void override_event(std::shared_ptr<Event> event) {
+    void override_event(std::shared_ptr<CudaEvent> event) {
         event_ = std::move(event);
     }
 
@@ -237,6 +167,18 @@ class Buffer {
         std::size_t length,
         MemoryReservation& target_reserv,
         rmm::cuda_stream_view stream
+    ) const;
+
+    /**
+     * @brief Create a copy of this buffer by allocating a new buffer from the
+     * reservation.
+     *
+     * @param stream CUDA stream used for the device buffer allocation and copy.
+     * @param reservation Memory reservation for data allocations.
+     * @return A unique pointer to a new Buffer containing the copied data.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> copy(
+        rmm::cuda_stream_view stream, MemoryReservation& reservation
     ) const;
 
     /**
@@ -275,18 +217,16 @@ class Buffer {
      * @brief Construct a Buffer from host memory.
      *
      * @param host_buffer A unique pointer to a vector containing host memory.
-     * @param br Buffer resource for memory allocation.
      *
      * @throws std::invalid_argument if `host_buffer` is null.
      */
-    Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer, BufferResource* br);
+    Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer);
 
     /**
      * @brief Construct a Buffer from device memory.
      *
      * @param device_buffer A unique pointer to a device buffer.
      * @param stream CUDA stream used for the device buffer allocation.
-     * @param br Buffer resource for memory allocation.
      * @param event The shared event to use for the buffer.
      *
      * @throws std::invalid_argument if `device_buffer` is null.
@@ -296,8 +236,7 @@ class Buffer {
     Buffer(
         std::unique_ptr<rmm::device_buffer> device_buffer,
         rmm::cuda_stream_view stream,
-        BufferResource* br,
-        std::shared_ptr<Event> event = nullptr
+        std::shared_ptr<CudaEvent> event = nullptr
     );
 
     /**
@@ -307,7 +246,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] HostStorageT& host() {
+    [[nodiscard]] constexpr HostStorageT& host() {
         if (auto ref = std::get_if<HostStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -322,35 +261,37 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] DeviceStorageT& device() {
+    [[nodiscard]] constexpr DeviceStorageT& device() {
         if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
             return *ref;
         } else {
-            RAPIDSMPF_FAIL("Buffer is not host memory");
+            RAPIDSMPF_FAIL("Buffer is not device memory");
         }
     }
 
     /**
-     * @brief Create a copy of this buffer using the same memory type.
+     * @brief Release the underlying device memory buffer.
      *
-     * @param stream CUDA stream used for the device buffer allocation and copy.
-     * @return A unique pointer to a new Buffer containing the copied data.
+     * @return The underlying device memory buffer.
+     *
+     * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] std::unique_ptr<Buffer> copy(rmm::cuda_stream_view stream) const;
+    [[nodiscard]] DeviceStorageT release_device() {
+        return std::move(device());
+    }
 
     /**
-     * @brief Create a copy of this buffer using the specified memory type.
+     * @brief Release the underlying host memory buffer.
      *
-     * @param target The target memory type.
-     * @param stream CUDA stream used for device buffer allocation and copy.
-     * @return A unique pointer to a new Buffer containing the copied data.
+     * @return The underlying host memory buffer.
+     *
+     * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] std::unique_ptr<Buffer> copy(
-        MemoryType target, rmm::cuda_stream_view stream
-    ) const;
+    [[nodiscard]] HostStorageT release_host() {
+        return std::move(host());
+    }
 
   public:
-    BufferResource* const br;  ///< The buffer resource used.
     std::size_t const size;  ///< The size of the buffer in bytes.
 
   private:
@@ -358,7 +299,7 @@ class Buffer {
     /// applicable).
     StorageT storage_;
     /// @brief CUDA event used to track copy operations
-    std::shared_ptr<Event> event_;
+    std::shared_ptr<CudaEvent> event_;
 };
 
 }  // namespace rapidsmpf

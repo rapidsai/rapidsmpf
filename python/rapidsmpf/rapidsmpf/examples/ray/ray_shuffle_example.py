@@ -12,9 +12,11 @@ import ray
 import cudf
 import rmm
 
+from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
+    unspill_partitions,
 )
 from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
 from rapidsmpf.testing import assert_eq
@@ -89,6 +91,7 @@ class ShufflingActor(BaseShufflingActor):
         column_names = list(df.columns)
 
         mr = rmm.mr.get_current_device_resource()  # use the current device resource
+        br = BufferResource(mr)
         stream = DEFAULT_STREAM  # use the default stream
 
         # Calculate the expected output partitions on all ranks
@@ -96,8 +99,8 @@ class ShufflingActor(BaseShufflingActor):
             partition_id: pylibcudf_to_cudf_dataframe(
                 unpack_and_concat(
                     [packed],
+                    br=br,
                     stream=stream,
-                    device_mr=mr,
                 ),
                 column_names=column_names,
             )
@@ -105,8 +108,8 @@ class ShufflingActor(BaseShufflingActor):
                 cudf_to_pylibcudf_table(df),
                 columns_to_hash=columns_to_hash,
                 num_partitions=self._total_nparts,
+                br=br,
                 stream=stream,
-                device_mr=mr,
             ).items()
         }
 
@@ -125,8 +128,8 @@ class ShufflingActor(BaseShufflingActor):
                 cudf_to_pylibcudf_table(local_df.iloc[i : i + self._batch_size]),
                 columns_to_hash=columns_to_hash,
                 num_partitions=self._total_nparts,
+                br=br,
                 stream=stream,
-                device_mr=mr,
             )
             shuffler.insert_chunks(packed_inputs)
 
@@ -139,9 +142,11 @@ class ShufflingActor(BaseShufflingActor):
             partition_id = shuffler.wait_any()
             packed_chunks = shuffler.extract(partition_id)
             partition = unpack_and_concat(
-                packed_chunks,
+                unspill_partitions(
+                    packed_chunks, stream=stream, br=br, allow_overbooking=True
+                ),
+                br=br,
                 stream=stream,
-                device_mr=mr,
             )
             assert_eq(
                 pylibcudf_to_cudf_dataframe(partition, column_names=column_names),

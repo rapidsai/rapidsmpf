@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
 
     // It is our own responsibility to partition and pack (serialize) the input for
     // the shuffle. The shuffler only handles raw host and device buffers. However, it
-    // does provide a convenience function that hash partition a cudf table and packs
+    // does provide a convenience function that hash partitions a cudf table and packs
     // each partition. The result is a mapping of `PartID`, globally unique partition
     // identifiers, to their packed partitions.
     std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> packed_inputs =
@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
             stream,
-            mr
+            &br
         );
 
     // Now, we can insert the packed partitions into the shuffler. This operation is
@@ -117,7 +117,13 @@ int main(int argc, char** argv) {
         // Unpack (deserialize) and concatenate the chunks into a single table using a
         // convenience function.
         local_outputs.push_back(
-            rapidsmpf::unpack_and_concat(std::move(packed_chunks), stream, mr)
+            rapidsmpf::unpack_and_concat(
+                rapidsmpf::unspill_partitions(
+                    std::move(packed_chunks), stream, &br, true
+                ),
+                stream,
+                &br
+            )
         );
     }
     // At this point, `local_outputs` contains the local result of the shuffle.

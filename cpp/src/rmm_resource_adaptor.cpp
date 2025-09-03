@@ -209,7 +209,8 @@ void RmmResourceAdaptor::do_deallocate(
     }
 }
 
-bool RmmResourceAdaptor::do_is_equal(rmm::mr::device_memory_resource const& other
+bool RmmResourceAdaptor::do_is_equal(
+    rmm::mr::device_memory_resource const& other
 ) const noexcept {
     if (this == &other) {
         return true;

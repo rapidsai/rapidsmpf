@@ -23,6 +23,7 @@ from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
+    unspill_partitions,
 )
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
@@ -166,6 +167,7 @@ def bulk_mpi_shuffle(
                 columns,
             )
     else:
+        br = BufferResource(rmm.mr.get_current_device_resource())
         progress_thread = ProgressThread(comm)
 
         shuffler = Shuffler(
@@ -190,8 +192,8 @@ def bulk_mpi_shuffle(
                 table,
                 columns_to_hash=columns_to_hash,
                 num_partitions=total_num_partitions,
+                br=br,
                 stream=DEFAULT_STREAM,
-                device_mr=rmm.mr.get_current_device_resource(),
             )
             shuffler.insert_chunks(packed_inputs)
 
@@ -203,9 +205,15 @@ def bulk_mpi_shuffle(
         while not shuffler.finished():
             partition_id = shuffler.wait_any()
             table = unpack_and_concat(
-                shuffler.extract(partition_id),
+                unspill_partitions(
+                    shuffler.extract(partition_id),
+                    stream=DEFAULT_STREAM,
+                    br=br,
+                    allow_overbooking=True,
+                    statistics=statistics,
+                ),
+                br=br,
                 stream=DEFAULT_STREAM,
-                device_mr=rmm.mr.get_current_device_resource(),
             )
             write_func(
                 table,

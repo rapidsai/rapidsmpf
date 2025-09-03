@@ -12,8 +12,12 @@ namespace rapidsmpf {
 
 
 MemoryReservation::~MemoryReservation() noexcept {
+    clear();
+}
+
+void MemoryReservation::clear() noexcept {
     if (size_ > 0) {
-        br_->release(*this, mem_type_, size_);
+        br_->release(*this, size_);
     }
 }
 
@@ -57,14 +61,56 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     return {MemoryReservation(mem_type, this, size), overbooking};
 }
 
-std::size_t BufferResource::release(
-    MemoryReservation& reservation, MemoryType target, std::size_t size
+MemoryReservation BufferResource::reserve_and_spill(
+    MemoryType mem_type, size_t size, bool allow_overbooking
 ) {
-    RAPIDSMPF_EXPECTS(
-        reservation.mem_type_ == target,
-        "the memory type of MemoryReservation doesn't match",
-        std::invalid_argument
-    );
+    // reserve device memory with overbooking
+    auto [reservation, ob] = reserve(mem_type, size, true);
+
+    // ask the spill manager to make room for overbooking
+    if (ob > 0) {
+        RAPIDSMPF_EXPECTS(
+            mem_type < LowestSpillType,
+            "Allocating on the lowest spillable memory type resulted in overbooking",
+            std::overflow_error
+        );
+
+        // TODO: spill functions should be aware of the memory type it should spill to
+        auto spilled = spill_manager_.spill(ob);
+        RAPIDSMPF_EXPECTS(
+            allow_overbooking || spilled >= ob,
+            "failed to spill enough memory (reserved: " + format_nbytes(size)
+                + ", overbooking: " + format_nbytes(ob)
+                + ", spilled: " + format_nbytes(spilled) + ")",
+            std::overflow_error
+        );
+    }
+
+    return std::move(reservation);
+}
+
+MemoryReservation BufferResource::reserve_or_fail(
+    size_t size, std::optional<MemoryType> mem_type
+) {
+    if (mem_type) {
+        auto [res, _] = reserve(*mem_type, size, false);
+        RAPIDSMPF_EXPECTS(
+            res.size() == size, "failed to reserve memory", std::runtime_error
+        );
+        return std::move(res);
+    }
+
+    // try to allocate data buffer from memory types in order [DEVICE, HOST]
+    for (auto mem_type : MEMORY_TYPES) {
+        auto [res, _] = reserve(mem_type, size, false);
+        if (res.size() == size) {
+            return std::move(res);
+        }
+    }
+    RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
+}
+
+std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t size) {
     std::lock_guard const lock(mutex_);
     RAPIDSMPF_EXPECTS(
         size <= reservation.size_,
@@ -72,61 +118,55 @@ std::size_t BufferResource::release(
             + format_nbytes(size) + ")",
         std::overflow_error
     );
-    std::size_t& reserved = memory_reserved(target);
+    std::size_t& reserved = memory_reserved(reservation.mem_type_);
     RAPIDSMPF_EXPECTS(reserved >= size, "corrupted reservation stat");
     reserved -= size;
     return reservation.size_ -= size;
 }
 
 std::unique_ptr<Buffer> BufferResource::allocate(
-    MemoryType mem_type,
-    std::size_t size,
-    rmm::cuda_stream_view stream,
-    MemoryReservation& reservation
+    std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
 ) {
     std::unique_ptr<Buffer> ret;
-    switch (mem_type) {
+    switch (reservation.mem_type_) {
     case MemoryType::HOST:
         // TODO: use pinned memory, maybe use rmm::mr::pinned_memory_resource and
         // std::pmr::vector?
         ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<std::vector<uint8_t>>(size), this)
+            new Buffer(std::make_unique<std::vector<uint8_t>>(size))
         );
         break;
     case MemoryType::DEVICE:
         ret = std::unique_ptr<Buffer>(new Buffer(
-            std::make_unique<rmm::device_buffer>(size, stream, device_mr_), stream, this
+            std::make_unique<rmm::device_buffer>(size, stream, device_mr_), stream
         ));
         break;
     default:
         RAPIDSMPF_FAIL("MemoryType: unknown");
     }
-    release(reservation, mem_type, size);
+    release(reservation, size);
     return ret;
 }
 
 std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<std::vector<uint8_t>> data) {
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data), this));
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data)));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<rmm::device_buffer> data,
     rmm::cuda_stream_view stream,
-    std::shared_ptr<Buffer::Event> event
+    std::shared_ptr<CudaEvent> event
 ) {
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, this, event));
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, std::move(event)));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    MemoryType target,
     std::unique_ptr<Buffer> buffer,
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
-    if (target != buffer->mem_type()) {
-        auto ret = buffer->copy(target, stream);
-        release(reservation, target, ret->size);
-        return ret;
+    if (reservation.mem_type_ != buffer->mem_type()) {
+        return buffer->copy(stream, reservation);
     }
     return buffer;
 }
@@ -136,9 +176,18 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
-    return std::move(
-        move(MemoryType::DEVICE, std::move(buffer), stream, reservation)->device()
+    RAPIDSMPF_EXPECTS(
+        reservation.mem_type_ == MemoryType::DEVICE,
+        "the memory type of MemoryReservation doesn't match",
+        std::invalid_argument
     );
+    return move(std::move(buffer), stream, reservation)->release_device();
+}
+
+std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
+    std::unique_ptr<Buffer> buffer
+) {
+    return buffer->release_device();
 }
 
 std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
@@ -146,21 +195,26 @@ std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
-    return std::move(
-        move(MemoryType::HOST, std::move(buffer), stream, reservation)->host()
+    RAPIDSMPF_EXPECTS(
+        reservation.mem_type_ == MemoryType::HOST,
+        "the memory type of MemoryReservation doesn't match",
+        std::invalid_argument
     );
+    return move(std::move(buffer), stream, reservation)->release_host();
+}
+
+std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
+    std::unique_ptr<Buffer> buffer
+) {
+    return buffer->release_host();
 }
 
 std::unique_ptr<Buffer> BufferResource::copy(
-    MemoryType target,
     std::unique_ptr<Buffer> const& buffer,
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
-    // TODO: Inconsistency with multiple buffer resources #280
-    auto ret = buffer->copy(target, stream);
-    release(reservation, target, ret->size);
-    return ret;
+    return buffer->copy(stream, reservation);
 }
 
 SpillManager& BufferResource::spill_manager() {
@@ -171,32 +225,8 @@ std::shared_ptr<Statistics> BufferResource::statistics() {
     return statistics_;
 }
 
-std::unique_ptr<Buffer> BufferResource::allocate_empty_host_buffer() const {
-    return std::unique_ptr<Buffer>(new Buffer(
-        std::make_unique<std::vector<uint8_t>>(0), const_cast<BufferResource*>(this)
-    ));
-}
-
-MemoryReservation reserve_or_fail(
-    BufferResource* br, size_t size, std::optional<MemoryType> const& preferred_mem_type
-) {
-    if (preferred_mem_type) {
-        auto [res, _] = br->reserve(*preferred_mem_type, size, false);
-        RAPIDSMPF_EXPECTS(
-            res.size() == size, "failed to reserve memory", std::runtime_error
-        );
-        return std::move(res);
-    }
-
-    // try to allocate data buffer from memory types in order [DEVICE, HOST]
-    for (auto mem_type : MEMORY_TYPES) {
-        auto [res, _] = br->reserve(mem_type, size, false);
-        if (res.size() == size) {
-            return std::move(res);
-        }
-    }
-
-    RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
+std::unique_ptr<Buffer> BufferResource::allocate_empty_host_buffer() {
+    return std::unique_ptr<Buffer>(new Buffer(std::make_unique<std::vector<uint8_t>>(0)));
 }
 
 }  // namespace rapidsmpf

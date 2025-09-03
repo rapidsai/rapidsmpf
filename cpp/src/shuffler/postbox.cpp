@@ -23,8 +23,24 @@ void PostBox<KeyType>::insert(Chunk&& chunk) {
         );
     }
     std::lock_guard const lock(mutex_);
-    auto [_, inserted] = pigeonhole_[key].insert({chunk.chunk_id(), std::move(chunk)});
-    RAPIDSMPF_EXPECTS(inserted, "PostBox.insert(): chunk already exist");
+    RAPIDSMPF_EXPECTS(
+        pigeonhole_[key].emplace(chunk.chunk_id(), std::move(chunk)).second,
+        "PostBox.insert(): chunk already exist"
+    );
+}
+
+template <typename KeyType>
+void PostBox<KeyType>::mark_empty(PartID pid) {
+    std::lock_guard const lock(mutex_);
+    KeyType key = key_map_fn_(pid);
+
+    auto [it, inserted] = pigeonhole_.emplace(key, std::unordered_map<ChunkID, Chunk>{});
+    // if insertion failed, then the partition in the pigenhole needs to be empty.
+    // (ex: a pid that has already been marked as empty). Else raise an error.
+    RAPIDSMPF_EXPECTS(
+        inserted || it->second.empty(),
+        "Attempting to mark a non-empty partition as empty"
+    );
 }
 
 template <typename KeyType>

@@ -5,32 +5,20 @@
 from __future__ import annotations
 
 import logging
-import threading
-import weakref
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
+from typing import TYPE_CHECKING, Any
 
 import ucxx._lib.libucxx as ucx_api
 from distributed import get_client, get_worker, wait
 from distributed.diagnostics.plugin import SchedulerPlugin
 
-import rmm.mr
-from rmm.pylibrmm.stream import DEFAULT_STREAM
-
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
-from rapidsmpf.buffer.spill_collection import SpillCollection
 from rapidsmpf.communicator.ucxx import barrier, get_root_ucxx_address, new_communicator
 from rapidsmpf.config import (
-    Optional,
-    OptionalBytes,
     Options,
     get_environment_variables,
 )
+from rapidsmpf.integrations import WorkerContext
+from rapidsmpf.integrations.core import rmpf_worker_setup
 from rapidsmpf.integrations.dask import _compat
-from rapidsmpf.progress_thread import ProgressThread
-from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
-from rapidsmpf.statistics import Statistics
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -38,77 +26,34 @@ if TYPE_CHECKING:
     import distributed
     from distributed.scheduler import Scheduler, TaskState
 
-    from rapidsmpf.communicator.communicator import Communicator
-    from rapidsmpf.shuffler import Shuffler
-
 
 _dask_logger = logging.getLogger("distributed.worker")
-DataFrameT = TypeVar("DataFrameT")
-
-
-@dataclass
-class DaskWorkerContext:
-    """
-    RapidsMPF specific attributes for a Dask worker.
-
-    Attributes
-    ----------
-    lock
-        The global worker lock. Must be acquired before accessing attributes
-        that might be modified while the worker is running such as the shufflers.
-    br
-        The buffer resource used by the worker exclusively.
-    progress_thread
-        The progress thread used by the worker.
-    comm
-        The UCXX communicator connected to all other workers in the Dask cluster.
-    spill_collection
-        A collection of Python objects that can be spilled to free up device memory.
-    statistics
-        The statistics used by the worker. If None, statistics is disabled.
-    shufflers
-        A mapping from shuffler IDs to active shuffler instances.
-    options
-        Configuration options.
-    """
-
-    lock: ClassVar[threading.RLock] = threading.RLock()
-    br: BufferResource | None = None
-    progress_thread: ProgressThread | None = None
-    comm: Communicator | None = None
-    spill_collection: SpillCollection = field(default_factory=SpillCollection)
-    statistics: Statistics | None = None
-    shufflers: dict[int, Shuffler] = field(default_factory=dict)
-    options: Options = field(default_factory=Options)
 
 
 def get_worker_context(
-    dask_worker: distributed.Worker | None = None,
-) -> DaskWorkerContext:
+    worker: distributed.Worker | None = None,
+) -> WorkerContext:
     """
-    Retrieve the `DaskWorkerContext` associated with a Dask worker.
+    Retrieve the ``WorkerContext`` associated with a Dask worker.
 
-    If the worker context does not already exist on the worker, it will be created
-    and attached to the worker under the attribute `_rapidsmpf_worker_context`.
+    If the worker context does not already exist on the worker, it will be created.
 
     Parameters
     ----------
-    dask_worker
+    worker
         An optional Dask worker instance. If not provided, the current worker
-        is retrieved using `get_worker()`.
+        is retrieved using ``get_worker()``.
 
     Returns
     -------
     The existing or newly initialized worker context.
     """
-    with DaskWorkerContext.lock:
-        dask_worker = dask_worker or get_worker()
-        if not hasattr(dask_worker, "_rapidsmpf_worker_context"):
-            dask_worker._rapidsmpf_worker_context = DaskWorkerContext()
-        return cast(DaskWorkerContext, dask_worker._rapidsmpf_worker_context)
+    with WorkerContext.lock:
+        worker = worker or get_worker()
+        return worker._rapidsmpf_worker_context  # type: ignore[no-any-return]
 
 
-def get_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
+def get_dask_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
     """
     Get the UCXX-comm rank for a Dask worker.
 
@@ -130,7 +75,7 @@ def get_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
     return comm.rank
 
 
-def global_rmpf_barrier(dependencies: Sequence[None]) -> None:
+def global_rmpf_barrier(*dependencies: Sequence[None]) -> None:
     """
     Global barrier for RapidsMPF shuffle.
 
@@ -164,10 +109,12 @@ async def rapidsmpf_ucxx_rank_setup_root(n_ranks: int, options: Options) -> byte
     bytes
         The UCXX address of the root node.
     """
-    ctx = get_worker_context()
-    ctx.comm = new_communicator(n_ranks, None, None, options)
-    ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
-    return get_root_ucxx_address(ctx.comm)
+    with WorkerContext.lock:
+        worker = get_worker()
+        comm = new_communicator(n_ranks, None, None, options)
+        worker._rapidsmpf_comm = comm
+        comm.logger.trace(f"Rank {comm.rank} created")
+        return get_root_ucxx_address(comm)
 
 
 async def rapidsmpf_ucxx_rank_setup_node(
@@ -185,18 +132,21 @@ async def rapidsmpf_ucxx_rank_setup_node(
     options
         Configuration options.
     """
-    ctx = get_worker_context()
-    if ctx.comm is None:
-        root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
-        ctx.comm = new_communicator(n_ranks, None, root_address, options)
-        ctx.comm.logger.trace(f"Rank {ctx.comm.rank} created")
+    with WorkerContext.lock:
+        worker = get_worker()
+        if not hasattr(worker, "_rapidsmpf_comm"):
+            # Not the root rank
+            root_address = ucx_api.UCXAddress.create_from_buffer(root_address_bytes)
+            comm = new_communicator(n_ranks, None, root_address, options)
+            worker._rapidsmpf_comm = comm
+            comm.logger.trace(f"Rank {comm.rank} created")
+        comm = worker._rapidsmpf_comm
+        comm.logger.trace(f"Rank {comm.rank} setup barrier")
+        barrier(comm)
+        comm.logger.trace(f"Rank {comm.rank} setup barrier passed")
 
-    ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier")
-    barrier(ctx.comm)
-    ctx.comm.logger.trace(f"Rank {ctx.comm.rank} setup barrier passed")
 
-
-def rmpf_worker_setup(
+def dask_worker_setup(
     dask_worker: distributed.Worker,
     *,
     options: Options,
@@ -225,111 +175,18 @@ def rmpf_worker_setup(
     -----
     This function is expected to run on a Dask worker.
     """
-    ctx = get_worker_context(dask_worker)
-    with ctx.lock:
-        ctx.options = options
-
-        # Insert RMM resource adaptor on top of the current RMM resource stack.
-        mr = RmmResourceAdaptor(
-            upstream_mr=rmm.mr.get_current_device_resource(),
-            fallback_mr=(
-                # Use a managed memory resource if OOM protection is enabled.
-                rmm.mr.ManagedMemoryResource()
-                if ctx.options.get_or_default(
-                    "dask_oom_protection", default_value=False
-                )
-                else None
-            ),
-        )
-        rmm.mr.set_current_device_resource(mr)
-
-        # Print statistics at worker shutdown.
-        if ctx.options.get_or_default("dask_statistics", default_value=False):
-            ctx.statistics = Statistics(enable=True, mr=mr)
-            weakref.finalize(
+    try:
+        comm = dask_worker._rapidsmpf_comm
+    except AttributeError:
+        raise RuntimeError("Dask cluster not yet bootstrapped") from None
+    with WorkerContext.lock:
+        if not hasattr(dask_worker, "_rapidsmpf_worker_context"):
+            dask_worker._rapidsmpf_worker_context = rmpf_worker_setup(
                 dask_worker,
-                lambda name, stats: print(name, stats.report()),
-                name=str(dask_worker),
-                stats=ctx.statistics,
+                "dask_",
+                comm=comm,
+                options=options,
             )
-
-        assert ctx.comm is not None
-        ctx.progress_thread = ProgressThread(ctx.comm, ctx.statistics)
-
-        # Create a buffer resource with a limiting availability function.
-        total_memory = rmm.mr.available_device_memory()[1]
-        spill_device = ctx.options.get_or_default(
-            "dask_spill_device", default_value=0.50
-        )
-        memory_available = {
-            MemoryType.DEVICE: LimitAvailableMemory(
-                mr, limit=int(total_memory * spill_device)
-            )
-        }
-        ctx.br = BufferResource(
-            mr,
-            memory_available=memory_available,
-            periodic_spill_check=ctx.options.get_or_default(
-                "dask_periodic_spill_check", default_value=Optional(1e-3)
-            ).value,
-        )
-
-        # If enabled, create a staging device buffer for the spilling to reduce
-        # device memory pressure.
-        # TODO: maybe have a pool of staging buffers?
-        spill_staging_buffer_size = ctx.options.get_or_default(
-            "dask_staging_spill_buffer",
-            default_value=OptionalBytes("128 MiB"),
-        ).value
-        spill_staging_buffer = (
-            None
-            if spill_staging_buffer_size is None
-            else rmm.DeviceBuffer(
-                size=spill_staging_buffer_size, stream=DEFAULT_STREAM, mr=mr
-            )
-        )
-        spill_staging_buffer_lock = threading.Lock()
-
-        # Create a spill function that spills the python objects in the spill-
-        # collection. This way, we have a central place (the dask worker) to track
-        # and trigger spilling of python objects.
-        def spill_func(amount: int) -> int:
-            """
-            Spill a specified amount of data from the Python object spill collection.
-
-            This function attempts to use a preallocated staging device buffer to
-            spill Python objects from the spill collection. If the staging buffer
-            is currently in use, it will fall back to spilling without it.
-
-            Parameters
-            ----------
-            amount
-                The amount of data to spill, in bytes.
-
-            Returns
-            -------
-            The actual amount of data spilled, in bytes.
-            """
-            if spill_staging_buffer is not None and spill_staging_buffer_lock.acquire(
-                blocking=False
-            ):
-                try:
-                    return ctx.spill_collection.spill(
-                        amount,
-                        stream=DEFAULT_STREAM,
-                        device_mr=mr,
-                        staging_device_buffer=spill_staging_buffer,
-                    )
-                finally:
-                    spill_staging_buffer_lock.release()
-            return ctx.spill_collection.spill(
-                amount, stream=DEFAULT_STREAM, device_mr=mr
-            )
-
-        # Add the spill function using a negative priority (-10) such that spilling
-        # of internal shuffle buffers (non-python objects) have higher priority than
-        # spilling of the Python objects in the collection.
-        ctx.br.spill_manager.add_spill_function(func=spill_func, priority=-10)
 
 
 _initialized_clusters: set[str] = set()
@@ -386,7 +243,6 @@ def bootstrap_dask_cluster(
 
     # Insert missing config options from environment variables.
     options.insert_if_absent(get_environment_variables())
-
     # Set up the comms for the root worker
     root_address_bytes = client.submit(
         rapidsmpf_ucxx_rank_setup_root,
@@ -412,7 +268,7 @@ def bootstrap_dask_cluster(
 
     # Finally, prepare the RapidsMPF resources on top of the UCXX comms
     client.run(
-        rmpf_worker_setup,
+        dask_worker_setup,
         options=options,
     )
 

@@ -15,6 +15,10 @@ Environment* GlobalEnvironment = nullptr;
 
 Environment::Environment(int argc, char** argv) : argc_(argc), argv_(argv) {}
 
+TestEnvironmentType Environment::type() const {
+    return TestEnvironmentType::SINGLE;
+}
+
 void Environment::SetUp() {
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
     comm_ = std::make_shared<rapidsmpf::Single>(options);

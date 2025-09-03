@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <iomanip>
+#include <ranges>
 #include <sstream>
 
 #include <rapidsmpf/error.hpp>
@@ -65,15 +66,24 @@ std::size_t Statistics::add_bytes_stat(std::string const& name, std::size_t nbyt
 
 Duration Statistics::add_duration_stat(std::string const& name, Duration seconds) {
     return Duration(add_stat(
-        name,
-        seconds.count(),
-        [](std::ostream& os, std::size_t count, double val) {
+        name, seconds.count(), [](std::ostream& os, std::size_t count, double val) {
             os << format_duration(val);
             if (count > 1) {
                 os << " (avg " << format_duration(val / count) << ")";
             }
         }
     ));
+}
+
+std::vector<std::string> Statistics::list_stat_names() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto ks = std::views::keys(stats_);
+    return std::vector<std::string>{ks.begin(), ks.end()};
+}
+
+void Statistics::clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    stats_.clear();
 }
 
 bool Statistics::is_memory_profiling_enabled() const {

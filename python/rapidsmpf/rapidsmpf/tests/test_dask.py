@@ -2,17 +2,22 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import dask
 import dask.dataframe as dd
 import pytest
 
+import rapidsmpf.integrations.single
 from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options
-from rapidsmpf.examples.dask import DaskCudfIntegration
+from rapidsmpf.examples.dask import DaskCudfIntegration, dask_cudf_shuffle
 from rapidsmpf.integrations.dask.core import get_worker_context
-from rapidsmpf.integrations.dask.shuffler import rapidsmpf_shuffle_graph
+from rapidsmpf.integrations.dask.shuffler import (
+    clear_shuffle_statistics,
+    gather_shuffle_statistics,
+    rapidsmpf_shuffle_graph,
+)
 from rapidsmpf.shuffler import Shuffler
 
 dask_cuda = pytest.importorskip("dask_cuda")
@@ -79,10 +84,6 @@ def test_dask_cudf_integration(
     # Test basic Dask-cuDF integration
     pytest.importorskip("dask_cudf")
 
-    import dask.dataframe as dd
-
-    from rapidsmpf.examples.dask import dask_cudf_shuffle
-
     with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
         with Client(cluster) as client:
             bootstrap_dask_cluster(
@@ -113,6 +114,56 @@ def test_dask_cudf_integration(
             dd.assert_eq(expect, got, check_index=False)
 
 
+@pytest.mark.parametrize("partition_count", [None, 3])
+@pytest.mark.parametrize("sort", [True, False])
+@pytest.mark.parametrize("cluster_kind", ["auto", "single"])
+def test_dask_cudf_integration_single(
+    partition_count: int,
+    sort: bool,  # noqa: FBT001
+    cluster_kind: Literal["distributed", "single", "auto"],
+) -> None:
+    # Test single-worker cuDF integration with Dask-cuDF
+    pytest.importorskip("dask_cudf")
+
+    df = (
+        dask.datasets.timeseries(
+            freq="3600s",
+            partition_freq="2D",
+        )
+        .reset_index(drop=True)
+        .to_backend("cudf")
+    )
+    partition_count_in = df.npartitions
+    expect = df.compute().sort_values(["id", "name", "x", "y"])
+    shuffled = dask_cudf_shuffle(
+        df,
+        ["id", "name"],
+        sort=sort,
+        partition_count=partition_count,
+        cluster_kind=cluster_kind,
+        config_options=Options({"single_spill_device": "0.1"}),
+    )
+    assert shuffled.npartitions == (partition_count or partition_count_in)
+    got = shuffled.compute()
+    if sort:
+        assert got["id"].is_monotonic_increasing
+    got = got.sort_values(["id", "name", "x", "y"])
+
+    dd.assert_eq(expect, got, check_index=False)
+
+
+def test_dask_cudf_integration_single_raises() -> None:
+    pytest.importorskip("dask_cudf")
+
+    from rapidsmpf.examples.dask import dask_cudf_shuffle
+
+    df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
+    with pytest.raises(ValueError, match="No global client"):
+        dask_cudf_shuffle(df, ["id", "name"], cluster_kind="distributed")
+    with pytest.raises(ValueError, match="Expected one of"):
+        dask_cudf_shuffle(df, ["id", "name"], cluster_kind="foo")  # type: ignore
+
+
 def test_bootstrap_dask_cluster_idempotent() -> None:
     options = Options({"dask_spill_device": "0.1"})
     with LocalCUDACluster() as cluster, Client(cluster) as client:
@@ -133,6 +184,20 @@ def test_boostrap_single_node_cluster_no_deadlock() -> None:
 
 def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
     pytest.importorskip("dask_cudf")
+
+    def clear_shuffles(dask_worker: Worker) -> None:
+        # Avoid leaking Shuffler objects between tests, by clearing
+        # finished shuffles and shutting down (and clearing) staged,
+        # but not finished, suffles. This shouldn't hang because in the
+        # "too many shuffles" case, we just stage shuffles without actually
+        # inserting (or extracting) any data, and so shutdown shouldn't block.
+        ctx = get_worker_context(dask_worker)
+        for shuffle_id, shuffler in list(ctx.shufflers.items()):
+            if ctx.shufflers[shuffle_id].finished():
+                del ctx.shufflers[shuffle_id]
+            else:
+                shuffler.shutdown()
+                del ctx.shufflers[shuffle_id]
 
     def do_shuffle(seed: int, num_shuffles: int) -> None:
         """Shuffle a dataframe `num_shuffles` consecutive times and check the result"""
@@ -162,7 +227,11 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
                     partition_count_in=partition_count_in,
                     partition_count_out=partition_count_out,
                     integration=DaskCudfIntegration,
-                    options={"on": shuffle_on, "column_names": column_names},
+                    options={
+                        "on": shuffle_on,
+                        "column_names": column_names,
+                        "cluster_kind": "distributed",
+                    },
                 )
             )
             name_in = name_out
@@ -201,6 +270,147 @@ def test_many_shuffles(loop: pytest.FixtureDef) -> None:  # noqa: F811
             # But we cannot shuffle more than `max_num_shuffles` times in a single compute.
             with pytest.raises(
                 ValueError,
-                match=f"Cannot shuffle more than {max_num_shuffles} times in a single Dask compute",
+                match=f"Cannot shuffle more than {max_num_shuffles} times in a single query",
             ):
-                do_shuffle(seed=3, num_shuffles=257)
+                do_shuffle(seed=3, num_shuffles=max_num_shuffles + 1)
+
+            client.run(clear_shuffles)
+
+
+def test_many_shuffles_single() -> None:
+    pytest.importorskip("dask_cudf")
+
+    def do_shuffle(seed: int, num_shuffles: int) -> None:
+        """Shuffle a dataframe `num_shuffles` consecutive times and check the result"""
+        expect = (
+            dask.datasets.timeseries(
+                freq="3600s",
+                partition_freq="2D",
+                seed=seed,
+            )
+            .reset_index(drop=True)
+            .to_backend("cudf")
+        )
+        df0 = expect.optimize()
+        partition_count_in = df0.npartitions
+        partition_count_out = partition_count_in
+        column_names = list(df0.columns)
+        shuffle_on = ["name", "id"]
+
+        graph = df0.dask.copy()
+        name_in = df0._name
+        for i in range(num_shuffles):
+            name_out = f"test_many_shuffles-output-{i}"
+            graph.update(
+                rapidsmpf.integrations.single.rapidsmpf_shuffle_graph(
+                    input_name=name_in,
+                    output_name=name_out,
+                    partition_count_in=partition_count_in,
+                    partition_count_out=partition_count_out,
+                    integration=DaskCudfIntegration,
+                    options={
+                        "on": shuffle_on,
+                        "column_names": column_names,
+                        "cluster_kind": "single",
+                    },
+                )
+            )
+            name_in = name_out
+        got = dd.from_graph(
+            graph,
+            df0._meta,
+            (None,) * (partition_count_out + 1),
+            [(name_out, pid) for pid in range(partition_count_out)],
+            "rapidsmpf",
+        )
+        dd.assert_eq(
+            expect.compute().sort_values(["x", "y"]),
+            got.compute().sort_values(["x", "y"]),
+            check_index=False,
+        )
+
+    rapidsmpf.integrations.single.setup_worker(
+        options=Options({"single_spill_device": "0.1"})
+    )
+    max_num_shuffles = Shuffler.max_concurrent_shuffles
+
+    # We can shuffle `max_num_shuffles` consecutive times.
+    do_shuffle(seed=1, num_shuffles=max_num_shuffles)
+    # And more times after a compute.
+    do_shuffle(seed=2, num_shuffles=10)
+
+    # Check that all shufflers has been cleaned up.
+    ctx = rapidsmpf.integrations.single.get_worker_context()
+    assert len(ctx.shufflers) == 0
+
+    # But we cannot shuffle more than `max_num_shuffles` times in a single compute.
+    with pytest.raises(
+        ValueError,
+        match=f"Cannot shuffle more than {max_num_shuffles} times in a single query",
+    ):
+        do_shuffle(seed=3, num_shuffles=max_num_shuffles + 1)
+
+    # Cleanup Shufflers to avoid leaking between tests.
+    # This shouldn't hang because we just stage shuffles without,
+    # without inserting or extracting any data, and so shutdown shouldn't block.
+    context = rapidsmpf.integrations.single.get_worker_context()
+    for shuffle_id, shuffler in list(context.shufflers.items()):
+        if context.shufflers[shuffle_id].finished():
+            del context.shufflers[shuffle_id]
+        else:
+            shuffler.shutdown()
+            del context.shufflers[shuffle_id]
+
+
+def test_gather_shuffle_statistics() -> None:
+    with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
+        config_options = Options({"dask_statistics": "true"})
+
+        df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
+        shuffled = dask_cudf_shuffle(df, on=["name"], config_options=config_options)
+        shuffled.compute()
+
+        stats = gather_shuffle_statistics(client)
+        expected_stats = {
+            "event-loop-check-future-finish",
+            "event-loop-init-gpu-data-send",
+            "event-loop-metadata-recv",
+            "event-loop-metadata-send",
+            "event-loop-post-incoming-chunk-recv",
+            "event-loop-total",
+            "shuffle-payload-recv",
+            "shuffle-payload-send",
+            "spill-bytes-host-to-device",
+            "spill-time-host-to-device",
+        }
+
+        assert set(stats) == expected_stats
+        for stat in expected_stats:
+            assert stats[stat]["count"] > 0
+            assert "value" in stats[stat]
+
+        assert stats["shuffle-payload-send"]["value"] > 0
+        assert (
+            stats["shuffle-payload-send"]["value"]
+            == stats["shuffle-payload-recv"]["value"]
+        )
+
+
+def test_clear_shuffle_statistics() -> None:
+    with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
+        config_options = Options(
+            {"dask_statistics": "true", "dask_print_statistics": "false"}
+        )
+
+        df = dask.datasets.timeseries().reset_index(drop=True).to_backend("cudf")
+        shuffled = dask_cudf_shuffle(df, on=["name"], config_options=config_options)
+        shuffled.compute()
+
+        stats = gather_shuffle_statistics(client)
+        assert len(stats) > 0
+
+        clear_shuffle_statistics(client)
+        stats2 = gather_shuffle_statistics(client)
+
+        assert len(stats) > 0
+        assert len(stats2) == 0

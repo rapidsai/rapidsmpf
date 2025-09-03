@@ -111,7 +111,7 @@ class SpillableWrapper(Generic[WrappedType]):
         """
         on_device = self._on_device
         if on_device is not None:
-            return cast(int, dask.sizeof.sizeof(on_device))
+            return cast("int", dask.sizeof.sizeof(on_device))
         else:
             return 0
 
@@ -176,7 +176,7 @@ class SpillableWrapper(Generic[WrappedType]):
         if on_device is not None:
             return on_device
         assert self._on_host is not None
-        self._on_device = cast(WrappedType, dask_loads(*self._on_host))
+        self._on_device = cast("WrappedType", dask_loads(*self._on_host))
         return self._on_device
 
 

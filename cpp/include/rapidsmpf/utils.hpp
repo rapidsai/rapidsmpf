@@ -11,6 +11,9 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
 namespace rapidsmpf {
 
@@ -194,6 +197,27 @@ typename MapType::key_type extract_key(
 }
 
 /**
+ * @brief Converts a map-like associative container to a vector by moving the values and
+ * discarding the keys.
+ *
+ * @tparam MapType The type of the map-like associative container. Must provide a
+ * mapped_type and support range-based for-loops.
+ * @param map The map whose values will be moved into the resulting vector. Keys are
+ * ignored.
+ * @returns A std::vector containing the moved values from the input map.
+ */
+template <typename MapType>
+auto to_vector(MapType&& map) {
+    using ValueType = typename std::remove_reference_t<MapType>::mapped_type;
+    std::vector<ValueType> vec;
+    vec.reserve(map.size());
+    for (auto&& [key, value] : map) {
+        vec.push_back(std::move(value));
+    }
+    return vec;
+}
+
+/**
  * @brief Checks whether the application is running under Valgrind.
  *
  * @return `true` if the application is running under Valgrind, `false` otherwise.
@@ -347,5 +371,10 @@ constexpr T* to_pointer(std::shared_ptr<T>& ptr) noexcept {
 
 }  // namespace detail
 
+/// @brief Helper for overloaded lambdas using std::visit.
+template <class... Ts>
+struct overloaded : Ts... {
+    using Ts::operator()...;
+};
 
 }  // namespace rapidsmpf

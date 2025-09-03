@@ -7,11 +7,25 @@ This page contains the API reference for `rapidsmpf`.
 The subpackages under `rapidsmpf.integrations` contain integrations with other
 libraries.
 
+### Generic
+
+```{eval-rst}
+.. automodule:: rapidsmpf.integrations
+   :members:
+```
+
 (api-integration-dask)=
 ### Dask
 
 ```{eval-rst}
 .. automodule:: rapidsmpf.integrations.dask
+   :members:
+```
+
+### Single-process
+
+```{eval-rst}
+.. automodule:: rapidsmpf.integrations.single
    :members:
 ```
 
@@ -88,3 +102,19 @@ libraries.
 ```{eval-rst}
 .. automodule:: rapidsmpf.config
    :members:
+```
+
+(api-statistics)=
+## Statistics
+
+```{eval-rst}
+.. automodule:: rapidsmpf.statistics
+   :members:
+```
+
+## RMM Resource Adaptor
+
+```{eval-rst}
+.. automodule:: rapidsmpf.rmm_resource_adaptor
+   :members:
+```

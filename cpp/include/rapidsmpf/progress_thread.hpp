@@ -62,7 +62,8 @@ class ProgressThread {
      * Composed of the ProgressThread address and a sequential function index.
      */
     struct FunctionID {
-        ProgressThreadAddress thread_address{ProgressThreadAddress(0)
+        ProgressThreadAddress thread_address{
+            ProgressThreadAddress(0)
         };  ///< The address of the ProgressThread instance
         FunctionIndex function_index{0};  ///< The sequential index of the function
 

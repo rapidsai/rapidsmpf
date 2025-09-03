@@ -11,7 +11,12 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
+
+#ifdef RAPIDSMPF_HAVE_CUPTI
+#include <rapidsmpf/cupti.hpp>
+#endif
 
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"
@@ -31,7 +36,7 @@ class ArgumentParser {
 
         try {
             int option;
-            while ((option = getopt(argc, argv, "hC:O:r:w:n:p:m:")) != -1) {
+            while ((option = getopt(argc, argv, "hC:O:r:w:n:p:m:M:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -46,9 +51,14 @@ class ArgumentParser {
                               " of  concurrent all-to-all operations (default: 1)\n"
                            << "  -m <mr>    RMM memory resource {cuda, pool, async, "
                               "managed} "
-                              "(default: cuda)\n"
+                              "(default: pool)\n"
                            << "  -r <num>   Number of runs (default: 1)\n"
                            << "  -w <num>   Number of warmup runs (default: 0)\n"
+#ifdef RAPIDSMPF_HAVE_CUPTI
+                           << "  -M <path>  Enable CUPTI memory monitoring and save CSV "
+                              "files with given path prefix. For example, /tmp/test will "
+                              "write files to /tmp/test_<rank>.csv (default: disabled)\n"
+#endif
                            << "  -h         Display this help message\n";
                         if (rank == 0) {
                             std::cerr << ss.str();
@@ -97,6 +107,12 @@ class ArgumentParser {
                 case 'w':
                     parse_integer(num_warmups, optarg);
                     break;
+#ifdef RAPIDSMPF_HAVE_CUPTI
+                case 'M':
+                    cupti_csv_prefix = std::string{optarg};
+                    enable_cupti_monitoring = true;
+                    break;
+#endif
                 case '?':
                     RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     break;
@@ -113,6 +129,16 @@ class ArgumentParser {
             }
             RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
         }
+
+        if (rmm_mr == "cuda") {
+            if (rank == 0) {
+                std::cout << "WARNING: using the default cuda memory resource "
+                             "(-m cuda) might leak memory! A limitation in UCX "
+                             "means that device memory send through IPC can "
+                             "never be freed."
+                          << std::endl;
+            }
+        }
     }
 
     void pprint(Communicator& comm) const {
@@ -128,16 +154,21 @@ class ArgumentParser {
         ss << "  -r " << num_runs << " (number of runs)\n";
         ss << "  -w " << num_warmups << " (number of warmup runs)\n";
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
+        if (enable_cupti_monitoring) {
+            ss << "  -M " << cupti_csv_prefix << " (CUPTI memory monitoring enabled)\n";
+        }
         comm.logger().print(ss.str());
     }
 
     std::uint64_t num_runs{1};
     std::uint64_t num_warmups{0};
-    std::string rmm_mr{"cuda"};
+    std::string rmm_mr{"pool"};
     std::string comm_type{"mpi"};
     std::string operation{"all-to-all"};
     std::uint64_t msg_size{1 << 20};
     std::uint64_t num_ops{1};
+    bool enable_cupti_monitoring{false};
+    std::string cupti_csv_prefix;
 };
 
 Duration run(
@@ -153,14 +184,16 @@ Duration run(
     for (std::uint64_t i = 0; i < args.num_ops; ++i) {
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
             auto [res, _] = br->reserve(MemoryType::DEVICE, args.msg_size * 2, true);
-            auto buf = br->allocate(MemoryType::DEVICE, args.msg_size, stream, res);
+            auto buf = br->allocate(args.msg_size, stream, res);
             random_fill(*buf, stream, br->device_mr());
             send_bufs.push_back(std::move(buf));
-            recv_bufs.push_back(
-                br->allocate(MemoryType::DEVICE, args.msg_size, stream, res)
-            );
+            recv_bufs.push_back(br->allocate(args.msg_size, stream, res));
         }
     }
+
+    // Wait for all buffers to be ready before proceeding. Since allocations are
+    // stream-ordered, we only need to check the last one in the stream.
+    recv_bufs.back()->wait_for_ready();
 
     auto const t0_elapsed = Clock::now();
 
@@ -190,13 +223,7 @@ Duration run(
     }
 
     while (!futures.empty()) {
-        std::vector<std::size_t> finished = comm->test_some(futures);
-        // Sort the indexes into descending order.
-        std::sort(finished.begin(), finished.end(), std::greater<>());
-        // And erase from the right.
-        for (auto i : finished) {
-            futures.erase(futures.begin() + static_cast<std::ptrdiff_t>(i));
-        }
+        std::ignore = comm->test_some(futures);
     }
 
     return Clock::now() - t0_elapsed;
@@ -239,10 +266,11 @@ int main(int argc, char** argv) {
         std::stringstream ss;
         auto const cur_dev = rmm::get_current_cuda_device().value();
         std::string pci_bus_id(16, '\0');  // Preallocate space for the PCI bus ID
-        CUDF_CUDA_TRY(cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), cur_dev)
+        RAPIDSMPF_CUDA_TRY(
+            cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), cur_dev)
         );
         cudaDeviceProp properties;
-        CUDF_CUDA_TRY(cudaGetDeviceProperties(&properties, 0));
+        RAPIDSMPF_CUDA_TRY(cudaGetDeviceProperties(&properties, 0));
         ss << "Hardware setup: \n";
         ss << "  GPU (" << properties.name << "): \n";
         ss << "    Device number: " << cur_dev << "\n";
@@ -254,6 +282,16 @@ int main(int argc, char** argv) {
 
     // We start with disabled statistics.
     auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
+
+#ifdef RAPIDSMPF_HAVE_CUPTI
+    // Create CUPTI monitor if enabled
+    std::unique_ptr<rapidsmpf::CuptiMonitor> cupti_monitor;
+    if (args.enable_cupti_monitoring) {
+        cupti_monitor = std::make_unique<rapidsmpf::CuptiMonitor>();
+        cupti_monitor->start_monitoring();
+        log.print("CUPTI memory monitoring enabled");
+    }
+#endif
 
     auto const local_messages_send =
         args.msg_size * args.num_ops * (static_cast<std::uint64_t>(comm->nranks()) - 1);
@@ -284,6 +322,35 @@ int main(int argc, char** argv) {
         }
     }
     log.print(stats->report("Statistics (of the last run):"));
+
+#ifdef RAPIDSMPF_HAVE_CUPTI
+    // Save CUPTI monitoring results to CSV file
+    if (args.enable_cupti_monitoring && cupti_monitor) {
+        cupti_monitor->stop_monitoring();
+
+        std::string csv_filename =
+            args.cupti_csv_prefix + std::to_string(comm->rank()) + ".csv";
+        try {
+            cupti_monitor->write_csv(csv_filename);
+            log.print(
+                "CUPTI memory data written to " + csv_filename + " ("
+                + std::to_string(cupti_monitor->get_sample_count()) + " samples, "
+                + std::to_string(cupti_monitor->get_total_callback_count())
+                + " callbacks)"
+            );
+
+            // Print callback summary for rank 0
+            if (comm->rank() == 0) {
+                log.print(
+                    "CUPTI Callback Summary:\n" + cupti_monitor->get_callback_summary()
+                );
+            }
+        } catch (std::exception const& e) {
+            log.print("Failed to write CUPTI CSV file: " + std::string(e.what()));
+        }
+    }
+#endif
+
     RAPIDSMPF_MPI(MPI_Finalize());
     return 0;
 }

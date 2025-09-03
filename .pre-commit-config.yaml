@@ -3,17 +3,17 @@
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v17.0.4
+    rev: v20.1.4
     hooks:
       - id: clang-format
         types_or: [c, c++, cuda]
   - repo: https://github.com/sirosen/texthooks
-    rev: 0.6.6
+    rev: 0.7.1
     hooks:
       - id: fix-smartquotes
   - repo: local
@@ -49,26 +49,26 @@ repos:
         pass_filenames: false
         verbose: true
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.1
+    rev: v0.12.5
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: ["--fix"]
         files: python/.*$
       - id: ruff-format
         files: python/.*$
   - repo: https://github.com/MarcoGorelli/cython-lint
-    rev: v0.16.2
+    rev: v0.16.7
     hooks:
       - id: cython-lint
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: 'v1.14.1'
+    rev: 'v1.17.0'
     hooks:
       - id: mypy
         args: ["--config-file=pyproject.toml",
                "python/rapidsmpf/"]
         pass_filenames: false
   - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
+    rev: 6.0.1
     hooks:
       - id: isort
         name: isort (cython)
@@ -76,7 +76,7 @@ repos:
         files: python/.*
         types_or: [cython]
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.2.6
+    rev: v2.4.1
     hooks:
       - id: codespell
         exclude: |
@@ -85,7 +85,7 @@ repos:
             ^CHANGELOG.md$
           )
   - repo: https://github.com/rapidsai/pre-commit-hooks
-    rev: v0.6.0
+    rev: v0.7.0
     hooks:
       - id: verify-copyright
         args: [--fix, --main-branch=main]
@@ -93,10 +93,10 @@ repos:
       - id: verify-codeowners
         args: [--fix, --project-prefix=rapidsmpf]
   - repo: https://github.com/rapidsai/dependency-file-generator
-    rev: v1.16.0
+    rev: v1.20.0
     hooks:
       - id: rapids-dependency-file-generator
-        args: ["--clean"]
+        args: ["--clean", "--warn-all", "--strict"]
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.10.0.1
     hooks:

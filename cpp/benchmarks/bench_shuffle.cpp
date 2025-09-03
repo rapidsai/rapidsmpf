@@ -21,6 +21,10 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils.hpp>
 
+#ifdef RAPIDSMPF_HAVE_CUPTI
+#include <rapidsmpf/cupti.hpp>
+#endif
+
 #include "utils/misc.hpp"
 #include "utils/random_data.hpp"
 #include "utils/rmm_stack.hpp"
@@ -37,7 +41,7 @@ class ArgumentParser {
         RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
         try {
             int option;
-            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:igxh")) != -1) {
+            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:igxhM:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -56,7 +60,7 @@ class ArgumentParser {
                               "(default: 1)\n"
                            << "  -m <mr>    RMM memory resource {cuda, pool, async, "
                               "managed} "
-                              "(default: cuda)\n"
+                              "(default: pool)\n"
                            << "  -l <num>   Device memory limit in MiB (default:-1, "
                               "disabled)\n"
                            << "  -i         Use `concat_insert` method, instead of "
@@ -64,6 +68,11 @@ class ArgumentParser {
                            << "  -g         Use pre-partitioned (hash) input tables "
                               "(default: unset, hash partition during insertion)\n"
                            << "  -x         Enable memory profiler (default: disabled)\n"
+#ifdef RAPIDSMPF_HAVE_CUPTI
+                           << "  -M <path>  Enable CUPTI memory monitoring and save CSV "
+                              "files with given path prefix. For example, /tmp/test will "
+                              "write files to /tmp/test_<rank>.csv (default: disabled)\n"
+#endif
                            << "  -h         Display this help message\n";
                         if (rank == 0) {
                             std::cerr << ss.str();
@@ -124,6 +133,12 @@ class ArgumentParser {
                 case 'x':
                     enable_memory_profiler = true;
                     break;
+#ifdef RAPIDSMPF_HAVE_CUPTI
+                case 'M':
+                    cupti_csv_prefix = std::string{optarg};
+                    enable_cupti_monitoring = true;
+                    break;
+#endif
                 case '?':
                     RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
                     break;
@@ -147,9 +162,9 @@ class ArgumentParser {
         if (rmm_mr == "cuda") {
             if (rank == 0) {
                 std::cout << "WARNING: using the default cuda memory resource "
-                             "(-m cuda) might leak memory! A bug in UCX means "
-                             "that device memory received through IPC is never "
-                             "freed. Hopefully, this will be fixed in UCX v1.19."
+                             "(-m cuda) might leak memory! A limitation in UCX "
+                             "means that device memory send through IPC can "
+                             "never be freed."
                           << std::endl;
             }
         }
@@ -183,6 +198,9 @@ class ArgumentParser {
         if (use_concat_insert) {
             ss << "  -i (use concat insert)\n";
         }
+        if (enable_cupti_monitoring) {
+            ss << "  -M " << cupti_csv_prefix << " (CUPTI memory monitoring enabled)\n";
+        }
         ss << "Local size: " << rapidsmpf::format_nbytes(local_nbytes) << "\n";
         ss << "Total size: " << rapidsmpf::format_nbytes(total_nbytes) << "\n";
         comm.logger().print(ss.str());
@@ -194,7 +212,7 @@ class ArgumentParser {
     std::uint64_t num_local_rows{1 << 20};
     rapidsmpf::shuffler::PartID num_local_partitions{1};
     rapidsmpf::shuffler::PartID num_output_partitions{1};
-    std::string rmm_mr{"cuda"};
+    std::string rmm_mr{"pool"};
     std::string comm_type{"mpi"};
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
@@ -202,6 +220,8 @@ class ArgumentParser {
     bool hash_partition_with_datagen{false};
     bool use_concat_insert{false};
     std::int64_t device_mem_limit_mb{-1};
+    bool enable_cupti_monitoring{false};
+    std::string cupti_csv_prefix;
 };
 
 rapidsmpf::Duration do_run(
@@ -238,12 +258,20 @@ rapidsmpf::Duration do_run(
         while (!shuffler.finished()) {
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
-            output_partitions.emplace_back(rapidsmpf::unpack_and_concat(
-                std::move(packed_chunks), stream, br->device_mr(), statistics
-            ));
+            output_partitions.emplace_back(
+                rapidsmpf::unpack_and_concat(
+                    rapidsmpf::unspill_partitions(
+                        std::move(packed_chunks), stream, br, true, statistics
+                    ),
+                    stream,
+                    br,
+                    statistics
+                )
+            );
         }
         stream.synchronize();
     }
+
     auto const t1_elapsed = rapidsmpf::Clock::now();
 
     // Check the shuffle result (this test only works for non-empty partitions
@@ -257,7 +285,7 @@ rapidsmpf::Duration do_run(
                 cudf::hash_id::HASH_MURMUR3,
                 cudf::DEFAULT_HASH_SEED,
                 stream,
-                br->device_mr()
+                br
             );
             RAPIDSMPF_EXPECTS(
                 std::count_if(
@@ -280,7 +308,7 @@ template <
 std::vector<InputPartitionsT> generate_input_partitions(
     ArgumentParser const& args,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr,
+    rapidsmpf::BufferResource* br,
     TransformFn&& transform_fn
 ) {
     std::int32_t const min_val = 0;
@@ -289,14 +317,23 @@ std::vector<InputPartitionsT> generate_input_partitions(
     std::vector<InputPartitionsT> input_partitions;
     input_partitions.reserve(args.num_local_partitions);
     for (rapidsmpf::shuffler::PartID i = 0; i < args.num_local_partitions; ++i) {
-        cudf::table table = random_table(
+        size_t size_lb = random_table_size_lower_bound(
             static_cast<cudf::size_type>(args.num_columns),
-            static_cast<cudf::size_type>(args.num_local_rows),
-            min_val,
-            max_val,
-            stream,
-            mr
+            static_cast<cudf::size_type>(args.num_local_rows)
         );
+
+        // reserve at least size_lb and spill if necessary (no overbooking)
+        auto res = br->reserve_and_spill(rapidsmpf::MemoryType::DEVICE, size_lb, false);
+        cudf::table table = with_memory_reservation(std::move(res), [&] {
+            return random_table(
+                static_cast<cudf::size_type>(args.num_columns),
+                static_cast<cudf::size_type>(args.num_local_rows),
+                min_val,
+                max_val,
+                stream,
+                br->device_mr()
+            );
+        });
         input_partitions.emplace_back(transform_fn(std::move(table)));
     }
     stream.synchronize();
@@ -371,7 +408,7 @@ rapidsmpf::Duration run_hash_partition_inline(
         * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
     std::vector<cudf::table> input_partitions =
-        generate_input_partitions(args, stream, br->device_mr(), std::identity{});
+        generate_input_partitions(args, stream, br, std::identity{});
 
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
@@ -383,7 +420,7 @@ rapidsmpf::Duration run_hash_partition_inline(
             cudf::hash_id::HASH_MURMUR3,
             cudf::DEFAULT_HASH_SEED,
             stream,
-            br->device_mr(),
+            br,
             statistics
         );
     };
@@ -435,11 +472,8 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
         * static_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
 
     std::vector<std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData>>
-        input_partitions = generate_input_partitions(
-            args,
-            stream,
-            br->device_mr(),
-            [&](cudf::table&& table) {
+        input_partitions =
+            generate_input_partitions(args, stream, br, [&](cudf::table&& table) {
                 return rapidsmpf::partition_and_pack(
                     table,
                     {0},
@@ -447,10 +481,9 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
                     cudf::hash_id::HASH_MURMUR3,
                     cudf::DEFAULT_HASH_SEED,
                     stream,
-                    br->device_mr()
+                    br
                 );
-            }
-        );
+            });
 
     RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
 
@@ -527,10 +560,11 @@ int main(int argc, char** argv) {
         std::stringstream ss;
         auto const cur_dev = rmm::get_current_cuda_device().value();
         std::string pci_bus_id(16, '\0');  // Preallocate space for the PCI bus ID
-        CUDF_CUDA_TRY(cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), cur_dev)
+        RAPIDSMPF_CUDA_TRY(
+            cudaDeviceGetPCIBusId(pci_bus_id.data(), pci_bus_id.size(), cur_dev)
         );
         cudaDeviceProp properties;
-        CUDF_CUDA_TRY(cudaGetDeviceProperties(&properties, 0));
+        RAPIDSMPF_CUDA_TRY(cudaGetDeviceProperties(&properties, 0));
         ss << "Hardware setup: \n";
         ss << "  GPU (" << properties.name << "): \n";
         ss << "    Device number: " << cur_dev << "\n";
@@ -543,6 +577,16 @@ int main(int argc, char** argv) {
 
     // We start with disabled statistics.
     auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
+
+#ifdef RAPIDSMPF_HAVE_CUPTI
+    // Create CUPTI monitor if enabled
+    std::unique_ptr<rapidsmpf::CuptiMonitor> cupti_monitor;
+    if (args.enable_cupti_monitoring) {
+        cupti_monitor = std::make_unique<rapidsmpf::CuptiMonitor>();
+        cupti_monitor->start_monitoring();
+        log.print("CUPTI memory monitoring enabled");
+    }
+#endif
 
     std::vector<double> elapsed_vec;
     std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
@@ -605,6 +649,35 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
     log.print(stats->report("Statistics (of the last run):"));
+
+#ifdef RAPIDSMPF_HAVE_CUPTI
+    // Save CUPTI monitoring results to CSV file
+    if (args.enable_cupti_monitoring && cupti_monitor) {
+        cupti_monitor->stop_monitoring();
+
+        std::string csv_filename =
+            args.cupti_csv_prefix + std::to_string(comm->rank()) + ".csv";
+        try {
+            cupti_monitor->write_csv(csv_filename);
+            log.print(
+                "CUPTI memory data written to " + csv_filename + " ("
+                + std::to_string(cupti_monitor->get_sample_count()) + " samples, "
+                + std::to_string(cupti_monitor->get_total_callback_count())
+                + " callbacks)"
+            );
+
+            // Print callback summary for rank 0
+            if (comm->rank() == 0) {
+                log.print(
+                    "CUPTI Callback Summary:\n" + cupti_monitor->get_callback_summary()
+                );
+            }
+        } catch (std::exception const& e) {
+            log.print("Failed to write CUPTI CSV file: " + std::string(e.what()));
+        }
+    }
+#endif
+
     RAPIDSMPF_MPI(MPI_Finalize());
     return 0;
 }
