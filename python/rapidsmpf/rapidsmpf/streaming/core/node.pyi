@@ -16,7 +16,7 @@ class CppNode:
     pass
 
 class PyNode(Awaitable[None]):
-    def __await__(self) -> Generator[object, None, None]: ...
+    def __await__(self) -> Generator[Any, None, None]: ...
 
 def define_py_node(
     *, extra_channels: Collection[Channel] = ()
@@ -26,6 +26,6 @@ def define_py_node(
 ]: ...
 def run_streaming_pipeline(
     *,
-    nodes: Collection[CppNode | Awaitable[None]],
+    nodes: Collection[CppNode | PyNode],
     py_executor: ThreadPoolExecutor | None = None,
 ) -> None: ...
