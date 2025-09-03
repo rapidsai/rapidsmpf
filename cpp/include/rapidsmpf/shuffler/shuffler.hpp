@@ -141,10 +141,13 @@ class Shuffler {
     void insert_finished(std::vector<PartID>&& pids);
 
     /**
-     * @brief Extract all chunks of a specific partition.
+     * @brief Extract all chunks belonging to the specified partition.
      *
-     * @param pid The partition ID.
-     * @return A vector of PackedData (chunks) for the partition.
+     * @param pid Identifier of the partition to extract.
+     * @return Vector of PackedData chunks for the partition.
+     *
+     * @note Ensure that the partition has been fully received before calling
+     * this method (e.g., by using `wait_any()` or `wait_on()`).
      */
     [[nodiscard]] std::vector<PackedData> extract(PartID pid);
 

@@ -57,9 +57,10 @@ class PostBox {
      * @param pid Identifier of the partition to query.
      * @return True if the partition contains no chunks, false otherwise.
      *
-     * @throws std::out_of_range If the partition with the given @p pid does not exist.
+     * @throws std::out_of_range If the partition with the given `pid` does not exist.
      *
-     * @note The result is a snapshot view and may change.
+     * @note The result reflects a snapshot at the time of the call and may change
+     * immediately afterward.
      */
     bool is_empty(PartID pid) const;
 
