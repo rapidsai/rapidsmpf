@@ -789,13 +789,7 @@ bool Shuffler::finished() const {
 
 PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    auto [pid, contains_data] = finish_counter_.wait_any(std::move(timeout));
-    if (!contains_data) {
-        // there will be no data chunks for this pid in the ready postbox. Therefore,
-        // insert an empty container for this partition.
-        ready_postbox_.mark_empty(pid);
-    }
-    return pid;
+    return finish_counter_.wait_any(std::move(timeout));
 }
 
 void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {

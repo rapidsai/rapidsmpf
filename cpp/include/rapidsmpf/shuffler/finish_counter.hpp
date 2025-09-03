@@ -94,16 +94,13 @@ class FinishCounter {
      *
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @return The partition ID of a finished partition and a boolean indicating if the
-     * partition contains data.
+     * @return The partition ID of a finished partition.
      *
      * @throw std::out_of_range If all partitions have already been waited on.
      * std::runtime_error If timeout was set and no partitions have been finished by the
      * expiration.
      */
-    std::pair<PartID, bool> wait_any(
-        std::optional<std::chrono::milliseconds> timeout = {}
-    );
+    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Wait for a specific partition to be finished (blocking). Optionally a

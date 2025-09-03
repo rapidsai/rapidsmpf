@@ -74,9 +74,7 @@ void wait_for_if_timeout_else_wait(
     }
 }
 
-std::pair<PartID, bool> FinishCounter::wait_any(
-    std::optional<std::chrono::milliseconds> timeout
-) {
+PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout) {
     PartID finished_key{std::numeric_limits<PartID>::max()};
 
     std::unique_lock<std::mutex> lock(mutex_);
@@ -98,8 +96,8 @@ std::pair<PartID, bool> FinishCounter::wait_any(
     );
 
     // We extract the partition to avoid returning the same partition twice.
-    auto p_info = goalposts_.extract(finished_key);
-    return {finished_key, p_info.mapped().data_chunk_goal() != 0};
+    goalposts_.erase(finished_key);
+    return finished_key;
 }
 
 void FinishCounter::wait_on(
