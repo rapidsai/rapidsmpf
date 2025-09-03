@@ -61,5 +61,5 @@ def test_partition_and_pack_unpack(
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
         tbl = TableChunk.from_message(result)
-        assert tbl.sequence_number() == seq
+        assert tbl.sequence_number == seq
         assert_eq(tbl.table_view(), expect, sort_rows="0")

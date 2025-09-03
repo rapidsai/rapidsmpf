@@ -63,7 +63,7 @@ def test_send_table_chunks(
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
         tbl = TableChunk.from_message(result)
-        assert tbl.sequence_number() == seq
+        assert tbl.sequence_number == seq
         assert_eq(tbl.table_view(), expect)
 
 
@@ -145,5 +145,5 @@ def test_recv_table_chunks(
 
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
         tbl = TableChunk.from_message(result)
-        assert tbl.sequence_number() == seq
+        assert tbl.sequence_number == seq
         assert_eq(tbl.table_view(), expect)

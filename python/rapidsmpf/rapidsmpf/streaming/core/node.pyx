@@ -234,7 +234,7 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
     ... )
     >>> results = output.release()
     >>> tbl = TableChunk.from_message(results[0])
-    >>> tbl.sequence_number()
+    >>> tbl.sequence_number
     42
     """
 

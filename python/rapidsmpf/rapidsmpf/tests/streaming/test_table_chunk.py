@@ -22,7 +22,7 @@ def test_from_pylibcudf_table(context: Context, stream: Stream) -> None:
     seq = 42
     expect = cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}))
     table_chunk = TableChunk.from_pylibcudf_table(seq, expect, stream)
-    assert table_chunk.sequence_number() == seq
+    assert table_chunk.sequence_number == seq
     assert table_chunk.is_available()
     assert_eq(expect, table_chunk.table_view())
 
