@@ -75,13 +75,8 @@ def main() -> int:
         ctx: Context, ch_in: Channel, ch_out: Channel, total_num_rows: list[int]
     ) -> None:
         assert len(total_num_rows) == 1, "should be a scalar"
-        while True:
-            msg: Message[TableChunk] | None
-            if (msg := await ch_in.recv(ctx)) is None:
-                # `None` indicates the channel is closed, i.e. we are done.
-                # Before exiting, drain the output channel to close it gracefully.
-                return await ch_out.drain(ctx)
-
+        msg: Message[TableChunk] | None
+        while (msg := await ch_in.recv(ctx)) is not None:
             # Convert the message back into a table chunk (releases the message).
             table = TableChunk.from_message(msg)
 
@@ -96,6 +91,10 @@ def main() -> int:
 
             # Forward the message to the output channel.
             await ch_out.send(ctx, msg)
+
+        # `msg == None` indicates the channel is closed, i.e. we are done.
+        # Before exiting, drain the output channel to close it gracefully.
+        await ch_out.drain(ctx)
 
     # Nodes return None, so if we want an "output" value we can use either a closure
     # or an output parameter like `total_num_rows`.
