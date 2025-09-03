@@ -44,6 +44,12 @@ void PostBox<KeyType>::mark_empty(PartID pid) {
 }
 
 template <typename KeyType>
+bool PostBox<KeyType>::is_empty(PartID pid) const {
+    std::lock_guard const lock(mutex_);
+    return pigeonhole_.find(key_map_fn_(pid)) == pigeonhole_.end();
+}
+
+template <typename KeyType>
 Chunk PostBox<KeyType>::extract(PartID pid, ChunkID cid) {
     std::lock_guard const lock(mutex_);
     return extract_item(pigeonhole_[key_map_fn_(pid)], cid).second;
