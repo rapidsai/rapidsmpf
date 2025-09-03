@@ -779,23 +779,6 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     return ret;
 }
 
-std::vector<detail::Chunk> Shuffler::extract_chunks(PartID pid) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-
-    std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
-    auto chunks = ready_postbox_.extract(pid);
-    lock.unlock();
-
-    std::vector<detail::Chunk> ret;
-    ret.reserve(chunks.size());
-
-    std::ranges::transform(chunks, std::back_inserter(ret), [](auto&& p) {
-        return std::move(p.second);
-    });
-
-    return ret;
-}
-
 bool Shuffler::finished() const {
     return finish_counter_.all_finished();
 }

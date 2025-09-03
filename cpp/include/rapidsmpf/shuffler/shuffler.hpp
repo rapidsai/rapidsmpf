@@ -149,14 +149,6 @@ class Shuffler {
     [[nodiscard]] std::vector<PackedData> extract(PartID pid);
 
     /**
-     * @brief Extract all chunks of a specific partition.
-     *
-     * @param pid The partition ID.
-     * @return A vector of Chunks for the partition.
-     */
-    [[nodiscard]] std::vector<detail::Chunk> extract_chunks(PartID pid);
-
-    /**
      * @brief Check if all partitions are finished.
      *
      * @return True if all partitions are finished, otherwise False.
