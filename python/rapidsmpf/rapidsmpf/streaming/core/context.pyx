@@ -25,7 +25,7 @@ cdef class Context:
         Configuration options to use. Missing config options are read
         from environment variables.
     statistics
-        The statistics instance to use. If None, statistics is disabled.
+        The statistics instance to use. If None, statistics are disabled.
     """
     def __cinit__(
         self,
