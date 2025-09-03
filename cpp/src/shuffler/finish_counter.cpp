@@ -11,24 +11,110 @@
 
 namespace rapidsmpf::shuffler::detail {
 
+namespace {
+/**
+ * @brief A utility function to wait on a predicate with a timeout and throw if
+ * the timeout is reached. If the timeout is not set, wait for the predicate
+ * to be true.
+ *
+ * @tparam Pred The type of the predicate.
+ *
+ * @param lock The lock to use for the wait.
+ * @param cv The condition variable to use for the wait.
+ * @param timeout The timeout to use for the wait.
+ * @param pred The predicate to wait on.
+ *
+ * @throws std::runtime_error if the timeout is reached.
+ */
+template <typename Pred>
+void wait_for_if_timeout_else_wait(
+    std::unique_lock<std::mutex>& lock,
+    std::condition_variable& cv,
+    std::optional<std::chrono::milliseconds>& timeout,
+    Pred&& pred
+) {
+    if (timeout.has_value()) {
+        // if the timeout is set, and pred() is not true, throw
+        RAPIDSMPF_EXPECTS(
+            cv.wait_for(lock, *timeout, std::move(pred)),
+            "wait timeout reached",
+            std::runtime_error
+        );
+    } else {
+        cv.wait(lock, std::move(pred));
+    }
+}
+
+}  // namespace
+
+/// @brief Handler to implement the wait* methods using callbacks
+class FinishCounter::WaitHandler {
+  public:
+    WaitHandler() = default;
+
+    ~WaitHandler() = default;
+
+    /// @brief Callback to listen on the finished partitions
+    void on_finished_cb(PartID pid) {
+        {
+            std::lock_guard lock(mutex);
+            to_wait.emplace(pid);
+        }
+        cv.notify_all();
+    }
+
+    PartID wait_any(std::optional<std::chrono::milliseconds> timeout) {
+        std::unique_lock lock(mutex);
+        wait_for_if_timeout_else_wait(lock, cv, timeout, [&] {
+            return !active || !to_wait.empty();
+        });
+        RAPIDSMPF_EXPECTS(active, "wait callback already finished", std::runtime_error);
+        return to_wait.extract(to_wait.begin()).value();
+    }
+
+    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {
+        std::unique_lock lock(mutex);
+        wait_for_if_timeout_else_wait(lock, cv, timeout, [&] {
+            return !active || to_wait.contains(pid);
+        });
+        RAPIDSMPF_EXPECTS(active, "wait callback already finished", std::runtime_error);
+        to_wait.erase(pid);
+    }
+
+    std::unordered_set<PartID> to_wait{};  ///< finished partitions available to wait on
+    bool active{true};
+    std::condition_variable cv;
+    std::mutex mutex;
+};
+
 FinishCounter::FinishCounter(
     Rank nranks,
     std::vector<PartID> const& local_partitions,
     std::function<void(PartID)>&& empty_partition_cb
 )
     : nranks_{nranks},
-      n_local_partitions_{local_partitions.size()},
-      empty_partition_cb_{std::forward<std::function<void(PartID)>>(empty_partition_cb)} {
-    goalposts_.reserve(n_local_partitions_);
+      empty_partition_cb_{std::forward<std::function<void(PartID)>>(empty_partition_cb)},
+      wait_handler_{std::make_unique<WaitHandler>()} {
+    goalposts_.reserve(local_partitions.size());
     for (auto pid : local_partitions) {
         goalposts_.emplace(pid, PartitionInfo{});
     }
-    finished_cbs_.reserve(n_local_partitions_);
+    finished_partitions_.reserve(local_partitions.size());
+
+    register_finished_callback([wait_handler_ptr = wait_handler_.get()](PartID pid) {
+        wait_handler_ptr->on_finished_cb(pid);
+    });
+}
+
+FinishCounter::~FinishCounter() {
+    // remove callback container before destroying the wait handler
+    finished_cbs_.clear();
+    wait_handler_.reset();
 }
 
 bool FinishCounter::all_finished() const {
     std::unique_lock<std::mutex> lock(mutex_);
-    return finished_partitions_.size() == n_local_partitions_;
+    return finished_partitions_.size() == goalposts_.size();
 }
 
 void FinishCounter::move_goalpost(PartID pid, ChunkID nchunks) {
@@ -53,8 +139,6 @@ void FinishCounter::add_finished_chunk(PartID pid) {
         }
         lock.unlock();
 
-        cv_.notify_all();  // notify any waiting threads
-
         std::lock_guard cb_container_lock(finished_cbs_mutex_);
         // Note: finished_partitions_ does not need to be protected by the lock
         // because it is only appended by the progress thread.
@@ -74,7 +158,7 @@ FinishCounter::FinishedCbId FinishCounter::register_finished_callback(
     // capture the current size and iterate over existing elements without copying.
     auto curr_finished_pid_count = finished_partitions_.size();
 
-    if (curr_finished_pid_count == n_local_partitions_)
+    if (curr_finished_pid_count == goalposts_.size())
     {  // all partitions have already finished. So, finished_partitions_ vector would not
         // be updated further.
         lock.unlock();
@@ -114,108 +198,14 @@ void FinishCounter::remove_finished_callback(FinishedCbId cb_id) {
     }
 }
 
-namespace {
-/**
- * @brief A utility function to wait on a predicate with a timeout and throw if
- * the timeout is reached. If the timeout is not set, wait for the predicate
- * to be true.
- *
- * @tparam Pred The type of the predicate.
- *
- * @param lock The lock to use for the wait.
- * @param cv The condition variable to use for the wait.
- * @param timeout The timeout to use for the wait.
- * @param pred The predicate to wait on.
- *
- * @throws std::runtime_error if the timeout is reached.
- */
-template <typename Pred>
-void wait_for_if_timeout_else_wait(
-    std::unique_lock<std::mutex>& lock,
-    std::condition_variable& cv,
-    std::optional<std::chrono::milliseconds>& timeout,
-    Pred&& pred
-) {
-    if (timeout.has_value()) {
-        // if the timeout is set, and pred() is not true, throw
-        RAPIDSMPF_EXPECTS(
-            cv.wait_for(lock, *timeout, std::move(pred)),
-            "wait timeout reached",
-            std::runtime_error
-        );
-    } else {
-        cv.wait(lock, std::move(pred));
-    }
-}
-
-}  // namespace
-
 PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout) {
-    PartID finished_key{std::numeric_limits<PartID>::max()};
-
-    std::unique_lock<std::mutex> lock(mutex_);
-    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&] {
-        return goalposts_.empty()
-               || std::ranges::any_of(goalposts_, [&](auto const& item) {
-                      auto done = item.second.is_finished(nranks_);
-                      if (done) {
-                          finished_key = item.first;
-                      }
-                      return done;
-                  });
-    });
-
-    RAPIDSMPF_EXPECTS(
-        finished_key != std::numeric_limits<PartID>::max(),
-        "no more partitions to wait on",
-        std::out_of_range
-    );
-
-    // We extract the partition to avoid returning the same partition twice.
-    goalposts_.erase(finished_key);
-    return finished_key;
+    return wait_handler_->wait_any(std::move(timeout));
 }
 
 void FinishCounter::wait_on(
     PartID pid, std::optional<std::chrono::milliseconds> timeout
 ) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&] {
-        auto it = goalposts_.find(pid);
-        RAPIDSMPF_EXPECTS(
-            it != goalposts_.end(), "PartID has already been extracted", std::out_of_range
-        );
-        return it->second.is_finished(nranks_);
-    });
-    goalposts_.erase(pid);
-}
-
-std::vector<PartID> FinishCounter::wait_some(
-    std::optional<std::chrono::milliseconds> timeout
-) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    RAPIDSMPF_EXPECTS(
-        !goalposts_.empty(), "no more partitions to wait on", std::out_of_range
-    );
-
-    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&]() {
-        return std::ranges::any_of(goalposts_, [nranks = nranks_](auto const& item) {
-            return item.second.is_finished(nranks);
-        });
-    });
-
-    std::vector<PartID> pids{};
-    for (auto it = goalposts_.begin(); it != goalposts_.end();) {
-        auto& [pid, p_info] = *it;
-        if (p_info.is_finished(nranks_)) {
-            pids.push_back(pid);
-            it = goalposts_.erase(it);
-        } else {
-            ++it;
-        }
-    }
-
-    return pids;
+    wait_handler_->wait_on(pid, std::move(timeout));
 }
 
 std::string detail::FinishCounter::str() const {

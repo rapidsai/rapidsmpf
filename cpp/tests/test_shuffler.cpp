@@ -859,19 +859,6 @@ TEST(FinishCounterTests, wait_on_with_timeout) {
     ));
 }
 
-TEST(FinishCounterTests, wait_some_with_timeout) {
-    ASSERT_NO_FATAL_FAILURE(run_wait_test(
-        [&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
-            rapidsmpf::shuffler::PartID const& /* exp_pid */) {
-            return finish_counter.wait_some(std::chrono::milliseconds(10));
-        },
-        [&](std::vector<rapidsmpf::shuffler::PartID> const p_ids) {
-            // extract the first element, as there will be only one finished partition
-            return p_ids[0];
-        }
-    ));
-}
-
 class FinishCounterMultithreadingTest
     : public ::testing::TestWithParam<std::tuple<rapidsmpf::shuffler::PartID, uint32_t>> {
   protected:

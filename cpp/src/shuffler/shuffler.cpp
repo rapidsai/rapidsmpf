@@ -816,13 +816,6 @@ void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> time
     finish_counter_.wait_on(pid, std::move(timeout));
 }
 
-std::vector<PartID> Shuffler::wait_some(
-    std::optional<std::chrono::milliseconds> timeout
-) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-    return finish_counter_.wait_some(std::move(timeout));
-}
-
 Shuffler::FinishedCbId Shuffler::register_finished_callback(
     FinishedCallback&& on_finished_cb
 ) {

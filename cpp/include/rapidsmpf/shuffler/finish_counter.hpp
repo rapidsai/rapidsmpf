@@ -60,6 +60,11 @@ class FinishCounter {
     );
 
     /**
+     * @brief Destructor.
+     */
+    ~FinishCounter();
+
+    /**
      * @brief Move the goalpost for a specific rank and partition.
      *
      * This function sets the number of chunks that need to be received from a specific
@@ -169,8 +174,8 @@ class FinishCounter {
      *
      * @return The partition ID of a finished partition that contains data.
      *
-     * @throw std::out_of_range If all partitions have already been waited on.
-     * @throw std::runtime_error If timeout was set and no partitions have been finished
+     * @throws std::runtime_error If all partitions have already been waited on.
+     * @throws std::runtime_error If timeout was set and no partitions have been finished
      * by the expiration.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
@@ -188,31 +193,11 @@ class FinishCounter {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @throw std::out_of_range If the desired partition is unavailable.
-     * @throw std::runtime_error If timeout was set and requested partition has not been
+     * @throws std::runtime_error If the desired partition is unavailable.
+     * @throws std::runtime_error If timeout was set and requested partition has not been
      * finished by the expiration.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
-
-    /**
-     * @brief Returns a vector of partition ids that are finished and haven't been waited
-     * on (blocking). Optionally a timeout (in ms) can be provided.
-     *
-     * This function blocks until at least one partition is finished and ready to be
-     * processed. The partitions are removed from the internal tracking after being waited
-     * on.
-     *
-     * @param timeout Optional timeout (ms) to wait.
-     *
-     * @note It is the caller's responsibility to process all returned partition IDs.
-     *
-     * @return A vector of finished partitions.
-     *
-     * @throw std::out_of_range If all partitions have been waited on.
-     * @throw std::runtime_error If timeout was set and no partitions have been finished
-     * by the expiration.
-     */
-    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Returns a description of this instance.
@@ -222,7 +207,6 @@ class FinishCounter {
 
   private:
     Rank const nranks_;
-    size_t n_local_partitions_;
     std::function<void(PartID)>
         empty_partition_cb_;  ///< callback to notify when a partition is empty
 
@@ -297,7 +281,8 @@ class FinishCounter {
     // resources
     mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
 
-    std::condition_variable cv_;  // signal wait* methods
+    class WaitHandler;  ///< Handler to implement the wait* methods using callbacks
+    std::unique_ptr<WaitHandler> wait_handler_;
 };
 
 }  // namespace detail

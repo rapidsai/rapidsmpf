@@ -198,17 +198,6 @@ class Shuffler {
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
-     * @brief Wait for at least one partition to finish.
-     *
-     * @param timeout Optional timeout (ms) to wait.
-     *
-     * @return The partition IDs of all finished partitions.
-     *
-     * @throw std::runtime_error if the timeout is reached.
-     */
-    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
-
-    /**
      * @brief Spills data to device if necessary.
      *
      * This function has two modes:
