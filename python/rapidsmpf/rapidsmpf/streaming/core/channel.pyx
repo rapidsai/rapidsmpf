@@ -24,7 +24,7 @@ cdef void cython_invoke_python_function(void* py_function) noexcept nogil:
     Parameters
     ----------
     py_function
-        A Python callable that that takes no arguments and return None.
+        A Python callable that that takes no arguments and returns None.
 
     Raises
     ------

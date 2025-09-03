@@ -89,7 +89,7 @@ def main() -> int:
             total_num_rows[0] += table.table_view().num_rows()
 
             # The message is now empty since it was released.
-            assert msg.empty() is True
+            assert msg.empty()
 
             # Wrap the table chunk in a new message.
             msg = Message(table)
