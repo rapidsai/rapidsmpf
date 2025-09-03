@@ -859,7 +859,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
         auto worker = context->createWorker(false);
 
-        RAPIDSMP_EXPECTS(
+        RAPIDSMPF_EXPECTS(
             progress_mode != ProgressMode::Blocking,
             "Blocking progress mode not implemented yet."
         );
