@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Collection, Generator
 from concurrent.futures import ThreadPoolExecutor
-from typing import Concatenate, ParamSpec
+from typing import Any, Concatenate, ParamSpec
 
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
