@@ -789,9 +789,8 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 /**
  * @brief A test util that runs the wait test by first calling wait_fn lambda with no
  * partitions finished, and then with one partition finished. Former case, should timeout,
- * while the latter should pass. Since each wait function (wait, wait_on, wait_some) has
- * different output types, extract_pid_fn lambda is used to extract the pid from the
- * output.
+ * while the latter should pass. Since each wait function (wait, wait_on) has different
+ * output types, extract_pid_fn lambda is used to extract the pid from the output.
  *
  * @tparam WaitFn a lambda that takes FinishCounter and PartID as arguments and returns
  * the result of the wait function.
@@ -863,25 +862,6 @@ TEST(FinishCounterTests, wait_on_with_timeout) {
             return exp_pid;  // return expected PID as wait_on return void
         },
         [&](rapidsmpf::shuffler::PartID const p_id) { return p_id; }  // pass through
-    ));
-}
-
-TEST(FinishCounterTests, wait_some_with_timeout) {
-    ASSERT_NO_FATAL_FAILURE(run_wait_test(
-        [&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
-            rapidsmpf::shuffler::PartID const& /* exp_pid */) {
-            auto [pid, n_data_chunks] =
-                finish_counter.wait_some(std::chrono::milliseconds(10));
-
-            EXPECT_EQ(1, std::ranges::count_if(n_data_chunks, [](auto n) {
-                          return n > 0;
-                      }));  // only one data chunk
-            return std::move(pid);
-        },
-        [&](std::vector<rapidsmpf::shuffler::PartID> const p_ids) {
-            // extract the first element, as there will be only one finished partition
-            return p_ids[0];
-        }
     ));
 }
 

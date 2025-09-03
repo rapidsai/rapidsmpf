@@ -120,29 +120,6 @@ class FinishCounter {
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
-     * @brief Returns a vector of partition ids that are finished and haven't been waited
-     * on (blocking). Optionally a timeout (in ms) can be provided.
-     *
-     * This function blocks until at least one partition is finished and ready to be
-     * processed. If the timeout is set and no partition is available by the time, a
-     * std::runtime_error will be thrown.
-     *
-     * @param timeout Optional timeout (ms) to wait.
-     *
-     * @note It is the caller's responsibility to process all returned partition IDs.
-     *
-     * @return A pair of vectors of finished partitions and a boolean indicating if the
-     * partition contains data for each partition.
-     *
-     * @throw std::out_of_range If all partitions have been waited on.
-     * std::runtime_error If timeout was set and no partitions have been finished by the
-     * expiration.
-     */
-    std::pair<std::vector<PartID>, std::vector<bool>> wait_some(
-        std::optional<std::chrono::milliseconds> timeout = {}
-    );
-
-    /**
      * @brief Returns a description of this instance.
      * @return The description.
      */

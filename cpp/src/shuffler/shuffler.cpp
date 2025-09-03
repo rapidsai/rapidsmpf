@@ -797,19 +797,6 @@ void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> time
     finish_counter_.wait_on(pid, std::move(timeout));
 }
 
-std::vector<PartID> Shuffler::wait_some(
-    std::optional<std::chrono::milliseconds> timeout
-) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-    auto [pids, contains_data] = finish_counter_.wait_some(std::move(timeout));
-    for (size_t i = 0; i < pids.size(); ++i) {
-        if (!contains_data[i]) {
-            ready_postbox_.mark_empty(pids[i]);
-        }
-    }
-    return std::move(pids);
-}
-
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     std::size_t spill_need{0};

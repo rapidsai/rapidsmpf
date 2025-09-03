@@ -114,35 +114,6 @@ void FinishCounter::wait_on(
     goalposts_.erase(pid);
 }
 
-std::pair<std::vector<PartID>, std::vector<bool>> FinishCounter::wait_some(
-    std::optional<std::chrono::milliseconds> timeout
-) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    RAPIDSMPF_EXPECTS(
-        !goalposts_.empty(), "no more partitions to wait on", std::out_of_range
-    );
-
-    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&]() {
-        return std::ranges::any_of(goalposts_, [nranks = nranks_](auto const& item) {
-            return item.second.is_finished(nranks);
-        });
-    });
-
-    std::vector<PartID> pids{};
-    std::vector<bool> contains_data{};
-    for (auto it = goalposts_.begin(); it != goalposts_.end();) {
-        auto& [pid, p_info] = *it;
-        if (p_info.is_finished(nranks_)) {
-            pids.push_back(pid);
-            contains_data.push_back(p_info.data_chunk_goal() != 0);
-            it = goalposts_.erase(it);
-        } else {
-            ++it;
-        }
-    }
-    return {std::move(pids), std::move(contains_data)};
-}
-
 std::string detail::FinishCounter::str() const {
     std::unique_lock<std::mutex> lock(mutex_);
     std::stringstream ss;
