@@ -32,7 +32,7 @@ void PostBox<KeyType>::insert(Chunk&& chunk) {
 template <typename KeyType>
 bool PostBox<KeyType>::is_empty(PartID pid) const {
     std::lock_guard const lock(mutex_);
-    return pigeonhole_.find(key_map_fn_(pid)) == pigeonhole_.end();
+    return !pigeonhole_.contains(key_map_fn_(pid));
 }
 
 template <typename KeyType>
