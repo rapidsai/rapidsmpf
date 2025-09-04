@@ -201,7 +201,7 @@ cpdef Table unpack_and_concat(
     """
     Unpack (deserialize) input tables and concatenate them.
 
-    The input partitions are consumed and are left empty on return.
+    The input partitions are released and are left empty on return.
 
     Parameters
     ----------
@@ -262,7 +262,7 @@ cpdef list spill_partitions(
     moving the buffer. If the reservation fails due to insufficient host memory,
     an exception is raised. Overbooking is not allowed.
 
-    The input partitions are consumed and are left empty on return.
+    The input partitions are released and are left empty on return.
 
     Parameters
     ----------
@@ -334,7 +334,7 @@ cpdef list unspill_partitions(
     fails to reclaim enough memory, the behavior depends on the `allow_overbooking`
     flag.
 
-    The input partitions are consumed and are left empty on return.
+    The input partitions are released and are left empty on return.
 
     Parameters
     ----------
