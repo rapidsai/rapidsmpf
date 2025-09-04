@@ -16,7 +16,7 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
-from rapidsmpf.buffer.spill_collection import SpillCollection
+from rapidsmpf.buffer.spill_collection import SpillCollection, Spillable
 from rapidsmpf.config import (
     Optional,
     OptionalBytes,
@@ -301,7 +301,8 @@ def insert_partition(
         Other keys needed by ``callback``.
     """
     callback(
-        df,
+        # Check if input partitions are Spillable.
+        df.unspill() if isinstance(df, Spillable) else df,
         partition_id,
         partition_count,
         get_shuffler(get_context(), shuffle_id),
