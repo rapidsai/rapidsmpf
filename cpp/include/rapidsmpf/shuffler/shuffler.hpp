@@ -143,11 +143,14 @@ class Shuffler {
     /**
      * @brief Extract all chunks belonging to the specified partition.
      *
-     * @param pid Identifier of the partition to extract.
-     * @return Vector of PackedData chunks for the partition.
+     * It is valid to extract a partition that has not yet been fully received.
+     * In such cases, only the chunks received so far are returned.
      *
-     * @note Ensure that the partition has been fully received before calling
-     * this method (e.g., by using `wait_any()` or `wait_on()`).
+     * To ensure the partition is complete, use `wait_any()`, `wait_on()`,
+     * or another appropriate synchronization mechanism beforehand.
+     *
+     * @param pid Identifier of the partition to extract.
+     * @return A vector of PackedData chunks associated with the partition.
      */
     [[nodiscard]] std::vector<PackedData> extract(PartID pid);
 
