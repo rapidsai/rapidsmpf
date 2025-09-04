@@ -75,17 +75,14 @@ class SpillableWrapper(Generic[WrappedType]):
     ):
         self._on_device = on_device
         self._on_host = on_host
-        if on_device is not None:
-            # If running on a Worker, add this wrapper to the worker's spill collection,
-            # which makes it available for spilling on demand.
-            try:
-                spill_collection: SpillCollection = (
-                    get_worker_context().spill_collection
-                )
-            except ValueError:
-                pass
-            else:
-                spill_collection.add_spillable(self)
+        # If running on a Worker, add this wrapper to the worker's spill collection,
+        # which makes it available for spilling on demand.
+        try:
+            spill_collection: SpillCollection = get_worker_context().spill_collection
+        except ValueError:
+            pass
+        else:
+            spill_collection.add_spillable(self)
 
     def mem_type(self) -> MemoryType:
         """
