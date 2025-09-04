@@ -149,7 +149,7 @@ class Shuffler {
      * To ensure the partition is complete, use `wait_any()`, `wait_on()`,
      * or another appropriate synchronization mechanism beforehand.
      *
-     * @param pid Identifier of the partition to extract.
+     * @param pid The ID of the partition to extract.
      * @return A vector of PackedData chunks associated with the partition.
      */
     [[nodiscard]] std::vector<PackedData> extract(PartID pid);
