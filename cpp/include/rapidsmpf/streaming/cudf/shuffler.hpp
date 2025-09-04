@@ -47,35 +47,4 @@ Node shuffler(
     shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin
 );
 
-/**
- * @brief Launches a non-blocking shuffler node for a single shuffle operation.
- *
- * This is a non-blocking version of `shuffler` that returns a pair of nodes. The first
- * node inserts the partition map chunks into the shuffler and the second node extracts
- * the packed chunks from the shuffler and sends them to the output channel.
- *
- * @param ctx The streaming context providing communication, memory, stream, and execution
- * resources.
- * @param stream The CUDA stream on which to perform the shuffling. If chunks from the
- * input channel aren't created on `stream`, the streams are all synchronized.
- * @param ch_in Input channel providing packed partition chunks to be shuffled.
- * @param ch_out Output channel where the shuffled results are sent.
- * @param op_id Unique operation ID for this shuffle. Must not be reused until all nodes
- * have called `Shuffler::shutdown()`.
- * @param total_num_partitions Total number of partitions to shuffle the data into.
- * @param partition_owner Function that maps a partition ID to its owning rank/node.
- *
- * @return A pair of nodes that complete when the shuffling has finished and the output
- * channel is drained.
- */
-std::pair<Node, Node> shuffler_nb(
-    std::shared_ptr<Context> ctx,
-    rmm::cuda_stream_view stream,
-    std::shared_ptr<Channel> ch_in,
-    std::shared_ptr<Channel> ch_out,
-    OpID op_id,
-    shuffler::PartID total_num_partitions,
-    shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin
-);
-
 }  // namespace rapidsmpf::streaming::node
