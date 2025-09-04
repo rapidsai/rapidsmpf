@@ -59,7 +59,7 @@ class FinishCounter {
      * @param pid The partition ID the goalpost is assigned to.
      * @param nchunks The number of chunks required. (Requires nchunks > 0)
      *
-     * @throw std::logic_error If the goalpost is moved more than once for the same rank
+     * @throws std::logic_error If the goalpost is moved more than once for the same rank
      * and partition, or if nchunks is 0.
      */
     void move_goalpost(PartID pid, ChunkID nchunks);
@@ -73,7 +73,7 @@ class FinishCounter {
      *
      * @param pid The partition ID to update.
      *
-     * @throw std::logic_error If the partition has already reached the goalpost.
+     * @throws std::logic_error If the partition has already reached the goalpost.
      */
     void add_finished_chunk(PartID pid);
 
@@ -97,8 +97,8 @@ class FinishCounter {
      * @return The partition ID of a finished partition.
      *
      * @throws std::out_of_range If all partitions have already been waited on.
-     * @throws std::runtime_error If timeout was set and no partitions have been finished by the
-     * expiration.
+     * @throws std::runtime_error If timeout was set and no partitions have been finished
+     * by the expiration.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -113,7 +113,7 @@ class FinishCounter {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @throw std::out_of_range If the desired partition is unavailable.
+     * @throws std::out_of_range If the desired partition is unavailable.
      * std::runtime_error If timeout was set and requested partition has been finished by
      * the expiration.
      */

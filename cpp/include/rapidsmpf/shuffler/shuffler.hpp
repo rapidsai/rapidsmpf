@@ -105,7 +105,7 @@ class Shuffler {
     /**
      * @brief Shutdown the shuffle, blocking until all inflight communication is done.
      *
-     * @throw std::logic_error If the shuffler is already inactive.
+     * @throws std::logic_error If the shuffler is already inactive.
      */
     void shutdown();
 
@@ -168,7 +168,7 @@ class Shuffler {
      *
      * @return The partition ID of the next finished partition.
      *
-     * @throw std::runtime_error if the timeout is reached.
+     * @throws std::runtime_error if the timeout is reached.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -178,7 +178,7 @@ class Shuffler {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @throw std::runtime_error if the timeout is reached.
+     * @throws std::runtime_error if the timeout is reached.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 

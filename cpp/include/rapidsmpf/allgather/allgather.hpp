@@ -410,7 +410,7 @@ class AllGather {
      * @param timeout Optional maximum duration to wait. Negative values mean no timeout.
      *
      * @return A vector containing packed data from all participating ranks.
-     * @throw std::runtime_error If the timeout is reached.
+     * @throws std::runtime_error If the timeout is reached.
      */
     [[nodiscard]] std::vector<PackedData> wait_and_extract(
         Ordered ordered = Ordered::YES,
@@ -511,7 +511,7 @@ class AllGather {
      *
      * @param timeout Optional maximum duration to wait. Negative values mean no timeout.
      *
-     * @throw std::runtime_error If the timeout is reached.
+     * @throws std::runtime_error If the timeout is reached.
      */
     void wait(std::chrono::milliseconds timeout = std::chrono::milliseconds{-1});
 
