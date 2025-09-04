@@ -73,7 +73,7 @@ class FinishCounter {
      * @param pid The partition ID the goalpost is assigned to.
      * @param nchunks The number of chunks required. (Requires nchunks > 0)
      *
-     * @throw std::logic_error If the goalpost is moved more than once for the same rank
+     * @throws std::logic_error If the goalpost is moved more than once for the same rank
      * and partition, or if nchunks is 0.
      */
     void move_goalpost(PartID pid, ChunkID nchunks);
@@ -87,7 +87,7 @@ class FinishCounter {
      *
      * @param pid The partition ID to update.
      *
-     * @throw std::logic_error If the partition has already reached the goalpost.
+     * @throws std::logic_error If the partition has already reached the goalpost.
      */
     void add_finished_chunk(PartID pid);
 
@@ -172,7 +172,7 @@ class FinishCounter {
      *
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @return The partition ID of a finished partition that contains data.
+     * @return The partition ID of a finished partition.
      *
      * @throws std::runtime_error If all partitions have already been waited on.
      * @throws std::runtime_error If timeout was set and no partitions have been finished

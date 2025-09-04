@@ -783,9 +783,8 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 /**
  * @brief A test util that runs the wait test by first calling wait_fn lambda with no
  * partitions finished, and then with one partition finished. Former case, should timeout,
- * while the latter should pass. Since each wait function (wait, wait_on, wait_some) has
- * different output types, extract_pid_fn lambda is used to extract the pid from the
- * output.
+ * while the latter should pass. Since each wait function (wait, wait_on) has different
+ * output types, extract_pid_fn lambda is used to extract the pid from the output.
  *
  * @tparam WaitFn a lambda that takes FinishCounter and PartID as arguments and returns
  * the result of the wait function.* @tparam ExctractPidFn a lambda that takes the result
@@ -1081,28 +1080,6 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
     auto all_chunks = postbox->extract_all_ready();
     EXPECT_TRUE(postbox->empty());
     EXPECT_EQ(all_chunks.size(), num_chunks);
-}
-
-TEST(ReadyPostBoxTest, MarkEmpty) {
-    auto postbox = std::make_unique<
-        rapidsmpf::shuffler::detail::PostBox<rapidsmpf::shuffler::PartID>>(
-        std::identity{}
-    );
-
-    rapidsmpf::shuffler::PartID pid = 0, pid1 = 1;
-    postbox->mark_empty(pid);
-    EXPECT_NO_THROW(postbox->mark_empty(pid));  // should not raise an error
-
-    postbox->insert(
-        rapidsmpf::shuffler::detail::make_dummy_chunk(
-            rapidsmpf::shuffler::detail::ChunkID{0}, pid1
-        )
-    );
-    EXPECT_THROW(postbox->mark_empty(pid1), std::logic_error);  // should raise an error
-
-    EXPECT_EQ(0, postbox->extract_by_key(pid).size());
-    EXPECT_EQ(1, postbox->extract_by_key(pid1).size());
-    EXPECT_TRUE(postbox->empty());
 }
 
 TEST_F(PostBoxTest, ThreadSafety) {

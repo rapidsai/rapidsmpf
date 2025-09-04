@@ -770,8 +770,13 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
 std::vector<PackedData> Shuffler::extract(PartID pid) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-
     std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
+
+    // Quick return if the partition is empty.
+    if (ready_postbox_.is_empty(pid)) {
+        return std::vector<PackedData>{};
+    }
+
     auto chunks = ready_postbox_.extract(pid);
     lock.unlock();
 
@@ -780,23 +785,6 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
 
     std::ranges::transform(chunks, std::back_inserter(ret), [](auto&& p) -> PackedData {
         return {p.second.release_metadata_buffer(), p.second.release_data_buffer()};
-    });
-
-    return ret;
-}
-
-std::vector<detail::Chunk> Shuffler::extract_chunks(PartID pid) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-
-    std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
-    auto chunks = ready_postbox_.extract(pid);
-    lock.unlock();
-
-    std::vector<detail::Chunk> ret;
-    ret.reserve(chunks.size());
-
-    std::ranges::transform(chunks, std::back_inserter(ret), [](auto&& p) {
-        return std::move(p.second);
     });
 
     return ret;

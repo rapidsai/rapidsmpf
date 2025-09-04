@@ -31,6 +31,7 @@ from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
+from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 from rapidsmpf.utils.string import format_bytes, parse_bytes
 
 if TYPE_CHECKING:
@@ -163,7 +164,7 @@ def streaming_shuffle(
 
     # simulate a hash partition by splitting a partition into total_num_partitions
     split_size = part_size // output_nparts
-    dummy_table, _ = generate_partition(split_size).to_pylibcudf()
+    dummy_table = cudf_to_pylibcudf_table(generate_partition(split_size))
 
     comm.logger.print(f"num local partitions:{n_parts_local} split size:{split_size}")
     for p in range(n_parts_local):
