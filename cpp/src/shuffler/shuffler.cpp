@@ -764,8 +764,13 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
 std::vector<PackedData> Shuffler::extract(PartID pid) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-
     std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
+
+    // Quick return if the partition is empty.
+    if (ready_postbox_.is_empty(pid)) {
+        return std::vector<PackedData>{};
+    }
+
     auto chunks = ready_postbox_.extract(pid);
     lock.unlock();
 
@@ -779,58 +784,18 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     return ret;
 }
 
-std::vector<detail::Chunk> Shuffler::extract_chunks(PartID pid) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-
-    std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
-    auto chunks = ready_postbox_.extract(pid);
-    lock.unlock();
-
-    std::vector<detail::Chunk> ret;
-    ret.reserve(chunks.size());
-
-    std::ranges::transform(chunks, std::back_inserter(ret), [](auto&& p) {
-        return std::move(p.second);
-    });
-
-    return ret;
-}
-
 bool Shuffler::finished() const {
     return finish_counter_.all_finished();
 }
 
 PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    auto [pid, contains_data] = finish_counter_.wait_any(std::move(timeout));
-    if (!contains_data) {
-        // there will be no data chunks for this pid in the ready postbox. Therefore,
-        // insert an empty container for this partition.
-        ready_postbox_.mark_empty(pid);
-    }
-    return pid;
+    return finish_counter_.wait_any(std::move(timeout));
 }
 
 void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    if (!finish_counter_.wait_on(pid, std::move(timeout))) {
-        // there will be no data chunks for this pid in the ready postbox. Therefore,
-        // insert an empty container for this partition.
-        ready_postbox_.mark_empty(pid);
-    }
-}
-
-std::vector<PartID> Shuffler::wait_some(
-    std::optional<std::chrono::milliseconds> timeout
-) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-    auto [pids, contains_data] = finish_counter_.wait_some(std::move(timeout));
-    for (size_t i = 0; i < pids.size(); ++i) {
-        if (!contains_data[i]) {
-            ready_postbox_.mark_empty(pids[i]);
-        }
-    }
-    return std::move(pids);
+    finish_counter_.wait_on(pid, std::move(timeout));
 }
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {

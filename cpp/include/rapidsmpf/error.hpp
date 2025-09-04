@@ -104,7 +104,7 @@ class out_of_memory : public bad_alloc {
  *   - When given, the third argument is the exception to be thrown. When not
  *     specified, defaults to `std::logic_error`.
  *
- * @throw `_exception_type` if the condition evaluates to 0 (false).
+ * @throws `_exception_type` if the condition evaluates to 0 (false).
  */
 #define RAPIDSMPF_EXPECTS(...)                                                         \
     GET_RAPIDSMPF_EXPECTS_MACRO(__VA_ARGS__, RAPIDSMPF_EXPECTS_3, RAPIDSMPF_EXPECTS_2) \
@@ -143,7 +143,7 @@ class out_of_memory : public bad_alloc {
  *   - When given, the second argument is the exception to be thrown. When not
  *     specified, defaults to `std::logic_error`.
  *
- * @throw `_exception_type` if the condition evaluates to 0 (false).
+ * @throws `_exception_type` if the condition evaluates to 0 (false).
  */
 #define RAPIDSMPF_FAIL(...)                                                   \
     GET_RAPIDSMPF_FAIL_MACRO(__VA_ARGS__, RAPIDSMPF_FAIL_2, RAPIDSMPF_FAIL_1) \

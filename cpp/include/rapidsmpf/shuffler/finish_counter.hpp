@@ -59,7 +59,7 @@ class FinishCounter {
      * @param pid The partition ID the goalpost is assigned to.
      * @param nchunks The number of chunks required. (Requires nchunks > 0)
      *
-     * @throw std::logic_error If the goalpost is moved more than once for the same rank
+     * @throws std::logic_error If the goalpost is moved more than once for the same rank
      * and partition, or if nchunks is 0.
      */
     void move_goalpost(PartID pid, ChunkID nchunks);
@@ -73,7 +73,7 @@ class FinishCounter {
      *
      * @param pid The partition ID to update.
      *
-     * @throw std::logic_error If the partition has already reached the goalpost.
+     * @throws std::logic_error If the partition has already reached the goalpost.
      */
     void add_finished_chunk(PartID pid);
 
@@ -94,16 +94,13 @@ class FinishCounter {
      *
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @return The partition ID of a finished partition and a boolean indicating if the
-     * partition contains data.
+     * @return The partition ID of a finished partition.
      *
-     * @throw std::out_of_range If all partitions have already been waited on.
-     * std::runtime_error If timeout was set and no partitions have been finished by the
-     * expiration.
+     * @throws std::out_of_range If all partitions have already been waited on.
+     * @throws std::runtime_error If timeout was set and no partitions have been finished
+     * by the expiration.
      */
-    std::pair<PartID, bool> wait_any(
-        std::optional<std::chrono::milliseconds> timeout = {}
-    );
+    PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Wait for a specific partition to be finished (blocking). Optionally a
@@ -116,36 +113,11 @@ class FinishCounter {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @return A boolean indicating if the partition contains data.
-     *
-     * @throw std::out_of_range If the desired partition is unavailable.
+     * @throws std::out_of_range If the desired partition is unavailable.
      * std::runtime_error If timeout was set and requested partition has been finished by
      * the expiration.
      */
-    bool wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
-
-    /**
-     * @brief Returns a vector of partition ids that are finished and haven't been waited
-     * on (blocking). Optionally a timeout (in ms) can be provided.
-     *
-     * This function blocks until at least one partition is finished and ready to be
-     * processed. If the timeout is set and no partition is available by the time, a
-     * std::runtime_error will be thrown.
-     *
-     * @param timeout Optional timeout (ms) to wait.
-     *
-     * @note It is the caller's responsibility to process all returned partition IDs.
-     *
-     * @return A pair of vectors of finished partitions and a boolean indicating if the
-     * partition contains data for each partition.
-     *
-     * @throw std::out_of_range If all partitions have been waited on.
-     * std::runtime_error If timeout was set and no partitions have been finished by the
-     * expiration.
-     */
-    std::pair<std::vector<PartID>, std::vector<bool>> wait_some(
-        std::optional<std::chrono::milliseconds> timeout = {}
-    );
+    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Returns a description of this instance.
