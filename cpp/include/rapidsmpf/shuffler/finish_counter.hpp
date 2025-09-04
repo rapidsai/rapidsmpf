@@ -52,9 +52,6 @@ class FinishCounter {
      */
     FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions);
 
-    /**
-     * @brief Destructor.
-     */
     ~FinishCounter();
 
     /**
@@ -168,8 +165,7 @@ class FinishCounter {
      *
      * This function blocks until a partition is finished and ready to be processed. If
      * the timeout is set and a partition is not available by the time, a
-     * std::runtime_error will be thrown. The partition is removed from the internal
-     * tracking after being returned.
+     * std::runtime_error will be thrown.
      *
      * @param timeout Optional timeout (ms) to wait.
      *
@@ -186,9 +182,7 @@ class FinishCounter {
      *
      * This function blocks until the desired partition is finished and ready
      * to be processed. If the timeout is set and the requested partition is not available
-     * by the time, a std::runtime_error will be thrown. Empty partitions are handled
-     * by the empty_partition_cb and will not cause this method to return.
-     * The partition is removed from the internal tracking after being waited on.
+     * by the time, a std::runtime_error will be thrown.
      *
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
