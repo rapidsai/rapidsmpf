@@ -94,7 +94,7 @@ namespace node {
  * @return Streaming node representing the asynchronous partitioning and packing
  * operation.
  *
- * @throw std::out_of_range if any index in `columns_to_hash` is invalid.
+ * @throws std::out_of_range if any index in `columns_to_hash` is invalid.
  *
  * @see rapidsmpf::partition_and_split
  */

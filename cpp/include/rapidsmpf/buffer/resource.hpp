@@ -236,7 +236,7 @@ class BufferResource {
      * memory is freed to satisfy the reservation; otherwise, allows overbooking even
      * if spilling was insufficient.
      * @return The memory reservation.
-     * @throw std::overflow_error if allow_overbooking is false and the buffer resource
+     * @throws std::overflow_error if allow_overbooking is false and the buffer resource
      * cannot reserve and spill enough memory.
      */
     MemoryReservation reserve_and_spill(
@@ -270,7 +270,7 @@ class BufferResource {
      * from. If not provided then all memory types will be tried in
      * the order they appear in `MEMORY_TYPES`.
      * @return A memory reservation.
-     * @throw std::runtime_error if no memory reservation was made.
+     * @throws std::runtime_error if no memory reservation was made.
      */
     [[nodiscard]] MemoryReservation reserve_or_fail(
         size_t size, std::optional<MemoryType> mem_type = std::nullopt

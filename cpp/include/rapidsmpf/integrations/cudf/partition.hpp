@@ -37,7 +37,7 @@ namespace rapidsmpf {
  *
  * @return A vector of each partition and a table that owns the device memory.
  *
- * @throw std::out_of_range if index is `columns_to_hash` is invalid
+ * @throws std::out_of_range if index is `columns_to_hash` is invalid
  *
  * @see cudf::hash_partition
  * @see cudf::split
@@ -72,7 +72,7 @@ partition_and_split(
  *
  * @return A map of partition IDs and their packed tables.
  *
- * @throw std::out_of_range if index is `columns_to_hash` is invalid
+ * @throws std::out_of_range if index is `columns_to_hash` is invalid
  *
  * @see unpack_and_concat
  * @see cudf::hash_partition
@@ -105,7 +105,7 @@ partition_and_split(
  *
  * @return A map of partition IDs and their packed tables.
  *
- * @throw std::out_of_range if the splits are invalid.
+ * @throws std::out_of_range if the splits are invalid.
  *
  * @see unpack_and_concat
  * @see cudf::split
@@ -135,9 +135,9 @@ partition_and_split(
  *
  * @return The unpacked and concatenated result.
  *
- * @throw std::overflow_error if the buffer resource cannot reserve enough memory
+ * @throws std::overflow_error if the buffer resource cannot reserve enough memory
  * to concatenate all partitions.
- * @throw std::logic_error if the partitions are not in device memory.
+ * @throws std::logic_error if the partitions are not in device memory.
  *
  * @see partition_and_pack
  * @see cudf::unpack
