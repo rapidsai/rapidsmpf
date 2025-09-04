@@ -805,9 +805,7 @@ void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> time
 Shuffler::FinishedCbId Shuffler::register_finished_callback(
     FinishedCallback&& on_finished_cb
 ) {
-    return finish_counter_.register_finished_callback(
-        std::forward<FinishedCallback>(on_finished_cb)
-    );
+    return finish_counter_.register_finished_callback(std::move(on_finished_cb));
 }
 
 void Shuffler::remove_finished_callback(FinishedCbId callback_id) {

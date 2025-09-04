@@ -783,18 +783,15 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 /**
  * @brief A test util that runs the wait test by first calling wait_fn lambda with no
  * partitions finished, and then with one partition finished. Former case, should timeout,
- * while the latter should pass. Since each wait function (wait, wait_on) has different
- * output types, extract_pid_fn lambda is used to extract the pid from the output.
+ * while the latter should pass.
  *
  * @tparam WaitFn a lambda that takes FinishCounter and PartID as arguments and returns
- * the result of the wait function.* @tparam ExctractPidFn a lambda that takes the result
- * of WaitFn and returns the PID extracted from the result.
+ * the result of the wait function.
  *
  * @param wait_fn wait lambda
- * @param extract_pid_fn extract partition ID lambda
  */
-template <typename WaitFn, typename ExctractPidFn>
-void run_wait_test(WaitFn&& wait_fn, ExctractPidFn&& extract_pid_fn) {
+template <typename WaitFn>
+void run_wait_test(WaitFn&& wait_fn) {
     rapidsmpf::shuffler::PartID out_nparts = 20;
     auto comm = GlobalEnvironment->comm_;
 
@@ -834,28 +831,26 @@ void run_wait_test(WaitFn&& wait_fn, ExctractPidFn&& extract_pid_fn) {
     }
 
     // pass the wait_fn result to extract_pid_fn. It should return p_id
-    EXPECT_EQ(p_id, extract_pid_fn(wait_fn(finish_counter, p_id)));
+    EXPECT_EQ(p_id, wait_fn(finish_counter, p_id));
 }
 
 TEST(FinishCounterTests, wait_with_timeout) {
-    ASSERT_NO_FATAL_FAILURE(run_wait_test(
-        [](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
-           rapidsmpf::shuffler::PartID const& /* exp_pid */) {
+    ASSERT_NO_FATAL_FAILURE(
+        run_wait_test([](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
+                         rapidsmpf::shuffler::PartID const& /* exp_pid */) {
             return finish_counter.wait_any(std::chrono::milliseconds(10));
-        },
-        std::identity{}
-    ));
+        })
+    );
 }
 
 TEST(FinishCounterTests, wait_on_with_timeout) {
-    ASSERT_NO_FATAL_FAILURE(run_wait_test(
-        [&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
-            rapidsmpf::shuffler::PartID const& exp_pid) {
+    ASSERT_NO_FATAL_FAILURE(
+        run_wait_test([&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
+                          rapidsmpf::shuffler::PartID const& exp_pid) {
             finish_counter.wait_on(exp_pid, std::chrono::milliseconds(10));
             return exp_pid;  // return expected PID as wait_on return void
-        },
-        std::identity{}
-    ));
+        })
+    );
 }
 
 class FinishCounterMultithreadingTest
