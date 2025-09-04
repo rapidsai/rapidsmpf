@@ -49,15 +49,8 @@ class FinishCounter {
      *
      * @param nranks The total number of ranks participating in the shuffle.
      * @param local_partitions The partition IDs local to the current rank.
-     * @param empty_partition_cb Callback to be called when a partition finishes with no
-     * data. This callback is invoked immediately when a partition is detected as empty
-     * (by the progress thread).
      */
-    FinishCounter(
-        Rank nranks,
-        std::vector<PartID> const& local_partitions,
-        std::function<void(PartID)>&& empty_partition_cb = nullptr
-    );
+    FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions);
 
     /**
      * @brief Destructor.
@@ -99,13 +92,21 @@ class FinishCounter {
     [[nodiscard]] bool all_finished() const;
 
     /**
+     * @brief Returns whether a partition is finished (non-blocking).
+     *
+     * @param pid The partition ID to check.
+     * @return True if the partition is finished, otherwise False.
+     */
+    [[nodiscard]] bool is_finished(PartID pid) const;
+
+    /**
      * @brief Callback function type called when a partition is finished.
      *
      * The callback receives the partition ID of the finished partition.
      *
      * @warning A callback must be fast and non-blocking and should not call any of the
      * `wait*` methods. And be very careful if acquiring locks. Ideally it should be used
-     * to signal a separate thread to do the actual processing.
+     * to signal a separate thread to do the actual processing (eg. WaitHand).
      *
      * @note When a callback is registered, it will be identified by the
      * FinishedCbId returned. So, if a callback needs to be preemptively canceled,
@@ -174,9 +175,8 @@ class FinishCounter {
      *
      * @return The partition ID of a finished partition.
      *
-     * @throws std::runtime_error If all partitions have already been waited on.
-     * @throws std::runtime_error If timeout was set and no partitions have been finished
-     * by the expiration.
+     * @throws std::runtime_error If all partitions have already been waited on or if
+     * timeout was set and no partitions have been finished by the expiration.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -193,9 +193,8 @@ class FinishCounter {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @throws std::runtime_error If the desired partition is unavailable.
-     * @throws std::runtime_error If timeout was set and requested partition has not been
-     * finished by the expiration.
+     * @throws std::runtime_error If the desired partition is unavailable or if timeout
+     * was set and requested partition has not been finished by the expiration.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -207,8 +206,6 @@ class FinishCounter {
 
   private:
     Rank const nranks_;
-    std::function<void(PartID)>
-        empty_partition_cb_;  ///< callback to notify when a partition is empty
 
     /// @brief Information about a local partition.
     struct PartitionInfo {

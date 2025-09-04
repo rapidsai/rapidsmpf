@@ -47,12 +47,23 @@ void wait_for_if_timeout_else_wait(
 
 }  // namespace
 
-/// @brief Handler to implement the wait* methods using callbacks
+/**
+ * @brief Handler to implement the wait* methods using callbacks
+ *
+ * This will listen to any finished partitions, and stash the finished partition IDs in a
+ * set, so that callers can wait on them.
+ */
 class FinishCounter::WaitHandler {
   public:
     WaitHandler() = default;
 
-    ~WaitHandler() = default;
+    ~WaitHandler() {
+        {
+            std::lock_guard lock(mutex);
+            active = false;
+        }
+        cv.notify_all();  // notify any waiting threads
+    }
 
     /// @brief Callback to listen on the finished partitions
     void on_finished_cb(PartID pid) {
@@ -87,14 +98,8 @@ class FinishCounter::WaitHandler {
     std::mutex mutex;
 };
 
-FinishCounter::FinishCounter(
-    Rank nranks,
-    std::vector<PartID> const& local_partitions,
-    std::function<void(PartID)>&& empty_partition_cb
-)
-    : nranks_{nranks},
-      empty_partition_cb_{std::forward<std::function<void(PartID)>>(empty_partition_cb)},
-      wait_handler_{std::make_unique<WaitHandler>()} {
+FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions)
+    : nranks_{nranks}, wait_handler_{std::make_unique<WaitHandler>()} {
     goalposts_.reserve(local_partitions.size());
     for (auto pid : local_partitions) {
         goalposts_.emplace(pid, PartitionInfo{});
@@ -117,6 +122,11 @@ bool FinishCounter::all_finished() const {
     return finished_partitions_.size() == goalposts_.size();
 }
 
+bool FinishCounter::is_finished(PartID pid) const {
+    std::unique_lock lock(mutex_);
+    return goalposts_.at(pid).is_finished(nranks_);
+}
+
 void FinishCounter::move_goalpost(PartID pid, ChunkID nchunks) {
     std::unique_lock<std::mutex> lock(mutex_);
     auto& p_info = goalposts_[pid];
@@ -131,12 +141,6 @@ void FinishCounter::add_finished_chunk(PartID pid) {
 
     if (p_info.is_finished(nranks_)) {
         finished_partitions_.emplace_back(pid);
-
-        // Call empty partition callback if partition has no data, while holding the lock
-        // (to prevent caller threads from extracting the empty partition)
-        if (p_info.data_chunk_goal() == 0 && empty_partition_cb_) {
-            empty_partition_cb_(pid);
-        }
         lock.unlock();
 
         std::lock_guard cb_container_lock(finished_cbs_mutex_);

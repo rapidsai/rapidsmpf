@@ -866,7 +866,6 @@ class FinishCounterMultithreadingTest
 
     std::unique_ptr<rapidsmpf::shuffler::detail::FinishCounter> finish_counter;
     std::vector<rapidsmpf::shuffler::PartID> local_partitions;
-    std::atomic<uint32_t> empty_pid_count;
     rapidsmpf::shuffler::PartID npartitions;
     uint32_t nthreads;
 
@@ -875,9 +874,7 @@ class FinishCounterMultithreadingTest
         local_partitions = iota_vector<rapidsmpf::shuffler::PartID>(npartitions);
 
         finish_counter = std::make_unique<rapidsmpf::shuffler::detail::FinishCounter>(
-            nranks, local_partitions, [&](rapidsmpf::shuffler::PartID) {
-                empty_pid_count.fetch_add(1, std::memory_order_relaxed);
-            }
+            nranks, local_partitions
         );
     }
 
@@ -951,7 +948,6 @@ TEST_P(FinishCounterMultithreadingTest, consume_then_produce) {
 
     EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
 
-    EXPECT_EQ(npartitions, empty_pid_count);  // all partitions should be empty
     EXPECT_TRUE(finish_counter->all_finished());
 }
 
@@ -960,7 +956,6 @@ TEST_P(FinishCounterMultithreadingTest, produce_then_consume) {
     auto futures = create_consumer_threads_with_cb();
     EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
 
-    EXPECT_EQ(npartitions, empty_pid_count);  // all partitions should be empty
     EXPECT_TRUE(finish_counter->all_finished());
 }
 

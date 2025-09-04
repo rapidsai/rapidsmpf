@@ -487,13 +487,7 @@ Shuffler::Shuffler(
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
       finish_counter_{
-          comm_->nranks(),
-          local_partitions(comm_, total_num_partitions, partition_owner),
-          [read_postbox = &ready_postbox_](PartID pid) {
-              // Ready postbox would not receive any empty partitions. Therefore, mark the
-              // partition as empty in the ready postbox.
-              read_postbox->mark_empty(pid);
-          }
+          comm_->nranks(), local_partitions(comm_, total_num_partitions, partition_owner)
       },
       statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
@@ -792,6 +786,10 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
 
 bool Shuffler::finished() const {
     return finish_counter_.all_finished() && ready_postbox_.empty();
+}
+
+bool Shuffler::is_finished(PartID pid) const {
+    return finish_counter_.is_finished(pid);
 }
 
 PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {

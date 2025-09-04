@@ -162,6 +162,14 @@ class Shuffler {
      */
     [[nodiscard]] bool finished() const;
 
+    /**
+     * @brief Check if a partition is finished.
+     *
+     * @param pid The partition ID to check.
+     * @return True if the partition is finished, otherwise False.
+     */
+    [[nodiscard]] bool is_finished(PartID pid) const;
+
     /// @copydoc detail::FinishCounter::FinishedCallback
     using FinishedCallback = detail::FinishCounter::FinishedCallback;
 
