@@ -9,7 +9,6 @@ from libcpp.utility cimport move
 from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
-from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 
 from rapidsmpf.streaming.core.channel cimport Message, cpp_Message
 
@@ -86,7 +85,7 @@ cdef class TableChunk:
         return ret
 
     @staticmethod
-    def from_pylibcudf_table(uint64_t sequence_number, Table table, stream):
+    def from_pylibcudf_table(uint64_t sequence_number, Table table, Stream stream):
         """
         Construct a TableChunk from a pylibcudf Table.
 
@@ -108,11 +107,6 @@ cdef class TableChunk:
         The returned TableChunk maintains a reference to `table` to ensure
         its underlying buffers remain valid for the lifetime of the chunk.
         """
-        if stream is None:
-            raise ValueError("stream cannot be None")
-        cdef Stream _stream = Stream(stream)
-        cdef cuda_stream_view _stream_view = _stream.view()
-
         cdef size_t device_alloc_size = 0
         for col in table.columns():
             device_alloc_size += (<Column?>col).device_buffer_size()
@@ -124,9 +118,9 @@ cdef class TableChunk:
                 sequence_number,
                 view,
                 device_alloc_size,
-                _stream_view
+                stream.view()
             )
-        return TableChunk.from_handle(move(ret), stream=_stream, owner=table)
+        return TableChunk.from_handle(move(ret), stream=stream, owner=table)
 
     @staticmethod
     def from_message(Message message):
