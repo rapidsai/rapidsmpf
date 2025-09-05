@@ -41,19 +41,18 @@ def generate_packed_data(
 
     Parameters
     ----------
-    n_elements : int
+    n_elements
         Number of integer elements to generate
-    offset : int
+    offset
         Starting value for the sequence (offset, offset+1, offset+2, ...)
-    stream : Stream
+    stream
         CUDA stream for operations
-    br : BufferResource
+    br
         Buffer resource for memory allocation
 
     Returns
     -------
-    PackedData
-        Packed data containing the generated sequence
+    Packed data containing the generated sequence
     """
     # Generate sequential integers starting from offset
     values = np.arange(offset, offset + n_elements, dtype=np.int32)
@@ -78,13 +77,13 @@ def validate_packed_data(
 
     Parameters
     ----------
-    packed_data : PackedData
+    packed_data
         The packed data to validate
-    n_elements : int
+    n_elements
         Expected number of elements
-    offset : int
+    offset
         Expected starting offset value (currently not fully validated)
-    stream : Stream
+    stream
         CUDA stream for operations
 
     Raises
