@@ -61,4 +61,14 @@ def test_buffer_resource() -> None:
     assert br.memory_reserved(MemoryType.DEVICE) == 0
     assert br.memory_reserved(MemoryType.HOST) == 0
 
+    # Chack BufferResource.memory_available and BufferResource.device_memory_available
+    assert br.memory_available(MemoryType.DEVICE) == KiB(100)
+    assert br.device_memory_available == mem_available() == KiB(100)
+    buf1 = rmm.DeviceBuffer(size=KiB(50), mr=mr)
+    assert br.memory_available(MemoryType.DEVICE) == mem_available() == KiB(50)
+    assert br.device_memory_available == mem_available() == KiB(50)
+    del buf1
+    assert br.memory_available(MemoryType.DEVICE) == mem_available() == KiB(100)
+    assert br.device_memory_available == mem_available() == KiB(100)
+
     # TODO: add more `BufferResource` checks here as we add python bindings.
