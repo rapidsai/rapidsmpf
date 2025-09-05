@@ -85,17 +85,15 @@ cdef class Shuffler:
         ProgressThread progress_thread,
         uint8_t op_id,
         uint32_t total_num_partitions,
-        stream,
+        Stream stream,
         BufferResource br,
         Statistics statistics = None,
     ):
-        if stream is None:
-            raise ValueError("stream cannot be None")
-        self._stream = Stream(stream)
+        self._stream = stream
+        cdef cuda_stream_view _stream = stream.view()
         self._comm = comm
         self._br = br
         cdef cpp_BufferResource* br_ = br.ptr()
-        cdef cuda_stream_view _stream = self._stream.view()
         if statistics is None:
             statistics = Statistics(enable=False)  # Disables statistics.
         with nogil:
