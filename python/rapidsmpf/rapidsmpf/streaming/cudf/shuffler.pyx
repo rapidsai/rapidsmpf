@@ -26,16 +26,14 @@ cdef extern from "<rapidsmpf/streaming/cudf/shuffler.hpp>" nogil:
 
 
 def shuffler(
-    Context ctx,
-    stream,
-    Channel ch_in,
-    Channel ch_out,
+    Context ctx not None,
+    Stream stream not None,
+    Channel ch_in not None,
+    Channel ch_out not None,
     uint8_t op_id,
     uint32_t total_num_partitions,
 ):
-    if stream is None:
-        raise ValueError("stream cannot be None")
-    cdef cuda_stream_view _stream = Stream(stream).view()
+    cdef cuda_stream_view _stream = stream.view()
     cdef cpp_Node _ret
     with nogil:
         _ret = cpp_shuffler(
