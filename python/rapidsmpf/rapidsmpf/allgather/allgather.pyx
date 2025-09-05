@@ -59,13 +59,11 @@ cdef class AllGather:
         Communicator comm,
         ProgressThread progress_thread,
         uint8_t op_id,
-        stream,
+        Stream stream,
         BufferResource br,
         Statistics statistics = None,
     ):
-        if stream is None:
-            raise ValueError("stream cannot be None")
-        self._stream = Stream(stream)
+        self._stream = stream
         self._comm = comm
         self._br = br
         cdef cpp_BufferResource* br_ = br.ptr()

@@ -5,6 +5,7 @@
 from libcpp cimport bool as bool_t
 from pylibcudf.table cimport Table
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
+from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.resource cimport BufferResource
 from rapidsmpf.statistics cimport Statistics
@@ -14,26 +15,26 @@ cpdef dict partition_and_pack(
     Table table,
     columns_to_hash,
     int num_partitions,
-    stream,
+    Stream stream,
     BufferResource br,
 )
 
 cpdef Table unpack_and_concat(
     partitions,
-    stream,
+    Stream stream,
     BufferResource br,
 )
 
 cpdef list spill_partitions(
     partitions,
-    stream,
+    Stream stream,
     BufferResource br,
     Statistics statistics = *,
 )
 
 cpdef list unspill_partitions(
     partitions,
-    stream,
+    Stream stream,
     BufferResource br,
     bool_t allow_overbooking,
     Statistics statistics = *,
