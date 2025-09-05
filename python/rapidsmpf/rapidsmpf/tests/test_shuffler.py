@@ -97,7 +97,7 @@ def test_shuffler_single_nonempty_partition(
         )
         local_outputs.append(partition)
     shuffler.shutdown()
-    # Everyting should go the a single rank thus we should get the whole dataframe or nothing.
+    # Everyting should go to a single rank thus we should get the whole dataframe or nothing.
     if len(local_outputs) == 0:
         return
     res = cudf.concat(

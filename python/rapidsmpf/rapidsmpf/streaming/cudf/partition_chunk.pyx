@@ -285,6 +285,7 @@ cdef class PartitionVectorChunk:
             raise ValueError("is uninitialized, has it been released?")
         return move(self._handle)
 
+    @property
     def sequence_number(self):
         """
         Return the sequence number of this chunk.
@@ -295,6 +296,7 @@ cdef class PartitionVectorChunk:
         """
         return deref(self.handle_ptr()).sequence_number
 
+    @property
     def stream(self):
         """
         Return the CUDA stream on which this chunk was created.
