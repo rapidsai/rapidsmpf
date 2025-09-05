@@ -10,6 +10,7 @@ import cudf
 from rapidsmpf.streaming.core.channel import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
+from rapidsmpf.utils.cuda_stream import is_equal_streams
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
@@ -23,8 +24,13 @@ def test_from_pylibcudf_table(context: Context, stream: Stream) -> None:
     expect = cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}))
     table_chunk = TableChunk.from_pylibcudf_table(seq, expect, stream)
     assert table_chunk.sequence_number == seq
+    assert is_equal_streams(table_chunk.stream, stream)
     assert table_chunk.is_available()
     assert_eq(expect, table_chunk.table_view())
 
     # Message roundtrip check.
-    assert_eq(expect, TableChunk.from_message(Message(table_chunk)).table_view())
+    table_chunk2 = TableChunk.from_message(Message(table_chunk))
+    assert table_chunk2.sequence_number == seq
+    assert is_equal_streams(table_chunk2.stream, stream)
+    assert table_chunk2.is_available()
+    assert_eq(expect, table_chunk2.table_view())
