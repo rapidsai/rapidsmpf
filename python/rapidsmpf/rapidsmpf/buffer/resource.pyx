@@ -21,8 +21,7 @@ cdef extern from *:
         rapidsmpf::BufferResource* resource,
         rapidsmpf::MemoryType mem_type
     ) {
-        auto func = resource->memory_available(mem_type);
-        return func();
+        return resource->memory_available(mem_type)();
     }
     """
     cpp_MemoryAvailable to_MemoryAvailable(
@@ -31,7 +30,7 @@ cdef extern from *:
     int64_t _call_memory_available(
         cpp_BufferResource* resource,
         MemoryType mem_type
-    ) except +
+    ) except + nogil
 
 
 cdef class BufferResource:
@@ -140,20 +139,9 @@ cdef class BufferResource:
         cdef int64_t ret
         cdef cpp_BufferResource* resource_ptr = self.ptr()
         # Use inline C++ to handle the function object call
-        ret = _call_memory_available(resource_ptr, mem_type)
+        with nogil:
+            ret = _call_memory_available(resource_ptr, mem_type)
         return ret
-
-    @property
-    def device_memory_available(self):
-        """
-        Get the current available device memory.
-
-        Returns
-        -------
-        int
-            The available device memory in bytes.
-        """
-        return self.memory_available(MemoryType.DEVICE)
 
 
 cdef class LimitAvailableMemory:
