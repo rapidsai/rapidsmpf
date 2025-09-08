@@ -92,6 +92,7 @@ FinishCounter::FinishCounter(
 )
     : nranks_{nranks},
       finished_callback_{std::forward<FinishedCallback>(finished_callback)} {
+    // Initially, none of the partitions are ready to wait on.
     goalposts_.reserve(local_partitions.size());
     for (auto pid : local_partitions) {
         goalposts_.emplace(pid, PartitionInfo{});
