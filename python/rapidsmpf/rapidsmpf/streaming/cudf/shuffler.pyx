@@ -32,6 +32,42 @@ def shuffler(
     uint8_t op_id,
     uint32_t total_num_partitions,
 ):
+    """
+    Launch a shuffler node for a single shuffle operation.
+
+    Streaming variant of the RapdisMPF shuffler that reads packed, partitioned
+    input chunks from an input channel and emits output chunks grouped by
+    partition owner.
+
+    Parameters
+    ----------
+    ctx
+        The node context to use.
+    stream
+        CUDA stream on which to perform the shuffle. If input chunks were
+        created on a different stream, appropriate stream synchronization is
+        performed.
+    ch_in
+        Input channel that supplies partitioned map chunks to be shuffled.
+    ch_out
+        Output channel that receives the grouped (vector) chunks.
+    op_id
+        Unique identifier for this shuffle operation. Must not be reused until
+        all nodes participating in the shuffle have shut down.
+    total_num_partitions
+        Total number of logical partitions to shuffle the data into.
+
+    Returns
+    -------
+    A streaming node that finishes when shuffling is complete and `ch_out` has
+    been drained.
+
+    Notes
+    -----
+    Partition ownership is assigned per the underlying C++ implementation's default
+    policy (round-robin across ranks/nodes).
+    """
+
     cdef cuda_stream_view _stream = stream.view()
     cdef cpp_Node _ret
     with nogil:

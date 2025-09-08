@@ -83,7 +83,7 @@ namespace node {
  * `num_partitions` based on a hash of the selected columns, packs the resulting
  * partitions, and sends them to an output channel.
  *
- * @param ctx The context to use.
+ * @param ctx The node context to use.
  * @param ch_in Input channel providing `TableChunk`s to partition.
  * @param ch_out Output channel to which `PartitionMapChunk`s are sent.
  * @param columns_to_hash Indices of input columns to hash.
@@ -119,7 +119,7 @@ Node partition_and_pack(
  * them, and sends the resulting tables to the output channel. Empty partitions are
  * ignored.
  *
- * @param ctx The context to use.
+ * @param ctx The node context to use.
  * @param ch_in Input channel providing packed partitions as PartitionMapChunk or
  * PartitionVectorChunk.
  * @param ch_out Output channel to which unpacked and concatenated tables table are sent.
