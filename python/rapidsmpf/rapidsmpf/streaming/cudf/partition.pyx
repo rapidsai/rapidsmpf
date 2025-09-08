@@ -35,10 +35,10 @@ cdef extern from "<rapidsmpf/streaming/cudf/partition.hpp>" nogil:
 
 
 def partition_and_pack(
-    Context ctx,
-    Channel ch_in,
-    Channel ch_out,
-    object columns_to_hash,
+    Context ctx not None,
+    Channel ch_in not None,
+    Channel ch_out not None,
+    object columns_to_hash not None,
     int num_partitions,
 ):
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
@@ -59,9 +59,9 @@ def partition_and_pack(
 
 
 def unpack_and_concat(
-    Context ctx,
-    Channel ch_in,
-    Channel ch_out,
+    Context ctx not None,
+    Channel ch_in not None,
+    Channel ch_out not None,
 ):
     cdef cpp_Node _ret
     with nogil:
