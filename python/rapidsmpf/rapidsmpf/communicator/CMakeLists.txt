@@ -17,7 +17,7 @@ if(RAPIDSMPF_HAVE_UCXX)
   rapids_cython_create_modules(
     CXX
     SOURCE_FILES "${modules_need_ucxx}"
-    LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE ucxx::ucxx ucxx::python ucx::ucp maybe_asan
+    LINKED_LIBRARIES rapidsmpf::rapidsmpf PRIVATE ucxx::ucxx ucxx::python maybe_asan
   )
 endif()
 
