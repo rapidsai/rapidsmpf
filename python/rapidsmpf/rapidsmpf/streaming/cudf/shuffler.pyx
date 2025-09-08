@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-
 from libc.stdint cimport uint8_t, uint32_t
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
