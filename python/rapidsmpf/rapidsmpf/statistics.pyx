@@ -293,7 +293,9 @@ cdef class MemoryRecorder:
     name
         The name of the profiling scope. Used as a key in the statistics record.
     """
-    def __cinit__(self, Statistics stats, RmmResourceAdaptor mr, name):
+    def __cinit__(
+        self, Statistics stats not None, RmmResourceAdaptor mr not None, name
+    ):
         self._stats = stats
         self._mr = mr
         self._name = str.encode(name)

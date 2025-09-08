@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # =================================================================================
 
-set(cython_modules cuda_stream.pyx time.pyx)
+set(cython_modules time.pyx)
 
 rapids_cython_create_modules(
   CXX

@@ -85,7 +85,9 @@ cdef class TableChunk:
         return ret
 
     @staticmethod
-    def from_pylibcudf_table(uint64_t sequence_number, Table table, Stream stream):
+    def from_pylibcudf_table(
+        uint64_t sequence_number, Table table not None, Stream stream not None
+    ):
         """
         Construct a TableChunk from a pylibcudf Table.
 
@@ -107,6 +109,7 @@ cdef class TableChunk:
         The returned TableChunk maintains a reference to `table` to ensure
         its underlying buffers remain valid for the lifetime of the chunk.
         """
+        cdef cuda_stream_view _stream = stream.view()
         cdef size_t device_alloc_size = 0
         for col in table.columns():
             device_alloc_size += (<Column?>col).device_buffer_size()
@@ -118,12 +121,12 @@ cdef class TableChunk:
                 sequence_number,
                 view,
                 device_alloc_size,
-                stream.view()
+                _stream
             )
         return TableChunk.from_handle(move(ret), stream=stream, owner=table)
 
     @staticmethod
-    def from_message(Message message):
+    def from_message(Message message not None):
         """
         Construct a TableChunk by consuming a Message.
 
@@ -143,7 +146,7 @@ cdef class TableChunk:
             owner = None,
         )
 
-    def into_message(self, Message message):
+    def into_message(self, Message message not None):
         """
         Move this TableChunk into an empty Message.
 

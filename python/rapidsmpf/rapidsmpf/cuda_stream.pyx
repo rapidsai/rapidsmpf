@@ -4,7 +4,7 @@
 from rmm.pylibrmm.stream cimport Stream
 
 
-cpdef bint is_equal_streams(Stream s1, Stream s2):
+def is_equal_streams(Stream s1 not None, Stream s2 not None):
     """
     Check whether two streams refer to the same underlying CUDA stream.
 
