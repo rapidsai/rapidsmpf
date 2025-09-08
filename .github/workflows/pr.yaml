@@ -124,7 +124,7 @@ jobs:
       script: ci/test_cpp.sh
   conda-cpp-memcheck:
     secrets: inherit
-    needs: checks
+    needs: conda-cpp-build
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@branch-25.10
     with:
       build_type: pull-request
