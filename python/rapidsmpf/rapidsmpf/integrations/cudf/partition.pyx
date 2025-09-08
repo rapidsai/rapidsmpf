@@ -48,11 +48,11 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
 
 
 def partition_and_pack(
-    Table table,
+    Table table not None,
     columns_to_hash,
     int num_partitions,
-    Stream stream,
-    BufferResource br,
+    Stream stream not None,
+    BufferResource br not None,
 ):
     """
     Partition rows from the input table into multiple packed (serialized) tables.
@@ -112,10 +112,10 @@ def partition_and_pack(
 
 
 def split_and_pack(
-    Table table,
+    Table table not None,
     splits,
-    Stream stream,
-    BufferResource br,
+    Stream stream not None,
+    BufferResource br not None,
 ):
     """
     Splits rows from the input table into multiple packed (serialized) tables.
@@ -192,8 +192,8 @@ cdef vector[cpp_PackedData] _partitions_py_to_cpp(partitions):
 
 def unpack_and_concat(
     partitions,
-    Stream stream,
-    BufferResource br,
+    Stream stream not None,
+    BufferResource br not None,
 ):
     """
     Unpack (deserialize) input tables and concatenate them.
@@ -242,8 +242,8 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
 
 def spill_partitions(
     partitions,
-    Stream stream,
-    BufferResource br,
+    Stream stream not None,
+    BufferResource br not None,
     Statistics statistics = None,
 ):
     """
@@ -309,8 +309,8 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
 
 def unspill_partitions(
     partitions,
-    Stream stream,
-    BufferResource br,
+    Stream stream not None,
+    BufferResource br not None,
     bool_t allow_overbooking,
     Statistics statistics = None,
 ):
