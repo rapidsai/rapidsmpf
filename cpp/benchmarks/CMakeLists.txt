@@ -22,9 +22,8 @@ target_compile_options(
                         "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  bench_shuffle
-  PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
-          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan bench_utils
+  bench_shuffle PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+                        $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan bench_utils
 )
 install(
   TARGETS bench_shuffle
