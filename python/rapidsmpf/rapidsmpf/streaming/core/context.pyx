@@ -64,7 +64,7 @@ cdef class Context:
         return self._options
 
     def comm(self):
-        return self._options
+        return self._comm
 
     def br(self):
         return self._br

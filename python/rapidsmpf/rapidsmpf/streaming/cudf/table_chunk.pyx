@@ -66,8 +66,8 @@ cdef class TableChunk:
             The CUDA stream on which this chunk was created. If `None`,
             the stream is obtained from the handle.
         owner
-            Python object that owns the underlying buffers and must
-            be kept alive for the lifetime of this TableChunk.
+            An optional Python object to keep alive for as long as this
+            TableChunk exists (e.g., to maintain resource lifetime).
 
         Returns
         -------
