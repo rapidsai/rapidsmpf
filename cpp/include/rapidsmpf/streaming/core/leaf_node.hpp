@@ -18,7 +18,7 @@ namespace rapidsmpf::streaming::node {
  * Sends each message of the input vector into the channel in order,
  * marking the end of the stream once done.
  *
- * @param ctx The context to use.
+ * @param ctx The node context to use.
  * @param ch_out Output channel to which messages will be sent.
  * @param messages Input vector containing the messages to send.
  * @return Streaming node representing the asynchronous operation.
@@ -37,7 +37,7 @@ Node push_to_channel(
  * Receives messages from the channel until it is closed and appends them
  * to the provided output vector.
  *
- * @param ctx The context to use.
+ * @param ctx The node context to use.
  * @param ch_in Input channel providing messages.
  * @param out_messages Output vector to store the received messages.
  * @return Streaming node representing the asynchronous operation.

@@ -75,17 +75,14 @@ class SpillableWrapper(Generic[WrappedType]):
     ):
         self._on_device = on_device
         self._on_host = on_host
-        if on_device is not None:
-            # If running on a Worker, add this wrapper to the worker's spill collection,
-            # which makes it available for spilling on demand.
-            try:
-                spill_collection: SpillCollection = (
-                    get_worker_context().spill_collection
-                )
-            except ValueError:
-                pass
-            else:
-                spill_collection.add_spillable(self)
+        # If running on a Worker, add this wrapper to the worker's spill collection,
+        # which makes it available for spilling on demand.
+        try:
+            spill_collection: SpillCollection = get_worker_context().spill_collection
+        except ValueError:
+            pass
+        else:
+            spill_collection.add_spillable(self)
 
     def mem_type(self) -> MemoryType:
         """
@@ -146,16 +143,17 @@ class SpillableWrapper(Generic[WrappedType]):
         """
         if amount > 0:
             on_device = self._on_device
-            if on_device is not None and self._on_host is None:
+            if on_device is not None:
                 ret = self.approx_spillable_amount()
-                self._on_host = dask_dumps(
-                    on_device,
-                    context={
-                        "stream": stream,
-                        "device_mr": device_mr,
-                        "staging_device_buffer": staging_device_buffer,
-                    },
-                )
+                if self._on_host is None:
+                    self._on_host = dask_dumps(
+                        on_device,
+                        context={
+                            "stream": stream,
+                            "device_mr": device_mr,
+                            "staging_device_buffer": staging_device_buffer,
+                        },
+                    )
                 self._on_device = None
                 return ret
         return 0

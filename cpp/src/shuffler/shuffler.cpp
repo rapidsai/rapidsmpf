@@ -105,6 +105,10 @@ std::unique_ptr<Buffer> allocate_buffer(
  * @param amount The maximum amount of data (in bytes) to be spilled.
  *
  * @return The actual amount of data successfully spilled from the postbox.
+ *
+ * @warning This may temporarily empty the postbox, causing emptiness checks to return
+ * true even though the postbox is not actually empty. As a result, in the current
+ * implementation `postbox_spilling()` must not be used to spill `outgoing_postbox_`.
  */
 template <typename KeyType>
 std::size_t postbox_spilling(

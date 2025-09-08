@@ -15,7 +15,7 @@ cdef extern from "<rapidsmpf/communicator/mpi.hpp>" nogil:
         cpp_MPI_Communicator(libmpi.MPI_Comm comm, cpp_Options options) except +
 
 
-def new_communicator(Intracomm comm, Options options):
+def new_communicator(Intracomm comm not None, Options options not None):
     """
     Create a new RapidsMPF-MPI communicator based on an existing mpi4py communicator.
 

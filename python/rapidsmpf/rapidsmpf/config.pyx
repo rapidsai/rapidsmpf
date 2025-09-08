@@ -64,7 +64,7 @@ cdef class Options:
             ret = self._handle.insert_if_absent(move(opts))
         return ret
 
-    def get(self, str key, *, return_type, factory):
+    def get(self, str key not None, *, return_type, factory):
         """
         Retrieves a configuration option by key.
 
@@ -119,7 +119,7 @@ cdef class Options:
             return config_options_get.get_str(self, key, factory)
         return config_options_get.get_py_obj(self, key, factory)
 
-    def get_or_default(self, str key, *, default_value):
+    def get_or_default(self, str key not None, *, default_value):
         """
         Retrieve a configuration option by key, using a default value if not present.
 
@@ -235,7 +235,7 @@ cdef class Options:
         return <bytes>PyBytes_FromStringAndSize(<const char*>&vec[0], vec.size())
 
     @staticmethod
-    def deserialize(bytes serialized_buffer):
+    def deserialize(bytes serialized_buffer not None):
         """
         Deserialize a binary buffer into an Options object.
 

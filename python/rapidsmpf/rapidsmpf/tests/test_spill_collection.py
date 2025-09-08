@@ -35,6 +35,10 @@ class MySpillableObject:
         self._mem_type = MemoryType.HOST
         return self._nbytes
 
+    def unspill(self) -> MySpillableObject:
+        self._mem_type = MemoryType.DEVICE
+        return self
+
 
 def test_spill_collection(stream: Stream, device_mr: DeviceMemoryResource) -> None:
     collection = SpillCollection()
@@ -55,3 +59,10 @@ def test_spill_collection(stream: Stream, device_mr: DeviceMemoryResource) -> No
     assert collection.spill(100, stream=stream, device_mr=device_mr) == 0
     assert obj2.mem_type() == MemoryType.HOST
     assert obj3.mem_type() == MemoryType.HOST
+
+    # Check that we can unspill and re-spill an object.
+    obj1 = obj1.unspill()
+    assert obj1.mem_type() == MemoryType.DEVICE
+    assert collection.spill(100, stream=stream, device_mr=device_mr) == 100
+    assert collection.spill(100, stream=stream, device_mr=device_mr) == 0
+    assert obj1.mem_type() == MemoryType.HOST
