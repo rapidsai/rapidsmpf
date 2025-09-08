@@ -88,7 +88,7 @@ cdef class SpillManager:
             self._handle = NULL
 
     @classmethod
-    def _create(cls, BufferResource br):
+    def _create(cls, BufferResource br not None):
         """Construct a SpillManager associated the specified buffer resource.
 
         This shouldn't be used directly instead use `BufferResource.spill_manage)`.

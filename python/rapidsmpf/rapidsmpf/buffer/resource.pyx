@@ -50,7 +50,7 @@ cdef class BufferResource:
     """
     def __cinit__(
         self,
-        DeviceMemoryResource device_mr,
+        DeviceMemoryResource device_mr not None,
         memory_available = None,
         periodic_spill_check = 1e-3
     ):
@@ -155,7 +155,7 @@ cdef class LimitAvailableMemory:
     >>> mr = RmmResourceAdaptor(...)
     >>> memory_limiter = LimitAvailableMemory(mr, limit=1_000_000)
     """
-    def __init__(self, RmmResourceAdaptor mr, int64_t limit):
+    def __init__(self, RmmResourceAdaptor mr not None, int64_t limit):
         self._mr = mr  # Keep the mr alive.
         cdef cpp_RmmResourceAdaptor* handle = mr.get_handle()
         with nogil:

@@ -13,7 +13,7 @@ cdef extern from "<rapidsmpf/communicator/single.hpp>" nogil:
         cpp_Single_Communicator(cpp_Options options) except +
 
 
-def new_communicator(Options options):
+def new_communicator(Options options not None):
     """
     Create a new RapidsMPF single-process communicator.
 

@@ -81,9 +81,9 @@ cdef Communicator cpp_new_communicator(
 
 def new_communicator(
     Rank nranks,
-    UCXWorker ucx_worker,
-    UCXAddress root_ucxx_address,
-    Options options,
+    UCXWorker ucx_worker not None,
+    UCXAddress root_ucxx_address not None,
+    Options options not None,
 ):
     """
     Create a new UCXX communicator with the given number of ranks.
@@ -121,7 +121,7 @@ def new_communicator(
     )
 
 
-def get_root_ucxx_address(Communicator comm):
+def get_root_ucxx_address(Communicator comm not None):
     """
     Get the address of the communicator's UCXX worker.
 
@@ -164,7 +164,7 @@ def get_root_ucxx_address(Communicator comm):
         assert host_port_pair  # Prevent "defined but unused" error
 
 
-def barrier(Communicator comm):
+def barrier(Communicator comm not None):
     """
     Execute a barrier on the UCXX communicator.
 
