@@ -56,7 +56,7 @@ cdef class Logger:
         """
         return cpp_verbosity_level(self._comm._handle)
 
-    def print(self, msg: str):
+    def print(self, str msg):
         """
         Logs a print message.
 
@@ -68,7 +68,7 @@ cdef class Logger:
         cdef string _msg = msg.encode()
         cpp_log(LOG_LEVEL.PRINT, self._comm._handle, move(_msg))
 
-    def warn(self, msg: str):
+    def warn(self, str msg):
         """
         Logs a warning message.
 
@@ -80,7 +80,7 @@ cdef class Logger:
         cdef string _msg = msg.encode()
         cpp_log(LOG_LEVEL.WARN, self._comm._handle, move(_msg))
 
-    def info(self, msg: str):
+    def info(self, str msg):
         """
         Logs an informational message.
 
@@ -92,7 +92,7 @@ cdef class Logger:
         cdef string _msg = msg.encode()
         cpp_log(LOG_LEVEL.INFO, self._comm._handle, move(_msg))
 
-    def debug(self, msg: str):
+    def debug(self, str msg):
         """
         Logs a debug message.
 
@@ -104,7 +104,7 @@ cdef class Logger:
         cdef string _msg = msg.encode()
         cpp_log(LOG_LEVEL.DEBUG, self._comm._handle, move(_msg))
 
-    def trace(self, msg: str):
+    def trace(self, str msg):
         """
         Logs a trace message.
 
