@@ -32,8 +32,8 @@ cdef class PartitionMapChunk:
             The CUDA stream on which this chunk was created. If `None`,
             the stream is obtained from the handle.
         owner
-            Python object that owns the underlying buffers and must
-            be kept alive for the lifetime of this PartitionMapChunk.
+            An optional Python object to keep alive for as long as this
+            PartitionMapChunk exists (e.g., to maintain resource lifetime).
 
         Returns
         -------
@@ -181,8 +181,8 @@ cdef class PartitionVectorChunk:
             The CUDA stream on which this chunk was created. If `None`,
             the stream is obtained from the handle.
         owner
-            Python object that owns the underlying buffers and must
-            be kept alive for the lifetime of this PartitionVectorChunk.
+            An optional Python object to keep alive for as long as this
+            PartitionVectorChunk exists (e.g., to maintain resource lifetime).
 
         Returns
         -------
