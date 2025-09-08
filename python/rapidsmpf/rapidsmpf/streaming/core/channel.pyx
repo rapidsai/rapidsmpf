@@ -260,7 +260,7 @@ cdef class Channel:
         with nogil:
             self._handle.reset()
 
-    async def drain(self, Context ctx):
+    async def drain(self, Context ctx not None):
         """
         Drain pending messages and then shut down the channel.
 
@@ -284,7 +284,7 @@ cdef class Channel:
             )
         await ret
 
-    async def shutdown(self, Context ctx):
+    async def shutdown(self, Context ctx not None):
         """
         Immediately shut down the channel.
 
@@ -314,7 +314,7 @@ cdef class Channel:
             )
         await ret
 
-    async def send(self, Context ctx, Message msg):
+    async def send(self, Context ctx, Message msg not None):
         """
         Send a message into the channel.
 
@@ -345,7 +345,7 @@ cdef class Channel:
             )
         await ret
 
-    async def recv(self, Context ctx):
+    async def recv(self, Context ctx not None):
         """
         Receive the next message from the channel.
 

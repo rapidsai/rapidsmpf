@@ -20,7 +20,7 @@ from rmm.pylibrmm.stream cimport Stream
 from rapidsmpf.buffer.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
-from rapidsmpf.statistics cimport cpp_Statistics
+from rapidsmpf.statistics cimport Statistics, cpp_Statistics
 
 
 cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
@@ -46,12 +46,13 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             cpp_BufferResource* br,
         ) except +
 
-cpdef dict partition_and_pack(
-    Table table,
+
+def partition_and_pack(
+    Table table not None,
     columns_to_hash,
     int num_partitions,
-    Stream stream,
-    BufferResource br,
+    Stream stream not None,
+    BufferResource br not None,
 ):
     """
     Partition rows from the input table into multiple packed (serialized) tables.
@@ -110,11 +111,11 @@ cpdef dict partition_and_pack(
     return ret
 
 
-cpdef dict split_and_pack(
-    Table table,
+def split_and_pack(
+    Table table not None,
     splits,
-    Stream stream,
-    BufferResource br,
+    Stream stream not None,
+    BufferResource br not None,
 ):
     """
     Splits rows from the input table into multiple packed (serialized) tables.
@@ -189,10 +190,10 @@ cdef vector[cpp_PackedData] _partitions_py_to_cpp(partitions):
     return move(ret)
 
 
-cpdef Table unpack_and_concat(
+def unpack_and_concat(
     partitions,
-    Stream stream,
-    BufferResource br,
+    Stream stream not None,
+    BufferResource br not None,
 ):
     """
     Unpack (deserialize) input tables and concatenate them.
@@ -239,10 +240,10 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
         ) except +
 
 
-cpdef list spill_partitions(
+def spill_partitions(
     partitions,
-    Stream stream,
-    BufferResource br,
+    Stream stream not None,
+    BufferResource br not None,
     Statistics statistics = None,
 ):
     """
@@ -306,10 +307,10 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
         ) except +
 
 
-cpdef list unspill_partitions(
+def unspill_partitions(
     partitions,
-    Stream stream,
-    BufferResource br,
+    Stream stream not None,
+    BufferResource br not None,
     bool_t allow_overbooking,
     Statistics statistics = None,
 ):

@@ -46,7 +46,10 @@ cdef class PackedData:
 
     @classmethod
     def from_cudf_packed_columns(
-        cls, PackedColumns packed_columns, Stream stream, BufferResource br
+        cls,
+        PackedColumns packed_columns not None,
+        Stream stream not None,
+        BufferResource br not None,
     ):
         """
         Constructs a PackedData from CudfPackedColumns by taking the ownership of the
