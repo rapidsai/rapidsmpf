@@ -202,7 +202,7 @@ cdef class PartitionVectorChunk:
         return ret
 
     @staticmethod
-    def from_message(Message message):
+    def from_message(Message message not None):
         """
         Construct a PartitionVectorChunk by consuming a Message.
 
@@ -224,7 +224,7 @@ cdef class PartitionVectorChunk:
             owner = None,
         )
 
-    def into_message(self, Message message):
+    def into_message(self, Message message not None):
         """
         Move this PartitionVectorChunk into a Message.
 
