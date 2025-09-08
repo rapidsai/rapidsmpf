@@ -20,7 +20,7 @@ from rmm.pylibrmm.stream cimport Stream
 from rapidsmpf.buffer.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
-from rapidsmpf.statistics cimport cpp_Statistics
+from rapidsmpf.statistics cimport Statistics, cpp_Statistics
 
 
 cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
@@ -46,7 +46,8 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
             cpp_BufferResource* br,
         ) except +
 
-cpdef dict partition_and_pack(
+
+def partition_and_pack(
     Table table,
     columns_to_hash,
     int num_partitions,
@@ -110,7 +111,7 @@ cpdef dict partition_and_pack(
     return ret
 
 
-cpdef dict split_and_pack(
+def split_and_pack(
     Table table,
     splits,
     Stream stream,
@@ -189,7 +190,7 @@ cdef vector[cpp_PackedData] _partitions_py_to_cpp(partitions):
     return move(ret)
 
 
-cpdef Table unpack_and_concat(
+def unpack_and_concat(
     partitions,
     Stream stream,
     BufferResource br,
@@ -239,7 +240,7 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
         ) except +
 
 
-cpdef list spill_partitions(
+def spill_partitions(
     partitions,
     Stream stream,
     BufferResource br,
@@ -306,7 +307,7 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
         ) except +
 
 
-cpdef list unspill_partitions(
+def unspill_partitions(
     partitions,
     Stream stream,
     BufferResource br,
