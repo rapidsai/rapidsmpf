@@ -287,17 +287,7 @@ endif()
 # ##################################################################################################
 # * add tests -------------------------------------------------------------------------------------
 if(RAPIDSMPF_BUILD_TESTS)
-  # include CTest module -- automatically calls enable_testing()
   include(CTest)
-
-  # ctest cuda memcheck
-  find_program(CUDA_SANITIZER compute-sanitizer)
-  set(MEMORYCHECK_COMMAND ${CUDA_SANITIZER})
-  set(MEMORYCHECK_TYPE CudaSanitizer)
-  set(CUDA_SANITIZER_COMMAND_OPTIONS "--tool memcheck")
-
-  # Always print verbose output when tests fail if run using `make test`.
-  list(APPEND CMAKE_CTEST_ARGUMENTS "--output-on-failure")
   add_subdirectory(tests)
 endif()
 
