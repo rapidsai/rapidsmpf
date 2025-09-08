@@ -466,6 +466,7 @@ Shuffler::Shuffler(
     PartID total_num_partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
+    FinishedCallback&& finished_callback,
     std::shared_ptr<Statistics> statistics,
     PartitionOwner partition_owner_fn
 )
@@ -487,7 +488,9 @@ Shuffler::Shuffler(
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
       finish_counter_{
-          comm_->nranks(), local_partitions(comm_, total_num_partitions, partition_owner)
+          comm_->nranks(),
+          local_partitions(comm_, total_num_partitions, partition_owner),
+          std::move(finished_callback)
       },
       statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
@@ -788,10 +791,6 @@ bool Shuffler::finished() const {
     return finish_counter_.all_finished() && ready_postbox_.empty();
 }
 
-bool Shuffler::is_finished(PartID pid) const {
-    return finish_counter_.is_finished(pid);
-}
-
 PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     return finish_counter_.wait_any(std::move(timeout));
@@ -800,16 +799,6 @@ PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
 void Shuffler::wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     finish_counter_.wait_on(pid, std::move(timeout));
-}
-
-Shuffler::FinishedCbId Shuffler::register_finished_callback(
-    FinishedCallback&& on_finished_cb
-) {
-    return finish_counter_.register_finished_callback(std::move(on_finished_cb));
-}
-
-void Shuffler::remove_finished_callback(FinishedCbId callback_id) {
-    finish_counter_.remove_finished_callback(callback_id);
 }
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {

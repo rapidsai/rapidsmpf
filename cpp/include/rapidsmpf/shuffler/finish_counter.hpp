@@ -4,13 +4,13 @@
  */
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -45,12 +45,42 @@ namespace detail {
 class FinishCounter {
   public:
     /**
+     * @brief Callback function type called when a partition is finished.
+     *
+     * The callback receives the partition ID of the finished partition.
+     *
+     * @warning A callback must be fast and non-blocking and should not call any of the
+     * `wait*` methods. And be very careful if acquiring locks. Ideally it should be used
+     * to signal a separate thread to do the actual processing (eg. WaitHand).
+     *
+     * @note When a callback is registered, it will be identified by the
+     * FinishedCbId returned. So, if a callback needs to be preemptively canceled,
+     * the corresponding identifier needs to be provided.
+     *
+     * @note Every callback will be called as and when each partition is finished. If
+     * there were finished partitions before the callback was registered, the callback
+     * will be called for them immediately by the caller thread. Else, the callback will
+     * be called by the progress thread (Therefore, it will be called
+     * `n_local_partitions_` times in total).
+     *
+     * @note Caller needs to be careful when using both callbacks and wait* methods
+     * together.
+     */
+    using FinishedCallback = std::function<void(PartID)>;
+
+    /**
      * @brief Construct a finish counter.
      *
      * @param nranks The total number of ranks participating in the shuffle.
      * @param local_partitions The partition IDs local to the current rank.
+     * @param finished_callback The callback to notify when a partition is finished
+     * (optional).
      */
-    FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions);
+    FinishCounter(
+        Rank nranks,
+        std::vector<PartID> const& local_partitions,
+        FinishedCallback&& finished_callback = nullptr
+    );
 
     ~FinishCounter();
 
@@ -87,77 +117,6 @@ class FinishCounter {
      * @return True if all partitions are finished, otherwise False.
      */
     [[nodiscard]] bool all_finished() const;
-
-    /**
-     * @brief Returns whether a partition is finished (non-blocking).
-     *
-     * @param pid The partition ID to check.
-     * @return True if the partition is finished, otherwise False.
-     */
-    [[nodiscard]] bool is_finished(PartID pid) const;
-
-    /**
-     * @brief Callback function type called when a partition is finished.
-     *
-     * The callback receives the partition ID of the finished partition.
-     *
-     * @warning A callback must be fast and non-blocking and should not call any of the
-     * `wait*` methods. And be very careful if acquiring locks. Ideally it should be used
-     * to signal a separate thread to do the actual processing (eg. WaitHand).
-     *
-     * @note When a callback is registered, it will be identified by the
-     * FinishedCbId returned. So, if a callback needs to be preemptively canceled,
-     * the corresponding identifier needs to be provided.
-     *
-     * @note Every callback will be called as and when each partition is finished. If
-     * there were finished partitions before the callback was registered, the callback
-     * will be called for them immediately by the caller thread. Else, the callback will
-     * be called by the progress thread (Therefore, it will be called
-     * `n_local_partitions_` times in total).
-     *
-     * @note Caller needs to be careful when using both callbacks and wait* methods
-     * together.
-     */
-    using FinishedCallback = std::function<void(PartID)>;
-
-    /**
-     * @brief Type used to identify callbacks.
-     */
-    using FinishedCbId = size_t;
-
-    /**
-     * @brief Register a callback to be notified when any partition is finished.
-     *
-     * This function registers a callback that will be called when a partition is finished
-     * (and for all currently finished partitions). The callback receives partition IDs as
-     * they complete. If all partitions are already finished, the callback is executed
-     * immediately for all partitions and invalid_cb_id is returned.
-     *
-     * @param cb The callback to invoke when partitions are finished.
-     *
-     * @return A unique callback ID that can be used to cancel the callback, or
-     * invalid_cb_id if the callback was executed immediately.
-     */
-    FinishedCbId register_finished_callback(FinishedCallback&& cb);
-
-    /**
-     * @brief Special constant indicating an invalid or immediately-executed callback ID.
-     *
-     * This value is returned by register_finished_callback when the callback is executed
-     * immediately (e.g., when all partitions are already finished).
-     */
-    static constexpr FinishedCbId invalid_cb_id =
-        std::numeric_limits<FinishedCbId>::max();
-
-    /**
-     * @brief Cancel a previously registered callback.
-     *
-     * This function removes a callback registered with register_finished_callback using
-     * its ID. It is safe to call this with invalid_cb_id or an already-cancelled ID.
-     *
-     * @param callback_id callback ID.
-     */
-    void remove_finished_callback(FinishedCbId callback_id);
 
     /**
      * @brief Returns the partition ID of a finished partition that hasn't been waited on
@@ -250,30 +209,32 @@ class FinishCounter {
     // when all ranks has reported their goal that the goalpost is final.
     std::unordered_map<PartID, PartitionInfo> goalposts_;
 
-    std::vector<PartID> finished_partitions_{};  ///< partition IDs of finished partitions
-
-    std::mutex finished_cbs_mutex_;  ///< mutex to protect the finished_cbs_ and
-                                     ///< next_finished_cb_id_
-
-    struct CallbackContainer {
-        FinishedCbId cb_id;  ///< callback ID to identify the callback
-
-        // index of the next partition that the callback is interested in. cb will
-        // called from next_pid_idx to end of finished_partitions_
-        size_t next_pid_idx;
-
-        FinishedCallback cb;
-    };
-
-    std::vector<CallbackContainer> finished_cbs_{};
-    FinishedCbId next_finished_cb_id_{0};  ///< next callback ID to assign
-
     // mutex to control access between the progress thread and the caller thread on shared
     // resources
     mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
 
-    class WaitHandler;  ///< Handler to implement the wait* methods using callbacks
-    std::unique_ptr<WaitHandler> wait_handler_;
+    ///@brief Handler to implement the wait* methods using callbacks
+    struct WaitHandler {
+        std::unordered_set<PartID>
+            to_wait{};  ///< finished partitions available to wait on
+        bool active{true};
+        std::condition_variable cv;
+        std::mutex mutex;
+
+        ~WaitHandler();
+
+        // Callback to listen on the finished partitions
+        void on_finished_cb(PartID pid);
+
+        PartID wait_any(std::optional<std::chrono::milliseconds> timeout);
+
+        void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout);
+    };
+
+    WaitHandler wait_handler_{};
+
+    FinishedCallback finished_callback_ =
+        nullptr;  ///< callback to notify when a partition is finished
 };
 
 }  // namespace detail

@@ -136,23 +136,69 @@ std::pair<Node, Node> shuffler_nb(
     OpID op_id,
     shuffler::PartID total_num_partitions
 ) {
+    struct ShufflerContext {
+        coro::mutex mtx{};
+        coro::condition_variable cv{};
+        bool finished{false};
+        std::shared_ptr<rapidsmpf::shuffler::Shuffler> shuffler;
+    };
+
     // make a shared_ptr to the shuffler so that it can be passed into multiple coroutines
-    auto shuffler = std::make_shared<rapidsmpf::shuffler::Shuffler>(
+    auto shuffler_ctx = std::make_shared<ShufflerContext>();
+    shuffler_ctx->shuffler = std::make_shared<rapidsmpf::shuffler::Shuffler>(
         ctx->comm(),
         ctx->progress_thread(),
         op_id,
         total_num_partitions,
         stream,
         ctx->br(),
+        [shuffler_ctx, ctx, ch_out](rapidsmpf::shuffler::PartID pid) {
+            // task to extract and send each finished partition
+            auto extract_and_send = [](auto shuffler,
+                                       auto ctx,
+                                       auto ch_out,
+                                       auto pid,
+                                       coro::condition_variable& cv,
+                                       coro::mutex& mtx,
+                                       bool& finished) -> Node {
+                co_await ctx->executor()->schedule();
+                ctx->comm()->logger().debug("extracting partition ", pid);
+                auto packed_chunks = shuffler->extract(pid);
+                co_await ch_out->send(
+                    std::make_unique<PartitionVectorChunk>(pid, std::move(packed_chunks))
+                );
+
+                // signal the extract task that all partitions have been finished
+                if (shuffler->finished()) {
+                    {
+                        auto lock = co_await mtx.scoped_lock();
+                        finished = true;
+                    }
+                    co_await cv.notify_one();
+                }
+            };
+            // schedule a detached task to extract and send the packed chunks
+            ctx->executor()->spawn(extract_and_send(
+                shuffler_ctx->shuffler,
+                ctx,
+                ch_out,
+                pid,
+                shuffler_ctx->cv,
+                shuffler_ctx->mtx,
+                shuffler_ctx->finished
+            ));
+        },
         ctx->statistics(),
         shuffler::Shuffler::round_robin
     );
 
+
     // insert task: insert the partition map chunks into the shuffler
-    auto insert_task =
-        [](
-            auto shuffler, auto ctx, auto total_num_partitions, auto stream, auto ch_in
-        ) -> Node {
+    auto insert_task = [](auto shuffler_ctx,
+                          auto ctx,
+                          auto total_num_partitions,
+                          auto stream,
+                          auto ch_in) -> Node {
         ShutdownAtExit c{ch_in};
         co_await ctx->executor()->schedule();
         CudaEvent event;
@@ -167,72 +213,36 @@ std::pair<Node, Node> shuffler_nb(
             // Make sure that the input chunk's stream is in sync with shuffler's stream.
             sync_streams(stream, partition_map.stream, event);
 
-            shuffler->insert(std::move(partition_map.data));
+            shuffler_ctx->shuffler->insert(std::move(partition_map.data));
         }
 
         // Tell the shuffler that we have no more input data.
         std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
         std::iota(finished.begin(), finished.end(), 0);
-        shuffler->insert_finished(std::move(finished));
+        shuffler_ctx->shuffler->insert_finished(std::move(finished));
         co_return;
     };
 
     // extract task: extract the packed chunks from the shuffler and send them to the
     // output channel
-    auto extract_task = [](auto shuffler, auto ctx, auto ch_out) -> Node {
+    auto extract_task = [](auto shuffler_ctx, auto ctx, auto ch_out) -> Node {
         ShutdownAtExit c{ch_out};
         co_await ctx->executor()->schedule();
 
-        coro::mutex mtx{};
-        coro::condition_variable cv{};
-        bool finished{false};
-
-        shuffler->register_finished_callback(
-            [shuffler, ctx, ch_out, &mtx, &cv, &finished](auto pid) {
-                // task to extract and send each finished partition
-                auto extract_and_send = [](auto shuffler,
-                                           auto ctx,
-                                           auto ch_out,
-                                           auto pid,
-                                           coro::condition_variable& cv,
-                                           coro::mutex& mtx,
-                                           bool& finished) -> Node {
-                    co_await ctx->executor()->schedule();
-                    auto packed_chunks = shuffler->extract(pid);
-                    co_await ch_out->send(
-                        std::make_unique<PartitionVectorChunk>(
-                            pid, std::move(packed_chunks)
-                        )
-                    );
-
-                    // signal that all partitions have been finished
-                    if (shuffler->finished()) {
-                        {
-                            auto lock = co_await mtx.scoped_lock();
-                            finished = true;
-                        }
-                        co_await cv.notify_one();
-                    }
-                };
-                // schedule a detached task to extract and send the packed chunks
-                ctx->executor()->spawn(
-                    extract_and_send(shuffler, ctx, ch_out, pid, cv, mtx, finished)
-                );
-            }
-        );
-
         // wait for all partitions to be finished
         {
-            auto lock = co_await mtx.scoped_lock();
-            co_await cv.wait(lock, [&finished]() { return finished; });
+            auto lock = co_await shuffler_ctx->mtx.scoped_lock();
+            co_await shuffler_ctx->cv.wait(lock, [&shuffler_ctx]() -> bool {
+                return shuffler_ctx->finished;
+            });
         }
 
         co_await ch_out->drain(ctx->executor());
     };
 
     return {
-        insert_task(shuffler, ctx, total_num_partitions, stream, std::move(ch_in)),
-        extract_task(std::move(shuffler), std::move(ctx), std::move(ch_out))
+        insert_task(shuffler_ctx, ctx, total_num_partitions, stream, std::move(ch_in)),
+        extract_task(std::move(shuffler_ctx), std::move(ctx), std::move(ch_out))
     };
 }
 

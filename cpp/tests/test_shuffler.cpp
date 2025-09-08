@@ -864,12 +864,25 @@ class FinishCounterMultithreadingTest
     rapidsmpf::shuffler::PartID npartitions;
     uint32_t nthreads;
 
+    std::mutex mtx;
+    std::condition_variable cv;
+    std::vector<rapidsmpf::shuffler::PartID> finished_pids;
+    rapidsmpf::shuffler::PartID n_finished_pids;
+
     void SetUp() override {
         std::tie(npartitions, nthreads) = GetParam();
         local_partitions = iota_vector<rapidsmpf::shuffler::PartID>(npartitions);
 
+        n_finished_pids = 0;
+
         finish_counter = std::make_unique<rapidsmpf::shuffler::detail::FinishCounter>(
-            nranks, local_partitions
+            nranks, local_partitions, [&](rapidsmpf::shuffler::PartID pid) {
+                {
+                    std::lock_guard lock(mtx);
+                    finished_pids.push_back(pid);
+                }
+                cv.notify_all();
+            }
         );
     }
 
@@ -878,29 +891,23 @@ class FinishCounterMultithreadingTest
         futures.reserve(nthreads);
         for (uint32_t tid = 0; tid < nthreads; tid++) {
             futures.emplace_back(std::async(std::launch::async, [&] {
-                std::mutex mtx;
-                std::condition_variable cv;
-                uint32_t n_callback_calls{0};
+                while (true) {
+                    std::unique_lock lock(mtx);
+                    // wait until a new pid is added to the deque or all partitions are
+                    // finished
+                    EXPECT_TRUE(cv.wait_for(lock, timeout, [&]() {
+                        return !finished_pids.empty() || n_finished_pids == npartitions;
+                    }));
 
-                auto cb_id = finish_counter->register_finished_callback(
-                    [&](rapidsmpf::shuffler::PartID /*pid*/) {
-                        {
-                            std::lock_guard lock(mtx);
-                            n_callback_calls++;
-                        }
-                        cv.notify_one();  // notify this consumer thread
+                    // consume the finished partition
+                    if (n_finished_pids == npartitions) {
+                        break;
+                    } else {
+                        EXPECT_FALSE(finished_pids.empty());
+                        finished_pids.pop_back();
+                        n_finished_pids++;
                     }
-                );
-
-                std::unique_lock lock(mtx);
-                EXPECT_TRUE(cv.wait_for(lock, timeout, [&]() {
-                    return n_callback_calls == npartitions;
-                }));
-
-                finish_counter->remove_finished_callback(cb_id);
-
-                // each callback should have been called for all finished partitions
-                EXPECT_EQ(npartitions, n_callback_calls);
+                }
             }));
         }
         return futures;

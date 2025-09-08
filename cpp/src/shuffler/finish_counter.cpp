@@ -47,169 +47,95 @@ void wait_for_if_timeout_else_wait(
 
 }  // namespace
 
-/**
- * @brief Handler to implement the wait* methods using callbacks
- *
- * This will listen to any finished partitions, and stash the finished partition IDs in a
- * set, so that callers can wait on them.
- */
-class FinishCounter::WaitHandler {
-  public:
-    WaitHandler() = default;
-
-    ~WaitHandler() {
-        {
-            std::lock_guard lock(mutex);
-            active = false;
-        }
-        cv.notify_all();  // notify any waiting threads
+FinishCounter::WaitHandler::~WaitHandler() {
+    {
+        std::lock_guard lock(mutex);
+        active = false;
     }
+    cv.notify_all();  // notify any waiting threads
+}
 
-    /// @brief Callback to listen on the finished partitions
-    void on_finished_cb(PartID pid) {
-        {
-            std::lock_guard lock(mutex);
-            to_wait.emplace(pid);
-        }
-        cv.notify_all();
+void FinishCounter::WaitHandler::on_finished_cb(PartID pid) {
+    {
+        std::lock_guard lock(mutex);
+        to_wait.emplace(pid);
     }
+    cv.notify_all();
+}
 
-    PartID wait_any(std::optional<std::chrono::milliseconds> timeout) {
-        std::unique_lock lock(mutex);
-        wait_for_if_timeout_else_wait(lock, cv, timeout, [&] {
-            return !active || !to_wait.empty();
-        });
-        RAPIDSMPF_EXPECTS(active, "wait callback already finished", std::runtime_error);
-        return to_wait.extract(to_wait.begin()).value();
-    }
+PartID FinishCounter::WaitHandler::wait_any(
+    std::optional<std::chrono::milliseconds> timeout
+) {
+    std::unique_lock lock(mutex);
+    wait_for_if_timeout_else_wait(lock, cv, timeout, [&] {
+        return !active || !to_wait.empty();
+    });
+    RAPIDSMPF_EXPECTS(active, "wait callback already finished", std::runtime_error);
+    return to_wait.extract(to_wait.begin()).value();
+}
 
-    void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout) {
-        std::unique_lock lock(mutex);
-        wait_for_if_timeout_else_wait(lock, cv, timeout, [&] {
-            return !active || to_wait.contains(pid);
-        });
-        RAPIDSMPF_EXPECTS(active, "wait callback already finished", std::runtime_error);
-        to_wait.erase(pid);
-    }
+void FinishCounter::WaitHandler::wait_on(
+    PartID pid, std::optional<std::chrono::milliseconds> timeout
+) {
+    std::unique_lock lock(mutex);
+    wait_for_if_timeout_else_wait(lock, cv, timeout, [&] {
+        return !active || to_wait.contains(pid);
+    });
+    RAPIDSMPF_EXPECTS(active, "wait callback already finished", std::runtime_error);
+    to_wait.erase(pid);
+}
 
-    std::unordered_set<PartID> to_wait{};  ///< finished partitions available to wait on
-    bool active{true};
-    std::condition_variable cv;
-    std::mutex mutex;
-};
-
-FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions)
-    : nranks_{nranks}, wait_handler_{std::make_unique<WaitHandler>()} {
+FinishCounter::FinishCounter(
+    Rank nranks,
+    std::vector<PartID> const& local_partitions,
+    FinishedCallback&& finished_callback
+)
+    : nranks_{nranks},
+      finished_callback_{std::forward<FinishedCallback>(finished_callback)} {
     goalposts_.reserve(local_partitions.size());
     for (auto pid : local_partitions) {
         goalposts_.emplace(pid, PartitionInfo{});
     }
-    finished_partitions_.reserve(local_partitions.size());
-
-    register_finished_callback([wait_handler_ptr = wait_handler_.get()](PartID pid) {
-        wait_handler_ptr->on_finished_cb(pid);
-    });
 }
 
-FinishCounter::~FinishCounter() {
-    // remove callback container before destroying the wait handler
-    finished_cbs_.clear();
-    wait_handler_.reset();
-}
+FinishCounter::~FinishCounter() = default;
 
 bool FinishCounter::all_finished() const {
     std::unique_lock<std::mutex> lock(mutex_);
-    return finished_partitions_.size() == goalposts_.size();
-}
-
-bool FinishCounter::is_finished(PartID pid) const {
-    std::unique_lock lock(mutex_);
-    return goalposts_.at(pid).is_finished(nranks_);
+    return goalposts_.empty();
 }
 
 void FinishCounter::move_goalpost(PartID pid, ChunkID nchunks) {
     std::unique_lock<std::mutex> lock(mutex_);
-    auto& p_info = goalposts_[pid];
+    auto& p_info = goalposts_.at(pid);
     p_info.move_goalpost(nchunks, nranks_);
 }
 
 void FinishCounter::add_finished_chunk(PartID pid) {
     std::unique_lock<std::mutex> lock(mutex_);
-    auto& p_info = goalposts_[pid];
+    auto& p_info = goalposts_.at(pid);
 
     p_info.add_finished_chunk(nranks_);
 
     if (p_info.is_finished(nranks_)) {
-        finished_partitions_.emplace_back(pid);
+        std::ignore = goalposts_.erase(pid);
         lock.unlock();
 
-        std::lock_guard cb_container_lock(finished_cbs_mutex_);
-        // Note: finished_partitions_ does not need to be protected by the lock
-        // because it is only appended by the progress thread.
-        for (auto& cb_container : finished_cbs_) {
-            while (cb_container.next_pid_idx < finished_partitions_.size()) {
-                cb_container.cb(finished_partitions_[cb_container.next_pid_idx++]);
-            }
+        wait_handler_.on_finished_cb(pid);
+        if (finished_callback_) {
+            finished_callback_(pid);
         }
-    }
-}
-
-FinishCounter::FinishedCbId FinishCounter::register_finished_callback(
-    FinishedCallback&& cb
-) {
-    std::unique_lock lock(mutex_);
-
-    // capture the current size and iterate over existing elements without copying.
-    auto curr_finished_pid_count = finished_partitions_.size();
-
-    if (curr_finished_pid_count == goalposts_.size())
-    {  // all partitions have already finished. So, finished_partitions_ vector would not
-        // be updated further.
-        lock.unlock();
-        for (auto& pid : finished_partitions_) {
-            cb(pid);
-        }
-        return invalid_cb_id;  // no need to register the callback
-    }
-
-    // while holding the lock, register the callback, so that any finished partitions will
-    // be passed to the callback from the progress thread.
-    auto cb_id = invalid_cb_id;
-    FinishedCallback cb_copy = cb;
-    {
-        std::lock_guard cb_container_lock(finished_cbs_mutex_);
-        cb_id = next_finished_cb_id_++;
-        finished_cbs_.emplace_back(cb_id, curr_finished_pid_count, std::move(cb));
-    }
-    lock.unlock();
-
-    // call the callback for each partition that has finished so far
-    // Note: finished_partitions_ is already reserved and can only grow, never shrink or
-    // reorder, so it's safe to iterate up to curr_finished_pid_count even after unlocking
-    for (size_t i = 0; i < curr_finished_pid_count; ++i) {
-        cb_copy(finished_partitions_[i]);
-    }
-
-    return cb_id;
-}
-
-void FinishCounter::remove_finished_callback(FinishedCbId cb_id) {
-    if (cb_id != invalid_cb_id) {
-        std::lock_guard cb_container_lock(finished_cbs_mutex_);
-        std::erase_if(finished_cbs_, [cb_id](auto& cb_container) {
-            return cb_container.cb_id == cb_id;
-        });
     }
 }
 
 PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout) {
-    return wait_handler_->wait_any(std::move(timeout));
+    return wait_handler_.wait_any(std::move(timeout));
 }
 
 void FinishCounter::wait_on(
     PartID pid, std::optional<std::chrono::milliseconds> timeout
 ) {
-    wait_handler_->wait_on(pid, std::move(timeout));
+    wait_handler_.wait_on(pid, std::move(timeout));
 }
 
 std::string detail::FinishCounter::str() const {
