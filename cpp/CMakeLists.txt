@@ -115,11 +115,6 @@ include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
-    UCX REQUIRED
-    BUILD_EXPORT_SET rapidsmpf-exports
-    INSTALL_EXPORT_SET rapidsmpf-exports
-  )
-  rapids_find_package(
     ucxx REQUIRED
     BUILD_EXPORT_SET rapidsmpf-exports
     INSTALL_EXPORT_SET rapidsmpf-exports

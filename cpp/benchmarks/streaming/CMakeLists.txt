@@ -19,7 +19,7 @@ target_compile_options(
 )
 target_link_libraries(
   bench_streaming_shuffle
-  PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+  PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
           $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan bench_utils
 )
 install(

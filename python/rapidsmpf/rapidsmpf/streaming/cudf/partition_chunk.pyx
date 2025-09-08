@@ -51,7 +51,7 @@ cdef class PartitionMapChunk:
         return ret
 
     @staticmethod
-    def from_message(Message message):
+    def from_message(Message message not None):
         """
         Construct a PartitionMapChunk by consuming a Message.
 
@@ -73,7 +73,7 @@ cdef class PartitionMapChunk:
             owner = None,
         )
 
-    def into_message(self, Message message):
+    def into_message(self, Message message not None):
         """
         Move this PartitionMapChunk into a Message.
 

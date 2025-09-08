@@ -121,7 +121,6 @@ if(RAPIDSMPF_HAVE_MPI)
               GTest::gmock
               GTest::gtest
               ucxx::ucxx
-              ucx::ucp
               $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
               $<TARGET_NAME_IF_EXISTS:conda_env>
               maybe_asan
