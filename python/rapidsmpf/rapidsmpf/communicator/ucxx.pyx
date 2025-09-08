@@ -81,8 +81,8 @@ cdef Communicator cpp_new_communicator(
 
 def new_communicator(
     Rank nranks,
-    UCXWorker ucx_worker not None,
-    UCXAddress root_ucxx_address not None,
+    UCXWorker ucx_worker,
+    UCXAddress root_ucxx_address,
     Options options not None,
 ):
     """
