@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import threading
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from weakref import WeakValueDictionary
 
 from rapidsmpf.buffer.buffer import MemoryType
@@ -68,6 +68,19 @@ class Spillable(Protocol):
         or equal to the requested amount.
         """
 
+    def unspill(self) -> Any:
+        """
+        Return the unspilled object in device memory.
+
+        The spilled object **will not** be freed. E.g., unspilling a dataframe
+        from host to device memory, will not free up host memory. Delete the
+        `Spillable` object itself to free up memory.
+
+        Returns
+        -------
+        The unspilled object now in device memory.
+        """
+
 
 class SpillCollection:
     """A collection of spillable objects that facilitates memory spilling."""
@@ -75,10 +88,7 @@ class SpillCollection:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._key_counter = 0
-        self._spillables: dict[MemoryType, WeakValueDictionary[int, Spillable]] = {
-            MemoryType.DEVICE: WeakValueDictionary(),
-            MemoryType.HOST: WeakValueDictionary(),
-        }
+        self._spillables: WeakValueDictionary[int, Spillable] = WeakValueDictionary()
 
     def add_spillable(self, obj: Spillable) -> None:
         """
@@ -94,15 +104,9 @@ class SpillCollection:
         ValueError
             If the object isn't in device memory.
         """
-        memtype = obj.mem_type()
-        if memtype != MemoryType.DEVICE:
-            raise ValueError(
-                "For now, only support adding spillables that are located "
-                "in device memory initially."
-            )
         with self._lock:
             self._key_counter += 1
-            self._spillables[memtype][self._key_counter] = obj
+            self._spillables[self._key_counter] = obj
 
     def spill(
         self,
@@ -149,31 +153,22 @@ class SpillCollection:
         to_spill: list[Spillable] = []
         to_spill_amount = 0
         with self._lock:
-            on_device = self._spillables[MemoryType.DEVICE]
-            for k, obj in sorted(on_device.items()):
+            for _, obj in sorted(self._spillables.items()):
                 if obj.mem_type() == MemoryType.DEVICE:
                     to_spill.append(obj)
                     to_spill_amount += obj.approx_spillable_amount()
-                    del on_device[k]
                     if to_spill_amount >= amount:
                         break
 
         # Spill the found objects (without the lock).
-        spilled: list[Spillable] = []
         spilled_amount = 0
         for obj in to_spill:
+            if (residual := amount - spilled_amount) <= 0:
+                break
             spilled_amount += obj.spill(
-                amount - spilled_amount,
+                residual,
                 stream=stream,
                 device_mr=device_mr,
                 staging_device_buffer=staging_device_buffer,
             )
-            spilled.append(obj)
-
-        # Add the spilled objects to host memory spillables.
-        with self._lock:
-            on_host = self._spillables[MemoryType.HOST]
-            for obj in spilled:
-                self._key_counter += 1
-                on_host[self._key_counter] = obj
         return spilled_amount
