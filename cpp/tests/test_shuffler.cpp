@@ -226,7 +226,12 @@ INSTANTIATE_TEST_SUITE_P(
         ),
         testing::Values(1, 2, 5, 10),  // total_num_partitions
         testing::Values(1, 9, 100, 100'000)  // total_num_rows
-    )
+    ),
+    [](const testing::TestParamInfo<MemoryAvailable_NumPartition::ParamType>& info) {
+        return std::to_string(info.index) + "__nparts_"
+               + std::to_string(std::get<1>(info.param)) + "__nrows_"
+               + std::to_string(std::get<2>(info.param));
+    }
 );
 
 // both insert and insert_finished ungrouped

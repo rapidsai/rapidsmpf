@@ -120,8 +120,9 @@ class FinishCounter {
      *
      * @return The partition ID of a finished partition.
      *
-     * @throws std::runtime_error If all partitions have already been waited on or if
-     * timeout was set and no partitions have been finished by the expiration.
+     * @throws std::out_of_range If all partitions have already been waited on.
+     * @throws std::runtime_error If timeout was set and no partitions have been finished
+     * by the expiration.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -136,8 +137,9 @@ class FinishCounter {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @throws std::runtime_error If the desired partition is unavailable or if timeout
-     * was set and requested partition has not been finished by the expiration.
+     * @throws std::out_of_range If the desired partition is unavailable.
+     * @throws std::runtime_error If timeout was set and requested partition has been
+     * finished by the expiration.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -149,6 +151,9 @@ class FinishCounter {
 
   private:
     Rank const nranks_;
+    PartID
+        n_unfinished_partitions_;  ///< aux counter to track the number of unfinished
+                                   ///< partitions (without using the goalposts.empty())
 
     /// @brief Information about a local partition.
     struct PartitionInfo {
@@ -199,29 +204,8 @@ class FinishCounter {
     // when all ranks has reported their goal that the goalpost is final.
     std::unordered_map<PartID, PartitionInfo> goalposts_;
 
-    // mutex to control access between the progress thread and the caller thread on shared
-    // resources
     mutable std::mutex mutex_;  // TODO: use a shared_mutex lock?
-
-    ///@brief Handler to implement the wait* methods using callbacks
-    struct WaitHandler {
-        std::unordered_set<PartID>
-            to_wait{};  ///< finished partitions available to wait on
-        bool active{true};
-        std::condition_variable cv;
-        std::mutex mutex;
-
-        ~WaitHandler();
-
-        // Callback to listen on the finished partitions
-        void on_finished_cb(PartID pid);
-
-        PartID wait_any(std::optional<std::chrono::milliseconds> timeout);
-
-        void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout);
-    };
-
-    WaitHandler wait_handler_{};
+    mutable std::condition_variable wait_cv_;
 
     FinishedCallback finished_callback_ =
         nullptr;  ///< callback to notify when a partition is finished
