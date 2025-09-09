@@ -274,11 +274,12 @@ dependencies:
     common:
       - output_types: conda
         packages:
+          - click >=8.1
           - *cmake_ver
+          - cuda-sanitizer-api
+          - psutil  # Used for timeout_with_stack.py
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - valgrind
-          - cuda-sanitizer-api
-          - click >=8.1
   test_python:
     common:
       - output_types: conda
@@ -286,7 +287,7 @@ dependencies:
           - gdb
       - output_types: [conda, pyproject, requirements]
         packages:
-          - psutil
+          - psutil  # Used for timeout_with_stack.py
           - pytest
           - nvidia-ml-py
     specific:
