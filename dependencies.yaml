@@ -289,7 +289,7 @@ dependencies:
         packages:
           - psutil  # Used for timeout_with_stack.py
           - pytest
-          - nvidia-ml-py
+          - nvidia-ml-py>=12
     specific:
       - output_types: conda
         matrices:
