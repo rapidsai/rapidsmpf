@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
-from libcpp cimport bool as cpp_bool
+from libcpp cimport bool as bool_t
 from libcpp.memory cimport unique_ptr
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
