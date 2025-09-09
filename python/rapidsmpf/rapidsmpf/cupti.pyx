@@ -22,13 +22,13 @@ cdef class MemoryDataPoint:
     Attributes
     ----------
     timestamp
-        Time when sample was taken (seconds since epoch)
+        Time when sample was taken (seconds since epoch).
     free_memory
-        Free GPU memory in bytes
+        Free GPU memory in bytes.
     total_memory
-        Total GPU memory in bytes
+        Total GPU memory in bytes.
     used_memory
-        Used GPU memory in bytes
+        Used GPU memory in bytes.
     """
 
     def __init__(self):
@@ -111,7 +111,7 @@ cdef class CuptiMonitor:
         with nogil:
             self._handle.get().start_monitoring()
 
-    def stop_monitoring(self) -> None:
+    def stop_monitoring(self):
         """Stop memory monitoring.
 
         Stops CUPTI callbacks and periodic sampling if enabled.
@@ -119,7 +119,7 @@ cdef class CuptiMonitor:
         with nogil:
             self._handle.get().stop_monitoring()
 
-    def is_monitoring(self) -> bool:
+    def is_monitoring(self) :
         """Check if monitoring is currently active.
 
         Returns
@@ -131,7 +131,7 @@ cdef class CuptiMonitor:
             result = self._handle.get().is_monitoring()
         return result
 
-    def capture_memory_sample(self) -> None:
+    def capture_memory_sample(self):
         """Manually capture current memory usage.
 
         This can be called at any time to manually record a memory sample,
@@ -140,7 +140,7 @@ cdef class CuptiMonitor:
         with nogil:
             self._handle.get().capture_memory_sample()
 
-    def get_memory_samples(self) -> typing.List[MemoryDataPoint]:
+    def get_memory_samples(self):
         """Get all collected memory samples.
 
         Returns
@@ -180,12 +180,12 @@ cdef class CuptiMonitor:
         Parameters
         ----------
         filename
-            Output CSV filename
+            Output CSV filename.
 
         Raises
         ------
         RuntimeError
-            If file cannot be written
+            If file cannot be written.
         """
         cdef string c_filename = filename.encode('utf-8')
         with nogil:
