@@ -7,7 +7,7 @@ import typing
 
 from cython.operator cimport dereference as deref
 from cython.operator cimport postincrement
-from libcpp cimport bool as cpp_bool
+from libcpp cimport bool as bool_t
 from libcpp.memory cimport make_unique
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
@@ -86,7 +86,7 @@ cdef class CuptiMonitor:
         sampling_interval_ms
             Interval between periodic samples in milliseconds
         """
-        cdef cpp_bool enable_sampling = <cpp_bool>enable_periodic_sampling
+        cdef bool_t enable_sampling = <bool_t>enable_periodic_sampling
 
         self._handle = make_unique[cpp_CuptiMonitor](
             enable_sampling,
@@ -126,7 +126,7 @@ cdef class CuptiMonitor:
         -------
         True if monitoring is active, False otherwise
         """
-        cdef cpp_bool result
+        cdef bool_t result
         with nogil:
             result = self._handle.get().is_monitoring()
         return result
@@ -201,7 +201,7 @@ cdef class CuptiMonitor:
         threshold_mb
             Threshold in MB for what constitutes a "significant" change (default: 10)
         """
-        cdef cpp_bool c_enabled = <cpp_bool>enabled
+        cdef bool_t c_enabled = <bool_t>enabled
         cdef size_t c_threshold = <size_t>threshold_mb
         with nogil:
             self._handle.get().set_debug_output(c_enabled, c_threshold)

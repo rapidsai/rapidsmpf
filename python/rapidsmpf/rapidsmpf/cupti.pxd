@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
-from libcpp cimport bool as cpp_bool
+from libcpp cimport bool as bool_t
 from libcpp.memory cimport unique_ptr
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
@@ -27,18 +27,18 @@ cdef extern from "<rapidsmpf/cupti.hpp>" nogil:
 
     cdef cppclass cpp_CuptiMonitor "rapidsmpf::CuptiMonitor":
         cpp_CuptiMonitor(
-            cpp_bool enable_periodic_sampling,
+            bool_t enable_periodic_sampling,
             milliseconds sampling_interval_ms
         ) except +
         void start_monitoring() except +
         void stop_monitoring() except +
-        cpp_bool is_monitoring() except +
+        bool_t is_monitoring() except +
         void capture_memory_sample() except +
         const vector[cpp_MemoryDataPoint]& get_memory_samples() except +
         void clear_samples() except +
         size_t get_sample_count() except +
         void write_csv(const string& filename) except +
-        void set_debug_output(cpp_bool enabled, size_t threshold_mb) except +
+        void set_debug_output(bool_t enabled, size_t threshold_mb) except +
         unordered_map[CUpti_CallbackId, size_t] get_callback_counters() except +
         void clear_callback_counters() except +
         size_t get_total_callback_count() except +
