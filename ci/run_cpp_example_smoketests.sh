@@ -4,6 +4,8 @@
 
 set -xeuo pipefail
 
+TIMEOUT_TOOL_PATH="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/timeout_with_stack.py
+
 # Support customizing the ctests' install location
 cd "${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/examples/librapidsmpf/"
 
@@ -16,7 +18,7 @@ export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
 mpirun --map-by node --bind-to none -np 2 ./example_shuffle
 
 # Ensure that cupti monitor example is runnable and creates the expected csv file
-./example_cupti_monitor
+python "${TIMEOUT_TOOL_PATH}" 30 ./example_cupti_monitor
 if [[ ! -f cupti_monitor_example.csv ]]; then
   echo "Error: cupti_monitor_example.csv was not created!"
   exit 1
