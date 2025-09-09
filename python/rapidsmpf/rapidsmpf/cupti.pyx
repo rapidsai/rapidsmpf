@@ -30,8 +30,8 @@ cdef class MemoryDataPoint:
         Used GPU memory in bytes
     """
 
-    def __cinit__(self):
-        pass
+    def __init__(self):
+        raise ValueError("Use the `from_cpp` factory method")
 
     @staticmethod
     cdef MemoryDataPoint from_cpp(cpp_MemoryDataPoint data):
