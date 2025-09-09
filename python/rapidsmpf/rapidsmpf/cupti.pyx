@@ -22,13 +22,13 @@ cdef class MemoryDataPoint:
     Attributes
     ----------
     timestamp
-        Time when sample was taken (seconds since epoch)
+        Time when sample was taken (seconds since epoch).
     free_memory
-        Free GPU memory in bytes
+        Free GPU memory in bytes.
     total_memory
-        Total GPU memory in bytes
+        Total GPU memory in bytes.
     used_memory
-        Used GPU memory in bytes
+        Used GPU memory in bytes.
     """
 
     def __init__(self):
@@ -180,12 +180,12 @@ cdef class CuptiMonitor:
         Parameters
         ----------
         filename
-            Output CSV filename
+            Output CSV filename.
 
         Raises
         ------
         RuntimeError
-            If file cannot be written
+            If file cannot be written.
         """
         cdef string c_filename = filename.encode('utf-8')
         with nogil:
