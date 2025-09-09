@@ -115,11 +115,6 @@ include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
-    UCX REQUIRED
-    BUILD_EXPORT_SET rapidsmpf-exports
-    INSTALL_EXPORT_SET rapidsmpf-exports
-  )
-  rapids_find_package(
     ucxx REQUIRED
     BUILD_EXPORT_SET rapidsmpf-exports
     INSTALL_EXPORT_SET rapidsmpf-exports
@@ -148,30 +143,51 @@ target_compile_options(
 )
 target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>")
 
-file(GLOB SOURCES "src/*.cpp" "src/allgather/*.cpp" "src/buffer/*.cpp" "src/communicator/*.cpp"
-     "src/integrations/cudf/*.cpp" "src/shuffler/*.cpp"
+add_library(
+  rapidsmpf
+  src/config.cpp
+  src/cuda_event.cpp
+  src/pausable_thread_loop.cpp
+  src/progress_thread.cpp
+  src/rmm_resource_adaptor.cpp
+  src/statistics.cpp
+  src/utils.cpp
+  src/allgather/allgather.cpp
+  src/buffer/buffer.cpp
+  src/buffer/resource.cpp
+  src/buffer/spill_manager.cpp
+  src/communicator/communicator.cpp
+  src/communicator/single.cpp
+  src/integrations/cudf/partition.cpp
+  src/integrations/cudf/utils.cpp
+  src/shuffler/chunk.cpp
+  src/shuffler/finish_counter.cpp
+  src/shuffler/postbox.cpp
+  src/shuffler/shuffler.cpp
 )
-
 if(RAPIDSMPF_HAVE_STREAMING)
-  file(GLOB STREAMING_SOURCES "src/streaming/core/*.cpp" "src/streaming/cudf/*.cpp")
+  target_sources(
+    rapidsmpf
+    PRIVATE src/streaming/core/context.cpp
+            src/streaming/core/leaf_node.cpp
+            src/streaming/core/node.cpp
+            src/streaming/cudf/partition.cpp
+            src/streaming/cudf/shuffler.cpp
+            src/streaming/cudf/table_chunk.cpp
+  )
 endif()
-
-# Without UCXX support, remove the UCXX communicator from the source list.
-if(NOT RAPIDSMPF_HAVE_UCXX)
-  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx.cpp")
-  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx_utils.cpp")
+if(RAPIDSMPF_HAVE_UCXX)
+  target_sources(rapidsmpf PRIVATE src/communicator/ucxx.cpp)
 endif()
-# Without MPI support, remove the MPI communicator from the source list.
-if(NOT RAPIDSMPF_HAVE_MPI)
-  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/mpi.cpp")
-  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx_utils.cpp")
+if(RAPIDSMPF_HAVE_MPI)
+  target_sources(rapidsmpf PRIVATE src/communicator/mpi.cpp)
 endif()
-# Without CUPTI support, remove the CUPTI monitor from the source list.
-if(NOT RAPIDSMPF_HAVE_CUPTI)
-  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/cupti.cpp")
+if(RAPIDSMPF_HAVE_MPI AND RAPIDSMPF_HAVE_UCXX)
+  target_sources(rapidsmpf PRIVATE src/communicator/ucxx_utils.cpp)
 endif()
-
-add_library(rapidsmpf ${SOURCES} ${STREAMING_SOURCES})
+if(RAPIDSMPF_HAVE_CUPTI)
+  target_sources(rapidsmpf PRIVATE src/cupti.cpp)
+endif()
 
 set_target_properties(
   rapidsmpf
@@ -271,17 +287,7 @@ endif()
 # ##################################################################################################
 # * add tests -------------------------------------------------------------------------------------
 if(RAPIDSMPF_BUILD_TESTS)
-  # include CTest module -- automatically calls enable_testing()
   include(CTest)
-
-  # ctest cuda memcheck
-  find_program(CUDA_SANITIZER compute-sanitizer)
-  set(MEMORYCHECK_COMMAND ${CUDA_SANITIZER})
-  set(MEMORYCHECK_TYPE CudaSanitizer)
-  set(CUDA_SANITIZER_COMMAND_OPTIONS "--tool memcheck")
-
-  # Always print verbose output when tests fail if run using `make test`.
-  list(APPEND CMAKE_CTEST_ARGUMENTS "--output-on-failure")
   add_subdirectory(tests)
 endif()
 

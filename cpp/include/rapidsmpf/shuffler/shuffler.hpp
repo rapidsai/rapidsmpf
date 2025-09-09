@@ -105,7 +105,7 @@ class Shuffler {
     /**
      * @brief Shutdown the shuffle, blocking until all inflight communication is done.
      *
-     * @throw std::logic_error If the shuffler is already inactive.
+     * @throws std::logic_error If the shuffler is already inactive.
      */
     void shutdown();
 
@@ -141,20 +141,18 @@ class Shuffler {
     void insert_finished(std::vector<PartID>&& pids);
 
     /**
-     * @brief Extract all chunks of a specific partition.
+     * @brief Extract all chunks belonging to the specified partition.
      *
-     * @param pid The partition ID.
-     * @return A vector of PackedData (chunks) for the partition.
+     * It is valid to extract a partition that has not yet been fully received.
+     * In such cases, only the chunks received so far are returned.
+     *
+     * To ensure the partition is complete, use `wait_any()`, `wait_on()`,
+     * or another appropriate synchronization mechanism beforehand.
+     *
+     * @param pid The ID of the partition to extract.
+     * @return A vector of PackedData chunks associated with the partition.
      */
     [[nodiscard]] std::vector<PackedData> extract(PartID pid);
-
-    /**
-     * @brief Extract all chunks of a specific partition.
-     *
-     * @param pid The partition ID.
-     * @return A vector of Chunks for the partition.
-     */
-    [[nodiscard]] std::vector<detail::Chunk> extract_chunks(PartID pid);
 
     /**
      * @brief Check if all partitions are finished.
@@ -170,7 +168,7 @@ class Shuffler {
      *
      * @return The partition ID of the next finished partition.
      *
-     * @throw std::runtime_error if the timeout is reached.
+     * @throws std::runtime_error if the timeout is reached.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -180,20 +178,9 @@ class Shuffler {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @throw std::runtime_error if the timeout is reached.
+     * @throws std::runtime_error if the timeout is reached.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
-
-    /**
-     * @brief Wait for at least one partition to finish.
-     *
-     * @param timeout Optional timeout (ms) to wait.
-     *
-     * @return The partition IDs of all finished partitions.
-     *
-     * @throw std::runtime_error if the timeout is reached.
-     */
-    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Spills data to device if necessary.

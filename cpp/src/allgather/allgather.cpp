@@ -158,7 +158,7 @@ void PostBox::insert(std::vector<std::unique_ptr<Chunk>>&& chunks) {
 }
 
 void PostBox::increment_goalpost(std::uint64_t amount) {
-    goalpost_.fetch_add(amount, std::memory_order_relaxed);
+    goalpost_.fetch_add(amount, std::memory_order_acq_rel);
 }
 
 bool PostBox::ready() const noexcept {
@@ -313,6 +313,14 @@ void AllGather::insert_finished() {
     );
 }
 
+void AllGather::mark_finish(std::uint64_t expected_chunks) noexcept {
+    // We must increment the goalpost before decrementing the finish
+    // counter so that we cannot, on another thread, observe a finish
+    // counter of zero with chunks still to be received.
+    for_extraction_.increment_goalpost(expected_chunks);
+    finish_counter_.fetch_sub(1, std::memory_order_relaxed);
+}
+
 bool AllGather::finished() const noexcept {
     return finish_counter_.load(std::memory_order_acquire) == 0
            && for_extraction_.ready();
@@ -446,8 +454,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
         // the allgather instance.
         for (auto&& chunk : inserted_.extract()) {
             if (chunk->is_finish()) {
-                finish_counter_.fetch_sub(1, std::memory_order_relaxed);
-                for_extraction_.increment_goalpost(chunk->sequence());
+                mark_finish(chunk->sequence());
             } else {
                 RAPIDSMPF_EXPECTS(
                     chunk->data_size() > 0, "Not expecting zero-sized data chunks"
@@ -463,10 +470,9 @@ ProgressThread::ProgressState AllGather::event_loop() {
                 comm_->send(chunk->serialize(), dst, metadata_tag, br_)
             );
             if (chunk->is_finish()) {
-                finish_counter_.fetch_sub(1, std::memory_order_relaxed);
-                // Finish chunk contains as sequence number the
-                // number of insertions from that rank.
-                for_extraction_.increment_goalpost(chunk->sequence());
+                // Finish chunk contains as sequence number the number
+                // of insertions from that rank.
+                mark_finish(chunk->sequence());
             } else {
                 RAPIDSMPF_EXPECTS(
                     chunk->data_size() > 0, "Not expecting zero-sized data chunks"
@@ -491,8 +497,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
                     inserted_.insert(std::move(chunk));
                 } else {
                     // Otherwise, record we're done with data from that rank.
-                    finish_counter_.fetch_sub(1, std::memory_order_relaxed);
-                    for_extraction_.increment_goalpost(chunk->sequence());
+                    mark_finish(chunk->sequence());
                 }
             } else {
                 RAPIDSMPF_EXPECTS(

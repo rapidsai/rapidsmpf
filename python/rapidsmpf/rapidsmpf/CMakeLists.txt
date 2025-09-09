@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # =================================================================================
 
-set(cython_modules config.pyx progress_thread.pyx rmm_resource_adaptor.pyx shuffler.pyx
-                   statistics.pyx
+set(cython_modules config.pyx cuda_stream.pyx progress_thread.pyx rmm_resource_adaptor.pyx
+                   shuffler.pyx statistics.pyx
 )
 
 # Add cupti module conditionally if CUPTI support is enabled
@@ -19,7 +19,12 @@ rapids_cython_create_modules(
 )
 
 add_subdirectory(_detail)
+add_subdirectory(allgather)
 add_subdirectory(buffer)
 add_subdirectory(communicator)
 add_subdirectory(integrations/cudf)
 add_subdirectory(utils)
+
+if(RAPIDSMPF_HAVE_STREAMING)
+  add_subdirectory(streaming)
+endif()

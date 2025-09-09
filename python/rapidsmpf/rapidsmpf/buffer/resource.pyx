@@ -16,10 +16,21 @@ cdef extern from *:
     ) {
         return *functor;
     }
+
+    std::int64_t _call_memory_available(
+        rapidsmpf::BufferResource* resource,
+        rapidsmpf::MemoryType mem_type
+    ) {
+        return resource->memory_available(mem_type)();
+    }
     """
     cpp_MemoryAvailable to_MemoryAvailable(
         shared_ptr[cpp_LimitAvailableMemory]
     ) except +
+    int64_t _call_memory_available(
+        cpp_BufferResource* resource,
+        MemoryType mem_type
+    ) except + nogil
 
 
 cdef class BufferResource:
@@ -50,7 +61,7 @@ cdef class BufferResource:
     """
     def __cinit__(
         self,
-        DeviceMemoryResource device_mr,
+        DeviceMemoryResource device_mr not None,
         memory_available = None,
         periodic_spill_check = 1e-3
     ):
@@ -121,6 +132,17 @@ cdef class BufferResource:
             ret = deref(self._handle).cpp_memory_reserved(mem_type)
         return ret
 
+    def memory_available(self, MemoryType mem_type):
+        """
+        Get the current available memory of the specified memory type.
+        """
+        cdef int64_t ret
+        cdef cpp_BufferResource* resource_ptr = self.ptr()
+        # Use inline C++ to handle the function object call
+        with nogil:
+            ret = _call_memory_available(resource_ptr, mem_type)
+        return ret
+
 
 cdef class LimitAvailableMemory:
     """
@@ -155,7 +177,7 @@ cdef class LimitAvailableMemory:
     >>> mr = RmmResourceAdaptor(...)
     >>> memory_limiter = LimitAvailableMemory(mr, limit=1_000_000)
     """
-    def __init__(self, RmmResourceAdaptor mr, int64_t limit):
+    def __init__(self, RmmResourceAdaptor mr not None, int64_t limit):
         self._mr = mr  # Keep the mr alive.
         cdef cpp_RmmResourceAdaptor* handle = mr.get_handle()
         with nogil:

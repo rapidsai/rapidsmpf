@@ -410,7 +410,7 @@ class AllGather {
      * @param timeout Optional maximum duration to wait. Negative values mean no timeout.
      *
      * @return A vector containing packed data from all participating ranks.
-     * @throw std::runtime_error If the timeout is reached.
+     * @throws std::runtime_error If the timeout is reached.
      */
     [[nodiscard]] std::vector<PackedData> wait_and_extract(
         Ordered ordered = Ordered::YES,
@@ -499,11 +499,19 @@ class AllGather {
     void insert(std::unique_ptr<detail::Chunk> chunk);
 
     /**
+     * @brief Handle a finish message.
+     *
+     * @param expected_chunks The expected number of chunks we expect
+     * from the rank this finish message is from.
+     */
+    void mark_finish(std::uint64_t expected_chunks) noexcept;
+
+    /**
      * @brief Wait for the allgather operation to complete.
      *
      * @param timeout Optional maximum duration to wait. Negative values mean no timeout.
      *
-     * @throw std::runtime_error If the timeout is reached.
+     * @throws std::runtime_error If the timeout is reached.
      */
     void wait(std::chrono::milliseconds timeout = std::chrono::milliseconds{-1});
 
