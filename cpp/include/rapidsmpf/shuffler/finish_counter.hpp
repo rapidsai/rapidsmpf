@@ -51,10 +51,7 @@ class FinishCounter {
      *
      * @warning A callback must be fast and non-blocking and should not call any of the
      * `wait*` methods. And be very careful if acquiring locks. Ideally it should be used
-     * to signal a separate thread to do the actual processing (eg. WaitHand).
-     *
-     * @note Caller needs to be careful when using both callbacks and wait* methods
-     * together.
+     * to signal a separate thread to do the actual processing.
      */
     using FinishedCallback = std::function<void(PartID)>;
 
@@ -123,6 +120,10 @@ class FinishCounter {
      * @throws std::out_of_range If all partitions have already been waited on.
      * @throws std::runtime_error If timeout was set and no partitions have been finished
      * by the expiration.
+     *
+     * @note The caller needs to be careful when using `wait_any` alongside `is_finished`.
+     * For example, `is_finished()` will return true once all partitions have been
+     * finished, regardless of how many partitions were waited on.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -140,6 +141,10 @@ class FinishCounter {
      * @throws std::out_of_range If the desired partition is unavailable.
      * @throws std::runtime_error If timeout was set and requested partition has been
      * finished by the expiration.
+     *
+     * @note The caller needs to be careful when using `wait_on` alongside `is_finished`.
+     * For example, `is_finished()` will return true once all partitions have been
+     * finished, regardless of how many partitions were waited on.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
 

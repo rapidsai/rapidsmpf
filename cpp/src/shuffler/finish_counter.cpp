@@ -81,7 +81,9 @@ void FinishCounter::add_finished_chunk(PartID pid) {
     p_info.add_finished_chunk(nranks_);
 
     if (p_info.is_finished(nranks_)) {
-        assert(n_unfinished_partitions_ > 0);  // TODO: use a debug flag
+        RAPIDSMPF_EXPECTS(
+            n_unfinished_partitions_ > 0, "all partitions have been finished"
+        );
         n_unfinished_partitions_--;
         lock.unlock();
 
