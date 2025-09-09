@@ -178,7 +178,7 @@ cdef class CuptiMonitor:
 
         Parameters
         ----------
-        filename : str
+        filename
             Output CSV filename
 
         Raises
@@ -195,9 +195,9 @@ cdef class CuptiMonitor:
 
         Parameters
         ----------
-        enabled : bool
+        enabled
             If True, prints debug info when memory usage changes significantly
-        threshold_mb : int, optional
+        threshold_mb
             Threshold in MB for what constitutes a "significant" change (default: 10)
         """
         cdef cpp_bool c_enabled = <cpp_bool>enabled
