@@ -72,7 +72,7 @@ class FinishCounter {
         FinishedCallback&& finished_callback = nullptr
     );
 
-    ~FinishCounter();
+    ~FinishCounter() = default;
 
     /**
      * @brief Move the goalpost for a specific rank and partition.

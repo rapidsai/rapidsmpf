@@ -62,30 +62,26 @@ FinishCounter::FinishCounter(
     }
 }
 
-FinishCounter::~FinishCounter() = default;
-
 bool FinishCounter::all_finished() const {
     std::unique_lock<std::mutex> lock(mutex_);
     // we can not use the goalposts.empty() because its being consumed by wait* methods
-    return n_unfinished_partitions_ == 0 || goalposts_.empty();
+    return n_unfinished_partitions_ == 0;
 }
 
 void FinishCounter::move_goalpost(PartID pid, ChunkID nchunks) {
     std::unique_lock<std::mutex> lock(mutex_);
-    auto& p_info = goalposts_[pid];
+    auto& p_info = goalposts_.at(pid);
     p_info.move_goalpost(nchunks, nranks_);
 }
 
 void FinishCounter::add_finished_chunk(PartID pid) {
     std::unique_lock<std::mutex> lock(mutex_);
-    auto& p_info = goalposts_[pid];
+    auto& p_info = goalposts_.at(pid);
 
     p_info.add_finished_chunk(nranks_);
 
     if (p_info.is_finished(nranks_)) {
-        RAPIDSMPF_EXPECTS(
-            n_unfinished_partitions_ > 0, "all partitions have been finished"
-        );  // TODO: use a debug flag
+        assert(n_unfinished_partitions_ > 0);  // TODO: use a debug flag
         n_unfinished_partitions_--;
         lock.unlock();
 
