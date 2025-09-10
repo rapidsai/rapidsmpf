@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -76,6 +77,35 @@ class Shuffler {
         PartitionOwner partition_owner
     );
 
+    /// @copydoc detail::FinishCounter::FinishedCallback
+    using FinishedCallback = detail::FinishCounter::FinishedCallback;
+
+    /**
+     * @brief Construct a new shuffler for a single shuffle.
+     *
+     * @param comm The communicator to use.
+     * @param progress_thread The progress thread to use.
+     * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
+     * and should not be reused until all nodes has called `Shuffler::shutdown()`.
+     * @param total_num_partitions Total number of partitions in the shuffle.
+     * @param stream The CUDA stream for memory operations.
+     * @param br Buffer resource used to allocate temporary and the shuffle result.
+     * @param finished_callback Callback to notify when a partition is finished.
+     * @param statistics The statistics instance to use (disabled by default).
+     * @param partition_owner Function to determine partition ownership.
+     */
+    Shuffler(
+        std::shared_ptr<Communicator> comm,
+        std::shared_ptr<ProgressThread> progress_thread,
+        OpID op_id,
+        PartID total_num_partitions,
+        rmm::cuda_stream_view stream,
+        BufferResource* br,
+        FinishedCallback&& finished_callback,
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+        PartitionOwner partition_owner = round_robin
+    );
+
     /**
      * @brief Construct a new shuffler for a single shuffle.
      *
@@ -98,7 +128,18 @@ class Shuffler {
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin
-    );
+    )
+        : Shuffler(
+              comm,
+              progress_thread,
+              op_id,
+              total_num_partitions,
+              stream,
+              br,
+              nullptr,
+              statistics,
+              partition_owner
+          ) {}
 
     ~Shuffler();
 
@@ -160,6 +201,14 @@ class Shuffler {
      * @return True if all partitions are finished, otherwise False.
      */
     [[nodiscard]] bool finished() const;
+
+    /**
+     * @brief Check if a partition is finished.
+     *
+     * @param pid The partition ID to check.
+     * @return True if the partition is finished, otherwise False.
+     */
+    [[nodiscard]] bool is_finished(PartID pid) const;
 
     /**
      * @brief Wait for any partition to finish.
