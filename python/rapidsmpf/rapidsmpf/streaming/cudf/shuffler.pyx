@@ -4,11 +4,12 @@
 from libc.stdint cimport uint8_t, uint32_t
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
+from rmm.librmm.cuda_stream_view cimport cuda_stream_view
+from rmm.pylibrmm.stream cimport Stream
+
 from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
-from rmm.librmm.cuda_stream_view cimport cuda_stream_view
-from rmm.pylibrmm.stream cimport Stream
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/shuffler.hpp>" nogil:

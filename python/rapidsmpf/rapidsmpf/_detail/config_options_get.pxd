@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp cimport bool as bool_t
+
 from rapidsmpf.config cimport Options
 
 

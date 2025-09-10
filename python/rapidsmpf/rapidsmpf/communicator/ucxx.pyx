@@ -10,10 +10,11 @@ from libcpp.optional cimport nullopt, nullopt_t
 from libcpp.pair cimport pair
 from libcpp.string cimport string
 from libcpp.utility cimport move
+from ucxx._lib.libucxx cimport Address, UCXAddress, UCXWorker, Worker
+
 from rapidsmpf.communicator.communicator cimport *
 from rapidsmpf.communicator.ucxx cimport *
 from rapidsmpf.config cimport Options, cpp_Options
-from ucxx._lib.libucxx cimport Address, UCXAddress, UCXWorker, Worker
 
 
 cdef extern from "<variant>" namespace "std" nogil:

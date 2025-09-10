@@ -7,6 +7,9 @@ from libc.stdint cimport uint8_t
 from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
+from rmm.librmm.cuda_stream_view cimport cuda_stream_view
+from rmm.pylibrmm.stream cimport Stream
+
 from rapidsmpf.allgather.allgather cimport (Ordered, cpp_AllGather,
                                             milliseconds_t)
 from rapidsmpf.buffer.packed_data cimport (PackedData, cpp_PackedData,
@@ -15,8 +18,6 @@ from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics
-from rmm.librmm.cuda_stream_view cimport cuda_stream_view
-from rmm.pylibrmm.stream cimport Stream
 
 
 cdef class AllGather:

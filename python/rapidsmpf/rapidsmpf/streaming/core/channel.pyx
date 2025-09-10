@@ -3,6 +3,7 @@
 
 from libcpp.memory cimport make_shared, shared_ptr
 from libcpp.utility cimport move
+
 from rapidsmpf._detail.exception_handling cimport (
     CppExcept, throw_py_as_cpp_exception, translate_py_to_cpp_exception)
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context

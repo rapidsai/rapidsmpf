@@ -4,8 +4,9 @@
 from cython.operator cimport dereference as deref
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
-from rapidsmpf.streaming.core.channel cimport Message, cpp_Message
 from rmm.pylibrmm.stream cimport Stream
+
+from rapidsmpf.streaming.core.channel cimport Message, cpp_Message
 
 
 cdef class PartitionMapChunk:

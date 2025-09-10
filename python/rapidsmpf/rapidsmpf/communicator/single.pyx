@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.memory cimport make_shared
+
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options, cpp_Options
 

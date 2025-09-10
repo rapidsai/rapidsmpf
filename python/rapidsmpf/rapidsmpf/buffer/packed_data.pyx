@@ -7,11 +7,12 @@ from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 from pylibcudf.contiguous_split cimport PackedColumns
-from rapidsmpf.buffer.packed_data cimport cpp_PackedData
-from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.librmm.device_buffer cimport device_buffer
 from rmm.pylibrmm.stream cimport Stream
+
+from rapidsmpf.buffer.packed_data cimport cpp_PackedData
+from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
 
 
 # Create a new PackedData from metadata and device buffers.

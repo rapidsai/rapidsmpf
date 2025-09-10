@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.vector cimport vector
+
 from rapidsmpf.streaming.core.channel cimport cpp_Message
 
 

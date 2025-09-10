@@ -8,13 +8,14 @@ from libcpp cimport bool
 from libcpp.memory cimport shared_ptr
 from libcpp.optional cimport optional
 from libcpp.unordered_map cimport unordered_map
+from rmm.librmm.memory_resource cimport device_memory_resource
+from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
+
 from rapidsmpf.buffer.buffer cimport MemoryType
 from rapidsmpf.buffer.spill_manager cimport SpillManager, cpp_SpillManager
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
 from rapidsmpf.utils.time cimport cpp_Duration
-from rmm.librmm.memory_resource cimport device_memory_resource
-from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 
 cdef extern from "<functional>" nogil:

@@ -9,6 +9,7 @@ from libcpp.utility cimport move
 from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
+
 from rapidsmpf.streaming.core.channel cimport Message, cpp_Message
 
 

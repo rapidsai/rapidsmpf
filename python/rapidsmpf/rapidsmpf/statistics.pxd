@@ -7,6 +7,7 @@ from libcpp cimport bool
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
+
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor,
                                              cpp_ScopedMemoryRecord)

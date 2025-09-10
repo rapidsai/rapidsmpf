@@ -6,10 +6,11 @@ from libc.stdint cimport uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport unique_ptr
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
-from rapidsmpf.buffer.buffer cimport MemoryType
-from rapidsmpf.streaming.core.channel cimport Message
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
+
+from rapidsmpf.buffer.buffer cimport MemoryType
+from rapidsmpf.streaming.core.channel cimport Message
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:

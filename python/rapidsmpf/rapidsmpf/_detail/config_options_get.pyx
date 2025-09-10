@@ -5,6 +5,7 @@ from cpython.ref cimport PyObject
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
 from libcpp.string cimport string
+
 from rapidsmpf._detail.exception_handling cimport (
     CppExcept, throw_py_as_cpp_exception, translate_py_to_cpp_exception)
 from rapidsmpf.config cimport cpp_Options

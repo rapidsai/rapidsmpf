@@ -8,12 +8,13 @@ from libcpp.memory cimport make_unique
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
+from rmm.librmm.cuda_stream_view cimport cuda_stream_view
+from rmm.pylibrmm.stream cimport Stream
+
 from rapidsmpf.buffer.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics
-from rmm.librmm.cuda_stream_view cimport cuda_stream_view
-from rmm.pylibrmm.stream cimport Stream
 
 
 # Insert PackedData into a partition map. We implement this in C++ because
