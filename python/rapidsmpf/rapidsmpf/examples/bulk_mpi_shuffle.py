@@ -34,6 +34,7 @@ from rapidsmpf.utils.string import format_bytes, parse_bytes
 
 try:
     from rapidsmpf.cupti import CuptiMonitor
+
     CUPTI_AVAILABLE = True
 except ImportError:
     CUPTI_AVAILABLE = False
@@ -336,11 +337,11 @@ Shuffle:
         )
 
     MPI.COMM_WORLD.barrier()
-    
+
     # Start CUPTI monitoring if enabled
     if cupti_monitor is not None:
         cupti_monitor.start_monitoring()
-    
+
     start_time = MPI.Wtime()
     bulk_mpi_shuffle(
         paths=sorted(map(str, args.input.glob("**/*"))),
@@ -355,11 +356,11 @@ Shuffle:
     )
     elapsed_time = MPI.Wtime() - start_time
     MPI.COMM_WORLD.barrier()
-    
+
     # Stop CUPTI monitoring and write CSV files
     if cupti_monitor is not None:
         cupti_monitor.stop_monitoring()
-        
+
         csv_filename = f"{args.monitor_memory}_{comm.rank}.csv"
         try:
             cupti_monitor.write_csv(csv_filename)
@@ -368,7 +369,7 @@ Shuffle:
                 f"({cupti_monitor.get_sample_count()} samples, "
                 f"{cupti_monitor.get_total_callback_count()} callbacks)"
             )
-            
+
             # Print callback summary for rank 0
             if comm.rank == 0:
                 comm.logger.print(
