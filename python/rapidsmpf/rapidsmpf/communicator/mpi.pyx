@@ -4,7 +4,6 @@
 from libcpp.memory cimport make_shared
 from mpi4py cimport libmpi
 from mpi4py.MPI cimport Intracomm
-
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options, cpp_Options
 

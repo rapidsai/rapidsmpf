@@ -304,7 +304,6 @@ def setup_and_run(args: argparse.Namespace) -> None:
 
     stats = Statistics(enable=args.statistics, mr=mr)
 
-    # Initialize CUPTI monitor if requested
     cupti_monitor = None
     if args.monitor_memory is not None:
         if not CUPTI_AVAILABLE:
@@ -338,7 +337,6 @@ Shuffle:
 
     MPI.COMM_WORLD.barrier()
 
-    # Start CUPTI monitoring if enabled
     if cupti_monitor is not None:
         cupti_monitor.start_monitoring()
 
@@ -357,12 +355,12 @@ Shuffle:
     elapsed_time = MPI.Wtime() - start_time
     MPI.COMM_WORLD.barrier()
 
-    # Stop CUPTI monitoring and write CSV files
     if cupti_monitor is not None:
         cupti_monitor.stop_monitoring()
 
         csv_filename = f"{args.monitor_memory}_{comm.rank}.csv"
         try:
+            # Write CSV files
             cupti_monitor.write_csv(csv_filename)
             comm.logger.print(
                 f"CUPTI memory data written to {csv_filename} "

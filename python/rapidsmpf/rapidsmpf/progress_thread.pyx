@@ -4,7 +4,6 @@
 
 from cython.operator cimport dereference as deref
 from libcpp.memory cimport make_shared
-
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.statistics cimport Statistics
 

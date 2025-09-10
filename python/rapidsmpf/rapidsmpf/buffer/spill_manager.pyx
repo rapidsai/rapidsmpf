@@ -3,7 +3,6 @@
 
 from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
-
 from rapidsmpf._detail.exception_handling cimport (
     CppExcept, throw_py_as_cpp_exception, translate_py_to_cpp_exception)
 from rapidsmpf.buffer.resource cimport BufferResource

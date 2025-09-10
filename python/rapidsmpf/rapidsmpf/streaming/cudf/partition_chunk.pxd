@@ -5,10 +5,9 @@ from libc.stdint cimport uint32_t, uint64_t
 from libcpp.memory cimport unique_ptr
 from libcpp.unordered_map cimport unordered_map
 from libcpp.vector cimport vector
+from rapidsmpf.buffer.packed_data cimport cpp_PackedData
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
-
-from rapidsmpf.buffer.packed_data cimport cpp_PackedData
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/partition.hpp>" nogil:

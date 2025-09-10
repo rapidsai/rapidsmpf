@@ -4,7 +4,6 @@
 
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
-
 from rapidsmpf.streaming.core.channel cimport (Channel, Message, cpp_Channel,
                                                cpp_Message)
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context

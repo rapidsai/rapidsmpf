@@ -5,14 +5,13 @@ from libc.stdint cimport int64_t, uint8_t
 from libcpp cimport bool
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.vector cimport vector
-from rmm.librmm.cuda_stream_view cimport cuda_stream_view
-from rmm.pylibrmm.stream cimport Stream
-
 from rapidsmpf.buffer.packed_data cimport cpp_PackedData
 from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.progress_thread cimport cpp_ProgressThread
 from rapidsmpf.statistics cimport cpp_Statistics
+from rmm.librmm.cuda_stream_view cimport cuda_stream_view
+from rmm.pylibrmm.stream cimport Stream
 
 
 cdef extern from "<rapidsmpf/allgather/allgather.hpp>" namespace \
