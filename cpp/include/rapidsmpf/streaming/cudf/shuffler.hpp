@@ -46,5 +46,4 @@ Node shuffler(
     shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin
 );
 
-
 }  // namespace rapidsmpf::streaming::node

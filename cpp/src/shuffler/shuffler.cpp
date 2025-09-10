@@ -470,11 +470,12 @@ Shuffler::Shuffler(
     PartID total_num_partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
+    FinishedCallback&& finished_callback,
     std::shared_ptr<Statistics> statistics,
-    PartitionOwner partition_owner
+    PartitionOwner partition_owner_fn
 )
     : total_num_partitions{total_num_partitions},
-      partition_owner{partition_owner},
+      partition_owner{std::move(partition_owner_fn)},
       stream_{stream},
       br_{br},
       outgoing_postbox_{
@@ -491,7 +492,9 @@ Shuffler::Shuffler(
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
       finish_counter_{
-          comm_->nranks(), local_partitions(comm_, total_num_partitions, partition_owner)
+          comm_->nranks(),
+          local_partitions(comm_, total_num_partitions, partition_owner),
+          std::move(finished_callback)
       },
       statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
@@ -789,7 +792,7 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
 }
 
 bool Shuffler::finished() const {
-    return finish_counter_.all_finished();
+    return finish_counter_.all_finished() && ready_postbox_.empty();
 }
 
 PartID Shuffler::wait_any(std::optional<std::chrono::milliseconds> timeout) {
