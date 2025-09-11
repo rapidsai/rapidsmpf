@@ -245,25 +245,6 @@ class BufferResource {
     );
 
     /**
-     * @brief Create a memory reservation and execute a function, which will ensure
-     * the reservation is released when the function goes out of scope.
-     *
-     * @param mem_type The memory type to reserve.
-     * @param size The size of the memory to reserve.
-     * @param allow_overbooking Whether to allow overbooking. If false and there is not
-     * enough memory, the function will receive an empty reservation.
-     * @param f A callable object that takes a `MemoryReservation&` and a `size_t`.
-     *
-     * @return The result of the function.
-     */
-    auto with_reservation(
-        MemoryType mem_type, std::size_t size, bool allow_overbooking, auto&& f
-    ) {
-        auto [res, ob] = reserve(mem_type, size, allow_overbooking);
-        return std::forward<decltype(f)>(f)(res, ob);
-    }
-
-    /**
      * @brief Make a memory reservation or fail.
      *
      * @param size The size of the buffer to allocate.
@@ -521,10 +502,6 @@ class LimitAvailableMemory {
 /**
  * @brief Acquire a memory reservation and execute a function, which will ensure
  * the reservation is released when the function goes out of scope.
- *
- * Similar to `BufferResource::with_reservation`, but this function would not reserve
- * memory, but holds on to the reservation until the function is executed. Is useful in
- * situations where the memory reservation is made with spilling.
  *
  * @param reservation moved memory reservation.
  * @param f The function to execute.

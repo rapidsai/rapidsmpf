@@ -199,12 +199,9 @@ std::vector<PackedData> spill_partitions(
             device_size += data->size;
         }
     }
-
-    return br->with_reservation(
-        MemoryType::HOST,
-        device_size,
-        false,  // allow_overbooking
-        [&](auto& reservation, auto /*ob*/) {
+    return with_memory_reservation(
+        br->reserve_and_spill(MemoryType::HOST, device_size, false),
+        [&](auto& reservation) {
             // Spill each partition to host memory.
             std::vector<PackedData> ret;
             ret.reserve(partitions.size());
