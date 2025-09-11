@@ -367,17 +367,13 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
         if (mem_type == MemoryType::DEVICE) {
             // copy the host pattern to the device buffer
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                const_cast<void*>(buf->data()),
-                host_pattern.data(),
-                size,
-                cudaMemcpyHostToDevice,
-                stream
+                buf->data(), host_pattern.data(), size, cudaMemcpyHostToDevice, stream
             ));
             // add an event to guarantee async copy is complete
             buf->override_event(CudaEvent::make_shared_record(stream));
         } else {
             // copy the host pattern to the host buffer
-            std::memcpy(const_cast<void*>(buf->data()), host_pattern.data(), size);
+            std::memcpy(buf->data(), host_pattern.data(), size);
         }
 
         return buf;
@@ -501,7 +497,7 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
             std::vector<uint8_t> verify_data_buf(length);
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 verify_data_buf.data(),
-                static_cast<uint8_t*>(dest->data()) + dest_offset,
+                dest->data() + dest_offset,
                 length,
                 cudaMemcpyDeviceToHost,
                 stream
@@ -605,11 +601,7 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
         EXPECT_EQ(buf1->mem_type(), MemoryType::DEVICE);
 
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            const_cast<void*>(buf1->data()),
-            host_pattern.data(),
-            buffer_size,
-            cudaMemcpyHostToDevice,
-            stream
+            buf1->data(), host_pattern.data(), buffer_size, cudaMemcpyHostToDevice, stream
         ));
         buf1->override_event(CudaEvent::make_shared_record(stream));
         buf1->wait_for_ready();
