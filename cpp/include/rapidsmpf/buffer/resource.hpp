@@ -59,6 +59,7 @@ class MemoryReservation {
      * @return A reference to the updated MemoryReservation.
      */
     MemoryReservation& operator=(MemoryReservation&& o) noexcept {
+        clear();
         mem_type_ = o.mem_type_;
         br_ = std::exchange(o.br_, nullptr);
         size_ = std::exchange(o.size_, 0);
