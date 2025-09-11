@@ -184,12 +184,6 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     return move(std::move(buffer), stream, reservation)->release_device();
 }
 
-std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
-    std::unique_ptr<Buffer> buffer
-) {
-    return buffer->release_device();
-}
-
 std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
     std::unique_ptr<Buffer> buffer,
     rmm::cuda_stream_view stream,
@@ -201,12 +195,6 @@ std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
         std::invalid_argument
     );
     return move(std::move(buffer), stream, reservation)->release_host();
-}
-
-std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
-    std::unique_ptr<Buffer> buffer
-) {
-    return buffer->release_host();
 }
 
 std::unique_ptr<Buffer> BufferResource::copy(
