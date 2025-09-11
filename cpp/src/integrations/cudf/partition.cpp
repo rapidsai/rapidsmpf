@@ -20,6 +20,8 @@
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/utils.hpp>
 
+#include "rapidsmpf/buffer/buffer.hpp"
+
 namespace rapidsmpf {
 
 std::pair<std::vector<cudf::table_view>, std::unique_ptr<cudf::table>>
@@ -161,28 +163,51 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
+
+    // Let's find the total size of the partitions and how much of the packed data we
+    // need to move to device memory (unspill).
+    size_t total_size = 0;
+    size_t non_device_size = 0;
+    for (auto& packed_data : partitions) {
+        if (!packed_data.empty()) {
+            total_size += packed_data.data->size;
+            if (packed_data.data->mem_type() != MemoryType::DEVICE) {
+                non_device_size += 0;
+            }
+        }
+    }
+
     std::vector<cudf::table_view> unpacked;
     std::vector<cudf::packed_columns> references;
     unpacked.reserve(partitions.size());
     references.reserve(partitions.size());
-    size_t concat_size = 0;
-    for (auto& packed_data : partitions) {
-        if (!packed_data.empty()) {
-            concat_size += packed_data.data->size;
-            unpacked.push_back(
-                cudf::unpack(references.emplace_back(
-                    std::move(packed_data.metadata),
-                    br->move_to_device_buffer(std::move(packed_data.data))
-                ))
-            );
+
+    // Reserve device memory for the unspill AND the cudf::unpack() calls.
+    with_memory_reservation(
+        br->reserve_and_spill(
+            MemoryType::DEVICE, total_size + non_device_size, allow_overbooking
+        ),
+        [&](auto& reservation) {
+            for (auto& packed_data : partitions) {
+                if (!packed_data.empty()) {
+                    unpacked.push_back(
+                        cudf::unpack(references.emplace_back(
+                            std::move(packed_data.metadata),
+                            br->move_to_device_buffer(
+                                std::move(packed_data.data), stream, reservation
+                            )
+                        ))
+                    );
+                }
+            }
         }
-    }
+    );
 
-    // reserve memory for concatenation
-    auto reservation =
-        br->reserve_and_spill(MemoryType::DEVICE, concat_size, allow_overbooking);
-
-    return cudf::concatenate(unpacked, stream, br->device_mr());
+    // Reserve memory for the concatenation.
+    return with_memory_reservation(
+        br->reserve_and_spill(MemoryType::DEVICE, total_size, allow_overbooking),
+        [&]() { return cudf::concatenate(unpacked, stream, br->device_mr()); }
+    );
 }
 
 std::vector<PackedData> spill_partitions(
