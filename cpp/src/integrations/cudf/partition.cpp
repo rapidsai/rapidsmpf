@@ -235,25 +235,24 @@ std::vector<PackedData> unspill_partitions(
         }
     }
 
-    // This total sum is what we need to reserve before moving data to device.
-    auto reservation =
-        br->reserve_and_spill(MemoryType::DEVICE, non_device_size, allow_overbooking);
+    return with_memory_reservation(
+        br->reserve_and_spill(MemoryType::DEVICE, non_device_size, allow_overbooking),
+        [&](auto& reservation) {
+            // Unspill each partition.
+            std::vector<PackedData> ret;
+            ret.reserve(partitions.size());
+            for (auto& [metadata, data] : partitions) {
+                ret.emplace_back(
+                    std::move(metadata), br->move(std::move(data), stream, reservation)
+                );
+            }
 
-    return with_memory_reservation(std::move(reservation), [&] {
-        // Unspill each partition.
-        std::vector<PackedData> ret;
-        ret.reserve(partitions.size());
-        for (auto& [metadata, data] : partitions) {
-            ret.emplace_back(
-                std::move(metadata), br->move(std::move(data), stream, reservation)
+            statistics->add_duration_stat(
+                "spill-time-host-to-device", Clock::now() - elapsed
             );
+            statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
+            return ret;
         }
-
-        statistics->add_duration_stat(
-            "spill-time-host-to-device", Clock::now() - elapsed
-        );
-        statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
-        return ret;
-    });
+    );
 }
 }  // namespace rapidsmpf
