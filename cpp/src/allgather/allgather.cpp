@@ -467,7 +467,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
         for (auto&& chunk : inserted_.extract_ready()) {
             // Tell the destination about them.
             fire_and_forget_.push_back(
-                comm_->send(chunk->serialize(), dst, metadata_tag, br_)
+                comm_->send(chunk->serialize(), dst, metadata_tag)
             );
             if (chunk->is_finish()) {
                 // Finish chunk contains as sequence number the number

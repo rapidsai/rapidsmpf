@@ -106,7 +106,7 @@ MPI::MPI(MPI_Comm comm, config::Options options)
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource*
+    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
 ) {
     RAPIDSMPF_EXPECTS(
         msg->size() <= std::numeric_limits<int>::max(),

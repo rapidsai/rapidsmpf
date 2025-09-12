@@ -200,9 +200,9 @@ class Shuffler::Progress {
                     dst != shuffler_.comm_->rank(), "sending chunk to ourselves"
                 );
 
-                fire_and_forget_.push_back(shuffler_.comm_->send(
-                    chunk.serialize(), dst, metadata_tag, shuffler_.br_
-                ));
+                fire_and_forget_.push_back(
+                    shuffler_.comm_->send(chunk.serialize(), dst, metadata_tag)
+                );
                 if (chunk.concat_data_size() > 0) {
                     RAPIDSMPF_EXPECTS(
                         outgoing_chunks_.emplace(chunk.chunk_id(), std::move(chunk))
@@ -313,10 +313,7 @@ class Shuffler::Progress {
                     // Tell the source of the chunk that we are ready to receive it.
                     // All partition IDs in the chunk must map to the same key (rank).
                     fire_and_forget_.push_back(shuffler_.comm_->send(
-                        ReadyForDataMessage{chunk_id}.pack(),
-                        src,
-                        ready_for_data_tag,
-                        shuffler_.br_
+                        ReadyForDataMessage{chunk_id}.pack(), src, ready_for_data_tag
                     ));
                 } else {  // chunk contains control messages and/or metadata-only messages
                     // At this point we know we can process this item, so extract it.

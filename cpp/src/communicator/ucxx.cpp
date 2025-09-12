@@ -1078,7 +1078,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
-    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource*
+    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
 ) {
     auto req = get_endpoint(rank)->tagSend(
         msg->data(),

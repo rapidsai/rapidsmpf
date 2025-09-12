@@ -388,11 +388,10 @@ class Communicator {
      * @param msg Unique pointer to the message data (host memory).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
-     * @param br Buffer resource used to allocate the received message.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
+        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
     ) = 0;
 
     /**

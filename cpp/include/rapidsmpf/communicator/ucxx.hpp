@@ -168,7 +168,7 @@ class UCXX final : public Communicator {
      * @copydoc Communicator::send
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
+        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
     ) override;
 
     // clang-format off
