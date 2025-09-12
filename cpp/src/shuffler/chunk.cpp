@@ -56,7 +56,8 @@ Chunk Chunk::get_data(
             {meta_offsets_[0]},
             {data_offsets_[0]},
             std::move(metadata_),
-            data_ ? std::move(data_) : BufferResource::allocate_empty_host_buffer()
+            data_ ? std::move(data_)
+                  : br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST))
         );
     } else {
         // copy the metadata to the new chunk

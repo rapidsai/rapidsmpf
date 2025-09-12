@@ -288,6 +288,25 @@ class BufferResource {
     );
 
     /**
+     * @brief Allocate a buffer consuming the entire reservation.
+     *
+     * This overload allocates a buffer that matches the full size and memory type
+     * of the provided reservation. The reservation is consumed by the call.
+     *
+     * @param stream CUDA stream to use for device allocations.
+     * @param reservation The memory reservation to consume for the allocation.
+     * @return A unique pointer to the allocated Buffer.
+     *
+     * @throws std::invalid_argument if the memory type of the reservation is invalid
+     *         or unsupported.
+     */
+    std::unique_ptr<Buffer> allocate(
+        rmm::cuda_stream_view stream, MemoryReservation&& reservation
+    ) {
+        return allocate(reservation.size(), stream, reservation);
+    }
+
+    /**
      * @brief Move host vector data into a Buffer.
      *
      * @param data A unique pointer to the vector containing host data.
