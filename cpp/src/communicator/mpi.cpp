@@ -296,14 +296,14 @@ std::unique_ptr<Buffer> MPI::wait(std::unique_ptr<Communicator::Future> future) 
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
     RAPIDSMPF_MPI(MPI_Wait(&mpi_future->req_, MPI_STATUS_IGNORE));
-    return std::move(mpi_future->data_);
+    return std::move(mpi_future->data_buffer_);
 }
 
 std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-    RAPIDSMPF_EXPECTS(mpi_future->data_ != nullptr, "future has no data");
-    return std::move(mpi_future->data_);
+    RAPIDSMPF_EXPECTS(mpi_future->data_buffer_ != nullptr, "future has no data");
+    return std::move(mpi_future->data_buffer_);
 }
 
 std::string MPI::str() const {

@@ -64,10 +64,10 @@ void check_mpi_error(int error_code, const char* file, int line);
 /**
  * @brief MPI communicator class that implements the `Communicator` interface.
  *
- * This class implements communication functions using MPI, allowing for data exchange
- * between processes in a distributed system. It supports sending and receiving data, both
- * on the CPU and GPU, and provides asynchronous operations with support for future
- * results.
+ * This class implements communication functions using MPI, allowing for data_buffer
+ * exchange between processes in a distributed system. It supports sending and receiving
+ * data_buffer, both on the CPU and GPU, and provides asynchronous operations with support
+ * for future results.
  */
 class MPI final : public Communicator {
   public:
@@ -82,19 +82,19 @@ class MPI final : public Communicator {
 
       public:
         /**
-         * @brief Construct a Future.
+         * @brief Construct a Future from a data buffer (stream ordered).
          *
          * @param req The MPI request handle for the operation.
-         * @param data A unique pointer to the data buffer.
+         * @param data_buffer A unique pointer to the data buffer.
          */
-        Future(MPI_Request req, std::unique_ptr<Buffer> data)
-            : req_{req}, data_{std::move(data)} {}
+        Future(MPI_Request req, std::unique_ptr<Buffer> data_buffer)
+            : req_{req}, data_buffer_{std::move(data_buffer)} {}
 
         ~Future() noexcept override = default;
 
       private:
-        MPI_Request req_;  ///< The MPI request associated with the operation.
-        std::unique_ptr<Buffer> data_;  ///< The data buffer.
+        MPI_Request req_;
+        std::unique_ptr<Buffer> data_buffer_;
     };
 
     /**

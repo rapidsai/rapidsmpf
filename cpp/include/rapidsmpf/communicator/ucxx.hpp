@@ -89,10 +89,10 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 /**
  * @brief UCXX communicator class that implements the `Communicator` interface.
  *
- * This class implements communication functions using UCXX, allowing for data exchange
- * between processes in a distributed system. It supports sending and receiving data, both
- * on the CPU and GPU, and provides asynchronous operations with support for future
- * results.
+ * This class implements communication functions using UCXX, allowing for data_buffer
+ * exchange between processes in a distributed system. It supports sending and receiving
+ * data_buffer, both on the CPU and GPU, and provides asynchronous operations with support
+ * for future results.
  */
 class UCXX final : public Communicator {
   public:
@@ -107,20 +107,19 @@ class UCXX final : public Communicator {
 
       public:
         /**
-         * @brief Construct a Future.
+         * @brief Construct a Future from a data buffer buffer (stream ordered).
          *
          * @param req The UCXX request handle for the operation.
-         * @param data A unique pointer to the data buffer.
+         * @param data_buffer A unique pointer to the data buffer.
          */
-        Future(std::shared_ptr<::ucxx::Request> req, std::unique_ptr<Buffer> data)
-            : req_{std::move(req)}, data_{std::move(data)} {}
+        Future(std::shared_ptr<::ucxx::Request> req, std::unique_ptr<Buffer> data_buffer)
+            : req_{std::move(req)}, data_buffer_{std::move(data_buffer)} {}
 
         ~Future() noexcept override = default;
 
       private:
-        std::shared_ptr<::ucxx::Request>
-            req_;  ///< The UCXX request associated with the operation.
-        std::unique_ptr<Buffer> data_;  ///< The data buffer.
+        std::shared_ptr<::ucxx::Request> req_;
+        std::unique_ptr<Buffer> data_buffer_;
     };
 
     /**

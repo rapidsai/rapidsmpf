@@ -67,7 +67,7 @@ class HostFuture {
     HostFuture(
         std::shared_ptr<::ucxx::Request> req, std::unique_ptr<std::vector<uint8_t>> data
     )
-        : req_{std::move(req)}, data_{std::move(data)} {}
+        : req_{std::move(req)}, data_buffer_{std::move(data)} {}
 
     ~HostFuture() noexcept = default;
 
@@ -81,7 +81,7 @@ class HostFuture {
   private:
     std::shared_ptr<::ucxx::Request>
         req_;  ///< The UCXX request associated with the operation.
-    std::unique_ptr<std::vector<uint8_t>> data_;  ///< The data buffer.
+    std::unique_ptr<std::vector<uint8_t>> data_buffer_;  ///< The data buffer.
 };
 
 }  // namespace
@@ -1243,14 +1243,14 @@ std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future)
         progress_worker();
     }
     ucxx_future->req_->checkError();
-    return std::move(ucxx_future->data_);
+    return std::move(ucxx_future->data_buffer_);
 }
 
 std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-    RAPIDSMPF_EXPECTS(ucxx_future->data_ != nullptr, "future has no data");
-    return std::move(ucxx_future->data_);
+    RAPIDSMPF_EXPECTS(ucxx_future->data_buffer_ != nullptr, "future has no data");
+    return std::move(ucxx_future->data_buffer_);
 }
 
 std::string UCXX::str() const {
