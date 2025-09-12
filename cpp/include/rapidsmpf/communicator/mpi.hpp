@@ -90,11 +90,27 @@ class MPI final : public Communicator {
         Future(MPI_Request req, std::unique_ptr<Buffer> data_buffer)
             : req_{req}, data_buffer_{std::move(data_buffer)} {}
 
+        /**
+         * @brief Construct a Future from synchronized host data.
+         *
+         * This constructor is used for MPI operations where the data resides
+         * in host memory. Unlike the stream-ordered constructor, no CUDA stream
+         * dependency is tracked.
+         *
+         * @param req The MPI request handle for the operation.
+         * @param synced_host_data A unique pointer to a vector containing host
+         * memory that is guaranteed to valid at the time of the call.
+         */
+        Future(MPI_Request req, std::unique_ptr<std::vector<uint8_t>> synced_host_data)
+            : req_{std::move(req)}, synced_host_data_{std::move(synced_host_data)} {}
+
         ~Future() noexcept override = default;
 
       private:
         MPI_Request req_;
         std::unique_ptr<Buffer> data_buffer_;
+        // Dedicated storage for host data that is valid at the time of construction.
+        std::unique_ptr<std::vector<uint8_t>> synced_host_data_;
     };
 
     /**

@@ -395,7 +395,6 @@ class Communicator {
         std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
     ) = 0;
 
-
     /**
      * @brief Sends a message (device or host) to a specific rank.
      *
