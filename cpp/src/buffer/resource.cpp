@@ -148,6 +148,12 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     return ret;
 }
 
+std::unique_ptr<Buffer> BufferResource::allocate(
+    rmm::cuda_stream_view stream, MemoryReservation&& reservation
+) {
+    return allocate(reservation.size(), stream, reservation);
+}
+
 std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<std::vector<uint8_t>> data) {
     return std::unique_ptr<Buffer>(new Buffer(std::move(data)));
 }
