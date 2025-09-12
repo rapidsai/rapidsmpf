@@ -213,8 +213,4 @@ std::shared_ptr<Statistics> BufferResource::statistics() {
     return statistics_;
 }
 
-std::unique_ptr<Buffer> BufferResource::allocate_empty_host_buffer() {
-    return std::unique_ptr<Buffer>(new Buffer(std::make_unique<std::vector<uint8_t>>(0)));
-}
-
 }  // namespace rapidsmpf

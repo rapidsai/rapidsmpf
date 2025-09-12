@@ -421,13 +421,6 @@ class BufferResource {
      */
     std::shared_ptr<Statistics> statistics();
 
-    /**
-     * @brief Allocate an empty host buffer.
-     *
-     * @return A unique pointer to the allocated Buffer.
-     */
-    static std::unique_ptr<Buffer> allocate_empty_host_buffer();
-
   private:
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
