@@ -89,10 +89,10 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
 /**
  * @brief UCXX communicator class that implements the `Communicator` interface.
  *
- * This class implements communication functions using UCXX, allowing for data_buffer
- * exchange between processes in a distributed system. It supports sending and receiving
- * data_buffer, both on the CPU and GPU, and provides asynchronous operations with support
- * for future results.
+ * This class implements communication functions using UCXX, allowing for data exchange
+ * between processes in a distributed system. It supports sending and receiving data, both
+ * on the CPU and GPU, and provides asynchronous operations with support for future
+ * results.
  */
 class UCXX final : public Communicator {
   public:
@@ -107,7 +107,7 @@ class UCXX final : public Communicator {
 
       public:
         /**
-         * @brief Construct a Future from a data buffer buffer (stream ordered).
+         * @brief Construct a Future from a data buffer.
          *
          * @param req The UCXX request handle for the operation.
          * @param data_buffer A unique pointer to the data buffer.
@@ -119,12 +119,10 @@ class UCXX final : public Communicator {
          * @brief Construct a Future from synchronized host data.
          *
          * This constructor is used for UCXX operations where the data resides
-         * in host memory. Unlike the stream-ordered constructor, no CUDA stream
-         * dependency is tracked.
+         * in host memory and is guaranteed to be valid at the time of the call.
          *
          * @param req The UCXX request handle for the operation.
-         * @param synced_host_data A unique pointer to a vector containing host
-         * memory that is guaranteed to valid at the time of the call.
+         * @param synced_host_data A unique pointer to a vector containing host memory.
          */
         Future(
             std::shared_ptr<::ucxx::Request> req,

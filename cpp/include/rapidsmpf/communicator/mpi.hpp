@@ -64,10 +64,10 @@ void check_mpi_error(int error_code, const char* file, int line);
 /**
  * @brief MPI communicator class that implements the `Communicator` interface.
  *
- * This class implements communication functions using MPI, allowing for data_buffer
- * exchange between processes in a distributed system. It supports sending and receiving
- * data_buffer, both on the CPU and GPU, and provides asynchronous operations with support
- * for future results.
+ * This class implements communication functions using MPI, allowing for data exchange
+ * between processes in a distributed system. It supports sending and receiving data, both
+ * on the CPU and GPU, and provides asynchronous operations with support for future
+ * results.
  */
 class MPI final : public Communicator {
   public:
@@ -82,7 +82,7 @@ class MPI final : public Communicator {
 
       public:
         /**
-         * @brief Construct a Future from a data buffer (stream ordered).
+         * @brief Construct a Future from a data buffer.
          *
          * @param req The MPI request handle for the operation.
          * @param data_buffer A unique pointer to the data buffer.
@@ -94,12 +94,10 @@ class MPI final : public Communicator {
          * @brief Construct a Future from synchronized host data.
          *
          * This constructor is used for MPI operations where the data resides
-         * in host memory. Unlike the stream-ordered constructor, no CUDA stream
-         * dependency is tracked.
+         * in host memory and is guaranteed to be valid at the time of the call.
          *
          * @param req The MPI request handle for the operation.
-         * @param synced_host_data A unique pointer to a vector containing host
-         * memory that is guaranteed to valid at the time of the call.
+         * @param synced_host_data A unique pointer to a vector containing host memory.
          */
         Future(MPI_Request req, std::unique_ptr<std::vector<uint8_t>> synced_host_data)
             : req_{std::move(req)}, synced_host_data_{std::move(synced_host_data)} {}

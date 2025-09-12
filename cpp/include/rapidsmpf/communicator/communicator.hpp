@@ -385,6 +385,9 @@ class Communicator {
     /**
      * @brief Sends a host message to a specific rank.
      *
+     * This is used to send data that resides in host memory and is guaranteed
+     * to be valid at the time of the call.
+     *
      * @param msg Unique pointer to the message data (host memory).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
