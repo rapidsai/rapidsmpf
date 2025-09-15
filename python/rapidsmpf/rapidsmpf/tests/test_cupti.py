@@ -56,10 +56,6 @@ def _perform_gpu_operations(size_bytes: int, num_operations: int = 1) -> None:
 
     except cp.cuda.memory.OutOfMemoryError as e:
         pytest.fail(f"GPU memory allocation failed: {e}")
-    except Exception:
-        # Don't fail the test if GPU operations have issues,
-        # as the main goal is to test CUPTI monitoring
-        pass
 
 
 @pytest.fixture
