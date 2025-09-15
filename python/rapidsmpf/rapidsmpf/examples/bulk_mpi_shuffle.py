@@ -32,6 +32,13 @@ from rapidsmpf.statistics import Statistics
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
 from rapidsmpf.utils.string import format_bytes, parse_bytes
 
+try:
+    from rapidsmpf.cupti import CuptiMonitor
+
+    CUPTI_AVAILABLE = True
+except ImportError:
+    CUPTI_AVAILABLE = False
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -297,6 +304,19 @@ def setup_and_run(args: argparse.Namespace) -> None:
 
     stats = Statistics(enable=args.statistics, mr=mr)
 
+    cupti_monitor = None
+    if args.monitor_memory is not None:
+        if not CUPTI_AVAILABLE:
+            if comm.rank == 0:
+                comm.logger.print(
+                    "WARNING: --memory-monitor specified but CUPTI support not available. "
+                    "CUPTI monitoring disabled."
+                )
+        else:
+            cupti_monitor = CuptiMonitor(enable_periodic_sampling=False)
+            if comm.rank == 0:
+                comm.logger.print("CUPTI memory monitoring enabled")
+
     if comm.rank == 0:
         spill_device = (
             "disabled" if args.spill_device is None else format_bytes(args.spill_device)
@@ -316,6 +336,10 @@ Shuffle:
         )
 
     MPI.COMM_WORLD.barrier()
+
+    if cupti_monitor is not None:
+        cupti_monitor.start_monitoring()
+
     start_time = MPI.Wtime()
     bulk_mpi_shuffle(
         paths=sorted(map(str, args.input.glob("**/*"))),
@@ -330,6 +354,27 @@ Shuffle:
     )
     elapsed_time = MPI.Wtime() - start_time
     MPI.COMM_WORLD.barrier()
+
+    if cupti_monitor is not None:
+        cupti_monitor.stop_monitoring()
+
+        csv_filename = f"{args.monitor_memory}_{comm.rank}.csv"
+        try:
+            # Write CSV files
+            cupti_monitor.write_csv(csv_filename)
+            comm.logger.print(
+                f"CUPTI memory data written to {csv_filename} "
+                f"({cupti_monitor.get_sample_count()} samples, "
+                f"{cupti_monitor.get_total_callback_count()} callbacks)"
+            )
+
+            # Print callback summary for rank 0
+            if comm.rank == 0:
+                comm.logger.print(
+                    f"CUPTI Callback Summary:\n{cupti_monitor.get_callback_summary()}"
+                )
+        except Exception as e:
+            comm.logger.print(f"Failed to write CUPTI CSV file: {e}")
 
     mem_peak = format_bytes(mr.get_main_record().peak())
     comm.logger.print(
@@ -432,6 +477,16 @@ if __name__ == "__main__":
         help=(
             "Cluster type to setup. Regardless of the cluster type selected it must "
             "be launched with 'mpirun'."
+        ),
+    )
+    parser.add_argument(
+        "--monitor-memory",
+        type=str,
+        default=None,
+        help=(
+            "Enable memory monitoring with CUPTI and save CSV files with given path "
+            "prefix. For example, /tmp/test will write files to /tmp/test_<rank>.csv. "
+            "Requires CUPTI support to be compiled in."
         ),
     )
     args = parser.parse_args()
