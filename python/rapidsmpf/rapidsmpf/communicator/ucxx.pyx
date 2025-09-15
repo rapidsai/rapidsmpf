@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """ucxx-based implementation of a RapidsMPF Communicator."""
 
-from enum import Enum
-
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint16_t
 from libcpp.memory cimport (dynamic_pointer_cast, make_shared, nullptr,
@@ -32,12 +30,6 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace "rapidsmpf::ucxx"
     ctypedef pair[string, uint16_t] HostPortPair
 
     ctypedef variant RemoteAddress
-
-    cpdef enum class ProgressMode(int):
-        Blocking
-        Polling
-        ThreadBlocking
-        ThreadPolling
 
     cdef cppclass cpp_UCXX_ListenerAddress "rapidsmpf::ucxx::ListenerAddress":
         RemoteAddress address
