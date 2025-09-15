@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import cupy as cp
+import cupy.cuda.runtime as runtime
 
 import pytest
 
@@ -28,31 +29,10 @@ def _perform_gpu_operations(size_bytes: int, num_operations: int = 1) -> None:
     # Use multiple approaches to trigger CUDA runtime API calls that CUPTI monitors
     try:
         for _ in range(num_operations):
-            # Method 1: Use CuPy's direct CUDA runtime calls
-            try:
-                import cupy.cuda.runtime as runtime
-
-                # Allocate using CUDA runtime API
-                ptr, _ = runtime.malloc(size_bytes)
-                # Free using CUDA runtime API
-                runtime.free(ptr)
-            except Exception:
-                pass
-
-            # Method 2: Use CuPy arrays which should trigger memory callbacks
-            arr = cp.zeros(size_bytes // 4, dtype=cp.float32)
-            # Perform operations that might trigger kernel callbacks
-            arr.fill(1.0)
-            cp.cuda.Stream.null.synchronize()
-            # Force deallocation
-            del arr
-
-            # Method 3: Try managed memory allocation
-            try:
-                ptr_managed, _ = runtime.mallocManaged(size_bytes)
-                runtime.free(ptr_managed)
-            except Exception:
-                pass
+            # Allocate using CUDA runtime API
+            ptr = runtime.malloc(size_bytes)
+            # Free using CUDA runtime API
+            runtime.free(ptr)
 
     except cp.cuda.memory.OutOfMemoryError as e:
         pytest.fail(f"GPU memory allocation failed: {e}")
@@ -92,7 +72,6 @@ class TestMemoryDataPoint:
         assert isinstance(sample.total_memory, int)
         assert isinstance(sample.used_memory, int)
 
-        # Basic sanity checks
         assert sample.timestamp > 0
         assert sample.total_memory > 0
         assert sample.free_memory <= sample.total_memory
@@ -269,7 +248,7 @@ class TestCuptiMonitor:
         initial_count = monitor.get_sample_count()
 
         # Wait for periodic samples to be collected
-        time.sleep(0.2)  # 200ms
+        time.sleep(0.2)
 
         final_count = monitor.get_sample_count()
 
@@ -287,7 +266,7 @@ class TestCuptiMonitor:
         initial_count = monitor.get_sample_count()
 
         # Wait - should not collect periodic samples
-        time.sleep(0.2)  # 200ms
+        time.sleep(0.2)
 
         final_count = monitor.get_sample_count()
 
@@ -450,17 +429,11 @@ class TestCuptiMonitor:
         _perform_gpu_operations(1024 * 1024, 2)  # 1 MiB, 2 operations
 
         # Also try some additional CUDA operations to ensure callbacks are triggered
-        try:
-            # Direct CUDA memory operations
-            import cupy.cuda.runtime as runtime
+        ptr1 = runtime.mallocManaged(1024 * 1024)
+        runtime.free(ptr1)
 
-            ptr1, _ = runtime.mallocManaged(1024 * 1024)
-            runtime.free(ptr1)
-
-            ptr2, _ = runtime.malloc(1024 * 1024)
-            runtime.free(ptr2)
-        except Exception:
-            pass  # Ignore if these operations fail
+        ptr2 = runtime.malloc(1024 * 1024)
+        runtime.free(ptr2)
 
         monitor.stop_monitoring()
 
@@ -468,14 +441,6 @@ class TestCuptiMonitor:
         total_callbacks = monitor.get_total_callback_count()
         counters = monitor.get_callback_counters()
         summary = monitor.get_callback_summary()
-
-        # Print debug information if no callbacks were recorded
-        if total_callbacks == 0:
-            print(f"Debug: No callbacks recorded. Summary: {summary}")
-            # This might be expected in some environments, so make it a soft assertion
-            pytest.skip(
-                "No CUPTI callbacks were triggered - this may be expected in some environments"
-            )
 
         # Should have recorded some callbacks
         assert total_callbacks > 0
@@ -494,20 +459,14 @@ class TestCuptiMonitor:
         _perform_gpu_operations(1024 * 1024)  # 1 MiB
 
         # Also try additional CUDA operations
-        try:
-            import cupy.cuda.runtime as runtime
-
-            ptr, _ = runtime.malloc(1024 * 1024)
-            runtime.free(ptr)
-        except Exception:
-            pass
+        ptr = runtime.malloc(1024 * 1024)
+        runtime.free(ptr)
 
         monitor.stop_monitoring()
 
         # Check if callbacks were recorded
         total_callbacks = monitor.get_total_callback_count()
-        if total_callbacks == 0:
-            pytest.skip("No CUPTI callbacks were triggered - skipping clear test")
+        assert total_callbacks > 0
 
         # Should have some callbacks recorded
         assert total_callbacks > 0
@@ -539,11 +498,8 @@ class TestCuptiMonitor:
 
         monitor.stop_monitoring()
 
-        # If no callbacks were triggered at all, skip the test
-        if first_count == 0 and second_count == 0:
-            pytest.skip("No CUPTI callbacks were triggered - skipping accumulate test")
-
         # Should have accumulated more callbacks (or at least stayed the same)
+        assert first_count > 0 and second_count > 0
         assert second_count >= first_count
 
     def test_parameter_validation(self, cuda_context: None) -> None:
