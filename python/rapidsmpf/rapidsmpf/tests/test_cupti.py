@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import cupy as cp
+
 import pytest
 
 if TYPE_CHECKING:
