@@ -25,7 +25,8 @@ using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
 namespace node = rapidsmpf::streaming::node;
 
-class StreamingShuffler : public BaseStreamingFixture {
+class StreamingShuffler : public BaseStreamingFixture,
+                          public ::testing::WithParamInterface<int> {
   public:
     const unsigned int num_partitions = 10;
     const unsigned int num_rows = 1000;
@@ -34,6 +35,22 @@ class StreamingShuffler : public BaseStreamingFixture {
     const std::int64_t seed = 42;
     const cudf::hash_id hash_function = cudf::hash_id::HASH_MURMUR3;
     const OpID op_id = 0;
+
+    // override the base SetUp
+    void SetUp() override {
+        int num_streaming_threads = GetParam();
+        rapidsmpf::config::Options options{
+            rapidsmpf::config::get_environment_variables()
+        };
+        options.insert_if_absent(
+            "num_streaming_threads", std::to_string(num_streaming_threads)
+        );
+        stream = cudf::get_default_stream();
+        br = std::make_unique<rapidsmpf::BufferResource>(mr_cuda);
+        ctx = std::make_shared<rapidsmpf::streaming::Context>(
+            std::move(options), std::make_shared<rapidsmpf::Single>(options), br.get()
+        );
+    }
 
     void run_test(auto make_shuffler_node_fn) {
         // Create the full input table and slice it into chunks.
@@ -97,7 +114,16 @@ class StreamingShuffler : public BaseStreamingFixture {
     }
 };
 
-TEST_F(StreamingShuffler, Basic) {
+INSTANTIATE_TEST_SUITE_P(
+    StreamingShuffler,
+    StreamingShuffler,
+    ::testing::Values(1, 2, 4),
+    [](const testing::TestParamInfo<StreamingShuffler::ParamType>& info) {
+        return "nthreads_" + std::to_string(info.param);
+    }
+);
+
+TEST_P(StreamingShuffler, blocking_shuffler) {
     EXPECT_NO_FATAL_FAILURE(
         run_test([&](auto ctx, auto ch_in, auto ch_out, std::vector<Node>& nodes) {
             nodes.emplace_back(
@@ -248,7 +274,7 @@ std::pair<Node, Node> shuffler_nb(
 
 }  // namespace
 
-TEST_F(StreamingShuffler, callbacks) {
+TEST_P(StreamingShuffler, async_shuffler_with_callbacks) {
     EXPECT_NO_FATAL_FAILURE(
         run_test([&](auto ctx, auto ch_in, auto ch_out, std::vector<Node>& nodes) {
             auto [insert_node, extract_node] = shuffler_nb(
@@ -261,6 +287,60 @@ TEST_F(StreamingShuffler, callbacks) {
             );
             nodes.emplace_back(std::move(insert_node));
             nodes.emplace_back(std::move(extract_node));
+        })
+    );
+}
+
+TEST_P(StreamingShuffler, shuffler_async) {
+    EXPECT_NO_FATAL_FAILURE(
+        run_test([&](auto ctx, auto ch_in, auto ch_out, std::vector<Node>& nodes) {
+            auto shuffler_async = std::make_shared<ShufflerAsync>(
+                std::move(ctx), stream, op_id, num_partitions
+            );
+            nodes.emplace_back(
+                node::shuffler_async_insert(shuffler_async, stream, std::move(ch_in))
+            );
+            nodes.emplace_back(
+                node::shuffler_async_extract(std::move(shuffler_async), std::move(ch_out))
+            );
+        })
+    );
+}
+
+TEST_P(StreamingShuffler, shuffler_async_extract_by_pid) {
+    auto extract_by_pid = [](auto shuffler_async, auto ch_out) -> Node {
+        auto& ctx = shuffler_async->ctx();
+        co_await ctx->executor()->schedule();
+
+        auto comm = ctx->comm();
+        for (shuffler::PartID pid = 0; pid < shuffler_async->total_num_partitions();
+             ++pid)
+        {
+            if (shuffler_async->partition_owner()(comm, pid) != comm->rank()) {
+                continue;
+            }
+
+            auto chunks = co_await shuffler_async->extract_async(pid);
+
+            co_await ch_out->send(
+                std::make_unique<PartitionVectorChunk>(pid, std::move(chunks))
+            );
+        }
+
+        co_await ch_out->drain(ctx->executor());
+    };
+
+    EXPECT_NO_FATAL_FAILURE(
+        run_test([&](auto ctx, auto ch_in, auto ch_out, std::vector<Node>& nodes) {
+            auto shuffler_async = std::make_shared<ShufflerAsync>(
+                std::move(ctx), stream, op_id, num_partitions
+            );
+            nodes.emplace_back(
+                node::shuffler_async_insert(shuffler_async, stream, std::move(ch_in))
+            );
+            nodes.emplace_back(
+                extract_by_pid(std::move(shuffler_async), std::move(ch_out))
+            );
         })
     );
 }

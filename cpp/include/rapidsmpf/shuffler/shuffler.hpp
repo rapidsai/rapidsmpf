@@ -143,6 +143,9 @@ class Shuffler {
 
     ~Shuffler();
 
+    Shuffler(const Shuffler&) = delete;
+    Shuffler& operator=(const Shuffler&) = delete;
+
     /**
      * @brief Shutdown the shuffle, blocking until all inflight communication is done.
      *
