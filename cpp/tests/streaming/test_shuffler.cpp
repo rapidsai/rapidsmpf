@@ -344,3 +344,123 @@ TEST_P(StreamingShuffler, shuffler_async_extract_by_pid) {
         })
     );
 }
+
+TEST_P(StreamingShuffler, multiple_consumers) {
+    auto gen_partitions_task = [](std::shared_ptr<Context> ctx,
+                                  rmm::cuda_stream_view stream,
+                                  size_t n_inserts,
+                                  uint32_t num_partitions,
+                                  std::shared_ptr<Channel> ch_out) -> Node {
+        co_await ctx->executor()->schedule();
+
+        auto br = ctx->br();
+        for (size_t i = 0; i < n_inserts; ++i) {
+            std::unordered_map<shuffler::PartID, PackedData> data;
+            for (shuffler::PartID pid = 0; pid < num_partitions; ++pid) {
+                auto [res, ob] = br->reserve(MemoryType::DEVICE, 100, true);
+                data.emplace(
+                    pid,
+                    PackedData(
+                        std::make_unique<std::vector<std::uint8_t>>(100),
+                        br->allocate(stream, std::move(res))
+                    )
+                );
+            }
+            co_await ch_out->send(
+                std::make_unique<PartitionMapChunk>(i, std::move(data))
+            );
+        }
+        co_await ch_out->drain(ctx->executor());
+    };
+
+    auto consume_partitions_task = [](std::shared_ptr<Context> ctx,
+                                      std::vector<std::shared_ptr<Channel>>& chs_in,
+                                      size_t exp_local_partitions) -> Node {
+        co_await ctx->executor()->schedule();
+
+        size_t n_partitions_received = 0;
+        while (!chs_in.empty()) {
+            for (auto& ch_in : chs_in) {
+                auto msg = co_await ch_in->receive();
+                if (msg.empty()) {  // channel is finished
+                    ch_in = nullptr;
+                } else {
+                    auto partition_vec = msg.template release<PartitionVectorChunk>();
+                    n_partitions_received += partition_vec.data.size();
+                }
+            }
+
+            std::erase(chs_in, nullptr);  // remove finished channels
+        }
+        EXPECT_EQ(n_partitions_received, exp_local_partitions);
+        co_return;
+    };
+
+    size_t n_inserts = 10;
+    uint32_t n_partitions = 20;
+    size_t n_consumers = 5;
+    auto local_pids = shuffler::Shuffler::local_partitions(
+        ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
+    );
+
+    /*
+     * Data flow graph illustration:
+     *
+     *                              +-------------------+
+     *                              |   gen_partitions  |
+     *                              +---------+---------+
+     *                                        |
+     *                                        | shuffler_in
+     *                                        v
+     *                              +-------------------+
+     *                              |    insert_node    |
+     *                              +---------+---------+
+
+     *                  +---------------+ +---------------+ +---------------+
+     *                  |extract_node   | |extract_node   | |extract_node   |
+     *                  |    [0]        | |    [1]        | |   [n-1]       |
+     *                  +-------+-------+ +-------+-------+ +-------+-------+
+     *                          |                 |                 |
+     *                          | shuffler_out[0] | shuffler_out[1] | shuffler_out[n-1]
+     *                          v                 v                 v
+     *                          |                 |                 |
+     *                          +---------+-------+---------+-------+
+     *                                    |                 |
+     *                                    v                 v
+     *                                 +---------------------+
+     *                                 |  consume_partitions |
+     *                                 +---------------------+
+     *
+     * This graph tests multiple consumers extracting partitions concurrently
+     * from a single ShufflerAsync instance.
+     */
+
+    auto shuffler_in = std::make_shared<Channel>();
+    std::vector<std::shared_ptr<Channel>> shuffler_out(n_consumers);
+    for (size_t i = 0; i < n_consumers; ++i) {
+        shuffler_out[i] = std::make_shared<Channel>();
+    }
+
+    auto shuffler_async =
+        std::make_shared<ShufflerAsync>(ctx, stream, op_id, n_partitions);
+
+    std::vector<Node> nodes;
+
+    nodes.emplace_back(
+        gen_partitions_task(ctx, stream, n_inserts, n_partitions, shuffler_in)
+    );
+
+    nodes.emplace_back(
+        node::shuffler_async_insert(shuffler_async, stream, std::move(shuffler_in))
+    );
+
+    for (size_t i = 0; i < n_consumers; ++i) {
+        nodes.emplace_back(node::shuffler_async_extract(shuffler_async, shuffler_out[i]));
+    }
+
+    nodes.emplace_back(
+        consume_partitions_task(ctx, shuffler_out, n_inserts * local_pids.size())
+    );
+
+    run_streaming_pipeline(std::move(nodes));
+}
