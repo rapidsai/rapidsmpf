@@ -216,7 +216,7 @@ std::vector<PackedData> spill_partitions(
     BufferResource* br,
     std::shared_ptr<Statistics> statistics
 ) {
-    auto const elapsed = Clock::now();
+    auto const start_time = Clock::now();
     // Sum the total size of all packed data in device memory.
     std::size_t device_size{0};
     for (auto& [_, data] : partitions) {
@@ -236,7 +236,7 @@ std::vector<PackedData> spill_partitions(
                 );
             }
             statistics->add_duration_stat(
-                "spill-time-device-to-host", Clock::now() - elapsed
+                "spill-time-device-to-host", Clock::now() - start_time
             );
             statistics->add_bytes_stat("spill-bytes-device-to-host", device_size);
             return ret;
@@ -251,7 +251,7 @@ std::vector<PackedData> unspill_partitions(
     bool allow_overbooking,
     std::shared_ptr<Statistics> statistics
 ) {
-    auto const elapsed = Clock::now();
+    auto const start_time = Clock::now();
     // Sum the total size of all packed data not in device memory already.
     std::size_t non_device_size{0};
     for (auto& [_, data] : partitions) {
@@ -273,7 +273,7 @@ std::vector<PackedData> unspill_partitions(
             }
 
             statistics->add_duration_stat(
-                "spill-time-host-to-device", Clock::now() - elapsed
+                "spill-time-host-to-device", Clock::now() - start_time
             );
             statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
             return ret;
