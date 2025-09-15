@@ -7,6 +7,7 @@
 
 
 #include <any>
+#include <cstddef>
 #include <memory>
 #include <typeinfo>
 
@@ -14,6 +15,7 @@
 #include <rapidsmpf/streaming/core/node.hpp>
 
 #include <coro/coro.hpp>
+#include <coro/semaphore.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -189,6 +191,169 @@ class Channel {
 
   private:
     coro::ring_buffer<Message, 1> rb_;
+};
+
+/**
+ * @brief A coroutine-based channel for sending and receiving messages asynchronously.
+ *
+ * This channel is throttled to cap the number of suspended coroutines that can be waiting
+ * to send into it. It is useful when writing producer nodes that
+ * otherwise do not depend on an input channel.
+ */
+class ThrottledChannel {
+  private:
+    ///< @brief Ticket granting permission to send into the channel.
+    class Ticket {
+        friend class ThrottledChannel;
+
+      public:
+        Ticket& operator=(Ticket const&) = delete;
+        Ticket(Ticket const&) = delete;
+        Ticket& operator=(Ticket&&) = default;
+        Ticket(Ticket&&) = default;
+        ~Ticket() = default;
+
+      private:
+        Ticket() = default;
+    };
+
+    ///< @brief Receipt proving that a ticket has been consumed and sent.
+    class Receipt {
+        friend class ThrottledChannel;
+
+      public:
+        Receipt& operator=(Receipt const&) = delete;
+        Receipt(Receipt const&) = delete;
+        Receipt& operator=(Receipt&&) = default;
+        Receipt(Receipt&&) = default;
+        ~Receipt() = default;
+
+      private:
+        Receipt() = default;
+    };
+
+  public:
+    /**
+     * @brief Create a new `ThrottledChannel`
+     *
+     * @param max_tickets Maximum number of simultaneous tickets for sending into the
+     * channel.
+     */
+    explicit ThrottledChannel(std::ptrdiff_t max_tickets)
+        : rb_{}, semaphore_(max_tickets) {}
+
+    /**
+     * @brief Asynchronously send a message into the channel.
+     *
+     * Suspends if the channel is full.
+     *
+     * @param msg The msg to send.
+     * @param ticket The ticket indicating one has a right to send.
+     *
+     * @note One should `release` the ticket after sending into the
+     * channel using the receipt provided.
+     *
+     * @return A coroutine that evaluates to a pair of true if the msg was successfully
+     * sent or false if the channel was shut down and a `SentTicket` to be released.
+     */
+    [[nodiscard]] coro::task<std::pair<bool, Receipt>> send(
+        Message msg, [[maybe_unused]] Ticket&& ticket
+    ) {
+        auto result = co_await rb_.produce(std::move(msg));
+        co_return {result == coro::ring_buffer_result::produce::produced, Receipt{}};
+    }
+
+    /**
+     * @brief Obtain a ticket to send a message.
+     *
+     * Suspends if all tickets are currently handed out.
+     *
+     * @return A coroutine producing a new ticket to be used in `send`.
+     */
+    [[nodiscard]] coro::task<Ticket> acquire() {
+        auto result = co_await semaphore_.acquire();
+        RAPIDSMPF_EXPECTS(
+            result == coro::semaphore_acquire_result::acquired, "Semaphore was shutdown"
+        );
+        co_return Ticket{};
+    }
+
+    /**
+     * @brief Release a ticket that has been converted to a sent message.
+     *
+     * @param receipt The receipt indicating one has sent a message.
+     * @return A coroutine representing completion of the release.
+
+     * @note To avoid immediately transferring control in this
+     * executing thread to any waiting tasks, one should `yield` in
+     * the executor before `release`ing.
+     *
+     * Here is a typical pattern:
+     * @code{.cpp}
+     * auto ticket = co_await channel.acquire();
+     * auto data = do_expensive_work();
+     * auto [_, receipt] = co_await channel.send(std::move(ticket));
+     * co_await executor->yield();
+     * co_await channel.release(std::move(receipt));
+     * @endcode
+     */
+    coro::task<void> release([[maybe_unused]] Receipt&& receipt) {
+        RAPIDSMPF_EXPECTS(!semaphore_.is_shutdown(), "Semaphore was shutdown");
+        co_await semaphore_.release();
+    }
+
+    /**
+     * @brief Asynchronously receive a message from the channel.
+     *
+     * Suspends if the channel is empty.
+     *
+     * @return A coroutine that evaluates to the message, which will be empty if the
+     * channel is shut down.
+     */
+    coro::task<Message> receive() {
+        auto msg = co_await rb_.consume();
+        if (msg.has_value()) {
+            co_return std::move(*msg);
+        } else {
+            co_return Message{};
+        }
+    }
+
+    /**
+     * @brief Drains all pending messages from the channel and shuts it down.
+     *
+     * This is intended to ensure all remaining messages are processed.
+     *
+     * @param executor The thread pool used to process remaining messages.
+     * @return A coroutine representing the completion of the shutdown drain.
+     */
+    Node drain(std::shared_ptr<coro::thread_pool> executor) {
+        return rb_.shutdown_drain(std::move(executor));
+    }
+
+    /**
+     * @brief Immediately shuts down the channel.
+     *
+     * Any pending or future send/receive operations will complete with failure.
+     *
+     * @return A coroutine representing the completion of the shutdown.
+     */
+    Node shutdown() {
+        return rb_.shutdown();
+    }
+
+    /**
+     * @brief Check whether the channel is empty.
+     *
+     * @return True if there are no messages in the buffer.
+     */
+    [[nodiscard]] bool empty() const noexcept {
+        return rb_.empty();
+    }
+
+  private:
+    coro::ring_buffer<Message, 1> rb_;
+    coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()> semaphore_;
 };
 
 /**
