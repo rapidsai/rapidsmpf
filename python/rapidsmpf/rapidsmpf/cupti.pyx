@@ -42,26 +42,26 @@ cdef class MemoryDataPoint:
         return result
 
     @property
-    def timestamp(self) -> float:
+    def timestamp(self):
         """Time when sample was taken (seconds since epoch)."""
         return self._data.timestamp
 
     @property
-    def free_memory(self) -> int:
+    def free_memory(self):
         """Free GPU memory in bytes."""
         return self._data.free_memory
 
     @property
-    def total_memory(self) -> int:
+    def total_memory(self):
         """Total GPU memory in bytes."""
         return self._data.total_memory
 
     @property
-    def used_memory(self) -> int:
+    def used_memory(self):
         """Used GPU memory in bytes."""
         return self._data.used_memory
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return (f"MemoryDataPoint(timestamp={self.timestamp}, "
                 f"free_memory={self.free_memory}, "
                 f"total_memory={self.total_memory}, "
@@ -98,7 +98,7 @@ cdef class CuptiMonitor:
         with nogil:
             self._handle.reset()
 
-    def start_monitoring(self) -> None:
+    def start_monitoring(self):
         """Start memory monitoring.
 
         Initializes CUPTI and begins intercepting CUDA API calls.
@@ -157,12 +157,12 @@ cdef class CuptiMonitor:
             result.append(MemoryDataPoint.from_cpp(deref(samples)[i]))
         return result
 
-    def clear_samples(self) -> None:
+    def clear_samples(self):
         """Clear all collected memory samples."""
         with nogil:
             self._handle.get().clear_samples()
 
-    def get_sample_count(self) -> int:
+    def get_sample_count(self):
         """Get the number of memory samples collected.
 
         Returns
@@ -174,7 +174,7 @@ cdef class CuptiMonitor:
             count = self._handle.get().get_sample_count()
         return <int>count
 
-    def write_csv(self, filename: str) -> None:
+    def write_csv(self, filename: str):
         """Write memory samples to CSV file.
 
         Parameters
@@ -191,7 +191,7 @@ cdef class CuptiMonitor:
         with nogil:
             self._handle.get().write_csv(c_filename)
 
-    def set_debug_output(self, enabled: bool, threshold_mb: int = 10) -> None:
+    def set_debug_output(self, enabled: bool, threshold_mb: int = 10):
         """Enable or disable debug output for significant memory changes.
 
         Parameters
@@ -206,7 +206,7 @@ cdef class CuptiMonitor:
         with nogil:
             self._handle.get().set_debug_output(c_enabled, c_threshold)
 
-    def get_callback_counters(self) -> typing.Dict[int, int]:
+    def get_callback_counters(self):
         """Get callback counters for all monitored CUPTI callbacks.
 
         Returns a dictionary where keys are CUPTI callback IDs and values are the number
@@ -227,7 +227,7 @@ cdef class CuptiMonitor:
             postincrement(it)
         return result
 
-    def clear_callback_counters(self) -> None:
+    def clear_callback_counters(self):
         """Clear all callback counters.
 
         Resets all callback counters to zero.
@@ -235,7 +235,7 @@ cdef class CuptiMonitor:
         with nogil:
             self._handle.get().clear_callback_counters()
 
-    def get_total_callback_count(self) -> int:
+    def get_total_callback_count(self):
         """Get total number of callbacks triggered across all monitored callback IDs.
 
         Returns
@@ -247,7 +247,7 @@ cdef class CuptiMonitor:
             count = self._handle.get().get_total_callback_count()
         return <int>count
 
-    def get_callback_summary(self) -> str:
+    def get_callback_summary(self):
         """Get a human-readable summary of callback counters.
 
         Returns a formatted string showing callback names and their counts.
