@@ -23,8 +23,7 @@ namespace rapidsmpf::streaming::node {
  * It consumes partitioned input data from the input channel and produces output chunks
  * grouped by `partition_owner`.
  *
- * @param ctx The streaming context providing communication, memory, stream, and execution
- * resources.
+ * @param ctx The context to use.
  * @param stream The CUDA stream on which to perform the shuffling. If chunks from the
  * input channel aren't created on `stream`, the streams are all synchronized.
  * @param ch_in Input channel providing PartitionMapChunk to be shuffled.
@@ -46,6 +45,5 @@ Node shuffler(
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin
 );
-
 
 }  // namespace rapidsmpf::streaming::node

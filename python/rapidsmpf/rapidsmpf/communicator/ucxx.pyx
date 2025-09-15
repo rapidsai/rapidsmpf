@@ -94,7 +94,7 @@ def new_communicator(
     Rank nranks,
     UCXWorker ucx_worker,
     UCXAddress root_ucxx_address,
-    Options options,
+    Options options not None,
     ProgressMode progress_mode = ProgressMode.ThreadBlocking,
 ):
     """
@@ -139,7 +139,7 @@ def new_communicator(
     )
 
 
-def get_root_ucxx_address(Communicator comm):
+def get_root_ucxx_address(Communicator comm not None):
     """
     Get the address of the communicator's UCXX worker.
 
@@ -182,7 +182,7 @@ def get_root_ucxx_address(Communicator comm):
         assert host_port_pair  # Prevent "defined but unused" error
 
 
-def barrier(Communicator comm):
+def barrier(Communicator comm not None):
     """
     Execute a barrier on the UCXX communicator.
 

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <variant>
 #include <vector>
@@ -97,7 +98,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage any memory.
      */
-    [[nodiscard]] void* data();
+    [[nodiscard]] std::byte* data();
 
     /**
      * @brief Access the underlying memory buffer (host or device memory).
@@ -106,7 +107,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage any memory.
      */
-    [[nodiscard]] void const* data() const;
+    [[nodiscard]] std::byte const* data() const;
 
     /**
      * @brief Get the memory type of the buffer.

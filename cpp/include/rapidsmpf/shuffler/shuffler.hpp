@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -76,6 +77,35 @@ class Shuffler {
         PartitionOwner partition_owner
     );
 
+    /// @copydoc detail::FinishCounter::FinishedCallback
+    using FinishedCallback = detail::FinishCounter::FinishedCallback;
+
+    /**
+     * @brief Construct a new shuffler for a single shuffle.
+     *
+     * @param comm The communicator to use.
+     * @param progress_thread The progress thread to use.
+     * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
+     * and should not be reused until all nodes has called `Shuffler::shutdown()`.
+     * @param total_num_partitions Total number of partitions in the shuffle.
+     * @param stream The CUDA stream for memory operations.
+     * @param br Buffer resource used to allocate temporary and the shuffle result.
+     * @param finished_callback Callback to notify when a partition is finished.
+     * @param statistics The statistics instance to use (disabled by default).
+     * @param partition_owner Function to determine partition ownership.
+     */
+    Shuffler(
+        std::shared_ptr<Communicator> comm,
+        std::shared_ptr<ProgressThread> progress_thread,
+        OpID op_id,
+        PartID total_num_partitions,
+        rmm::cuda_stream_view stream,
+        BufferResource* br,
+        FinishedCallback&& finished_callback,
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+        PartitionOwner partition_owner = round_robin
+    );
+
     /**
      * @brief Construct a new shuffler for a single shuffle.
      *
@@ -98,14 +128,25 @@ class Shuffler {
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin
-    );
+    )
+        : Shuffler(
+              comm,
+              progress_thread,
+              op_id,
+              total_num_partitions,
+              stream,
+              br,
+              nullptr,
+              statistics,
+              partition_owner
+          ) {}
 
     ~Shuffler();
 
     /**
      * @brief Shutdown the shuffle, blocking until all inflight communication is done.
      *
-     * @throw std::logic_error If the shuffler is already inactive.
+     * @throws std::logic_error If the shuffler is already inactive.
      */
     void shutdown();
 
@@ -141,20 +182,18 @@ class Shuffler {
     void insert_finished(std::vector<PartID>&& pids);
 
     /**
-     * @brief Extract all chunks of a specific partition.
+     * @brief Extract all chunks belonging to the specified partition.
      *
-     * @param pid The partition ID.
-     * @return A vector of PackedData (chunks) for the partition.
+     * It is valid to extract a partition that has not yet been fully received.
+     * In such cases, only the chunks received so far are returned.
+     *
+     * To ensure the partition is complete, use `wait_any()`, `wait_on()`,
+     * or another appropriate synchronization mechanism beforehand.
+     *
+     * @param pid The ID of the partition to extract.
+     * @return A vector of PackedData chunks associated with the partition.
      */
     [[nodiscard]] std::vector<PackedData> extract(PartID pid);
-
-    /**
-     * @brief Extract all chunks of a specific partition.
-     *
-     * @param pid The partition ID.
-     * @return A vector of Chunks for the partition.
-     */
-    [[nodiscard]] std::vector<detail::Chunk> extract_chunks(PartID pid);
 
     /**
      * @brief Check if all partitions are finished.
@@ -164,13 +203,21 @@ class Shuffler {
     [[nodiscard]] bool finished() const;
 
     /**
+     * @brief Check if a partition is finished.
+     *
+     * @param pid The partition ID to check.
+     * @return True if the partition is finished, otherwise False.
+     */
+    [[nodiscard]] bool is_finished(PartID pid) const;
+
+    /**
      * @brief Wait for any partition to finish.
      *
      * @param timeout Optional timeout (ms) to wait.
      *
      * @return The partition ID of the next finished partition.
      *
-     * @throw std::runtime_error if the timeout is reached.
+     * @throws std::runtime_error if the timeout is reached.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -180,20 +227,9 @@ class Shuffler {
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
      *
-     * @throw std::runtime_error if the timeout is reached.
+     * @throws std::runtime_error if the timeout is reached.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
-
-    /**
-     * @brief Wait for at least one partition to finish.
-     *
-     * @param timeout Optional timeout (ms) to wait.
-     *
-     * @return The partition IDs of all finished partitions.
-     *
-     * @throw std::runtime_error if the timeout is reached.
-     */
-    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Spills data to device if necessary.

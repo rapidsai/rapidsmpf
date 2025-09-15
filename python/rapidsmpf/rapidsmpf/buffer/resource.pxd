@@ -32,6 +32,9 @@ cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
         size_t cpp_memory_reserved "memory_reserved"(
             MemoryType mem_type
         ) except +
+        cpp_MemoryAvailable cpp_memory_available "memory_available"(
+            MemoryType mem_type
+        ) except +
         cpp_SpillManager &cpp_spill_manager "spill_manager"() except +
 
 

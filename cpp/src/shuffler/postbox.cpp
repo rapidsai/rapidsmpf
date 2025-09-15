@@ -30,17 +30,9 @@ void PostBox<KeyType>::insert(Chunk&& chunk) {
 }
 
 template <typename KeyType>
-void PostBox<KeyType>::mark_empty(PartID pid) {
+bool PostBox<KeyType>::is_empty(PartID pid) const {
     std::lock_guard const lock(mutex_);
-    KeyType key = key_map_fn_(pid);
-
-    auto [it, inserted] = pigeonhole_.emplace(key, std::unordered_map<ChunkID, Chunk>{});
-    // if insertion failed, then the partition in the pigenhole needs to be empty.
-    // (ex: a pid that has already been marked as empty). Else raise an error.
-    RAPIDSMPF_EXPECTS(
-        inserted || it->second.empty(),
-        "Attempting to mark a non-empty partition as empty"
-    );
+    return !pigeonhole_.contains(key_map_fn_(pid));
 }
 
 template <typename KeyType>
@@ -94,6 +86,7 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
 
 template <typename KeyType>
 bool PostBox<KeyType>::empty() const {
+    std::lock_guard const lock(mutex_);
     return pigeonhole_.empty();
 }
 

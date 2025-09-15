@@ -23,6 +23,7 @@ from rapidsmpf.integrations.cudf.partition import (
     unspill_partitions,
 )
 from rapidsmpf.testing import pylibcudf_to_cudf_dataframe
+from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
     from typing import Any
@@ -87,7 +88,7 @@ class DaskCudfIntegration:
             (sort_boundaries,) = other
             splits = df[on[0]].searchsorted(sort_boundaries, side="right")
             packed_inputs = split_and_pack(
-                df.to_pylibcudf()[0],
+                cudf_to_pylibcudf_table(df),
                 splits.tolist(),
                 br=ctx.br,
                 stream=DEFAULT_STREAM,
@@ -95,7 +96,7 @@ class DaskCudfIntegration:
         else:
             columns_to_hash = tuple(list(df.columns).index(val) for val in on)
             packed_inputs = partition_and_pack(
-                df.to_pylibcudf()[0],
+                cudf_to_pylibcudf_table(df),
                 columns_to_hash=columns_to_hash,
                 num_partitions=partition_count,
                 br=ctx.br,

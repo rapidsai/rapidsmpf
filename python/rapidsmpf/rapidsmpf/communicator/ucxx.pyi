@@ -17,8 +17,8 @@ class ProgressMode(IntEnum):
 
 def new_communicator(
     nranks: int,
-    ucx_worker: UCXWorker,
-    root_ucxx_address: UCXAddress,
+    ucx_worker: UCXWorker | None,
+    root_ucxx_address: UCXAddress | None,
     options: Options,
     progress_mode: ProgressMode = ...,
 ) -> Communicator: ...

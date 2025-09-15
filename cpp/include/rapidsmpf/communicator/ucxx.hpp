@@ -119,20 +119,36 @@ class UCXX final : public Communicator {
 
       public:
         /**
-         * @brief Construct a Future.
+         * @brief Construct a Future from a data buffer.
          *
          * @param req The UCXX request handle for the operation.
-         * @param data A unique pointer to the data buffer.
+         * @param data_buffer A unique pointer to the data buffer.
          */
-        Future(std::shared_ptr<::ucxx::Request> req, std::unique_ptr<Buffer> data)
-            : req_{std::move(req)}, data_{std::move(data)} {}
+        Future(std::shared_ptr<::ucxx::Request> req, std::unique_ptr<Buffer> data_buffer)
+            : req_{std::move(req)}, data_buffer_{std::move(data_buffer)} {}
+
+        /**
+         * @brief Construct a Future from synchronized host data.
+         *
+         * This constructor is used for UCXX operations where the data resides
+         * in host memory and is guaranteed to be valid at the time of the call.
+         *
+         * @param req The UCXX request handle for the operation.
+         * @param synced_host_data A unique pointer to a vector containing host memory.
+         */
+        Future(
+            std::shared_ptr<::ucxx::Request> req,
+            std::unique_ptr<std::vector<uint8_t>> synced_host_data
+        )
+            : req_{std::move(req)}, synced_host_data_{std::move(synced_host_data)} {}
 
         ~Future() noexcept override = default;
 
       private:
-        std::shared_ptr<::ucxx::Request>
-            req_;  ///< The UCXX request associated with the operation.
-        std::unique_ptr<Buffer> data_;  ///< The data buffer.
+        std::shared_ptr<::ucxx::Request> req_;
+        std::unique_ptr<Buffer> data_buffer_;
+        // Dedicated storage for host data that is valid at the time of construction.
+        std::unique_ptr<std::vector<uint8_t>> synced_host_data_;
     };
 
     /**
@@ -162,7 +178,7 @@ class UCXX final : public Communicator {
      * @copydoc Communicator::send
      */
     [[nodiscard]] std::unique_ptr<Communicator::Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
+        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
     ) override;
 
     // clang-format off

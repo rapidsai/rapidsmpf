@@ -52,14 +52,15 @@ class PostBox {
     void insert(Chunk&& chunk);
 
     /**
-     * @brief Marks a partition as empty.
+     * @brief Check whether the specified partition contains any chunks.
      *
-     * @param pid The ID of the partition to mark as empty.
+     * @param pid Identifier of the partition to query.
+     * @return True if the partition contains no chunks, false otherwise.
      *
-     * @throws std::logic_error If the partition ID is already in the postbox and is not
-     * empty.
+     * @note The result reflects a snapshot at the time of the call and may change
+     * immediately afterward.
      */
-    void mark_empty(PartID pid);
+    bool is_empty(PartID pid) const;
 
     /**
      * @brief Extracts a specific chunk from the PostBox.

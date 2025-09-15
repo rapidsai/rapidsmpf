@@ -115,11 +115,6 @@ include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
-    UCX REQUIRED
-    BUILD_EXPORT_SET rapidsmpf-exports
-    INSTALL_EXPORT_SET rapidsmpf-exports
-  )
-  rapids_find_package(
     ucxx REQUIRED
     BUILD_EXPORT_SET rapidsmpf-exports
     INSTALL_EXPORT_SET rapidsmpf-exports
@@ -292,17 +287,7 @@ endif()
 # ##################################################################################################
 # * add tests -------------------------------------------------------------------------------------
 if(RAPIDSMPF_BUILD_TESTS)
-  # include CTest module -- automatically calls enable_testing()
   include(CTest)
-
-  # ctest cuda memcheck
-  find_program(CUDA_SANITIZER compute-sanitizer)
-  set(MEMORYCHECK_COMMAND ${CUDA_SANITIZER})
-  set(MEMORYCHECK_TYPE CudaSanitizer)
-  set(CUDA_SANITIZER_COMMAND_OPTIONS "--tool memcheck")
-
-  # Always print verbose output when tests fail if run using `make test`.
-  list(APPEND CMAKE_CTEST_ARGUMENTS "--output-on-failure")
   add_subdirectory(tests)
 endif()
 

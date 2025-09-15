@@ -11,6 +11,12 @@ ignore-words-list = "inout,unparseable,falsy,couldn,Couldn,thirdparty"
 builtin = "clear"
 quiet-level = 3
 
+[tool.isort]
+# Define known first party modules explicitly to avoid directory name dependency.
+# Without this the isort/cython checks may fail if the repository clone is not
+# named `rapidsmpf`.
+known_first_party = ["rapidsmpf", "librapidsmpf"]
+
 [tool.mypy]
 exclude = ["_deps/*"]
 ignore_missing_imports = true
@@ -22,7 +28,9 @@ module = "rapidsmpf.*"
 disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=append" # Dask subprocesses fail to import RAPIDSMPF otherwise
+addopts = [
+  "--import-mode=importlib", # Dask subprocesses fail to import RAPIDSMPF otherwise
+]
 
 [tool.ruff]
 line-length = 88
