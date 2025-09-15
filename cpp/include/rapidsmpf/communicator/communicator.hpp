@@ -385,16 +385,17 @@ class Communicator {
     /**
      * @brief Sends a host message to a specific rank.
      *
+     * This is used to send data that resides in host memory and is guaranteed
+     * to be valid at the time of the call.
+     *
      * @param msg Unique pointer to the message data (host memory).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
-     * @param br Buffer resource used to allocate the received message.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
+        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
     ) = 0;
-
 
     /**
      * @brief Sends a message (device or host) to a specific rank.
