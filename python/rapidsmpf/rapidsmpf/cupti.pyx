@@ -35,9 +35,9 @@ cdef class MemoryDataPoint:
     @staticmethod
     cdef MemoryDataPoint from_cpp(cpp_MemoryDataPoint data):
         """Create a MemoryDataPoint from C++ data."""
-        cdef MemoryDataPoint result = MemoryDataPoint.__new__(MemoryDataPoint)
-        result._data = data
-        return result
+        cdef MemoryDataPoint ret = MemoryDataPoint.__new__(MemoryDataPoint)
+        ret._data = data
+        return ret
 
     @property
     def timestamp(self):
@@ -74,7 +74,7 @@ cdef class CuptiMonitor:
     operations and kernel launches.
     """
 
-    def __cinit__(self, enable_periodic_sampling=False, sampling_interval_ms=100):
+    def __cinit__(self, enable_periodic_sampling=False, int sampling_interval_ms=100):
         """Initialize a CuptiMonitor instance.
 
         Parameters
@@ -124,10 +124,10 @@ cdef class CuptiMonitor:
         -------
         True if monitoring is active, False otherwise
         """
-        cdef bool_t result
+        cdef bool_t ret
         with nogil:
-            result = self._handle.get().is_monitoring()
-        return result
+            ret = self._handle.get().is_monitoring()
+        return ret
 
     def capture_memory_sample(self):
         """Manually capture current memory usage.
@@ -149,11 +149,11 @@ cdef class CuptiMonitor:
         with nogil:
             samples = &self._handle.get().get_memory_samples()
 
-        cdef list result = []
+        cdef list ret = []
         cdef size_t i
         for i in range(samples.size()):
-            result.append(MemoryDataPoint.from_cpp(deref(samples)[i]))
-        return result
+            ret.append(MemoryDataPoint.from_cpp(deref(samples)[i]))
+        return ret
 
     def clear_samples(self):
         """Clear all collected memory samples."""
@@ -167,10 +167,10 @@ cdef class CuptiMonitor:
         -------
         Number of samples
         """
-        cdef size_t count
+        cdef size_t ret
         with nogil:
-            count = self._handle.get().get_sample_count()
-        return <int>count
+            ret = self._handle.get().get_sample_count()
+        return ret
 
     def write_csv(self, filename: str):
         """Write memory samples to CSV file.
@@ -218,12 +218,12 @@ cdef class CuptiMonitor:
         with nogil:
             counters = self._handle.get().get_callback_counters()
 
-        cdef dict result = {}
+        cdef dict ret = {}
         cdef unordered_map[CUpti_CallbackId, size_t].iterator it = counters.begin()
         while it != counters.end():
-            result[<int>deref(it).first] = <int>deref(it).second
+            ret[<int>deref(it).first] = <int>deref(it).second
             postincrement(it)
-        return result
+        return ret
 
     def clear_callback_counters(self):
         """Clear all callback counters.
@@ -240,10 +240,10 @@ cdef class CuptiMonitor:
         -------
         Total number of callbacks
         """
-        cdef size_t count
+        cdef size_t ret
         with nogil:
-            count = self._handle.get().get_total_callback_count()
-        return <int>count
+            ret = self._handle.get().get_total_callback_count()
+        return ret
 
     def get_callback_summary(self):
         """Get a human-readable summary of callback counters.
