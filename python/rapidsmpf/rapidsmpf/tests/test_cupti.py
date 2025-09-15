@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 
 import cupy as cp
 import cupy.cuda.runtime as runtime
-
 import pytest
 
 if TYPE_CHECKING:
@@ -527,7 +526,8 @@ class TestCuptiMonitor:
         monitor.stop_monitoring()
 
         # Should have accumulated more callbacks (or at least stayed the same)
-        assert first_count > 0 and second_count > 0
+        assert first_count > 0
+        assert second_count > 0
         assert second_count >= first_count
 
     @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
