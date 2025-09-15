@@ -134,7 +134,7 @@ def new_communicator(
         nranks,
         ucx_worker_ptr,
         root_ucxx_address_ptr,
-        options
+        options,
         progress_mode,
     )
 
