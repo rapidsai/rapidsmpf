@@ -43,12 +43,22 @@ Buffer::Buffer(
     );
 }
 
-void* Buffer::data() {
-    return std::visit([](auto&& storage) -> void* { return storage->data(); }, storage_);
+std::byte* Buffer::data() {
+    return std::visit(
+        [](auto&& storage) -> std::byte* {
+            return reinterpret_cast<std::byte*>(storage->data());
+        },
+        storage_
+    );
 }
 
-void const* Buffer::data() const {
-    return std::visit([](auto&& storage) -> void* { return storage->data(); }, storage_);
+std::byte const* Buffer::data() const {
+    return std::visit(
+        [](auto&& storage) -> std::byte const* {
+            return reinterpret_cast<std::byte const*>(storage->data());
+        },
+        storage_
+    );
 }
 
 std::unique_ptr<Buffer> Buffer::copy(
@@ -90,13 +100,9 @@ std::unique_ptr<Buffer> Buffer::copy_slice(
                 event_->stream_wait(stream);
             }
 
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                static_cast<cuda::std::uint8_t*>(out_buf->data()),
-                source + offset,
-                length,
-                kind,
-                stream
-            ));
+            RAPIDSMPF_CUDA_TRY(
+                cudaMemcpyAsync(out_buf->data(), source + offset, length, kind, stream)
+            );
             // override the event to track the async copy, if the copy is not host-to-host
             // cudaMemcpyAsync is synchronous for host-to-host copies
             // ref: https://docs.nvidia.com/cuda/cuda-runtime-api/api-sync-behavior.html
@@ -173,13 +179,9 @@ std::ptrdiff_t Buffer::copy_to(
             event_->stream_wait(stream);
         }
 
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            static_cast<cuda::std::uint8_t*>(dest.data()) + dest_offset,
-            source,
-            size,
-            kind,
-            stream
-        ));
+        RAPIDSMPF_CUDA_TRY(
+            cudaMemcpyAsync(dest.data() + dest_offset, source, size, kind, stream)
+        );
 
         // if the copy is not host-to-host, override the event to track the async copy
         if (attach_event && kind != cudaMemcpyHostToHost) {
