@@ -19,13 +19,20 @@ if TYPE_CHECKING:
 
 # Try to import CUPTI module, skip tests if not available
 try:
+    import cupy as cp
+
     from rapidsmpf.cupti import CuptiMonitor, MemoryDataPoint
+
+    CUPTI_AVAILABLE = True
 except ImportError:
-    pytest.skip(reason="CUPTI support not available")
+    CUPTI_AVAILABLE = False
 
 
 def _perform_gpu_operations(size_bytes: int, num_operations: int = 1) -> None:
     """Helper function to allocate and free GPU memory using CUDA runtime APIs."""
+    if not CUPTI_AVAILABLE:
+        return
+
     # Use multiple approaches to trigger CUDA runtime API calls that CUPTI monitors
     try:
         for _ in range(num_operations):
@@ -41,6 +48,9 @@ def _perform_gpu_operations(size_bytes: int, num_operations: int = 1) -> None:
 @pytest.fixture
 def cuda_context() -> Generator[None, None, None]:
     """Fixture to ensure CUDA context is initialized."""
+    if not CUPTI_AVAILABLE:
+        pytest.skip("CUPTI support not available")
+
     try:
         # Initialize CUDA context
         cp.cuda.Device(0).use()
@@ -53,6 +63,7 @@ def cuda_context() -> Generator[None, None, None]:
 class TestMemoryDataPoint:
     """Test cases for MemoryDataPoint class."""
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_memory_data_point_properties(self) -> None:
         """Test that MemoryDataPoint properties work correctly."""
         # Note: We can't directly create MemoryDataPoint instances from Python
@@ -77,6 +88,7 @@ class TestMemoryDataPoint:
         assert sample.free_memory <= sample.total_memory
         assert sample.used_memory == sample.total_memory - sample.free_memory
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_memory_data_point_repr(self) -> None:
         """Test MemoryDataPoint string representation."""
         monitor = CuptiMonitor()
@@ -98,6 +110,7 @@ class TestMemoryDataPoint:
 class TestCuptiMonitor:
     """Test cases for CuptiMonitor class."""
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_basic_construction(self, cuda_context: None) -> None:
         """Test CuptiMonitor construction with different parameters."""
         # Test default construction
@@ -110,6 +123,7 @@ class TestCuptiMonitor:
         assert not monitor2.is_monitoring()
         assert monitor2.get_sample_count() == 0
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_start_stop_monitoring(self, cuda_context: None) -> None:
         """Test starting and stopping monitoring."""
         monitor = CuptiMonitor()
@@ -136,6 +150,7 @@ class TestCuptiMonitor:
         monitor.stop_monitoring()
         assert not monitor.is_monitoring()
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_double_start_monitoring(self, cuda_context: None) -> None:
         """Test that starting monitoring twice is safe."""
         monitor = CuptiMonitor()
@@ -153,6 +168,7 @@ class TestCuptiMonitor:
 
         monitor.stop_monitoring()
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_manual_capture(self, cuda_context: None) -> None:
         """Test manual memory sample capture."""
         monitor = CuptiMonitor()
@@ -171,6 +187,7 @@ class TestCuptiMonitor:
 
         monitor.stop_monitoring()
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_manual_capture_without_monitoring(self, cuda_context: None) -> None:
         """Test that manual capture without monitoring is safe but no-op."""
         monitor = CuptiMonitor()
@@ -179,6 +196,7 @@ class TestCuptiMonitor:
         monitor.capture_memory_sample()
         assert monitor.get_sample_count() == 0
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_memory_operations_detection(self, cuda_context: None) -> None:
         """Test that GPU memory operations are detected."""
         monitor = CuptiMonitor()
@@ -195,6 +213,7 @@ class TestCuptiMonitor:
 
         monitor.stop_monitoring()
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_memory_data_points(self, cuda_context: None) -> None:
         """Test memory data point collection and validation."""
         monitor = CuptiMonitor()
@@ -219,6 +238,7 @@ class TestCuptiMonitor:
         for i in range(1, len(samples)):
             assert samples[i].timestamp >= samples[i - 1].timestamp
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_clear_samples(self, cuda_context: None) -> None:
         """Test clearing collected samples."""
         monitor = CuptiMonitor()
@@ -239,6 +259,7 @@ class TestCuptiMonitor:
 
         monitor.stop_monitoring()
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_periodic_sampling(self, cuda_context: None) -> None:
         """Test periodic sampling functionality."""
         # Monitor with periodic sampling every 50ms
@@ -257,6 +278,7 @@ class TestCuptiMonitor:
 
         monitor.stop_monitoring()
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_no_periodic_sampling(self, cuda_context: None) -> None:
         """Test that periodic sampling can be disabled."""
         # Monitor without periodic sampling
@@ -275,6 +297,7 @@ class TestCuptiMonitor:
 
         monitor.stop_monitoring()
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_csv_export(self, cuda_context: None) -> None:
         """Test CSV export functionality."""
         monitor = CuptiMonitor()
@@ -321,6 +344,7 @@ class TestCuptiMonitor:
             if file_path.exists():
                 file_path.unlink()
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_csv_export_invalid_path(self, cuda_context: None) -> None:
         """Test CSV export with invalid path raises exception."""
         monitor = CuptiMonitor()
@@ -331,6 +355,7 @@ class TestCuptiMonitor:
         with pytest.raises(RuntimeError):
             monitor.write_csv("/invalid/path/file.csv")
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_debug_output(self, cuda_context: None) -> None:
         """Test debug output configuration."""
         monitor = CuptiMonitor()
@@ -344,6 +369,7 @@ class TestCuptiMonitor:
         monitor.set_debug_output(enabled=True, threshold_mb=1)  # 1MB threshold
         monitor.stop_monitoring()
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_thread_safety(self, cuda_context: None) -> None:
         """Test thread safety of CuptiMonitor."""
         monitor = CuptiMonitor()
@@ -380,6 +406,7 @@ class TestCuptiMonitor:
             assert sample.total_memory > 0
             assert sample.free_memory <= sample.total_memory
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_destructor_cleanup(self, cuda_context: None) -> None:
         """Test that destructor properly cleans up monitoring."""
 
@@ -397,6 +424,7 @@ class TestCuptiMonitor:
         monitor2.start_monitoring()
         monitor2.stop_monitoring()
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_large_number_of_samples(self, cuda_context: None) -> None:
         """Test handling of large number of samples."""
         monitor = CuptiMonitor()
@@ -414,6 +442,7 @@ class TestCuptiMonitor:
         monitor.stop_monitoring()
         assert monitor.get_sample_count() == 102  # +1 final
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_callback_counters(self, cuda_context: None) -> None:
         """Test callback counter functionality."""
         monitor = CuptiMonitor()
@@ -451,6 +480,7 @@ class TestCuptiMonitor:
         assert "CUPTI Callback Counter Summary" in summary
         assert "Total" in summary
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_callback_counters_clear(self, cuda_context: None) -> None:
         """Test clearing callback counters."""
         monitor = CuptiMonitor()
@@ -483,6 +513,7 @@ class TestCuptiMonitor:
         summary = monitor.get_callback_summary()
         assert "No callbacks recorded yet" in summary
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_callback_counters_accumulate(self, cuda_context: None) -> None:
         """Test that callback counters accumulate properly."""
         monitor = CuptiMonitor()
@@ -502,6 +533,7 @@ class TestCuptiMonitor:
         assert first_count > 0 and second_count > 0
         assert second_count >= first_count
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_parameter_validation(self, cuda_context: None) -> None:
         """Test parameter validation for CuptiMonitor constructor."""
         # Test with various parameter combinations
@@ -514,6 +546,7 @@ class TestCuptiMonitor:
         monitor3 = CuptiMonitor(enable_periodic_sampling=True, sampling_interval_ms=25)
         assert not monitor3.is_monitoring()
 
+    @pytest.mark.skipif(not CUPTI_AVAILABLE, reason="CUPTI support not available")
     def test_context_manager_like_usage(self, cuda_context: None) -> None:
         """Test using CuptiMonitor in a context-manager-like pattern."""
         monitor = CuptiMonitor()
@@ -536,6 +569,7 @@ class TestCuptiMonitor:
 class TestCuptiNotAvailable:
     """Test cases for when CUPTI support is not available."""
 
+    @pytest.mark.skipif(CUPTI_AVAILABLE, reason="CUPTI support is available")
     def test_cupti_not_available(self) -> None:
         """Test that appropriate error is raised when CUPTI is not available."""
         pytest.skip(
