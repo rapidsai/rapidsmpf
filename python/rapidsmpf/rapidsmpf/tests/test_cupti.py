@@ -48,9 +48,6 @@ def _perform_gpu_operations(size_bytes: int, num_operations: int = 1) -> None:
 @pytest.fixture
 def cuda_context() -> Generator[None, None, None]:
     """Fixture to ensure CUDA context is initialized."""
-    if not CUPTI_AVAILABLE:
-        pytest.skip("CUPTI support not available")
-
     try:
         # Initialize CUDA context
         cp.cuda.Device(0).use()
