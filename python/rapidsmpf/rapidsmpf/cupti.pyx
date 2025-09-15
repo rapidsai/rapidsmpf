@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import typing
-
 from cython.operator cimport dereference as deref
 from cython.operator cimport postincrement
 from libcpp cimport bool as bool_t
