@@ -4,43 +4,14 @@
  */
 
 #include <algorithm>
+#include <utility>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/shuffler/finish_counter.hpp>
 
 namespace rapidsmpf::shuffler::detail {
 
-FinishCounter::FinishCounter(Rank nranks, std::vector<PartID> const& local_partitions)
-    : nranks_{nranks} {
-    // Initially, none of the partitions are ready to wait on.
-    goalposts_.reserve(local_partitions.size());
-    for (auto pid : local_partitions) {
-        goalposts_.emplace(pid, PartitionInfo{});
-    }
-}
-
-bool FinishCounter::all_finished() const {
-    std::unique_lock<std::mutex> lock(mutex_);
-    return goalposts_.empty();
-}
-
-void FinishCounter::move_goalpost(PartID pid, ChunkID nchunks) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    auto& p_info = goalposts_[pid];
-    p_info.move_goalpost(nchunks, nranks_);
-}
-
-void FinishCounter::add_finished_chunk(PartID pid) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    auto& p_info = goalposts_[pid];
-
-    p_info.add_finished_chunk(nranks_);
-
-    if (p_info.is_finished(nranks_)) {
-        cv_.notify_all();
-    }
-}
-
+namespace {
 /**
  * @brief A utility function to wait on a predicate with a timeout and throw if
  * the timeout is reached. If the timeout is not set, wait for the predicate
@@ -74,11 +45,61 @@ void wait_for_if_timeout_else_wait(
     }
 }
 
+}  // namespace
+
+FinishCounter::FinishCounter(
+    Rank nranks,
+    std::vector<PartID> const& local_partitions,
+    FinishedCallback&& finished_callback
+)
+    : nranks_{nranks},
+      n_unfinished_partitions_{static_cast<PartID>(local_partitions.size())},
+      finished_callback_{std::forward<FinishedCallback>(finished_callback)} {
+    // Initially, none of the partitions are ready to wait on.
+    goalposts_.reserve(local_partitions.size());
+    for (auto pid : local_partitions) {
+        goalposts_.emplace(pid, PartitionInfo{});
+    }
+}
+
+bool FinishCounter::all_finished() const {
+    std::unique_lock<std::mutex> lock(mutex_);
+    // we can not use the goalposts.empty() because its being consumed by wait* methods
+    return n_unfinished_partitions_ == 0;
+}
+
+void FinishCounter::move_goalpost(PartID pid, ChunkID nchunks) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    auto& p_info = goalposts_.at(pid);
+    p_info.move_goalpost(nchunks, nranks_);
+}
+
+void FinishCounter::add_finished_chunk(PartID pid) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    auto& p_info = goalposts_.at(pid);
+
+    p_info.add_finished_chunk(nranks_);
+
+    if (p_info.is_finished(nranks_)) {
+        RAPIDSMPF_EXPECTS(
+            n_unfinished_partitions_ > 0, "all partitions have been finished"
+        );
+        n_unfinished_partitions_--;
+        lock.unlock();
+
+        wait_cv_.notify_all();  // notify any waiting threads
+
+        if (finished_callback_) {  // notify the callback
+            finished_callback_(pid);
+        }
+    }
+}
+
 PartID FinishCounter::wait_any(std::optional<std::chrono::milliseconds> timeout) {
     PartID finished_key{std::numeric_limits<PartID>::max()};
 
     std::unique_lock<std::mutex> lock(mutex_);
-    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&] {
+    wait_for_if_timeout_else_wait(lock, wait_cv_, timeout, [&] {
         return goalposts_.empty()
                || std::ranges::any_of(goalposts_, [&](auto const& item) {
                       auto done = item.second.is_finished(nranks_);
@@ -104,7 +125,7 @@ void FinishCounter::wait_on(
     PartID pid, std::optional<std::chrono::milliseconds> timeout
 ) {
     std::unique_lock<std::mutex> lock(mutex_);
-    wait_for_if_timeout_else_wait(lock, cv_, timeout, [&] {
+    wait_for_if_timeout_else_wait(lock, wait_cv_, timeout, [&] {
         auto it = goalposts_.find(pid);
         RAPIDSMPF_EXPECTS(
             it != goalposts_.end(), "PartID has already been extracted", std::out_of_range
@@ -127,6 +148,5 @@ std::string detail::FinishCounter::str() const {
     ss << (goalposts_.empty() ? "}" : "\b\b}") << ")";
     return ss.str();
 }
-
 
 }  // namespace rapidsmpf::shuffler::detail

@@ -43,7 +43,7 @@ test = [
     "cudf==25.10.*,>=0.0.0a0",
     "dask-cuda==25.10.*,>=0.0.0a0",
     "dask-cudf==25.10.*,>=0.0.0a0",
-    "nvidia-ml-py",
+    "nvidia-ml-py>=12",
     "psutil",
     "pytest",
     "ucxx==0.46.*,>=0.0.0a0",

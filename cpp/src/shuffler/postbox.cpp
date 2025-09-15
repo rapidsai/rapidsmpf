@@ -86,6 +86,7 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
 
 template <typename KeyType>
 bool PostBox<KeyType>::empty() const {
+    std::lock_guard const lock(mutex_);
     return pigeonhole_.empty();
 }
 
