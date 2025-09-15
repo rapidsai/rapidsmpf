@@ -139,7 +139,7 @@ class ShufflerAsync {
          *
          * @return true if this result contains valid data, false otherwise.
          */
-        constexpr bool is_valid() const {
+        [[nodiscard]] constexpr bool is_valid() const {
             return pid != InvalidPID;
         }
 
@@ -149,7 +149,7 @@ class ShufflerAsync {
          * @return An ExtractResult with an invalid partition ID and empty chunks.
          */
         static constexpr ExtractResult invalid() {
-            return {InvalidPID, {}};
+            return {.pid = InvalidPID, .chunks = {}};
         }
     };
 
