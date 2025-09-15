@@ -14,7 +14,7 @@ namespace rapidsmpf {
 Single::Single(config::Options options) : logger_{this, std::move(options)} {}
 
 std::unique_ptr<Communicator::Future> Single::send(
-    std::unique_ptr<std::vector<uint8_t>>, Rank, Tag, BufferResource*
+    std::unique_ptr<std::vector<uint8_t>>, Rank, Tag
 ) {
     RAPIDSMPF_FAIL("Unexpected send to self", std::runtime_error);
 }
