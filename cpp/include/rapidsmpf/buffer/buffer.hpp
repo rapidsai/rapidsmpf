@@ -139,6 +139,15 @@ class Buffer {
     }
 
     /**
+     * @brief Get the event for the buffer.
+     *
+     * @return The event.
+     */
+    [[nodiscard]] std::shared_ptr<CudaEvent> get_event() const {
+        return event_;
+    }
+
+    /**
      * @brief Check if the device memory operation has completed.
      *
      * @return true if the device memory operation has completed or no device
