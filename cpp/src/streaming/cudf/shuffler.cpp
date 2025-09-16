@@ -15,6 +15,26 @@
 
 namespace rapidsmpf::streaming {
 
+
+namespace {
+
+coro::task<void> insert_to_set_and_notify(
+    coro::mutex& mtx,
+    coro::condition_variable& cv,
+    std::unordered_set<shuffler::PartID>& set,
+    shuffler::PartID pid
+) {
+    // Note: this coroutine is not needed to be scheduled, because it is called from the
+    // progress thread.
+    {
+        auto lock = co_await mtx.scoped_lock();
+        set.insert(pid);
+    }
+    co_await cv.notify_all();
+}
+
+}  // namespace
+
 ShufflerAsync::ShufflerAsync(
     std::shared_ptr<Context> ctx,
     rmm::cuda_stream_view stream,
@@ -32,12 +52,7 @@ ShufflerAsync::ShufflerAsync(
           ctx_->br(),
           [this](shuffler::PartID pid) -> void {
               ctx_->comm()->logger().trace("inserting finished partition ", pid);
-              {
-                  auto lock = mtx_.scoped_lock();
-                  ready_pids_.insert(pid);
-              }
-              // notify cv using the progress thread when running the cb
-              coro::sync_wait(cv_.notify_all());
+              coro::sync_wait(insert_to_set_and_notify(mtx_, cv_, ready_pids_, pid));
           },
           ctx_->statistics(),
           std::move(partition_owner)
@@ -71,8 +86,14 @@ coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartI
     );
     lock.unlock();  // no longer need the lock
 
-    ctx_->comm()->logger().trace("extracting finished partition ", pid);
-    co_return shuffler_.extract(pid);
+    auto chunks = shuffler_.extract(pid);
+    // shuffler gets marked as finished when the partitions are extracted. So, tasks
+    // waiting on the cv should be notified.
+    if (shuffler_.finished()) {
+        co_await cv_.notify_all();
+    }
+
+    co_return std::move(chunks);
 }
 
 coro::task<ShufflerAsync::ExtractResult> ShufflerAsync::extract_any_async() {
@@ -92,8 +113,14 @@ coro::task<ShufflerAsync::ExtractResult> ShufflerAsync::extract_any_async() {
     auto pid = ready_pids_.extract(ready_pids_.begin()).value();
     lock.unlock();
 
-    ctx_->comm()->logger().trace("extracting any finished partition ", pid);
-    co_return {pid, shuffler_.extract(pid)};
+    auto chunks = shuffler_.extract(pid);
+    // shuffler gets marked as finished when the partitions are extracted. So, tasks
+    // waiting on the cv should be notified.
+    if (shuffler_.finished()) {
+        co_await cv_.notify_all();
+    }
+
+    co_return {pid, std::move(chunks)};
 }
 
 namespace node {

@@ -39,18 +39,7 @@ class StreamingShuffler : public BaseStreamingFixture,
 
     // override the base SetUp
     void SetUp() override {
-        int num_streaming_threads = GetParam();
-        rapidsmpf::config::Options options{
-            rapidsmpf::config::get_environment_variables()
-        };
-        options.insert_if_absent(
-            "num_streaming_threads", std::to_string(num_streaming_threads)
-        );
-        stream = cudf::get_default_stream();
-        br = std::make_unique<rapidsmpf::BufferResource>(mr_cuda);
-        ctx = std::make_shared<rapidsmpf::streaming::Context>(
-            std::move(options), std::make_shared<rapidsmpf::Single>(options), br.get()
-        );
+        BaseStreamingFixture::SetUp(GetParam());
     }
 
     void run_test(auto make_shuffler_node_fn) {
@@ -253,4 +242,118 @@ TEST_P(StreamingShuffler, callbacks) {
             nodes.emplace_back(std::move(extract_node));
         })
     );
+}
+
+class ShufflerAsyncTest
+    : public BaseStreamingFixture,
+      public ::testing::WithParamInterface<std::tuple<int, size_t, uint32_t, int>> {
+  protected:
+    int n_threads;
+    size_t n_inserts;
+    uint32_t n_partitions;
+    int n_consumers;
+
+    std::unique_ptr<ShufflerAsync> shuffler;
+
+    static constexpr OpID op_id = 0;
+    static constexpr size_t n_bytes = 100;
+
+    void SetUp() override {
+        std::tie(n_threads, n_inserts, n_partitions, n_consumers) = GetParam();
+        BaseStreamingFixture::SetUp(n_threads);
+
+        shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
+    }
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    StreamingShuffler,
+    ShufflerAsyncTest,
+    ::testing::Combine(
+        ::testing::Values(1, 2, 4),  // number of streaming threads
+        ::testing::Values(1, 10),  // number of inserts
+        ::testing::Values(1, 10, 100),  // number of partitions
+        ::testing::Values(1, 4)  // number of consumers
+    ),
+    [](const testing::TestParamInfo<ShufflerAsyncTest::ParamType>& info) {
+        return "nthreads_" + std::to_string(std::get<0>(info.param)) + "_ninserts_"
+               + std::to_string(std::get<1>(info.param)) + "_nparts_"
+               + std::to_string(std::get<2>(info.param)) + "_nconsumers_"
+               + std::to_string(std::get<3>(info.param));
+    }
+);
+
+TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
+    // extract data (executed by thread pool)
+    auto extract_task = [](int tid,
+                           auto* shuffler,
+                           auto* ctx,
+                           coro::mutex& mtx,
+                           std::vector<shuffler::PartID>& finished_pids,
+                           size_t& n_chunks_received) -> coro::task<void> {
+        co_await ctx->executor()->schedule();
+        ctx->comm()->logger().debug(tid, "extracting data");
+
+        while (!shuffler->finished()) {
+            ctx->comm()->logger().debug(tid, "waiting for any partition to finish ");
+            auto result = co_await shuffler->extract_any_async();
+            if (!result.is_valid()) {
+                break;
+            }
+
+            auto lock = co_await mtx.scoped_lock();
+            n_chunks_received += result.chunks.size();
+            finished_pids.push_back(result.pid);
+        }
+    };
+
+    // insert data (executed by main thread)
+    for (size_t i = 0; i < n_inserts; ++i) {
+        std::unordered_map<shuffler::PartID, PackedData> data;
+        data.reserve(n_partitions);
+        auto [res, _] = br->reserve(MemoryType::DEVICE, n_bytes * n_partitions, true);
+        for (shuffler::PartID pid = 0; pid < n_partitions; ++pid) {
+            data.emplace(
+                pid,
+                PackedData(
+                    std::make_unique<std::vector<std::uint8_t>>(n_bytes),
+                    br->allocate(n_bytes, stream, res)
+                )
+            );
+        }
+        shuffler->insert(std::move(data));
+    }
+
+    // insert finished (executed by main thread)
+    std::vector<shuffler::PartID> finished;
+    finished.reserve(n_partitions);
+    for (shuffler::PartID pid = 0; pid < n_partitions; ++pid) {
+        finished.push_back(pid);
+    }
+    shuffler->insert_finished(std::move(finished));
+
+    coro::mutex mtx;
+    std::vector<shuffler::PartID> finished_pids;
+    size_t n_chunks_received = 0;
+    std::vector<coro::task<void>> extract_tasks;
+    for (int i = 0; i < n_consumers; ++i) {
+        extract_tasks.emplace_back(extract_task(
+            i, shuffler.get(), ctx.get(), mtx, finished_pids, n_chunks_received
+        ));
+    }
+
+    // wait for the extract task to finish (executed by thread pool, waited by main
+    // thread)
+    auto results = coro::sync_wait(coro::when_all(std::move(extract_tasks)));
+    for (auto& result : results) {  // re-throw possible unhandled exceptions
+        result.return_value();
+    }
+
+    auto local_pids = shuffler::Shuffler::local_partitions(
+        ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
+    );
+    EXPECT_EQ(n_chunks_received, n_inserts * local_pids.size());
+
+    std::ranges::sort(finished_pids);
+    EXPECT_EQ(local_pids, finished_pids);
 }
