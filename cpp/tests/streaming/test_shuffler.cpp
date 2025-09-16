@@ -313,3 +313,133 @@ TEST_P(StreamingShuffler, multiple_consumers) {
 
     run_streaming_pipeline(std::move(nodes));
 }
+
+namespace {
+
+void sync_streams(
+    rmm::cuda_stream_view primary,
+    rmm::cuda_stream_view secondary,
+    cudaEvent_t const& event
+) {
+    if (primary.value() != secondary.value()) {
+        RAPIDSMPF_CUDA_TRY(cudaEventRecord(event, secondary));
+        RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(primary, event));
+    }
+}
+
+// emulate shuffler node with callbacks
+std::pair<Node, Node> shuffler_nb(
+    std::shared_ptr<Context> ctx,
+    rmm::cuda_stream_view stream,
+    std::shared_ptr<Channel> ch_in,
+    std::shared_ptr<Channel> ch_out,
+    OpID op_id,
+    shuffler::PartID total_num_partitions
+) {
+    struct ShufflerContext {
+        std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler{};
+        coro::queue<rapidsmpf::shuffler::PartID> ready_pids{};
+    };
+
+    // make a shared_ptr to the shuffler so that it can be passed into multiple coroutines
+    auto shuffler_ctx = std::make_shared<ShufflerContext>();
+    shuffler_ctx->shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
+        ctx->comm(),
+        ctx->progress_thread(),
+        op_id,
+        total_num_partitions,
+        stream,
+        ctx->br(),
+        [shuffler_ctx](rapidsmpf::shuffler::PartID pid) {
+            // synchronously push the partition id to the ready_pids queue
+            RAPIDSMPF_EXPECTS(
+                coro::sync_wait(shuffler_ctx->ready_pids.push(pid))
+                    == coro::queue_produce_result::produced,
+                "failed to push partition id to ready_pids"
+            );
+        },
+        ctx->statistics(),
+        shuffler::Shuffler::round_robin
+    );
+
+    // insert task: insert the partition map chunks into the shuffler
+    auto insert_task = [](auto shuffler_ctx,
+                          auto ctx,
+                          auto total_num_partitions,
+                          auto stream,
+                          auto ch_in) -> Node {
+        ShutdownAtExit c{ch_in};
+        co_await ctx->executor()->schedule();
+        CudaEvent event;
+
+        while (true) {
+            auto msg = co_await ch_in->receive();
+            if (msg.empty()) {
+                break;
+            }
+            auto partition_map = msg.template release<PartitionMapChunk>();
+
+            // Make sure that the input chunk's stream is in sync with shuffler's stream.
+            sync_streams(stream, partition_map.stream, event);
+
+            shuffler_ctx->shuffler->insert(std::move(partition_map.data));
+        }
+
+        // Tell the shuffler that we have no more input data.
+        std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
+        std::iota(finished.begin(), finished.end(), 0);
+        shuffler_ctx->shuffler->insert_finished(std::move(finished));
+        co_return;
+    };
+
+    // extract task: extract the packed chunks from the shuffler and send them to the
+    // output channel
+    auto extract_task = [](auto shuffler_ctx, auto ctx, auto ch_out) -> Node {
+        ShutdownAtExit c{ch_out};
+        co_await ctx->executor()->schedule();
+
+        while (!shuffler_ctx->shuffler->finished() || !shuffler_ctx->ready_pids.empty()) {
+            auto expected = co_await shuffler_ctx->ready_pids.pop();
+            RAPIDSMPF_EXPECTS(
+                expected.has_value(), "failed to pop partition id from ready_pids"
+            );
+
+            auto packed_chunks = shuffler_ctx->shuffler->extract(*expected);
+            ctx->comm()->logger().debug(
+                "extracting partition ", *expected, " ", packed_chunks.size()
+            );
+            co_await ch_out->send(
+                std::make_unique<PartitionVectorChunk>(
+                    *expected, std::move(packed_chunks)
+                )
+            );
+        }
+
+        ctx->comm()->logger().debug("extract task finished");
+        co_await ch_out->drain(ctx->executor());
+    };
+
+    return {
+        insert_task(shuffler_ctx, ctx, total_num_partitions, stream, std::move(ch_in)),
+        extract_task(std::move(shuffler_ctx), std::move(ctx), std::move(ch_out))
+    };
+}
+
+}  // namespace
+
+TEST_P(StreamingShuffler, callbacks) {
+    EXPECT_NO_FATAL_FAILURE(
+        run_test([&](auto ctx, auto ch_in, auto ch_out, std::vector<Node>& nodes) {
+            auto [insert_node, extract_node] = shuffler_nb(
+                std::move(ctx),
+                stream,
+                std::move(ch_in),
+                std::move(ch_out),
+                op_id,
+                num_partitions
+            );
+            nodes.emplace_back(std::move(insert_node));
+            nodes.emplace_back(std::move(extract_node));
+        })
+    );
+}
