@@ -58,10 +58,12 @@ requirements:
     - ${{ compiler("c") }}
     - ${{ compiler("cxx") }}
     - ${{ compiler("cuda") }}
+    - cuda-cupti-dev
     - cuda-version =${{ cuda_version }}
     - ${{ stdlib("c") }}
   host:
     - cuda-cudart-dev
+    - cuda-cupti-dev
     - cuda-version =${{ cuda_version }}
     - cython >=3.0.0
     - librapidsmpf =${{ version }}
@@ -74,10 +76,11 @@ requirements:
     - rmm =${{ minor_version }}
     - scikit-build-core >=0.10.0
   run:
-    - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
+    - cuda-cupti
     - if: cuda_major == "12"
       then: cuda-python >=12.9.2,<13.0a0
       else: cuda-python >=13.0.1,<14.0a0
+    - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
     - cudf =${{ minor_version }}
     - cupy >=13.6.0
     - librapidsmpf =${{ version }}
@@ -98,6 +101,7 @@ requirements:
       - ${{ stdlib("c") }}
     by_name:
       - cuda-cudart
+      - cuda-cupti
       - cuda-version
       - openmpi
       - mpi4py

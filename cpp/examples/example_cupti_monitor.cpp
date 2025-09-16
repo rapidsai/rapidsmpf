@@ -58,7 +58,7 @@ int main() {
                 // Allocate device memory using rmm::device_buffer
                 rmm::device_buffer buf(allocation_size, rmm::cuda_stream_default);
                 device_buffers.push_back(std::move(buf));
-            } catch (rmm::bad_alloc& e) {
+            } catch (rmm::bad_alloc const& e) {
                 std::cerr << "rmm::device_buffer allocation failed: " << e.what()
                           << std::endl;
                 break;
