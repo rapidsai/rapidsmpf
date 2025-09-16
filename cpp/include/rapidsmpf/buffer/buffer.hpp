@@ -259,7 +259,7 @@ class Buffer {
 };
 
 /**
- * @brief Asynchronously copy data between buffers with optional event tracking.
+ * @brief Asynchronously copy data between buffers.
  *
  * Copies @p size bytes from @p src at @p src_offset into @p dst at @p dst_offset.
  *

@@ -678,3 +678,68 @@ TEST_F(BufferResourceDifferentResourcesTest, Copy) {
     // Verify memory allocation
     verify_memory_allocation(buffer_size, buffer_size);
 }
+
+class BufferCopyEdgeCases : public BaseBufferResourceCopyTest {};
+
+TEST_F(BufferCopyEdgeCases, IllegalArguments) {
+    constexpr std::size_t N = 1024;
+
+    auto src = create_and_initialize_buffer(MemoryType::HOST, N);
+    auto dst = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
+
+    // Negative offsets
+    EXPECT_THROW(
+        buffer_copy(*dst, *src, 10, -1, 0, stream, false), std::invalid_argument
+    );
+    EXPECT_THROW(
+        buffer_copy(*dst, *src, 10, 0, -1, stream, false), std::invalid_argument
+    );
+
+    // Offsets beyond size
+    EXPECT_THROW(
+        buffer_copy(*dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0, stream, false),
+        std::invalid_argument
+    );
+    EXPECT_THROW(
+        buffer_copy(*dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1), stream, false),
+        std::invalid_argument
+    );
+
+    // Ranges out of bounds
+    EXPECT_THROW(
+        buffer_copy(*dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0, stream, false),
+        std::invalid_argument
+    );
+    EXPECT_THROW(
+        buffer_copy(*dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8), stream, false),
+        std::invalid_argument
+    );
+}
+
+TEST_F(BufferCopyEdgeCases, ZeroSizeIsNoOp) {
+    constexpr std::size_t N = 128;
+
+    auto src = create_and_initialize_buffer(MemoryType::HOST, N);
+    auto dst = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
+
+    // Pre-fill dst with a sentinel pattern
+    std::vector<uint8_t> sent(N, 0xCD);
+    std::memcpy(dst->data(), sent.data(), N);
+
+    EXPECT_NO_THROW(buffer_copy(*dst, *src, 0, 0, 0, stream, false));
+    dst->wait_for_ready();
+
+    // dst unchanged
+    for (std::size_t i = 0; i < N; ++i) {
+        EXPECT_EQ(static_cast<uint8_t>(dst->data()[i]), 0xCD);
+    }
+}
+
+TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
+    // Matches current implementation which rejects &dst == &src.
+    constexpr std::size_t N = 64;
+
+    auto buf = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
+
+    EXPECT_THROW(buffer_copy(*buf, *buf, 16, 0, 0, stream, false), std::invalid_argument);
+}
