@@ -356,8 +356,14 @@ Chunk Chunk::concat(
         // Process data
         if (chunk.is_data_buffer_set() && chunk.concat_data_size() > 0) {
             // Copy data
-            std::ignore = chunk.data_->copy_to(
-                *concat_data, std::ptrdiff_t(curr_data_offset), stream, false
+            buffer_copy(
+                *concat_data,
+                *chunk.data_,
+                chunk.data_->size,
+                /*dst_offset=*/std::ptrdiff_t(curr_data_offset),
+                /*src_offset=*/0,
+                stream,
+                false
             );
             // Update offsets for each message in the chunk
             for (size_t i = 0; i < chunk_messages; ++i) {

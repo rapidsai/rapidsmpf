@@ -486,10 +486,17 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
         std::size_t const dest_offset
     ) {
         auto length = source->size;
-        auto bytes_written = source->copy_to(*dest, dest_offset, stream);
+        buffer_copy(
+            *dest,
+            *source,
+            source->size,
+            /*dst_offset=*/std::ptrdiff_t(dest_offset),
+            /*src_offset=*/0,
+            stream,
+            false
+        );
         dest->wait_for_ready();
         EXPECT_TRUE(dest->is_ready());
-        EXPECT_EQ(bytes_written, length);
 
         if (dest->mem_type() == MemoryType::HOST) {
             verify_slice(*const_cast<const Buffer&>(*dest).host(), dest_offset, length);
@@ -560,15 +567,6 @@ INSTANTIATE_TEST_SUITE_P(
         return ss.str();
     }
 );
-
-TEST_F(BufferResourceCopyToTest, OutOfBounds) {
-    // create a source and destination buffer with size 128 bytes
-    auto source = create_and_initialize_buffer(MemoryType::HOST, 128);
-    auto dest = create_and_initialize_buffer(MemoryType::HOST, 128);
-
-    // try to copy with an offset that would exceed the destination buffer size
-    EXPECT_THROW(std::ignore = source->copy_to(*dest, 1, stream), std::invalid_argument);
-}
 
 class BufferResourceDifferentResourcesTest : public ::testing::Test {
   protected:
@@ -694,16 +692,4 @@ TEST(BufferResource, CheckIllegalArgs) {
     // Test copy_slice reservation too small
     auto [res1, ob1] = br.reserve(MemoryType::HOST, 5, false);
     EXPECT_THROW(std::ignore = src->copy_slice(0, 10, res1, stream), std::overflow_error);
-
-    // Test copy_to invalid offset
-    EXPECT_THROW(std::ignore = src->copy_to(*dst, -1, stream), std::invalid_argument);
-
-    EXPECT_THROW(
-        std::ignore = src->copy_to(*dst, buf_sz + 1, stream), std::invalid_argument
-    );
-
-    // Test copy_to buffer too small
-    EXPECT_THROW(
-        std::ignore = src->copy_to(*dst, buf_sz - 5, stream), std::invalid_argument
-    );
 }
