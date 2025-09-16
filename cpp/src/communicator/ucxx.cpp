@@ -868,7 +868,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
             || progress_mode == ProgressMode::ThreadPolling)
         {
             worker->setProgressThreadStartCallback(create_cuda_context_callback, nullptr);
-            worker->startProgressThread(progress_mode == ProgressMode::ThreadBlocking);
+            worker->startProgressThread(progress_mode == ProgressMode::ThreadPolling);
         };
 
         return worker;
