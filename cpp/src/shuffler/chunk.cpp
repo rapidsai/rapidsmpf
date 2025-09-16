@@ -77,9 +77,16 @@ Chunk Chunk::get_data(
         } else {
             std::ptrdiff_t data_slice_offset =
                 (i == 0 ? 0 : std::ptrdiff_t(data_offsets_[i - 1]));
-            auto reserve = br->reserve_or_fail(data_slice_size);
-            data_slice =
-                data_->copy_slice(data_slice_offset, data_slice_size, reserve, stream);
+            data_slice = br->allocate(stream, br->reserve_or_fail(data_slice_size));
+            buffer_copy(
+                *data_slice,
+                *data_,
+                data_slice_size,
+                /*dst_offset=*/0,
+                /*src_offset=*/data_slice_offset,
+                stream,
+                true
+            );
         }
 
         return {

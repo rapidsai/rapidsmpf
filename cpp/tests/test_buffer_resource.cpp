@@ -405,8 +405,16 @@ class BufferResourceCopySliceTest
         std::size_t const offset,
         std::size_t const length
     ) {
-        auto [slice_reserve, slice_overbooking] = br->reserve(dest_type, length, false);
-        auto slice = source->copy_slice(offset, length, slice_reserve, stream);
+        auto slice = br->allocate(stream, br->reserve_or_fail(length, dest_type));
+        buffer_copy(
+            *slice,
+            *source,
+            length,
+            /*dst_offset=*/0,
+            /*src_offset=*/offset,
+            stream,
+            false
+        );
 
         EXPECT_EQ(slice->mem_type(), dest_type);
         slice->wait_for_ready();
@@ -634,12 +642,21 @@ TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
     auto buf1 = create_source_buffer();
 
     // Reserve memory for the slice on br2
-    auto [reserv2, ob2] = br2->reserve(MemoryType::DEVICE, slice_length, false);
+    auto res2 = br2->reserve_or_fail(slice_length);
 
     // Create slice of buf1 on br2
-    auto buf2 = buf1->copy_slice(slice_offset, slice_length, reserv2, stream);
+    auto buf2 = br2->allocate(slice_length, stream, res2);
+    buffer_copy(
+        *buf2,
+        *buf1,
+        slice_length,
+        /*dst_offset=*/0,
+        /*src_offset=*/slice_offset,
+        stream,
+        false
+    );
     EXPECT_EQ(buf2->size, slice_length);
-    EXPECT_EQ(reserv2.size(), 0);  // reservation should be consumed
+    EXPECT_EQ(res2.size(), 0);  // reservation should be consumed
     buf2->wait_for_ready();
 
     // Verify memory allocation
@@ -660,36 +677,4 @@ TEST_F(BufferResourceDifferentResourcesTest, Copy) {
 
     // Verify memory allocation
     verify_memory_allocation(buffer_size, buffer_size);
-}
-
-TEST(BufferResource, CheckIllegalArgs) {
-    size_t buf_sz = 1024;  // 1 KiB
-    auto stream = cudf::get_default_stream();
-    BufferResource br{cudf::get_current_device_resource_ref()};
-    auto [src_res, src_ob] = br.reserve(MemoryType::HOST, buf_sz, false);
-    auto src = br.allocate(buf_sz, stream, src_res);
-    EXPECT_EQ(src->mem_type(), MemoryType::HOST);
-
-    auto [dst_res, dst_ob] = br.reserve(MemoryType::HOST, buf_sz, false);
-    auto dst = br.allocate(buf_sz, stream, dst_res);
-    EXPECT_EQ(dst->mem_type(), MemoryType::HOST);
-
-    // Test copy_slice invalid offset
-    auto [res, ob] = br.reserve(MemoryType::HOST, buf_sz, false);
-    EXPECT_THROW(
-        std::ignore = src->copy_slice(-1, 10, res, stream), std::invalid_argument
-    );
-
-    EXPECT_THROW(
-        std::ignore = src->copy_slice(buf_sz + 1, 10, res, stream), std::invalid_argument
-    );
-
-    // Test copy_slice invalid length
-    EXPECT_THROW(
-        std::ignore = src->copy_slice(buf_sz - 5, 10, res, stream), std::invalid_argument
-    );
-
-    // Test copy_slice reservation too small
-    auto [res1, ob1] = br.reserve(MemoryType::HOST, 5, false);
-    EXPECT_THROW(std::ignore = src->copy_slice(0, 10, res1, stream), std::overflow_error);
 }

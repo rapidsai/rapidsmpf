@@ -162,23 +162,6 @@ class Buffer {
      */
     void wait_for_ready() const;
 
-    /**
-     * @brief Copy a slice of the buffer to a new buffer allocated from the target
-     * reservation.
-     *
-     * @param offset Non-negative offset from the start of the buffer (in bytes).
-     * @param length Length of the slice (in bytes).
-     * @param target_reserv Memory reservation for the new buffer.
-     * @param stream CUDA stream to use for the copy.
-     * @returns A new buffer containing the copied slice.
-     */
-    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        std::ptrdiff_t offset,
-        std::size_t length,
-        MemoryReservation& target_reserv,
-        rmm::cuda_stream_view stream
-    ) const;
-
     /// @brief Delete move and copy constructors and assignment operators.
     Buffer(Buffer&&) = delete;
     Buffer(Buffer const&) = delete;
