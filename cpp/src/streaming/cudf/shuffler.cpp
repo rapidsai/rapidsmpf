@@ -107,23 +107,12 @@ Node shuffler(
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner
 ) {
-    auto shuffler = std::make_shared<ShufflerAsync>(
-        std::move(ctx), stream, op_id, total_num_partitions, std::move(partition_owner)
+    ShufflerAsync shuffler_async(
+        ctx, stream, op_id, total_num_partitions, std::move(partition_owner)
     );
 
-    co_await coro::when_all(
-        shuffler_async_insert(shuffler, stream, std::move(ch_in)),
-        shuffler_async_extract(std::move(shuffler), std::move(ch_out))
-    );
-}
-
-Node shuffler_async_insert(
-    std::shared_ptr<ShufflerAsync> shuffler,
-    rmm::cuda_stream_view stream,
-    std::shared_ptr<Channel> ch_in
-) {
-    ShutdownAtExit c{ch_in};
-    co_await shuffler->ctx()->executor()->schedule();
+    ShutdownAtExit c{ch_in, ch_out};
+    co_await ctx->executor()->schedule();
     CudaEvent event;
 
     while (true) {
@@ -136,24 +125,18 @@ Node shuffler_async_insert(
         // Make sure that the input chunk's stream is in sync with shuffler's stream.
         utils::sync_streams(stream, partition_map.stream, event);
 
-        shuffler->insert(std::move(partition_map.data));
+        shuffler_async.insert(std::move(partition_map.data));
     }
 
     // Tell the shuffler that we have no more input data.
-    std::vector<rapidsmpf::shuffler::PartID> finished(shuffler->total_num_partitions());
+    std::vector<rapidsmpf::shuffler::PartID> finished(
+        shuffler_async.total_num_partitions()
+    );
     std::iota(finished.begin(), finished.end(), 0);
-    shuffler->insert_finished(std::move(finished));
-    co_return;
-}
+    shuffler_async.insert_finished(std::move(finished));
 
-Node shuffler_async_extract(
-    std::shared_ptr<ShufflerAsync> shuffler, std::shared_ptr<Channel> ch_out
-) {
-    ShutdownAtExit c{ch_out};
-    co_await shuffler->ctx()->executor()->schedule();
-
-    while (!shuffler->finished()) {
-        auto result = co_await shuffler->extract_any_async();
+    while (!shuffler_async.finished()) {
+        auto result = co_await shuffler_async.extract_any_async();
         if (!result.is_valid()) {
             break;
         }
@@ -163,7 +146,7 @@ Node shuffler_async_extract(
         );
     }
 
-    co_await ch_out->drain(shuffler->ctx()->executor());
+    co_await ch_out->drain(ctx->executor());
 }
 
 }  // namespace node

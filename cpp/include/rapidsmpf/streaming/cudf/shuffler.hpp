@@ -211,39 +211,6 @@ Node shuffler(
     shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin
 );
 
-
-/**
- * @brief Launches a node for inserting partitioned data into a shuffler.
- *
- * It consumes partitioned input data from the input channel and inserts it into the
- * shuffler.
- *
- * @param shuffler The shuffler to insert data into.
- * @param stream The CUDA stream on which to perform the insertion.
- * @param ch_in The input channel providing partitioned data.
- *
- * @return A streaming node that completes when the insertion has finished.
- */
-Node shuffler_async_insert(
-    std::shared_ptr<ShufflerAsync> shuffler,
-    rmm::cuda_stream_view stream,
-    std::shared_ptr<Channel> ch_in
-);
-
-/**
- * @brief Launches a node for extracting data from a shuffler.
- *
- * It extracts finished partititons from the shuffler and inserts into the output channel.
- *
- * @param shuffler The shuffler to extract data from.
- * @param ch_out The output channel receiving the extracted data.
- *
- * @return A streaming node that completes when the extraction has finished.
- */
-Node shuffler_async_extract(
-    std::shared_ptr<ShufflerAsync> shuffler, std::shared_ptr<Channel> ch_out
-);
-
 }  // namespace node
 
 }  // namespace rapidsmpf::streaming
