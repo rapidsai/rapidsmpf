@@ -312,4 +312,31 @@ class Buffer {
     std::shared_ptr<CudaEvent> event_;
 };
 
+/**
+ * @brief Asynchronously copy data between buffers with optional event tracking.
+ *
+ * Copies @p size bytes from @p src at @p src_offset into @p dst at @p dst_offset.
+ *
+ * @param dst Destination buffer.
+ * @param src Source buffer.
+ * @param size Number of bytes to copy.
+ * @param dst_offset Offset (in bytes) into the destination buffer.
+ * @param src_offset Offset (in bytes) into the source buffer.
+ * @param stream CUDA stream on which to enqueue the copy.
+ * @param attach_cuda_event If true, record a CUDA event on @p stream and attach it
+ * to the destination buffer to track completion. If false, the caller is responsible
+ * for ensuring proper synchronization.
+ *
+ * @throws std::invalid_argument If out of bounds.
+ */
+void buffer_copy(
+    Buffer& dst,
+    Buffer& src,
+    std::size_t size,
+    std::ptrdiff_t dst_offset,
+    std::ptrdiff_t src_offset,
+    rmm::cuda_stream_view stream,
+    bool attach_cuda_event
+);
+
 }  // namespace rapidsmpf
