@@ -17,6 +17,7 @@
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/shuffler.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
+#include <rapidsmpf/streaming/cudf/utils.hpp>
 
 #include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
@@ -316,17 +317,6 @@ TEST_P(StreamingShuffler, multiple_consumers) {
 
 namespace {
 
-void sync_streams(
-    rmm::cuda_stream_view primary,
-    rmm::cuda_stream_view secondary,
-    cudaEvent_t const& event
-) {
-    if (primary.value() != secondary.value()) {
-        RAPIDSMPF_CUDA_TRY(cudaEventRecord(event, secondary));
-        RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(primary, event));
-    }
-}
-
 // emulate shuffler node with callbacks
 std::pair<Node, Node> shuffler_nb(
     std::shared_ptr<Context> ctx,
@@ -380,7 +370,7 @@ std::pair<Node, Node> shuffler_nb(
             auto partition_map = msg.template release<PartitionMapChunk>();
 
             // Make sure that the input chunk's stream is in sync with shuffler's stream.
-            sync_streams(stream, partition_map.stream, event);
+            utils::sync_streams(stream, partition_map.stream, event);
 
             shuffler_ctx->shuffler->insert(std::move(partition_map.data));
         }
@@ -405,17 +395,12 @@ std::pair<Node, Node> shuffler_nb(
             );
 
             auto packed_chunks = shuffler_ctx->shuffler->extract(*expected);
-            ctx->comm()->logger().debug(
-                "extracting partition ", *expected, " ", packed_chunks.size()
-            );
             co_await ch_out->send(
                 std::make_unique<PartitionVectorChunk>(
                     *expected, std::move(packed_chunks)
                 )
             );
         }
-
-        ctx->comm()->logger().debug("extract task finished");
         co_await ch_out->drain(ctx->executor());
     };
 

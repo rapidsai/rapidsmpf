@@ -11,6 +11,7 @@
 
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/streaming/cudf/shuffler.hpp>
+#include <rapidsmpf/streaming/cudf/utils.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -97,33 +98,6 @@ coro::task<ShufflerAsync::ExtractResult> ShufflerAsync::extract_any_async() {
 
 namespace node {
 
-namespace {
-
-/**
- * @brief Make @p primary wait until all work currently enqueued on @p secondary
- * completes.
- *
- * Records @p event on @p secondary and inserts a wait for that event on @p primary.
- * This is fully asynchronous with respect to the host thread; no host-side blocking.
- *
- * @param primary The stream that must not run ahead.
- * @param secondary The stream whose already-enqueued work must complete first.
- * @param event The CUDA event to use for synchronization. The same event may be reused
- * across multiple calls; the caller does not need to provide an unique event each time.
- */
-void sync_streams(
-    rmm::cuda_stream_view primary,
-    rmm::cuda_stream_view secondary,
-    cudaEvent_t const& event
-) {
-    if (primary.value() != secondary.value()) {
-        RAPIDSMPF_CUDA_TRY(cudaEventRecord(event, secondary));
-        RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(primary, event));
-    }
-}
-
-}  // namespace
-
 Node shuffler(
     std::shared_ptr<Context> ctx,
     rmm::cuda_stream_view stream,
@@ -133,53 +107,14 @@ Node shuffler(
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner
 ) {
-    ShutdownAtExit c{ch_in, ch_out};
-    co_await ctx->executor()->schedule();
-
-    rapidsmpf::shuffler::Shuffler shuffler(
-        ctx->comm(),
-        ctx->progress_thread(),
-        op_id,
-        total_num_partitions,
-        stream,
-        ctx->br(),
-        ctx->statistics(),
-        partition_owner
+    auto shuffler = std::make_shared<ShufflerAsync>(
+        std::move(ctx), stream, op_id, total_num_partitions, std::move(partition_owner)
     );
-    CudaEvent event;
 
-    std::uint64_t sequence_number{0};
-    while (true) {
-        auto msg = co_await ch_in->receive();
-        if (msg.empty()) {
-            break;
-        }
-        auto partition_map = msg.release<PartitionMapChunk>();
-
-        // Make sure that the input chunk's stream is in sync with shuffler's stream.
-        sync_streams(stream, partition_map.stream, event);
-
-        shuffler.insert(std::move(partition_map.data));
-
-        // Use the highest input sequence number as the output sequence number.
-        sequence_number = std::max(sequence_number, partition_map.sequence_number);
-    }
-
-    // Tell the shuffler that we have no more input data.
-    std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
-    std::iota(finished.begin(), finished.end(), 0);
-    shuffler.insert_finished(std::move(finished));
-
-    while (!shuffler.finished()) {
-        auto finished_partition = shuffler.wait_any();
-        auto packed_chunks = shuffler.extract(finished_partition);
-        co_await ch_out->send(
-            std::make_unique<PartitionVectorChunk>(
-                sequence_number, std::move(packed_chunks), stream
-            )
-        );
-    }
-    co_await ch_out->drain(ctx->executor());
+    co_await coro::when_all(
+        shuffler_async_insert(shuffler, stream, std::move(ch_in)),
+        shuffler_async_extract(std::move(shuffler), std::move(ch_out))
+    );
 }
 
 Node shuffler_async_insert(
@@ -199,7 +134,7 @@ Node shuffler_async_insert(
         auto partition_map = msg.release<PartitionMapChunk>();
 
         // Make sure that the input chunk's stream is in sync with shuffler's stream.
-        sync_streams(stream, partition_map.stream, event);
+        utils::sync_streams(stream, partition_map.stream, event);
 
         shuffler->insert(std::move(partition_map.data));
     }
@@ -214,6 +149,7 @@ Node shuffler_async_insert(
 Node shuffler_async_extract(
     std::shared_ptr<ShufflerAsync> shuffler, std::shared_ptr<Channel> ch_out
 ) {
+    ShutdownAtExit c{ch_out};
     co_await shuffler->ctx()->executor()->schedule();
 
     while (!shuffler->finished()) {
