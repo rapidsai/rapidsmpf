@@ -61,12 +61,6 @@ std::byte const* Buffer::data() const {
     );
 }
 
-std::unique_ptr<Buffer> Buffer::copy(
-    rmm::cuda_stream_view stream, MemoryReservation& reservation
-) const {
-    return copy_slice(0, size, reservation, stream);
-}
-
 std::unique_ptr<Buffer> Buffer::copy_slice(
     std::ptrdiff_t offset,
     std::size_t length,

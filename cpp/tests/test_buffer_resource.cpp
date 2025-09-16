@@ -655,7 +655,7 @@ TEST_F(BufferResourceDifferentResourcesTest, Copy) {
     auto [reserv2, ob2] = br2->reserve(MemoryType::DEVICE, buffer_size, false);
 
     // Create copy of buf1 on br2
-    auto buf2 = buf1->copy(stream, reserv2);
+    auto const buf2 = br2->copy(buf1, stream, reserv2);
     EXPECT_EQ(buf2->size, buffer_size);
     EXPECT_EQ(reserv2.size(), 0);  // reservation should be consumed
     buf2->wait_for_ready();

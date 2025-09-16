@@ -180,18 +180,6 @@ class Buffer {
     ) const;
 
     /**
-     * @brief Create a copy of this buffer by allocating a new buffer from the
-     * reservation.
-     *
-     * @param stream CUDA stream used for the device buffer allocation and copy.
-     * @param reservation Memory reservation for data allocations.
-     * @return A unique pointer to a new Buffer containing the copied data.
-     */
-    [[nodiscard]] std::unique_ptr<Buffer> copy(
-        rmm::cuda_stream_view stream, MemoryReservation& reservation
-    ) const;
-
-    /**
      * @brief Copy data from this buffer to a destination buffer with a given offset.
      *
      * @param dest Destination buffer.

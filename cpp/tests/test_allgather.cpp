@@ -69,7 +69,8 @@ void validate_packed_data(
     EXPECT_EQ(n_elements * sizeof(int), packed_data.data->size);
     auto [res, ob] =
         br.reserve(rapidsmpf::MemoryType::HOST, n_elements * sizeof(int), false);
-    auto const copied_vec = packed_data.data->copy(stream, res);
+
+    auto const copied_vec = br.copy(packed_data.data, stream, res);
     RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
     EXPECT_EQ(metadata, *const_cast<rapidsmpf::Buffer const&>(*copied_vec).host());
 }

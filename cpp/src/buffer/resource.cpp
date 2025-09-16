@@ -172,7 +172,9 @@ std::unique_ptr<Buffer> BufferResource::move(
     MemoryReservation& reservation
 ) {
     if (reservation.mem_type_ != buffer->mem_type()) {
-        return buffer->copy(stream, reservation);
+        auto ret = allocate(buffer->size, stream, reservation);
+        buffer_copy(*ret, *buffer, buffer->size, 0, 0, stream, true);
+        return ret;
     }
     return buffer;
 }
@@ -208,7 +210,9 @@ std::unique_ptr<Buffer> BufferResource::copy(
     rmm::cuda_stream_view stream,
     MemoryReservation& reservation
 ) {
-    return buffer->copy(stream, reservation);
+    auto ret = allocate(buffer->size, stream, reservation);
+    buffer_copy(*ret, *buffer, buffer->size, 0, 0, stream, true);
+    return ret;
 }
 
 SpillManager& BufferResource::spill_manager() {
