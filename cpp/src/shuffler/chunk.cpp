@@ -367,8 +367,8 @@ Chunk Chunk::concat(
                 *concat_data,
                 *chunk.data_,
                 chunk.data_->size,
-                /*dst_offset=*/std::ptrdiff_t(curr_data_offset),
-                /*src_offset=*/0,
+                std::ptrdiff_t(curr_data_offset),  // dst_offset
+                0,  // src_offset
                 stream,
                 false
             );

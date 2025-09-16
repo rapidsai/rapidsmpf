@@ -410,8 +410,8 @@ class BufferResourceCopySliceTest
             *slice,
             *source,
             length,
-            /*dst_offset=*/0,
-            /*src_offset=*/offset,
+            0,  // dst_offset
+            offset,  // src_offset
             stream,
             false
         );
@@ -498,8 +498,8 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
             *dest,
             *source,
             source->size,
-            /*dst_offset=*/std::ptrdiff_t(dest_offset),
-            /*src_offset=*/0,
+            std::ptrdiff_t(dest_offset),  // dst_offset
+            0,  // src_offset
             stream,
             false
         );
@@ -650,8 +650,8 @@ TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
         *buf2,
         *buf1,
         slice_length,
-        /*dst_offset=*/0,
-        /*src_offset=*/slice_offset,
+        0,  // dst_offset
+        slice_offset,  // src_offset
         stream,
         false
     );
