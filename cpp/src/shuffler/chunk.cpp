@@ -82,8 +82,8 @@ Chunk Chunk::get_data(
                 *data_slice,
                 *data_,
                 data_slice_size,
-                /*dst_offset=*/0,
-                /*src_offset=*/data_slice_offset,
+                0,  // dst_offset
+                data_slice_offset, // src_offset
                 stream,
                 true
             );
