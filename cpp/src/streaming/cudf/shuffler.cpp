@@ -87,7 +87,7 @@ coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartI
     lock.unlock();  // no longer need the lock
 
     auto chunks = shuffler_.extract(pid);
-    // shuffler gets marked as finished when the partitions are extracted. So, tasks
+    // shuffler gets marked as finished when all the partitions are extracted. So, tasks
     // waiting on the cv should be notified.
     if (shuffler_.finished()) {
         co_await cv_.notify_all();
@@ -114,7 +114,7 @@ coro::task<ShufflerAsync::ExtractResult> ShufflerAsync::extract_any_async() {
     lock.unlock();
 
     auto chunks = shuffler_.extract(pid);
-    // shuffler gets marked as finished when the partitions are extracted. So, tasks
+    // shuffler gets marked as finished when all the partitions are extracted. So, tasks
     // waiting on the cv should be notified.
     if (shuffler_.finished()) {
         co_await cv_.notify_all();

@@ -292,10 +292,9 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
                            std::vector<shuffler::PartID>& finished_pids,
                            size_t& n_chunks_received) -> coro::task<void> {
         co_await ctx->executor()->schedule();
-        ctx->comm()->logger().debug(tid, "extracting data");
+        ctx->comm()->logger().debug(tid, " extract task started");
 
         while (!shuffler->finished()) {
-            ctx->comm()->logger().debug(tid, "waiting for any partition to finish ");
             auto result = co_await shuffler->extract_any_async();
             if (!result.is_valid()) {
                 break;
@@ -305,6 +304,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
             n_chunks_received += result.chunks.size();
             finished_pids.push_back(result.pid);
         }
+        ctx->comm()->logger().debug(tid, " extract task finished");
     };
 
     // insert data (executed by main thread)
