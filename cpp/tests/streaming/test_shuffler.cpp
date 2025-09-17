@@ -81,7 +81,7 @@ class StreamingShuffler : public BaseStreamingFixture,
             );
 
             auto ch3 = std::make_shared<Channel>();
-            make_shuffler_node_fn(ctx, ch2, ch3, nodes);
+            nodes.emplace_back(make_shuffler_node_fn(ch2, ch3));
 
             auto ch4 = std::make_shared<Channel>();
             nodes.push_back(node::unpack_and_concat(ctx, ch3, ch4));
@@ -114,39 +114,36 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(StreamingShuffler, basic_shuffler) {
-    EXPECT_NO_FATAL_FAILURE(
-        run_test([&](auto ctx, auto ch_in, auto ch_out, std::vector<Node>& nodes) {
-            nodes.emplace_back(
-                node::shuffler(
-                    std::move(ctx),
-                    stream,
-                    std::move(ch_in),
-                    std::move(ch_out),
-                    op_id,
-                    num_partitions
-                )
-            );
-        })
-    );
+    EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
+        return node::shuffler(
+            ctx, stream, std::move(ch_in), std::move(ch_out), op_id, num_partitions
+        );
+    }));
 }
 
 namespace {
 
 // emulate shuffler node with callbacks
-std::pair<Node, Node> shuffler_nb(
+Node shuffler_nb(
     std::shared_ptr<Context> ctx,
     rmm::cuda_stream_view stream,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
-    shuffler::PartID total_num_partitions
+    shuffler::PartID total_num_partitions,
+    int n_consumers
 ) {
     struct ShufflerContext {
         std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler{};
+
+        // queue that holds the partition ids that are ready to be extracted. Progress
+        // thread will push the partition ids to the queue. The extract task will pop the
+        // partition ids from the queue and extract the chunks from the shuffler.
         coro::queue<rapidsmpf::shuffler::PartID> ready_pids{};
     };
 
-    // make a shared_ptr to the shuffler so that it can be passed into multiple coroutines
+    // make a shared_ptr to the shuffler_ctx so that it can be passed into multiple
+    // coroutines
     auto shuffler_ctx = std::make_shared<ShufflerContext>();
     shuffler_ctx->shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
         ctx->comm(),
@@ -200,48 +197,71 @@ std::pair<Node, Node> shuffler_nb(
     // extract task: extract the packed chunks from the shuffler and send them to the
     // output channel
     auto extract_task = [](auto shuffler_ctx, auto ctx, auto ch_out) -> Node {
-        ShutdownAtExit c{ch_out};
+        ShutdownAtExit c{
+            ch_out
+        };  // TODO: could this be problematic with multiple consumers?
         co_await ctx->executor()->schedule();
 
         while (!shuffler_ctx->shuffler->finished() || !shuffler_ctx->ready_pids.empty()) {
             auto expected = co_await shuffler_ctx->ready_pids.pop();
-            RAPIDSMPF_EXPECTS(
-                expected.has_value(), "failed to pop partition id from ready_pids"
-            );
+            if (!expected.has_value()) {  // queue is shutdown, so exit the loop
+                break;
+            }
 
             auto packed_chunks = shuffler_ctx->shuffler->extract(*expected);
+
             co_await ch_out->send(
                 std::make_unique<PartitionVectorChunk>(
                     *expected, std::move(packed_chunks)
                 )
             );
+
+            if (shuffler_ctx->shuffler->finished()) {
+                // if the shuffler is finished, shutdown & drain the ready_pids queue
+                co_await shuffler_ctx->ready_pids.shutdown_drain(ctx->executor());
+            }
         }
         co_await ch_out->drain(ctx->executor());
     };
 
-    return {
-        insert_task(shuffler_ctx, ctx, total_num_partitions, stream, std::move(ch_in)),
+    std::vector<Node> nodes;
+    nodes.emplace_back(
+        insert_task(shuffler_ctx, ctx, total_num_partitions, stream, std::move(ch_in))
+    );
+    for (int i = 0; i < n_consumers - 1; ++i) {
+        nodes.emplace_back(extract_task(shuffler_ctx, ctx, ch_out));
+    }
+    nodes.emplace_back(
         extract_task(std::move(shuffler_ctx), std::move(ctx), std::move(ch_out))
-    };
+    );
+
+    co_await coro::when_all(std::move(nodes));
 }
 
 }  // namespace
 
-TEST_P(StreamingShuffler, callbacks) {
-    EXPECT_NO_FATAL_FAILURE(
-        run_test([&](auto ctx, auto ch_in, auto ch_out, std::vector<Node>& nodes) {
-            auto [insert_node, extract_node] = shuffler_nb(
-                std::move(ctx),
-                stream,
-                std::move(ch_in),
-                std::move(ch_out),
-                op_id,
-                num_partitions
-            );
-            nodes.emplace_back(std::move(insert_node));
-            nodes.emplace_back(std::move(extract_node));
-        })
-    );
+TEST_P(StreamingShuffler, callbacks_1_consumer) {
+    EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
+        return shuffler_nb(
+            ctx, stream, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 1
+        );
+    }));
+}
+
+TEST_P(StreamingShuffler, callbacks_2_consumer) {
+    EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
+        return shuffler_nb(
+            ctx, stream, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 2
+        );
+    }));
+}
+
+TEST_P(StreamingShuffler, callbacks_4_consumer) {
+    EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
+        return shuffler_nb(
+            ctx, stream, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 4
+        );
+    }));
 }
 
 class ShufflerAsyncTest
@@ -379,5 +399,59 @@ TEST_F(BaseStreamingFixture, extract_any_before_extract) {
     // now extract should throw
     for (auto pid : local_pids) {
         EXPECT_THROW(coro::sync_wait(shuffler->extract_async(pid)), std::runtime_error);
+    }
+}
+
+TEST_F(BaseStreamingFixture, competing_extract_any_and_extract) {
+    if (ctx->comm()->rank() != 0) {
+        GTEST_SKIP() << "Test only runs on rank 0";
+    }
+
+    static constexpr OpID op_id = 0;
+    static constexpr size_t n_partitions = 1;
+    auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
+
+    shuffler->insert_finished({0});
+
+    auto results = coro::sync_wait(
+        coro::when_all(shuffler->extract_any_async(), shuffler->extract_async(0))
+    );
+
+    auto& [extract_any_result, extract_result] = results;
+
+    // if extract_any_result is valid, then extract_result should throw
+    if (extract_any_result.return_value().is_valid()) {
+        EXPECT_EQ(extract_any_result.return_value().pid, 0);
+        EXPECT_THROW(extract_result.return_value(), std::out_of_range);
+    } else {
+        // else extract_result should be valid and an empty vector
+        EXPECT_EQ(extract_result.return_value().size(), 0);
+    }
+}
+
+TEST_F(BaseStreamingFixture, competing_extract_and_extract_any) {
+    if (ctx->comm()->rank() != 0) {
+        GTEST_SKIP() << "Test only runs on rank 0";
+    }
+
+    static constexpr OpID op_id = 0;
+    static constexpr size_t n_partitions = 1;
+    auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
+
+    shuffler->insert_finished({0});
+
+    auto results = coro::sync_wait(
+        coro::when_all(shuffler->extract_async(0), shuffler->extract_any_async())
+    );
+
+    auto& [extract_result, extract_any_result] = results;
+
+    // if extract_any_result is valid, then extract_result should throw
+    if (extract_any_result.return_value().is_valid()) {
+        EXPECT_EQ(extract_any_result.return_value().pid, 0);
+        EXPECT_THROW(extract_result.return_value(), std::out_of_range);
+    } else {
+        // else extract_result should be valid and an empty vector
+        EXPECT_EQ(extract_result.return_value().size(), 0);
     }
 }

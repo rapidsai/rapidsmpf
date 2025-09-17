@@ -15,10 +15,22 @@
 
 namespace rapidsmpf::streaming {
 
-
 namespace {
 
-coro::task<void> insert_to_set_and_notify(
+/**
+ * @brief Caller side corouting that inserts a partition ID into a set and notifies all
+ * waiting tasks.
+ *
+ * Wrapping mtx lock and cv notify in a coroutine task to avoid calling coro::sync_wait
+ * multiple times.
+ *
+ * @param mtx The mutex to use for synchronization.
+ * @param cv The condition variable to use for notification.
+ * @param set The set to insert the partition ID into.
+ * @param pid The partition ID to insert.
+ * @return A coroutine task that completes when the partition ID is inserted into the set.
+ */
+coro::task<void> insert_and_notify(
     coro::mutex& mtx,
     coro::condition_variable& cv,
     std::unordered_set<shuffler::PartID>& set,
@@ -52,7 +64,7 @@ ShufflerAsync::ShufflerAsync(
           ctx_->br(),
           [this](shuffler::PartID pid) -> void {
               ctx_->comm()->logger().trace("inserting finished partition ", pid);
-              coro::sync_wait(insert_to_set_and_notify(mtx_, cv_, ready_pids_, pid));
+              coro::sync_wait(insert_and_notify(mtx_, cv_, ready_pids_, pid));
           },
           ctx_->statistics(),
           std::move(partition_owner)
@@ -93,7 +105,7 @@ coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartI
     RAPIDSMPF_EXPECTS(
         !extracted_pids_.contains(pid) && ready_pids_.erase(pid) > 0,
         "partition already extracted or not found: " + std::to_string(pid),
-        std::runtime_error
+        std::out_of_range
     );
     extracted_pids_.emplace(pid);
     lock.unlock();  // no longer need the lock
@@ -148,13 +160,13 @@ Node shuffler(
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner
 ) {
-    ShufflerAsync shuffler_async(
-        ctx, stream, op_id, total_num_partitions, std::move(partition_owner)
-    );
-
     ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
     CudaEvent event;
+
+    ShufflerAsync shuffler_async(
+        ctx, stream, op_id, total_num_partitions, std::move(partition_owner)
+    );
 
     while (true) {
         auto msg = co_await ch_in->receive();

@@ -57,7 +57,7 @@ class ShufflerAsync {
      *
      * @return A reference to the shared context object.
      */
-    constexpr std::shared_ptr<Context>& ctx() const {
+    constexpr std::shared_ptr<Context> const& ctx() const {
         return ctx_;
     }
 
@@ -103,7 +103,7 @@ class ShufflerAsync {
      * @param pid The partition ID to extract data for.
      * @return A vector of PackedData chunks for the partition.
      *
-     * @throws std::runtime_error if the partition ID is not found or already extracted.
+     * @throws std::out_of_range if the partition ID is not found or already extracted.
      *
      * @warning Users should be careful when using `extract_async` and `extract_any_async`
      * together, because a pid intended for `extract_async` may be extracted by
