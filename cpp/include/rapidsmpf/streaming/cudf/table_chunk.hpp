@@ -82,15 +82,12 @@ class TableChunk {
     /**
      * @brief Construct a TableChunk from a packed data blob.
      *
+     * The packed data's CUDA stream will be associated the new table chunk.
+     *
      * @param sequence_number Ordering identifier for the chunk.
      * @param packed_data Serialized host/device data with metadata.
-     * @param stream The CUDA stream on which the packed_data was created.
      */
-    TableChunk(
-        std::uint64_t sequence_number,
-        std::unique_ptr<PackedData> packed_data,
-        rmm::cuda_stream_view stream
-    );
+    TableChunk(std::uint64_t sequence_number, std::unique_ptr<PackedData> packed_data);
 
     ~TableChunk() = default;
 
@@ -149,18 +146,16 @@ class TableChunk {
     /**
      * @brief Moves this chunk into a new one with its cudf table made available.
      *
-     * As part of the move, a copy or unpack may be performed if required.
+     * As part of the move, a copy or unpack may be performed if required using
+     * the associated CUDA stream.
      *
      * @param reservation Memory reservation for allocations if needed.
-     * @param stream CUDA stream to use for operations.
      * @return A new TableChunk with data available on device.
      *
      * @note After this call, the current object is in a moved-from state;
      *       only reassignment, movement, or destruction are valid.
      */
-    [[nodiscard]] TableChunk make_available(
-        MemoryReservation& reservation, rmm::cuda_stream_view stream
-    );
+    [[nodiscard]] TableChunk make_available(MemoryReservation& reservation);
 
     /**
      * @brief Returns a view of the underlying table.
@@ -176,18 +171,16 @@ class TableChunk {
     /**
      * @brief Move this table chunk into host memory.
      *
-     * Converts the device-resident table into a `PackedData` stored in host memory.
+     * Converts the device-resident table into a `PackedData` stored in host memory using
+     * the associated CUDA stream.
      *
-     * @param stream CUDA stream to use for the copy.
      * @param br Buffer resource used for allocations.
      * @return A new TableChunk containing packed host data.
      *
      * @note After this call, this object is in a has-been-moved-state and anything other
      * than reassignment, movement, and destruction is UB.
      */
-    [[nodiscard]] TableChunk spill_to_host(
-        rmm::cuda_stream_view stream, BufferResource* br
-    );
+    [[nodiscard]] TableChunk spill_to_host(BufferResource* br);
 
   private:
     std::uint64_t sequence_number_;

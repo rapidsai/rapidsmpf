@@ -305,9 +305,12 @@ class BufferResource {
      * @brief Move host vector data into a Buffer.
      *
      * @param data A unique pointer to the vector containing host data.
+     * @param stream CUDA stream used for the data allocation, copy, and/or move.
      * @return A unique pointer to the resulting Buffer.
      */
-    std::unique_ptr<Buffer> move(std::unique_ptr<std::vector<uint8_t>> data);
+    std::unique_ptr<Buffer> move(
+        std::unique_ptr<std::vector<uint8_t>> data, rmm::cuda_stream_view stream
+    );
 
     /**
      * @brief Move device buffer data into a Buffer.
@@ -326,10 +329,10 @@ class BufferResource {
     /**
      * @brief Move a Buffer to the specified memory type by the reservation.
      *
-     * If and only if moving between different memory types will this perform a copy.
+     * If and only if moving between different memory types will this perform a copy
+     * using the buffer's CUDA stream.
      *
      * @param buffer The buffer to move.
-     * @param stream CUDA stream used for the buffer allocation, copy, and/or move.
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the moved Buffer.
      *
@@ -337,18 +340,16 @@ class BufferResource {
      * @throws std::overflow_error if the memory requirement exceeds the reservation.
      */
     std::unique_ptr<Buffer> move(
-        std::unique_ptr<Buffer> buffer,
-        rmm::cuda_stream_view stream,
-        MemoryReservation& reservation
+        std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
     );
 
     /**
      * @brief Move a Buffer to a device buffer.
      *
-     * If and only if moving between different memory types will this perform a copy.
+     * If and only if moving between different memory types will this perform a copy using
+     * the buffer's CUDA stream.
      *
      * @param buffer The buffer to move.
-     * @param stream CUDA stream used for the buffer allocation, copy, and/or move.
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the resulting device buffer.
      *
@@ -357,18 +358,16 @@ class BufferResource {
      * @throws std::overflow_error if the memory requirement exceeds the reservation.
      */
     std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
-        std::unique_ptr<Buffer> buffer,
-        rmm::cuda_stream_view stream,
-        MemoryReservation& reservation
+        std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
     );
 
     /**
      * @brief Move a Buffer to a host vector.
      *
-     * If and only if moving between different memory types will this perform a copy.
+     * If and only if moving between different memory types will this perform a copy
+     * using the buffer's CUDA stream.
      *
      * @param buffer The buffer to move.
-     * @param stream CUDA stream used for the buffer allocation, copy, and/or move.
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the resulting host vector.
      *
@@ -377,9 +376,7 @@ class BufferResource {
      * @throws std::overflow_error if the memory requirement exceeds the reservation.
      */
     std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
-        std::unique_ptr<Buffer> buffer,
-        rmm::cuda_stream_view stream,
-        MemoryReservation& reservation
+        std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
     );
 
     /**

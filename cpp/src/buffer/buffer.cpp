@@ -11,14 +11,18 @@
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/cuda_stream.hpp>
 
 namespace rapidsmpf {
 
 
-Buffer::Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer)
+Buffer::Buffer(
+    std::unique_ptr<std::vector<uint8_t>> host_buffer, rmm::cuda_stream_view stream
+)
     : size{host_buffer ? host_buffer->size() : 0},
       storage_{std::move(host_buffer)},
-      event_{nullptr} {
+      event_{nullptr},
+      stream_{stream} {
     RAPIDSMPF_EXPECTS(
         std::get<HostStorageT>(storage_) != nullptr, "the host_buffer cannot be NULL"
     );
@@ -40,6 +44,11 @@ Buffer::Buffer(
       } {
     RAPIDSMPF_EXPECTS(
         std::get<DeviceStorageT>(storage_) != nullptr, "the device buffer cannot be NULL"
+    );
+    RAPIDSMPF_EXPECTS(
+        device()->stream().value() == stream.value(),
+        "the stream must match the device_buffer's stream",
+        std::invalid_argument
     );
 }
 
@@ -76,9 +85,7 @@ void buffer_copy(
     Buffer& src,
     std::size_t size,
     std::ptrdiff_t dst_offset,
-    std::ptrdiff_t src_offset,
-    rmm::cuda_stream_view stream,
-    bool attach_cuda_event
+    std::ptrdiff_t src_offset
 ) {
     RAPIDSMPF_EXPECTS(
         &dst != &src,
@@ -99,22 +106,13 @@ void buffer_copy(
         return;  // Nothing to copy.
     }
 
-    // Make sure we wait on any buffer event.
-    if (auto e = dst.get_event()) {
-        e->stream_wait(stream);
-    }
-    if (auto e = src.get_event()) {
-        e->stream_wait(stream);
-    }
-
+    cuda_stream_join(std::array{dst.stream()}, std::array{src.stream()});
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-        dst.data() + dst_offset, src.data() + src_offset, size, cudaMemcpyDefault, stream
+        dst.data() + dst_offset,
+        src.data() + src_offset,
+        size,
+        cudaMemcpyDefault,
+        dst.stream()
     ));
-
-    // Override the event to track the async copy.
-    if (attach_cuda_event) {
-        src.override_event(CudaEvent::make_shared_record(stream));
-        dst.override_event(CudaEvent::make_shared_record(stream));
-    }
 }
 }  // namespace rapidsmpf

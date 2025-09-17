@@ -118,9 +118,7 @@ int main(int argc, char** argv) {
         // convenience function.
         local_outputs.push_back(
             rapidsmpf::unpack_and_concat(
-                rapidsmpf::unspill_partitions(
-                    std::move(packed_chunks), stream, &br, true
-                ),
+                rapidsmpf::unspill_partitions(std::move(packed_chunks), &br, true),
                 stream,
                 &br
             )

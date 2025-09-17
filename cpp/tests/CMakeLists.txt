@@ -49,6 +49,7 @@ target_sources(
             test_chunk.cpp
             test_communicator.cpp
             test_config.cpp
+            test_cuda_stream.cpp
             test_cudf_utils.cpp
             test_cupti_monitor.cpp
             test_partition.cpp

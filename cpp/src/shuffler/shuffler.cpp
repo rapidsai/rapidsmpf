@@ -93,6 +93,8 @@ std::unique_ptr<Buffer> allocate_buffer(
  * or another lower-priority memory space, helping manage limited GPU memory
  * by offloading excess data.
  *
+ * The spilling is stream-ordered on the individual CUDA stream of each spilled buffer.
+ *
  * @note While spilling, chunks are temporarily extracted from the postbox thus other
  * threads trying to extract a chunk that is in the process of being spilled, will fail.
  * To avoid this, the Shuffler uses `outbox_spillling_mutex_` to serialize extractions.
@@ -101,7 +103,6 @@ std::unique_ptr<Buffer> allocate_buffer(
  * @param log A logger for recording events and debugging information.
  * @param statistics The statistics instance to use.
  * @param stream CUDA stream to use for memory and kernel operations.
- * @param postbox The PostBox containing buffers to be spilled.
  * @param amount The maximum amount of data (in bytes) to be spilled.
  *
  * @return The actual amount of data successfully spilled from the postbox.
@@ -114,7 +115,6 @@ template <typename KeyType>
 std::size_t postbox_spilling(
     BufferResource* br,
     Communicator::Logger& log,
-    rmm::cuda_stream_view stream,
     PostBox<KeyType>& postbox,
     std::size_t amount
 ) {
@@ -140,9 +140,7 @@ std::size_t postbox_spilling(
         }
         // We extract the chunk, spilled it, and insert it back into the PostBox.
         auto chunk = postbox.extract(pid, cid);
-        chunk.set_data_buffer(
-            br->move(chunk.release_data_buffer(), stream, host_reservation)
-        );
+        chunk.set_data_buffer(br->move(chunk.release_data_buffer(), host_reservation));
         postbox.insert(std::move(chunk));
         if ((total_spilled += size) >= amount) {
             break;
@@ -212,9 +210,10 @@ class Shuffler::Progress {
                     ready_ack_receives_[dst].push_back(shuffler_.comm_->recv(
                         dst,
                         ready_for_data_tag,
-                        shuffler_.br_->move(
-                            std::make_unique<std::vector<std::uint8_t>>(
-                                ReadyForDataMessage::byte_size
+                        shuffler_.br_->allocate(
+                            shuffler_.stream_,
+                            shuffler_.br_->reserve_or_fail(
+                                ReadyForDataMessage::byte_size, MemoryType::HOST
                             )
                         )
                     ));
@@ -613,7 +612,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
             chunk.set_data_buffer(
-                br_->move(chunk.release_data_buffer(), stream_, host_reservation)
+                br_->move(chunk.release_data_buffer(), host_reservation)
             );
             statistics_->add_duration_stat(
                 "spill-time-device-to-host", Clock::now() - t0_elapsed
@@ -816,8 +815,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         std::lock_guard<std::mutex> lock(ready_postbox_spilling_mutex_);
-        spilled =
-            postbox_spilling(br_, comm_->logger(), stream_, ready_postbox_, spill_need);
+        spilled = postbox_spilling(br_, comm_->logger(), ready_postbox_, spill_need);
     }
     return spilled;
 }

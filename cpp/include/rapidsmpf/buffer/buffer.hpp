@@ -116,11 +116,20 @@ class Buffer {
     [[nodiscard]] MemoryType constexpr mem_type() const {
         return std::visit(
             overloaded{
-                [](const HostStorageT&) -> MemoryType { return MemoryType::HOST; },
-                [](const DeviceStorageT&) -> MemoryType { return MemoryType::DEVICE; }
+                [](HostStorageT const&) -> MemoryType { return MemoryType::HOST; },
+                [](DeviceStorageT const&) -> MemoryType { return MemoryType::DEVICE; }
             },
             storage_
         );
+    }
+
+    /**
+     * @brief Get the associated CUDA stream.
+     *
+     * @return The CUDA stream.
+     */
+    [[nodiscard]] constexpr rmm::cuda_stream_view stream() const noexcept {
+        return stream_;
     }
 
     /**
@@ -173,7 +182,9 @@ class Buffer {
      *
      * @throws std::invalid_argument if `host_buffer` is null.
      */
-    Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer);
+    Buffer(
+        std::unique_ptr<std::vector<uint8_t>> host_buffer, rmm::cuda_stream_view stream
+    );
 
     /**
      * @brief Construct a Buffer from device memory.
@@ -253,6 +264,8 @@ class Buffer {
     StorageT storage_;
     /// @brief CUDA event used to track copy operations
     std::shared_ptr<CudaEvent> event_;
+
+    rmm::cuda_stream_view stream_;
 };
 
 /**
@@ -265,21 +278,14 @@ class Buffer {
  * @param size Number of bytes to copy.
  * @param dst_offset Offset (in bytes) into the destination buffer.
  * @param src_offset Offset (in bytes) into the source buffer.
- * @param stream CUDA stream on which to enqueue the copy.
- * @param attach_cuda_event If true, record a CUDA event on @p stream and attach it
- * to the destination buffer to track completion. If false, the caller is responsible
- * for ensuring proper synchronization.
- *
  * @throws std::invalid_argument If out of bounds.
  */
 void buffer_copy(
     Buffer& dst,
     Buffer& src,
     std::size_t size,
-    std::ptrdiff_t dst_offset,
-    std::ptrdiff_t src_offset,
-    rmm::cuda_stream_view stream,
-    bool attach_cuda_event
+    std::ptrdiff_t dst_offset = 0,
+    std::ptrdiff_t src_offset = 0
 );
 
 }  // namespace rapidsmpf
