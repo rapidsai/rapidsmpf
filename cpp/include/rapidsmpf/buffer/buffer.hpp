@@ -20,9 +20,6 @@
 
 namespace rapidsmpf {
 
-class BufferResource;
-class MemoryReservation;
-
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
     DEVICE = 0,  ///< Device memory
