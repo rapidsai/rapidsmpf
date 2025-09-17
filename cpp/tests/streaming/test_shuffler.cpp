@@ -398,7 +398,7 @@ TEST_F(BaseStreamingFixture, extract_any_before_extract) {
 
     // now extract should throw
     for (auto pid : local_pids) {
-        EXPECT_THROW(coro::sync_wait(shuffler->extract_async(pid)), std::runtime_error);
+        EXPECT_THROW(coro::sync_wait(shuffler->extract_async(pid)), std::out_of_range);
     }
 }
 
