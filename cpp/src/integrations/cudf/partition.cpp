@@ -234,7 +234,6 @@ std::vector<PackedData> spill_partitions(
             std::vector<PackedData> ret;
             ret.reserve(partitions.size());
             for (auto& [metadata, data] : partitions) {
-                auto stream = data->stream();
                 ret.emplace_back(
                     std::move(metadata), br->move(std::move(data), reservation)
                 );
@@ -270,7 +269,6 @@ std::vector<PackedData> unspill_partitions(
             std::vector<PackedData> ret;
             ret.reserve(partitions.size());
             for (auto& [metadata, data] : partitions) {
-                auto stream = data->stream();
                 ret.emplace_back(
                     std::move(metadata), br->move(std::move(data), reservation)
                 );

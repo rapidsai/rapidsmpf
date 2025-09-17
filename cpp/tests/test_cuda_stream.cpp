@@ -97,12 +97,9 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
         );
 
         unsigned char expect = downstream_value(i);
-
-        // Quick sentinels to keep test snappy on large slices:
-        ASSERT_EQ(host.front(), expect) << "slice " << i << " first byte mismatch";
-        ASSERT_EQ(host[slice_bytes / 2], expect)
-            << "slice " << i << " middle byte mismatch";
-        ASSERT_EQ(host.back(), expect) << "slice " << i << " last byte mismatch";
+        for (size_t j = 0; j < slice_bytes; ++j) {
+            ASSERT_EQ(host[j], expect) << "slice " << i << " byte " << j << " mismatch";
+        }
     }
 
     // Cleanup streams

@@ -191,10 +191,10 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
         "the memory type of MemoryReservation doesn't match",
         std::invalid_argument
     );
-    auto upstream = buffer->stream();
+    auto stream = buffer->stream();
     auto ret = move(std::move(buffer), reservation)->release_device();
     RAPIDSMPF_EXPECTS(
-        ret->stream().value() == upstream.value(),
+        ret->stream().value() == stream.value(),
         "something went wrong, the Buffer's stream and the device_buffer's stream "
         "doesn't match"
     );

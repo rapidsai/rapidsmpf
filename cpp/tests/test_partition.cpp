@@ -116,8 +116,7 @@ TEST_F(SpillingTest, SpillUnspillRoundtripPreservesDataAndMetadata) {
     input.push_back(create_packed_data(metadata, payload, stream, br.get()));
 
     // Device -> Device (moves data)
-    auto on_gpu =
-        unspill_partitions(std::move(input), br.get(), /*allow_overbooking=*/true);
+    auto on_gpu = unspill_partitions(std::move(input), br.get(), true);
     ASSERT_EQ(on_gpu.size(), 1);
     EXPECT_EQ(on_gpu[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
     EXPECT_EQ(*on_gpu[0].metadata, metadata);

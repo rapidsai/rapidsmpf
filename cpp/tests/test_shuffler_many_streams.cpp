@@ -37,7 +37,6 @@ int gen_stream_priority(unsigned int seed = 42) {
     RAPIDSMPF_CUDA_TRY(
         cudaDeviceGetStreamPriorityRange(&least_priority, &greatest_priority)
     );
-
     int num_priorities = least_priority - greatest_priority + 1;
     std::mt19937 gen{seed};
     std::uniform_int_distribution<int> dist(0, num_priorities - 1);

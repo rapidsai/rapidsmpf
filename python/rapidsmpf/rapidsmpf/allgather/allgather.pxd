@@ -35,7 +35,7 @@ cdef extern from "<rapidsmpf/allgather/allgather.hpp>" nogil:
         ) except +
         void insert(cpp_PackedData packed_data) except +
         void insert_finished() except +
-        bool finished() except + nogil
+        bool finished() except
         vector[cpp_PackedData] wait_and_extract(
             Ordered ordered,
             milliseconds_t timeout
