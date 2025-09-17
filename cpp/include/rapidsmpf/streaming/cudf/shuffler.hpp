@@ -111,11 +111,11 @@ class ShufflerAsync {
      * @return A coroutine task that yields a vector of PackedData chunks for the
      * partition.
      *
-     * @throws std::runtime_error if the partition ID is not found.
+     * @throws std::runtime_error if the partition ID is not found or already extracted.
      *
-     * @note Users should be careful when using `extract_async` and `extract_any_async`
+     * @warning Users should be careful when using `extract_async` and `extract_any_async`
      * together, because a pid intended for `extract_async` may be extracted by
-     * `extract_any_async`.
+     * `extract_any_async`. If that happens, `extract_async` will throw an error.
      */
     coro::task<std::vector<PackedData>> extract_async(shuffler::PartID pid);
 
@@ -163,7 +163,7 @@ class ShufflerAsync {
      * @return A coroutine task that yields an ExtractResult containing the partition ID
      *         and data chunks, or an invalid result if no more partitions are available.
      *
-     * @note Users should be careful when using `extract_async` and `extract_any_async`
+     * @warning Users should be careful when using `extract_async` and `extract_any_async`
      * together, because a pid intended for `extract_async` may be extracted by
      * `extract_any_async`.
      */
@@ -176,6 +176,7 @@ class ShufflerAsync {
     coro::condition_variable cv_{};
     shuffler::Shuffler shuffler_;
     std::unordered_set<shuffler::PartID> ready_pids_;
+    std::unordered_set<shuffler::PartID> extracted_pids_;
 };
 
 namespace node {

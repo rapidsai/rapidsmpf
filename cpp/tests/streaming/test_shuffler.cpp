@@ -325,11 +325,8 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     }
 
     // insert finished (executed by main thread)
-    std::vector<shuffler::PartID> finished;
-    finished.reserve(n_partitions);
-    for (shuffler::PartID pid = 0; pid < n_partitions; ++pid) {
-        finished.push_back(pid);
-    }
+    std::vector<shuffler::PartID> finished(n_partitions);
+    std::iota(finished.begin(), finished.end(), 0);
     shuffler->insert_finished(std::move(finished));
 
     coro::mutex mtx;
@@ -356,4 +353,34 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
 
     std::ranges::sort(finished_pids);
     EXPECT_EQ(local_pids, finished_pids);
+}
+
+TEST_F(BaseStreamingFixture, extract_any_before_extract) {
+    static constexpr OpID op_id = 0;
+    static constexpr size_t n_partitions = 10;
+    auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
+
+    // all empty partitions
+    std::vector<shuffler::PartID> finished(n_partitions);
+    std::iota(finished.begin(), finished.end(), 0);
+    shuffler->insert_finished(std::move(finished));
+
+    auto local_pids = shuffler::Shuffler::local_partitions(
+        ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
+    );
+
+    size_t parts_extracted = 0;
+    while (true) {  // extract all partitions
+        auto res = coro::sync_wait(shuffler->extract_any_async());
+        if (!res.is_valid()) {
+            break;
+        }
+        parts_extracted++;
+    }
+    EXPECT_EQ(local_pids.size(), parts_extracted);
+
+    // now extract should throw
+    for (auto pid : local_pids) {
+        EXPECT_THROW(coro::sync_wait(shuffler->extract_async(pid)), std::runtime_error);
+    }
 }

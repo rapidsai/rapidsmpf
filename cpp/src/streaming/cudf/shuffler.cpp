@@ -73,17 +73,29 @@ void ShufflerAsync::insert_finished(std::vector<shuffler::PartID>&& pids) {
 coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartID pid) {
     // Wait until the partition is finished
     auto lock = co_await mtx_.scoped_lock();
+
+    RAPIDSMPF_EXPECTS(
+        !extracted_pids_.contains(pid),
+        "partition already extracted: " + std::to_string(pid),
+        std::runtime_error
+    );
+
     co_await cv_.wait(lock, [this, pid]() {
+        // Note: purposefully not checking for extracted_pids_.contains(pid) here,
+        // because it would require notifying the cv every time a partition is extracted.
+        // Consequence of this is that, if pid was extracted by some other task, this task
+        // would only be notified during the shuffler.finished() check.
         return shuffler_.finished() || ready_pids_.contains(pid);
     });
 
     // partition not found (may have been already extracted or shuffler was finished
     // before the pid was inserted into ready_pids_)
     RAPIDSMPF_EXPECTS(
-        ready_pids_.erase(pid) > 0,
-        "partition ID not found: " + std::to_string(pid),
+        !extracted_pids_.contains(pid) && ready_pids_.erase(pid) > 0,
+        "partition already extracted or not found: " + std::to_string(pid),
         std::runtime_error
     );
+    extracted_pids_.emplace(pid);
     lock.unlock();  // no longer need the lock
 
     auto chunks = shuffler_.extract(pid);
@@ -103,7 +115,8 @@ coro::task<ShufflerAsync::ExtractResult> ShufflerAsync::extract_any_async() {
         return shuffler_.finished() || !ready_pids_.empty();
     });
 
-    // no partitions to extract or shuffle is already finished
+    // no partitions to extract or shuffle is already finished. Gracefully return an
+    // invalid result.
     if (ready_pids_.empty()) {
         lock.unlock();
         ctx_->comm()->logger().warn("no partitions to extract");
@@ -111,6 +124,7 @@ coro::task<ShufflerAsync::ExtractResult> ShufflerAsync::extract_any_async() {
     }
 
     auto pid = ready_pids_.extract(ready_pids_.begin()).value();
+    extracted_pids_.emplace(pid);
     lock.unlock();
 
     auto chunks = shuffler_.extract(pid);
