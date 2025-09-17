@@ -382,7 +382,7 @@ class BufferResourceCopySliceTest
             *source,
             length,
             0,  // dst_offset
-            offset,  // src_offset
+            std::ptrdiff_t(offset),  // src_offset
             stream,
             false
         );
@@ -607,7 +607,7 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
 };
 
 TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
-    constexpr std::size_t slice_offset = 128;
+    constexpr std::ptrdiff_t slice_offset = 128;
     constexpr std::size_t slice_length = 512;
 
     auto buf1 = create_source_buffer();
