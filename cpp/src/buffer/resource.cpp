@@ -162,16 +162,14 @@ std::unique_ptr<Buffer> BufferResource::move(
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<rmm::device_buffer> data,
-    rmm::cuda_stream_view stream,
-    std::shared_ptr<CudaEvent> event
+    std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
 ) {
     auto upstream = data->stream();
     if (upstream.value() != stream.value()) {
         cuda_stream_join(std::array{stream}, std::array{upstream});
         data->set_stream(stream);
     }
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream, std::move(event)));
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
