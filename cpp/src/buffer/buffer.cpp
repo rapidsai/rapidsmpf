@@ -35,7 +35,8 @@ Buffer::Buffer(
       storage_{std::move(device_buffer)},
       // Use the provided event if it exists, otherwise create a new event to track the
       // async copy only if the buffer is not empty
-      event_{size > 0 ? CudaEvent::make_shared_record(stream) : nullptr} {
+      event_{size > 0 ? CudaEvent::make_shared_record(stream) : nullptr},
+      stream_{stream} {
     RAPIDSMPF_EXPECTS(
         std::get<DeviceStorageT>(storage_) != nullptr, "the device buffer cannot be NULL"
     );
