@@ -77,9 +77,16 @@ Chunk Chunk::get_data(
         } else {
             std::ptrdiff_t data_slice_offset =
                 (i == 0 ? 0 : std::ptrdiff_t(data_offsets_[i - 1]));
-            auto reserve = br->reserve_or_fail(data_slice_size);
-            data_slice =
-                data_->copy_slice(data_slice_offset, data_slice_size, reserve, stream);
+            data_slice = br->allocate(stream, br->reserve_or_fail(data_slice_size));
+            buffer_copy(
+                *data_slice,
+                *data_,
+                data_slice_size,
+                0,  // dst_offset
+                data_slice_offset,  // src_offset
+                stream,
+                true
+            );
         }
 
         return {
@@ -356,8 +363,14 @@ Chunk Chunk::concat(
         // Process data
         if (chunk.is_data_buffer_set() && chunk.concat_data_size() > 0) {
             // Copy data
-            std::ignore = chunk.data_->copy_to(
-                *concat_data, std::ptrdiff_t(curr_data_offset), stream, false
+            buffer_copy(
+                *concat_data,
+                *chunk.data_,
+                chunk.data_->size,
+                std::ptrdiff_t(curr_data_offset),  // dst_offset
+                0,  // src_offset
+                stream,
+                false
             );
             // Update offsets for each message in the chunk
             for (size_t i = 0; i < chunk_messages; ++i) {

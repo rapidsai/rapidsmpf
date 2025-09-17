@@ -172,7 +172,9 @@ std::unique_ptr<Buffer> BufferResource::move(
     MemoryReservation& reservation
 ) {
     if (reservation.mem_type_ != buffer->mem_type()) {
-        return buffer->copy(stream, reservation);
+        auto ret = allocate(buffer->size, stream, reservation);
+        buffer_copy(*ret, *buffer, buffer->size, 0, 0, stream, true);
+        return ret;
     }
     return buffer;
 }
@@ -201,14 +203,6 @@ std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
         std::invalid_argument
     );
     return move(std::move(buffer), stream, reservation)->release_host();
-}
-
-std::unique_ptr<Buffer> BufferResource::copy(
-    std::unique_ptr<Buffer> const& buffer,
-    rmm::cuda_stream_view stream,
-    MemoryReservation& reservation
-) {
-    return buffer->copy(stream, reservation);
 }
 
 SpillManager& BufferResource::spill_manager() {

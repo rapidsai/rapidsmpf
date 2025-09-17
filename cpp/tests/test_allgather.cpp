@@ -23,6 +23,7 @@
 #include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
+#include "rapidsmpf/buffer/buffer.hpp"
 #include "utils.hpp"
 
 using namespace rapidsmpf::allgather;
@@ -67,9 +68,12 @@ void validate_packed_data(
     }
 
     EXPECT_EQ(n_elements * sizeof(int), packed_data.data->size);
-    auto [res, ob] =
-        br.reserve(rapidsmpf::MemoryType::HOST, n_elements * sizeof(int), false);
-    auto const copied_vec = packed_data.data->copy(stream, res);
+    auto copied_vec = br.allocate(
+        stream, br.reserve_or_fail(n_elements * sizeof(int), rapidsmpf::MemoryType::HOST)
+    );
+    rapidsmpf::buffer_copy(
+        *copied_vec, *packed_data.data, n_elements * sizeof(int), 0, 0, stream, true
+    );
     RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
     EXPECT_EQ(metadata, *const_cast<rapidsmpf::Buffer const&>(*copied_vec).host());
 }

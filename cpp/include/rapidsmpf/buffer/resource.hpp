@@ -383,25 +383,6 @@ class BufferResource {
     );
 
     /**
-     * @brief Create a copy of a Buffer by allocating a new buffer from the reservation.
-     *
-     * Unlike `move()`, this always performs a copy operation.
-     *
-     * @param buffer The buffer to copy.
-     * @param stream CUDA stream used for the buffer allocation and copy.
-     * @param reservation The reservation to use for memory allocations.
-     * @return A unique pointer to the new Buffer.
-     *
-     * @throws std::invalid_argument if `target` does not match the reservation.
-     * @throws std::overflow_error if the size exceeds the size of the reservation.
-     */
-    std::unique_ptr<Buffer> copy(
-        std::unique_ptr<Buffer> const& buffer,
-        rmm::cuda_stream_view stream,
-        MemoryReservation& reservation
-    );
-
-    /**
      * @brief Gets a reference to the spill manager used.
      *
      * @return Reference to the SpillManager instance.
