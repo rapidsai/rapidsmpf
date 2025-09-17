@@ -191,16 +191,12 @@ class Buffer {
      *
      * @param device_buffer A unique pointer to a device buffer.
      * @param stream CUDA stream used for the device buffer allocation.
-     * @param event The shared event to use for the buffer.
      *
      * @throws std::invalid_argument if `device_buffer` is null.
-     * @throws std::invalid_argument if `stream` or `br->mr` isn't the same used by
-     * `device_buffer`.
+     * @throws std::invalid_argument if `stream` isn't the same used by `device_buffer`.
      */
     Buffer(
-        std::unique_ptr<rmm::device_buffer> device_buffer,
-        rmm::cuda_stream_view stream,
-        std::shared_ptr<CudaEvent> event = nullptr
+        std::unique_ptr<rmm::device_buffer> device_buffer, rmm::cuda_stream_view stream
     );
 
     /**
