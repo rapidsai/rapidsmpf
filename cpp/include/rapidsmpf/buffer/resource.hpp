@@ -59,6 +59,7 @@ class MemoryReservation {
      * @return A reference to the updated MemoryReservation.
      */
     MemoryReservation& operator=(MemoryReservation&& o) noexcept {
+        clear();
         mem_type_ = o.mem_type_;
         br_ = std::exchange(o.br_, nullptr);
         size_ = std::exchange(o.size_, 0);
@@ -244,25 +245,6 @@ class BufferResource {
     );
 
     /**
-     * @brief Create a memory reservation and execute a function, which will ensure
-     * the reservation is released when the function goes out of scope.
-     *
-     * @param mem_type The memory type to reserve.
-     * @param size The size of the memory to reserve.
-     * @param allow_overbooking Whether to allow overbooking. If false and there is not
-     * enough memory, the function will receive an empty reservation.
-     * @param f A callable object that takes a `MemoryReservation&` and a `size_t`.
-     *
-     * @return The result of the function.
-     */
-    auto with_reservation(
-        MemoryType mem_type, std::size_t size, bool allow_overbooking, auto&& f
-    ) {
-        auto [res, ob] = reserve(mem_type, size, allow_overbooking);
-        return std::forward<decltype(f)>(f)(res, ob);
-    }
-
-    /**
      * @brief Make a memory reservation or fail.
      *
      * @param size The size of the buffer to allocate.
@@ -303,6 +285,20 @@ class BufferResource {
      */
     std::unique_ptr<Buffer> allocate(
         std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
+    );
+
+    /**
+     * @brief Allocate a buffer consuming the entire reservation.
+     *
+     * This overload allocates a buffer that matches the full size and memory type
+     * of the provided reservation. The reservation is consumed by the call.
+     *
+     * @param stream CUDA stream to use for device allocations.
+     * @param reservation The memory reservation to consume for the allocation.
+     * @return A unique pointer to the allocated Buffer.
+     */
+    std::unique_ptr<Buffer> allocate(
+        rmm::cuda_stream_view stream, MemoryReservation&& reservation
     );
 
     /**
@@ -367,22 +363,6 @@ class BufferResource {
     );
 
     /**
-     * @brief Move a Buffer to a device buffer without allowing memory type conversion.
-     *
-     * This overload assumes the buffer is already in device memory. No copy will be
-     * performed. Moving between different memory types is not allowed and will result in
-     * an exception.
-     *
-     * @param buffer The buffer to move.
-     * @return A unique pointer to the resulting device buffer.
-     *
-     * @throws std::logic_error if the buffer is not already in device memory.
-     */
-    std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
-        std::unique_ptr<Buffer> buffer
-    );
-
-    /**
      * @brief Move a Buffer to a host vector.
      *
      * If and only if moving between different memory types will this perform a copy.
@@ -403,41 +383,6 @@ class BufferResource {
     );
 
     /**
-     * @brief Move a Buffer to a host vector without allowing memory type conversion.
-     *
-     * This overload assumes the buffer is already in host memory. No copy will be
-     * performed. Moving between different memory types is not allowed and will result in
-     * an exception.
-     *
-     * @param buffer The buffer to move.
-     * @return A unique pointer to the resulting host vector.
-     *
-     * @throws std::logic_error if the buffer is not already in host memory.
-     */
-    std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
-        std::unique_ptr<Buffer> buffer
-    );
-
-    /**
-     * @brief Create a copy of a Buffer by allocating a new buffer from the reservation.
-     *
-     * Unlike `move()`, this always performs a copy operation.
-     *
-     * @param buffer The buffer to copy.
-     * @param stream CUDA stream used for the buffer allocation and copy.
-     * @param reservation The reservation to use for memory allocations.
-     * @return A unique pointer to the new Buffer.
-     *
-     * @throws std::invalid_argument if `target` does not match the reservation.
-     * @throws std::overflow_error if the size exceeds the size of the reservation.
-     */
-    std::unique_ptr<Buffer> copy(
-        std::unique_ptr<Buffer> const& buffer,
-        rmm::cuda_stream_view stream,
-        MemoryReservation& reservation
-    );
-
-    /**
      * @brief Gets a reference to the spill manager used.
      *
      * @return Reference to the SpillManager instance.
@@ -451,13 +396,6 @@ class BufferResource {
      * @return Shared pointer the Statistics instance.
      */
     std::shared_ptr<Statistics> statistics();
-
-    /**
-     * @brief Allocate an empty host buffer.
-     *
-     * @return A unique pointer to the allocated Buffer.
-     */
-    static std::unique_ptr<Buffer> allocate_empty_host_buffer();
 
   private:
     std::mutex mutex_;
@@ -520,10 +458,6 @@ class LimitAvailableMemory {
 /**
  * @brief Acquire a memory reservation and execute a function, which will ensure
  * the reservation is released when the function goes out of scope.
- *
- * Similar to `BufferResource::with_reservation`, but this function would not reserve
- * memory, but holds on to the reservation until the function is executed. Is useful in
- * situations where the memory reservation is made with spilling.
  *
  * @param reservation moved memory reservation.
  * @param f The function to execute.

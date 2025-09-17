@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <variant>
 #include <vector>
@@ -18,9 +19,6 @@
 #include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
-
-class BufferResource;
-class MemoryReservation;
 
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
@@ -97,7 +95,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage any memory.
      */
-    [[nodiscard]] void* data();
+    [[nodiscard]] std::byte* data();
 
     /**
      * @brief Access the underlying memory buffer (host or device memory).
@@ -106,7 +104,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage any memory.
      */
-    [[nodiscard]] void const* data() const;
+    [[nodiscard]] std::byte const* data() const;
 
     /**
      * @brief Get the memory type of the buffer.
@@ -138,6 +136,15 @@ class Buffer {
     }
 
     /**
+     * @brief Get the event for the buffer.
+     *
+     * @return The event.
+     */
+    [[nodiscard]] std::shared_ptr<CudaEvent> get_event() const {
+        return event_;
+    }
+
+    /**
      * @brief Check if the device memory operation has completed.
      *
      * @return true if the device memory operation has completed or no device
@@ -151,60 +158,6 @@ class Buffer {
      * @throws rapidsmpf::cuda_error if event wait fails (if set).
      */
     void wait_for_ready() const;
-
-    /**
-     * @brief Copy a slice of the buffer to a new buffer allocated from the target
-     * reservation.
-     *
-     * @param offset Non-negative offset from the start of the buffer (in bytes).
-     * @param length Length of the slice (in bytes).
-     * @param target_reserv Memory reservation for the new buffer.
-     * @param stream CUDA stream to use for the copy.
-     * @returns A new buffer containing the copied slice.
-     */
-    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        std::ptrdiff_t offset,
-        std::size_t length,
-        MemoryReservation& target_reserv,
-        rmm::cuda_stream_view stream
-    ) const;
-
-    /**
-     * @brief Create a copy of this buffer by allocating a new buffer from the
-     * reservation.
-     *
-     * @param stream CUDA stream used for the device buffer allocation and copy.
-     * @param reservation Memory reservation for data allocations.
-     * @return A unique pointer to a new Buffer containing the copied data.
-     */
-    [[nodiscard]] std::unique_ptr<Buffer> copy(
-        rmm::cuda_stream_view stream, MemoryReservation& reservation
-    ) const;
-
-    /**
-     * @brief Copy data from this buffer to a destination buffer with a given offset.
-     *
-     * @param dest Destination buffer.
-     * @param dest_offset Non-negative offset of the destination buffer (in bytes).
-     * @param stream CUDA stream to use for the copy.
-     * @param attach_event If true, attach the event to the copy. Else, the caller needs
-     * to attach appropriate event to the destination buffer. If the copy is host-to-host,
-     * the copy is synchronous and the event is not needed, hence this argument is
-     * ignored.
-     * @returns Number of bytes written to the destination buffer.
-     *
-     * @note If this buffer and destination buffer are both on the host, the copy is
-     * synchronous.
-     *
-     * @throws std::invalid_argument if copy violates the bounds of the destination
-     * buffer.
-     */
-    [[nodiscard]] std::ptrdiff_t copy_to(
-        Buffer& dest,
-        std::ptrdiff_t dest_offset,
-        rmm::cuda_stream_view stream,
-        bool attach_event = false
-    ) const;
 
     /// @brief Delete move and copy constructors and assignment operators.
     Buffer(Buffer&&) = delete;
@@ -301,5 +254,32 @@ class Buffer {
     /// @brief CUDA event used to track copy operations
     std::shared_ptr<CudaEvent> event_;
 };
+
+/**
+ * @brief Asynchronously copy data between buffers.
+ *
+ * Copies @p size bytes from @p src at @p src_offset into @p dst at @p dst_offset.
+ *
+ * @param dst Destination buffer.
+ * @param src Source buffer.
+ * @param size Number of bytes to copy.
+ * @param dst_offset Offset (in bytes) into the destination buffer.
+ * @param src_offset Offset (in bytes) into the source buffer.
+ * @param stream CUDA stream on which to enqueue the copy.
+ * @param attach_cuda_event If true, record a CUDA event on @p stream and attach it
+ * to the destination buffer to track completion. If false, the caller is responsible
+ * for ensuring proper synchronization.
+ *
+ * @throws std::invalid_argument If out of bounds.
+ */
+void buffer_copy(
+    Buffer& dst,
+    Buffer& src,
+    std::size_t size,
+    std::ptrdiff_t dst_offset,
+    std::ptrdiff_t src_offset,
+    rmm::cuda_stream_view stream,
+    bool attach_cuda_event
+);
 
 }  // namespace rapidsmpf

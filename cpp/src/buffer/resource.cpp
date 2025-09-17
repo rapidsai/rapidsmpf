@@ -148,6 +148,12 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     return ret;
 }
 
+std::unique_ptr<Buffer> BufferResource::allocate(
+    rmm::cuda_stream_view stream, MemoryReservation&& reservation
+) {
+    return allocate(reservation.size(), stream, reservation);
+}
+
 std::unique_ptr<Buffer> BufferResource::move(std::unique_ptr<std::vector<uint8_t>> data) {
     return std::unique_ptr<Buffer>(new Buffer(std::move(data)));
 }
@@ -166,7 +172,9 @@ std::unique_ptr<Buffer> BufferResource::move(
     MemoryReservation& reservation
 ) {
     if (reservation.mem_type_ != buffer->mem_type()) {
-        return buffer->copy(stream, reservation);
+        auto ret = allocate(buffer->size, stream, reservation);
+        buffer_copy(*ret, *buffer, buffer->size, 0, 0, stream, true);
+        return ret;
     }
     return buffer;
 }
@@ -184,12 +192,6 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     return move(std::move(buffer), stream, reservation)->release_device();
 }
 
-std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
-    std::unique_ptr<Buffer> buffer
-) {
-    return buffer->release_device();
-}
-
 std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
     std::unique_ptr<Buffer> buffer,
     rmm::cuda_stream_view stream,
@@ -203,30 +205,12 @@ std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
     return move(std::move(buffer), stream, reservation)->release_host();
 }
 
-std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
-    std::unique_ptr<Buffer> buffer
-) {
-    return buffer->release_host();
-}
-
-std::unique_ptr<Buffer> BufferResource::copy(
-    std::unique_ptr<Buffer> const& buffer,
-    rmm::cuda_stream_view stream,
-    MemoryReservation& reservation
-) {
-    return buffer->copy(stream, reservation);
-}
-
 SpillManager& BufferResource::spill_manager() {
     return spill_manager_;
 }
 
 std::shared_ptr<Statistics> BufferResource::statistics() {
     return statistics_;
-}
-
-std::unique_ptr<Buffer> BufferResource::allocate_empty_host_buffer() {
-    return std::unique_ptr<Buffer>(new Buffer(std::make_unique<std::vector<uint8_t>>(0)));
 }
 
 }  // namespace rapidsmpf

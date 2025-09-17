@@ -20,6 +20,8 @@
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/utils.hpp>
 
+#include "rapidsmpf/buffer/buffer.hpp"
+
 namespace rapidsmpf {
 
 std::pair<std::vector<cudf::table_view>, std::unique_ptr<cudf::table>>
@@ -161,28 +163,51 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
+
+    // Let's find the total size of the partitions and how much of the packed data we
+    // need to move to device memory (unspill).
+    size_t total_size = 0;
+    size_t non_device_size = 0;
+    for (auto& packed_data : partitions) {
+        if (!packed_data.empty()) {
+            total_size += packed_data.data->size;
+            if (packed_data.data->mem_type() != MemoryType::DEVICE) {
+                non_device_size += 0;
+            }
+        }
+    }
+
     std::vector<cudf::table_view> unpacked;
     std::vector<cudf::packed_columns> references;
     unpacked.reserve(partitions.size());
     references.reserve(partitions.size());
-    size_t concat_size = 0;
-    for (auto& packed_data : partitions) {
-        if (!packed_data.empty()) {
-            concat_size += packed_data.data->size;
-            unpacked.push_back(
-                cudf::unpack(references.emplace_back(
-                    std::move(packed_data.metadata),
-                    br->move_to_device_buffer(std::move(packed_data.data))
-                ))
-            );
+
+    // Reserve device memory for the unspill AND the cudf::unpack() calls.
+    with_memory_reservation(
+        br->reserve_and_spill(
+            MemoryType::DEVICE, total_size + non_device_size, allow_overbooking
+        ),
+        [&](auto& reservation) {
+            for (auto& packed_data : partitions) {
+                if (!packed_data.empty()) {
+                    unpacked.push_back(
+                        cudf::unpack(references.emplace_back(
+                            std::move(packed_data.metadata),
+                            br->move_to_device_buffer(
+                                std::move(packed_data.data), stream, reservation
+                            )
+                        ))
+                    );
+                }
+            }
         }
-    }
+    );
 
-    // reserve memory for concatenation
-    auto reservation =
-        br->reserve_and_spill(MemoryType::DEVICE, concat_size, allow_overbooking);
-
-    return cudf::concatenate(unpacked, stream, br->device_mr());
+    // Reserve memory for the concatenation.
+    return with_memory_reservation(
+        br->reserve_and_spill(MemoryType::DEVICE, total_size, allow_overbooking),
+        [&]() { return cudf::concatenate(unpacked, stream, br->device_mr()); }
+    );
 }
 
 std::vector<PackedData> spill_partitions(
@@ -191,7 +216,7 @@ std::vector<PackedData> spill_partitions(
     BufferResource* br,
     std::shared_ptr<Statistics> statistics
 ) {
-    auto const elapsed = Clock::now();
+    auto const start_time = Clock::now();
     // Sum the total size of all packed data in device memory.
     std::size_t device_size{0};
     for (auto& [_, data] : partitions) {
@@ -199,12 +224,9 @@ std::vector<PackedData> spill_partitions(
             device_size += data->size;
         }
     }
-
-    return br->with_reservation(
-        MemoryType::HOST,
-        device_size,
-        false,  // allow_overbooking
-        [&](auto& reservation, auto /*ob*/) {
+    return with_memory_reservation(
+        br->reserve_and_spill(MemoryType::HOST, device_size, false),
+        [&](auto& reservation) {
             // Spill each partition to host memory.
             std::vector<PackedData> ret;
             ret.reserve(partitions.size());
@@ -214,7 +236,7 @@ std::vector<PackedData> spill_partitions(
                 );
             }
             statistics->add_duration_stat(
-                "spill-time-device-to-host", Clock::now() - elapsed
+                "spill-time-device-to-host", Clock::now() - start_time
             );
             statistics->add_bytes_stat("spill-bytes-device-to-host", device_size);
             return ret;
@@ -229,7 +251,7 @@ std::vector<PackedData> unspill_partitions(
     bool allow_overbooking,
     std::shared_ptr<Statistics> statistics
 ) {
-    auto const elapsed = Clock::now();
+    auto const start_time = Clock::now();
     // Sum the total size of all packed data not in device memory already.
     std::size_t non_device_size{0};
     for (auto& [_, data] : partitions) {
@@ -238,25 +260,24 @@ std::vector<PackedData> unspill_partitions(
         }
     }
 
-    // This total sum is what we need to reserve before moving data to device.
-    auto reservation =
-        br->reserve_and_spill(MemoryType::DEVICE, non_device_size, allow_overbooking);
+    return with_memory_reservation(
+        br->reserve_and_spill(MemoryType::DEVICE, non_device_size, allow_overbooking),
+        [&](auto& reservation) {
+            // Unspill each partition.
+            std::vector<PackedData> ret;
+            ret.reserve(partitions.size());
+            for (auto& [metadata, data] : partitions) {
+                ret.emplace_back(
+                    std::move(metadata), br->move(std::move(data), stream, reservation)
+                );
+            }
 
-    return with_memory_reservation(std::move(reservation), [&] {
-        // Unspill each partition.
-        std::vector<PackedData> ret;
-        ret.reserve(partitions.size());
-        for (auto& [metadata, data] : partitions) {
-            ret.emplace_back(
-                std::move(metadata), br->move(std::move(data), stream, reservation)
+            statistics->add_duration_stat(
+                "spill-time-host-to-device", Clock::now() - start_time
             );
+            statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
+            return ret;
         }
-
-        statistics->add_duration_stat(
-            "spill-time-host-to-device", Clock::now() - elapsed
-        );
-        statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
-        return ret;
-    });
+    );
 }
 }  // namespace rapidsmpf

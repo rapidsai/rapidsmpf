@@ -194,24 +194,11 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0_KiB);
     EXPECT_EQ(dev_mem_available(), 10_KiB);
 
-    // But copying buffers always requires a reservation.
-    EXPECT_THROW(br.copy(host_buf3, stream, reserve3), std::overflow_error);
-
     // The reservation must be of the correct memory type.
     auto [reserve4, overbooking4] = br.reserve(MemoryType::HOST, 10_KiB, true);
     EXPECT_EQ(reserve4.size(), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
-
-    // With the correct memory type, we can copy the buffer.
-    auto [reserve5, overbooking5] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
-    auto dev_buf3 = br.copy(host_buf3, stream, reserve5);
-    EXPECT_EQ(dev_buf3->mem_type(), MemoryType::DEVICE);
-    EXPECT_EQ(dev_buf3->size, 10_KiB);
-    EXPECT_EQ(reserve5.size(), 0);
-    EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
-    EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
-    EXPECT_EQ(dev_mem_available(), 0);
 }
 
 TEST(BufferResource, CUDAEventTracking) {
@@ -236,22 +223,6 @@ TEST(BufferResource, CUDAEventTracking) {
         }
     };
 
-    // Test host-to-host copy (should not create an event)
-    {
-        auto host_data = std::make_unique<std::vector<uint8_t>>(1024);
-        initialize_data(*host_data);
-        auto host_buf = br.move(std::move(host_data));
-        auto [host_reserve, host_overbooking] = br.reserve(MemoryType::HOST, 1024, false);
-        auto host_copy = br.copy(host_buf, stream, host_reserve);
-        host_copy->wait_for_ready();  // should be no-op
-        EXPECT_TRUE(host_copy->is_ready());  // No event created
-
-        // Verify the data
-        auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(1024);
-        std::memcpy(verify_data_buf->data(), host_copy->data(), 1024);
-        verify_data(*verify_data_buf);
-    }
-
     // Test device-to-device copy (should create an event)
     {
         auto [alloc_reserve, alloc_overbooking] =
@@ -270,9 +241,8 @@ TEST(BufferResource, CUDAEventTracking) {
             stream
         ));
 
-        auto [copy_reserve, copy_overbooking] =
-            br.reserve(MemoryType::DEVICE, buffer_size, false);
-        auto dev_copy = br.copy(dev_buf, stream, copy_reserve);
+        auto dev_copy = br.allocate(stream, br.reserve_or_fail(buffer_size));
+        buffer_copy(*dev_copy, *dev_buf, buffer_size, 0, 0, stream, true);
         EXPECT_EQ(dev_copy->mem_type(), MemoryType::DEVICE);
 
         // Wait for copy to complete
@@ -295,7 +265,8 @@ TEST(BufferResource, CUDAEventTracking) {
         auto [dev_reserve, dev_overbooking] =
             br.reserve(MemoryType::DEVICE, buffer_size, false);
 
-        auto dev_copy = br.copy(host_buf, stream, dev_reserve);
+        auto dev_copy = br.allocate(stream, br.reserve_or_fail(buffer_size));
+        buffer_copy(*dev_copy, *host_buf, buffer_size, 0, 0, stream, true);
         EXPECT_EQ(dev_copy->mem_type(), MemoryType::DEVICE);
 
         // Wait for copy to complete
@@ -328,9 +299,9 @@ TEST(BufferResource, CUDAEventTracking) {
             stream
         ));
 
-        auto [host_reserve, host_overbooking] =
-            br.reserve(MemoryType::HOST, buffer_size, false);
-        auto host_copy = br.copy(dev_buf, stream, host_reserve);
+        auto host_copy =
+            br.allocate(stream, br.reserve_or_fail(buffer_size, MemoryType::HOST));
+        buffer_copy(*host_copy, *dev_buf, buffer_size, 0, 0, stream, true);
         EXPECT_EQ(host_copy->mem_type(), MemoryType::HOST);
 
         // Wait for copy to complete
@@ -367,17 +338,13 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
         if (mem_type == MemoryType::DEVICE) {
             // copy the host pattern to the device buffer
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                const_cast<void*>(buf->data()),
-                host_pattern.data(),
-                size,
-                cudaMemcpyHostToDevice,
-                stream
+                buf->data(), host_pattern.data(), size, cudaMemcpyHostToDevice, stream
             ));
             // add an event to guarantee async copy is complete
             buf->override_event(CudaEvent::make_shared_record(stream));
         } else {
             // copy the host pattern to the host buffer
-            std::memcpy(const_cast<void*>(buf->data()), host_pattern.data(), size);
+            std::memcpy(buf->data(), host_pattern.data(), size);
         }
 
         return buf;
@@ -409,8 +376,16 @@ class BufferResourceCopySliceTest
         std::size_t const offset,
         std::size_t const length
     ) {
-        auto [slice_reserve, slice_overbooking] = br->reserve(dest_type, length, false);
-        auto slice = source->copy_slice(offset, length, slice_reserve, stream);
+        auto slice = br->allocate(stream, br->reserve_or_fail(length, dest_type));
+        buffer_copy(
+            *slice,
+            *source,
+            length,
+            0,  // dst_offset
+            std::ptrdiff_t(offset),  // src_offset
+            stream,
+            false
+        );
 
         EXPECT_EQ(slice->mem_type(), dest_type);
         slice->wait_for_ready();
@@ -490,10 +465,17 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
         std::size_t const dest_offset
     ) {
         auto length = source->size;
-        auto bytes_written = source->copy_to(*dest, dest_offset, stream);
+        buffer_copy(
+            *dest,
+            *source,
+            source->size,
+            std::ptrdiff_t(dest_offset),  // dst_offset
+            0,  // src_offset
+            stream,
+            false
+        );
         dest->wait_for_ready();
         EXPECT_TRUE(dest->is_ready());
-        EXPECT_EQ(bytes_written, length);
 
         if (dest->mem_type() == MemoryType::HOST) {
             verify_slice(*const_cast<const Buffer&>(*dest).host(), dest_offset, length);
@@ -501,7 +483,7 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
             std::vector<uint8_t> verify_data_buf(length);
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 verify_data_buf.data(),
-                static_cast<uint8_t*>(dest->data()) + dest_offset,
+                dest->data() + dest_offset,
                 length,
                 cudaMemcpyDeviceToHost,
                 stream
@@ -565,15 +547,6 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
-TEST_F(BufferResourceCopyToTest, OutOfBounds) {
-    // create a source and destination buffer with size 128 bytes
-    auto source = create_and_initialize_buffer(MemoryType::HOST, 128);
-    auto dest = create_and_initialize_buffer(MemoryType::HOST, 128);
-
-    // try to copy with an offset that would exceed the destination buffer size
-    EXPECT_THROW(std::ignore = source->copy_to(*dest, 1, stream), std::invalid_argument);
-}
-
 class BufferResourceDifferentResourcesTest : public ::testing::Test {
   protected:
     void SetUp() override {
@@ -605,11 +578,7 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
         EXPECT_EQ(buf1->mem_type(), MemoryType::DEVICE);
 
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            const_cast<void*>(buf1->data()),
-            host_pattern.data(),
-            buffer_size,
-            cudaMemcpyHostToDevice,
-            stream
+            buf1->data(), host_pattern.data(), buffer_size, cudaMemcpyHostToDevice, stream
         ));
         buf1->override_event(CudaEvent::make_shared_record(stream));
         buf1->wait_for_ready();
@@ -638,18 +607,27 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
 };
 
 TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
-    constexpr std::size_t slice_offset = 128;
+    constexpr std::ptrdiff_t slice_offset = 128;
     constexpr std::size_t slice_length = 512;
 
     auto buf1 = create_source_buffer();
 
     // Reserve memory for the slice on br2
-    auto [reserv2, ob2] = br2->reserve(MemoryType::DEVICE, slice_length, false);
+    auto res2 = br2->reserve_or_fail(slice_length);
 
     // Create slice of buf1 on br2
-    auto buf2 = buf1->copy_slice(slice_offset, slice_length, reserv2, stream);
+    auto buf2 = br2->allocate(slice_length, stream, res2);
+    buffer_copy(
+        *buf2,
+        *buf1,
+        slice_length,
+        0,  // dst_offset
+        slice_offset,  // src_offset
+        stream,
+        false
+    );
     EXPECT_EQ(buf2->size, slice_length);
-    EXPECT_EQ(reserv2.size(), 0);  // reservation should be consumed
+    EXPECT_EQ(res2.size(), 0);  // reservation should be consumed
     buf2->wait_for_ready();
 
     // Verify memory allocation
@@ -659,59 +637,77 @@ TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
 TEST_F(BufferResourceDifferentResourcesTest, Copy) {
     auto buf1 = create_source_buffer();
 
-    // Reserve memory for the copy on br2
-    auto [reserv2, ob2] = br2->reserve(MemoryType::DEVICE, buffer_size, false);
-
     // Create copy of buf1 on br2
-    auto buf2 = buf1->copy(stream, reserv2);
+    auto buf2 = br2->allocate(stream, br2->reserve_or_fail(buffer_size));
+    buffer_copy(*buf2, *buf1, buffer_size, 0, 0, stream, true);
     EXPECT_EQ(buf2->size, buffer_size);
-    EXPECT_EQ(reserv2.size(), 0);  // reservation should be consumed
     buf2->wait_for_ready();
 
     // Verify memory allocation
     verify_memory_allocation(buffer_size, buffer_size);
 }
 
-TEST(BufferResource, CheckIllegalArgs) {
-    size_t buf_sz = 1024;  // 1 KiB
-    auto stream = cudf::get_default_stream();
-    BufferResource br{cudf::get_current_device_resource_ref()};
-    auto [src_res, src_ob] = br.reserve(MemoryType::HOST, buf_sz, false);
-    auto src = br.allocate(buf_sz, stream, src_res);
-    EXPECT_EQ(src->mem_type(), MemoryType::HOST);
+class BufferCopyEdgeCases : public BaseBufferResourceCopyTest {};
 
-    auto [dst_res, dst_ob] = br.reserve(MemoryType::HOST, buf_sz, false);
-    auto dst = br.allocate(buf_sz, stream, dst_res);
-    EXPECT_EQ(dst->mem_type(), MemoryType::HOST);
+TEST_F(BufferCopyEdgeCases, IllegalArguments) {
+    constexpr std::size_t N = 1024;
 
-    // Test copy_slice invalid offset
-    auto [res, ob] = br.reserve(MemoryType::HOST, buf_sz, false);
+    auto src = create_and_initialize_buffer(MemoryType::HOST, N);
+    auto dst = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
+
+    // Negative offsets
     EXPECT_THROW(
-        std::ignore = src->copy_slice(-1, 10, res, stream), std::invalid_argument
+        buffer_copy(*dst, *src, 10, -1, 0, stream, false), std::invalid_argument
+    );
+    EXPECT_THROW(
+        buffer_copy(*dst, *src, 10, 0, -1, stream, false), std::invalid_argument
     );
 
+    // Offsets beyond size
     EXPECT_THROW(
-        std::ignore = src->copy_slice(buf_sz + 1, 10, res, stream), std::invalid_argument
+        buffer_copy(*dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0, stream, false),
+        std::invalid_argument
+    );
+    EXPECT_THROW(
+        buffer_copy(*dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1), stream, false),
+        std::invalid_argument
     );
 
-    // Test copy_slice invalid length
+    // Ranges out of bounds
     EXPECT_THROW(
-        std::ignore = src->copy_slice(buf_sz - 5, 10, res, stream), std::invalid_argument
+        buffer_copy(*dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0, stream, false),
+        std::invalid_argument
     );
-
-    // Test copy_slice reservation too small
-    auto [res1, ob1] = br.reserve(MemoryType::HOST, 5, false);
-    EXPECT_THROW(std::ignore = src->copy_slice(0, 10, res1, stream), std::overflow_error);
-
-    // Test copy_to invalid offset
-    EXPECT_THROW(std::ignore = src->copy_to(*dst, -1, stream), std::invalid_argument);
-
     EXPECT_THROW(
-        std::ignore = src->copy_to(*dst, buf_sz + 1, stream), std::invalid_argument
+        buffer_copy(*dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8), stream, false),
+        std::invalid_argument
     );
+}
 
-    // Test copy_to buffer too small
-    EXPECT_THROW(
-        std::ignore = src->copy_to(*dst, buf_sz - 5, stream), std::invalid_argument
-    );
+TEST_F(BufferCopyEdgeCases, ZeroSizeIsNoOp) {
+    constexpr std::size_t N = 128;
+
+    auto src = create_and_initialize_buffer(MemoryType::HOST, N);
+    auto dst = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
+
+    // Pre-fill dst with a sentinel pattern
+    std::vector<uint8_t> sent(N, 0xCD);
+    std::memcpy(dst->data(), sent.data(), N);
+
+    EXPECT_NO_THROW(buffer_copy(*dst, *src, 0, 0, 0, stream, false));
+    dst->wait_for_ready();
+
+    // dst unchanged
+    for (std::size_t i = 0; i < N; ++i) {
+        EXPECT_EQ(static_cast<uint8_t>(dst->data()[i]), 0xCD);
+    }
+}
+
+TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
+    // Matches current implementation which rejects &dst == &src.
+    constexpr std::size_t N = 64;
+
+    auto buf = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
+
+    EXPECT_THROW(buffer_copy(*buf, *buf, 16, 0, 0, stream, false), std::invalid_argument);
 }
