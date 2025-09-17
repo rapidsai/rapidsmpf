@@ -126,7 +126,10 @@ class Buffer {
     /**
      * @brief Get the associated CUDA stream.
      *
-     * @return The CUDA stream.
+     * All operations must either use this stream or synchronize with it
+     * before accessing the underlying data (both host and device memory).
+     *
+     * @return The associated CUDA stream.
      */
     [[nodiscard]] constexpr rmm::cuda_stream_view stream() const noexcept {
         return stream_;
@@ -251,7 +254,6 @@ class Buffer {
     StorageT storage_;
     /// @brief CUDA event used to track copy operations
     std::shared_ptr<CudaEvent> event_;
-
     rmm::cuda_stream_view stream_;
 };
 
