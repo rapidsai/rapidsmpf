@@ -39,7 +39,7 @@ class StreamingShuffler : public BaseStreamingFixture,
 
     // override the base SetUp
     void SetUp() override {
-        BaseStreamingFixture::SetUp(GetParam());
+        BaseStreamingFixture::SetUpWithThreads(GetParam());
     }
 
     void run_test(auto make_shuffler_node_fn) {
@@ -91,6 +91,33 @@ class StreamingShuffler : public BaseStreamingFixture,
             run_streaming_pipeline(std::move(nodes));
         }
 
+        std::unique_ptr<cudf::table> expected_table;
+        if (ctx->comm()->nranks() == 1) {  // full_input table is expected
+            expected_table = std::make_unique<cudf::table>(std::move(full_input_table));
+        } else {  // full_input table is replicated on all ranks
+            // local partitions
+            auto [table, offsets] = cudf::hash_partition(
+                full_input_table.view(), {1}, num_partitions, hash_function, seed
+            );
+
+            auto local_pids = shuffler::Shuffler::local_partitions(
+                ctx->comm(), num_partitions, shuffler::Shuffler::round_robin
+            );
+
+            // every partition is replicated on all ranks
+            std::vector<cudf::table_view> expected_tables;
+            offsets.push_back(table->num_rows());
+            for (auto pid : local_pids) {
+                auto t_view =
+                    cudf::slice(table->view(), {offsets[pid], offsets[pid + 1]}).at(0);
+                // this will be replicated on all ranks
+                for (auto _ : std::ranges::iota_view(0, ctx->comm()->nranks())) {
+                    expected_tables.push_back(t_view);
+                }
+            }
+            expected_table = cudf::concatenate(expected_tables);
+        }
+
         // Concat all output chunks to a single table.
         std::vector<cudf::table_view> output_chunks_as_views;
         for (auto& chunk : output_chunks) {
@@ -99,7 +126,7 @@ class StreamingShuffler : public BaseStreamingFixture,
         auto result_table = cudf::concatenate(output_chunks_as_views);
 
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
-            sort_table(result_table->view()), sort_table(full_input_table.view())
+            sort_table(result_table->view()), sort_table(expected_table->view())
         );
     }
 };
@@ -286,7 +313,7 @@ class ShufflerAsyncTest
 
     void SetUp() override {
         std::tie(n_threads, n_inserts, n_partitions, n_consumers) = GetParam();
-        BaseStreamingFixture::SetUp(n_threads);
+        BaseStreamingFixture::SetUpWithThreads(n_threads);
 
         shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
     }
@@ -352,9 +379,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     }
 
     // insert finished (executed by main thread)
-    std::vector<shuffler::PartID> finished(n_partitions);
-    std::iota(finished.begin(), finished.end(), 0);
-    shuffler->insert_finished(std::move(finished));
+    shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
     coro::mutex mtx;
     std::vector<shuffler::PartID> finished_pids;
@@ -385,9 +410,7 @@ TEST_F(BaseStreamingFixture, extract_any_before_extract) {
     auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
 
     // all empty partitions
-    std::vector<shuffler::PartID> finished(n_partitions);
-    std::iota(finished.begin(), finished.end(), 0);
-    shuffler->insert_finished(std::move(finished));
+    shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
     auto local_pids = shuffler::Shuffler::local_partitions(
         ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
@@ -410,25 +433,23 @@ TEST_F(BaseStreamingFixture, extract_any_before_extract) {
 }
 
 TEST_F(BaseStreamingFixture, competing_extract_any_and_extract) {
-    if (ctx->comm()->rank() != 0) {
-        GTEST_SKIP() << "Test only runs on rank 0";
-    }
-
     static constexpr OpID op_id = 0;
-    static constexpr size_t n_partitions = 1;
+    shuffler::PartID const n_partitions = ctx->comm()->nranks();
+    shuffler::PartID const this_pid = ctx->comm()->rank();
+
     auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
 
-    shuffler->insert_finished({0});
+    shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
     auto results = coro::sync_wait(
-        coro::when_all(shuffler->extract_any_async(), shuffler->extract_async(0))
+        coro::when_all(shuffler->extract_any_async(), shuffler->extract_async(this_pid))
     );
 
     auto& [extract_any_result, extract_result] = results;
 
     // if extract_any_result is valid, then extract_result should throw
     if (extract_any_result.return_value().has_value()) {
-        EXPECT_EQ(extract_any_result.return_value()->first, 0);
+        EXPECT_EQ(extract_any_result.return_value()->first, this_pid);
         EXPECT_THROW(extract_result.return_value(), std::out_of_range);
     } else {
         // else extract_result should be valid and an empty vector
@@ -437,15 +458,13 @@ TEST_F(BaseStreamingFixture, competing_extract_any_and_extract) {
 }
 
 TEST_F(BaseStreamingFixture, competing_extract_and_extract_any) {
-    if (ctx->comm()->rank() != 0) {
-        GTEST_SKIP() << "Test only runs on rank 0";
-    }
-
     static constexpr OpID op_id = 0;
-    static constexpr size_t n_partitions = 1;
+    shuffler::PartID const n_partitions = ctx->comm()->nranks();
+    shuffler::PartID const this_pid = ctx->comm()->rank();
+
     auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
 
-    shuffler->insert_finished({0});
+    shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
     auto results = coro::sync_wait(
         coro::when_all(shuffler->extract_async(0), shuffler->extract_any_async())
@@ -455,7 +474,7 @@ TEST_F(BaseStreamingFixture, competing_extract_and_extract_any) {
 
     // if extract_any_result is valid, then extract_result should throw
     if (extract_any_result.return_value().has_value()) {
-        EXPECT_EQ(extract_any_result.return_value()->first, 0);
+        EXPECT_EQ(extract_any_result.return_value()->first, this_pid);
         EXPECT_THROW(extract_result.return_value(), std::out_of_range);
     } else {
         // else extract_result should be valid and an empty vector
