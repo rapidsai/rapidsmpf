@@ -77,7 +77,7 @@ coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartI
     RAPIDSMPF_EXPECTS(
         !extracted_pids_.contains(pid),
         "partition already extracted: " + std::to_string(pid),
-        std::runtime_error
+        std::out_of_range
     );
 
     co_await cv_.wait(lock, [this, pid]() {

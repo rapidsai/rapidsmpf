@@ -23,26 +23,19 @@ namespace rapidsmpf::streaming {
  * inserted while previously shuffled partitions are extracted concurrently. This is
  * useful for streaming scenarios where data can be processed as soon as individual
  * partitions are ready, rather than waiting for the entire shuffle to complete.
- *
- * The class maintains internal synchronization using coroutine-based mutexes and
- * condition variables to coordinate between insert and extract operations safely.
- *
- * @note This class is non-copyable to prevent accidental duplication of the underlying
- * shuffler state and synchronization primitives.
  */
 class ShufflerAsync {
   public:
     /**
      * @brief Constructs a new ShufflerAsync instance.
      *
-     * @param ctx The streaming context containing communicator, progress thread, and
-     * other shared resources.
+     * @param ctx The streaming context to use.
      * @param stream The CUDA stream on which shuffling operations will be performed.
      * @param op_id Unique operation ID for this shuffle. Must not be reused until all
-     *              participants have completed the shuffle operation.
+     * participants have completed the shuffle operation.
      * @param total_num_partitions Total number of partitions to shuffle data into.
      * @param partition_owner Function that maps a partition ID to its owning rank/node.
-     *                        Defaults to round-robin distribution.
+     * Defaults to round-robin distribution.
      */
     ShufflerAsync(
         std::shared_ptr<Context> ctx,
@@ -54,8 +47,8 @@ class ShufflerAsync {
     );
 
     // Prevent copying
-    ShufflerAsync(const ShufflerAsync&) = delete;
-    ShufflerAsync& operator=(const ShufflerAsync&) = delete;
+    ShufflerAsync(ShufflerAsync const&) = delete;
+    ShufflerAsync& operator=(ShufflerAsync const&) = delete;
 
     ~ShufflerAsync() = default;
 
@@ -64,7 +57,7 @@ class ShufflerAsync {
      *
      * @return A reference to the shared context object.
      */
-    constexpr auto& ctx() const {
+    constexpr std::shared_ptr<Context>& ctx() const {
         return ctx_;
     }
 
@@ -72,7 +65,7 @@ class ShufflerAsync {
      * @brief Checks if the shuffle operation has completed.
      *
      * @return true if all partitions have been processed and the shuffle is complete,
-     *         false otherwise.
+     * false otherwise.
      */
     bool finished() const;
 
@@ -90,7 +83,7 @@ class ShufflerAsync {
      *
      * @return A const reference to the function that maps partition IDs to owning ranks.
      */
-    constexpr auto const& partition_owner() const {
+    constexpr shuffler::Shuffler::PartitionOwner const& partition_owner() const {
         return shuffler_.partition_owner;
     }
 
@@ -108,8 +101,7 @@ class ShufflerAsync {
      * shuffled).
      *
      * @param pid The partition ID to extract data for.
-     * @return A coroutine task that yields a vector of PackedData chunks for the
-     * partition.
+     * @return A vector of PackedData chunks for the partition.
      *
      * @throws std::runtime_error if the partition ID is not found or already extracted.
      *
@@ -170,10 +162,9 @@ class ShufflerAsync {
     coro::task<ExtractResult> extract_any_async();
 
   private:
-    std::shared_ptr<Context> ctx_;
-
     coro::mutex mtx_{};
     coro::condition_variable cv_{};
+    std::shared_ptr<Context> ctx_;
     shuffler::Shuffler shuffler_;
     std::unordered_set<shuffler::PartID> ready_pids_;
     std::unordered_set<shuffler::PartID> extracted_pids_;

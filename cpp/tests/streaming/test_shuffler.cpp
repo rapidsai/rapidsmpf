@@ -108,7 +108,7 @@ INSTANTIATE_TEST_SUITE_P(
     StreamingShuffler,
     StreamingShuffler,
     ::testing::Values(1, 2, 4),
-    [](const testing::TestParamInfo<StreamingShuffler::ParamType>& info) {
+    [](testing::TestParamInfo<StreamingShuffler::ParamType> const& info) {
         return "nthreads_" + std::to_string(info.param);
     }
 );
@@ -332,7 +332,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     coro::mutex mtx;
     std::vector<shuffler::PartID> finished_pids;
     size_t n_chunks_received = 0;
-    std::vector<coro::task<void>> extract_tasks;
+    std::vector<Node> extract_tasks;
     for (int i = 0; i < n_consumers; ++i) {
         extract_tasks.emplace_back(extract_task(
             i, shuffler.get(), ctx.get(), mtx, finished_pids, n_chunks_received
@@ -341,10 +341,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
 
     // wait for the extract task to finish (executed by thread pool, waited by main
     // thread)
-    auto results = coro::sync_wait(coro::when_all(std::move(extract_tasks)));
-    for (auto& result : results) {  // re-throw possible unhandled exceptions
-        result.return_value();
-    }
+    run_streaming_pipeline(std::move(extract_tasks));
 
     auto local_pids = shuffler::Shuffler::local_partitions(
         ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
