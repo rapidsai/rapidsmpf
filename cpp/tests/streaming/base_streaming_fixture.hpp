@@ -28,6 +28,8 @@ class BaseStreamingFixture : public ::testing::Test {
 
     void TearDown() override {
         GlobalEnvironment->barrier();
+        ctx.reset();
+        br.reset();
     }
 
     void SetUpWithThreads(int num_streaming_threads) {
