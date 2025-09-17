@@ -107,9 +107,11 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
 
     // Cleanup streams
     for (int i = 0; i < num_slices; ++i) {
-        if (upstream_raw[i])
+        if (upstream_raw[i]) {
             RAPIDSMPF_CUDA_TRY(cudaStreamDestroy(upstream_raw[i]));
-        if (downstream_raw[i])
+        }
+        if (downstream_raw[i]) {
             RAPIDSMPF_CUDA_TRY(cudaStreamDestroy(downstream_raw[i]));
+        }
     }
 }
