@@ -374,6 +374,7 @@ class JoinIntegration(Protocol[DataFrameT]):
         left_op_id: int,
         right_op_id: int,
         part_id: int,
+        n_worker_chunks: int,
         options: Any,
     ) -> DataFrameT:
         """
@@ -394,6 +395,9 @@ class JoinIntegration(Protocol[DataFrameT]):
             to an allgather or shuffle operation.
         part_id
             The output partition id.
+        n_worker_chunks
+            The number of worker chunks to be joined on this worker.
+            This information may be used for cleanup.
         options
             Additional options.
 
@@ -411,7 +415,15 @@ class JoinIntegration(Protocol[DataFrameT]):
 def join_chunk(
     get_context: Callable[..., WorkerContext],
     callback: Callable[
-        [WorkerContext, Literal["left", "right", "none"], int, int, int, Any],
+        [
+            WorkerContext,  # ctx
+            Literal["left", "right", "none"],  # bcast_side
+            int,  # left_op_id
+            int,  # right_op_id
+            int,  # part_id
+            int,  # n_worker_chunks
+            Any,  # options
+        ],
         DataFrameT,
     ],
     bcast_side: Literal["left", "right", "none"],
@@ -420,6 +432,7 @@ def join_chunk(
     left_barrier: tuple[int, ...],
     right_barrier: tuple[int, ...],
     part_id: int,
+    n_worker_chunks: int,
     options: Any,
 ) -> DataFrameT:
     """
@@ -448,6 +461,9 @@ def join_chunk(
         Worker-barrier task dependency for the right table.
     part_id
         The output partition id.
+    n_worker_chunks
+        The number of worker chunks to be joined on this worker.
+        This information may be used for cleanup.
     options
         Additional options.
     """
@@ -459,6 +475,7 @@ def join_chunk(
         left_op_id,
         right_op_id,
         part_id,
+        n_worker_chunks,
         options,
     )
 
