@@ -9,7 +9,7 @@ import weakref
 from dataclasses import dataclass, field
 from functools import partial
 from numbers import Number  # noqa: TC003
-from typing import TYPE_CHECKING, Any, ClassVar, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, TypeVar
 
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
@@ -359,6 +359,108 @@ def extract_partition(
             with ctx.lock:
                 if shuffle_id in ctx.shufflers:
                     del ctx.shufflers[shuffle_id]
+
+
+class JoinIntegration(Protocol[DataFrameT]):
+    """Join-integration protocol."""
+
+    shuffle_integration: ShufflerIntegration[DataFrameT]
+
+    @classmethod
+    def join_chunk(
+        cls,
+        ctx: WorkerContext,
+        bcast_side: Literal["left", "right", "none"],
+        left_op_id: int,
+        right_op_id: int,
+        part_id: int,
+        options: Any,
+    ) -> DataFrameT:
+        """
+        Perform a join operation on left and right table chunks.
+
+        Parameters
+        ----------
+        ctx
+            The worker context.
+        bcast_side
+            The side of the join being broadcasted. If "none", this is
+            a regular hash join.
+        left_op_id
+            The left-table operation id. The operation may correspond
+            to an allgather or shuffle operation.
+        right_op_id
+            The right-table operation id. The operation may correspond
+            to an allgather or shuffle operation.
+        part_id
+            The output partition id.
+        options
+            Additional options.
+
+        Returns
+        -------
+        A joined DataFrame chunk.
+
+        Notes
+        -----
+        This method is used to produce a single joined table chunk.
+        """
+        ...
+
+
+def join_chunk(
+    get_context: Callable[..., WorkerContext],
+    callback: Callable[
+        [WorkerContext, Literal["left", "right", "none"], int, int, int, Any],
+        DataFrameT,
+    ],
+    bcast_side: Literal["left", "right", "none"],
+    left_op_id: int,
+    right_op_id: int,
+    left_barrier: tuple[int, ...],
+    right_barrier: tuple[int, ...],
+    part_id: int,
+    options: Any,
+) -> DataFrameT:
+    """
+    Perform a join operation on left and right table chunks.
+
+    Parameters
+    ----------
+    get_context
+        Callable function to fetch the worker context.
+    callback
+        Join callback function. This function must be the
+        `join_chunk` attribute of a `JoinIntegration`
+        protocol.
+    bcast_side
+        The side of the join being broadcasted. If "none", this is
+        a regular hash join.
+    left_op_id
+        The left-table operation id. The operation may correspond
+        to an allgather or shuffle operation.
+    right_op_id
+        The right-table operation id. The operation may correspond
+        to an allgather or shuffle operation.
+    left_barrier
+        Worker-barrier task dependency for the left table.
+    right_barrier
+        Worker-barrier task dependency for the right table.
+    part_id
+        The output partition id.
+    options
+        Additional options.
+    """
+    ctx = get_context()
+
+    return callback(
+        ctx,
+        bcast_side,
+        left_op_id,
+        right_op_id,
+        part_id,
+        options,
+    )
 
 
 # Create a spill function that spills the python objects in the spill-
