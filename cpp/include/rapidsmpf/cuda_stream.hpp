@@ -55,7 +55,7 @@ void cuda_stream_join(
         event = event_.get();
     }
 
-    // Let all downstreams should wait on all upstreams.
+    // Let all downstreams wait on all upstreams.
     for (rmm::cuda_stream_view const& upstream : upstreams) {
         event->record(upstream);
         for (rmm::cuda_stream_view const& downstream : downstreams) {
