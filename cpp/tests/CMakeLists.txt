@@ -56,6 +56,7 @@ target_sources(
             test_pausable_thread_loop.cpp
             test_progress_thread.cpp
             test_rmm_resource_adaptor.cpp
+            test_shuffler_many_streams.cpp
             test_shuffler.cpp
             test_spill_manager.cpp
             test_statistics.cpp
