@@ -113,6 +113,7 @@ void buffer_copy(
 
     // Override the event to track the async copy.
     if (attach_cuda_event) {
+        src.override_event(CudaEvent::make_shared_record(stream));
         dst.override_event(CudaEvent::make_shared_record(stream));
     }
 }
