@@ -86,22 +86,12 @@ void buffer_copy(
         std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(
-        dst_offset >= 0 && std::cmp_less_equal(dst_offset, dst.size),
-        "dst_offset can't be greater than dst.size",
-        std::invalid_argument
-    );
-    RAPIDSMPF_EXPECTS(
-        dst_offset + std::ptrdiff_t(size) <= std::ptrdiff_t(dst.size),
+        0 <= dst_offset && dst_offset + std::ptrdiff_t(size) <= std::ptrdiff_t(dst.size),
         "dst_offset + size can't be greater than dst.size",
         std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(
-        src_offset >= 0 && std::cmp_less_equal(src_offset, src.size),
-        "src_offset can't be greater than src.size",
-        std::invalid_argument
-    );
-    RAPIDSMPF_EXPECTS(
-        src_offset + std::ptrdiff_t(size) <= std::ptrdiff_t(src.size),
+        0 <= src_offset && src_offset + std::ptrdiff_t(size) <= std::ptrdiff_t(src.size),
         "src_offset + size can't be greater than src.size",
         std::invalid_argument
     );
