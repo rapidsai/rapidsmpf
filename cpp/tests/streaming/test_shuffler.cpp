@@ -232,7 +232,7 @@ Node shuffler_nb(
         [](auto shuffler_ctx, auto ctx, auto ch_out, auto& latch) -> Node {
         co_await ctx->executor()->schedule();
 
-        while (!shuffler_ctx->shuffler->finished()) {
+        while (!shuffler_ctx->shuffler->finished() || !shuffler_ctx->ready_pids.empty()) {
             // try pop the partition id from the queue
             // Note: using pop() may cause a deadlock, because pop tasks could be in front
             // of the executor queue. try_pop() gives better control over the execution
@@ -302,7 +302,7 @@ TEST_P(StreamingShuffler, callbacks_1_consumer) {
 }
 
 TEST_P(StreamingShuffler, callbacks_2_consumer) {
-    GTEST_SKIP() << "unreliable test";  // TODO: fix this
+    // GTEST_SKIP() << "unreliable test";  // TODO: fix this
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
         return shuffler_nb(
             ctx, stream, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 2
@@ -311,7 +311,7 @@ TEST_P(StreamingShuffler, callbacks_2_consumer) {
 }
 
 TEST_P(StreamingShuffler, callbacks_4_consumer) {
-    GTEST_SKIP() << "unreliable test";  // TODO: fix this
+    // GTEST_SKIP() << "unreliable test";  // TODO: fix this
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
         return shuffler_nb(
             ctx, stream, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 4
