@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Literal
 
 from rapidsmpf.config import Options
-from rapidsmpf.integrations.core import join_chunk
+from rapidsmpf.integrations.core import join_partition
 from rapidsmpf.integrations.dask.core import (
     get_dask_client,
     get_dask_worker_rank,
@@ -80,21 +80,21 @@ def rapidsmpf_join_graph(
         # Add basic hash-join tasks
         for part_id in range(partition_count_out):
             rank = part_id % n_workers
-            n_worker_chunks = partition_count_out // n_workers + int(
+            n_worker_tasks = partition_count_out // n_workers + int(
                 rank < (partition_count_out % n_workers)
             )
             key = (output_name, part_id)
             graph[key] = (
-                join_chunk,
+                join_partition,
                 get_worker_context,
-                integration.join_chunk,
+                integration.join_partition,
                 bcast_side,
                 left_op_id,
                 right_op_id,
                 left_barrier_name,
                 right_barrier_name,
                 part_id,
-                n_worker_chunks,
+                n_worker_tasks,
                 options,
             )
             # Assume round-robin partition assignment

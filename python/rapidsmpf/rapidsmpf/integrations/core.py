@@ -370,18 +370,18 @@ class JoinIntegration(Protocol[DataFrameT]):
         ...
 
     @classmethod
-    def join_chunk(
+    def join_partition(
         cls,
         ctx: WorkerContext,
         bcast_side: Literal["left", "right", "none"],
         left_op_id: int,
         right_op_id: int,
         part_id: int,
-        n_worker_chunks: int,
+        n_worker_tasks: int,
         options: Any,
     ) -> DataFrameT:
         """
-        Perform a join operation on left and right table chunks.
+        Produce a joined table partition.
 
         Parameters
         ----------
@@ -398,8 +398,8 @@ class JoinIntegration(Protocol[DataFrameT]):
             to an allgather or shuffle operation.
         part_id
             The output partition id.
-        n_worker_chunks
-            The number of worker chunks to be joined on this worker.
+        n_worker_tasks
+            The number of join_partition tasks to be called on this worker.
             This information may be used for cleanup.
         options
             Additional options.
@@ -415,7 +415,7 @@ class JoinIntegration(Protocol[DataFrameT]):
         ...
 
 
-def join_chunk(
+def join_partition(
     get_context: Callable[..., WorkerContext],
     callback: Callable[
         [
@@ -424,7 +424,7 @@ def join_chunk(
             int,  # left_op_id
             int,  # right_op_id
             int,  # part_id
-            int,  # n_worker_chunks
+            int,  # n_worker_tasks
             Any,  # options
         ],
         DataFrameT,
@@ -435,11 +435,11 @@ def join_chunk(
     left_barrier: tuple[int, ...],
     right_barrier: tuple[int, ...],
     part_id: int,
-    n_worker_chunks: int,
+    n_worker_tasks: int,
     options: Any,
 ) -> DataFrameT:
     """
-    Perform a join operation on left and right table chunks.
+    Produce a joined table partition.
 
     Parameters
     ----------
@@ -447,7 +447,7 @@ def join_chunk(
         Callable function to fetch the worker context.
     callback
         Join callback function. This function must be the
-        `join_chunk` attribute of a `JoinIntegration`
+        `join_partition` attribute of a `JoinIntegration`
         protocol.
     bcast_side
         The side of the join being broadcasted. If "none", this is
@@ -464,8 +464,8 @@ def join_chunk(
         Worker-barrier task dependency for the right table.
     part_id
         The output partition id.
-    n_worker_chunks
-        The number of worker chunks to be joined on this worker.
+    n_worker_tasks
+        The number of join_partition tasks to be called on this worker.
         This information may be used for cleanup.
     options
         Additional options.
@@ -478,7 +478,7 @@ def join_chunk(
         left_op_id,
         right_op_id,
         part_id,
-        n_worker_chunks,
+        n_worker_tasks,
         options,
     )
 

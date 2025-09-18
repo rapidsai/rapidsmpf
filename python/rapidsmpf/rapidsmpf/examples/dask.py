@@ -283,18 +283,18 @@ class DaskCudfJoinIntegration:
         return DaskCudfIntegration()
 
     @classmethod
-    def join_chunk(
+    def join_partition(
         cls,
         ctx: WorkerContext,
         bcast_side: Literal["left", "right", "none"],
         left_op_id: int,
         right_op_id: int,
         part_id: int,
-        n_worker_chunks: int,
+        n_worker_tasks: int,
         options: Any,
     ) -> cudf.DataFrame:
         """
-        Join a chunk of data from the left and right sides of a join.
+        Produce a joined cudf.DataFrame partition.
 
         Parameters
         ----------
@@ -308,8 +308,8 @@ class DaskCudfJoinIntegration:
             The ID of the right shuffle.
         part_id
             The ID of the partition being joined.
-        n_worker_chunks
-            The number of chunks to be produced on this worker.
+        n_worker_tasks
+            The number of join_partition tasks to be called on this worker.
             This information may be used for cleanup.
         options
             Additional options.
