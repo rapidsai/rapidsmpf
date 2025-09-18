@@ -18,7 +18,6 @@
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/shuffler.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-#include <rapidsmpf/streaming/cudf/utils.hpp>
 
 #include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
