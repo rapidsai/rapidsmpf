@@ -324,17 +324,16 @@ class BufferResource {
     );
 
     /**
-     * @brief Move a Buffer to the specified memory type by the reservation.
+     * @brief Move a Buffer to the memory type specified by the reservation.
      *
-     * If and only if moving between different memory types will this perform a copy
-     * using the buffer's CUDA stream.
+     * If the Buffer already resides in the target memory type, a cheap move is performed.
+     * Otherwise, the Buffer is copied to the target memory using its own CUDA stream.
      *
-     * @param buffer The buffer to move.
-     * @param reservation The reservation to use for memory allocations.
-     * @return A unique pointer to the moved Buffer.
+     * @param buffer Buffer to move.
+     * @param reservation Memory reservation used if a copy is required.
+     * @return Unique pointer to the resulting Buffer.
      *
-     * @throws std::invalid_argument if `target` does not match the reservation.
-     * @throws std::overflow_error if the memory requirement exceeds the reservation.
+     * @throws std::overflow_error If the allocation size exceeds the reservation.
      */
     std::unique_ptr<Buffer> move(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
@@ -343,15 +342,14 @@ class BufferResource {
     /**
      * @brief Move a Buffer to a device buffer.
      *
-     * If and only if moving between different memory types will this perform a copy using
-     * the buffer's CUDA stream.
+     * If the Buffer already resides in device memory, a cheap move is performed.
+     * Otherwise, the Buffer is copied to device memory using its own CUDA stream.
      *
      * @param buffer The buffer to move.
-     * @param reservation The reservation to use for memory allocations.
+     * @param reservation Memory reservation used if a copy is required.
      * @return A unique pointer to the resulting device buffer.
      *
-     * @throws std::invalid_argument if the required memory type does not match the
-     * reservation.
+     * @throws std::invalid_argument If the reservation's memory type isn't device memory.
      * @throws std::overflow_error if the memory requirement exceeds the reservation.
      */
     std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
@@ -359,18 +357,17 @@ class BufferResource {
     );
 
     /**
-     * @brief Move a Buffer to a host vector.
+     * @brief Move a Buffer into a host vector.
      *
-     * If and only if moving between different memory types will this perform a copy
-     * using the buffer's CUDA stream.
+     * If the Buffer already resides in host memory, a cheap move is performed.
+     * Otherwise, the Buffer is copied to host memory using its own CUDA stream.
      *
-     * @param buffer The buffer to move.
-     * @param reservation The reservation to use for memory allocations.
-     * @return A unique pointer to the resulting host vector.
+     * @param buffer Buffer to move.
+     * @param reservation Memory reservation used if a copy is required.
+     * @return Unique pointer to the resulting host vector.
      *
-     * @throws std::invalid_argument if the required memory type does not match the
-     * reservation.
-     * @throws std::overflow_error if the memory requirement exceeds the reservation.
+     * @throws std::invalid_argument If the reservation's memory type isn't host memory.
+     * @throws std::overflow_error If the allocation size exceeds the reservation.
      */
     std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
