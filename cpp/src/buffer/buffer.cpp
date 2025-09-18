@@ -28,24 +28,19 @@ Buffer::Buffer(
     );
 }
 
-Buffer::Buffer(
-    std::unique_ptr<rmm::device_buffer> device_buffer, rmm::cuda_stream_view stream
-)
+Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
     : size{device_buffer ? device_buffer->size() : 0},
-      storage_{std::move(device_buffer)},
-      // Create a new event to track the async copy only if the buffer is not empty
-      event_{size > 0 ? CudaEvent::make_shared_record(stream) : nullptr},
-      stream_{stream} {
+      storage_{std::move(device_buffer)} {
     RAPIDSMPF_EXPECTS(
         std::get<DeviceStorageT>(storage_) != nullptr,
         "the device buffer cannot be NULL",
         std::invalid_argument
     );
-    RAPIDSMPF_EXPECTS(
-        device()->stream().value() == stream.value(),
-        "the stream must match the device_buffer's stream",
-        std::invalid_argument
-    );
+    stream_ = std::get<DeviceStorageT>(storage_)->stream();
+    // Create a new event to track the async copy only if the buffer is not empty.
+    if (size > 0) {
+        event_ = CudaEvent::make_shared_record(stream_);
+    }
 }
 
 std::byte* Buffer::data() {

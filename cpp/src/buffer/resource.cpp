@@ -138,9 +138,9 @@ std::unique_ptr<Buffer> BufferResource::allocate(
         );
         break;
     case MemoryType::DEVICE:
-        ret = std::unique_ptr<Buffer>(new Buffer(
-            std::make_unique<rmm::device_buffer>(size, stream, device_mr_), stream
-        ));
+        ret = std::unique_ptr<Buffer>(
+            new Buffer(std::make_unique<rmm::device_buffer>(size, stream, device_mr_))
+        );
         break;
     default:
         RAPIDSMPF_FAIL("MemoryType: unknown");
@@ -169,7 +169,7 @@ std::unique_ptr<Buffer> BufferResource::move(
         cuda_stream_join(std::array{stream}, std::array{upstream});
         data->set_stream(stream);
     }
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream));
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data)));
 }
 
 std::unique_ptr<Buffer> BufferResource::move(

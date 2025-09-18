@@ -183,15 +183,13 @@ class Buffer {
     /**
      * @brief Construct a Buffer from device memory.
      *
+     * The new Buffer adapts the CUDA stream from @p device_buffer.
+     *
      * @param device_buffer A unique pointer to a device buffer.
-     * @param stream CUDA stream used for the device buffer allocation.
      *
      * @throws std::invalid_argument if `device_buffer` is null.
-     * @throws std::invalid_argument if `stream` isn't the same used by `device_buffer`.
      */
-    Buffer(
-        std::unique_ptr<rmm::device_buffer> device_buffer, rmm::cuda_stream_view stream
-    );
+    Buffer(std::unique_ptr<rmm::device_buffer> device_buffer);
 
     /**
      * @brief Access the underlying host memory buffer.
