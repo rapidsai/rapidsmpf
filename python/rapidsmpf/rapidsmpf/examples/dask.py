@@ -375,13 +375,13 @@ def dask_cudf_join(
         The type of join to perform.
         Options are ``{'inner', 'left', 'right'}``.
     bcast_side
-        The side of the join being broadcasted (if either).
+        The side of the join to broadcast (if either).
         Options are ``{'left', 'right', 'none'}``.
         Note: Only ``'none'`` is supported for now.
     left_pre_shuffled
-        Whether the left DataFrame is already shuffled.
+        Whether the left collection is already shuffled.
     right_pre_shuffled
-        Whether the right DataFrame is already shuffled.
+        Whether the right collection is already shuffled.
     cluster_kind
         What kind of Dask cluster to use. Available
         options are ``{'distributed', 'single', 'auto'}``.
