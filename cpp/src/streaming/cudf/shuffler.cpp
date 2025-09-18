@@ -131,7 +131,7 @@ coro::task<ShufflerAsync::ExtractResult> ShufflerAsync::extract_any_async() {
     // invalid result.
     if (ready_pids_.empty()) {
         lock.unlock();
-        ctx_->comm()->logger().warn("no partitions to extract");
+        ctx_->comm()->logger().trace("no partitions to extract");
         co_return ExtractResult::invalid();
     }
 
