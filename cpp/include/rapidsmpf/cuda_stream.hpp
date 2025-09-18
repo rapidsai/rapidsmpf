@@ -48,11 +48,13 @@ void cuda_stream_join(
         return;
     }
 
-    // Create a temporary cuda event if none was provided.
-    std::unique_ptr<CudaEvent> event_;
+    // Create a temporary CUDA event if none was provided. Note, once the event
+    // has been used to record synchronization between streams, it can be safely
+    // destroyed without affecting the synchronization.
+    std::unique_ptr<CudaEvent> tmp_event;
     if (event == nullptr) {
-        event_ = std::make_unique<CudaEvent>();
-        event = event_.get();
+        tmp_event = std::make_unique<CudaEvent>();
+        event = tmp_event.get();
     }
 
     // Let all downstreams wait on all upstreams.
