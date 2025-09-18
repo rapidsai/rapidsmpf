@@ -448,7 +448,6 @@ def dask_cudf_join(
     graph.update(right0.dask)
 
     meta = left0.merge(right0, left_on=left_on, right_on=right_on, how=how)._meta
-    # TODO: Could this be different for bcast!='none'?
     count_out = max(left_partition_count_in, right_partition_count_in)
     return dd.from_graph(
         graph,
