@@ -208,7 +208,16 @@ std::unique_ptr<cudf::table> unpack_and_concat(
             }
         }
     );
+
+    // We need to synchronize `stream` with the packed_data and update their
+    // underlying device buffers to use `stream` going forward. This ensures
+    // the packed data are not deallocated before we have a chance to
+    // concatenate them on `stream`.
     cuda_stream_join(std::array{stream}, packed_data_streams);
+    for (cudf::packed_columns& packed_columns : references) {
+        packed_columns.gpu_data->set_stream(stream);
+    }
+
     // Reserve memory for the concatenation.
     return with_memory_reservation(
         br->reserve_and_spill(MemoryType::DEVICE, total_size, allow_overbooking),
