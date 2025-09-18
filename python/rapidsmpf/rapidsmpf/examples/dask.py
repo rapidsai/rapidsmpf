@@ -387,6 +387,7 @@ def dask_cudf_join(
         options are ``{'distributed', 'single', 'auto'}``.
         If 'auto' (the default), 'distributed' will be
         used if a global Dask client is found.
+        Note: Only ``'distributed'`` is supported for now.
     config_options
         RapidsMPF configuration options.
 
