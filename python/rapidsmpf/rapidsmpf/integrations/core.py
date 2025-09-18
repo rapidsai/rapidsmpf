@@ -374,8 +374,8 @@ class JoinIntegration(Protocol[DataFrameT]):
         cls,
         ctx: WorkerContext,
         bcast_side: Literal["left", "right", "none"],
-        left: int | DataFrameT,
-        right: int | DataFrameT,
+        left_input: int | DataFrameT,
+        right_input: int | DataFrameT,
         part_id: int,
         n_worker_tasks: int,
         options: Any,
@@ -390,10 +390,10 @@ class JoinIntegration(Protocol[DataFrameT]):
         bcast_side
             The side of the join being broadcasted. If "none", this is
             a regular hash join.
-        left
+        left_input
             The left-table operation id or the left partition.
             The operation may correspond to an allgather or shuffle operation.
-        right
+        right_input
             The right-table operation id or the right partition.
             The operation may correspond to an allgather or shuffle operation.
         part_id
@@ -474,23 +474,30 @@ def join_partition(
         Additional options.
     """
     ctx = get_context()
-    left: int | DataFrameT
-    if left_op_id is None:
-        assert not isinstance(left_barrier, tuple)
-        left = left_barrier
-    else:
-        left = left_op_id
-    right: int | DataFrameT
-    if right_op_id is None:
-        assert not isinstance(right_barrier, tuple)
-        right = right_barrier
-    else:
-        right = right_op_id
+
+    def _get_input(
+        op_id: int | None, barrier: DataFrameT | tuple[int, ...]
+    ) -> int | DataFrameT:
+        """Return the input for one side of the join."""
+        if op_id is None:
+            # There is no operation id for this data.
+            # This means the table didn't need to be
+            # shuffled or broadcasted, and so the data
+            # is being passed in via the `barrier` argument.
+            assert not isinstance(barrier, tuple)
+            return barrier
+        else:
+            # There is an operation id for this data.
+            # This means the table was shuffled or broadcasted,
+            # and the corresponding data will be extracted in
+            # `callback` (via the `op_id` argument).
+            return op_id
+
     return callback(
         ctx,
         bcast_side,
-        left,
-        right,
+        _get_input(left_op_id, left_barrier),
+        _get_input(right_op_id, right_barrier),
         part_id,
         n_worker_tasks,
         options,
