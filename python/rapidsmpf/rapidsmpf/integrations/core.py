@@ -374,8 +374,8 @@ class JoinIntegration(Protocol[DataFrameT]):
         cls,
         ctx: WorkerContext,
         bcast_side: Literal["left", "right", "none"],
-        left_op_id: int,
-        right_op_id: int,
+        left: int | DataFrameT,
+        right: int | DataFrameT,
         part_id: int,
         n_worker_tasks: int,
         options: Any,
@@ -390,12 +390,12 @@ class JoinIntegration(Protocol[DataFrameT]):
         bcast_side
             The side of the join being broadcasted. If "none", this is
             a regular hash join.
-        left_op_id
-            The left-table operation id. The operation may correspond
-            to an allgather or shuffle operation.
-        right_op_id
-            The right-table operation id. The operation may correspond
-            to an allgather or shuffle operation.
+        left
+            The left-table operation id or the left partition.
+            The operation may correspond to an allgather or shuffle operation.
+        right
+            The right-table operation id or the right partition.
+            The operation may correspond to an allgather or shuffle operation.
         part_id
             The output partition id.
         n_worker_tasks
@@ -421,8 +421,8 @@ def join_partition(
         [
             WorkerContext,  # ctx
             Literal["left", "right", "none"],  # bcast_side
-            int,  # left_op_id
-            int,  # right_op_id
+            int | DataFrameT,  # left
+            int | DataFrameT,  # right
             int,  # part_id
             int,  # n_worker_tasks
             Any,  # options
@@ -430,10 +430,10 @@ def join_partition(
         DataFrameT,
     ],
     bcast_side: Literal["left", "right", "none"],
-    left_op_id: int,
-    right_op_id: int,
-    left_barrier: tuple[int, ...],
-    right_barrier: tuple[int, ...],
+    left_op_id: int | None,
+    right_op_id: int | None,
+    left_barrier: DataFrameT | tuple[int, ...],
+    right_barrier: DataFrameT | tuple[int, ...],
     part_id: int,
     n_worker_tasks: int,
     options: Any,
@@ -454,16 +454,19 @@ def join_partition(
         a regular hash join.
     left_op_id
         The left-table operation id. The operation may correspond
-        to an allgather or shuffle operation.
+        to an allgather or a shuffle operation. If None, the
+        left_barrier argument must be the left partition.
     right_op_id
         The right-table operation id. The operation may correspond
-        to an allgather or shuffle operation.
+        to an allgather or a shuffle operation. If None, the
+        right_barrier argument must be the right partition.
     left_barrier
-        Worker-barrier task dependency for the left table.
+        Worker-barrier task dependency for the left table or the left partition.
     right_barrier
-        Worker-barrier task dependency for the right table.
+        Worker-barrier task dependency for the right table or the right partition.
     part_id
         The output partition id.
+        This information is needed to extract shuffled partitions.
     n_worker_tasks
         The number of join_partition tasks to be called on this worker.
         This information may be used for cleanup.
@@ -471,12 +474,23 @@ def join_partition(
         Additional options.
     """
     ctx = get_context()
-
+    left: int | DataFrameT
+    if left_op_id is None:
+        assert not isinstance(left_barrier, tuple)
+        left = left_barrier
+    else:
+        left = left_op_id
+    right: int | DataFrameT
+    if right_op_id is None:
+        assert not isinstance(right_barrier, tuple)
+        right = right_barrier
+    else:
+        right = right_op_id
     return callback(
         ctx,
         bcast_side,
-        left_op_id,
-        right_op_id,
+        left,
+        right,
         part_id,
         n_worker_tasks,
         options,

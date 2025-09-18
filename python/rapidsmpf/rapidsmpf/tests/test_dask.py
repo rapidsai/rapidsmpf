@@ -420,8 +420,14 @@ def test_clear_shuffle_statistics() -> None:
         assert len(stats2) == 0
 
 
+@pytest.mark.parametrize("how", ["inner", "left", "right"])
+@pytest.mark.parametrize("left_pre_shuffled", [True, False])
+@pytest.mark.parametrize("right_pre_shuffled", [True, False])
 def test_dask_cudf_join(
     loop: pytest.FixtureDef,  # noqa: F811
+    how: Literal["inner", "left", "right"],
+    left_pre_shuffled: bool,  # noqa: FBT001
+    right_pre_shuffled: bool,  # noqa: FBT001
 ) -> None:
     # Test basic Dask-cuDF unified join integration
     pytest.importorskip("dask_cudf")
@@ -431,7 +437,7 @@ def test_dask_cudf_join(
             bootstrap_dask_cluster(
                 client, options=Options({"dask_spill_device": "0.1"})
             )
-            left = (
+            left0 = (
                 dask.datasets.timeseries(
                     freq="3600s",
                     partition_freq="2D",
@@ -439,17 +445,64 @@ def test_dask_cudf_join(
                 .reset_index(drop=True)
                 .to_backend("cudf")
             )
-            right = (
+            right0 = (
                 dask.datasets.timeseries(
                     freq="360s",
                     partition_freq="15D",
                 )
                 .reset_index(drop=True)
                 .to_backend("cudf")
-                .rename(columns={"x": "x2", "y": "y2"})
+                .rename(
+                    columns={
+                        "id": "id2",
+                        "name": "name2",
+                        "x": "x2",
+                        "y": "y2",
+                    }
+                )
+            )
+            left_on = ["id", "name"]
+            right_on = ["id2", "name2"]
+
+            # Maybe pre-shuffle the inputs
+            left = (
+                dask_cudf_shuffle(
+                    left0,
+                    left_on,
+                    partition_count=max(left0.npartitions, right0.npartitions),
+                    cluster_kind="distributed",
+                )
+                if left_pre_shuffled
+                else left0
+            )
+            right = (
+                dask_cudf_shuffle(
+                    right0,
+                    right_on,
+                    partition_count=max(left0.npartitions, right0.npartitions),
+                    cluster_kind="distributed",
+                )
+                if right_pre_shuffled
+                else right0
             )
 
-            on = ["id", "name"]
-            joined = dask_cudf_join(left, right, on, on).compute()
-            expected = left.merge(right, on=on, how="inner").compute()
+            # Join the inputs
+            joined = dask_cudf_join(
+                left,
+                right,
+                left_on=left_on,
+                right_on=right_on,
+                how=how,
+                left_pre_shuffled=left_pre_shuffled,
+                right_pre_shuffled=right_pre_shuffled,
+            ).compute()
+
+            # Check the result.
+            # NOTE: We cannot call compute on a collection containing
+            # a RMPF shuffle multiple times. Therefore, we use left0
+            # and right0 to generate the expected result (left and
+            # right may be "pre-shuffled").
+            expected = left0.merge(
+                right0, left_on=left_on, right_on=right_on, how=how
+            ).compute()
             dd.assert_eq(joined, expected, check_index=False)

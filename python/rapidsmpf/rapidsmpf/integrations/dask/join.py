@@ -23,59 +23,102 @@ def rapidsmpf_join_graph(
     left_name: str,
     right_name: str,
     output_name: str,
-    bcast_side: Literal["left", "right", "none"],
     left_partition_count_in: int,
     right_partition_count_in: int,
     integration: JoinIntegration,
     options: Any,
     *,
+    bcast_side: Literal["left", "right", "none"] = "none",
+    left_pre_shuffled: bool = False,
+    right_pre_shuffled: bool = False,
     config_options: Options = Options(),
 ) -> dict[Any, Any]:
-    """Return the task graph for a RapidsMPF broadcast join."""
+    """
+    Return the task graph for a RapidsMPF join.
+
+    Parameters
+    ----------
+    left_name
+        The name of the left table.
+    right_name
+        The name of the right table.
+    output_name
+        The name of the output table.
+    left_partition_count_in
+        The number of partitions in the left table.
+    right_partition_count_in
+        The number of partitions in the right table.
+    integration
+        The JoinIntegration protocol to use.
+    options
+        Additional options.
+    bcast_side
+        The side of the join being broadcasted.
+        Options are ``{'left', 'right', 'none'}``.
+        Note: Only ``'none'`` is supported for now.
+    left_pre_shuffled
+        Whether the left table is already shuffled.
+    right_pre_shuffled
+        Whether the right table is already shuffled.
+    config_options
+        RapidsMPF configuration options.
+
+    Returns
+    -------
+    The task graph for the join operation.
+    """
+    # Get the Dask client and worker ranks
     client = get_dask_client(options=config_options)
     worker_ranks: dict[int, str] = {
         v: k for k, v in client.run(get_dask_worker_rank).items()
     }
     n_workers = len(worker_ranks)
+
+    # Build the task-graph and restricted-key dicts incrementally
     restricted_keys: dict[Any, str] = {}
     graph: dict[Any, Any] = {}
+    left_barrier_name: str | None = None
+    right_barrier_name: str | None = None
+    left_op_id: int | None = None
+    right_op_id: int | None = None
 
     if bcast_side == "none":
         # Regular hash join
+
+        # Determine the number of partitions in the output table
         partition_count_out = max(left_partition_count_in, right_partition_count_in)
-        # TODO: What if one or both sides is already shuffled?
-        # Perhaps the user shouldn't use this function in that
-        # case, but we may be able to handle it here.
 
-        # Shuffle left side
-        left_barrier_name = f"rmpf-shuffle-left-{output_name}"
-        left_op_id, left_restricted_keys, left_graph = _partial_shuffle_graph(
-            client,
-            left_name,
-            left_barrier_name,
-            left_partition_count_in,
-            partition_count_out,
-            integration.shuffler_integration(),
-            worker_ranks,
-            {"on": options["left_on"]},
-        )
-        restricted_keys.update(left_restricted_keys)
-        graph.update(left_graph)
+        # Shuffle left side (if necessary)
+        if not left_pre_shuffled or left_partition_count_in != partition_count_out:
+            left_barrier_name = f"rmpf-shuffle-left-{output_name}"
+            left_op_id, left_restricted_keys, left_graph = _partial_shuffle_graph(
+                client,
+                left_name,
+                left_barrier_name,
+                left_partition_count_in,
+                partition_count_out,
+                integration.shuffler_integration(),
+                worker_ranks,
+                {"on": options["left_on"]},
+            )
+            restricted_keys.update(left_restricted_keys)
+            graph.update(left_graph)
 
-        # Shuffle right side
-        right_barrier_name = f"rmpf-shuffle-right-{output_name}"
-        right_op_id, right_restricted_keys, right_graph = _partial_shuffle_graph(
-            client,
-            right_name,
-            right_barrier_name,
-            right_partition_count_in,
-            partition_count_out,
-            integration.shuffler_integration(),
-            worker_ranks,
-            {"on": options["right_on"]},
-        )
-        restricted_keys.update(right_restricted_keys)
-        graph.update(right_graph)
+        # Shuffle right side (if necessary)
+        if not right_pre_shuffled or right_partition_count_in != partition_count_out:
+            right_barrier_name = f"rmpf-shuffle-right-{output_name}"
+            right_op_id, right_restricted_keys, right_graph = _partial_shuffle_graph(
+                client,
+                right_name,
+                right_barrier_name,
+                right_partition_count_in,
+                partition_count_out,
+                integration.shuffler_integration(),
+                worker_ranks,
+                {"on": options["right_on"]},
+            )
+            restricted_keys.update(right_restricted_keys)
+            graph.update(right_graph)
 
         # Add basic hash-join tasks
         for part_id in range(partition_count_out):
@@ -91,8 +134,8 @@ def rapidsmpf_join_graph(
                 bcast_side,
                 left_op_id,
                 right_op_id,
-                left_barrier_name,
-                right_barrier_name,
+                left_barrier_name or (left_name, part_id),
+                right_barrier_name or (right_name, part_id),
                 part_id,
                 n_worker_tasks,
                 options,
@@ -114,4 +157,5 @@ def rapidsmpf_join_graph(
         }
     )
 
+    # Return the full join task graph
     return graph

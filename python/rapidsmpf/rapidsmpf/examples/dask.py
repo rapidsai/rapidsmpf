@@ -11,6 +11,7 @@ import numpy as np
 from dask.tokenize import tokenize
 from dask.utils import M
 
+import cudf
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 import rapidsmpf.integrations.dask
@@ -30,8 +31,6 @@ if TYPE_CHECKING:
     from typing import Any
 
     import dask_cudf
-
-    import cudf
 
     from rapidsmpf.integrations.core import ShufflerIntegration, WorkerContext
     from rapidsmpf.shuffler import Shuffler
@@ -287,14 +286,14 @@ class DaskCudfJoinIntegration:
         cls,
         ctx: WorkerContext,
         bcast_side: Literal["left", "right", "none"],
-        left_op_id: int,
-        right_op_id: int,
+        left_input: int | cudf.DataFrame,
+        right_input: int | cudf.DataFrame,
         part_id: int,
         n_worker_tasks: int,
         options: Any,
     ) -> cudf.DataFrame:
         """
-        Produce a joined cudf.DataFrame partition.
+        Produce a joined DataFrame partition.
 
         Parameters
         ----------
@@ -302,12 +301,13 @@ class DaskCudfJoinIntegration:
             The worker context.
         bcast_side
             The side of the join being broadcasted (if either).
-        left_op_id
-            The ID of the left shuffle.
-        right_op_id
-            The ID of the right shuffle.
+        left_input
+            The ID of the left shuffle or the left partition.
+        right_input
+            The ID of the right shuffle or the right partition.
         part_id
             The ID of the partition being joined.
+            This information is needed to extract shuffled partitions.
         n_worker_tasks
             The number of join_partition tasks to be called on this worker.
             This information may be used for cleanup.
@@ -323,36 +323,46 @@ class DaskCudfJoinIntegration:
         This method is used to produce a single joined table chunk.
         """
         assert ctx.br is not None
-        if bcast_side != "none":
+        if bcast_side != "none":  # pragma: no cover
             raise NotImplementedError("Broadcast join not implemented.")
 
         # Extract left side
-        try:
-            left_shuffler = get_shuffler(ctx, left_op_id)
-            left = cls.shuffler_integration().extract_partition(
-                part_id,
-                left_shuffler,
-                {"column_names": options["left_column_names"]},
-            )
-        finally:
-            if left_shuffler.finished():
-                with ctx.lock:
-                    if left_op_id in ctx.shufflers:
-                        del ctx.shufflers[left_op_id]
+        left_op_id = left_input if isinstance(left_input, int) else None
+        if isinstance(left_op_id, int):
+            try:
+                left_shuffler = get_shuffler(ctx, left_op_id)
+                left = cls.shuffler_integration().extract_partition(
+                    part_id,
+                    left_shuffler,
+                    {"column_names": options["left_column_names"]},
+                )
+            finally:
+                if left_shuffler.finished():
+                    with ctx.lock:
+                        if left_op_id in ctx.shufflers:
+                            del ctx.shufflers[left_op_id]
+        else:
+            assert isinstance(left_input, cudf.DataFrame)
+            left = left_input
 
         # Extract right side
-        try:
-            right_shuffler = get_shuffler(ctx, right_op_id)
-            right = cls.shuffler_integration().extract_partition(
-                part_id,
-                right_shuffler,
-                {"column_names": options["right_column_names"]},
-            )
-        finally:
-            if right_shuffler.finished():
-                with ctx.lock:
-                    if right_op_id in ctx.shufflers:
-                        del ctx.shufflers[right_op_id]
+        right_op_id = right_input if isinstance(right_input, int) else None
+        if isinstance(right_op_id, int):
+            try:
+                right_shuffler = get_shuffler(ctx, right_op_id)
+                right = cls.shuffler_integration().extract_partition(
+                    part_id,
+                    right_shuffler,
+                    {"column_names": options["right_column_names"]},
+                )
+            finally:
+                if right_shuffler.finished():
+                    with ctx.lock:
+                        if right_op_id in ctx.shufflers:
+                            del ctx.shufflers[right_op_id]
+        else:
+            assert isinstance(right_input, cudf.DataFrame)
+            right = right_input
 
         # Return merged result
         kwargs = {
@@ -368,22 +378,60 @@ def dask_cudf_join(
     right: dask_cudf.DataFrame,
     left_on: list[str],
     right_on: list[str],
-    bcast_side: Literal["left", "right", "none"] = "none",
     *,
     how: Literal["inner", "left", "right"] = "inner",
+    bcast_side: Literal["left", "right", "none"] = "none",
+    left_pre_shuffled: bool = False,
+    right_pre_shuffled: bool = False,
     config_options: Options = Options(),
 ) -> dask_cudf.DataFrame:
-    """Join two Dask-cuDF DataFrames with RapidsMPF."""
+    """
+    Join two Dask-cuDF DataFrames with RapidsMPF.
+
+    Parameters
+    ----------
+    left
+        Left Dask-cuDF DataFrame.
+    right
+        Right Dask-cuDF DataFrame.
+    left_on
+        Left column names to join on.
+    right_on
+        Right column names to join on.
+    how
+        The type of join to perform.
+        Options are ``{'inner', 'left', 'right'}``.
+    bcast_side
+        The side of the join being broadcasted (if either).
+        Options are ``{'left', 'right', 'none'}``.
+        Note: Only ``'none'`` is supported for now.
+    left_pre_shuffled
+        Whether the left DataFrame is already shuffled.
+    right_pre_shuffled
+        Whether the right DataFrame is already shuffled.
+    config_options
+        RapidsMPF configuration options.
+
+    Returns
+    -------
+    Joined Dask-cuDF DataFrame collection.
+
+    Notes
+    -----
+    This API is currently intended for demonstration and
+    testing purposes only.
+    """
     from rapidsmpf.integrations.dask.join import rapidsmpf_join_graph
 
-    if bcast_side != "none":
-        raise ValueError("Only 'none' is supported for now.")
+    if bcast_side != "none":  # pragma: no cover
+        raise ValueError("Only bcast_side='none' is supported for now.")
 
     left0 = left.optimize()
     right0 = right.optimize()
-    left_count_in = left0.npartitions
-    right_count_in = right0.npartitions
-    count_out = max(left_count_in, right_count_in)  # TODO: May be different for bcast
+    left_partition_count_in = left0.npartitions
+    right_partition_count_in = right0.npartitions
+    # TODO: Could this be different for bcast!='none'?
+    count_out = max(left_partition_count_in, right_partition_count_in)
 
     token = tokenize(left0, right0, left_on, bcast_side, right_on, how)
     left_name_in = left0._name
@@ -393,9 +441,8 @@ def dask_cudf_join(
         left_name_in,
         right_name_in,
         name_out,
-        bcast_side,
-        left_count_in,
-        right_count_in,
+        left_partition_count_in,
+        right_partition_count_in,
         DaskCudfJoinIntegration(),
         {
             "left_column_names": left0.columns,
@@ -404,6 +451,9 @@ def dask_cudf_join(
             "right_on": right_on,
             "how": how,
         },
+        bcast_side=bcast_side,
+        left_pre_shuffled=left_pre_shuffled,
+        right_pre_shuffled=right_pre_shuffled,
         config_options=config_options,
     )
     graph.update(left0.dask)
