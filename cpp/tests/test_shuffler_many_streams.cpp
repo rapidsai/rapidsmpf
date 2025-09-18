@@ -28,19 +28,18 @@ using namespace rapidsmpf;
 /**
  * @brief Generate a random CUDA stream priority.
  *
- * @param seed Seed for the random number generator.
+ * @param random_generator A random number generator used to produce the priority.
  * @return A valid CUDA stream priority in the device range.
  */
-int gen_stream_priority(unsigned int seed = 42) {
+int gen_stream_priority(std::mt19937 random_generator) {
     int least_priority = 0;  // numerically larger (often 0) => lower priority
     int greatest_priority = 0;  // numerically smaller (often negative) => higher priority
     RAPIDSMPF_CUDA_TRY(
         cudaDeviceGetStreamPriorityRange(&least_priority, &greatest_priority)
     );
     int num_priorities = least_priority - greatest_priority + 1;
-    std::mt19937 gen{seed};
     std::uniform_int_distribution<int> dist(0, num_priorities - 1);
-    return greatest_priority + dist(gen);
+    return greatest_priority + dist(random_generator);
 }
 
 // To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the
@@ -48,6 +47,7 @@ int gen_stream_priority(unsigned int seed = 42) {
 constexpr std::chrono::seconds wait_timeout(30);
 
 TEST(ShufflerManyStreams, Test) {
+    std::mt19937 random_generator{42};
     constexpr size_t chunksize = 1 << 20;
     constexpr int num_partitions = 100;
     auto br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
@@ -57,12 +57,14 @@ TEST(ShufflerManyStreams, Test) {
     // likely to execute in mixed order.
     cudaStream_t shuffler_stream;
     RAPIDSMPF_CUDA_TRY(cudaStreamCreateWithPriority(
-        &shuffler_stream, cudaStreamNonBlocking, gen_stream_priority()
+        &shuffler_stream, cudaStreamNonBlocking, gen_stream_priority(random_generator)
     ));
     std::array<cudaStream_t, num_partitions> partition_streams{};
     for (shuffler::PartID pid = 0; pid < num_partitions; ++pid) {
         RAPIDSMPF_CUDA_TRY(cudaStreamCreateWithPriority(
-            &partition_streams[pid], cudaStreamNonBlocking, gen_stream_priority()
+            &partition_streams[pid],
+            cudaStreamNonBlocking,
+            gen_stream_priority(random_generator)
         ));
     }
 
