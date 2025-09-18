@@ -193,7 +193,9 @@ std::unique_ptr<cudf::table> unpack_and_concat(
         [&](auto& reservation) {
             for (auto& packed_data : partitions) {
                 if (!packed_data.empty()) {
-                    packed_data_streams.push_back(packed_data.data->stream());
+                    if (packed_data.data->size > 0) {  // No need to sync empty buffers.
+                        packed_data_streams.push_back(packed_data.data->stream());
+                    }
                     unpacked.push_back(
                         cudf::unpack(references.emplace_back(
                             std::move(packed_data.metadata),
