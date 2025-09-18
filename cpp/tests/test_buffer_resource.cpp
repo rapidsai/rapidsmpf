@@ -181,14 +181,14 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
     EXPECT_EQ(dev_mem_available(), 0);
 
-    auto host_buf2 = br.move(std::move(dev_buf2), stream, reserve3);
+    auto host_buf2 = br.move(std::move(dev_buf2), reserve3);
     EXPECT_EQ(host_buf2->mem_type(), MemoryType::HOST);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0_KiB);
     EXPECT_EQ(dev_mem_available(), 10_KiB);
 
     // Moving buffers to the same memory type accepts an empty reservation.
-    auto host_buf3 = br.move(std::move(host_buf2), stream, reserve3);
+    auto host_buf3 = br.move(std::move(host_buf2), reserve3);
     EXPECT_EQ(host_buf3->mem_type(), MemoryType::HOST);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0_KiB);
@@ -242,7 +242,7 @@ TEST(BufferResource, CUDAEventTracking) {
         ));
 
         auto dev_copy = br.allocate(stream, br.reserve_or_fail(buffer_size));
-        buffer_copy(*dev_copy, *dev_buf, buffer_size, 0, 0, stream, true);
+        buffer_copy(*dev_copy, *dev_buf, buffer_size);
         EXPECT_EQ(dev_copy->mem_type(), MemoryType::DEVICE);
 
         // Wait for copy to complete
@@ -261,12 +261,12 @@ TEST(BufferResource, CUDAEventTracking) {
     {
         auto host_data = std::make_unique<std::vector<uint8_t>>(buffer_size);
         initialize_data(*host_data);
-        auto host_buf = br.move(std::move(host_data));
+        auto host_buf = br.move(std::move(host_data), stream);
         auto [dev_reserve, dev_overbooking] =
             br.reserve(MemoryType::DEVICE, buffer_size, false);
 
         auto dev_copy = br.allocate(stream, br.reserve_or_fail(buffer_size));
-        buffer_copy(*dev_copy, *host_buf, buffer_size, 0, 0, stream, true);
+        buffer_copy(*dev_copy, *host_buf, buffer_size);
         EXPECT_EQ(dev_copy->mem_type(), MemoryType::DEVICE);
 
         // Wait for copy to complete
@@ -301,7 +301,7 @@ TEST(BufferResource, CUDAEventTracking) {
 
         auto host_copy =
             br.allocate(stream, br.reserve_or_fail(buffer_size, MemoryType::HOST));
-        buffer_copy(*host_copy, *dev_buf, buffer_size, 0, 0, stream, true);
+        buffer_copy(*host_copy, *dev_buf, buffer_size);
         EXPECT_EQ(host_copy->mem_type(), MemoryType::HOST);
 
         // Wait for copy to complete
@@ -382,9 +382,7 @@ class BufferResourceCopySliceTest
             *source,
             length,
             0,  // dst_offset
-            std::ptrdiff_t(offset),  // src_offset
-            stream,
-            false
+            std::ptrdiff_t(offset)  // src_offset
         );
 
         EXPECT_EQ(slice->mem_type(), dest_type);
@@ -470,9 +468,8 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
             *source,
             source->size,
             std::ptrdiff_t(dest_offset),  // dst_offset
-            0,  // src_offset
-            stream,
-            false
+            0  // src_offset
+
         );
         dest->wait_for_ready();
         EXPECT_TRUE(dest->is_ready());
@@ -622,9 +619,8 @@ TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
         *buf1,
         slice_length,
         0,  // dst_offset
-        slice_offset,  // src_offset
-        stream,
-        false
+        slice_offset  // src_offset
+
     );
     EXPECT_EQ(buf2->size, slice_length);
     EXPECT_EQ(res2.size(), 0);  // reservation should be consumed
@@ -639,7 +635,7 @@ TEST_F(BufferResourceDifferentResourcesTest, Copy) {
 
     // Create copy of buf1 on br2
     auto buf2 = br2->allocate(stream, br2->reserve_or_fail(buffer_size));
-    buffer_copy(*buf2, *buf1, buffer_size, 0, 0, stream, true);
+    buffer_copy(*buf2, *buf1, buffer_size);
     EXPECT_EQ(buf2->size, buffer_size);
     buf2->wait_for_ready();
 
@@ -656,30 +652,26 @@ TEST_F(BufferCopyEdgeCases, IllegalArguments) {
     auto dst = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
 
     // Negative offsets
-    EXPECT_THROW(
-        buffer_copy(*dst, *src, 10, -1, 0, stream, false), std::invalid_argument
-    );
-    EXPECT_THROW(
-        buffer_copy(*dst, *src, 10, 0, -1, stream, false), std::invalid_argument
-    );
+    EXPECT_THROW(buffer_copy(*dst, *src, 10, -1, 0), std::invalid_argument);
+    EXPECT_THROW(buffer_copy(*dst, *src, 10, 0, -1), std::invalid_argument);
 
     // Offsets beyond size
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0, stream, false),
+        buffer_copy(*dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0),
         std::invalid_argument
     );
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1), stream, false),
+        buffer_copy(*dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1)),
         std::invalid_argument
     );
 
     // Ranges out of bounds
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0, stream, false),
+        buffer_copy(*dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0),
         std::invalid_argument
     );
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8), stream, false),
+        buffer_copy(*dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8)),
         std::invalid_argument
     );
 }
@@ -694,7 +686,7 @@ TEST_F(BufferCopyEdgeCases, ZeroSizeIsNoOp) {
     std::vector<uint8_t> sent(N, 0xCD);
     std::memcpy(dst->data(), sent.data(), N);
 
-    EXPECT_NO_THROW(buffer_copy(*dst, *src, 0, 0, 0, stream, false));
+    EXPECT_NO_THROW(buffer_copy(*dst, *src, 0, 0, 0));
     dst->wait_for_ready();
 
     // dst unchanged
@@ -709,5 +701,5 @@ TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
 
     auto buf = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
 
-    EXPECT_THROW(buffer_copy(*buf, *buf, 16, 0, 0, stream, false), std::invalid_argument);
+    EXPECT_THROW(buffer_copy(*buf, *buf, 16, 0, 0), std::invalid_argument);
 }

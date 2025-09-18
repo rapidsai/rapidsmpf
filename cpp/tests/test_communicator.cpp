@@ -70,7 +70,7 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     auto send_data_h = iota_vector<std::uint8_t>(nelems);
     auto [reservation, ob] = br->reserve(memory_type(), 2 * send_data_h.size(), true);
     auto send_buf = br->move(
-        br->move(std::make_unique<std::vector<uint8_t>>(send_data_h)), stream, reservation
+        br->move(std::make_unique<std::vector<uint8_t>>(send_data_h), stream), reservation
     );
     stream.synchronize();
     rapidsmpf::Tag tag{0, 0};
@@ -83,8 +83,7 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     auto recv_buf = comm->wait(std::move(recv_fut));
     auto [host_reservation, host_ob] =
         br->reserve(rapidsmpf::MemoryType::HOST, send_data_h.size(), true);
-    auto recv_data_h =
-        br->move_to_host_vector(std::move(recv_buf), stream, host_reservation);
+    auto recv_data_h = br->move_to_host_vector(std::move(recv_buf), host_reservation);
     stream.synchronize();
     EXPECT_EQ(send_data_h, *recv_data_h);
 }

@@ -234,7 +234,6 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
     cdef vector[cpp_PackedData] cpp_spill_partitions \
         "rapidsmpf::spill_partitions"(
             vector[cpp_PackedData] partitions,
-            cuda_stream_view stream,
             cpp_BufferResource* br,
             shared_ptr[cpp_Statistics] statistics,
         ) except +
@@ -242,7 +241,6 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
 
 def spill_partitions(
     partitions,
-    Stream stream not None,
     BufferResource br not None,
     Statistics statistics = None,
 ):
@@ -251,7 +249,7 @@ def spill_partitions(
 
     Partitions already in host memory are returned unchanged. For partitions
     in device memory, this function allocates host memory and moves the buffer
-    using the provided buffer resource.
+    using the provided buffer resource and the buffer's CUDA stream.
 
     For device-resident partitions, a host memory reservation is made before
     moving the buffer. If the reservation fails due to insufficient host memory,
@@ -263,8 +261,6 @@ def spill_partitions(
     ----------
     partitions
         The input partitions, each containing GPU or host buffers.
-    stream
-        The CUDA stream used for memory operations.
     br
         The buffer resource that manages memory allocation and movement.
     statistics
@@ -280,7 +276,6 @@ def spill_partitions(
         If host memory allocation fails. Overbooking is not allowed.
     """
 
-    cdef cuda_stream_view _stream = stream.view()
     cdef cpp_BufferResource* _br = br.ptr()
     cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)
     cdef vector[cpp_PackedData] _ret
@@ -289,7 +284,6 @@ def spill_partitions(
     with nogil:
         _ret = cpp_spill_partitions(
             move(_partitions),
-            _stream,
             _br,
             statistics._handle,
         )
@@ -300,7 +294,6 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
     cdef vector[cpp_PackedData] cpp_unspill_partitions \
         "rapidsmpf::unspill_partitions"(
             vector[cpp_PackedData] partitions,
-            cuda_stream_view stream,
             cpp_BufferResource* br,
             bool_t allow_overbooking,
             shared_ptr[cpp_Statistics] statistics,
@@ -309,7 +302,6 @@ cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
 
 def unspill_partitions(
     partitions,
-    Stream stream not None,
     BufferResource br not None,
     bool_t allow_overbooking,
     Statistics statistics = None,
@@ -320,7 +312,7 @@ def unspill_partitions(
     Each partition is inspected to determine whether its buffer already resides in
     device memory. Buffers already in device memory are returned unchanged. Host-
     resident buffers are moved to device memory using the provided buffer resource
-    and CUDA stream.
+    and the buffer's CUDA stream.
 
     If insufficient device memory is available, the buffer resource's spill manager is
     invoked to attempt to free up space. If overbooking occurs and the spill manager
@@ -333,8 +325,6 @@ def unspill_partitions(
     ----------
     partitions
         The partitions to unspill, potentially containing host-resident data.
-    stream
-        CUDA stream used for memory operations and kernel launches.
     br
         Buffer resource responsible for memory reservation, spills, and transfers.
     allow_overbooking
@@ -353,7 +343,6 @@ def unspill_partitions(
         If overbooking is required but `allow_overbooking` is False and insufficient
         memory could be spilled to satisfy the reservation.
     """
-    cdef cuda_stream_view _stream = stream.view()
     cdef cpp_BufferResource* _br = br.ptr()
     cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)
     cdef vector[cpp_PackedData] _ret
@@ -362,7 +351,6 @@ def unspill_partitions(
     with nogil:
         _ret = cpp_unspill_partitions(
             move(_partitions),
-            _stream,
             _br,
             allow_overbooking,
             statistics._handle,

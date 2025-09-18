@@ -32,14 +32,12 @@ def unpack_and_concat(
 def spill_partitions(
     partitions: Iterable[PackedData],
     *,
-    stream: Stream,
     br: BufferResource,
     statistics: Statistics | None = None,
 ) -> list[PackedData]: ...
 def unspill_partitions(
     partitions: Iterable[PackedData],
     *,
-    stream: Stream,
     br: BufferResource,
     allow_overbooking: bool,
     statistics: Statistics | None = None,

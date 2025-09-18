@@ -236,7 +236,6 @@ class BulkRayShufflerActor(BaseShufflingActor):
             partition = unpack_and_concat(
                 unspill_partitions(
                     packed_chunks,
-                    stream=DEFAULT_STREAM,
                     br=self.br,
                     allow_overbooking=True,
                     statistics=self.stats,

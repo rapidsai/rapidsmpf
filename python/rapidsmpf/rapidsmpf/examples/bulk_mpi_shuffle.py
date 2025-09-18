@@ -214,7 +214,6 @@ def bulk_mpi_shuffle(
             table = unpack_and_concat(
                 unspill_partitions(
                     shuffler.extract(partition_id),
-                    stream=DEFAULT_STREAM,
                     br=br,
                     allow_overbooking=True,
                     statistics=statistics,

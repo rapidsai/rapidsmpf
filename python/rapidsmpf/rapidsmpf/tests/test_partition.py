@@ -117,10 +117,8 @@ def test_spill_unspill_roundtrip(
     )
 
     # Spill roundtrip
-    spilled = spill_partitions(partitions.values(), stream=DEFAULT_STREAM, br=br)
-    unspilled = unspill_partitions(
-        spilled, stream=DEFAULT_STREAM, br=br, allow_overbooking=False
-    )
+    spilled = spill_partitions(partitions.values(), br=br)
+    unspilled = unspill_partitions(spilled, br=br, allow_overbooking=False)
 
     got = pylibcudf_to_cudf_dataframe(
         unpack_and_concat(
