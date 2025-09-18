@@ -11,6 +11,7 @@ from rapidsmpf.integrations.core import join_partition
 from rapidsmpf.integrations.dask.core import (
     get_dask_client,
     get_dask_worker_rank,
+    get_worker_context,
 )
 from rapidsmpf.integrations.dask.shuffler import _partial_shuffle_graph
 
@@ -25,7 +26,9 @@ def rapidsmpf_join_graph(
     left_partition_count_in: int,
     right_partition_count_in: int,
     integration: JoinIntegration,
-    options: Any,
+    left_options: Any,
+    right_options: Any,
+    join_options: Any,
     *,
     bcast_side: Literal["left", "right", "none"] = "none",
     left_pre_shuffled: bool = False,
@@ -49,8 +52,12 @@ def rapidsmpf_join_graph(
         The number of partitions in the right table.
     integration
         The JoinIntegration protocol to use.
-    options
-        Additional options.
+    left_options
+        Additional options for extracting the left table.
+    right_options
+        Additional options for extracting the right table.
+    join_options
+        Additional options for the join.
     bcast_side
         The side of the join being broadcasted.
         Options are ``{'left', 'right', 'none'}``.
@@ -83,6 +90,7 @@ def rapidsmpf_join_graph(
 
     if bcast_side == "none":
         # Regular hash join
+        bcast_count = None
 
         # Determine the number of partitions in the output table
         partition_count_out = max(left_partition_count_in, right_partition_count_in)
@@ -98,7 +106,7 @@ def rapidsmpf_join_graph(
                 partition_count_out,
                 integration.get_shuffler_integration(),
                 worker_ranks,
-                {"on": options["left_on"]},
+                left_options,
             )
             restricted_keys.update(left_restricted_keys)
             graph.update(left_graph)
@@ -114,7 +122,7 @@ def rapidsmpf_join_graph(
                 partition_count_out,
                 integration.get_shuffler_integration(),
                 worker_ranks,
-                {"on": options["right_on"]},
+                right_options,
             )
             restricted_keys.update(right_restricted_keys)
             graph.update(right_graph)
@@ -128,15 +136,19 @@ def rapidsmpf_join_graph(
             key = (output_name, part_id)
             graph[key] = (
                 join_partition,
-                integration.join_partition,
+                get_worker_context,
+                integration,
                 bcast_side,
+                bcast_count,
                 left_op_id,
                 right_op_id,
                 left_barrier_name or (left_name, part_id),
                 right_barrier_name or (right_name, part_id),
                 part_id,
                 n_worker_tasks,
-                options,
+                left_options,
+                right_options,
+                join_options,
             )
             # Assume round-robin partition assignment
             restricted_keys[key] = worker_ranks[rank]

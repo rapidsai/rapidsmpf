@@ -372,11 +372,10 @@ class JoinIntegration(Protocol[DataFrameT]):
     @classmethod
     def join_partition(
         cls,
+        left_input: DataFrameT | Callable[..., DataFrameT],
+        right_input: DataFrameT | Callable[..., DataFrameT],
         bcast_side: Literal["left", "right", "none"],
-        left_input: int | DataFrameT,
-        right_input: int | DataFrameT,
-        part_id: int,
-        n_worker_tasks: int,
+        bcast_count: int | None,
         options: Any,
     ) -> DataFrameT:
         """
@@ -384,67 +383,59 @@ class JoinIntegration(Protocol[DataFrameT]):
 
         Parameters
         ----------
-        bcast_side
-            The side of the join being broadcasted. If "none", this is
-            a regular hash join.
         left_input
             The left-table operation id or the left partition.
             The operation may correspond to an allgather or shuffle operation.
         right_input
             The right-table operation id or the right partition.
             The operation may correspond to an allgather or shuffle operation.
-        part_id
-            The output partition id.
-        n_worker_tasks
-            The number of join_partition tasks to be called on this worker.
-            This information may be used for cleanup.
+        bcast_side
+            The side of the join being broadcasted. If "none", this is
+            a regular hash join.
+        bcast_count
+            The number of partitions to broadcast.
+            Ignored unless ``bcast_side`` is "left" or "right".
         options
-            Additional options.
+            Additional join options.
 
         Returns
         -------
-        A joined DataFrame chunk.
-
-        Notes
-        -----
-        This method is used to produce a single joined table chunk.
+        A joined DataFrame partition.
         """
         ...
 
 
 def join_partition(
-    callback: Callable[
-        [
-            Literal["left", "right", "none"],  # bcast_side
-            int | DataFrameT,  # left
-            int | DataFrameT,  # right
-            int,  # part_id
-            int,  # n_worker_tasks
-            Any,  # options
-        ],
-        DataFrameT,
-    ],
+    get_context: Callable[..., WorkerContext],
+    integration: JoinIntegration[DataFrameT],
     bcast_side: Literal["left", "right", "none"],
+    bcast_count: int | None,
     left_op_id: int | None,
     right_op_id: int | None,
     left_barrier: DataFrameT | tuple[int, ...],
     right_barrier: DataFrameT | tuple[int, ...],
     part_id: int,
     n_worker_tasks: int,
-    options: Any,
+    left_options: Any,
+    right_options: Any,
+    join_options: Any,
 ) -> DataFrameT:
     """
     Produce a joined table partition.
 
     Parameters
     ----------
-    callback
-        Join callback function. This function must be the
-        `join_partition` attribute of a `JoinIntegration`
-        protocol.
+    get_context
+        Callable function to fetch the worker context.
+    integration
+        The JoinIntegration protocol to use.
     bcast_side
         The side of the join being broadcasted. If "none", this is
         a regular hash join.
+        Note: Only "none" is supported for now.
+    bcast_count
+        The number of partitions to broadcast.
+        Ignored unless ``bcast_side`` is "left" or "right".
     left_op_id
         The left-table operation id. The operation may correspond
         to an allgather or a shuffle operation. If None, the
@@ -463,13 +454,27 @@ def join_partition(
     n_worker_tasks
         The number of join_partition tasks to be called on this worker.
         This information may be used for cleanup.
-    options
-        Additional options.
+    left_options
+        Additional options for extracting the left table.
+    right_options
+        Additional options for extracting the right table.
+    join_options
+        Additional options for the join.
+
+    Returns
+    -------
+    A joined DataFrame partition.
     """
 
     def _get_input(
-        op_id: int | None, barrier: DataFrameT | tuple[int, ...]
-    ) -> int | DataFrameT:
+        op_id: int | None,
+        barrier: DataFrameT | tuple[int, ...],
+        options: Any,
+        get_context: Callable[..., WorkerContext],
+        integration: JoinIntegration[DataFrameT],
+        bcast_side: Literal["left", "right", "none"],
+        part_id: int,
+    ) -> DataFrameT | Callable[..., DataFrameT]:
         """Return the input for one side of the join."""
         if op_id is None:
             # There is no operation id for this data.
@@ -478,20 +483,32 @@ def join_partition(
             # is being passed in via the `barrier` argument.
             assert not isinstance(barrier, tuple)
             return barrier
-        else:
-            # There is an operation id for this data.
-            # This means the table was shuffled or broadcasted,
-            # and the corresponding data will be extracted in
-            # `callback` (via the `op_id` argument).
-            return op_id
+        elif bcast_side == "none":
+            # The table was shuffled, so we need to extract the partition.
+            ctx = get_context()
+            shuffler = get_shuffler(ctx, op_id)
+            try:
+                return integration.get_shuffler_integration().extract_partition(
+                    part_id,
+                    shuffler,
+                    options,
+                )
+            finally:
+                if shuffler.finished():
+                    with ctx.lock:
+                        if op_id in ctx.shufflers:
+                            del ctx.shufflers[op_id]
+        else:  # pragma: no cover
+            # The data was broadcasted, so we need to extract the partition.
+            raise NotImplementedError("Broadcast join not implemented.")
 
-    return callback(
+    get_input_args = (get_context, integration, bcast_side, part_id)
+    return integration.join_partition(
+        _get_input(left_op_id, left_barrier, left_options, *get_input_args),
+        _get_input(right_op_id, right_barrier, right_options, *get_input_args),
         bcast_side,
-        _get_input(left_op_id, left_barrier),
-        _get_input(right_op_id, right_barrier),
-        part_id,
-        n_worker_tasks,
-        options,
+        bcast_count,
+        join_options,
     )
 
 
