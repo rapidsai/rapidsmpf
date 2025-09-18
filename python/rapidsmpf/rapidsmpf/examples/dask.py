@@ -155,6 +155,30 @@ class DaskCudfIntegration:
         )
 
 
+def _get_cluster_kind(
+    cluster_kind: Literal["distributed", "single", "auto"],
+) -> Literal["distributed", "single", "auto"]:
+    """Validate and return the kind of cluster to use."""
+    if cluster_kind not in ("distributed", "single", "auto"):
+        raise ValueError(
+            f"Expected one of 'distributed', 'single', or 'auto'. Got {cluster_kind}"
+        )
+
+    if cluster_kind == "auto":
+        try:
+            from distributed import get_client
+
+            get_client()
+        except (ImportError, ValueError):
+            # Failed to import distributed/dask-cuda or find a Dask client.
+            # Use single shuffle instead.
+            cluster_kind = "single"
+        else:
+            cluster_kind = "distributed"
+
+    return cluster_kind
+
+
 def dask_cudf_shuffle(
     df: dask_cudf.DataFrame,
     on: list[str],
@@ -197,10 +221,10 @@ def dask_cudf_shuffle(
     This API is currently intended for demonstration and
     testing purposes only.
     """
-    if cluster_kind not in ("distributed", "single", "auto"):
-        raise ValueError(
-            f"Expected one of 'distributed', 'single', or 'auto'. Got {cluster_kind}"
-        )
+    if (cluster_kind := _get_cluster_kind(cluster_kind)) == "distributed":
+        shuffle = rapidsmpf.integrations.dask.rapidsmpf_shuffle_graph
+    else:
+        shuffle = rapidsmpf.integrations.single.rapidsmpf_shuffle_graph
 
     df0 = df.optimize()
     count_in = df0.npartitions
@@ -219,23 +243,6 @@ def dask_cudf_shuffle(
         sort_boundary_names = ((boundaries._name, 0),)
     else:
         sort_boundary_names = ()
-
-    if cluster_kind == "auto":
-        try:
-            from distributed import get_client
-
-            get_client()
-        except (ImportError, ValueError):
-            # Failed to import distributed/dask-cuda or find a Dask client.
-            # Use single shuffle instead.
-            cluster_kind = "single"
-        else:
-            cluster_kind = "distributed"
-
-    if cluster_kind == "distributed":
-        shuffle = rapidsmpf.integrations.dask.rapidsmpf_shuffle_graph
-    else:
-        shuffle = rapidsmpf.integrations.single.rapidsmpf_shuffle_graph
 
     shuffle_graph_args = (
         name_in,
@@ -383,6 +390,7 @@ def dask_cudf_join(
     bcast_side: Literal["left", "right", "none"] = "none",
     left_pre_shuffled: bool = False,
     right_pre_shuffled: bool = False,
+    cluster_kind: Literal["distributed", "single", "auto"] = "auto",
     config_options: Options = Options(),
 ) -> dask_cudf.DataFrame:
     """
@@ -409,6 +417,11 @@ def dask_cudf_join(
         Whether the left DataFrame is already shuffled.
     right_pre_shuffled
         Whether the right DataFrame is already shuffled.
+    cluster_kind
+        What kind of Dask cluster to use. Available
+        options are ``{'distributed', 'single', 'auto'}``.
+        If 'auto' (the default), 'distributed' will be
+        used if a global Dask client is found.
     config_options
         RapidsMPF configuration options.
 
@@ -421,17 +434,20 @@ def dask_cudf_join(
     This API is currently intended for demonstration and
     testing purposes only.
     """
-    from rapidsmpf.integrations.dask.join import rapidsmpf_join_graph
-
     if bcast_side != "none":  # pragma: no cover
+        # TODO: Support broadcast joins.
         raise ValueError("Only bcast_side='none' is supported for now.")
+
+    if (cluster_kind := _get_cluster_kind(cluster_kind)) == "distributed":
+        from rapidsmpf.integrations.dask.join import rapidsmpf_join_graph
+    else:  # pragma: no cover
+        # TODO: Support single-worker joins.
+        raise NotImplementedError("Single-worker join not implemented.")
 
     left0 = left.optimize()
     right0 = right.optimize()
     left_partition_count_in = left0.npartitions
     right_partition_count_in = right0.npartitions
-    # TODO: Could this be different for bcast!='none'?
-    count_out = max(left_partition_count_in, right_partition_count_in)
 
     token = tokenize(left0, right0, left_on, bcast_side, right_on, how)
     left_name_in = left0._name
@@ -460,6 +476,8 @@ def dask_cudf_join(
     graph.update(right0.dask)
 
     meta = left0.merge(right0, left_on=left_on, right_on=right_on, how=how)._meta
+    # TODO: Could this be different for bcast!='none'?
+    count_out = max(left_partition_count_in, right_partition_count_in)
     return dd.from_graph(
         graph,
         meta,
