@@ -12,7 +12,6 @@
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/streaming/cudf/shuffler.hpp>
-#include <rapidsmpf/streaming/cudf/utils.hpp>
 
 namespace rapidsmpf::streaming {
 
