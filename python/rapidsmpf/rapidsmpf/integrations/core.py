@@ -364,7 +364,10 @@ def extract_partition(
 class JoinIntegration(Protocol[DataFrameT]):
     """Join-integration protocol."""
 
-    shuffle_integration: ShufflerIntegration[DataFrameT]
+    @staticmethod
+    def shuffler_integration() -> ShufflerIntegration[DataFrameT]:
+        """Return the shuffler integration."""
+        ...
 
     @classmethod
     def join_chunk(

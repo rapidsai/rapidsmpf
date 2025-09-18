@@ -16,6 +16,7 @@ from rmm.pylibrmm.stream import DEFAULT_STREAM
 import rapidsmpf.integrations.dask
 import rapidsmpf.integrations.single
 from rapidsmpf.config import Options
+from rapidsmpf.integrations.core import get_shuffler
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     split_and_pack,
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
 
     import cudf
 
+    from rapidsmpf.integrations.core import ShufflerIntegration, WorkerContext
     from rapidsmpf.shuffler import Shuffler
 
 
@@ -270,3 +272,148 @@ def dask_cudf_shuffle(
         )
     else:
         return shuffled
+
+
+class DaskCudfJoinIntegration:
+    """Dask-cuDF protocol for unified join integration."""
+
+    @staticmethod
+    def shuffler_integration() -> ShufflerIntegration[cudf.DataFrame]:
+        """Return the shuffler integration."""
+        return DaskCudfIntegration()
+
+    @classmethod
+    def join_chunk(
+        cls,
+        ctx: WorkerContext,
+        bcast_side: Literal["left", "right", "none"],
+        left_op_id: int,
+        right_op_id: int,
+        part_id: int,
+        n_worker_chunks: int,
+        options: Any,
+    ) -> cudf.DataFrame:
+        """
+        Join a chunk of data from the left and right sides of a join.
+
+        Parameters
+        ----------
+        ctx
+            The worker context.
+        bcast_side
+            The side of the join being broadcasted (if either).
+        left_op_id
+            The ID of the left shuffle.
+        right_op_id
+            The ID of the right shuffle.
+        part_id
+            The ID of the partition being joined.
+        n_worker_chunks
+            The number of chunks to be produced on this worker.
+            This information may be used for cleanup.
+        options
+            Additional options.
+
+        Returns
+        -------
+        A DataFrame containing the joined data.
+
+        Notes
+        -----
+        This method is used to produce a single joined table chunk.
+        """
+        assert ctx.br is not None
+        if bcast_side != "none":
+            raise NotImplementedError("Broadcast join not implemented.")
+
+        # Extract left side
+        try:
+            left_shuffler = get_shuffler(ctx, left_op_id)
+            left = cls.shuffler_integration().extract_partition(
+                part_id,
+                left_shuffler,
+                {"column_names": options["left_column_names"]},
+            )
+        finally:
+            if left_shuffler.finished():
+                with ctx.lock:
+                    if left_op_id in ctx.shufflers:
+                        del ctx.shufflers[left_op_id]
+
+        # Extract right side
+        try:
+            right_shuffler = get_shuffler(ctx, right_op_id)
+            right = cls.shuffler_integration().extract_partition(
+                part_id,
+                right_shuffler,
+                {"column_names": options["right_column_names"]},
+            )
+        finally:
+            if right_shuffler.finished():
+                with ctx.lock:
+                    if right_op_id in ctx.shufflers:
+                        del ctx.shufflers[right_op_id]
+
+        # Return merged result
+        kwargs = {
+            "left_on": options["left_on"],
+            "right_on": options["right_on"],
+            "how": options["how"],
+        }
+        return left.merge(right, **kwargs)
+
+
+def dask_cudf_join(
+    left: dask_cudf.DataFrame,
+    right: dask_cudf.DataFrame,
+    left_on: list[str],
+    right_on: list[str],
+    bcast_side: Literal["left", "right", "none"] = "none",
+    *,
+    how: Literal["inner", "left", "right"] = "inner",
+    config_options: Options = Options(),
+) -> dask_cudf.DataFrame:
+    """Join two Dask-cuDF DataFrames with RapidsMPF."""
+    from rapidsmpf.integrations.dask.join import rapidsmpf_join_graph
+
+    if bcast_side != "none":
+        raise ValueError("Only 'none' is supported for now.")
+
+    left0 = left.optimize()
+    right0 = right.optimize()
+    left_count_in = left0.npartitions
+    right_count_in = right0.npartitions
+    count_out = max(left_count_in, right_count_in)  # TODO: May be different for bcast
+
+    token = tokenize(left0, right0, left_on, bcast_side, right_on, how)
+    left_name_in = left0._name
+    right_name_in = right0._name
+    name_out = f"unified-join-{token}"
+    graph = rapidsmpf_join_graph(
+        left_name_in,
+        right_name_in,
+        name_out,
+        bcast_side,
+        left_count_in,
+        right_count_in,
+        DaskCudfJoinIntegration(),
+        {
+            "left_column_names": left0.columns,
+            "right_column_names": right0.columns,
+            "left_on": left_on,
+            "right_on": right_on,
+            "how": how,
+        },
+        config_options=config_options,
+    )
+    graph.update(left0.dask)
+    graph.update(right0.dask)
+
+    meta = left0.merge(right0, left_on=left_on, right_on=right_on, how=how)._meta
+    return dd.from_graph(
+        graph,
+        meta,
+        (None,) * (count_out + 1),
+        [(name_out, pid) for pid in range(count_out)],
+        "rapidsmpf",
+    )

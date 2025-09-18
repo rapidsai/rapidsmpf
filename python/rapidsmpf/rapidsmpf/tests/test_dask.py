@@ -11,7 +11,11 @@ import pytest
 import rapidsmpf.integrations.single
 from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options
-from rapidsmpf.examples.dask import DaskCudfIntegration, dask_cudf_shuffle
+from rapidsmpf.examples.dask import (
+    DaskCudfIntegration,
+    dask_cudf_join,
+    dask_cudf_shuffle,
+)
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import (
     clear_shuffle_statistics,
@@ -414,3 +418,38 @@ def test_clear_shuffle_statistics() -> None:
 
         assert len(stats) > 0
         assert len(stats2) == 0
+
+
+def test_dask_cudf_join(
+    loop: pytest.FixtureDef,  # noqa: F811
+) -> None:
+    # Test basic Dask-cuDF unified join integration
+    pytest.importorskip("dask_cudf")
+
+    with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
+        with Client(cluster) as client:
+            bootstrap_dask_cluster(
+                client, options=Options({"dask_spill_device": "0.1"})
+            )
+            left = (
+                dask.datasets.timeseries(
+                    freq="3600s",
+                    partition_freq="2D",
+                )
+                .reset_index(drop=True)
+                .to_backend("cudf")
+            )
+            right = (
+                dask.datasets.timeseries(
+                    freq="360s",
+                    partition_freq="15D",
+                )
+                .reset_index(drop=True)
+                .to_backend("cudf")
+                .rename(columns={"x": "x2", "y": "y2"})
+            )
+
+            on = ["id", "name"]
+            joined = dask_cudf_join(left, right, on, on).compute()
+            expected = left.merge(right, on=on, how="inner").compute()
+            dd.assert_eq(joined, expected, check_index=False)

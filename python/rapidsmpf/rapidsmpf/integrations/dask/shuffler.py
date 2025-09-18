@@ -77,7 +77,7 @@ def _worker_rmpf_barrier(
 def _stage_shuffler(
     shuffle_id: int,
     partition_count: int,
-    worker: Worker | None = None,
+    dask_worker: Worker | None = None,
 ) -> None:
     """
     Stage a shuffler object without returning it.
@@ -88,19 +88,19 @@ def _stage_shuffler(
         Unique ID for the shuffle operation.
     partition_count
         Output partition count for the shuffle operation.
-    worker
+    dask_worker
         The current dask worker.
 
     Notes
     -----
     This function is expected to run on a Dask worker.
     """
-    worker = worker or get_worker()
+    dask_worker = dask_worker or get_worker()
     get_shuffler(
-        get_worker_context(worker),
+        get_worker_context(dask_worker),
         shuffle_id,
         partition_count=partition_count,
-        worker=worker,
+        worker=dask_worker,
     )
 
 
@@ -303,6 +303,100 @@ def rapidsmpf_shuffle_graph(
     )
 
     return graph
+
+
+def _partial_shuffle_graph(
+    client: Client,
+    input_name: str,
+    output_name: str,
+    partition_count_in: int,
+    partition_count_out: int,
+    integration: ShufflerIntegration,
+    worker_ranks: dict[int, str],
+    options: Any,
+) -> tuple[int, dict[Any, str], dict[Any, Any]]:
+    """
+    Return the task graph for a partial RapidsMPF shuffle.
+
+    Parameters
+    ----------
+    client
+        The Dask client.
+    input_name
+        The task name for input DataFrame tasks.
+    output_name
+        The task name for output DataFrame tasks.
+    partition_count_in
+        Partition count of input collection.
+    partition_count_out
+        Partition count of output collection.
+    integration
+        Dask-integration specification.
+    worker_ranks
+        A dictionary of worker ranks and addresses.
+    options
+        Optional key-word arguments.
+
+    Returns
+    -------
+    A tuple containing the shuffle id, restricted keys, and task graph.
+
+    Notes
+    -----
+    This function is used to build the partial task graph needed
+    for each side of a hash-based join operation.
+    """
+    # Get the operation id
+    shuffle_id = get_new_shuffle_id(partial(_get_occupied_ids_dask, client))
+    client.run(_stage_shuffler, shuffle_id, partition_count_out)
+    restricted_keys: dict[Any, str] = {}
+
+    # Define task names for each phase of the shuffle
+    insert_name = f"rmpf-insert-{output_name}"
+    global_barrier_name = f"rmpf-global-shuffle-barrier-{output_name}"
+    worker_barrier_name = f"rmpf-worker-barrier-{output_name}"
+
+    # Add tasks to insert each partition into the shuffler
+    graph: dict[Any, Any] = {
+        (insert_name, pid): (
+            insert_partition,
+            get_worker_context,
+            integration.insert_partition,
+            (input_name, pid),
+            pid,
+            partition_count_out,
+            shuffle_id,
+            options,
+        )
+        for pid in range(partition_count_in)
+    }
+
+    # Add global barrier task
+    graph[global_barrier_name] = (
+        global_rmpf_barrier,
+        *graph.keys(),
+    )
+
+    # Add worker barrier tasks
+    worker_barriers: dict[Any, Any] = {}
+    for rank, addr in worker_ranks.items():
+        key = (worker_barrier_name, rank)
+        worker_barriers[rank] = key
+        graph[key] = (
+            _worker_rmpf_barrier,
+            (shuffle_id,),
+            partition_count_out,
+            global_barrier_name,
+        )
+        restricted_keys[key] = addr
+
+    # Add global barrier task
+    graph[output_name] = (
+        global_rmpf_barrier,
+        *worker_barriers.values(),
+    )
+
+    return shuffle_id, restricted_keys, graph
 
 
 def _gather_worker_shuffle_statistics(
