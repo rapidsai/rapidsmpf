@@ -140,7 +140,6 @@ class DaskCudfIntegration:
         table = unpack_and_concat(
             unspill_partitions(
                 shuffler.extract(partition_id),
-                stream=DEFAULT_STREAM,
                 br=ctx.br,
                 allow_overbooking=True,
                 statistics=ctx.statistics,
