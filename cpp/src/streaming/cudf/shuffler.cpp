@@ -10,6 +10,7 @@
 #include <rmm/cuda_stream_view.hpp>
 
 #include <rapidsmpf/cuda_event.hpp>
+#include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/streaming/cudf/shuffler.hpp>
 #include <rapidsmpf/streaming/cudf/utils.hpp>
 
@@ -176,7 +177,11 @@ Node shuffler(
         auto partition_map = msg.release<PartitionMapChunk>();
 
         // Make sure that the input chunk's stream is in sync with shuffler's stream.
-        utils::sync_streams(stream, partition_map.stream, event);
+        cuda_stream_join(
+            std::ranges::single_view(stream),
+            std::ranges::single_view(partition_map.stream),
+            &event
+        );
 
         shuffler_async.insert(std::move(partition_map.data));
     }

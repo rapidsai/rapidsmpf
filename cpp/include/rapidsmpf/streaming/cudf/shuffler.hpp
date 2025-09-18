@@ -100,14 +100,16 @@ class ShufflerAsync {
      * (i.e., insert_finished has been called for this partition and all data has been
      * shuffled).
      *
+     * @warning Users should be careful when using `extract_async` and `extract_any_async`
+     * together, because a pid intended for `extract_async` may be extracted by
+     * `extract_any_async`, hence there will be no guarantee that the chunks will be
+     * returned. If that happens, `extract_async` will throw an std::out_of_range error.
+     *
      * @param pid The partition ID to extract data for.
      * @return A vector of PackedData chunks for the partition.
      *
      * @throws std::out_of_range if the partition ID is not found or already extracted.
      *
-     * @warning Users should be careful when using `extract_async` and `extract_any_async`
-     * together, because a pid intended for `extract_async` may be extracted by
-     * `extract_any_async`. If that happens, `extract_async` will throw an error.
      */
     coro::task<std::vector<PackedData>> extract_async(shuffler::PartID pid);
 
@@ -152,8 +154,8 @@ class ShufflerAsync {
      * then extract and return the data for one such partition. If no partitions become
      * ready and the shuffle is finished, returns an invalid result.
      *
-     * @return A coroutine task that yields an ExtractResult containing the partition ID
-     *         and data chunks, or an invalid result if no more partitions are available.
+     * @return ExtractResult containing the partition ID and data chunks, or an invalid
+     * result if no more partitions are available.
      *
      * @warning Users should be careful when using `extract_async` and `extract_any_async`
      * together, because a pid intended for `extract_async` may be extracted by
