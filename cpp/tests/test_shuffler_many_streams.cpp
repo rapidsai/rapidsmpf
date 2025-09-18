@@ -52,7 +52,9 @@ TEST(ShufflerManyStreams, Test) {
     constexpr int num_partitions = 100;
     auto br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
 
-    // Create a CUDA stream for the shuffler and for each partition.
+    // Create a CUDA stream for the shuffler and each partition.
+    // To stress-test stream handling, assign random priorities so streams are more
+    // likely to execute in mixed order.
     cudaStream_t shuffler_stream;
     RAPIDSMPF_CUDA_TRY(cudaStreamCreateWithPriority(
         &shuffler_stream, cudaStreamNonBlocking, gen_stream_priority()

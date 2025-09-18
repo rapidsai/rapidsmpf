@@ -47,7 +47,7 @@ class Buffer {
     friend class BufferResource;
 
   public:
-    /// @brie  Storage type for the device buffer.
+    /// @brief Storage type for the device buffer.
     using DeviceStorageT = std::unique_ptr<rmm::device_buffer>;
 
     /// @brief Storage type for the host buffer.
