@@ -338,8 +338,8 @@ class DaskCudfJoinIntegration:
         # Extract left side
         left_op_id = left_input if isinstance(left_input, int) else None
         if isinstance(left_op_id, int):
+            left_shuffler = get_shuffler(ctx, left_op_id)
             try:
-                left_shuffler = get_shuffler(ctx, left_op_id)
                 left = cls.shuffler_integration().extract_partition(
                     part_id,
                     left_shuffler,
@@ -357,8 +357,8 @@ class DaskCudfJoinIntegration:
         # Extract right side
         right_op_id = right_input if isinstance(right_input, int) else None
         if isinstance(right_op_id, int):
+            right_shuffler = get_shuffler(ctx, right_op_id)
             try:
-                right_shuffler = get_shuffler(ctx, right_op_id)
                 right = cls.shuffler_integration().extract_partition(
                     part_id,
                     right_shuffler,

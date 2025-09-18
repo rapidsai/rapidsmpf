@@ -384,8 +384,6 @@ class JoinIntegration(Protocol[DataFrameT]):
 
         Parameters
         ----------
-        ctx
-            The worker context.
         bcast_side
             The side of the join being broadcasted. If "none", this is
             a regular hash join.
