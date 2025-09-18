@@ -288,9 +288,8 @@ class DaskCudfJoinIntegration:
         """Return the shuffler integration."""
         return DaskCudfIntegration()
 
-    @classmethod
+    @staticmethod
     def join_partition(
-        cls,
         left_input: cudf.DataFrame | Callable[[int], cudf.DataFrame],
         right_input: cudf.DataFrame | Callable[[int], cudf.DataFrame],
         bcast_side: Literal["left", "right", "none"],
@@ -303,13 +302,19 @@ class DaskCudfJoinIntegration:
         Parameters
         ----------
         left_input
-            The ID of the left shuffle or the left partition.
+            The left partition or a callable that produces
+            chunks of a broadcasted left partition.
+            The bcast_count argument corresponds to the number
+            of chunks the callable can produce.
         right_input
-            The ID of the right shuffle or the right partition.
+            The right partition or a callable that produces
+            chunks of a broadcasted right partition.
+            The bcast_count argument corresponds to the number
+            of chunks the callable can produce.
         bcast_side
             The side of the join being broadcasted (if either).
         bcast_count
-            The number of partitions to broadcast.
+            The number of broadcasted chunks.
             Ignored unless ``bcast_side`` is "left" or "right".
         options
             Additional join options.

@@ -369,9 +369,8 @@ class JoinIntegration(Protocol[DataFrameT]):
         """Return the shuffler integration."""
         ...
 
-    @classmethod
+    @staticmethod
     def join_partition(
-        cls,
         left_input: DataFrameT | Callable[..., DataFrameT],
         right_input: DataFrameT | Callable[..., DataFrameT],
         bcast_side: Literal["left", "right", "none"],
@@ -384,16 +383,19 @@ class JoinIntegration(Protocol[DataFrameT]):
         Parameters
         ----------
         left_input
-            The left-table operation id or the left partition.
-            The operation may correspond to an allgather or shuffle operation.
+            The left partition or a callable that produces
+            chunks of a broadcasted left partition.
+            The bcast_count argument corresponds to the number
+            of chunks the callable can produce.
         right_input
-            The right-table operation id or the right partition.
-            The operation may correspond to an allgather or shuffle operation.
+            The right partition or a callable that produces
+            chunks of a broadcasted right partition.
+            The bcast_count argument corresponds to the number
+            of chunks the callable can produce.
         bcast_side
-            The side of the join being broadcasted. If "none", this is
-            a regular hash join.
+            The side of the join being broadcasted (if either).
         bcast_count
-            The number of partitions to broadcast.
+            The number of broadcasted chunks.
             Ignored unless ``bcast_side`` is "left" or "right".
         options
             Additional join options.
