@@ -33,8 +33,7 @@ Buffer::Buffer(
 )
     : size{device_buffer ? device_buffer->size() : 0},
       storage_{std::move(device_buffer)},
-      // Use the provided event if it exists, otherwise create a new event to track the
-      // async copy only if the buffer is not empty
+      // Create a new event to track the async copy only if the buffer is not empty
       event_{size > 0 ? CudaEvent::make_shared_record(stream) : nullptr},
       stream_{stream} {
     RAPIDSMPF_EXPECTS(

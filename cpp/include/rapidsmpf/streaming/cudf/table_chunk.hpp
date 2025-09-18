@@ -146,8 +146,8 @@ class TableChunk {
     /**
      * @brief Moves this chunk into a new one with its cudf table made available.
      *
-     * As part of the move, a copy or unpack may be performed if required using
-     * the associated CUDA stream.
+     * As part of the move, a copy or unpack may be performed, the associated CUDA
+     * stream is used.
      *
      * @param reservation Memory reservation for allocations if needed.
      * @return A new TableChunk with data available on device.
