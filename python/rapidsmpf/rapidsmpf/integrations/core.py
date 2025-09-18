@@ -372,7 +372,6 @@ class JoinIntegration(Protocol[DataFrameT]):
     @classmethod
     def join_partition(
         cls,
-        ctx: WorkerContext,
         bcast_side: Literal["left", "right", "none"],
         left_input: int | DataFrameT,
         right_input: int | DataFrameT,
@@ -416,10 +415,8 @@ class JoinIntegration(Protocol[DataFrameT]):
 
 
 def join_partition(
-    get_context: Callable[..., WorkerContext],
     callback: Callable[
         [
-            WorkerContext,  # ctx
             Literal["left", "right", "none"],  # bcast_side
             int | DataFrameT,  # left
             int | DataFrameT,  # right
@@ -443,8 +440,6 @@ def join_partition(
 
     Parameters
     ----------
-    get_context
-        Callable function to fetch the worker context.
     callback
         Join callback function. This function must be the
         `join_partition` attribute of a `JoinIntegration`
@@ -473,7 +468,6 @@ def join_partition(
     options
         Additional options.
     """
-    ctx = get_context()
 
     def _get_input(
         op_id: int | None, barrier: DataFrameT | tuple[int, ...]
@@ -494,7 +488,6 @@ def join_partition(
             return op_id
 
     return callback(
-        ctx,
         bcast_side,
         _get_input(left_op_id, left_barrier),
         _get_input(right_op_id, right_barrier),

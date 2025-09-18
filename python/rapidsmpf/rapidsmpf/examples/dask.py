@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
     import dask_cudf
 
-    from rapidsmpf.integrations.core import ShufflerIntegration, WorkerContext
+    from rapidsmpf.integrations.core import ShufflerIntegration
     from rapidsmpf.shuffler import Shuffler
 
 
@@ -291,7 +291,6 @@ class DaskCudfJoinIntegration:
     @classmethod
     def join_partition(
         cls,
-        ctx: WorkerContext,
         bcast_side: Literal["left", "right", "none"],
         left_input: int | cudf.DataFrame,
         right_input: int | cudf.DataFrame,
@@ -304,8 +303,6 @@ class DaskCudfJoinIntegration:
 
         Parameters
         ----------
-        ctx
-            The worker context.
         bcast_side
             The side of the join being broadcasted (if either).
         left_input
@@ -329,9 +326,14 @@ class DaskCudfJoinIntegration:
         -----
         This method is used to produce a single joined table chunk.
         """
-        assert ctx.br is not None
         if bcast_side != "none":  # pragma: no cover
             raise NotImplementedError("Broadcast join not implemented.")
+
+        if options.get("cluster_kind", "distributed") == "distributed":
+            ctx = rapidsmpf.integrations.dask.get_worker_context()
+        else:  # pragma: no cover
+            # TODO: Support single-worker joins.
+            raise NotImplementedError("Single-worker join not implemented.")
 
         # Extract left side
         left_op_id = left_input if isinstance(left_input, int) else None

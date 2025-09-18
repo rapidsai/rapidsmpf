@@ -11,7 +11,6 @@ from rapidsmpf.integrations.core import join_partition
 from rapidsmpf.integrations.dask.core import (
     get_dask_client,
     get_dask_worker_rank,
-    get_worker_context,
 )
 from rapidsmpf.integrations.dask.shuffler import _partial_shuffle_graph
 
@@ -129,7 +128,6 @@ def rapidsmpf_join_graph(
             key = (output_name, part_id)
             graph[key] = (
                 join_partition,
-                get_worker_context,
                 integration.join_partition,
                 bcast_side,
                 left_op_id,
