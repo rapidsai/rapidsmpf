@@ -98,6 +98,8 @@ void buffer_copy(
         return;  // Nothing to copy.
     }
 
+    // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
+    // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
     cuda_stream_join(std::array{dst.stream()}, std::array{src.stream()});
     RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
         dst.data() + dst_offset,
@@ -106,6 +108,7 @@ void buffer_copy(
         cudaMemcpyDefault,
         dst.stream()
     ));
+    cuda_stream_join(std::array{src.stream()}, std::array{dst.stream()});
 
     // Override the event to track the async copy.
     if (attach_cuda_event) {
