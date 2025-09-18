@@ -365,7 +365,7 @@ class JoinIntegration(Protocol[DataFrameT]):
     """Join-integration protocol."""
 
     @staticmethod
-    def shuffler_integration() -> ShufflerIntegration[DataFrameT]:
+    def get_shuffler_integration() -> ShufflerIntegration[DataFrameT]:
         """Return the shuffler integration."""
         ...
 

@@ -284,7 +284,7 @@ class DaskCudfJoinIntegration:
     """Dask-cuDF protocol for unified join integration."""
 
     @staticmethod
-    def shuffler_integration() -> ShufflerIntegration[cudf.DataFrame]:
+    def get_shuffler_integration() -> ShufflerIntegration[cudf.DataFrame]:
         """Return the shuffler integration."""
         return DaskCudfIntegration()
 
@@ -340,7 +340,7 @@ class DaskCudfJoinIntegration:
         if isinstance(left_op_id, int):
             left_shuffler = get_shuffler(ctx, left_op_id)
             try:
-                left = cls.shuffler_integration().extract_partition(
+                left = cls.get_shuffler_integration().extract_partition(
                     part_id,
                     left_shuffler,
                     {"column_names": options["left_column_names"]},
@@ -359,7 +359,7 @@ class DaskCudfJoinIntegration:
         if isinstance(right_op_id, int):
             right_shuffler = get_shuffler(ctx, right_op_id)
             try:
-                right = cls.shuffler_integration().extract_partition(
+                right = cls.get_shuffler_integration().extract_partition(
                     part_id,
                     right_shuffler,
                     {"column_names": options["right_column_names"]},

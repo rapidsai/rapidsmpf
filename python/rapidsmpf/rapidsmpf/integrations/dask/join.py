@@ -96,7 +96,7 @@ def rapidsmpf_join_graph(
                 left_barrier_name,
                 left_partition_count_in,
                 partition_count_out,
-                integration.shuffler_integration(),
+                integration.get_shuffler_integration(),
                 worker_ranks,
                 {"on": options["left_on"]},
             )
@@ -112,7 +112,7 @@ def rapidsmpf_join_graph(
                 right_barrier_name,
                 right_partition_count_in,
                 partition_count_out,
-                integration.shuffler_integration(),
+                integration.get_shuffler_integration(),
                 worker_ranks,
                 {"on": options["right_on"]},
             )
