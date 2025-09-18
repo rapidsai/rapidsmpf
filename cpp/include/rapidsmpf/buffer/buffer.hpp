@@ -267,6 +267,10 @@ class Buffer {
  * @param size Number of bytes to copy.
  * @param dst_offset Offset (in bytes) into the destination buffer.
  * @param src_offset Offset (in bytes) into the source buffer.
+ * @param attach_cuda_event If true, record a CUDA event on both buffers' streams
+ * and attach it to the destination buffer to track completion. If false, the caller
+ * is responsible for ensuring proper synchronization.
+ *
  * @throws std::invalid_argument If out of bounds.
  */
 void buffer_copy(
@@ -274,7 +278,8 @@ void buffer_copy(
     Buffer& src,
     std::size_t size,
     std::ptrdiff_t dst_offset = 0,
-    std::ptrdiff_t src_offset = 0
+    std::ptrdiff_t src_offset = 0,
+    bool attach_cuda_event = true
 );
 
 }  // namespace rapidsmpf

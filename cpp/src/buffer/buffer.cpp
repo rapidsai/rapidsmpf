@@ -81,7 +81,8 @@ void buffer_copy(
     Buffer& src,
     std::size_t size,
     std::ptrdiff_t dst_offset,
-    std::ptrdiff_t src_offset
+    std::ptrdiff_t src_offset,
+    bool attach_cuda_event
 ) {
     RAPIDSMPF_EXPECTS(
         &dst != &src,
@@ -110,5 +111,11 @@ void buffer_copy(
         cudaMemcpyDefault,
         dst.stream()
     ));
+
+    // Override the event to track the async copy.
+    if (attach_cuda_event) {
+        src.override_event(CudaEvent::make_shared_record(src.stream()));
+        dst.override_event(CudaEvent::make_shared_record(dst.stream()));
+    }
 }
 }  // namespace rapidsmpf
