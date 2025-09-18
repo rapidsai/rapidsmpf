@@ -47,21 +47,23 @@ class StreamingShuffler : public BaseStreamingFixture,
         cudf::table full_input_table = random_table_with_index(seed, num_rows, 0, 10);
         std::vector<Message> input_chunks;
         for (unsigned int i = 0; i < num_chunks; ++i) {
-            input_chunks.emplace_back(std::make_unique<TableChunk>(
-                i,
-                std::make_unique<cudf::table>(
-                    cudf::slice(
-                        full_input_table,
-                        {static_cast<cudf::size_type>(i * chunk_size),
-                         static_cast<cudf::size_type>((i + 1) * chunk_size)},
-                        stream
-                    )
-                        .at(0),
-                    stream,
-                    ctx->br()->device_mr()
-                ),
-                stream
-            ));
+            input_chunks.emplace_back(
+                std::make_unique<TableChunk>(
+                    i,
+                    std::make_unique<cudf::table>(
+                        cudf::slice(
+                            full_input_table,
+                            {static_cast<cudf::size_type>(i * chunk_size),
+                             static_cast<cudf::size_type>((i + 1) * chunk_size)},
+                            stream
+                        )
+                            .at(0),
+                        stream,
+                        ctx->br()->device_mr()
+                    ),
+                    stream
+                )
+            );
         }
 
         // Create and run the streaming pipeline.
@@ -72,9 +74,11 @@ class StreamingShuffler : public BaseStreamingFixture,
             nodes.push_back(node::push_to_channel(ctx, ch1, std::move(input_chunks)));
 
             auto ch2 = std::make_shared<Channel>();
-            nodes.push_back(node::partition_and_pack(
-                ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
-            ));
+            nodes.push_back(
+                node::partition_and_pack(
+                    ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
+                )
+            );
 
             auto ch3 = std::make_shared<Channel>();
             nodes.emplace_back(make_shuffler_node_fn(ch2, ch3));
@@ -192,8 +196,7 @@ Node shuffler_nb(
                           auto ctx,
                           auto total_num_partitions,
                           auto stream,
-                          auto ch_in,
-                          auto& insert_done) -> Node {
+                          auto ch_in) -> Node {
         ShutdownAtExit c{ch_in};
         co_await ctx->executor()->schedule();
         CudaEvent event;
@@ -220,50 +223,50 @@ Node shuffler_nb(
         std::iota(finished.begin(), finished.end(), 0);
         shuffler_ctx->shuffler->insert_finished(std::move(finished));
 
-        insert_done.set();  // set insert done event
         co_return;
     };
 
     // extract task: extract the packed chunks from the shuffler and send them to the
     // output channel
     auto extract_task =
-        [](auto shuffler_ctx, auto ctx, auto ch_out, auto& latch, auto& insert_done
-        ) -> Node {
+        [](auto shuffler_ctx, auto ctx, auto ch_out, auto& latch) -> Node {
         co_await ctx->executor()->schedule();
 
-        // wait for insert done event. This is important because,
-        // co_await insert_done;
-
-        while (!shuffler_ctx->shuffler->finished() || !shuffler_ctx->ready_pids.empty()) {
-            // std::cout << "waiting for partition id" << std::endl;
-            auto expected = co_await shuffler_ctx->ready_pids.pop();
-            // std::cout << "expected: " << expected.value() << std::endl;
-            if (!expected.has_value()) {  // queue is shutdown, so exit the loop
-                break;
+        while (!shuffler_ctx->shuffler->finished()) {
+            // try pop the partition id from the queue
+            // Note: using pop() may cause a deadlock, because pop tasks could be in front
+            // of the executor queue. try_pop() gives better control over the execution
+            // order.
+            auto result = shuffler_ctx->ready_pids.try_pop();
+            rapidsmpf::shuffler::PartID pid;
+            if (result.has_value()) {
+                pid = *result;  // partition id is found
+            } else if (result.error() == coro::queue_consume_result::stopped) {
+                break;  // queue is shutdown, so exit the loop
+            } else {  // queue is empty or busy, so yield and continue
+                co_await ctx->executor()->yield();
+                continue;
             }
 
-            auto packed_chunks = shuffler_ctx->shuffler->extract(*expected);
+            auto packed_chunks = shuffler_ctx->shuffler->extract(pid);
 
-            co_await ch_out->send(std::make_unique<PartitionVectorChunk>(
-                *expected, std::move(packed_chunks)
-            ));
+            co_await ch_out->send(
+                std::make_unique<PartitionVectorChunk>(pid, std::move(packed_chunks))
+            );
 
             if (shuffler_ctx->shuffler->finished()) {
                 // if the shuffler is finished, shutdown & drain the ready_pids queue
                 co_await shuffler_ctx->ready_pids.shutdown_drain(ctx->executor());
-
-                // extract task is finished, so yield to let other tasks run. This is
-                // important, to let other tasks finish.
+                // co_await shuffler_ctx->ready_pids.shutdown();
                 co_await ctx->executor()->yield();
             }
         }
-
         latch.count_down();  // this task is finished, so count down the latch
     };
 
     // shutdown task: shutdown the shuffler after all extract tasks have finished
-    auto shutdown_task = [](auto shuffler_ctx, auto ctx, auto ch_out, auto& latch
-                         ) -> Node {
+    auto shutdown_task =
+        [](auto shuffler_ctx, auto ctx, auto ch_out, auto& latch) -> Node {
         ShutdownAtExit c{ch_out};
         co_await ctx->executor()->schedule();
 
@@ -273,17 +276,13 @@ Node shuffler_nb(
     };
 
     std::vector<Node> nodes;
-
-    coro::event insert_done;
     coro::latch latch(n_consumers);
 
-    nodes.emplace_back(insert_task(
-        shuffler_ctx, ctx, total_num_partitions, stream, std::move(ch_in), insert_done
-    ));
+    nodes.emplace_back(
+        insert_task(shuffler_ctx, ctx, total_num_partitions, stream, std::move(ch_in))
+    );
     for (int i = 0; i < n_consumers; ++i) {
-        nodes.emplace_back(
-            extract_task(shuffler_ctx, ctx.get(), ch_out, latch, insert_done)
-        );
+        nodes.emplace_back(extract_task(shuffler_ctx, ctx.get(), ch_out, latch));
     }
     nodes.emplace_back(
         shutdown_task(std::move(shuffler_ctx), ctx.get(), std::move(ch_out), latch)
