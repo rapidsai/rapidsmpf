@@ -37,7 +37,9 @@ Buffer::Buffer(
       event_{size > 0 ? CudaEvent::make_shared_record(stream) : nullptr},
       stream_{stream} {
     RAPIDSMPF_EXPECTS(
-        std::get<DeviceStorageT>(storage_) != nullptr, "the device buffer cannot be NULL"
+        std::get<DeviceStorageT>(storage_) != nullptr,
+        "the device buffer cannot be NULL",
+        std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(
         device()->stream().value() == stream.value(),

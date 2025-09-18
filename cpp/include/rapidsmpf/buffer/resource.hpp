@@ -304,9 +304,15 @@ class BufferResource {
     /**
      * @brief Move host vector data into a Buffer.
      *
-     * @param data A unique pointer to the vector containing host data.
-     * @param stream CUDA stream used for the data allocation, copy, and/or move.
-     * @return A unique pointer to the resulting Buffer.
+     * This operation is cheap; no copy is performed. The resulting Buffer resides in
+     * host memory.
+     *
+     * The resulting Buffer adopts @p stream without synchronization.
+     *
+     * @param data Unique pointer to the host vector.
+     * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
+     * this stream when operating on the Buffer.
+     * @return Unique pointer to the resulting Buffer.
      */
     std::unique_ptr<Buffer> move(
         std::unique_ptr<std::vector<uint8_t>> data, rmm::cuda_stream_view stream
@@ -315,9 +321,17 @@ class BufferResource {
     /**
      * @brief Move device buffer data into a Buffer.
      *
-     * @param data A unique pointer to the device buffer.
-     * @param stream CUDA stream used for the data allocation, copy, and/or move.
-     * @return A unique pointer to the resulting Buffer.
+     * This operation is cheap; no copy is performed. The resulting Buffer resides in
+     * device memory.
+     *
+     * If @p stream differs from the device buffer's current stream:
+     *   - @p stream is synchronized with the device buffer's current stream, and
+     *   - the device buffer's current stream is updated to @p stream.
+     *
+     * @param data Unique pointer to the device buffer.
+     * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
+     * this stream when operating on the Buffer.
+     * @return Unique pointer to the resulting Buffer.
      */
     std::unique_ptr<Buffer> move(
         std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
