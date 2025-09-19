@@ -192,10 +192,7 @@ bool PostBox::empty() const noexcept {
 }
 
 std::size_t PostBox::spill(
-    BufferResource* br,
-    Communicator::Logger& log,
-    rmm::cuda_stream_view stream,
-    std::size_t amount
+    BufferResource* br, Communicator::Logger& log, std::size_t amount
 ) {
     std::lock_guard lock(mutex_);
     std::vector<Chunk*> spillable_chunks;
@@ -217,9 +214,7 @@ std::size_t PostBox::spill(
             );
             return 0;
         }
-        chunk->attach_data_buffer(
-            br->move(chunk->release_data_buffer(), stream, reservation)
-        );
+        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), reservation));
         return chunk->data_size();
     };
     if (max_spillable < amount) {
@@ -383,10 +378,9 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         // Spill from ready post box then inserted postbox
-        spilled = for_extraction_.spill(br_, comm_->logger(), stream_, spill_need);
+        spilled = for_extraction_.spill(br_, comm_->logger(), spill_need);
         if (spilled < spill_need) {
-            spilled +=
-                inserted_.spill(br_, comm_->logger(), stream_, spill_need - spilled);
+            spilled += inserted_.spill(br_, comm_->logger(), spill_need - spilled);
         }
     }
     return spilled;
