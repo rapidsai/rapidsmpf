@@ -322,13 +322,14 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
 
         while (!shuffler->finished()) {
             auto result = co_await shuffler->extract_any_async();
-            if (!result.is_valid()) {
+            if (!result.has_value()) {
                 break;
             }
 
             auto lock = co_await mtx.scoped_lock();
-            n_chunks_received += result.chunks.size();
-            finished_pids.push_back(result.pid);
+            auto& [pid, chunks] = *result;
+            n_chunks_received += chunks.size();
+            finished_pids.push_back(pid);
         }
         ctx->comm()->logger().debug(tid, " extract task finished");
     };
@@ -395,7 +396,7 @@ TEST_F(BaseStreamingFixture, extract_any_before_extract) {
     size_t parts_extracted = 0;
     while (true) {  // extract all partitions
         auto res = coro::sync_wait(shuffler->extract_any_async());
-        if (!res.is_valid()) {
+        if (!res.has_value()) {
             break;
         }
         parts_extracted++;
@@ -426,8 +427,8 @@ TEST_F(BaseStreamingFixture, competing_extract_any_and_extract) {
     auto& [extract_any_result, extract_result] = results;
 
     // if extract_any_result is valid, then extract_result should throw
-    if (extract_any_result.return_value().is_valid()) {
-        EXPECT_EQ(extract_any_result.return_value().pid, 0);
+    if (extract_any_result.return_value().has_value()) {
+        EXPECT_EQ(extract_any_result.return_value()->first, 0);
         EXPECT_THROW(extract_result.return_value(), std::out_of_range);
     } else {
         // else extract_result should be valid and an empty vector
@@ -453,8 +454,8 @@ TEST_F(BaseStreamingFixture, competing_extract_and_extract_any) {
     auto& [extract_result, extract_any_result] = results;
 
     // if extract_any_result is valid, then extract_result should throw
-    if (extract_any_result.return_value().is_valid()) {
-        EXPECT_EQ(extract_any_result.return_value().pid, 0);
+    if (extract_any_result.return_value().has_value()) {
+        EXPECT_EQ(extract_any_result.return_value()->first, 0);
         EXPECT_THROW(extract_result.return_value(), std::out_of_range);
     } else {
         // else extract_result should be valid and an empty vector

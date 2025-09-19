@@ -18,11 +18,8 @@ namespace rapidsmpf::streaming {
 namespace {
 
 /**
- * @brief Caller side corouting that inserts a partition ID into a set and notifies all
+ * @brief Caller side coroutine that inserts a partition ID into a set and notifies all
  * waiting tasks.
- *
- * Wrapping mtx lock and cv notify in a coroutine task to avoid calling coro::sync_wait
- * multiple times.
  *
  * @param mtx The mutex to use for synchronization.
  * @param cv The condition variable to use for notification.
@@ -37,7 +34,8 @@ coro::task<void> insert_and_notify(
     shuffler::PartID pid
 ) {
     // Note: this coroutine is not needed to be scheduled, because it is called from the
-    // progress thread.
+    // progress thread. Wrapping mtx lock and cv notify in a coroutine task will avoid
+    // calling coro::sync_wait multiple times.
     {
         auto lock = co_await mtx.scoped_lock();
         set.insert(pid);
@@ -63,7 +61,7 @@ ShufflerAsync::ShufflerAsync(
           stream,
           ctx_->br(),
           [this](shuffler::PartID pid) -> void {
-              ctx_->comm()->logger().trace("inserting finished partition ", pid);
+              ctx_->comm()->logger().trace("notifying waiters that ", pid, " is ready");
               coro::sync_wait(insert_and_notify(mtx_, cv_, ready_pids_, pid));
           },
           ctx_->statistics(),
@@ -120,7 +118,8 @@ coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartI
     co_return std::move(chunks);
 }
 
-coro::task<ShufflerAsync::ExtractResult> ShufflerAsync::extract_any_async() {
+coro::task<std::optional<ShufflerAsync::ExtractResult>>
+ShufflerAsync::extract_any_async() {
     // wait until at least one partition is ready for extraction
     auto lock = co_await mtx_.scoped_lock();
     co_await cv_.wait(lock, [this]() {
@@ -132,7 +131,7 @@ coro::task<ShufflerAsync::ExtractResult> ShufflerAsync::extract_any_async() {
     if (ready_pids_.empty()) {
         lock.unlock();
         ctx_->comm()->logger().trace("no partitions to extract");
-        co_return ExtractResult::invalid();
+        co_return std::nullopt;
     }
 
     auto pid = ready_pids_.extract(ready_pids_.begin()).value();
@@ -146,7 +145,7 @@ coro::task<ShufflerAsync::ExtractResult> ShufflerAsync::extract_any_async() {
         co_await cv_.notify_all();
     }
 
-    co_return {pid, std::move(chunks)};
+    co_return std::make_pair(pid, std::move(chunks));
 }
 
 namespace node {
@@ -192,16 +191,16 @@ Node shuffler(
     std::iota(finished.begin(), finished.end(), 0);
     shuffler_async.insert_finished(std::move(finished));
 
-    while (!shuffler_async.finished()) {
-        auto result = co_await shuffler_async.extract_any_async();
-        if (!result.is_valid()) {
-            break;
-        }
-
+    for (shuffler::PartID i = 0; i < shuffler_async.total_num_partitions(); i++) {
+        auto finished = co_await shuffler_async.extract_any_async();
+        RAPIDSMPF_EXPECTS(finished.has_value(), "Invalid result received");
         co_await ch_out->send(
-            std::make_unique<PartitionVectorChunk>(result.pid, std::move(result.chunks))
+            std::make_unique<PartitionVectorChunk>(
+                finished->first, std::move(finished->second)
+            )
         );
     }
+    RAPIDSMPF_EXPECTS(shuffler_async.finished(), "Shuffler not finished");
 
     co_await ch_out->drain(ctx->executor());
 }

@@ -117,51 +117,24 @@ class ShufflerAsync {
      * @brief Result type for extract_any_async operations.
      *
      * Contains the partition ID and associated data chunks from an extract operation.
-     * Can represent either a valid result or an invalid/empty result.
-     *
-     * An invalid result is returned when no more partitions are available for extraction.
      */
-    struct ExtractResult {
-        shuffler::PartID pid;  ///< The partition ID that was extracted
-        std::vector<PackedData> chunks;  ///< The data chunks for this partition
-
-        /// @brief A sentinel value for an invalid partition ID.
-        static constexpr auto InvalidPID = std::numeric_limits<shuffler::PartID>::max();
-
-        /**
-         * @brief Checks if this result represents valid extracted data.
-         *
-         * @return true if this result contains valid data, false otherwise.
-         */
-        [[nodiscard]] constexpr bool is_valid() const {
-            return pid != InvalidPID;
-        }
-
-        /**
-         * @brief Creates an invalid/empty result.
-         *
-         * @return An ExtractResult with an invalid partition ID and empty chunks.
-         */
-        static constexpr ExtractResult invalid() {
-            return {.pid = InvalidPID, .chunks = {}};
-        }
-    };
+    using ExtractResult = std::pair<shuffler::PartID, std::vector<PackedData>>;
 
     /**
      * @brief Asynchronously extracts data for any ready partition.
      *
      * This coroutine will suspend until at least one partition is ready for extraction,
      * then extract and return the data for one such partition. If no partitions become
-     * ready and the shuffle is finished, returns an invalid result.
+     * ready and the shuffle is finished, returns a nullopt.
      *
-     * @return ExtractResult containing the partition ID and data chunks, or an invalid
-     * result if no more partitions are available.
+     * @return ExtractResult containing the partition ID and data chunks, or a nullopt
+     * if no more partitions are available.
      *
      * @warning Users should be careful when using `extract_async` and `extract_any_async`
      * together, because a pid intended for `extract_async` may be extracted by
      * `extract_any_async`.
      */
-    coro::task<ExtractResult> extract_any_async();
+    coro::task<std::optional<ExtractResult>> extract_any_async();
 
   private:
     coro::mutex mtx_{};
