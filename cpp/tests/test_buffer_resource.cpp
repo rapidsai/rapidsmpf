@@ -233,13 +233,15 @@ TEST(BufferResource, CUDAEventTracking) {
         // Initialize device data with a pattern
         auto host_pattern = std::make_unique<std::vector<uint8_t>>(buffer_size);
         initialize_data(*host_pattern);
-        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-            dev_buf->data(),
-            host_pattern->data(),
-            buffer_size,
-            cudaMemcpyHostToDevice,
-            stream
-        ));
+        dev_buf->write_access(stream, [&](std::byte* dev_buf_data) {
+            RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+                dev_buf_data,
+                host_pattern->data(),
+                buffer_size,
+                cudaMemcpyHostToDevice,
+                stream
+            ));
+        });
 
         auto dev_copy = br.allocate(stream, br.reserve_or_fail(buffer_size));
         buffer_copy(*dev_copy, *dev_buf, buffer_size);
@@ -291,13 +293,16 @@ TEST(BufferResource, CUDAEventTracking) {
         // Initialize device data with a pattern
         auto host_pattern = std::make_unique<std::vector<uint8_t>>(buffer_size);
         initialize_data(*host_pattern);
-        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-            dev_buf->data(),
-            host_pattern->data(),
-            buffer_size,
-            cudaMemcpyHostToDevice,
-            stream
-        ));
+
+        dev_buf->write_access(stream, [&](std::byte* dev_buf_data) {
+            RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+                dev_buf_data,
+                host_pattern->data(),
+                buffer_size,
+                cudaMemcpyHostToDevice,
+                stream
+            ));
+        });
 
         auto host_copy =
             br.allocate(stream, br.reserve_or_fail(buffer_size, MemoryType::HOST));
@@ -334,19 +339,14 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
         auto [alloc_reserve, alloc_overbooking] = br->reserve(mem_type, size, false);
         auto buf = br->allocate(size, stream, alloc_reserve);
         EXPECT_EQ(buf->mem_type(), mem_type);
-
-        if (mem_type == MemoryType::DEVICE) {
-            // copy the host pattern to the device buffer
+        // copy the host pattern to the Buffer
+        buf->write_access(stream, [&](std::byte* buf_data) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                buf->data(), host_pattern.data(), size, cudaMemcpyHostToDevice, stream
+                buf_data, host_pattern.data(), size, cudaMemcpyDefault, stream
             ));
-            // add an event to guarantee async copy is complete
-            buf->override_event(CudaEvent::make_shared_record(stream));
-        } else {
-            // copy the host pattern to the host buffer
-            std::memcpy(buf->data(), host_pattern.data(), size);
-        }
-
+        });
+        // add an event to guarantee async copy is complete
+        buf->override_event(CudaEvent::make_shared_record(stream));
         return buf;
     }
 
@@ -574,12 +574,17 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
         EXPECT_EQ(buf1->size, buffer_size);
         EXPECT_EQ(buf1->mem_type(), MemoryType::DEVICE);
 
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            buf1->data(), host_pattern.data(), buffer_size, cudaMemcpyHostToDevice, stream
-        ));
+        buf1->write_access(stream, [&](std::byte* buf1_data) {
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                buf1_data,
+                host_pattern.data(),
+                buffer_size,
+                cudaMemcpyHostToDevice,
+                stream
+            ));
+        });
         buf1->override_event(CudaEvent::make_shared_record(stream));
         buf1->stream().synchronize();
-
         EXPECT_EQ(mr1->get_main_record().total(), buffer_size);
         return buf1;
     }
@@ -684,8 +689,11 @@ TEST_F(BufferCopyEdgeCases, ZeroSizeIsNoOp) {
 
     // Pre-fill dst with a sentinel pattern
     std::vector<uint8_t> sent(N, 0xCD);
-    std::memcpy(dst->data(), sent.data(), N);
-
+    dst->write_access(stream, [&](std::byte* dst_data) {
+        RAPIDSMPF_CUDA_TRY(
+            cudaMemcpyAsync(dst_data, sent.data(), N, cudaMemcpyDefault, stream)
+        );
+    });
     EXPECT_NO_THROW(buffer_copy(*dst, *src, 0, 0, 0));
     dst->stream().synchronize();
 

@@ -1095,8 +1095,9 @@ std::unique_ptr<Communicator::Future> UCXX::send(
         logger().warn("msg is not ready. This is irrecoverable, terminating.");
         std::terminate();
     }
+    auto data = const_cast<std::byte*>(msg->data());
     auto req = get_endpoint(rank)->tagSend(
-        msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
+        data, msg->size, tag_with_rank(shared_resources_->rank(), tag)
     );
     return std::make_unique<Future>(req, std::move(msg));
 }
@@ -1108,11 +1109,16 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
         logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
         std::terminate();
     }
-    auto req = get_endpoint(rank)->tagRecv(
-        recv_buffer->data(),
-        recv_buffer->size,
-        tag_with_rank(rank, tag),
-        ::ucxx::TagMaskFull
+
+    auto req = recv_buffer->write_access(
+        rmm::cuda_stream_default, [&](std::byte* recv_buffer_data) {
+            return get_endpoint(rank)->tagRecv(
+                recv_buffer_data,
+                recv_buffer->size,
+                tag_with_rank(rank, tag),
+                ::ucxx::TagMaskFull
+            );
+        }
     );
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }

@@ -43,15 +43,6 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
     }
 }
 
-std::byte* Buffer::data() {
-    return std::visit(
-        [](auto&& storage) -> std::byte* {
-            return reinterpret_cast<std::byte*>(storage->data());
-        },
-        storage_
-    );
-}
-
 std::byte const* Buffer::data() const {
     return std::visit(
         [](auto&& storage) -> std::byte const* {
@@ -95,13 +86,15 @@ void buffer_copy(
     // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
     // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
     cuda_stream_join(std::array{dst.stream()}, std::array{src.stream()});
-    RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-        dst.data() + dst_offset,
-        src.data() + src_offset,
-        size,
-        cudaMemcpyDefault,
-        dst.stream()
-    ));
+    dst.write_access(dst.stream(), [&](std::byte* dst_data) {
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            dst_data + dst_offset,
+            src.data() + src_offset,
+            size,
+            cudaMemcpyDefault,
+            dst.stream()
+        ));
+    });
     cuda_stream_join(std::array{src.stream()}, std::array{dst.stream()});
 
     // Override the event to track the async copy.

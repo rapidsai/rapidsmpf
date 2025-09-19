@@ -6,12 +6,14 @@
 
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <variant>
 #include <vector>
 
 #include <cuda_runtime.h>
 
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/cuda_event.hpp>
@@ -91,20 +93,53 @@ class Buffer {
     /**
      * @brief Access the underlying memory buffer (host or device memory).
      *
-     * @return A pointer to the underlying host or device memory.
-     *
-     * @throws std::logic_error if the buffer does not manage any memory.
-     */
-    [[nodiscard]] std::byte* data();
-
-    /**
-     * @brief Access the underlying memory buffer (host or device memory).
-     *
      * @return A const pointer to the underlying host or device memory.
      *
      * @throws std::logic_error if the buffer does not manage any memory.
      */
     [[nodiscard]] std::byte const* data() const;
+
+    /**
+     * @brief Provides write access to the buffer.
+     *
+     * Calls @p f with a pointer to the buffer's memory. The callable must be invocable
+     * as `R(std::byte*)`; its return value (if any) is returned by this function.
+     *
+     * The provided @p stream is the stream associated with this access. Any work enqueued
+     * on the buffer memory must use @p stream or synchronize with it before @p f returns.
+     * Synchronizing with @p stream only after @p f returns is not sufficient and results
+     * in undefined behavior.
+     *
+     * @warning The pointer is valid only for the duration of the call. Using it outside
+     * of @p f is undefined behavior.
+     *
+     * @tparam F Callable type.
+     * @param stream CUDA stream to use or synchronize with during buffer access.
+     * @param f Callable that accepts a single `std::byte*`.
+     * @return Whatever @p f returns (`void` if none).
+     *
+     * @code{.cpp}
+     * // Snippet: copy data from `src_ptr` into `buffer`.
+     * buffer.write_access(stream, [&](std::byte* buffer_ptr) {
+     *     RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+     *         buffer_ptr,
+     *         src_ptr,
+     *         num_bytes,
+     *         cudaMemcpyDefault,
+     *         stream
+     *     ));
+     * });
+     * @endcode
+     */
+    template <typename F>
+    auto write_access([[maybe_unused]] rmm::cuda_stream_view stream, F&& f)
+        -> std::invoke_result_t<F, std::byte*> {
+        static_assert(
+            std::is_invocable_v<std::remove_reference_t<F>, std::byte*>,
+            "write_access() expects a callable with signature: R(std::byte*)"
+        );
+        return std::invoke(std::forward<F>(f), const_cast<std::byte*>(data()));
+    }
 
     /**
      * @brief Get the memory type of the buffer.

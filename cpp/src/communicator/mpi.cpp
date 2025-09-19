@@ -10,6 +10,8 @@
 
 #include <mpi.h>
 
+#include <rmm/cuda_stream_view.hpp>
+
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
 
@@ -131,7 +133,8 @@ std::unique_ptr<Communicator::Future> MPI::send(
         "send buffer size exceeds MPI max count"
     );
     MPI_Request req;
-    RAPIDSMPF_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
+    auto data = const_cast<std::byte*>(msg->data());
+    RAPIDSMPF_MPI(MPI_Isend(data, msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -147,9 +150,11 @@ std::unique_ptr<Communicator::Future> MPI::recv(
         "recv buffer size exceeds MPI max count"
     );
     MPI_Request req;
-    RAPIDSMPF_MPI(MPI_Irecv(
-        recv_buffer->data(), recv_buffer->size, MPI_UINT8_T, rank, tag, comm_, &req
-    ));
+    recv_buffer->write_access(rmm::cuda_stream_default, [&](std::byte* recv_buffer_data) {
+        RAPIDSMPF_MPI(MPI_Irecv(
+            recv_buffer_data, recv_buffer->size, MPI_UINT8_T, rank, tag, comm_, &req
+        ));
+    });
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
