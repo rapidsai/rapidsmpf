@@ -459,52 +459,52 @@ TEST_F(BaseStreamingFixture, extract_any_before_extract) {
     }
 }
 
-TEST_F(BaseStreamingFixture, competing_extract_any_and_extract) {
-    static constexpr OpID op_id = 0;
-    shuffler::PartID const n_partitions = ctx->comm()->nranks();
-    shuffler::PartID const this_pid = ctx->comm()->rank();
+class CompetingShufflerAsyncTest : public BaseStreamingFixture {
+  protected:
+    // produce_results_fn is a function that produces the results of the extract_any_async
+    // and extract_async coroutines.
+    void run_test(auto produce_results_fn) {
+        GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
+        static constexpr OpID op_id = 0;
+        shuffler::PartID const n_partitions = ctx->comm()->nranks();
+        shuffler::PartID const this_pid = ctx->comm()->rank();
 
-    auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
+        auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
 
-    shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
+        shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
-    auto results = coro::sync_wait(
-        coro::when_all(shuffler->extract_any_async(), shuffler->extract_async(this_pid))
-    );
+        auto [extract_any_result, extract_result] =
+            produce_results_fn(shuffler.get(), this_pid);
 
-    auto& [extract_any_result, extract_result] = results;
-
-    // if extract_any_result is valid, then extract_result should throw
-    if (extract_any_result.return_value().has_value()) {
-        EXPECT_EQ(extract_any_result.return_value()->first, this_pid);
-        EXPECT_THROW(extract_result.return_value(), std::out_of_range);
-    } else {
-        // else extract_result should be valid and an empty vector
-        EXPECT_EQ(extract_result.return_value().size(), 0);
+        // if extract_any_result is valid, then extract_result should throw
+        if (extract_any_result.return_value().has_value()) {
+            EXPECT_EQ(extract_any_result.return_value()->first, this_pid);
+            EXPECT_THROW(extract_result.return_value(), std::out_of_range);
+        } else {
+            // else extract_result should be valid and an empty vector
+            EXPECT_EQ(extract_result.return_value().size(), 0);
+        }
     }
+};
+
+TEST_F(CompetingShufflerAsyncTest, extract_any_then_extract) {
+    EXPECT_NO_FATAL_FAILURE(run_test([&](auto shuffler, auto this_pid) {
+        return coro::sync_wait(
+            coro::when_all(
+                shuffler->extract_any_async(), shuffler->extract_async(this_pid)
+            )
+        );
+    }));
 }
 
-TEST_F(BaseStreamingFixture, competing_extract_and_extract_any) {
-    static constexpr OpID op_id = 0;
-    shuffler::PartID const n_partitions = ctx->comm()->nranks();
-    shuffler::PartID const this_pid = ctx->comm()->rank();
-
-    auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
-
-    shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
-
-    auto results = coro::sync_wait(
-        coro::when_all(shuffler->extract_async(0), shuffler->extract_any_async())
-    );
-
-    auto& [extract_result, extract_any_result] = results;
-
-    // if extract_any_result is valid, then extract_result should throw
-    if (extract_any_result.return_value().has_value()) {
-        EXPECT_EQ(extract_any_result.return_value()->first, this_pid);
-        EXPECT_THROW(extract_result.return_value(), std::out_of_range);
-    } else {
-        // else extract_result should be valid and an empty vector
-        EXPECT_EQ(extract_result.return_value().size(), 0);
-    }
+TEST_F(CompetingShufflerAsyncTest, extract_then_extract_any) {
+    EXPECT_NO_FATAL_FAILURE(run_test([&](auto shuffler, auto this_pid) {
+        auto [extract_result, extract_any_result] = coro::sync_wait(
+            coro::when_all(
+                shuffler->extract_async(this_pid), shuffler->extract_any_async()
+            )
+        );
+        // rotate the results to match the order of the coroutines
+        return std::make_tuple(std::move(extract_any_result), std::move(extract_result));
+    }));
 }
