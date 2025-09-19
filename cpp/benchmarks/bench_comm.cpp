@@ -191,9 +191,8 @@ Duration run(
         }
     }
 
-    // Wait for all buffers to be ready before proceeding. Since allocations are
-    // stream-ordered, we only need to check the last one in the stream.
-    recv_bufs.back()->wait_for_ready();
+    // Sync before we start the timer.
+    RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
 
     auto const t0_elapsed = Clock::now();
 
