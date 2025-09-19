@@ -10,36 +10,145 @@
 #include <rmm/cuda_stream_view.hpp>
 
 #include <rapidsmpf/cuda_event.hpp>
+#include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/streaming/cudf/shuffler.hpp>
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming {
 
 namespace {
 
 /**
- * @brief Make @p primary wait until all work currently enqueued on @p secondary
- * completes.
+ * @brief Caller side coroutine that inserts a partition ID into a set and notifies all
+ * waiting tasks.
  *
- * Records @p event on @p secondary and inserts a wait for that event on @p primary.
- * This is fully asynchronous with respect to the host thread; no host-side blocking.
- *
- * @param primary The stream that must not run ahead.
- * @param secondary The stream whose already-enqueued work must complete first.
- * @param event The CUDA event to use for synchronization. The same event may be reused
- * across multiple calls; the caller does not need to provide an unique event each time.
+ * @param mtx The mutex to use for synchronization.
+ * @param cv The condition variable to use for notification.
+ * @param set The set to insert the partition ID into.
+ * @param pid The partition ID to insert.
+ * @return A coroutine task that completes when the partition ID is inserted into the set.
  */
-void sync_streams(
-    rmm::cuda_stream_view primary,
-    rmm::cuda_stream_view secondary,
-    cudaEvent_t const& event
+coro::task<void> insert_and_notify(
+    coro::mutex& mtx,
+    coro::condition_variable& cv,
+    std::unordered_set<shuffler::PartID>& set,
+    shuffler::PartID pid
 ) {
-    if (primary.value() != secondary.value()) {
-        RAPIDSMPF_CUDA_TRY(cudaEventRecord(event, secondary));
-        RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(primary, event));
+    // Note: this coroutine is not needed to be scheduled, because it is called from the
+    // progress thread. Wrapping mtx lock and cv notify in a coroutine task will avoid
+    // calling coro::sync_wait multiple times.
+    {
+        auto lock = co_await mtx.scoped_lock();
+        set.insert(pid);
     }
+    co_await cv.notify_all();
 }
 
 }  // namespace
+
+ShufflerAsync::ShufflerAsync(
+    std::shared_ptr<Context> ctx,
+    rmm::cuda_stream_view stream,
+    OpID op_id,
+    shuffler::PartID total_num_partitions,
+    shuffler::Shuffler::PartitionOwner partition_owner
+)
+    : ctx_(std::move(ctx)),
+      shuffler_(
+          ctx_->comm(),
+          ctx_->progress_thread(),
+          op_id,
+          total_num_partitions,
+          stream,
+          ctx_->br(),
+          [this](shuffler::PartID pid) -> void {
+              ctx_->comm()->logger().trace("notifying waiters that ", pid, " is ready");
+              coro::sync_wait(insert_and_notify(mtx_, cv_, ready_pids_, pid));
+          },
+          ctx_->statistics(),
+          std::move(partition_owner)
+      ) {}
+
+bool ShufflerAsync::finished() const {
+    return shuffler_.finished();
+}
+
+void ShufflerAsync::insert(std::unordered_map<shuffler::PartID, PackedData>&& chunks) {
+    shuffler_.insert(std::move(chunks));
+}
+
+void ShufflerAsync::insert_finished(std::vector<shuffler::PartID>&& pids) {
+    shuffler_.insert_finished(std::move(pids));
+}
+
+coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartID pid) {
+    // Wait until the partition is finished
+    auto lock = co_await mtx_.scoped_lock();
+
+    RAPIDSMPF_EXPECTS(
+        !extracted_pids_.contains(pid),
+        "partition already extracted: " + std::to_string(pid),
+        std::out_of_range
+    );
+
+    co_await cv_.wait(lock, [this, pid]() {
+        // Note: purposefully not checking for extracted_pids_.contains(pid) here,
+        // because it would require notifying the cv every time a partition is extracted.
+        // Consequence of this is that, if pid was extracted by some other task, this task
+        // would only be notified during the shuffler.finished() check.
+        return shuffler_.finished() || ready_pids_.contains(pid);
+    });
+
+    // partition not found (may have been already extracted or shuffler was finished
+    // before the pid was inserted into ready_pids_)
+    RAPIDSMPF_EXPECTS(
+        !extracted_pids_.contains(pid) && ready_pids_.erase(pid) > 0,
+        "partition already extracted or not found: " + std::to_string(pid),
+        std::out_of_range
+    );
+    extracted_pids_.emplace(pid);
+    lock.unlock();  // no longer need the lock
+
+    auto chunks = shuffler_.extract(pid);
+    // shuffler gets marked as finished when all the partitions are extracted. So, tasks
+    // waiting on the cv should be notified.
+    if (shuffler_.finished()) {
+        co_await cv_.notify_all();
+    }
+
+    co_return std::move(chunks);
+}
+
+coro::task<std::optional<ShufflerAsync::ExtractResult>>
+ShufflerAsync::extract_any_async() {
+    // wait until at least one partition is ready for extraction
+    auto lock = co_await mtx_.scoped_lock();
+    co_await cv_.wait(lock, [this]() {
+        return shuffler_.finished() || !ready_pids_.empty();
+    });
+
+    // no partitions to extract or shuffle is already finished. Gracefully return an
+    // invalid result.
+    if (ready_pids_.empty()) {
+        lock.unlock();
+        ctx_->comm()->logger().trace("no partitions to extract");
+        co_return std::nullopt;
+    }
+
+    auto pid = ready_pids_.extract(ready_pids_.begin()).value();
+    extracted_pids_.emplace(pid);
+    lock.unlock();
+
+    auto chunks = shuffler_.extract(pid);
+    // shuffler gets marked as finished when all the partitions are extracted. So, tasks
+    // waiting on the cv should be notified.
+    if (shuffler_.finished()) {
+        co_await cv_.notify_all();
+    }
+
+    co_return std::make_pair(pid, std::move(chunks));
+}
+
+namespace node {
 
 Node shuffler(
     std::shared_ptr<Context> ctx,
@@ -52,20 +161,12 @@ Node shuffler(
 ) {
     ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
-
-    rapidsmpf::shuffler::Shuffler shuffler(
-        ctx->comm(),
-        ctx->progress_thread(),
-        op_id,
-        total_num_partitions,
-        stream,
-        ctx->br(),
-        ctx->statistics(),
-        partition_owner
-    );
     CudaEvent event;
 
-    std::uint64_t sequence_number{0};
+    ShufflerAsync shuffler_async(
+        ctx, stream, op_id, total_num_partitions, std::move(partition_owner)
+    );
+
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
@@ -74,29 +175,35 @@ Node shuffler(
         auto partition_map = msg.release<PartitionMapChunk>();
 
         // Make sure that the input chunk's stream is in sync with shuffler's stream.
-        sync_streams(stream, partition_map.stream, event);
+        cuda_stream_join(
+            std::ranges::single_view(stream),
+            std::ranges::single_view(partition_map.stream),
+            &event
+        );
 
-        shuffler.insert(std::move(partition_map.data));
-
-        // Use the highest input sequence number as the output sequence number.
-        sequence_number = std::max(sequence_number, partition_map.sequence_number);
+        shuffler_async.insert(std::move(partition_map.data));
     }
 
     // Tell the shuffler that we have no more input data.
-    std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
+    std::vector<rapidsmpf::shuffler::PartID> finished(
+        shuffler_async.total_num_partitions()
+    );
     std::iota(finished.begin(), finished.end(), 0);
-    shuffler.insert_finished(std::move(finished));
+    shuffler_async.insert_finished(std::move(finished));
 
-    while (!shuffler.finished()) {
-        auto finished_partition = shuffler.wait_any();
-        auto packed_chunks = shuffler.extract(finished_partition);
+    for (shuffler::PartID i = 0; i < shuffler_async.total_num_partitions(); i++) {
+        auto finished = co_await shuffler_async.extract_any_async();
+        RAPIDSMPF_EXPECTS(finished.has_value(), "Invalid result received");
         co_await ch_out->send(
             std::make_unique<PartitionVectorChunk>(
-                sequence_number, std::move(packed_chunks), stream
+                finished->first, std::move(finished->second)
             )
         );
     }
+    RAPIDSMPF_EXPECTS(shuffler_async.finished(), "Shuffler not finished");
+
     co_await ch_out->drain(ctx->executor());
 }
 
-}  // namespace rapidsmpf::streaming::node
+}  // namespace node
+}  // namespace rapidsmpf::streaming
