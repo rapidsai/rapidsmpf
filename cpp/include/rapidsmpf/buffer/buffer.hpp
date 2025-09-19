@@ -155,13 +155,6 @@ class Buffer {
      */
     [[nodiscard]] bool is_ready() const;
 
-    /**
-     * @brief Wait for the device memory operation to complete.
-     *
-     * @throws rapidsmpf::cuda_error if event wait fails (if set).
-     */
-    void wait_for_ready() const;
-
     /// @brief Delete move and copy constructors and assignment operators.
     Buffer(Buffer&&) = delete;
     Buffer(Buffer const&) = delete;

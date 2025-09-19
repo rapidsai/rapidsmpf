@@ -65,12 +65,6 @@ bool Buffer::is_ready() const {
     return !event_ || event_->is_ready();
 }
 
-void Buffer::wait_for_ready() const {
-    if (event_) {
-        event_->host_wait();
-    }
-}
-
 void buffer_copy(
     Buffer& dst,
     Buffer& src,
