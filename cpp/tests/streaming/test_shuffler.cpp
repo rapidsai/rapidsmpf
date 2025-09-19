@@ -336,6 +336,7 @@ class ShufflerAsyncTest
     void SetUp() override {
         std::tie(n_threads, n_inserts, n_partitions, n_consumers) = GetParam();
         BaseStreamingFixture::SetUpWithThreads(n_threads);
+        GlobalEnvironment->barrier(); // prevent accidental mixup between shufflers
 
         shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
     }
