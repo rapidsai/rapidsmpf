@@ -199,16 +199,17 @@ Node shuffler(
     std::iota(finished.begin(), finished.end(), 0);
     shuffler_async.insert_finished(std::move(finished));
 
-    for (shuffler::PartID i = 0; i < shuffler_async.total_num_partitions(); i++) {
+    while (!shuffler_async.finished()) {
         auto finished = co_await shuffler_async.extract_any_async();
-        RAPIDSMPF_EXPECTS(finished.has_value(), "Invalid result received");
+        if (!finished.has_value()) {
+            break;
+        }
         co_await ch_out->send(
             std::make_unique<PartitionVectorChunk>(
                 finished->first, std::move(finished->second)
             )
         );
     }
-    RAPIDSMPF_EXPECTS(shuffler_async.finished(), "Shuffler not finished");
 
     co_await ch_out->drain(ctx->executor());
 }
