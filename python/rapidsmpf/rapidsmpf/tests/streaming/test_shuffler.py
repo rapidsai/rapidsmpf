@@ -84,7 +84,6 @@ def test_single_rank_shuffler(
     nodes.append(
         shuffler(
             context,
-            stream=stream,
             ch_in=ch2,
             ch_out=ch3,
             op_id=op_id,

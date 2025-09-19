@@ -116,7 +116,7 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(StreamingShuffler, basic_shuffler) {
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
         return node::shuffler(
-            ctx, stream, std::move(ch_in), std::move(ch_out), op_id, num_partitions
+            ctx, std::move(ch_in), std::move(ch_out), op_id, num_partitions
         );
     }));
 }
@@ -126,7 +126,6 @@ namespace {
 // emulate shuffler node with callbacks
 Node shuffler_nb(
     std::shared_ptr<Context> ctx,
-    rmm::cuda_stream_view stream,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
@@ -150,7 +149,6 @@ Node shuffler_nb(
         ctx->progress_thread(),
         op_id,
         total_num_partitions,
-        stream,
         ctx->br(),
         [shuffler_ctx](rapidsmpf::shuffler::PartID pid) {
             // synchronously push the partition id to the ready_pids queue
@@ -165,14 +163,10 @@ Node shuffler_nb(
     );
 
     // insert task: insert the partition map chunks into the shuffler
-    auto insert_task = [](auto shuffler_ctx,
-                          auto ctx,
-                          auto total_num_partitions,
-                          auto stream,
-                          auto ch_in) -> Node {
+    auto insert_task =
+        [](auto shuffler_ctx, auto ctx, auto total_num_partitions, auto ch_in) -> Node {
         ShutdownAtExit c{ch_in};
         co_await ctx->executor()->schedule();
-        CudaEvent event;
 
         while (true) {
             auto msg = co_await ch_in->receive();
@@ -180,14 +174,6 @@ Node shuffler_nb(
                 break;
             }
             auto partition_map = msg.template release<PartitionMapChunk>();
-
-            // Make sure that the input chunk's stream is in sync with shuffler's stream.
-            cuda_stream_join(
-                std::ranges::single_view(stream),
-                std::ranges::single_view(partition_map.stream),
-                &event
-            );
-
             shuffler_ctx->shuffler->insert(std::move(partition_map.data));
         }
 
@@ -230,7 +216,7 @@ Node shuffler_nb(
 
     std::vector<Node> nodes;
     nodes.emplace_back(
-        insert_task(shuffler_ctx, ctx, total_num_partitions, stream, std::move(ch_in))
+        insert_task(shuffler_ctx, ctx, total_num_partitions, std::move(ch_in))
     );
     for (int i = 0; i < n_consumers - 1; ++i) {
         nodes.emplace_back(extract_task(shuffler_ctx, ctx, ch_out));
@@ -247,7 +233,7 @@ Node shuffler_nb(
 TEST_P(StreamingShuffler, callbacks_1_consumer) {
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
         return shuffler_nb(
-            ctx, stream, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 1
+            ctx, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 1
         );
     }));
 }
@@ -256,7 +242,7 @@ TEST_P(StreamingShuffler, callbacks_2_consumer) {
     GTEST_SKIP() << "unreliable test";  // TODO: fix this
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
         return shuffler_nb(
-            ctx, stream, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 2
+            ctx, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 2
         );
     }));
 }
@@ -265,7 +251,7 @@ TEST_P(StreamingShuffler, callbacks_4_consumer) {
     GTEST_SKIP() << "unreliable test";  // TODO: fix this
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
         return shuffler_nb(
-            ctx, stream, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 4
+            ctx, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 4
         );
     }));
 }
@@ -288,7 +274,7 @@ class ShufflerAsyncTest
         std::tie(n_threads, n_inserts, n_partitions, n_consumers) = GetParam();
         BaseStreamingFixture::SetUp(n_threads);
 
-        shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
+        shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
     }
 };
 
@@ -382,7 +368,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
 TEST_F(BaseStreamingFixture, extract_any_before_extract) {
     static constexpr OpID op_id = 0;
     static constexpr size_t n_partitions = 10;
-    auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
+    auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
 
     // all empty partitions
     std::vector<shuffler::PartID> finished(n_partitions);
@@ -416,7 +402,7 @@ TEST_F(BaseStreamingFixture, competing_extract_any_and_extract) {
 
     static constexpr OpID op_id = 0;
     static constexpr size_t n_partitions = 1;
-    auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
+    auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
 
     shuffler->insert_finished({0});
 
@@ -443,7 +429,7 @@ TEST_F(BaseStreamingFixture, competing_extract_and_extract_any) {
 
     static constexpr OpID op_id = 0;
     static constexpr size_t n_partitions = 1;
-    auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
+    auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
 
     shuffler->insert_finished({0});
 

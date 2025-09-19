@@ -4,7 +4,6 @@
 from cython.operator cimport dereference as deref
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
-from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.streaming.core.channel cimport Message, cpp_Message
 
@@ -19,7 +18,7 @@ cdef class PartitionMapChunk:
 
     @staticmethod
     cdef PartitionMapChunk from_handle(
-        unique_ptr[cpp_PartitionMapChunk] handle, Stream stream, object owner
+        unique_ptr[cpp_PartitionMapChunk] handle, object owner
     ):
         """
         Construct a PartitionMapChunk from an existing C++ handle.
@@ -28,9 +27,6 @@ cdef class PartitionMapChunk:
         ----------
         handle
             A unique pointer to a C++ PartitionMapChunk.
-        stream
-            The CUDA stream on which this chunk was created. If `None`,
-            the stream is obtained from the handle.
         owner
             An optional Python object to keep alive for as long as this
             PartitionMapChunk exists (e.g., to maintain resource lifetime).
@@ -39,14 +35,8 @@ cdef class PartitionMapChunk:
         -------
         A new PartitionMapChunk wrapping the given handle.
         """
-
-        if stream is None:
-            stream = Stream._from_cudaStream_t(
-                deref(handle).stream.value()
-            )
         cdef PartitionMapChunk ret = PartitionMapChunk.__new__(PartitionMapChunk)
         ret._handle = move(handle)
-        ret._stream = stream
         ret._owner = owner
         return ret
 
@@ -69,7 +59,6 @@ cdef class PartitionMapChunk:
             make_unique[cpp_PartitionMapChunk](
                 message._handle.release[cpp_PartitionMapChunk]()
             ),
-            stream = None,
             owner = None,
         )
 
@@ -145,18 +134,6 @@ cdef class PartitionMapChunk:
         """
         return deref(self.handle_ptr()).sequence_number
 
-    @property
-    def stream(self):
-        """
-        Return the CUDA stream on which this chunk was created.
-
-        Returns
-        -------
-        Stream
-            The CUDA stream.
-        """
-        return self._stream
-
 
 cdef class PartitionVectorChunk:
     def __init__(self):
@@ -168,7 +145,7 @@ cdef class PartitionVectorChunk:
 
     @staticmethod
     cdef PartitionVectorChunk from_handle(
-        unique_ptr[cpp_PartitionVectorChunk] handle, Stream stream, object owner
+        unique_ptr[cpp_PartitionVectorChunk] handle, object owner
     ):
         """
         Construct a PartitionVectorChunk from an existing C++ handle.
@@ -177,9 +154,6 @@ cdef class PartitionVectorChunk:
         ----------
         handle
             A unique pointer to a C++ PartitionVectorChunk.
-        stream
-            The CUDA stream on which this chunk was created. If `None`,
-            the stream is obtained from the handle.
         owner
             An optional Python object to keep alive for as long as this
             PartitionVectorChunk exists (e.g., to maintain resource lifetime).
@@ -188,16 +162,10 @@ cdef class PartitionVectorChunk:
         -------
         A new PartitionVectorChunk wrapping the given handle.
         """
-
-        if stream is None:
-            stream = Stream._from_cudaStream_t(
-                deref(handle).stream.value()
-            )
         cdef PartitionVectorChunk ret = PartitionVectorChunk.__new__(
             PartitionVectorChunk
         )
         ret._handle = move(handle)
-        ret._stream = stream
         ret._owner = owner
         return ret
 
@@ -220,7 +188,6 @@ cdef class PartitionVectorChunk:
             make_unique[cpp_PartitionVectorChunk](
                 message._handle.release[cpp_PartitionVectorChunk]()
             ),
-            stream = None,
             owner = None,
         )
 
@@ -295,15 +262,3 @@ cdef class PartitionVectorChunk:
         The sequence number.
         """
         return deref(self.handle_ptr()).sequence_number
-
-    @property
-    def stream(self):
-        """
-        Return the CUDA stream on which this chunk was created.
-
-        Returns
-        -------
-        Stream
-            The CUDA stream.
-        """
-        return self._stream

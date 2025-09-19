@@ -147,21 +147,20 @@ class Chunk {
      *
      * @param new_chunk_id The ID of the new chunk.
      * @param i The index of the message.
-     * @param stream The CUDA stream to use for copying the data.
      * @param br The buffer resource to use for copying the data.
      * @return A new chunk containing the data of the i-th message.
-     * @note This will create a copy of the packed data. If there is only one message and
-     * the message is a data message, the buffers will be moved to the new chunk.
-     * Otherwise a new chunk will be created by copying data. If the i'th message is,
-     *  - control message, the metadata and data buffers will be nullptr
+     *
+     * @note This will create a copy of the packed data using `br->stream_pool()`.
+     * If there is only one message and the message is a data message, the buffers
+     * will be moved to the new chunk. Otherwise a new chunk will be created by copying
+     * data. If the i'th message is,
+     *  - control message, the metadata and data buffers will be nullptr, else if
      *  - data message, both metadata and data buffers will be non-null (for a
      *    metadata-only message, the data buffer will be an empty HOST buffer)
      *
      * @throws std::out_of_range if the index is out of bounds.
      */
-    Chunk get_data(
-        ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view stream, BufferResource* br
-    );
+    Chunk get_data(ChunkID new_chunk_id, size_t i, BufferResource* br);
 
     /**
      * @brief Get the size of the metadata of the i-th message.
@@ -340,9 +339,10 @@ class Chunk {
     /**
      * @brief Concatenate multiple chunks into a single chunk.
      *
+     * Using `br->stream_pool()` for the concatenation.
+     *
      * @param chunks Vector of chunks to concatenate.
      * @param chunk_id The ID for the resulting concatenated chunk.
-     * @param stream The CUDA stream to use for copying data.
      * @param br The buffer resource to use for memory allocation.
      * @param preferred_mem_type The preferred memory type to use for the concatenated
      * data buffer.
@@ -355,7 +355,6 @@ class Chunk {
     static Chunk concat(
         std::vector<Chunk>&& chunks,
         ChunkID chunk_id,
-        rmm::cuda_stream_view stream,
         BufferResource* br,
         std::optional<MemoryType> preferred_mem_type = std::nullopt
     );

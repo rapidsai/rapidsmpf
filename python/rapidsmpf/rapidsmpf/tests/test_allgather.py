@@ -141,7 +141,6 @@ def test_basic_allgather(
         comm=comm,
         progress_thread=progress_thread,
         op_id=0,  # Use operation ID 0
-        stream=stream,
         br=br,
         statistics=statistics,
     )

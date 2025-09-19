@@ -24,7 +24,6 @@ cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
             shared_ptr[cpp_ProgressThread] comm,
             uint8_t op_id,
             uint32_t total_num_partitions,
-            cuda_stream_view stream,
             cpp_BufferResource *br,
             shared_ptr[cpp_Statistics] statistics,
         ) except +

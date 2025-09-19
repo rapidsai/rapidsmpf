@@ -47,7 +47,6 @@ coro::task<void> insert_and_notify(
 
 ShufflerAsync::ShufflerAsync(
     std::shared_ptr<Context> ctx,
-    rmm::cuda_stream_view stream,
     OpID op_id,
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner
@@ -58,7 +57,6 @@ ShufflerAsync::ShufflerAsync(
           ctx_->progress_thread(),
           op_id,
           total_num_partitions,
-          stream,
           ctx_->br(),
           [this](shuffler::PartID pid) -> void {
               ctx_->comm()->logger().trace("notifying waiters that ", pid, " is ready");
@@ -152,7 +150,6 @@ namespace node {
 
 Node shuffler(
     std::shared_ptr<Context> ctx,
-    rmm::cuda_stream_view stream,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
@@ -161,10 +158,9 @@ Node shuffler(
 ) {
     ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
-    CudaEvent event;
 
     ShufflerAsync shuffler_async(
-        ctx, stream, op_id, total_num_partitions, std::move(partition_owner)
+        ctx, op_id, total_num_partitions, std::move(partition_owner)
     );
 
     while (true) {
@@ -173,14 +169,6 @@ Node shuffler(
             break;
         }
         auto partition_map = msg.release<PartitionMapChunk>();
-
-        // Make sure that the input chunk's stream is in sync with shuffler's stream.
-        cuda_stream_join(
-            std::ranges::single_view(stream),
-            std::ranges::single_view(partition_map.stream),
-            &event
-        );
-
         shuffler_async.insert(std::move(partition_map.data));
     }
 
