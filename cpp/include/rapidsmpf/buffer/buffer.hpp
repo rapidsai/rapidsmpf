@@ -20,9 +20,6 @@
 
 namespace rapidsmpf {
 
-class BufferResource;
-class MemoryReservation;
-
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
     DEVICE = 0,  ///< Device memory
@@ -50,14 +47,14 @@ class Buffer {
     friend class BufferResource;
 
   public:
-    /// @brief  Storage type for the device buffer.
+    /// @brief Storage type for the device buffer.
     using DeviceStorageT = std::unique_ptr<rmm::device_buffer>;
 
-    /// @brief  Storage type for the host buffer.
+    /// @brief Storage type for the host buffer.
     using HostStorageT = std::unique_ptr<std::vector<uint8_t>>;
 
     /**
-     * @brief  Storage type in Buffer, which could be either host or device memory.
+     * @brief Storage type in Buffer, which could be either host or device memory.
      */
     using StorageT = std::variant<DeviceStorageT, HostStorageT>;
 
@@ -119,11 +116,23 @@ class Buffer {
     [[nodiscard]] MemoryType constexpr mem_type() const {
         return std::visit(
             overloaded{
-                [](const HostStorageT&) -> MemoryType { return MemoryType::HOST; },
-                [](const DeviceStorageT&) -> MemoryType { return MemoryType::DEVICE; }
+                [](HostStorageT const&) -> MemoryType { return MemoryType::HOST; },
+                [](DeviceStorageT const&) -> MemoryType { return MemoryType::DEVICE; }
             },
             storage_
         );
+    }
+
+    /**
+     * @brief Get the associated CUDA stream.
+     *
+     * All operations must either use this stream or synchronize with it
+     * before accessing the underlying data (both host and device memory).
+     *
+     * @return The associated CUDA stream.
+     */
+    [[nodiscard]] constexpr rmm::cuda_stream_view stream() const noexcept {
+        return stream_;
     }
 
     /**
@@ -153,60 +162,6 @@ class Buffer {
      */
     void wait_for_ready() const;
 
-    /**
-     * @brief Copy a slice of the buffer to a new buffer allocated from the target
-     * reservation.
-     *
-     * @param offset Non-negative offset from the start of the buffer (in bytes).
-     * @param length Length of the slice (in bytes).
-     * @param target_reserv Memory reservation for the new buffer.
-     * @param stream CUDA stream to use for the copy.
-     * @returns A new buffer containing the copied slice.
-     */
-    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        std::ptrdiff_t offset,
-        std::size_t length,
-        MemoryReservation& target_reserv,
-        rmm::cuda_stream_view stream
-    ) const;
-
-    /**
-     * @brief Create a copy of this buffer by allocating a new buffer from the
-     * reservation.
-     *
-     * @param stream CUDA stream used for the device buffer allocation and copy.
-     * @param reservation Memory reservation for data allocations.
-     * @return A unique pointer to a new Buffer containing the copied data.
-     */
-    [[nodiscard]] std::unique_ptr<Buffer> copy(
-        rmm::cuda_stream_view stream, MemoryReservation& reservation
-    ) const;
-
-    /**
-     * @brief Copy data from this buffer to a destination buffer with a given offset.
-     *
-     * @param dest Destination buffer.
-     * @param dest_offset Non-negative offset of the destination buffer (in bytes).
-     * @param stream CUDA stream to use for the copy.
-     * @param attach_event If true, attach the event to the copy. Else, the caller needs
-     * to attach appropriate event to the destination buffer. If the copy is host-to-host,
-     * the copy is synchronous and the event is not needed, hence this argument is
-     * ignored.
-     * @returns Number of bytes written to the destination buffer.
-     *
-     * @note If this buffer and destination buffer are both on the host, the copy is
-     * synchronous.
-     *
-     * @throws std::invalid_argument if copy violates the bounds of the destination
-     * buffer.
-     */
-    [[nodiscard]] std::ptrdiff_t copy_to(
-        Buffer& dest,
-        std::ptrdiff_t dest_offset,
-        rmm::cuda_stream_view stream,
-        bool attach_event = false
-    ) const;
-
     /// @brief Delete move and copy constructors and assignment operators.
     Buffer(Buffer&&) = delete;
     Buffer(Buffer const&) = delete;
@@ -221,24 +176,20 @@ class Buffer {
      *
      * @throws std::invalid_argument if `host_buffer` is null.
      */
-    Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer);
+    Buffer(
+        std::unique_ptr<std::vector<uint8_t>> host_buffer, rmm::cuda_stream_view stream
+    );
 
     /**
      * @brief Construct a Buffer from device memory.
      *
+     * The new Buffer adapts the CUDA stream from @p device_buffer.
+     *
      * @param device_buffer A unique pointer to a device buffer.
-     * @param stream CUDA stream used for the device buffer allocation.
-     * @param event The shared event to use for the buffer.
      *
      * @throws std::invalid_argument if `device_buffer` is null.
-     * @throws std::invalid_argument if `stream` or `br->mr` isn't the same used by
-     * `device_buffer`.
      */
-    Buffer(
-        std::unique_ptr<rmm::device_buffer> device_buffer,
-        rmm::cuda_stream_view stream,
-        std::shared_ptr<CudaEvent> event = nullptr
-    );
+    Buffer(std::unique_ptr<rmm::device_buffer> device_buffer);
 
     /**
      * @brief Access the underlying host memory buffer.
@@ -301,6 +252,32 @@ class Buffer {
     StorageT storage_;
     /// @brief CUDA event used to track copy operations
     std::shared_ptr<CudaEvent> event_;
+    rmm::cuda_stream_view stream_;
 };
+
+/**
+ * @brief Asynchronously copy data between buffers.
+ *
+ * Copies @p size bytes from @p src at @p src_offset into @p dst at @p dst_offset.
+ *
+ * @param dst Destination buffer.
+ * @param src Source buffer.
+ * @param size Number of bytes to copy.
+ * @param dst_offset Offset (in bytes) into the destination buffer.
+ * @param src_offset Offset (in bytes) into the source buffer.
+ * @param attach_cuda_event If true, record a CUDA event on both buffers' streams
+ * and attach it to the destination buffer to track completion. If false, the caller
+ * is responsible for ensuring proper synchronization.
+ *
+ * @throws std::invalid_argument If out of bounds.
+ */
+void buffer_copy(
+    Buffer& dst,
+    Buffer& src,
+    std::size_t size,
+    std::ptrdiff_t dst_offset = 0,
+    std::ptrdiff_t src_offset = 0,
+    bool attach_cuda_event = true
+);
 
 }  // namespace rapidsmpf

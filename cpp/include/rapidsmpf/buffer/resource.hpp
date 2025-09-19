@@ -304,101 +304,87 @@ class BufferResource {
     /**
      * @brief Move host vector data into a Buffer.
      *
-     * @param data A unique pointer to the vector containing host data.
-     * @return A unique pointer to the resulting Buffer.
+     * This operation is cheap; no copy is performed. The resulting Buffer resides in
+     * host memory.
+     *
+     * The resulting Buffer adopts @p stream without synchronization.
+     *
+     * @param data Unique pointer to the host vector.
+     * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
+     * this stream when operating on the Buffer.
+     * @return Unique pointer to the resulting Buffer.
      */
-    std::unique_ptr<Buffer> move(std::unique_ptr<std::vector<uint8_t>> data);
+    std::unique_ptr<Buffer> move(
+        std::unique_ptr<std::vector<uint8_t>> data, rmm::cuda_stream_view stream
+    );
 
     /**
      * @brief Move device buffer data into a Buffer.
      *
-     * @param data A unique pointer to the device buffer.
-     * @param stream CUDA stream used for the data allocation, copy, and/or move.
-     * @param event The event to use for the buffer.
-     * @return A unique pointer to the resulting Buffer.
+     * This operation is cheap; no copy is performed. The resulting Buffer resides in
+     * device memory.
+     *
+     * If @p stream differs from the device buffer's current stream:
+     *   - @p stream is synchronized with the device buffer's current stream, and
+     *   - the device buffer's current stream is updated to @p stream.
+     *
+     * @param data Unique pointer to the device buffer.
+     * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
+     * this stream when operating on the Buffer.
+     * @return Unique pointer to the resulting Buffer.
      */
     std::unique_ptr<Buffer> move(
-        std::unique_ptr<rmm::device_buffer> data,
-        rmm::cuda_stream_view stream,
-        std::shared_ptr<CudaEvent> event = nullptr
+        std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
     );
 
     /**
-     * @brief Move a Buffer to the specified memory type by the reservation.
+     * @brief Move a Buffer to the memory type specified by the reservation.
      *
-     * If and only if moving between different memory types will this perform a copy.
+     * If the Buffer already resides in the target memory type, a cheap move is performed.
+     * Otherwise, the Buffer is copied to the target memory using its own CUDA stream.
      *
-     * @param buffer The buffer to move.
-     * @param stream CUDA stream used for the buffer allocation, copy, and/or move.
-     * @param reservation The reservation to use for memory allocations.
-     * @return A unique pointer to the moved Buffer.
+     * @param buffer Buffer to move.
+     * @param reservation Memory reservation used if a copy is required.
+     * @return Unique pointer to the resulting Buffer.
      *
-     * @throws std::invalid_argument if `target` does not match the reservation.
-     * @throws std::overflow_error if the memory requirement exceeds the reservation.
+     * @throws std::overflow_error If the allocation size exceeds the reservation.
      */
     std::unique_ptr<Buffer> move(
-        std::unique_ptr<Buffer> buffer,
-        rmm::cuda_stream_view stream,
-        MemoryReservation& reservation
+        std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
     );
 
     /**
      * @brief Move a Buffer to a device buffer.
      *
-     * If and only if moving between different memory types will this perform a copy.
+     * If the Buffer already resides in device memory, a cheap move is performed.
+     * Otherwise, the Buffer is copied to device memory using its own CUDA stream.
      *
      * @param buffer The buffer to move.
-     * @param stream CUDA stream used for the buffer allocation, copy, and/or move.
-     * @param reservation The reservation to use for memory allocations.
+     * @param reservation Memory reservation used if a copy is required.
      * @return A unique pointer to the resulting device buffer.
      *
-     * @throws std::invalid_argument if the required memory type does not match the
-     * reservation.
+     * @throws std::invalid_argument If the reservation's memory type isn't device memory.
      * @throws std::overflow_error if the memory requirement exceeds the reservation.
      */
     std::unique_ptr<rmm::device_buffer> move_to_device_buffer(
-        std::unique_ptr<Buffer> buffer,
-        rmm::cuda_stream_view stream,
-        MemoryReservation& reservation
+        std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
     );
 
     /**
-     * @brief Move a Buffer to a host vector.
+     * @brief Move a Buffer into a host vector.
      *
-     * If and only if moving between different memory types will this perform a copy.
+     * If the Buffer already resides in host memory, a cheap move is performed.
+     * Otherwise, the Buffer is copied to host memory using its own CUDA stream.
      *
-     * @param buffer The buffer to move.
-     * @param stream CUDA stream used for the buffer allocation, copy, and/or move.
-     * @param reservation The reservation to use for memory allocations.
-     * @return A unique pointer to the resulting host vector.
+     * @param buffer Buffer to move.
+     * @param reservation Memory reservation used if a copy is required.
+     * @return Unique pointer to the resulting host vector.
      *
-     * @throws std::invalid_argument if the required memory type does not match the
-     * reservation.
-     * @throws std::overflow_error if the memory requirement exceeds the reservation.
+     * @throws std::invalid_argument If the reservation's memory type isn't host memory.
+     * @throws std::overflow_error If the allocation size exceeds the reservation.
      */
     std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
-        std::unique_ptr<Buffer> buffer,
-        rmm::cuda_stream_view stream,
-        MemoryReservation& reservation
-    );
-
-    /**
-     * @brief Create a copy of a Buffer by allocating a new buffer from the reservation.
-     *
-     * Unlike `move()`, this always performs a copy operation.
-     *
-     * @param buffer The buffer to copy.
-     * @param stream CUDA stream used for the buffer allocation and copy.
-     * @param reservation The reservation to use for memory allocations.
-     * @return A unique pointer to the new Buffer.
-     *
-     * @throws std::invalid_argument if `target` does not match the reservation.
-     * @throws std::overflow_error if the size exceeds the size of the reservation.
-     */
-    std::unique_ptr<Buffer> copy(
-        std::unique_ptr<Buffer> const& buffer,
-        rmm::cuda_stream_view stream,
-        MemoryReservation& reservation
+        std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
     );
 
     /**

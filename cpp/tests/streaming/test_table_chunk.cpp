@@ -89,7 +89,7 @@ TEST_F(StreamingTableChunk, FromPackedDataOnDevice) {
         std::move(packed_columns.metadata),
         br->move(std::move(packed_columns.gpu_data), stream)
     );
-    TableChunk chunk{seq, std::move(packed_data), stream};
+    TableChunk chunk{seq, std::move(packed_data)};
 
     EXPECT_EQ(chunk.sequence_number(), seq);
     EXPECT_EQ(chunk.stream().value(), stream.value());
@@ -115,12 +115,12 @@ TEST_F(StreamingTableChunk, FromPackedDataOnHost) {
 
     // Copy the gpu data to host memory.
     auto [res, _] = br->reserve(MemoryType::HOST, size, true);
-    auto gpu_data_on_host = br->move(std::move(gpu_data_on_device), stream, res);
+    auto gpu_data_on_host = br->move(std::move(gpu_data_on_device), res);
 
     auto packed_data = std::make_unique<PackedData>(
         std::move(packed_columns.metadata), std::move(gpu_data_on_host)
     );
-    TableChunk chunk{seq, std::move(packed_data), stream};
+    TableChunk chunk{seq, std::move(packed_data)};
 
     EXPECT_EQ(chunk.sequence_number(), seq);
     EXPECT_EQ(chunk.stream().value(), stream.value());
@@ -140,16 +140,16 @@ TEST_F(StreamingTableChunk, SpillUnspillRoundTrip) {
     EXPECT_TRUE(chunk_on_device.is_available());
 
     // Spill to host memory.
-    TableChunk chunk_on_host = chunk_on_device.spill_to_host(stream, br.get());
+    TableChunk chunk_on_host = chunk_on_device.spill_to_host(br.get());
     EXPECT_FALSE(chunk_on_host.is_available());
     // We are allowed to spill an already spilled chunk.
-    chunk_on_host = chunk_on_host.spill_to_host(stream, br.get());
+    chunk_on_host = chunk_on_host.spill_to_host(br.get());
     EXPECT_FALSE(chunk_on_host.is_available());
 
     // Unspill back to device memory.
     auto [res, _] =
         br->reserve(MemoryType::DEVICE, chunk_on_host.make_available_cost(), true);
-    chunk_on_device = chunk_on_host.make_available(res, stream);
+    chunk_on_device = chunk_on_host.make_available(res);
 
     EXPECT_EQ(chunk_on_device.sequence_number(), seq);
     EXPECT_EQ(chunk_on_device.stream().value(), stream.value());

@@ -49,12 +49,14 @@ target_sources(
             test_chunk.cpp
             test_communicator.cpp
             test_config.cpp
+            test_cuda_stream.cpp
             test_cudf_utils.cpp
             test_cupti_monitor.cpp
             test_partition.cpp
             test_pausable_thread_loop.cpp
             test_progress_thread.cpp
             test_rmm_resource_adaptor.cpp
+            test_shuffler_many_streams.cpp
             test_shuffler.cpp
             test_spill_manager.cpp
             test_statistics.cpp
