@@ -111,7 +111,7 @@ class StreamingShuffler : public BaseStreamingFixture,
                 auto t_view =
                     cudf::slice(table->view(), {offsets[pid], offsets[pid + 1]}).at(0);
                 // this will be replicated on all ranks
-                for (auto _ : std::ranges::iota_view(0, ctx->comm()->nranks())) {
+                for (rapidsmpf::Rank rank = 0; rank < ctx->comm()->nranks(); ++rank) {
                     expected_tables.push_back(t_view);
                 }
             }
