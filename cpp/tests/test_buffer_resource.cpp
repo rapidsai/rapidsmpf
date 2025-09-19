@@ -246,7 +246,7 @@ TEST(BufferResource, CUDAEventTracking) {
         EXPECT_EQ(dev_copy->mem_type(), MemoryType::DEVICE);
 
         // Wait for copy to complete
-        dev_copy->wait_for_ready();
+        dev_copy->stream().synchronize();
         EXPECT_TRUE(dev_copy->is_ready());
 
         // Verify the data
@@ -270,7 +270,7 @@ TEST(BufferResource, CUDAEventTracking) {
         EXPECT_EQ(dev_copy->mem_type(), MemoryType::DEVICE);
 
         // Wait for copy to complete
-        dev_copy->wait_for_ready();
+        dev_copy->stream().synchronize();
         EXPECT_TRUE(dev_copy->is_ready());
 
         // Verify the data
@@ -305,7 +305,7 @@ TEST(BufferResource, CUDAEventTracking) {
         EXPECT_EQ(host_copy->mem_type(), MemoryType::HOST);
 
         // Wait for copy to complete
-        host_copy->wait_for_ready();
+        host_copy->stream().synchronize();
         EXPECT_TRUE(host_copy->is_ready());
 
         // Verify the data
@@ -386,7 +386,7 @@ class BufferResourceCopySliceTest
         );
 
         EXPECT_EQ(slice->mem_type(), dest_type);
-        slice->wait_for_ready();
+        slice->stream().synchronize();
         EXPECT_TRUE(slice->is_ready());
 
         if (dest_type == MemoryType::HOST) {
@@ -471,7 +471,7 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
             0  // src_offset
 
         );
-        dest->wait_for_ready();
+        dest->stream().synchronize();
         EXPECT_TRUE(dest->is_ready());
 
         if (dest->mem_type() == MemoryType::HOST) {
@@ -578,7 +578,7 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
             buf1->data(), host_pattern.data(), buffer_size, cudaMemcpyHostToDevice, stream
         ));
         buf1->override_event(CudaEvent::make_shared_record(stream));
-        buf1->wait_for_ready();
+        buf1->stream().synchronize();
 
         EXPECT_EQ(mr1->get_main_record().total(), buffer_size);
         return buf1;
@@ -624,7 +624,7 @@ TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
     );
     EXPECT_EQ(buf2->size, slice_length);
     EXPECT_EQ(res2.size(), 0);  // reservation should be consumed
-    buf2->wait_for_ready();
+    buf2->stream().synchronize();
 
     // Verify memory allocation
     verify_memory_allocation(buffer_size, slice_length);
@@ -637,7 +637,7 @@ TEST_F(BufferResourceDifferentResourcesTest, Copy) {
     auto buf2 = br2->allocate(stream, br2->reserve_or_fail(buffer_size));
     buffer_copy(*buf2, *buf1, buffer_size);
     EXPECT_EQ(buf2->size, buffer_size);
-    buf2->wait_for_ready();
+    buf2->stream().synchronize();
 
     // Verify memory allocation
     verify_memory_allocation(buffer_size, buffer_size);
@@ -687,7 +687,7 @@ TEST_F(BufferCopyEdgeCases, ZeroSizeIsNoOp) {
     std::memcpy(dst->data(), sent.data(), N);
 
     EXPECT_NO_THROW(buffer_copy(*dst, *src, 0, 0, 0));
-    dst->wait_for_ready();
+    dst->stream().synchronize();
 
     // dst unchanged
     for (std::size_t i = 0; i < N; ++i) {
