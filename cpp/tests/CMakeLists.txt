@@ -143,8 +143,8 @@ if(RAPIDSMPF_HAVE_MPI)
     disable_sign_conversion_warning(ucxx_tests)
 
     rapidsmpf_mpirun_test_add(TEST_TARGET ucxx_tests)
-  endif(RAPIDSMPF_HAVE_UCXX)
-endif(RAPIDSMPF_HAVE_MPI)
+  endif()
+endif()
 
 add_executable(single_tests main/single.cpp)
 
