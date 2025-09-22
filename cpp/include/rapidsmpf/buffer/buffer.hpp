@@ -144,8 +144,8 @@ class Buffer {
         );
         using R = std::invoke_result_t<F, std::byte*>;
 
-        // After the write access by `f()`, we record an event on `stream`, which
-        // becomes the new last-write-event.
+        // After `f()` completes, an event is recorded on `stream`; this becomes the new
+        // latest-write event.
         if constexpr (std::is_void_v<R>) {
             std::invoke(std::forward<F>(f), const_cast<std::byte*>(data()));
             latest_write_event_.record(stream);
