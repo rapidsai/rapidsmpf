@@ -113,10 +113,6 @@ coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartI
     // waiting on the cv should be notified.
     if (shuffler_.finished()) {
         co_await cv_.notify_all();
-
-        // extract async is finished, so yield to let other tasks run. This is important,
-        // to let other tasks finish.
-        co_await ctx_->executor()->yield();
     }
 
     co_return std::move(chunks);
@@ -147,10 +143,6 @@ ShufflerAsync::extract_any_async() {
     // waiting on the cv should be notified.
     if (shuffler_.finished()) {
         co_await cv_.notify_all();
-
-        // extract async is finished, so yield to let other tasks run. This is important,
-        // to let other tasks finish.
-        co_await ctx_->executor()->yield();
     }
 
     co_return std::make_pair(pid, std::move(chunks));
