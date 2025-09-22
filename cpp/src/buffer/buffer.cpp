@@ -21,7 +21,6 @@ Buffer::Buffer(
 )
     : size{host_buffer ? host_buffer->size() : 0},
       storage_{std::move(host_buffer)},
-      event_{nullptr},
       stream_{stream} {
     RAPIDSMPF_EXPECTS(
         std::get<HostStorageT>(storage_) != nullptr, "the host_buffer cannot be NULL"
@@ -37,10 +36,6 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
         std::invalid_argument
     );
     stream_ = std::get<DeviceStorageT>(storage_)->stream();
-    // Create a new event to track the async copy only if the buffer is not empty.
-    if (size > 0) {
-        event_ = CudaEvent::make_shared_record(stream_);
-    }
 }
 
 std::byte const* Buffer::data() const {
@@ -52,17 +47,12 @@ std::byte const* Buffer::data() const {
     );
 }
 
-bool Buffer::is_ready() const {
-    return !event_ || event_->is_ready();
-}
-
 void buffer_copy(
     Buffer& dst,
     Buffer& src,
     std::size_t size,
     std::ptrdiff_t dst_offset,
-    std::ptrdiff_t src_offset,
-    bool attach_cuda_event
+    std::ptrdiff_t src_offset
 ) {
     RAPIDSMPF_EXPECTS(
         &dst != &src,
@@ -96,11 +86,5 @@ void buffer_copy(
         ));
     });
     cuda_stream_join(std::array{src.stream()}, std::array{dst.stream()});
-
-    // Override the event to track the async copy.
-    if (attach_cuda_event) {
-        src.override_event(CudaEvent::make_shared_record(src.stream()));
-        dst.override_event(CudaEvent::make_shared_record(dst.stream()));
-    }
 }
 }  // namespace rapidsmpf

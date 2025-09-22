@@ -214,26 +214,6 @@ class Buffer {
         return latest_write_event_.is_ready();
     }
 
-    /**
-     * @brief Override the event for the buffer.
-     *
-     * @note Use this if you want the buffer to sync with an event happening after the
-     * original event. Need to be used with care when dealing with multiple streams.
-     *
-     * @param event The event to set.
-     */
-    void override_event(std::shared_ptr<CudaEvent> event) {
-        event_ = std::move(event);
-    }
-
-    /**
-     * @brief Check if the device memory operation has completed.
-     *
-     * @return true if the device memory operation has completed or no device
-     * memory operation was performed, false if it is still in progress.
-     */
-    [[nodiscard]] bool is_ready() const;
-
     /// @brief Delete move and copy constructors and assignment operators.
     Buffer(Buffer&&) = delete;
     Buffer(Buffer const&) = delete;
@@ -322,8 +302,6 @@ class Buffer {
     /// @brief The underlying storage host memory or device memory buffer (where
     /// applicable).
     StorageT storage_;
-    /// @brief CUDA event used to track copy operations
-    std::shared_ptr<CudaEvent> event_;
     rmm::cuda_stream_view stream_;
     CudaEvent latest_write_event_;
 };
@@ -338,9 +316,6 @@ class Buffer {
  * @param size Number of bytes to copy.
  * @param dst_offset Offset (in bytes) into the destination buffer.
  * @param src_offset Offset (in bytes) into the source buffer.
- * @param attach_cuda_event If true, record a CUDA event on both buffers' streams
- * and attach it to the destination buffer to track completion. If false, the caller
- * is responsible for ensuring proper synchronization.
  *
  * @throws std::invalid_argument If out of bounds.
  */
@@ -349,8 +324,7 @@ void buffer_copy(
     Buffer& src,
     std::size_t size,
     std::ptrdiff_t dst_offset = 0,
-    std::ptrdiff_t src_offset = 0,
-    bool attach_cuda_event = true
+    std::ptrdiff_t src_offset = 0
 );
 
 }  // namespace rapidsmpf
