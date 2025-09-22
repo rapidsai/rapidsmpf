@@ -156,12 +156,6 @@ std::unique_ptr<Buffer> BufferResource::allocate(
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<std::vector<uint8_t>> data, rmm::cuda_stream_view stream
-) {
-    return std::unique_ptr<Buffer>(new Buffer(std::move(data), stream));
-}
-
-std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
 ) {
     auto upstream = data->stream();
