@@ -39,6 +39,42 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
     latest_write_event_.record(stream_);
 }
 
+Buffer::HostStorageT const& Buffer::host() const {
+    RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
+    if (const auto* ref = std::get_if<HostStorageT>(&storage_)) {
+        return *ref;
+    } else {
+        RAPIDSMPF_FAIL("Buffer is not host memory");
+    }
+}
+
+Buffer::HostStorageT& Buffer::host() {
+    RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
+    if (auto ref = std::get_if<HostStorageT>(&storage_)) {
+        return *ref;
+    } else {
+        RAPIDSMPF_FAIL("Buffer is not host memory");
+    }
+}
+
+Buffer::DeviceStorageT& Buffer::device() {
+    RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
+    if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
+        return *ref;
+    } else {
+        RAPIDSMPF_FAIL("Buffer is not device memory");
+    }
+}
+
+Buffer::DeviceStorageT const& Buffer::device() const {
+    RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
+    if (const auto* ref = std::get_if<DeviceStorageT>(&storage_)) {
+        return *ref;
+    } else {
+        RAPIDSMPF_FAIL("Buffer is not device memory");
+    }
+}
+
 std::byte const* Buffer::data() const {
     RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
     return std::visit(

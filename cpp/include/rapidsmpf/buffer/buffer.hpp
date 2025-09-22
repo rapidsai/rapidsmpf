@@ -72,14 +72,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] HostStorageT const& host() const {
-        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
-        if (const auto* ref = std::get_if<HostStorageT>(&storage_)) {
-            return *ref;
-        } else {
-            RAPIDSMPF_FAIL("Buffer is not host memory");
-        }
-    }
+    [[nodiscard]] HostStorageT const& host() const;
 
     /**
      * @brief Access the underlying device memory buffer (const).
@@ -88,14 +81,7 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] DeviceStorageT const& device() const {
-        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
-        if (const auto* ref = std::get_if<DeviceStorageT>(&storage_)) {
-            return *ref;
-        } else {
-            RAPIDSMPF_FAIL("Buffer is not device memory");
-        }
-    }
+    [[nodiscard]] DeviceStorageT const& device() const;
 
     /**
      * @brief Access the underlying memory buffer (host or device memory).
@@ -321,14 +307,7 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage host memory.
      * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] HostStorageT& host() {
-        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
-        if (auto ref = std::get_if<HostStorageT>(&storage_)) {
-            return *ref;
-        } else {
-            RAPIDSMPF_FAIL("Buffer is not host memory");
-        }
-    }
+    [[nodiscard]] HostStorageT& host();
 
     /**
      * @brief Access the underlying device memory buffer.
@@ -338,14 +317,7 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage device memory.
      * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] DeviceStorageT& device() {
-        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
-        if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
-            return *ref;
-        } else {
-            RAPIDSMPF_FAIL("Buffer is not device memory");
-        }
-    }
+    [[nodiscard]] DeviceStorageT& device();
 
     /**
      * @brief Release the underlying device memory buffer.
