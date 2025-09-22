@@ -25,6 +25,7 @@ Buffer::Buffer(
     RAPIDSMPF_EXPECTS(
         std::get<HostStorageT>(storage_) != nullptr, "the host_buffer cannot be NULL"
     );
+    latest_write_event_.record(stream_);
 }
 
 Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
@@ -36,6 +37,7 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
         std::invalid_argument
     );
     stream_ = std::get<DeviceStorageT>(storage_)->stream();
+    latest_write_event_.record(stream_);
 }
 
 std::byte const* Buffer::data() const {

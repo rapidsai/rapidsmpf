@@ -186,16 +186,18 @@ class Buffer {
     }
 
     /**
-     * @brief Check whether the buffer's last write has completed.
+     * @brief Check whether the buffer's most recent write has completed.
      *
-     * Returns whether the CUDA event that tracks the most recent write into this buffer
-     * has been signaled. Use this to guard *non-stream-ordered* consumers APIs that do
-     * not accept a CUDA stream (e.g., MPI sends/receives, host-side reads).
+     * Returns whether the CUDA event that tracks the most recent write into this
+     * buffer has been signaled.
+     *
+     * Use this to guard *non-stream-ordered* consumer-APIs that do not accept a CUDA
+     * stream (e.g., MPI sends/receives, host-side reads).
      *
      * @note This is a non-blocking, point-in-time status check and is subject to TOCTOU
      * races: another thread may enqueue additional writes after this returns `true`.
-     * Ensure no further writes are enqueued or establish stronger synchronization
-     * (e.g., synchronize the buffer's stream) before using the buffer.
+     * Ensure no further writes are enqueued, or establish stronger synchronization (e.g.,
+     * synchronize the buffer's stream) before using the buffer.
      *
      * @return `true` if the last recorded write event has completed; `false` otherwise.
      *
