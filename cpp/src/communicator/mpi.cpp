@@ -124,7 +124,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
 std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
-    if (!msg->is_ready()) {
+    if (!msg->is_latest_write_done()) {
         logger().warn("msg is not ready. This is irrecoverable, terminating.");
         std::terminate();
     }
@@ -141,7 +141,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
 std::unique_ptr<Communicator::Future> MPI::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
-    if (!recv_buffer->is_ready()) {
+    if (!recv_buffer->is_latest_write_done()) {
         logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
         std::terminate();
     }

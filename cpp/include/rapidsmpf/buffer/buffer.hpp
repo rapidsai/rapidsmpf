@@ -41,9 +41,13 @@ constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType
  * @note The constructors are private, use `BufferResource` to construct buffers.
  * @note The memory type (e.g., host or device) is constant and cannot change during
  * the buffer's lifetime.
- * @note A buffer is a stream-ordered object, when passing to a library which is
- * not stream-aware one must ensure that `is_ready` returns `true` otherwise
- * behaviour is undefined.
+ * @note This buffer is stream-ordered and has an associated CUDA stream (see `stream()`).
+ * All work (host and device) that reads or writes the buffer must either be enqueued on
+ * that stream or be synchronized with it *before* accessing the memory.
+ * @note When passing the buffer to a non-stream-aware API (e.g., MPI, host-only code),
+ * you must ensure the last write has completed *before* the hand-off. Either synchronize
+ * the buffer's stream (e.g., `stream().synchronize()`) or verify completion via
+ * `is_latest_write_done()`.
  */
 class Buffer {
     friend class BufferResource;
@@ -108,7 +112,7 @@ class Buffer {
      * The provided @p stream is the stream associated with this access. Any work enqueued
      * on the buffer memory must use @p stream or synchronize with it before @p f returns.
      * Synchronizing with @p stream only after @p f returns is not sufficient and results
-     * in undefined behavior.
+     * in undefined behavior. Normally, @p stream should be the buffer's own stream.
      *
      * @warning The pointer is valid only for the duration of the call. Using it outside
      * of @p f is undefined behavior.
@@ -132,13 +136,24 @@ class Buffer {
      * @endcode
      */
     template <typename F>
-    auto write_access([[maybe_unused]] rmm::cuda_stream_view stream, F&& f)
+    auto write_access(rmm::cuda_stream_view stream, F&& f)
         -> std::invoke_result_t<F, std::byte*> {
         static_assert(
             std::is_invocable_v<std::remove_reference_t<F>, std::byte*>,
             "write_access() expects a callable with signature: R(std::byte*)"
         );
-        return std::invoke(std::forward<F>(f), const_cast<std::byte*>(data()));
+        using R = std::invoke_result_t<F, std::byte*>;
+
+        // After the write access by `f()`, we record an event on `stream`, which
+        // becomes the new last-write-event.
+        if constexpr (std::is_void_v<R>) {
+            std::invoke(std::forward<F>(f), const_cast<std::byte*>(data()));
+            latest_write_event_.record(stream);
+        } else {
+            auto ret = std::invoke(std::forward<F>(f), const_cast<std::byte*>(data()));
+            latest_write_event_.record(stream);
+            return ret;
+        }
     }
 
     /**
@@ -168,6 +183,35 @@ class Buffer {
      */
     [[nodiscard]] constexpr rmm::cuda_stream_view stream() const noexcept {
         return stream_;
+    }
+
+    /**
+     * @brief Check whether the buffer's last write has completed.
+     *
+     * Returns whether the CUDA event that tracks the most recent write into this buffer
+     * has been signaled. Use this to guard *non-stream-ordered* consumers APIs that do
+     * not accept a CUDA stream (e.g., MPI sends/receives, host-side reads).
+     *
+     * @note This is a non-blocking, point-in-time status check and is subject to TOCTOU
+     * races: another thread may enqueue additional writes after this returns `true`.
+     * Ensure no further writes are enqueued or establish stronger synchronization
+     * (e.g., synchronize the buffer's stream) before using the buffer.
+     *
+     * @return `true` if the last recorded write event has completed; `false` otherwise.
+     *
+     * @code{.cpp}
+     * // Example: send the buffer via MPI (non-stream-ordered).
+     * if (buffer.is_latest_write_done()) {
+     *   MPI_Isend(buffer.data(), buffer.size(), MPI_BYTE, dst, tag, comm, &req);
+     * } else {
+     *   // Ensure completion before handing to MPI.
+     *   cudaStreamSynchronize(buffer.stream());
+     *   MPI_Isend(buffer.data(), buffer.size(), MPI_BYTE, dst, tag, comm, &req);
+     * }
+     * @endcode
+     */
+    [[nodiscard]] bool is_latest_write_done() const {
+        return latest_write_event_.is_ready();
     }
 
     /**
@@ -281,6 +325,7 @@ class Buffer {
     /// @brief CUDA event used to track copy operations
     std::shared_ptr<CudaEvent> event_;
     rmm::cuda_stream_view stream_;
+    CudaEvent latest_write_event_;
 };
 
 /**
