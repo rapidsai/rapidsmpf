@@ -224,24 +224,40 @@ class Buffer {
 
   private:
     /**
-     * @brief Construct a Buffer from host memory.
+     * @brief Construct a stream-ordered Buffer from synchronized host memory.
      *
-     * @param host_buffer A unique pointer to a vector containing host memory.
+     * Adopts @p host_buffer as the Buffer's storage and associates the Buffer with
+     * @p stream for subsequent stream-ordered operations.
      *
-     * @throws std::invalid_argument if `host_buffer` is null.
+     * @note The constructor does **not** perform any synchronization. The caller must
+     * ensure that @p host_buffer is already synchronized (no pending GPU or stream work)
+     * at the time of construction. A newly constructed Buffer is therefore considered
+     * ready (i.e., `is_latest_write_done() == true`).
+     *
+     * @param host_buffer Unique pointer to a vector containing host memory.
+     * @param stream CUDA stream to associate with the Buffer for future operations.
+     *
+     * @throws std::invalid_argument If @p host_buffer is null.
      */
     Buffer(
         std::unique_ptr<std::vector<uint8_t>> host_buffer, rmm::cuda_stream_view stream
     );
 
     /**
-     * @brief Construct a Buffer from device memory.
+     * @brief Construct a stream-ordered Buffer from device memory.
      *
-     * The new Buffer adapts the CUDA stream from @p device_buffer.
+     * Adopts @p device_buffer as the Buffer's storage and inherits its CUDA stream.
+     * At construction, the Buffer records an initial "latest write" on that stream,
+     * so `is_latest_write_done()` will become `true` once all work enqueued on the
+     * adopted stream up to this point has completed.
      *
-     * @param device_buffer A unique pointer to a device buffer.
+     * @note No synchronization is performed by the constructor. Any producer that
+     * initialized or modified @p device_buffer must have enqueued that work on the same
+     * stream (or established ordering with it) for correctness.
      *
-     * @throws std::invalid_argument if `device_buffer` is null.
+     * @param device_buffer Unique pointer to a device buffer. Must be non-null.
+     *
+     * @throws std::invalid_argument If @p device_buffer is null.
      */
     Buffer(std::unique_ptr<rmm::device_buffer> device_buffer);
 
