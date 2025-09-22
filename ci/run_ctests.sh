@@ -23,8 +23,9 @@ timeout_secs=$((5*60)) # 5m timeout
 # mpi_tests cases
 ctest --verbose --no-tests=error --output-on-failure --timeout $timeout_secs -R "mpi_tests_*" "${EXTRA_ARGS[@]}"
 
-# ucxx_tests cases
+# ucxx_tests cases, includes both default (thread-blocking) and polling progress modes
 ctest --verbose --no-tests=error --output-on-failure --timeout $timeout_secs -R "ucxx_tests_*" "${EXTRA_ARGS[@]}"
+RAPIDSMPF_UCXX_PROGRESS_MODE=polling ctest --verbose --no-tests=error --output-on-failure --timeout $timeout_secs -R "ucxx_tests_*" "${EXTRA_ARGS[@]}"
 
 # single_tests case
 ctest --verbose --no-tests=error --output-on-failure --timeout $timeout_secs -R "single_tests" "${EXTRA_ARGS[@]}"
