@@ -43,6 +43,11 @@ class StreamingShuffler : public BaseStreamingFixture,
         GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     }
 
+    void TearDown() override {
+        GlobalEnvironment->barrier();
+        BaseStreamingFixture::TearDown();
+    }
+
     void run_test(auto make_shuffler_node_fn) {
         // Create the full input table and slice it into chunks.
         cudf::table full_input_table = random_table_with_index(seed, num_rows, 0, 10);
@@ -341,6 +346,7 @@ class ShufflerAsyncTest
     void TearDown() override {
         shuffler.reset();
         BaseStreamingFixture::TearDown();
+        GlobalEnvironment->barrier();
     }
 };
 
@@ -427,6 +433,8 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
 
     std::ranges::sort(finished_pids);
     EXPECT_EQ(local_pids, finished_pids);
+
+    GlobalEnvironment->barrier();  // wait for all ranks to finish
 }
 
 TEST_F(BaseStreamingFixture, extract_any_before_extract) {

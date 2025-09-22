@@ -27,7 +27,6 @@ class BaseStreamingFixture : public ::testing::Test {
     }
 
     void TearDown() override {
-        GlobalEnvironment->barrier();
         ctx.reset();
         br.reset();
     }
