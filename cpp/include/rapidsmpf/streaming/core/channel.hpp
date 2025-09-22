@@ -9,6 +9,7 @@
 #include <any>
 #include <cstddef>
 #include <memory>
+#include <stdexcept>
 #include <typeinfo>
 
 #include <rapidsmpf/error.hpp>
@@ -197,26 +198,11 @@ class Channel {
  * @brief A coroutine-based channel for sending and receiving messages asynchronously.
  *
  * This channel is throttled to cap the number of suspended coroutines that can be waiting
- * to send into it. It is useful when writing producer nodes that
- * otherwise do not depend on an input channel.
+ * to send into it. It is useful when writing producer nodes that otherwise do not depend
+ * on an input channel.
  */
 class ThrottledChannel {
   private:
-    ///< @brief Ticket granting permission to send into the channel.
-    class Ticket {
-        friend class ThrottledChannel;
-
-      public:
-        Ticket& operator=(Ticket const&) = delete;
-        Ticket(Ticket const&) = delete;
-        Ticket& operator=(Ticket&&) = default;
-        Ticket(Ticket&&) = default;
-        ~Ticket() = default;
-
-      private:
-        Ticket() = default;
-    };
-
     ///< @brief Receipt proving that a ticket has been consumed and sent.
     class Receipt {
         friend class ThrottledChannel;
@@ -228,8 +214,93 @@ class ThrottledChannel {
         Receipt(Receipt&&) = default;
         ~Receipt() = default;
 
+        /**
+         * @brief Release a ticket that has been converted to a sent message.
+         *
+         * @return A coroutine representing completion of the release.
+         * @throws std::logic_error If attempting to release a receipt more than once.
+         *
+         * @note It is permissible to release a receipt after the
+         * channel is shut down, but any waiters will wake in a failed
+         * state.
+         *
+         * @note To avoid immediately transferring control in this
+         * executing thread to any waiting tasks, one should `yield` in
+         * the executor before `release`ing.
+         *
+         * Here is a typical pattern:
+         * @code{.cpp}
+         * auto ticket = co_await channel.acquire();
+         * auto msg = do_expensive_work();
+         * auto [_, receipt] = co_await ticket.send(msg);
+         * co_await executor->yield();
+         * co_await receipt.release();
+         * @endcode
+         *
+         * The reason for the `yield` is that when releasing the
+         * semaphore, libcoro transfers control directly from the
+         * thread executing a `release` to any suspended `acquire`
+         * call and keeps executing. Suppose we have `N` threads
+         * suspended at `acquire`. If a thread makes it to `release`
+         * we typically don't want it to pick up the next suspended
+         * acquire task, we want it to park and let someone else pick
+         * up a task. By yielding before `release` we introduce a
+         * point where we can swap the thread out for another one by
+         * moving this coroutine to the back of the queue.
+         */
+        coro::task<void> release() {
+            RAPIDSMPF_EXPECTS(ch_, "Receipt has already been used", std::logic_error);
+            co_await ch_->semaphore_.release();
+            ch_ = nullptr;
+        }
+
       private:
-        Receipt() = default;
+        Receipt(ThrottledChannel* ch) : ch_{ch} {};
+        ThrottledChannel* ch_;
+    };
+
+    ///< @brief Ticket with permission to send into the channel.
+    class Ticket {
+        friend class ThrottledChannel;
+
+      public:
+        Ticket& operator=(Ticket const&) = delete;
+        Ticket(Ticket const&) = delete;
+        Ticket& operator=(Ticket&&) = default;
+        Ticket(Ticket&&) = default;
+        ~Ticket() = default;
+
+        /**
+         * @brief Asynchronously send a message into the channel.
+         *
+         * Suspends if the channel is full.
+         *
+         * @param msg The msg to send.
+         * @param ticket The ticket indicating one has a right to send.
+         * @throws std::logic_error If attempting to send more than once with the same
+         * ticket.
+         *
+         * @return A coroutine that evaluates to a pair of true if the msg was
+         * successfully sent or false if the channel was shut down and a `Receipt`
+         * to be released.
+         *
+         * @note One should `release` the ticket after sending into the
+         * channel using the receipt provided.
+         *
+         */
+        [[nodiscard]] coro::task<std::pair<bool, Receipt>> send(Message msg) {
+            RAPIDSMPF_EXPECTS(ch_, "Ticket has already been used", std::logic_error);
+            auto sent = co_await ch_->rb_.produce(std::move(msg));
+            auto result = std::pair<bool, Receipt>(
+                sent == coro::ring_buffer_result::produce::produced, Receipt{ch_}
+            );
+            ch_ = nullptr;
+            co_return result;
+        }
+
+      private:
+        Ticket(ThrottledChannel* ch) : ch_{ch} {};
+        ThrottledChannel* ch_;
     };
 
   public:
@@ -243,63 +314,23 @@ class ThrottledChannel {
         : rb_{}, semaphore_(max_tickets) {}
 
     /**
-     * @brief Asynchronously send a message into the channel.
-     *
-     * Suspends if the channel is full.
-     *
-     * @param msg The msg to send.
-     * @param ticket The ticket indicating one has a right to send.
-     *
-     * @note One should `release` the ticket after sending into the
-     * channel using the receipt provided.
-     *
-     * @return A coroutine that evaluates to a pair of true if the msg was successfully
-     * sent or false if the channel was shut down and a `SentTicket` to be released.
-     */
-    [[nodiscard]] coro::task<std::pair<bool, Receipt>> send(
-        Message msg, [[maybe_unused]] Ticket&& ticket
-    ) {
-        auto result = co_await rb_.produce(std::move(msg));
-        co_return {result == coro::ring_buffer_result::produce::produced, Receipt{}};
-    }
-
-    /**
      * @brief Obtain a ticket to send a message.
      *
      * Suspends if all tickets are currently handed out.
      *
-     * @return A coroutine producing a new ticket to be used in `send`.
+     * @throws std::runtime_error If the channel is shut down.
+     *
+     * @return A coroutine producing a new `Ticket` that grants permission to send a
+     * message.
      */
     [[nodiscard]] coro::task<Ticket> acquire() {
         auto result = co_await semaphore_.acquire();
         RAPIDSMPF_EXPECTS(
-            result == coro::semaphore_acquire_result::acquired, "Semaphore was shutdown"
+            result == coro::semaphore_acquire_result::acquired,
+            "Semaphore was shutdown",
+            std::runtime_error
         );
-        co_return Ticket{};
-    }
-
-    /**
-     * @brief Release a ticket that has been converted to a sent message.
-     *
-     * @param receipt The receipt indicating one has sent a message.
-     * @return A coroutine representing completion of the release.
-
-     * @note To avoid immediately transferring control in this
-     * executing thread to any waiting tasks, one should `yield` in
-     * the executor before `release`ing.
-     *
-     * Here is a typical pattern:
-     * @code{.cpp}
-     * auto ticket = co_await channel.acquire();
-     * auto data = do_expensive_work();
-     * auto [_, receipt] = co_await channel.send(std::move(ticket));
-     * co_await executor->yield();
-     * co_await channel.release(std::move(receipt));
-     * @endcode
-     */
-    coro::task<void> release([[maybe_unused]] Receipt&& receipt) {
-        RAPIDSMPF_EXPECTS(!semaphore_.is_shutdown(), "Semaphore was shutdown");
-        co_await semaphore_.release();
+        co_return Ticket{this};
     }
 
     /**
@@ -339,6 +370,7 @@ class ThrottledChannel {
      * @return A coroutine representing the completion of the shutdown.
      */
     Node shutdown() {
+        semaphore_.shutdown();
         return rb_.shutdown();
     }
 
