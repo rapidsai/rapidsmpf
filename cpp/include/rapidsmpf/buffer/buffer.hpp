@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -71,7 +72,8 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage host memory.
      */
-    [[nodiscard]] constexpr HostStorageT const& host() const {
+    [[nodiscard]] HostStorageT const& host() const {
+        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
         if (const auto* ref = std::get_if<HostStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -86,7 +88,8 @@ class Buffer {
      *
      * @throws std::logic_error if the buffer does not manage device memory.
      */
-    [[nodiscard]] constexpr DeviceStorageT const& device() const {
+    [[nodiscard]] DeviceStorageT const& device() const {
+        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
         if (const auto* ref = std::get_if<DeviceStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -157,6 +160,50 @@ class Buffer {
     }
 
     /**
+     * @brief Acquire non-stream-ordered exclusive access to the buffer's memory.
+     *
+     * Alternative to `write_access()`. Acquires an internal exclusive lock so that
+     * **any other access through the Buffer API** (including `write_access()`) will
+     * fail with `std::logic_error` while the lock is held. The lock remains held
+     * until `unlock()` is called.
+     *
+     * Use this when integrating with non-stream-aware consumer APIs that require a
+     * raw pointer and cannot be expressed as work on a CUDA stream (e.g., MPI,
+     * blocking host I/O).
+     *
+     * @note Prefer `write_access(stream, ...)` if you can express the operation as a
+     * single callable on a stream, even if that requires manually synchronizing the
+     * stream before the callable returns.
+     *
+     * @return Pointer to the underlying storage.
+     *
+     * @throws std::logic_error If the buffer is already locked.
+     * @throws std::logic_error If `is_latest_write_done() != true`.
+     *
+     * @see write_access(), is_locked(), unlock()
+     */
+    std::byte* exclusive_data_access();
+
+    /**
+     * @brief Check whether the buffer is currently exclusively locked.
+     *
+     * @return `true` if `exclusive_data_access()` has acquired the lock and `unlock()`
+     * has not yet been called; `false` otherwise.
+     */
+    bool is_locked() const {
+        return lock_.load(std::memory_order_acquire);
+    }
+
+    /**
+     * @brief Release the exclusive lock acquired by `exclusive_data_access()`.
+     *
+     * @post `is_locked() == false`.
+     */
+    void unlock() {
+        lock_.store(false, std::memory_order_release);
+    }
+
+    /**
      * @brief Get the memory type of the buffer.
      *
      * @return The memory type of the buffer.
@@ -201,6 +248,8 @@ class Buffer {
      *
      * @return `true` if the last recorded write event has completed; `false` otherwise.
      *
+     * @throws std::logic_error If the buffer is locked.
+     *
      * @code{.cpp}
      * // Example: send the buffer via MPI (non-stream-ordered).
      * if (buffer.is_latest_write_done()) {
@@ -213,6 +262,7 @@ class Buffer {
      * @endcode
      */
     [[nodiscard]] bool is_latest_write_done() const {
+        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
         return latest_write_event_.is_ready();
     }
 
@@ -238,6 +288,7 @@ class Buffer {
      * @param stream CUDA stream to associate with the Buffer for future operations.
      *
      * @throws std::invalid_argument If @p host_buffer is null.
+     * @throws std::logic_error If the buffer is locked.
      */
     Buffer(
         std::unique_ptr<std::vector<uint8_t>> host_buffer, rmm::cuda_stream_view stream
@@ -258,6 +309,7 @@ class Buffer {
      * @param device_buffer Unique pointer to a device buffer. Must be non-null.
      *
      * @throws std::invalid_argument If @p device_buffer is null.
+     * @throws std::logic_error If the buffer is locked.
      */
     Buffer(std::unique_ptr<rmm::device_buffer> device_buffer);
 
@@ -267,8 +319,10 @@ class Buffer {
      * @return A reference to the unique pointer managing the host memory.
      *
      * @throws std::logic_error if the buffer does not manage host memory.
+     * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] constexpr HostStorageT& host() {
+    [[nodiscard]] HostStorageT& host() {
+        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
         if (auto ref = std::get_if<HostStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -282,8 +336,10 @@ class Buffer {
      * @return A reference to the unique pointer managing the device memory.
      *
      * @throws std::logic_error if the buffer does not manage device memory.
+     * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] constexpr DeviceStorageT& device() {
+    [[nodiscard]] DeviceStorageT& device() {
+        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
         if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
             return *ref;
         } else {
@@ -297,8 +353,10 @@ class Buffer {
      * @return The underlying device memory buffer.
      *
      * @throws std::logic_error if the buffer does not manage device memory.
+     * @throws std::logic_error If the buffer is locked.
      */
     [[nodiscard]] DeviceStorageT release_device() {
+        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
         return std::move(device());
     }
 
@@ -308,8 +366,10 @@ class Buffer {
      * @return The underlying host memory buffer.
      *
      * @throws std::logic_error if the buffer does not manage host memory.
+     * @throws std::logic_error If the buffer is locked.
      */
     [[nodiscard]] HostStorageT release_host() {
+        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
         return std::move(host());
     }
 
@@ -322,6 +382,7 @@ class Buffer {
     StorageT storage_;
     rmm::cuda_stream_view stream_;
     CudaEvent latest_write_event_;
+    std::atomic_bool lock_;
 };
 
 /**

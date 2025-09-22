@@ -1103,15 +1103,11 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
     RAPIDSMPF_EXPECTS(recv_buffer->is_latest_write_done(), "msg must be ready");
-    auto req = recv_buffer->write_access(
-        recv_buffer->stream(), [&](std::byte* recv_buffer_data) {
-            return get_endpoint(rank)->tagRecv(
-                recv_buffer_data,
-                recv_buffer->size,
-                tag_with_rank(rank, tag),
-                ::ucxx::TagMaskFull
-            );
-        }
+    auto req = get_endpoint(rank)->tagRecv(
+        recv_buffer->exclusive_data_access(),
+        recv_buffer->size,
+        tag_with_rank(rank, tag),
+        ::ucxx::TagMaskFull
     );
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
@@ -1242,6 +1238,7 @@ std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future)
         progress_worker();
     }
     ucxx_future->req_->checkError();
+    ucxx_future->data_buffer_->unlock();
     return std::move(ucxx_future->data_buffer_);
 }
 
@@ -1249,6 +1246,7 @@ std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future>
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
     RAPIDSMPF_EXPECTS(ucxx_future->data_buffer_ != nullptr, "future has no data");
+    ucxx_future->data_buffer_->unlock();
     return std::move(ucxx_future->data_buffer_);
 }
 

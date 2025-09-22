@@ -40,9 +40,28 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
 }
 
 std::byte const* Buffer::data() const {
+    RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
     return std::visit(
         [](auto&& storage) -> std::byte const* {
             return reinterpret_cast<std::byte const*>(storage->data());
+        },
+        storage_
+    );
+}
+
+std::byte* Buffer::exclusive_data_access() {
+    RAPIDSMPF_EXPECTS(is_latest_write_done(), "the latest write isn't done");
+
+    bool expected = false;
+    RAPIDSMPF_EXPECTS(
+        lock_.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel, std::memory_order_acquire
+        ),
+        "the buffer is already locked"
+    );
+    return std::visit(
+        [](auto&& storage) -> std::byte* {
+            return reinterpret_cast<std::byte*>(storage->data());
         },
         storage_
     );
@@ -88,4 +107,5 @@ void buffer_copy(
     });
     cuda_stream_join(std::array{src.stream()}, std::array{dst.stream()});
 }
+
 }  // namespace rapidsmpf
