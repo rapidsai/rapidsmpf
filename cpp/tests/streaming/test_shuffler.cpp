@@ -40,6 +40,7 @@ class StreamingShuffler : public BaseStreamingFixture,
     // override the base SetUp
     void SetUp() override {
         BaseStreamingFixture::SetUpWithThreads(GetParam());
+        GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     }
 
     void run_test(auto make_shuffler_node_fn) {
@@ -302,7 +303,6 @@ TEST_P(StreamingShuffler, callbacks_1_consumer) {
 }
 
 TEST_P(StreamingShuffler, callbacks_2_consumer) {
-    // GTEST_SKIP() << "unreliable test";  // TODO: fix this
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
         return shuffler_nb(
             ctx, stream, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 2
@@ -311,7 +311,6 @@ TEST_P(StreamingShuffler, callbacks_2_consumer) {
 }
 
 TEST_P(StreamingShuffler, callbacks_4_consumer) {
-    // GTEST_SKIP() << "unreliable test";  // TODO: fix this
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
         return shuffler_nb(
             ctx, stream, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 4
