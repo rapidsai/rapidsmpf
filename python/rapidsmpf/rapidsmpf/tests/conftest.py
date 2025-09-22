@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0 All rights reserved.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -22,9 +22,34 @@ if TYPE_CHECKING:
     from rapidsmpf.communicator.communicator import Communicator
 
 
-def _get_mpi_module_or_skip() -> MPI:
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Add custom command line options for pytest."""
+    parser.addoption(
+        "--disable-mpi",
+        action="store_true",
+        default=False,
+        help="Disable MPI tests",
+    )
+
+
+@pytest.fixture(scope="session")
+def _mpi_disabled(pytestconfig: pytest.Config) -> Any:
+    """Check if MPI tests are disabled via command line argument."""
+    return pytestconfig.getoption("--disable-mpi")
+
+
+def _get_mpi_module_or_skip(*, mpi_disabled: bool = False) -> MPI:
     """
-    Return the `mpi4py.MPI` module if MPI support is available or pytest.skip.
+    Return the `mpi4py.MPI` module or pytest.skip.
+
+    Return the `mpi4py.MPI` module if MPI support is available, skip tests if
+    `mpi4py.MPI` is unavailable or MPI tests are disabled via the --disable-mpi
+    command line option.
+
+    Parameters
+    ----------
+    mpi_disabled : bool, optional
+        Whether MPI tests are disabled, by default False
 
     Returns
     -------
@@ -33,10 +58,13 @@ def _get_mpi_module_or_skip() -> MPI:
     Raises
     ------
     pytest.skip
-        If MPI support is not available.
+        If MPI support is not available or --disable-mpi is specified
     """
     if "mpi" not in COMMUNICATORS:
         pytest.skip("No MPI support")
+
+    if mpi_disabled:
+        pytest.skip("MPI tests disabled")
 
     from mpi4py import MPI
 
@@ -44,7 +72,7 @@ def _get_mpi_module_or_skip() -> MPI:
 
 
 @pytest.fixture(scope="session")
-def _mpi_comm() -> Communicator:
+def _mpi_comm(_mpi_disabled: bool) -> Communicator:  # noqa: FBT001
     """
     Fixture for rapidsmpf's MPI communicator to use throughout the session.
 
@@ -53,7 +81,7 @@ def _mpi_comm() -> Communicator:
 
     Do not use this fixture directly, use the `comm` fixture instead.
     """
-    from mpi4py import MPI
+    MPI = _get_mpi_module_or_skip(mpi_disabled=_mpi_disabled)
 
     from rapidsmpf.communicator.mpi import new_communicator
 
