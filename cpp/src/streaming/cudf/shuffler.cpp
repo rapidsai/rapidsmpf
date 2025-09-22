@@ -208,7 +208,7 @@ Node shuffler(
     std::iota(finished.begin(), finished.end(), 0);
     shuffler_async.insert_finished(std::move(finished));
 
-    for (auto& _ : shuffler_async.local_partitions()) {
+    for ([[maybe_unused]] auto& _ : shuffler_async.local_partitions()) {
         auto finished = co_await shuffler_async.extract_any_async();
         RAPIDSMPF_EXPECTS(finished.has_value(), "extract_any_async returned null");
 
