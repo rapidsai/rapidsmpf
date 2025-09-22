@@ -1111,7 +1111,7 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
     }
 
     auto req = recv_buffer->write_access(
-        rmm::cuda_stream_default, [&](std::byte* recv_buffer_data) {
+        recv_buffer->stream(), [&](std::byte* recv_buffer_data) {
             return get_endpoint(rank)->tagRecv(
                 recv_buffer_data,
                 recv_buffer->size,
