@@ -11,7 +11,6 @@ import numpy as np
 from dask.tokenize import tokenize
 from dask.utils import M
 
-import cudf
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 import rapidsmpf.integrations.dask
@@ -32,7 +31,12 @@ if TYPE_CHECKING:
 
     import dask_cudf
 
-    from rapidsmpf.integrations.core import ShufflerIntegration
+    import cudf
+
+    from rapidsmpf.integrations.core import (
+        BCastJoinInfo,
+        ShufflerIntegration,
+    )
     from rapidsmpf.shuffler import Shuffler
 
 
@@ -156,7 +160,7 @@ class DaskCudfIntegration:
 
 def _get_cluster_kind(
     cluster_kind: Literal["distributed", "single", "auto"],
-) -> Literal["distributed", "single", "auto"]:
+) -> Literal["distributed", "single"]:
     """Validate and return the kind of cluster to use."""
     if cluster_kind not in ("distributed", "single", "auto"):
         raise ValueError(
@@ -289,10 +293,9 @@ class DaskCudfJoinIntegration:
 
     @staticmethod
     def join_partition(
-        left_input: cudf.DataFrame | Callable[[int], cudf.DataFrame],
-        right_input: cudf.DataFrame | Callable[[int], cudf.DataFrame],
-        bcast_side: Literal["left", "right", "none"],
-        bcast_count: int | None,
+        left_input: Callable[[int], cudf.DataFrame],
+        right_input: Callable[[int], cudf.DataFrame],
+        bcast_info: BCastJoinInfo,
         options: Any,
     ) -> cudf.DataFrame:
         """
@@ -301,20 +304,15 @@ class DaskCudfJoinIntegration:
         Parameters
         ----------
         left_input
-            The left partition or a callable that produces
-            chunks of a broadcasted left partition.
-            The bcast_count argument corresponds to the number
-            of chunks the callable can produce.
+            A callable that produces chunks of the left partition.
+            The ``bcast_info.bcast_count`` parameter corresponds
+            to the number of chunks the callable can produce.
         right_input
-            The right partition or a callable that produces
-            chunks of a broadcasted right partition.
-            The bcast_count argument corresponds to the number
-            of chunks the callable can produce.
-        bcast_side
-            The side of the join being broadcasted (if either).
-        bcast_count
-            The number of broadcasted chunks.
-            Ignored unless ``bcast_side`` is "left" or "right".
+            A callable that produces chunks of the right partition.
+            The ``bcast_info.bcast_count`` parameter corresponds
+            to the number of chunks the callable can produce.
+        bcast_info
+            The broadcast join information.
         options
             Additional join options.
 
@@ -326,22 +324,16 @@ class DaskCudfJoinIntegration:
         -----
         This method is used to produce a single joined table chunk.
         """
-        if bcast_side != "none":  # pragma: no cover
-            raise NotImplementedError("Broadcast join not implemented.")
-
-        # Broadcast joins are not supported yet, so the input must be a cudf.DataFrame.
-        assert isinstance(left_input, cudf.DataFrame), "Expected cudf.DataFrame"
-        assert isinstance(right_input, cudf.DataFrame), "Expected cudf.DataFrame"
-        left = left_input
-        right = right_input
-
-        # Return merged result
-        kwargs = {
+        join_kwargs = {
             "left_on": options["left_on"],
             "right_on": options["right_on"],
             "how": options["how"],
         }
-        return left.merge(right, **kwargs)
+
+        if bcast_info.bcast_side == "none":
+            return left_input(0).merge(right_input(0), **join_kwargs)
+        else:  # pragma: no cover
+            raise NotImplementedError("Broadcast join not implemented.")
 
 
 def dask_cudf_join(
@@ -425,14 +417,19 @@ def dask_cudf_join(
         left_partition_count_in,
         right_partition_count_in,
         DaskCudfJoinIntegration(),
+        # Options that may be used for shuffling, broadcasting,
+        # or repartitioning the left side.
         {
             "column_names": left0.columns,
             "on": left_on,
         },
+        # Options that may be used for shuffling, broadcasting,
+        # or repartitioning the right side.
         {
             "column_names": right0.columns,
             "on": right_on,
         },
+        # Options that may be used for joining.
         {
             "left_on": left_on,
             "right_on": right_on,
