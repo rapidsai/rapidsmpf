@@ -19,9 +19,19 @@
 class BaseStreamingFixture : public ::testing::Test {
   protected:
     void SetUp() override {
+        SetUp(1);  // default number of streaming threads
+    }
+
+    void SetUp(int num_streaming_threads) {
         rapidsmpf::config::Options options{
             rapidsmpf::config::get_environment_variables()
         };
+        RAPIDSMPF_EXPECTS(
+            options.insert_if_absent(
+                "num_streaming_threads", std::to_string(num_streaming_threads)
+            ),
+            "num_streaming_threads already set"
+        );
         stream = cudf::get_default_stream();
         br = std::make_unique<rapidsmpf::BufferResource>(mr_cuda);
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
