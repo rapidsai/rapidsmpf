@@ -168,6 +168,14 @@ Node shuffler_nb(
         // thread will push the partition ids to the queue. The extract task will pop the
         // partition ids from the queue and extract the chunks from the shuffler.
         coro::queue<rapidsmpf::shuffler::PartID> ready_pids{};
+
+        coro::task<void> push_to_queue(rapidsmpf::shuffler::PartID pid) {
+            auto result = co_await ready_pids.push(pid);
+            RAPIDSMPF_EXPECTS(
+                result == coro::queue_produce_result::produced,
+                "failed to push partition id to ready_pids"
+            );
+        }
     };
 
     // make a shared_ptr to the shuffler_ctx so that it can be passed into multiple
@@ -180,12 +188,12 @@ Node shuffler_nb(
         total_num_partitions,
         stream,
         ctx->br(),
-        [shuffler_ctx_ptr = shuffler_ctx.get()](rapidsmpf::shuffler::PartID pid) {
-            // synchronously push the partition id to the ready_pids queue
+        [ctx_ptr = ctx.get(),
+         shuffler_ctx_ptr = shuffler_ctx.get()](rapidsmpf::shuffler::PartID pid) {
+            // detached task to push the partition id to the queue
             RAPIDSMPF_EXPECTS(
-                coro::sync_wait(shuffler_ctx_ptr->ready_pids.push(pid))
-                    == coro::queue_produce_result::produced,
-                "failed to push partition id to ready_pids"
+                ctx_ptr->executor()->spawn(shuffler_ctx_ptr->push_to_queue(pid)),
+                "failed to spawn task to push partition id to ready_pids"
             );
         },
         ctx->statistics(),
@@ -233,35 +241,24 @@ Node shuffler_nb(
         [](auto shuffler_ctx, auto ctx, auto ch_out, auto& latch) -> Node {
         co_await ctx->executor()->schedule();
 
-        while (!shuffler_ctx->shuffler->finished() || !shuffler_ctx->ready_pids.empty()) {
-            // try pop the partition id from the queue
-            // Note: using pop() may cause a deadlock, because pop tasks could be in front
-            // of the executor queue. try_pop() gives better control over the execution
-            // order.
-            auto result = shuffler_ctx->ready_pids.try_pop();
-            rapidsmpf::shuffler::PartID pid;
-            if (result.has_value()) {
-                pid = *result;  // partition id is found
-            } else if (result.error() == coro::queue_consume_result::stopped) {
+        while (!shuffler_ctx->shuffler->finished()) {
+            auto pid = co_await shuffler_ctx->ready_pids.pop();
+            if (!pid) {
                 break;  // queue is shutdown, so exit the loop
-            } else {  // queue is empty or busy, so yield and continue
-                co_await ctx->executor()->yield();
-                continue;
             }
 
-            auto packed_chunks = shuffler_ctx->shuffler->extract(pid);
+            auto packed_chunks = shuffler_ctx->shuffler->extract(*pid);
 
             co_await ch_out->send(
-                std::make_unique<PartitionVectorChunk>(pid, std::move(packed_chunks))
+                std::make_unique<PartitionVectorChunk>(*pid, std::move(packed_chunks))
             );
 
             if (shuffler_ctx->shuffler->finished()) {
                 // if the shuffler is finished, shutdown & drain the ready_pids queue
                 co_await shuffler_ctx->ready_pids.shutdown_drain(ctx->executor());
-                // co_await shuffler_ctx->ready_pids.shutdown();
-                co_await ctx->executor()->yield();
             }
         }
+
         latch.count_down();  // this task is finished, so count down the latch
     };
 
@@ -273,6 +270,7 @@ Node shuffler_nb(
 
         co_await latch;  // wait for all extract tasks to finish before clean up
         co_await ch_out->drain(ctx->executor());
+
         shuffler_ctx->shuffler->shutdown();
     };
 

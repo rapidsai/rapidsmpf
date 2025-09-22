@@ -487,11 +487,8 @@ Shuffler::Shuffler(
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
-      finish_counter_{
-          comm_->nranks(),
-          local_partitions(comm_, total_num_partitions, partition_owner),
-          std::move(finished_callback)
-      },
+      local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
+      finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},
       statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
@@ -513,6 +510,10 @@ Shuffler::Shuffler(
         [this](std::size_t amount) -> std::size_t { return spill(amount); },
         /* priority = */ 0
     );
+}
+
+std::span<PartID const> Shuffler::local_partitions() const {
+    return local_partitions_;
 }
 
 Shuffler::~Shuffler() {
