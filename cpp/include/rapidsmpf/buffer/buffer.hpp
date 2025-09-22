@@ -176,7 +176,7 @@ class Buffer {
      * @return `true` if `exclusive_data_access()` has acquired the lock and `unlock()`
      * has not yet been called; `false` otherwise.
      */
-    bool is_locked() const {
+    [[nodiscard]] bool is_locked() const {
         return lock_.load(std::memory_order_acquire);
     }
 
