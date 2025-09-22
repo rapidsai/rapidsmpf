@@ -1165,6 +1165,7 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
 }
 
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
+    progress_worker();
     auto probe = shared_resources_->get_worker()->tagProbe(
         ::ucxx::Tag(static_cast<int>(tag)), UserTagMask
     );
@@ -1191,6 +1192,7 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
 }
 
 std::unique_ptr<std::vector<uint8_t>> UCXX::recv_from(Rank src, Tag tag) {
+    progress_worker();
     auto probe = shared_resources_->get_worker()->tagProbe(
         tag_with_rank(src, static_cast<int>(tag)), ::ucxx::TagMaskFull
     );
