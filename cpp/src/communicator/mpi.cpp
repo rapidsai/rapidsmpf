@@ -124,10 +124,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
 std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
-    if (!msg->is_latest_write_done()) {
-        logger().warn("msg is not ready. This is irrecoverable, terminating.");
-        std::terminate();
-    }
+    RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready");
     RAPIDSMPF_EXPECTS(
         msg->size <= std::numeric_limits<int>::max(),
         "send buffer size exceeds MPI max count"
@@ -141,10 +138,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
 std::unique_ptr<Communicator::Future> MPI::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
-    if (!recv_buffer->is_latest_write_done()) {
-        logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
-        std::terminate();
-    }
+    RAPIDSMPF_EXPECTS(recv_buffer->is_latest_write_done(), "msg must be ready");
     RAPIDSMPF_EXPECTS(
         recv_buffer->size <= std::numeric_limits<int>::max(),
         "recv buffer size exceeds MPI max count"
