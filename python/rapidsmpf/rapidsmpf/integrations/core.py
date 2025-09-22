@@ -394,8 +394,8 @@ class JoinIntegration(Protocol[DataFrameT]):
 
     @staticmethod
     def join_partition(
-        left_input: DataFrameT | Callable[..., DataFrameT],
-        right_input: DataFrameT | Callable[..., DataFrameT],
+        left_input: Callable[[int], DataFrameT],
+        right_input: Callable[[int], DataFrameT],
         bcast_info: BCastJoinInfo,
         options: Any,
     ) -> DataFrameT:
@@ -405,15 +405,13 @@ class JoinIntegration(Protocol[DataFrameT]):
         Parameters
         ----------
         left_input
-            The left partition or a callable that produces
-            chunks of a broadcasted left partition.
-            The bcast_count argument corresponds to the number
-            of chunks the callable can produce.
+            A callable that produces chunks of the left partition.
+            The ``bcast_info.bcast_count`` parameter corresponds
+            to the number of chunks the callable can produce.
         right_input
-            The right partition or a callable that produces
-            chunks of a broadcasted right partition.
-            The bcast_count argument corresponds to the number
-            of chunks the callable can produce.
+            A callable that produces chunks of the right partition.
+            The ``bcast_info.bcast_count`` parameter corresponds
+            to the number of chunks the callable can produce.
         bcast_info
             The broadcast join information.
         options
