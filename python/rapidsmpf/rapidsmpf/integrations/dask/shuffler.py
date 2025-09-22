@@ -25,7 +25,6 @@ from rapidsmpf.integrations.dask.core import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import MutableMapping
     from numbers import Number
 
     from distributed import Client, Worker
@@ -112,6 +111,121 @@ def _get_dask_worker_ranks_and_stage_shuffler(
     _stage_shuffler(shuffle_id, partition_count, dask_worker)
 
     return rank
+
+
+def _shuffle_insertion_graph(
+    client: Client,
+    input_name: str,
+    output_name_root: str,
+    partition_count_in: int,
+    partition_count_out: int,
+    integration: ShufflerIntegration,
+    worker_ranks: dict[int, str],
+    options: Any,
+    *,
+    other_keys: tuple[str | tuple[str, int], ...] = (),
+    shuffle_id: int | None = None,
+) -> tuple[dict[Any, Any], str, dict[Any, str], int]:
+    """
+    Return the insertion task graph for a RapidsMPF shuffle.
+
+    Parameters
+    ----------
+    client
+        The Dask client.
+    input_name
+        The task name for input DataFrame tasks.
+    output_name_root
+        The root name to used for new tasks in the
+        generated graph.
+    partition_count_in
+        Partition count of input collection.
+    partition_count_out
+        Partition count of output collection.
+    integration
+        Dask-integration specification.
+    worker_ranks
+        A dictionary of known worker ranks and addresses.
+    options
+        Optional key-word arguments.
+    other_keys
+        Other keys needed by ``integration.insert_partition``.
+    shuffle_id
+        The shuffle id to use. If not provided, a new shuffler
+        will be staged.
+
+    Returns
+    -------
+    graph
+        The shuffle-insertion task graph.
+    output_barrier_name
+        The name of the output shuffle-barrier task.
+    restricted_keys
+        The restricted keys for the generated task graph.
+    shuffle_id
+        The shuffle id used in the generated task graph.
+        This will be the same as the input shuffle id if one was provided.
+
+    Notes
+    -----
+    This function is used to build the partial task graph needed
+    to shuffle a single table without extracting the partitions.
+    """
+    # Get the shuffle id and worker ranks
+    if shuffle_id is None:
+        # Need a new shuffler
+        shuffle_id = get_new_shuffle_id(partial(_get_occupied_ids_dask, client))
+        client.run(_stage_shuffler, shuffle_id, partition_count_out)
+
+    # Define task names for each phase of the shuffle
+    insert_name = f"rmpf-insert-{output_name_root}"
+    global_barrier_name = f"rmpf-global-barrier-1-{output_name_root}"
+    worker_barrier_name = f"rmpf-worker-barrier-{output_name_root}"
+    output_barrier_name = f"rmpf-global-barrier-2-{output_name_root}"
+
+    # Add tasks to insert each partition into the shuffler
+    graph: dict[Any, Any] = {
+        (insert_name, pid): (
+            insert_partition,
+            get_worker_context,
+            integration.insert_partition,
+            (input_name, pid),
+            pid,
+            partition_count_out,
+            shuffle_id,
+            options,
+            *other_keys,
+        )
+        for pid in range(partition_count_in)
+    }
+
+    # Add global barrier task
+    graph[global_barrier_name] = (
+        global_rmpf_barrier,
+        *graph.keys(),
+    )
+
+    # Add worker barrier tasks
+    worker_barriers: dict[Any, Any] = {}
+    restricted_keys: dict[Any, str] = {}
+    for rank, addr in worker_ranks.items():
+        key = (worker_barrier_name, rank)
+        worker_barriers[rank] = key
+        graph[key] = (
+            _worker_rmpf_barrier,
+            (shuffle_id,),
+            partition_count_out,
+            global_barrier_name,
+        )
+        restricted_keys[key] = addr
+
+    # Add global barrier task
+    graph[output_barrier_name] = (
+        global_rmpf_barrier,
+        *worker_barriers.values(),
+    )
+
+    return graph, output_barrier_name, restricted_keys, shuffle_id
 
 
 def rapidsmpf_shuffle_graph(
@@ -226,58 +340,24 @@ def rapidsmpf_shuffle_graph(
         ).items()
     }
 
-    n_workers = len(worker_ranks)
-    restricted_keys: MutableMapping[Any, str] = {}
-
-    # Define task names for each phase of the shuffle
-    insert_name = f"rmpf-insert-{output_name}"
-    global_barrier_1_name = f"rmpf-global-barrier-1-{output_name}"
-    global_barrier_2_name = f"rmpf-global-barrier-2-{output_name}"
-    worker_barrier_name = f"rmpf-worker-barrier-{output_name}"
-
-    # Add tasks to insert each partition into the shuffler
-    graph: dict[Any, Any] = {
-        (insert_name, pid): (
-            insert_partition,
-            get_worker_context,
-            integration.insert_partition,
-            (input_name, pid),
-            pid,
-            partition_count_out,
-            shuffle_id,
-            options,
-            *other_keys,
-        )
-        for pid in range(partition_count_in)
-    }
-
-    # Add global barrier task
-    graph[(global_barrier_1_name, 0)] = (
-        global_rmpf_barrier,
-        *graph.keys(),
-    )
-
-    # Add worker barrier tasks
-    worker_barriers: dict[Any, Any] = {}
-    for rank, addr in worker_ranks.items():
-        key = (worker_barrier_name, rank)
-        worker_barriers[rank] = key
-        graph[key] = (
-            _worker_rmpf_barrier,
-            (shuffle_id,),
-            partition_count_out,
-            (global_barrier_1_name, 0),
-        )
-        restricted_keys[key] = addr
-
-    # Add global barrier task
-    graph[(global_barrier_2_name, 0)] = (
-        global_rmpf_barrier,
-        *worker_barriers.values(),
+    # Generate the shuffle-insertion graph.
+    # The same partial-graph logic is used for joins.
+    graph, shuffled_name, restricted_keys, _ = _shuffle_insertion_graph(
+        client,
+        input_name,
+        output_name,
+        partition_count_in,
+        partition_count_out,
+        integration,
+        worker_ranks,
+        options,
+        other_keys=other_keys,
+        shuffle_id=shuffle_id,
     )
 
     # Add extraction tasks
     output_keys = []
+    n_workers = len(worker_ranks)
     for part_id in range(partition_count_out):
         rank = part_id % n_workers
         output_keys.append((output_name, part_id))
@@ -287,7 +367,7 @@ def rapidsmpf_shuffle_graph(
             integration.extract_partition,
             shuffle_id,
             part_id,
-            (global_barrier_2_name, 0),
+            shuffled_name,
             options,
         )
         # Assume round-robin partition assignment
@@ -303,100 +383,6 @@ def rapidsmpf_shuffle_graph(
     )
 
     return graph
-
-
-def _partial_shuffle_graph(
-    client: Client,
-    input_name: str,
-    output_name: str,
-    partition_count_in: int,
-    partition_count_out: int,
-    integration: ShufflerIntegration,
-    worker_ranks: dict[int, str],
-    options: Any,
-) -> tuple[int, dict[Any, str], dict[Any, Any]]:
-    """
-    Return the task graph for a partial RapidsMPF shuffle.
-
-    Parameters
-    ----------
-    client
-        The Dask client.
-    input_name
-        The task name for input DataFrame tasks.
-    output_name
-        The task name for output DataFrame tasks.
-    partition_count_in
-        Partition count of input collection.
-    partition_count_out
-        Partition count of output collection.
-    integration
-        Dask-integration specification.
-    worker_ranks
-        A dictionary of worker ranks and addresses.
-    options
-        Optional key-word arguments.
-
-    Returns
-    -------
-    A tuple containing the shuffle id, restricted keys, and task graph.
-
-    Notes
-    -----
-    This function is used to build the partial task graph needed
-    for each side of a hash-based join operation.
-    """
-    # Get the operation id
-    shuffle_id = get_new_shuffle_id(partial(_get_occupied_ids_dask, client))
-    client.run(_stage_shuffler, shuffle_id, partition_count_out)
-    restricted_keys: dict[Any, str] = {}
-
-    # Define task names for each phase of the shuffle
-    insert_name = f"rmpf-insert-{output_name}"
-    global_barrier_name = f"rmpf-global-shuffle-barrier-{output_name}"
-    worker_barrier_name = f"rmpf-worker-barrier-{output_name}"
-
-    # Add tasks to insert each partition into the shuffler
-    graph: dict[Any, Any] = {
-        (insert_name, pid): (
-            insert_partition,
-            get_worker_context,
-            integration.insert_partition,
-            (input_name, pid),
-            pid,
-            partition_count_out,
-            shuffle_id,
-            options,
-        )
-        for pid in range(partition_count_in)
-    }
-
-    # Add global barrier task
-    graph[global_barrier_name] = (
-        global_rmpf_barrier,
-        *graph.keys(),
-    )
-
-    # Add worker barrier tasks
-    worker_barriers: dict[Any, Any] = {}
-    for rank, addr in worker_ranks.items():
-        key = (worker_barrier_name, rank)
-        worker_barriers[rank] = key
-        graph[key] = (
-            _worker_rmpf_barrier,
-            (shuffle_id,),
-            partition_count_out,
-            global_barrier_name,
-        )
-        restricted_keys[key] = addr
-
-    # Add global barrier task
-    graph[output_name] = (
-        global_rmpf_barrier,
-        *worker_barriers.values(),
-    )
-
-    return shuffle_id, restricted_keys, graph
 
 
 def _gather_worker_shuffle_statistics(

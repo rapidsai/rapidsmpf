@@ -13,7 +13,7 @@ from rapidsmpf.integrations.dask.core import (
     get_dask_worker_rank,
     get_worker_context,
 )
-from rapidsmpf.integrations.dask.shuffler import _partial_shuffle_graph
+from rapidsmpf.integrations.dask.shuffler import _shuffle_insertion_graph
 
 if TYPE_CHECKING:
     from rapidsmpf.integrations.core import JoinIntegration
@@ -96,11 +96,15 @@ def rapidsmpf_join_graph(
 
         # Shuffle left side (if necessary)
         if not left_pre_shuffled or left_partition_count_in != partition_count_out:
-            left_barrier_name = f"rmpf-shuffle-left-{output_name}"
-            left_op_id, left_restricted_keys, left_graph = _partial_shuffle_graph(
+            (
+                left_graph,
+                left_barrier_name,
+                left_restricted_keys,
+                left_op_id,
+            ) = _shuffle_insertion_graph(
                 client,
                 left_name,
-                left_barrier_name,
+                f"left-{output_name}",
                 left_partition_count_in,
                 partition_count_out,
                 integration.get_shuffler_integration(),
@@ -112,11 +116,15 @@ def rapidsmpf_join_graph(
 
         # Shuffle right side (if necessary)
         if not right_pre_shuffled or right_partition_count_in != partition_count_out:
-            right_barrier_name = f"rmpf-shuffle-right-{output_name}"
-            right_op_id, right_restricted_keys, right_graph = _partial_shuffle_graph(
+            (
+                right_graph,
+                right_barrier_name,
+                right_restricted_keys,
+                right_op_id,
+            ) = _shuffle_insertion_graph(
                 client,
                 right_name,
-                right_barrier_name,
+                f"right-{output_name}",
                 right_partition_count_in,
                 partition_count_out,
                 integration.get_shuffler_integration(),

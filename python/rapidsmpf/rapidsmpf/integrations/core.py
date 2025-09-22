@@ -426,7 +426,7 @@ class JoinIntegration(Protocol[DataFrameT]):
         ...
 
 
-class FetchPartition(Generic[DataFrameT]):
+class FetchJoinPartition(Generic[DataFrameT]):
     """
     Fetch a left or right partition for a join operation.
 
@@ -597,7 +597,7 @@ def join_partition(
     A joined DataFrame partition.
     """
 
-    def _get_input(side: Literal["left", "right"]) -> FetchPartition:
+    def _get_input(side: Literal["left", "right"]) -> FetchJoinPartition:
         """Return the input for one side of the join."""
         if side == "left":
             op_id = left_op_id
@@ -610,7 +610,7 @@ def join_partition(
         else:
             raise ValueError(f"Invalid side: {side}")
 
-        return FetchPartition(
+        return FetchJoinPartition(
             side,
             part_id,
             get_context,
