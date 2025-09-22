@@ -142,9 +142,6 @@ class CudaEvent {
 
   private:
     cudaEvent_t event_{};
-    // To minimize calls to cudaEventQuery(), we cache a "true" result.
-    mutable bool done_;
-    mutable std::mutex done_mutex_;
 };
 
 

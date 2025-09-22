@@ -42,22 +42,15 @@ CudaEvent& CudaEvent::operator=(CudaEvent&& other) {
 }
 
 void CudaEvent::record(rmm::cuda_stream_view stream) {
-    std::lock_guard<std::mutex> lock(done_mutex_);
-    done_ = false;
     RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream));
 }
 
 [[nodiscard]] bool CudaEvent::CudaEvent::is_ready() const {
-    std::lock_guard<std::mutex> lock(done_mutex_);
-    if (done_) {
-        return true;
-    }
     auto result = cudaEventQuery(event_);
     if (result != cudaSuccess && result != cudaErrorNotReady) {
         RAPIDSMPF_CUDA_TRY(result);
     }
-    done_ = result == cudaSuccess;
-    return done_;
+    return result == cudaSuccess;
 }
 
 void CudaEvent::CudaEvent::host_wait() const {
