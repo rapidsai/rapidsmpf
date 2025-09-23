@@ -63,7 +63,9 @@ ShufflerAsync::ShufflerAsync(
           ctx_->br(),
           [this](shuffler::PartID pid) -> void {
               ctx_->comm()->logger().trace("notifying waiters that ", pid, " is ready");
-              // detached task to notify waiters that the partition is ready
+              // Libcoro may resume suspended coroutines during cv notification, using the
+              // caller thread. Submitting a detached task ensures that the progress
+              // thread is not used to resume the coroutines.
               RAPIDSMPF_EXPECTS(
                   ctx_->executor()->spawn(insert_and_notify(mtx_, cv_, ready_pids_, pid)),
                   "failed to spawn task to notify waiters that the partition is ready"

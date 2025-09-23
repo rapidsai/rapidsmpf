@@ -34,13 +34,9 @@ class BaseStreamingFixture : public ::testing::Test {
     void SetUpWithThreads(int num_streaming_threads) {
         // create a new options object, since we can not modify values in the global
         // options object
-        rapidsmpf::config::Options options(GlobalEnvironment->options().get_strings());
-        RAPIDSMPF_EXPECTS(
-            options.insert_if_absent(
-                "num_streaming_threads", std::to_string(num_streaming_threads)
-            ),
-            "num_streaming_threads already set"
-        );
+        auto env_vars = rapidsmpf::config::get_environment_variables();
+        env_vars["num_streaming_threads"] = std::to_string(num_streaming_threads);
+        rapidsmpf::config::Options options(std::move(env_vars));
 
         stream = cudf::get_default_stream();
         br = std::make_unique<rapidsmpf::BufferResource>(mr_cuda);
