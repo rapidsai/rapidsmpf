@@ -414,27 +414,6 @@ class SharedResources {
         });
     }
 
-    void ensure_progress_thread_progress() {
-        if (worker_->isProgressThreadRunning()) {
-            // Ensure a complete progress thread iteration occurs
-            while (true) {
-                bool pre = false;
-                if (!worker_->registerGenericPre([&pre]() { pre = true; }, 100000))
-                    continue;
-                if (pre)
-                    break;
-            }
-
-            while (true) {
-                bool post = false;
-                if (!worker_->registerGenericPost([&post]() { post = true; }, 100000))
-                    continue;
-                if (post)
-                    break;
-            }
-        }
-    }
-
     void progress_worker() {
         decltype(delayed_progress_callbacks_) delayed_progress_callbacks{};
         {
@@ -443,9 +422,7 @@ class SharedResources {
         }
         for (auto& callback : delayed_progress_callbacks)
             callback();
-        if (worker_->isProgressThreadRunning()) {
-            ensure_progress_thread_progress();
-        } else {
+        if (!worker_->isProgressThreadRunning()) {
             // TODO: Support blocking progress mode in addition to polling
             worker_->progress();
         }
