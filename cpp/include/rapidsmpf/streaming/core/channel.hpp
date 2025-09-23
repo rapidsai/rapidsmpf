@@ -271,11 +271,11 @@ class ThrottlingAdaptor {
         /**
          * @brief Create a ticket permitting a send into a channel.
          *
-         * @param ch The channel to send into.
+         * @param channel The channel to send into.
          * @param semaphore Semaphore to release after send is complete.
          */
-        Ticket(Channel* ch, semaphore_type* semaphore)
-            : ch_{ch}, semaphore_{semaphore} {};
+        Ticket(Channel* channel, semaphore_type* semaphore)
+            : ch_{channel}, semaphore_{semaphore} {};
 
       private:
         Channel* ch_;
@@ -286,7 +286,7 @@ class ThrottlingAdaptor {
     /**
      * @brief Create an adaptor that throttles sends into a channel.
      *
-     * @param ch Channel to throttle.
+     * @param channel Channel to throttle.
      * @param max_tickets Maximum number of simultaneous tickets for sending into the
      * channel.
      *
@@ -317,8 +317,10 @@ class ThrottlingAdaptor {
      * co_await coro::when_all(std::move(tasks));
      * @endcode
      */
-    explicit ThrottlingAdaptor(std::shared_ptr<Channel> ch, std::ptrdiff_t max_tickets)
-        : ch_{std::move(ch)}, semaphore_(max_tickets) {}
+    explicit ThrottlingAdaptor(
+        std::shared_ptr<Channel> channel, std::ptrdiff_t max_tickets
+    )
+        : ch_{std::move(channel)}, semaphore_(max_tickets) {}
 
     /**
      * @brief Obtain a ticket to send a message.
