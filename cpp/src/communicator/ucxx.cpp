@@ -830,8 +830,24 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
     Rank nranks,
     std::optional<RemoteAddress> remote_address,
-    ProgressMode progress_mode
+    config::Options options
 ) {
+    auto progress_mode = options.get<ProgressMode>("ucxx_progress_mode", [](auto s) {
+        if (s.empty()) {
+            return ProgressMode::ThreadBlocking;
+        } else if (s == "blocking") {
+            return ProgressMode::Blocking;
+        } else if (s == "polling") {
+            return ProgressMode::Polling;
+        } else if (s == "thread-blocking") {
+            return ProgressMode::ThreadBlocking;
+        } else if (s == "thread-polling") {
+            return ProgressMode::ThreadPolling;
+        } else {
+            RAPIDSMPF_FAIL("Invalid progress mode");
+        }
+    });
+
     auto create_worker = [progress_mode]() {
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
         auto worker = context->createWorker(false);

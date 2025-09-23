@@ -45,22 +45,6 @@ std::shared_ptr<UCXX> init_using_mpi(
 ) {
     RAPIDSMPF_EXPECTS(::rapidsmpf::mpi::is_initialized(), "MPI not initialized");
 
-    auto progress_mode = options.get<ProgressMode>("ucxx_progress_mode", [](auto s) {
-        if (s.empty()) {
-            return ProgressMode::ThreadBlocking;
-        } else if (s == "blocking") {
-            return ProgressMode::Blocking;
-        } else if (s == "polling") {
-            return ProgressMode::Polling;
-        } else if (s == "thread-blocking") {
-            return ProgressMode::ThreadBlocking;
-        } else if (s == "thread-polling") {
-            return ProgressMode::ThreadPolling;
-        } else {
-            RAPIDSMPF_FAIL("Invalid progress mode");
-        }
-    });
-
     // Ensure CUDA context is created before UCX is initialized.
     cudaFree(nullptr);
 
@@ -72,7 +56,7 @@ std::shared_ptr<UCXX> init_using_mpi(
     std::string root_worker_address_str{};
     std::shared_ptr<UCXX> comm;
     if (rank == 0) {
-        auto ucxx_initialized_rank = init(nullptr, nranks, std::nullopt, progress_mode);
+        auto ucxx_initialized_rank = init(nullptr, nranks, std::nullopt, options);
         comm = std::make_shared<UCXX>(std::move(ucxx_initialized_rank), options);
 
         root_listener_address = comm->listener_address();
@@ -85,8 +69,7 @@ std::shared_ptr<UCXX> init_using_mpi(
     if (rank != 0) {
         auto root_worker_address =
             ::ucxx::createAddressFromString(root_worker_address_str);
-        auto ucxx_initialized_rank =
-            init(nullptr, nranks, root_worker_address, progress_mode);
+        auto ucxx_initialized_rank = init(nullptr, nranks, root_worker_address, options);
         comm = std::make_shared<UCXX>(std::move(ucxx_initialized_rank), options);
     }
 
