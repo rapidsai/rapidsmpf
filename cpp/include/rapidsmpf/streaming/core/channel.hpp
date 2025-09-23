@@ -220,21 +220,21 @@ class ThrottlingAdaptor {
          *
          * Suspends if the channel is full.
          *
-         * @param msg The msg to send.
          * @throws std::logic_error If attempting to send more than once with the same
          * ticket.
+         *
+         * @param msg The msg to send.
          *
          * @return A coroutine that evaluates to a pair of true if the msg was
          * successfully sent or false if the channel was shut down and a release task to
          * be awaited on.
-
-         * @note It is permissible to release a receipt after the
-         * channel is shut down, but any waiters will wake in a failed
-         * state.
          *
-         * @note To avoid immediately transferring control in this
-         * executing thread to any waiting tasks, one should `yield` in
-         * the executor before awaiting the release task.
+         * @note It is permissible to release a receipt after the channel is shut down,
+         * but any waiters will wake in a failed state.
+         *
+         * @note To avoid immediately transferring control in this executing thread to any
+         * waiting tasks, one should `yield` in the executor before awaiting the release
+         * task.
          *
          * Here is a typical pattern:
          * @code{.cpp}
@@ -245,16 +245,14 @@ class ThrottlingAdaptor {
          * co_await receipt;
          * @endcode
          *
-         * The reason for the `yield` is that when releasing the
-         * semaphore, libcoro transfers control directly from the
-         * thread executing a `release` to any suspended `acquire`
-         * call and keeps executing. Suppose we have `N` threads
-         * suspended at `acquire`. If a thread makes it to `release`
-         * we typically don't want it to pick up the next suspended
-         * acquire task, we want it to park and let someone else pick
-         * up a task. By yielding before `release` we introduce a
-         * point where we can swap the thread out for another one by
-         * moving this coroutine to the back of the queue.
+         * The reason for the `yield` is that when releasing the semaphore, libcoro
+         * transfers control directly from the thread executing a `release` to any
+         * suspended `acquire` call and keeps executing. Suppose we have `N` threads
+         * suspended at `acquire`. If a thread makes it to `release` we typically don't
+         * want it to pick up the next suspended acquire task, we want it to park and let
+         * someone else pick up a task. By yielding before `release` we introduce a point
+         * where we can swap the thread out for another one by moving this coroutine to
+         * the back of the queue.
          */
         [[nodiscard]] coro::task<std::pair<bool, coro::task<void>>> send(Message msg) {
             RAPIDSMPF_EXPECTS(ch_, "Ticket has already been used", std::logic_error);
@@ -307,8 +305,8 @@ class ThrottlingAdaptor {
      *     auto ticket = co_await throttled.acquire();
      *     auto data = do_expensive_work();
      *     auto [_, receipt] = co_await ticket.send(data);
-     *     // Not for correctness, but to allow other threads to pick
-     *     // up awaiters at acquire
+     *     // Not for correctness, but to allow other threads to pick up awaiters at
+     *     // acquire
      *     co_await executor->yield();
      *     co_await receipt;
      * };
