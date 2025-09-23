@@ -236,7 +236,6 @@ Node shuffler_nb(
         std::vector<rapidsmpf::shuffler::PartID> finished(total_num_partitions);
         std::iota(finished.begin(), finished.end(), 0);
         shuffler_ctx->shuffler->insert_finished(std::move(finished));
-
         co_return;
     };
 
