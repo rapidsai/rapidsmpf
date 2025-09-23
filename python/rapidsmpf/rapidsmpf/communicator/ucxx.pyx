@@ -42,14 +42,14 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace "rapidsmpf::ucxx"
         shared_ptr[Worker] worker,
         Rank nranks,
         shared_ptr[Address] remote_address,
-        ProgressMode progress_mode
+        cpp_Options options
     )
 
     unique_ptr[cpp_UCXX_InitializedRank] init(
         shared_ptr[Worker] worker,
         Rank nranks,
         nullopt_t remote_address,
-        ProgressMode progress_mode
+        cpp_Options options
     )
 
     cdef cppclass cpp_UCXX_Communicator "rapidsmpf::ucxx::UCXX":
@@ -67,15 +67,14 @@ cdef Communicator cpp_new_communicator(
     shared_ptr[Worker] worker,
     shared_ptr[Address] root_address,
     Options options,
-    ProgressMode progress_mode,
 ):
     cdef unique_ptr[cpp_UCXX_InitializedRank] ucxx_initialized_rank
     cdef Communicator ret = Communicator.__new__(Communicator)
     with nogil:
         if root_address == <shared_ptr[Address]>nullptr:
-            ucxx_initialized_rank = init(worker, nranks, nullopt, progress_mode)
+            ucxx_initialized_rank = init(worker, nranks, nullopt, options._handle)
         else:
-            ucxx_initialized_rank = init(worker, nranks, root_address, progress_mode)
+            ucxx_initialized_rank = init(worker, nranks, root_address, options._handle)
         ret._handle = make_shared[cpp_UCXX_Communicator](
             move(ucxx_initialized_rank), options._handle
         )
@@ -87,7 +86,6 @@ def new_communicator(
     UCXWorker ucx_worker,
     UCXAddress root_ucxx_address,
     Options options not None,
-    ProgressMode progress_mode = ProgressMode.ThreadBlocking,
 ):
     """
     Create a new UCXX communicator with the given number of ranks.
@@ -104,8 +102,6 @@ def new_communicator(
         An existing UCXX worker to use if specified, otherwise one will be created.
     root_ucxx_address
         The UCXX address of the root rank (only specified for non-root ranks).
-    progress_mode
-        The progress mode to use with the UCXX worker.
     options
         Configuration options.
 
@@ -127,7 +123,6 @@ def new_communicator(
         ucx_worker_ptr,
         root_ucxx_address_ptr,
         options,
-        progress_mode,
     )
 
 

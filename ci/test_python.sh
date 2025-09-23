@@ -40,7 +40,7 @@ cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/../
 rapids-logger "Pytest RapidsMPF (MPI+UCXX)"
 ./ci/run_pytests.sh && EXITCODE=$? || EXITCODE=$?;
 
-rapids-logger "pytest RapidsMPF (UCXX polling mode)"
+rapids-logger "Pytest RapidsMPF (UCXX polling mode)"
 RAPIDSMPF_UCXX_PROGRESS_MODE=polling ./ci/run_pytests.sh --disable-mpi && EXITCODE=$? || EXITCODE=$?;
 
 rapids-logger "Test script exiting with value: $EXITCODE"

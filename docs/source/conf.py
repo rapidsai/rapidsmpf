@@ -84,7 +84,6 @@ nitpick_ignore_regex = [
     # autodoc fails to generate references for integer methods (real, image, etc.)
     # for IntEnums coming from Cython.
     ("py:obj", "rapidsmpf.communicator.communicator.LOG_LEVEL.*"),
-    ("py:obj", "rapidsmpf.communicator.ucxx.ProgressMode.*"),
     ("py:obj", "rapidsmpf.buffer.buffer.MemoryType.*"),
     ("py:obj", "(denominator|imag|numerator|real)"),
     ('py:obj', 'rapidsmpf.rmm_resource_adaptor.AllocType.*'),
