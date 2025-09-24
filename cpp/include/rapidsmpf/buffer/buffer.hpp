@@ -169,8 +169,8 @@ class Buffer {
      * locked.
      *
      * Use this when integrating with non-stream-aware consumer APIs that require a
-     * raw pointer and cannot be expressed as work on a CUDA stream (e.g., MPI,
-     * blocking host I/O).
+     * raw pointer and cannot be expressed as work on a CUDA stream (e.g., MPI, blocking
+     * host I/O).
      *
      * @note Prefer `write_access(stream, ...)` if you can express the operation as a
      * single callable on a stream, even if that requires manually synchronizing the
@@ -187,8 +187,6 @@ class Buffer {
 
     /**
      * @brief Release the exclusive lock acquired by `exclusive_data_access()`.
-     *
-     * @post `is_locked() == false`.
      */
     void unlock();
 
@@ -245,7 +243,7 @@ class Buffer {
      *   MPI_Isend(buffer.data(), buffer.size(), MPI_BYTE, dst, tag, comm, &req);
      * } else {
      *   // Ensure completion before handing to MPI.
-     *   cudaStreamSynchronize(buffer.stream());
+     *   buffer.stream().synchronize();
      *   MPI_Isend(buffer.data(), buffer.size(), MPI_BYTE, dst, tag, comm, &req);
      * }
      * @endcode
