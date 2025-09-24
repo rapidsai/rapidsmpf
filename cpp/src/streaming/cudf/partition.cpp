@@ -33,7 +33,7 @@ Node partition_and_pack(
         auto reservation = ctx->br()->reserve_and_spill(
             MemoryType::DEVICE, table.make_available_cost(), false
         );
-        auto tbl = table.make_available(reservation, table.stream());
+        auto tbl = table.make_available(reservation);
 
         PartitionMapChunk partition_map{
             .sequence_number = tbl.sequence_number(),
@@ -87,7 +87,7 @@ Node unpack_and_concat(
             stream = partition_vec.stream;
         }
         std::unique_ptr<cudf::table> ret = rapidsmpf::unpack_and_concat(
-            rapidsmpf::unspill_partitions(std::move(data), stream, ctx->br(), false),
+            rapidsmpf::unspill_partitions(std::move(data), ctx->br(), false),
             stream,
             ctx->br(),
             ctx->statistics()

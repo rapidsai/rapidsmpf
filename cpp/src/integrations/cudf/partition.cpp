@@ -10,17 +10,18 @@
 #include <cudf/copying.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/span.hpp>
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/utils.hpp>
-
-#include "rapidsmpf/buffer/buffer.hpp"
 
 namespace rapidsmpf {
 
@@ -179,8 +180,10 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 
     std::vector<cudf::table_view> unpacked;
     std::vector<cudf::packed_columns> references;
+    std::vector<rmm::cuda_stream_view> packed_data_streams;
     unpacked.reserve(partitions.size());
     references.reserve(partitions.size());
+    packed_data_streams.reserve(partitions.size());
 
     // Reserve device memory for the unspill AND the cudf::unpack() calls.
     with_memory_reservation(
@@ -190,11 +193,14 @@ std::unique_ptr<cudf::table> unpack_and_concat(
         [&](auto& reservation) {
             for (auto& packed_data : partitions) {
                 if (!packed_data.empty()) {
+                    if (packed_data.data->size > 0) {  // No need to sync empty buffers.
+                        packed_data_streams.push_back(packed_data.data->stream());
+                    }
                     unpacked.push_back(
                         cudf::unpack(references.emplace_back(
                             std::move(packed_data.metadata),
                             br->move_to_device_buffer(
-                                std::move(packed_data.data), stream, reservation
+                                std::move(packed_data.data), reservation
                             )
                         ))
                     );
@@ -202,6 +208,15 @@ std::unique_ptr<cudf::table> unpack_and_concat(
             }
         }
     );
+
+    // We need to synchronize `stream` with the packed_data and update their
+    // underlying device buffers to use `stream` going forward. This ensures
+    // the packed data are not deallocated before we have a chance to
+    // concatenate them on `stream`.
+    cuda_stream_join(std::array{stream}, packed_data_streams);
+    for (cudf::packed_columns& packed_columns : references) {
+        packed_columns.gpu_data->set_stream(stream);
+    }
 
     // Reserve memory for the concatenation.
     return with_memory_reservation(
@@ -212,7 +227,6 @@ std::unique_ptr<cudf::table> unpack_and_concat(
 
 std::vector<PackedData> spill_partitions(
     std::vector<PackedData>&& partitions,
-    rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics
 ) {
@@ -232,7 +246,7 @@ std::vector<PackedData> spill_partitions(
             ret.reserve(partitions.size());
             for (auto& [metadata, data] : partitions) {
                 ret.emplace_back(
-                    std::move(metadata), br->move(std::move(data), stream, reservation)
+                    std::move(metadata), br->move(std::move(data), reservation)
                 );
             }
             statistics->add_duration_stat(
@@ -246,7 +260,6 @@ std::vector<PackedData> spill_partitions(
 
 std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
-    rmm::cuda_stream_view stream,
     BufferResource* br,
     bool allow_overbooking,
     std::shared_ptr<Statistics> statistics
@@ -268,7 +281,7 @@ std::vector<PackedData> unspill_partitions(
             ret.reserve(partitions.size());
             for (auto& [metadata, data] : partitions) {
                 ret.emplace_back(
-                    std::move(metadata), br->move(std::move(data), stream, reservation)
+                    std::move(metadata), br->move(std::move(data), reservation)
                 );
             }
 

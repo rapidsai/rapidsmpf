@@ -70,13 +70,18 @@ using MemoryAvailableMap =
 MemoryAvailableMap get_memory_available_map(rapidsmpf::MemoryType priorities) {
     using namespace rapidsmpf;
 
-    // We set all memory types to use an available function that always return zero.
-    BufferResource::MemoryAvailable always_zero = []() -> std::int64_t { return 0; };
+    // We set all memory types to use an available function that is unlimited.
     MemoryAvailableMap ret = {
-        {MemoryType::DEVICE, always_zero}, {MemoryType::HOST, always_zero}
+        {MemoryType::DEVICE, std::numeric_limits<std::int64_t>::max},
+        {MemoryType::HOST, std::numeric_limits<std::int64_t>::max}
     };
-    // And then set the prioritized memory type to use the max function.
-    ret.at(priorities) = std::numeric_limits<std::int64_t>::max;
+
+    // And then set device memory to zero if it isn't prioritized.
+    if (priorities != MemoryType::DEVICE) {
+        ret.at(MemoryType::DEVICE) = []() -> std::int64_t { return 0; };
+    }
+    // Note, we never set host memory to zero because it is used to allocate
+    // stuff like metadata and control messages.
     return ret;
 }
 
@@ -158,7 +163,7 @@ void test_shuffler(
         auto finished_partition = shuffler.wait_any(wait_timeout);
         auto packed_chunks = shuffler.extract(finished_partition);
         auto result = rapidsmpf::unpack_and_concat(
-            rapidsmpf::unspill_partitions(std::move(packed_chunks), stream, br, true),
+            rapidsmpf::unspill_partitions(std::move(packed_chunks), br, true),
             stream,
             br,
             nullptr,  // statistics
@@ -744,7 +749,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     {
         // Now extract triggers spilling of the partition not being extracted.
         std::vector<rapidsmpf::PackedData> output_chunks =
-            rapidsmpf::unspill_partitions(shuffler.extract(0), stream, &br, true);
+            rapidsmpf::unspill_partitions(shuffler.extract(0), &br, true);
         EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
 
         // And insert also triggers spilling. We end up with zero device allocations.
@@ -756,10 +761,10 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 
     // Extract and unspill both partitions.
     std::vector<rapidsmpf::PackedData> out0 =
-        rapidsmpf::unspill_partitions(shuffler.extract(0), stream, &br, true);
+        rapidsmpf::unspill_partitions(shuffler.extract(0), &br, true);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
     std::vector<rapidsmpf::PackedData> out1 =
-        rapidsmpf::unspill_partitions(shuffler.extract(1), stream, &br, true);
+        rapidsmpf::unspill_partitions(shuffler.extract(1), &br, true);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
     // Disable spilling and insert the first partition.
