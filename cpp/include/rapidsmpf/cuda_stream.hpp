@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include <ranges>
 
 #include <rapidsmpf/cuda_event.hpp>
 
@@ -66,6 +67,35 @@ void cuda_stream_join(
             }
         }
     }
+}
+
+/**
+ * @brief Make a downstream CUDA stream wait on an upstream CUDA stream.
+ *
+ * This call is asynchronous with respect to the host thread; no host-side
+ * blocking occurs.
+ *
+ * Equivalent to calling the range overload with one upstream and one downstream.
+ *
+ * @param downstream Stream that must not run ahead.
+ * @param upstream Stream whose already-enqueued work must complete first.
+ * @param event Optional CUDA event used for synchronization. A unique event per
+ * call is not required; the same event may be reused. If `nullptr`, a temporary
+ * event is created internally to avoid the small overhead of constructing one
+ * per call site.
+ *
+ * @note If @p downstream and @p upstream are identical, this function is a no-op.
+ *
+ * @see cuda_stream_join(Range1 const&, Range2 const&, CudaEvent*)
+ */
+inline void cuda_stream_join(
+    rmm::cuda_stream_view downstream,
+    rmm::cuda_stream_view upstream,
+    CudaEvent* event = nullptr
+) {
+    return cuda_stream_join(
+        std::views::single(downstream), std::views::single(upstream), event
+    );
 }
 
 }  // namespace rapidsmpf
