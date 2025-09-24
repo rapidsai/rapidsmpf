@@ -80,6 +80,13 @@ cdef class Statistics:
         """
         return deref(self._handle).enabled()
 
+    @property
+    def mr(self):
+        """
+        The RMM Memory Resource this Statistics was initialized with.
+        """
+        return self._mr
+
     def report(self):
         """
         Generates a report of statistics in a formatted string.

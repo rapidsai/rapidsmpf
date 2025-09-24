@@ -114,6 +114,11 @@ cdef class BufferResource:
         """
         return self._handle.get()
 
+    @property
+    def device_mr(self):
+        """The RMM Memory Resource this BufferResource was initialized with."""
+        return self._mr
+
     def memory_reserved(self, MemoryType mem_type):
         """
         Get the current reserved memory of the specified memory type.

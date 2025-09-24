@@ -440,23 +440,35 @@ def rmpf_worker_setup(
     This function creates a new RMM memory pool, and
     sets it as the current device resource.
     """
-    # Insert RMM resource adaptor on top of the current RMM resource stack.
-    mr = RmmResourceAdaptor(
-        upstream_mr=rmm.mr.get_current_device_resource(),
-        fallback_mr=(
-            # Use a managed memory resource if OOM protection is enabled.
-            rmm.mr.ManagedMemoryResource()
-            if options.get_or_default(
-                f"{option_prefix}oom_protection", default_value=False
-            )
-            else None
-        ),
-    )
+    # Ensure that an RMM resource adaptor (or a StatisticsResourceAdaptor wrapping one)
+    # is on top of the current RMM resource stack.
+    upstream_mr = rmm.mr.get_current_device_resource()
+
+    if isinstance(upstream_mr, RmmResourceAdaptor):
+        resource_adaptor = mr = upstream_mr
+    elif isinstance(upstream_mr, rmm.mr.StatisticsResourceAdaptor) and isinstance(
+        upstream_mr.upstream_mr, RmmResourceAdaptor
+    ):
+        mr = upstream_mr
+        resource_adaptor = mr.upstream_mr
+    else:
+        resource_adaptor = mr = RmmResourceAdaptor(
+            upstream_mr=upstream_mr,
+            fallback_mr=(
+                # Use a managed memory resource if OOM protection is enabled.
+                rmm.mr.ManagedMemoryResource()
+                if options.get_or_default(
+                    f"{option_prefix}oom_protection", default_value=False
+                )
+                else None
+            ),
+        )
+
     rmm.mr.set_current_device_resource(mr)
 
     # Print statistics at worker shutdown.
     if options.get_or_default(f"{option_prefix}statistics", default_value=False):
-        statistics = Statistics(enable=True, mr=mr)
+        statistics = Statistics(enable=True, mr=resource_adaptor)
     else:
         statistics = Statistics(enable=False)
 
@@ -478,7 +490,7 @@ def rmpf_worker_setup(
     )
     memory_available = {
         MemoryType.DEVICE: LimitAvailableMemory(
-            mr, limit=int(total_memory * spill_device)
+            resource_adaptor, limit=int(total_memory * spill_device)
         )
     }
     br = BufferResource(
