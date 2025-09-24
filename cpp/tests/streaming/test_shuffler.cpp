@@ -437,6 +437,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
 }
 
 TEST_F(BaseStreamingFixture, extract_any_before_extract) {
+    GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     static constexpr OpID op_id = 0;
     static constexpr size_t n_partitions = 10;
     auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
@@ -471,6 +472,7 @@ class CompetingShufflerAsyncTest : public BaseStreamingFixture {
     // produce_results_fn is a function that produces the results of the extract_any_async
     // and extract_async coroutines.
     void run_test(auto produce_results_fn) {
+        GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
         static constexpr OpID op_id = 0;
         shuffler::PartID const n_partitions = ctx->comm()->nranks();
         shuffler::PartID const this_pid = ctx->comm()->rank();
