@@ -14,12 +14,12 @@
 
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/communicator/communication_interface.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
-#include <rapidsmpf/shuffler/communication_interface.hpp>
 #include <rapidsmpf/shuffler/finish_counter.hpp>
 #include <rapidsmpf/shuffler/postbox.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -94,6 +94,8 @@ class Shuffler {
      * @param finished_callback Callback to notify when a partition is finished.
      * @param statistics The statistics instance to use (disabled by default).
      * @param partition_owner Function to determine partition ownership.
+     * @param comm_interface Optional custom communication interface. If not provided,
+     * uses the default implementation.
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
@@ -104,7 +106,8 @@ class Shuffler {
         BufferResource* br,
         FinishedCallback&& finished_callback,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-        PartitionOwner partition_owner = round_robin
+        PartitionOwner partition_owner = round_robin,
+        std::unique_ptr<communicator::CommunicationInterface> comm_interface = nullptr
     );
 
     /**
@@ -131,7 +134,7 @@ class Shuffler {
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<CommunicationInterface> comm_interface = nullptr
+        std::unique_ptr<communicator::CommunicationInterface> comm_interface = nullptr
     )
         : Shuffler(
               comm,
@@ -342,7 +345,7 @@ class Shuffler {
                                              ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
-    std::unique_ptr<CommunicationInterface> comm_interface_;
+    std::unique_ptr<communicator::CommunicationInterface> comm_interface_;
     std::shared_ptr<ProgressThread> progress_thread_;
     ProgressThread::FunctionID progress_thread_function_id_;
     OpID const op_id_;

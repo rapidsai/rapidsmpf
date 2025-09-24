@@ -15,10 +15,11 @@
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/communicator/communication_interface.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
-#include <rapidsmpf/shuffler/communication_interface.hpp>
+#include <rapidsmpf/shuffler/chunk_message_adapter.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -176,7 +177,6 @@ class Shuffler::Progress {
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffler.Progress", p_iters++);
         auto const t0_event_loop = Clock::now();
 
-        auto& log = shuffler_.comm_->logger();
         auto& stats = *shuffler_.statistics_;
 
         // Submit outgoing chunks to the communication interface
@@ -186,23 +186,23 @@ class Shuffler::Progress {
             RAPIDSMPF_NVTX_SCOPED_RANGE("submit_outgoing", ready_chunks.size());
 
             if (!ready_chunks.empty()) {
-                std::vector<detail::Chunk> chunks_to_submit;
-                for (auto&& chunk : ready_chunks) {
-                    auto dst =
-                        shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0));
-                    log.trace("submitting chunk to ", dst, ": ", chunk);
-                    RAPIDSMPF_EXPECTS(
-                        dst != shuffler_.comm_->rank(), "sending chunk to ourselves"
+                // Define peer rank function for chunks
+                auto peer_rank_fn = [&shuffler =
+                                         shuffler_](detail::Chunk const& chunk) -> Rank {
+                    auto dst = shuffler.partition_owner(shuffler.comm_, chunk.part_id(0));
+                    shuffler.comm_->logger().trace(
+                        "submitting message to ", dst, ": ", chunk.str()
                     );
-                    chunks_to_submit.push_back(std::move(chunk));
-                }
-
-                auto partition_owner_fn = [&shuffler = shuffler_](PartID pid) -> Rank {
-                    return shuffler.partition_owner(shuffler.comm_, pid);
+                    RAPIDSMPF_EXPECTS(
+                        dst != shuffler.comm_->rank(), "sending message to ourselves"
+                    );
+                    return dst;
                 };
 
-                shuffler_.comm_interface_->submit_outgoing_chunks(
-                    std::move(chunks_to_submit), partition_owner_fn, shuffler_.br_
+                auto messages = chunks_to_messages(std::move(ready_chunks), peer_rank_fn);
+
+                shuffler_.comm_interface_->submit_outgoing_messages(
+                    std::move(messages), shuffler_.br_, shuffler_.stream_
                 );
             }
             stats.add_duration_stat(
@@ -220,12 +220,15 @@ class Shuffler::Progress {
                 return allocate_buffer(size, shuffler.stream_, shuffler.br_);
             };
 
-            auto completed_chunks = shuffler_.comm_interface_->process_communication(
-                allocate_buffer_fn, shuffler_.stream_, shuffler_.br_
+            ChunkMessageFactory factory{allocate_buffer_fn};
+            auto completed_messages = shuffler_.comm_interface_->process_communication(
+                factory, shuffler_.stream_
             );
 
+            auto final_chunks = messages_to_chunks(std::move(completed_messages));
+
             // Process completed chunks and insert them into the ready postbox
-            for (auto&& chunk : completed_chunks) {
+            for (auto&& chunk : final_chunks) {
                 // Validate ownership
                 RAPIDSMPF_EXPECTS(
                     shuffler_.partition_owner(shuffler_.comm_, chunk.part_id(0))
@@ -233,40 +236,44 @@ class Shuffler::Progress {
                     "receiving chunk not owned by us"
                 );
 
-                stats.add_bytes_stat("shuffle-payload-recv", chunk.concat_data_size());
-                if (chunk.data_memory_type() == MemoryType::HOST) {
+                if (chunk.concat_data_size() > 0) {
                     stats.add_bytes_stat(
-                        "spill-bytes-recv-to-host", chunk.concat_data_size()
+                        "shuffle-payload-recv", chunk.concat_data_size()
                     );
+                    if (chunk.data_memory_type() == MemoryType::HOST) {
+                        stats.add_bytes_stat(
+                            "spill-bytes-recv-to-host", chunk.concat_data_size()
+                        );
+                    }
+                }
+
+                // Split multi-message chunks into individual chunks for the ready postbox
+                for (size_t i = 0; i < chunk.n_messages(); ++i) {
+                    auto chunk_copy = chunk.get_data(
+                        chunk.chunk_id(), i, shuffler_.stream_, shuffler_.br_
+                    );
+                    shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
                 }
             }
 
-            // Split multi-message chunks into individual chunks for the ready postbox
-            for (size_t i = 0; i < chunk.n_messages(); ++i) {
-                auto chunk_copy =
-                    chunk.get_data(chunk.chunk_id(), i, shuffler_.stream_, shuffler_.br_);
-                shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
-            }
+            stats.add_duration_stat(
+                "event-loop-process-communication", Clock::now() - t0_process_comm
+            );
         }
 
-        stats.add_duration_stat(
-            "event-loop-process-communication", Clock::now() - t0_process_comm
-        );
+        stats.add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
+
+        // Return Done only if the shuffler is inactive (shutdown was called) _and_
+        // all containers are empty (all work is done).
+        return (shuffler_.active_ || !shuffler_.comm_interface_->is_idle()
+                || !shuffler_.outgoing_postbox_.empty())
+                   ? ProgressThread::ProgressState::InProgress
+                   : ProgressThread::ProgressState::Done;
     }
 
-    stats.add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
-
-    // Return Done only if the shuffler is inactive (shutdown was called) _and_
-    // all containers are empty (all work is done).
-    return (shuffler_.active_ || !shuffler_.comm_interface_->is_idle()
-            || !shuffler_.outgoing_postbox_.empty())
-               ? ProgressThread::ProgressState::InProgress
-               : ProgressThread::ProgressState::Done;
-}
-
-private : Shuffler& shuffler_;
-
-int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
+  private:
+    Shuffler& shuffler_;
+    int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
 };
 
 std::vector<PartID> Shuffler::local_partitions(
@@ -293,7 +300,7 @@ Shuffler::Shuffler(
     FinishedCallback&& finished_callback,
     std::shared_ptr<Statistics> statistics,
     PartitionOwner partition_owner_fn,
-    std::unique_ptr<CommunicationInterface> comm_interface
+    std::unique_ptr<communicator::CommunicationInterface> comm_interface
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
@@ -312,7 +319,7 @@ Shuffler::Shuffler(
       comm_{std::move(comm)},
       comm_interface_{
           comm_interface ? std::move(comm_interface)
-                         : std::make_unique<TagCommunicationInterface>(
+                         : std::make_unique<communicator::TagCommunicationInterface>(
                                comm_, op_id, comm_->rank(), statistics
                            )
       },
@@ -418,6 +425,8 @@ void Shuffler::insert(detail::Chunk&& chunk) {
 void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
+
+    auto event = CudaEvent::make_shared_record(stream_);
 
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_data] : chunks) {
