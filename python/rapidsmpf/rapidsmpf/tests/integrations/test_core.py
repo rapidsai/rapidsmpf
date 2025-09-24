@@ -17,26 +17,24 @@ class Worker:
     pass
 
 
-# @pytest.mark.parametrize("statistics", [False, True])
 @pytest.mark.parametrize("case", ["cuda", "stats-cuda", "stats-pool-cuda"])
-def test_rmpf_worker_setup_memory_resource(case: str) -> None:
-    # setup
+def test_rmpf_worker_setup_memory_resource(
+    device_mr: rmm.mr.CudaMemoryResource, case: str
+) -> None:
     if case == "cuda":
-        mr = rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor(
-            rmm.mr.CudaMemoryResource()
-        )
+        mr = rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor(device_mr)
     elif case == "stats-cuda":
         mr = rmm.mr.StatisticsResourceAdaptor(
-            rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor(
-                rmm.mr.CudaMemoryResource()
-            )
+            rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor(device_mr)
         )
     elif case == "stats-pool-cuda":
         mr = rmm.mr.StatisticsResourceAdaptor(
             rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor(
-                rmm.mr.PoolMemoryResource(rmm.mr.CudaMemoryResource())
+                rmm.mr.PoolMemoryResource(device_mr)
             )
         )
+    else:
+        raise AssertionError(f"Unknown case: {case}")
     rmm.mr.set_current_device_resource(mr)
 
     statistics = "stats" in case
