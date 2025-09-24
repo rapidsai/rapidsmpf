@@ -468,7 +468,6 @@ def rmpf_worker_setup(
     """
     # Ensure that an RMM resource adaptor is present in the current RMM resource stack.
     mr = rmm.mr.get_current_device_resource()
-
     for child_mr in walk_rmm_resource_stack(mr):
         if isinstance(child_mr, RmmResourceAdaptor):
             resource_adaptor = child_mr
