@@ -1092,9 +1092,8 @@ std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
     RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready");
-    auto data = const_cast<std::byte*>(msg->data());
     auto req = get_endpoint(rank)->tagSend(
-        data, msg->size, tag_with_rank(shared_resources_->rank(), tag)
+        msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
     );
     return std::make_unique<Future>(req, std::move(msg));
 }

@@ -130,8 +130,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
         "send buffer size exceeds MPI max count"
     );
     MPI_Request req;
-    auto data = const_cast<std::byte*>(msg->data());
-    RAPIDSMPF_MPI(MPI_Isend(data, msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
+    RAPIDSMPF_MPI(MPI_Isend(msg->data(), msg->size, MPI_UINT8_T, rank, tag, comm_, &req));
     return std::make_unique<Future>(req, std::move(msg));
 }
 
