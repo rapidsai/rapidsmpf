@@ -28,7 +28,7 @@ from rapidsmpf.shuffler import Shuffler
 from rapidsmpf.statistics import Statistics
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Generator, Sequence
 
     from rapidsmpf.communicator.communicator import Communicator
 
@@ -409,6 +409,32 @@ def spill_func(
     return ctx.spill_collection.spill(amount, stream=DEFAULT_STREAM, device_mr=mr)
 
 
+def walk_rmm_resource_stack(
+    mr: rmm.mr.DeviceMemoryResource,
+) -> Generator[rmm.mr.DeviceMemoryResource, None, None]:
+    """
+    Walk the RMM Memory Resources in the given RMM resource stack.
+
+    Parameters
+    ----------
+    mr
+        The RMM Memory Resource to walk.
+
+    Yields
+    ------
+    RMM Memory Resource
+
+    Notes
+    -----
+    The initial memory resource is yielded first. The ``upstream_mr``
+    property of upstream memory resources are recursively yielded until
+    no more upstream memory reources are found.
+    """
+    yield mr
+    if hasattr(mr, "upstream_mr"):
+        yield from walk_rmm_resource_stack(mr.upstream_mr)
+
+
 def rmpf_worker_setup(
     worker: Any,
     option_prefix: str,
@@ -440,20 +466,16 @@ def rmpf_worker_setup(
     This function creates a new RMM memory pool, and
     sets it as the current device resource.
     """
-    # Ensure that an RMM resource adaptor (or a StatisticsResourceAdaptor wrapping one)
-    # is on top of the current RMM resource stack.
-    upstream_mr = rmm.mr.get_current_device_resource()
+    # Ensure that an RMM resource adaptor is present in the current RMM resource stack.
+    mr = rmm.mr.get_current_device_resource()
 
-    if isinstance(upstream_mr, RmmResourceAdaptor):
-        resource_adaptor = mr = upstream_mr
-    elif isinstance(upstream_mr, rmm.mr.StatisticsResourceAdaptor) and isinstance(
-        upstream_mr.upstream_mr, RmmResourceAdaptor
-    ):
-        mr = upstream_mr
-        resource_adaptor = mr.upstream_mr
+    for child_mr in walk_rmm_resource_stack(mr):
+        if isinstance(child_mr, RmmResourceAdaptor):
+            resource_adaptor = child_mr
+            break
     else:
         resource_adaptor = mr = RmmResourceAdaptor(
-            upstream_mr=upstream_mr,
+            upstream_mr=mr,
             fallback_mr=(
                 # Use a managed memory resource if OOM protection is enabled.
                 rmm.mr.ManagedMemoryResource()
@@ -463,8 +485,7 @@ def rmpf_worker_setup(
                 else None
             ),
         )
-
-    rmm.mr.set_current_device_resource(mr)
+        rmm.mr.set_current_device_resource(mr)
 
     # Print statistics at worker shutdown.
     if options.get_or_default(f"{option_prefix}statistics", default_value=False):

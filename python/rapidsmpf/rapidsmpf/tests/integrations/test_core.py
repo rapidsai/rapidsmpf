@@ -17,14 +17,29 @@ class Worker:
     pass
 
 
-@pytest.mark.parametrize("statistics", [False, True])
-def test_rmpf_worker_setup_memory_resource(*, statistics: bool) -> None:
+# @pytest.mark.parametrize("statistics", [False, True])
+@pytest.mark.parametrize("case", ["cuda", "stats-cuda", "stats-pool-cuda"])
+def test_rmpf_worker_setup_memory_resource(case: str) -> None:
     # setup
-    upstream_mr = rmm.mr.CudaMemoryResource()
-    mr = rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor(upstream_mr)
-    if statistics:
-        mr = rmm.mr.StatisticsResourceAdaptor(mr)
+    if case == "cuda":
+        mr = rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor(
+            rmm.mr.CudaMemoryResource()
+        )
+    elif case == "stats-cuda":
+        mr = rmm.mr.StatisticsResourceAdaptor(
+            rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor(
+                rmm.mr.CudaMemoryResource()
+            )
+        )
+    elif case == "stats-pool-cuda":
+        mr = rmm.mr.StatisticsResourceAdaptor(
+            rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor(
+                rmm.mr.PoolMemoryResource(rmm.mr.CudaMemoryResource())
+            )
+        )
     rmm.mr.set_current_device_resource(mr)
+
+    statistics = "stats" in case
 
     if statistics:
         options = rapidsmpf.config.Options({"single_statistics": "true"})
