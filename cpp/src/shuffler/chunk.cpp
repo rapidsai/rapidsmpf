@@ -309,10 +309,6 @@ Chunk Chunk::concat(
         concat_data = br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST));
     }
 
-    // if the data buffer is on the device, we need to create an event to track the
-    // async copies
-    bool need_event = (concat_data->mem_type() == MemoryType::DEVICE);
-
     // Track current offsets
     uint32_t curr_meta_offset = 0;
     uint64_t curr_data_offset = 0;
@@ -374,8 +370,6 @@ Chunk Chunk::concat(
                 curr_data_offset += chunk.data_size(i);
                 data_offsets[curr_msg_offset + i] = curr_data_offset;
             }
-            // if the staged buffer is on the device, we need an event
-            need_event |= (chunk.data_->mem_type() == MemoryType::DEVICE);
         } else {
             // No data, add zero offset
             std::fill(
@@ -386,11 +380,6 @@ Chunk Chunk::concat(
         }
         curr_msg_offset += chunk_messages;
     }
-
-    if (need_event) {  // create a new event to track the async copies
-        concat_data->override_event(CudaEvent::make_shared_record(stream));
-    }
-
     return Chunk(
         chunk_id,
         std::move(part_ids),
