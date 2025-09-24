@@ -1091,10 +1091,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
-    if (!msg->is_ready()) {
-        logger().warn("msg is not ready. This is irrecoverable, terminating.");
-        std::terminate();
-    }
+    RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready");
     auto req = get_endpoint(rank)->tagSend(
         msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
     );
@@ -1104,12 +1101,9 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
-    if (!recv_buffer->is_ready()) {
-        logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
-        std::terminate();
-    }
+    RAPIDSMPF_EXPECTS(recv_buffer->is_latest_write_done(), "msg must be ready");
     auto req = get_endpoint(rank)->tagRecv(
-        recv_buffer->data(),
+        recv_buffer->exclusive_data_access(),
         recv_buffer->size,
         tag_with_rank(rank, tag),
         ::ucxx::TagMaskFull
@@ -1243,6 +1237,7 @@ std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future)
         progress_worker();
     }
     ucxx_future->req_->checkError();
+    ucxx_future->data_buffer_->unlock();
     return std::move(ucxx_future->data_buffer_);
 }
 
@@ -1250,6 +1245,7 @@ std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future>
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
     RAPIDSMPF_EXPECTS(ucxx_future->data_buffer_ != nullptr, "future has no data");
+    ucxx_future->data_buffer_->unlock();
     return std::move(ucxx_future->data_buffer_);
 }
 
