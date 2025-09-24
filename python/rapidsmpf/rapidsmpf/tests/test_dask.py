@@ -126,14 +126,13 @@ def test_dask_cudf_integration_single(
     sort: bool,
     cluster_kind: Literal["distributed", "single", "auto"],
     preconfigure_mr: bool,
+    device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
     # Test single-worker cuDF integration with Dask-cuDF
     pytest.importorskip("dask_cudf")
 
     if preconfigure_mr:
-        mr = rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor(
-            rmm.mr.CudaMemoryResource()
-        )
+        mr = rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor(device_mr)
         rmm.mr.set_current_device_resource(mr)
 
     df = (
