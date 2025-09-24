@@ -385,16 +385,17 @@ class Communicator {
     /**
      * @brief Sends a host message to a specific rank.
      *
+     * This is used to send data that resides in host memory and is guaranteed
+     * to be valid at the time of the call.
+     *
      * @param msg Unique pointer to the message data (host memory).
      * @param rank The destination rank.
      * @param tag Message tag for identification.
-     * @param br Buffer resource used to allocate the received message.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
     [[nodiscard]] virtual std::unique_ptr<Future> send(
-        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
+        std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
     ) = 0;
-
 
     /**
      * @brief Sends a message (device or host) to a specific rank.
@@ -446,15 +447,29 @@ class Communicator {
     ) = 0;
 
     /**
+     * @brief Receives a message from a specific rank (blocking).
+     *
+     * @param src The source rank from which to receive the message.
+     * @param tag Message tag for identification.
+     * @return A unique pointer to a vector containing the received message data (host
+     * memory).
+     *
+     * @note If no message is available, this function returns a nullptr.
+     */
+    [[nodiscard]] virtual std::unique_ptr<std::vector<uint8_t>> recv_from(
+        Rank src, Tag tag
+    ) = 0;
+
+    /**
      * @brief Tests for completion of multiple futures.
      *
      * @param[inout] future_vector Vector of Future objects. Completed
      * futures are erased from the vector.
-     * @return Completed futures.
+     * @return Pair of completed futures and indices of input vector that were completed.
      */
-    [[nodiscard]] virtual std::vector<std::unique_ptr<Future>> test_some(
-        std::vector<std::unique_ptr<Future>>& future_vector
-    ) = 0;
+    [[nodiscard]] virtual std::
+        pair<std::vector<std::unique_ptr<Future>>, std::vector<std::size_t>>
+        test_some(std::vector<std::unique_ptr<Future>>& future_vector) = 0;
 
     /**
      * @brief Tests for completion of multiple futures in a map.

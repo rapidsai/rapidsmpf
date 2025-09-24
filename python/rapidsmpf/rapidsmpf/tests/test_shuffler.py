@@ -89,15 +89,13 @@ def test_shuffler_single_nonempty_partition(
             my_partitions.remove(partition_id)
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
-            unspill_partitions(
-                packed_chunks, stream=DEFAULT_STREAM, br=br, allow_overbooking=True
-            ),
+            unspill_partitions(packed_chunks, br=br, allow_overbooking=True),
             br=br,
             stream=DEFAULT_STREAM,
         )
         local_outputs.append(partition)
     shuffler.shutdown()
-    # Everyting should go the a single rank thus we should get the whole dataframe or nothing.
+    # Everything should go to a single rank thus we should get the whole dataframe or nothing.
     if len(local_outputs) == 0:
         return
     res = cudf.concat(
@@ -196,9 +194,7 @@ def test_shuffler_uniform(
         partition_id = shuffler.wait_any()
         packed_chunks = shuffler.extract(partition_id)
         partition = unpack_and_concat(
-            unspill_partitions(
-                packed_chunks, stream=DEFAULT_STREAM, br=br, allow_overbooking=True
-            ),
+            unspill_partitions(packed_chunks, br=br, allow_overbooking=True),
             br=br,
             stream=DEFAULT_STREAM,
         )

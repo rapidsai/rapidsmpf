@@ -9,12 +9,17 @@
 #include <cudf/contiguous_split.hpp>
 #include <cudf/copying.hpp>
 #include <cudf/types.hpp>
+#include <cudf/utilities/span.hpp>
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -29,7 +34,8 @@ partition_and_split(
     uint32_t seed,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    bool allow_overbooking
 ) {
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     if (table.num_rows() == 0) {
@@ -43,27 +49,34 @@ partition_and_split(
         };
     }
 
-    auto res = cudf::hash_partition(
-        table,
-        columns_to_hash,
-        num_partitions,
-        hash_function,
-        seed,
-        stream,
-        br->device_mr()
+    // hash_partition does a deep-copy. Therefore, we need to reserve memory for
+    // at least the size of the table.
+    auto res = br->reserve_and_spill(
+        MemoryType::DEVICE, estimated_memory_usage(table, stream), allow_overbooking
     );
-    std::unique_ptr<cudf::table> partition_table;
-    partition_table.swap(res.first);
+    auto [partition_table, offsets] = with_memory_reservation(std::move(res), [&] {
+        return cudf::hash_partition(
+            table,
+            columns_to_hash,
+            num_partitions,
+            hash_function,
+            seed,
+            stream,
+            br->device_mr()
+        );
+    });
 
     // Notice, the offset argument for split() and hash_partition() doesn't align.
     // hash_partition() returns the start offset of each partition thus we have to
     // skip the first offset. See: <https://github.com/rapidsai/cudf/issues/4607>.
-    auto partition_offsets = std::vector<int>(res.second.begin() + 1, res.second.end());
+    auto partition_offsets =
+        cudf::host_span<cudf::size_type const>(offsets.data() + 1, offsets.size() - 1);
 
+    // split does not make any copies.
     auto tbl_partitioned =
         cudf::split(partition_table->view(), partition_offsets, stream);
 
-    return std::make_pair(std::move(tbl_partitioned), std::move(partition_table));
+    return {std::move(tbl_partitioned), std::move(partition_table)};
 }
 
 std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
@@ -74,7 +87,8 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
     uint32_t seed,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    bool allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
@@ -83,19 +97,29 @@ std::unordered_map<shuffler::PartID, PackedData> partition_and_pack(
         auto splits = std::vector<cudf::size_type>(
             static_cast<std::uint64_t>(num_partitions - 1), 0
         );
-        return split_and_pack(table, splits, stream, br);
+        return split_and_pack(table, splits, stream, br, statistics, allow_overbooking);
     }
-    auto [reordered, split_points] = cudf::hash_partition(
-        table,
-        columns_to_hash,
-        num_partitions,
-        hash_function,
-        seed,
-        stream,
-        br->device_mr()
+
+    // hash_partition does a deep-copy. Therefore, we need to reserve memory for
+    // at least the size of the table.
+    auto res = br->reserve_and_spill(
+        MemoryType::DEVICE, estimated_memory_usage(table, stream), allow_overbooking
     );
+    auto [reordered, split_points] = with_memory_reservation(std::move(res), [&] {
+        return cudf::hash_partition(
+            table,
+            columns_to_hash,
+            num_partitions,
+            hash_function,
+            seed,
+            stream,
+            br->device_mr()
+        );
+    });
     std::vector<cudf::size_type> splits(split_points.begin() + 1, split_points.end());
-    return split_and_pack(reordered->view(), splits, stream, br);
+    return split_and_pack(
+        reordered->view(), splits, stream, br, statistics, allow_overbooking
+    );
 }
 
 std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
@@ -103,12 +127,22 @@ std::unordered_map<shuffler::PartID, PackedData> split_and_pack(
     std::vector<cudf::size_type> const& splits,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    bool allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
     std::unordered_map<shuffler::PartID, PackedData> ret;
-    auto packed = cudf::contiguous_split(table, splits, stream, br->device_mr());
+
+    // contiguous split does a deep-copy. Therefore, we need to reserve memory for
+    // at least the size of the table.
+    auto res = br->reserve_and_spill(
+        MemoryType::DEVICE, estimated_memory_usage(table, stream), allow_overbooking
+    );
+    auto packed = with_memory_reservation(std::move(res), [&] {
+        return cudf::contiguous_split(table, splits, stream, br->device_mr());
+    });
+
     for (shuffler::PartID i = 0; static_cast<std::size_t>(i) < packed.size(); i++) {
         auto pack = std::move(packed[i].data);
         ret.emplace(
@@ -125,34 +159,78 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     std::vector<PackedData>&& partitions,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    bool allow_overbooking
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_MEMORY_PROFILE(statistics);
-    std::vector<cudf::table_view> unpacked;
-    std::vector<cudf::packed_columns> references;
-    unpacked.reserve(partitions.size());
-    references.reserve(partitions.size());
+
+    // Let's find the total size of the partitions and how much of the packed data we
+    // need to move to device memory (unspill).
+    size_t total_size = 0;
+    size_t non_device_size = 0;
     for (auto& packed_data : partitions) {
         if (!packed_data.empty()) {
-            unpacked.push_back(
-                cudf::unpack(references.emplace_back(
-                    std::move(packed_data.metadata),
-                    br->move_to_device_buffer(std::move(packed_data.data))
-                ))
-            );
+            total_size += packed_data.data->size;
+            if (packed_data.data->mem_type() != MemoryType::DEVICE) {
+                non_device_size += 0;
+            }
         }
     }
-    return cudf::concatenate(unpacked, stream, br->device_mr());
+
+    std::vector<cudf::table_view> unpacked;
+    std::vector<cudf::packed_columns> references;
+    std::vector<rmm::cuda_stream_view> packed_data_streams;
+    unpacked.reserve(partitions.size());
+    references.reserve(partitions.size());
+    packed_data_streams.reserve(partitions.size());
+
+    // Reserve device memory for the unspill AND the cudf::unpack() calls.
+    with_memory_reservation(
+        br->reserve_and_spill(
+            MemoryType::DEVICE, total_size + non_device_size, allow_overbooking
+        ),
+        [&](auto& reservation) {
+            for (auto& packed_data : partitions) {
+                if (!packed_data.empty()) {
+                    if (packed_data.data->size > 0) {  // No need to sync empty buffers.
+                        packed_data_streams.push_back(packed_data.data->stream());
+                    }
+                    unpacked.push_back(
+                        cudf::unpack(references.emplace_back(
+                            std::move(packed_data.metadata),
+                            br->move_to_device_buffer(
+                                std::move(packed_data.data), reservation
+                            )
+                        ))
+                    );
+                }
+            }
+        }
+    );
+
+    // We need to synchronize `stream` with the packed_data and update their
+    // underlying device buffers to use `stream` going forward. This ensures
+    // the packed data are not deallocated before we have a chance to
+    // concatenate them on `stream`.
+    cuda_stream_join(std::views::single(stream), packed_data_streams);
+    for (cudf::packed_columns& packed_columns : references) {
+        packed_columns.gpu_data->set_stream(stream);
+    }
+
+    // Reserve memory for the concatenation.
+    return with_memory_reservation(
+        br->reserve_and_spill(MemoryType::DEVICE, total_size, allow_overbooking),
+        [&]() { return cudf::concatenate(unpacked, stream, br->device_mr()); }
+    );
 }
 
 std::vector<PackedData> spill_partitions(
     std::vector<PackedData>&& partitions,
-    rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics
 ) {
-    auto const elapsed = Clock::now();
+    auto const start_time = Clock::now();
     // Sum the total size of all packed data in device memory.
     std::size_t device_size{0};
     for (auto& [_, data] : partitions) {
@@ -160,28 +238,33 @@ std::vector<PackedData> spill_partitions(
             device_size += data->size;
         }
     }
-    auto [reservation, _] = br->reserve(MemoryType::HOST, device_size, false);
-    // Spill each partition to host memory.
-    std::vector<PackedData> ret;
-    ret.reserve(partitions.size());
-    for (auto& [metadata, data] : partitions) {
-        ret.emplace_back(
-            std::move(metadata), br->move(std::move(data), stream, reservation)
-        );
-    }
-    statistics->add_duration_stat("spill-time-device-to-host", Clock::now() - elapsed);
-    statistics->add_bytes_stat("spill-bytes-device-to-host", device_size);
-    return ret;
+    return with_memory_reservation(
+        br->reserve_and_spill(MemoryType::HOST, device_size, false),
+        [&](auto& reservation) {
+            // Spill each partition to host memory.
+            std::vector<PackedData> ret;
+            ret.reserve(partitions.size());
+            for (auto& [metadata, data] : partitions) {
+                ret.emplace_back(
+                    std::move(metadata), br->move(std::move(data), reservation)
+                );
+            }
+            statistics->add_duration_stat(
+                "spill-time-device-to-host", Clock::now() - start_time
+            );
+            statistics->add_bytes_stat("spill-bytes-device-to-host", device_size);
+            return ret;
+        }
+    );
 }
 
 std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
-    rmm::cuda_stream_view stream,
     BufferResource* br,
     bool allow_overbooking,
     std::shared_ptr<Statistics> statistics
 ) {
-    auto const elapsed = Clock::now();
+    auto const start_time = Clock::now();
     // Sum the total size of all packed data not in device memory already.
     std::size_t non_device_size{0};
     for (auto& [_, data] : partitions) {
@@ -189,30 +272,25 @@ std::vector<PackedData> unspill_partitions(
             non_device_size += data->size;
         }
     }
-    // This total sum is what we need to reserve before moving data to device.
-    auto [reservation, overbooking] =
-        br->reserve(MemoryType::DEVICE, non_device_size, true);
 
-    // Check overbooking, should we ask the spill manager to make room?
-    if (overbooking > 0) {
-        std::size_t spilled = br->spill_manager().spill(overbooking);
-        RAPIDSMPF_EXPECTS(
-            allow_overbooking || spilled >= overbooking,
-            "could not spill enough to make room to unspill all partitions",
-            std::overflow_error
-        );
-    }
-    // Unspill each partition.
-    std::vector<PackedData> ret;
-    ret.reserve(partitions.size());
-    for (auto& [metadata, data] : partitions) {
-        ret.emplace_back(
-            std::move(metadata), br->move(std::move(data), stream, reservation)
-        );
-    }
+    return with_memory_reservation(
+        br->reserve_and_spill(MemoryType::DEVICE, non_device_size, allow_overbooking),
+        [&](auto& reservation) {
+            // Unspill each partition.
+            std::vector<PackedData> ret;
+            ret.reserve(partitions.size());
+            for (auto& [metadata, data] : partitions) {
+                ret.emplace_back(
+                    std::move(metadata), br->move(std::move(data), reservation)
+                );
+            }
 
-    statistics->add_duration_stat("spill-time-host-to-device", Clock::now() - elapsed);
-    statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
-    return ret;
+            statistics->add_duration_stat(
+                "spill-time-host-to-device", Clock::now() - start_time
+            );
+            statistics->add_bytes_stat("spill-bytes-host-to-device", non_device_size);
+            return ret;
+        }
+    );
 }
 }  // namespace rapidsmpf

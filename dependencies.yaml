@@ -3,7 +3,7 @@ files:
   all:
     output: conda
     matrix:
-      cuda: ["12.9"]
+      cuda: ["12.9", "13.0"]
       arch: [aarch64, x86_64]
     includes:
       - build-universal
@@ -32,25 +32,24 @@ files:
     output: none
     includes:
       - cuda_version
+      - depends_on_librapidsmpf
+      - depends_on_librapidsmpf_tests
       - test_cpp
   test_python:
-    output: pyproject
-    pyproject_dir: python/rapidsmpf
-    extras:
-      table: project.optional-dependencies
-      key: test
+    output: none
     includes:
       - cuda_version
       - depends_on_cudf
       - depends_on_dask_cuda
       - depends_on_dask_cudf
       - depends_on_libcudf
+      - depends_on_librapidsmpf
       - depends_on_librmm
+      - depends_on_rapidsmpf
       - depends_on_ucxx
       - py_version
       - run_rapidsmpf
       - test_python
-      - test_rapidsmpf
   checks:
     output: none
     includes:
@@ -76,9 +75,10 @@ files:
       - depends_on_dask_cuda
       - depends_on_rmm
       - depends_on_ucxx
+      - depends_on_librapidsmpf
+      - depends_on_rapidsmpf
       - docs
       - py_version
-      - test_rapidsmpf
   py_build_librapidsmpf:
     output: pyproject
     pyproject_dir: python/librapidsmpf
@@ -94,6 +94,15 @@ files:
       key: requires
     includes:
       - build-universal
+      - depends_on_libcudf
+      - depends_on_librmm
+      - depends_on_libucxx
+  py_run_librapidsmpf:
+    output: pyproject
+    pyproject_dir: python/librapidsmpf
+    extras:
+      table: project
+    includes:
       - depends_on_libcudf
       - depends_on_librmm
       - depends_on_libucxx
@@ -129,15 +138,18 @@ files:
       - depends_on_rmm
       - depends_on_pylibcudf
       - depends_on_librapidsmpf
-  py_run_librapidsmpf:
+  py_test_rapidsmpf:
     output: pyproject
-    pyproject_dir: python/librapidsmpf
+    pyproject_dir: python/rapidsmpf
     extras:
-      table: project
+      table: project.optional-dependencies
+      key: test
     includes:
-      - depends_on_libcudf
-      - depends_on_librmm
-      - depends_on_libucxx
+      - depends_on_cudf
+      - depends_on_dask_cuda
+      - depends_on_dask_cudf
+      - depends_on_ucxx
+      - test_python
 channels:
   - rapidsai
   - rapidsai-nightly
@@ -154,6 +166,7 @@ dependencies:
       - output_types: conda
         packages:
           - c-compiler
+          - cuda-nvcc
           - cxx-compiler
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
     specific:
@@ -161,22 +174,14 @@ dependencies:
         matrices:
           - matrix:
               arch: x86_64
-              cuda: "12.*"
             packages:
               - gcc_linux-64=14.*
               - sysroot_linux-64=2.28
           - matrix:
               arch: aarch64
-              cuda: "12.*"
             packages:
               - gcc_linux-aarch64=14.*
               - sysroot_linux-aarch64=2.28
-      - output_types: conda
-        matrices:
-          - matrix:
-              cuda: "12.*"
-            packages:
-              - cuda-nvcc
   rapids_build_skbuild:
     common:
       - output_types: [conda, pyproject, requirements]
@@ -230,16 +235,18 @@ dependencies:
               cuda: "12.9"
             packages:
               - cuda-version=12.9
-  cuda:
-    specific:
-      - output_types: conda
-        matrices:
           - matrix:
-              cuda: "12.*"
+              cuda: "13.0"
             packages:
-              - cuda-cudart-dev
-              - cuda-nvrtc-dev
-              - cuda-nvtx-dev
+              - cuda-version=13.0
+  cuda:
+    common:
+      - output_types: [conda]
+        packages:
+          - cuda-cudart-dev
+          - cuda-cupti-dev
+          - cuda-nvrtc-dev
+          - cuda-nvtx-dev
   py_version:
     specific:
       - output_types: conda
@@ -267,16 +274,12 @@ dependencies:
     common:
       - output_types: conda
         packages:
+          - click >=8.1
           - *cmake_ver
+          - cuda-sanitizer-api
+          - psutil  # Used for timeout_with_stack.py
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - valgrind
-          - cuda-sanitizer-api
-          - click >=8.1
-  test_rapidsmpf:
-    common:
-      - output_types: conda
-        packages:
-          - rapidsmpf==25.10.*,>=0.0.0a0
   test_python:
     common:
       - output_types: conda
@@ -284,9 +287,9 @@ dependencies:
           - gdb
       - output_types: [conda, pyproject, requirements]
         packages:
-          - psutil
+          - psutil  # Used for timeout_with_stack.py
           - pytest
-          - nvidia-ml-py
+          - nvidia-ml-py>=12
     specific:
       - output_types: conda
         matrices:
@@ -306,6 +309,9 @@ dependencies:
       - output_types: [conda, requirements, pyproject]
         packages:
           - numpy >=1.23,<3.0a0
+      - output_types: conda
+        packages:
+          - cupy>=13.6.0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
@@ -315,16 +321,24 @@ dependencies:
     specific:
       - output_types: [conda, requirements, pyproject]
         matrices:
-          - matrix: {cuda: "12.*"}
-            packages: &run_rapidsmpf_packages_all_cu12
-              - cuda-python>=12.6.2,<13.0a0
-          - {matrix: null, packages: *run_rapidsmpf_packages_all_cu12}
+          - matrix:
+              cuda: "12.*"
+            packages:
+              - cuda-python>=12.9.2,<13.0a0
+          # fallback to CUDA 13 versions if 'cuda' is '13.*' or not provided
+          - matrix:
+            packages:
+              - cuda-python>=13.0.1,<14.0a0
       - output_types: [requirements, pyproject]
         matrices:
-          - matrix: {cuda: "12.*"}
-            packages: &cupy_packages_cu12
-              - cupy-cuda12x>=12.0.0
-          - {matrix: null, packages: *cupy_packages_cu12}
+          - matrix:
+              cuda: "12.*"
+            packages:
+              - cupy-cuda12x>=13.6.0
+          # fallback to CUDA 13 versions if 'cuda' is '13.*' or not provided
+          - matrix:
+            packages:
+              - cupy-cuda13x>=13.6.0
   depends_on_librapidsmpf:
     common:
       - output_types: conda
@@ -343,7 +357,41 @@ dependencies:
               cuda_suffixed: "true"
             packages:
               - librapidsmpf-cu12==25.10.*,>=0.0.0a0
+          - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - librapidsmpf-cu13==25.10.*,>=0.0.0a0
           - {matrix: null, packages: [*librapidsmpf_unsuffixed]}
+  depends_on_librapidsmpf_tests:
+    common:
+      - output_types: conda
+        packages:
+          - librapidsmpf-tests==25.10.*,>=0.0.0a0
+  depends_on_rapidsmpf:
+    common:
+      - output_types: conda
+        packages:
+          - &rapidsmpf_unsuffixed rapidsmpf==25.10.*,>=0.0.0a0
+      - output_types: requirements
+        packages:
+          # pip recognizes the index as a global option for the requirements.txt file
+          - --extra-index-url=https://pypi.nvidia.com
+          - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
+    specific:
+      - output_types: [requirements, pyproject]
+        matrices:
+          - matrix:
+              cuda: "12.*"
+              cuda_suffixed: "true"
+            packages:
+              - rapidsmpf-cu12==25.10.*,>=0.0.0a0
+          - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - rapidsmpf-cu13==25.10.*,>=0.0.0a0
+          - {matrix: null, packages: [*rapidsmpf_unsuffixed]}
   clang_tidy:
     common:
       - output_types: conda
@@ -400,6 +448,11 @@ dependencies:
             packages:
               - cudf-cu12==25.10.*,>=0.0.0a0
           - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - cudf-cu13==25.10.*,>=0.0.0a0
+          - matrix:
             packages:
               - *cudf_unsuffixed
   depends_on_libcudf:
@@ -420,6 +473,11 @@ dependencies:
               cuda_suffixed: "true"
             packages:
               - libcudf-cu12==25.10.*,>=0.0.0a0
+          - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - libcudf-cu13==25.10.*,>=0.0.0a0
           - matrix:
             packages:
               - *libcudf_unsuffixed
@@ -442,18 +500,39 @@ dependencies:
             packages:
               - pylibcudf-cu12==25.10.*,>=0.0.0a0
           - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - pylibcudf-cu13==25.10.*,>=0.0.0a0
+          - matrix:
             packages:
               - *pylibcudf_unsuffixed
   depends_on_dask_cuda:
     common:
       - output_types: [conda, requirements, pyproject]
         packages:
-          - dask-cuda==25.10.*,>=0.0.0a0
+          - &dask_cuda_unsuffixed dask-cuda==25.10.*,>=0.0.0a0
       - output_types: requirements
         packages:
           # pip recognizes the index as a global option for the requirements.txt file
           - --extra-index-url=https://pypi.nvidia.com
           - --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple
+    specific:
+      - output_types: [requirements, pyproject]
+        matrices:
+          - matrix:
+              cuda: "12.*"
+              cuda_suffixed: "true"
+            packages:
+              - dask-cuda[cu12]==25.10.*,>=0.0.0a0
+          - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - dask-cuda[cu13]==25.10.*,>=0.0.0a0
+          - matrix:
+            packages:
+              - *dask_cuda_unsuffixed
   depends_on_dask_cudf:
     common:
       - output_types: conda
@@ -472,6 +551,11 @@ dependencies:
               cuda_suffixed: "true"
             packages:
               - dask-cudf-cu12==25.10.*,>=0.0.0a0
+          - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - dask-cudf-cu13==25.10.*,>=0.0.0a0
           - matrix:
             packages:
               - *dask_cudf_unsuffixed
@@ -494,6 +578,11 @@ dependencies:
             packages:
               - librmm-cu12==25.10.*,>=0.0.0a0
           - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - librmm-cu13==25.10.*,>=0.0.0a0
+          - matrix:
             packages:
               - *librmm_unsuffixed
   depends_on_rmm:
@@ -514,6 +603,11 @@ dependencies:
               cuda_suffixed: "true"
             packages:
               - rmm-cu12==25.10.*,>=0.0.0a0
+          - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - rmm-cu13==25.10.*,>=0.0.0a0
           - matrix:
             packages:
               - *rmm_unsuffixed
@@ -536,6 +630,11 @@ dependencies:
             packages:
               - libucxx-cu12==0.46.*,>=0.0.0a0
           - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - libucxx-cu13==0.46.*,>=0.0.0a0
+          - matrix:
             packages:
               - *libucxx_unsuffixed
   depends_on_ucxx:
@@ -556,6 +655,11 @@ dependencies:
               cuda_suffixed: "true"
             packages:
               - ucxx-cu12==0.46.*,>=0.0.0a0
+          - matrix:
+              cuda: "13.*"
+              cuda_suffixed: "true"
+            packages:
+              - ucxx-cu13==0.46.*,>=0.0.0a0
           - matrix:
             packages:
               - *ucxx_unsuffixed

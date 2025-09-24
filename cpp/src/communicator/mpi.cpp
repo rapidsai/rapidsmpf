@@ -10,6 +10,8 @@
 
 #include <mpi.h>
 
+#include <rmm/cuda_stream_view.hpp>
+
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
 
@@ -106,7 +108,7 @@ MPI::MPI(MPI_Comm comm, config::Options options)
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
-    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag, BufferResource* br
+    std::unique_ptr<std::vector<uint8_t>> msg, Rank rank, Tag tag
 ) {
     RAPIDSMPF_EXPECTS(
         msg->size() <= std::numeric_limits<int>::max(),
@@ -116,16 +118,13 @@ std::unique_ptr<Communicator::Future> MPI::send(
     RAPIDSMPF_MPI(
         MPI_Isend(msg->data(), msg->size(), MPI_UINT8_T, rank, tag, comm_, &req)
     );
-    return std::make_unique<Future>(req, br->move(std::move(msg)));
+    return std::make_unique<Future>(req, std::move(msg));
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
-    if (!msg->is_ready()) {
-        logger().warn("msg is not ready. This is irrecoverable, terminating.");
-        std::terminate();
-    }
+    RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready");
     RAPIDSMPF_EXPECTS(
         msg->size <= std::numeric_limits<int>::max(),
         "send buffer size exceeds MPI max count"
@@ -138,17 +137,20 @@ std::unique_ptr<Communicator::Future> MPI::send(
 std::unique_ptr<Communicator::Future> MPI::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
-    if (!recv_buffer->is_ready()) {
-        logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
-        std::terminate();
-    }
+    RAPIDSMPF_EXPECTS(recv_buffer->is_latest_write_done(), "msg must be ready");
     RAPIDSMPF_EXPECTS(
         recv_buffer->size <= std::numeric_limits<int>::max(),
         "recv buffer size exceeds MPI max count"
     );
     MPI_Request req;
     RAPIDSMPF_MPI(MPI_Irecv(
-        recv_buffer->data(), recv_buffer->size, MPI_UINT8_T, rank, tag, comm_, &req
+        recv_buffer->exclusive_data_access(),
+        recv_buffer->size,
+        MPI_UINT8_T,
+        rank,
+        tag,
+        comm_,
+        &req
     ));
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
@@ -185,9 +187,38 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     return {std::move(msg), probe_status.MPI_SOURCE};
 }
 
-std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
-    std::vector<std::unique_ptr<Communicator::Future>>& future_vector
-) {
+std::unique_ptr<std::vector<uint8_t>> MPI::recv_from(Rank src, Tag tag) {
+    int msg_available;
+    MPI_Status probe_status;
+    MPI_Message matched_msg;
+    RAPIDSMPF_MPI(
+        MPI_Improbe(src, tag, comm_, &msg_available, &matched_msg, &probe_status)
+    );
+    if (!msg_available) {
+        return nullptr;
+    }
+    RAPIDSMPF_EXPECTS(tag == probe_status.MPI_TAG, "corrupt mpi tag");
+    MPI_Count size;
+    RAPIDSMPF_MPI(MPI_Get_elements_x(&probe_status, MPI_UINT8_T, &size));
+    RAPIDSMPF_EXPECTS(
+        size <= std::numeric_limits<int>::max(), "recv buffer size exceeds MPI max count"
+    );
+    auto msg = std::make_unique<std::vector<uint8_t>>(size);  // TODO: uninitialize
+
+    MPI_Status msg_status;
+    RAPIDSMPF_MPI(
+        MPI_Mrecv(msg->data(), msg->size(), MPI_UINT8_T, &matched_msg, &msg_status)
+    );
+    RAPIDSMPF_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
+    RAPIDSMPF_EXPECTS(
+        static_cast<std::size_t>(size) == msg->size(),
+        "incorrect size of the MPI_Recv message"
+    );
+    return msg;
+}
+
+std::pair<std::vector<std::unique_ptr<Communicator::Future>>, std::vector<std::size_t>>
+MPI::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vector) {
     if (future_vector.empty()) {
         return {};
     }
@@ -220,7 +251,10 @@ std::vector<std::unique_ptr<Communicator::Future>> MPI::test_some(
         [&](std::size_t i) { return std::move(future_vector[i]); }
     );
     std::erase(future_vector, nullptr);
-    return completed;
+    return {
+        std::move(completed),
+        std::vector<std::size_t>(indices.begin(), indices.begin() + num_completed)
+    };
 }
 
 std::vector<std::size_t> MPI::test_some(
@@ -264,14 +298,16 @@ std::unique_ptr<Buffer> MPI::wait(std::unique_ptr<Communicator::Future> future) 
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
     RAPIDSMPF_MPI(MPI_Wait(&mpi_future->req_, MPI_STATUS_IGNORE));
-    return std::move(mpi_future->data_);
+    mpi_future->data_buffer_->unlock();
+    return std::move(mpi_future->data_buffer_);
 }
 
 std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-    RAPIDSMPF_EXPECTS(mpi_future->data_ != nullptr, "future has no data");
-    return std::move(mpi_future->data_);
+    RAPIDSMPF_EXPECTS(mpi_future->data_buffer_ != nullptr, "future has no data");
+    mpi_future->data_buffer_->unlock();
+    return std::move(mpi_future->data_buffer_);
 }
 
 std::string MPI::str() const {

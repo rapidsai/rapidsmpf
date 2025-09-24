@@ -75,7 +75,7 @@ def get_dask_worker_rank(dask_worker: distributed.Worker | None = None) -> int:
     return comm.rank
 
 
-def global_rmpf_barrier(dependencies: Sequence[None]) -> None:
+def global_rmpf_barrier(*dependencies: Sequence[None]) -> None:
     """
     Global barrier for RapidsMPF shuffle.
 
@@ -243,7 +243,6 @@ def bootstrap_dask_cluster(
 
     # Insert missing config options from environment variables.
     options.insert_if_absent(get_environment_variables())
-
     # Set up the comms for the root worker
     root_address_bytes = client.submit(
         rapidsmpf_ucxx_rank_setup_root,

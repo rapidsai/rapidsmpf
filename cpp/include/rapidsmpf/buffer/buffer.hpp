@@ -6,22 +6,22 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
+#include <functional>
 #include <memory>
 #include <variant>
 #include <vector>
 
 #include <cuda_runtime.h>
 
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
-
-class BufferResource;
-class Event;
-class MemoryReservation;
 
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
@@ -29,7 +29,11 @@ enum class MemoryType : int {
     HOST = 1  ///< Host memory
 };
 
+/// @brief The lowest memory type that can be spilled to.
+constexpr MemoryType LowestSpillType = MemoryType::HOST;
+
 /// @brief Array of all the different memory types.
+/// @note Ensure that this array is always sorted in decreasing order of preference.
 constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
 
 /**
@@ -38,85 +42,26 @@ constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType
  * @note The constructors are private, use `BufferResource` to construct buffers.
  * @note The memory type (e.g., host or device) is constant and cannot change during
  * the buffer's lifetime.
- * @note A buffer is a stream-ordered object, when passing to a library which is
- * not stream-aware one must ensure that `is_ready` returns `true` otherwise
- * behaviour is undefined.
+ * @note This buffer is stream-ordered and has an associated CUDA stream (see `stream()`).
+ * All work (host and device) that reads or writes the buffer must either be enqueued on
+ * that stream or be synchronized with it *before* accessing the memory.
+ * @note When passing the buffer to a non-stream-aware API (e.g., MPI, host-only code),
+ * you must ensure the last write has completed *before* the hand-off. Either synchronize
+ * the buffer's stream (e.g., `stream().synchronize()`) or verify completion via
+ * `is_latest_write_done()`.
  */
 class Buffer {
     friend class BufferResource;
 
   public:
-    /**
-     * @brief CUDA event to provide synchronization among set of chunks.
-     *
-     * This event is used to serve as a synchronization point for a set of chunks
-     * given a user-specified stream.
-     *
-     * @note To prevent undefined behavior due to unfinished memory operations, events
-     * should be used in the following cases, if any of the operations below was
-     * performed *asynchronously with respect to the host*:
-     * 1. Before addressing a device buffer's allocation.
-     * 2. Before accessing a device buffer's data whose data has been copied from
-     * any location, or that has been processed by a CUDA kernel.
-     * 3. Before accessing a host buffer's data whose data has been copied from device,
-     * or processed by a CUDA kernel.
-     */
-    class Event {
-      public:
-        /**
-         * @brief Construct a CUDA event for a given stream.
-         *
-         * @param stream CUDA stream used for device memory operations
-         */
-        Event(rmm::cuda_stream_view stream);
-
-        /**
-         * @brief Destructor for Event.
-         *
-         * Cleans up the CUDA event if one was created.
-         */
-        ~Event();
-
-        /**
-         * @brief Check if the CUDA event has been completed.
-         *
-         * @return true if the event has been completed, false otherwise.
-         *
-         * @throws rapidsmpf::cuda_error if cudaEventQuery fails.
-         */
-        [[nodiscard]] bool is_ready();
-
-        /**
-         * @brief Wait for the event to be completed.
-         *
-         * @throws rapidsmpf::cuda_error if cudaEventSynchronize fails.
-         */
-        void wait();
-
-        /**
-         * @brief Get the CUDA event.
-         *
-         * @return The CUDA event.
-         */
-        [[nodiscard]] constexpr cudaEvent_t event() const {
-            return event_;
-        }
-
-      private:
-        cudaEvent_t event_;  ///< CUDA event used to track device memory allocation
-        std::atomic<bool> done_{
-            false
-        };  ///< Cache of the event status to avoid unnecessary queries.
-    };
-
-    /// @brief  Storage type for the device buffer.
+    /// @brief Storage type for the device buffer.
     using DeviceStorageT = std::unique_ptr<rmm::device_buffer>;
 
-    /// @brief  Storage type for the host buffer.
+    /// @brief Storage type for the host buffer.
     using HostStorageT = std::unique_ptr<std::vector<uint8_t>>;
 
     /**
-     * @brief  Storage type in Buffer, which could be either host or device memory.
+     * @brief Storage type in Buffer, which could be either host or device memory.
      */
     using StorageT = std::variant<DeviceStorageT, HostStorageT>;
 
@@ -126,14 +71,9 @@ class Buffer {
      * @return A reference to the unique pointer managing the host memory.
      *
      * @throws std::logic_error if the buffer does not manage host memory.
+     * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] constexpr HostStorageT const& host() const {
-        if (const auto* ref = std::get_if<HostStorageT>(&storage_)) {
-            return *ref;
-        } else {
-            RAPIDSMPF_FAIL("Buffer is not host memory");
-        }
-    }
+    [[nodiscard]] HostStorageT const& host() const;
 
     /**
      * @brief Access the underlying device memory buffer (const).
@@ -141,23 +81,9 @@ class Buffer {
      * @return A const reference to the unique pointer managing the device memory.
      *
      * @throws std::logic_error if the buffer does not manage device memory.
+     * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] constexpr DeviceStorageT const& device() const {
-        if (const auto* ref = std::get_if<DeviceStorageT>(&storage_)) {
-            return *ref;
-        } else {
-            RAPIDSMPF_FAIL("Buffer is not device memory");
-        }
-    }
-
-    /**
-     * @brief Access the underlying memory buffer (host or device memory).
-     *
-     * @return A pointer to the underlying host or device memory.
-     *
-     * @throws std::logic_error if the buffer does not manage any memory.
-     */
-    [[nodiscard]] void* data();
+    [[nodiscard]] DeviceStorageT const& device() const;
 
     /**
      * @brief Access the underlying memory buffer (host or device memory).
@@ -165,8 +91,104 @@ class Buffer {
      * @return A const pointer to the underlying host or device memory.
      *
      * @throws std::logic_error if the buffer does not manage any memory.
+     * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] void const* data() const;
+    [[nodiscard]] std::byte const* data() const;
+
+    /**
+     * @brief Provides stream-ordered write access to the buffer.
+     *
+     * Calls @p f with a pointer to the buffer's memory and the buffer's stream
+     * (i.e., `this->stream()`).
+     *
+     * The callable must be invocable as:
+     *   - `R(std::byte*, rmm::cuda_stream_view)`.
+     *
+     * All work performed by @p f must be stream-ordered on the buffer's stream.
+     * Enqueuing work on any other stream without synchronizing with the buffer's
+     * stream before and after the call is undefined behavior. In other words,
+     * @p f must behave as a single stream-ordered operation, similar to issuing one
+     * `cudaMemcpyAsync` on the buffer's stream. For non-stream-aware integrations,
+     * use `exclusive_data_access()`.
+     *
+     * After @p f returns, an event is recorded on the buffer's stream, establishing
+     * the new "latest write" for this buffer.
+     *
+     * @warning The pointer is valid only for the duration of the call. Using it
+     * outside of @p f is undefined behavior.
+     *
+     * @tparam F Callable type.
+     * @param f Callable that accepts `(std::byte*, rmm::cuda_stream_view)`.
+     * @return Whatever @p f returns (`void` if none).
+     *
+     * @throws std::logic_error If the buffer is locked.
+     *
+     * @code{.cpp}
+     * // Snippet: copy data from `src_ptr` into `buffer` on the buffer's stream.
+     * buffer.write_access([&](std::byte* buffer_ptr, rmm::cuda_stream_view stream) {
+     *   assert(buffer.stream().value() == stream.value());
+     *   RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+     *       buffer_ptr,
+     *       src_ptr,
+     *       num_bytes,
+     *       cudaMemcpyDefault,
+     *       stream
+     *   ));
+     * });
+     * @endcode
+     */
+    template <typename F>
+    auto write_access(F&& f)
+        -> std::invoke_result_t<F, std::byte*, rmm::cuda_stream_view> {
+        using Fn = std::remove_reference_t<F>;
+        static_assert(
+            std::is_invocable_v<Fn, std::byte*, rmm::cuda_stream_view>,
+            "write_access() expects callable R(std::byte*, rmm::cuda_stream_view)"
+        );
+        using R = std::invoke_result_t<Fn, std::byte*, rmm::cuda_stream_view>;
+
+        auto* ptr = const_cast<std::byte*>(data());
+        if constexpr (std::is_void_v<R>) {
+            std::invoke(std::forward<F>(f), ptr, stream_);
+            latest_write_event_.record(stream_);
+        } else {
+            auto ret = std::invoke(std::forward<F>(f), ptr, stream_);
+            latest_write_event_.record(stream_);
+            return ret;
+        }
+    }
+
+    /**
+     * @brief Acquire non-stream-ordered exclusive access to the buffer's memory.
+     *
+     * Alternative to `write_access()`. Acquires an internal exclusive lock so that
+     * **any other access through the Buffer API** (including `write_access()`) will
+     * fail with `std::logic_error` while the lock is held. The lock remains held
+     * until `unlock()` is called. This lock is not a concurrency mechanism; it only
+     * prevents accidental access to the Buffer through the rest of the Buffer API while
+     * locked.
+     *
+     * Use this when integrating with non-stream-aware consumer APIs that require a
+     * raw pointer and cannot be expressed as work on a CUDA stream (e.g., MPI, blocking
+     * host I/O).
+     *
+     * @note Prefer `write_access(...)` if you can express the operation as a
+     * single callable on a stream, even if that requires manually synchronizing the
+     * stream before the callable returns.
+     *
+     * @return Pointer to the underlying storage.
+     *
+     * @throws std::logic_error If the buffer is already locked.
+     * @throws std::logic_error If `is_latest_write_done() != true`.
+     *
+     * @see write_access(), is_locked(), unlock()
+     */
+    std::byte* exclusive_data_access();
+
+    /**
+     * @brief Release the exclusive lock acquired by `exclusive_data_access()`.
+     */
+    void unlock();
 
     /**
      * @brief Get the memory type of the buffer.
@@ -178,93 +200,55 @@ class Buffer {
     [[nodiscard]] MemoryType constexpr mem_type() const {
         return std::visit(
             overloaded{
-                [](const HostStorageT&) -> MemoryType { return MemoryType::HOST; },
-                [](const DeviceStorageT&) -> MemoryType { return MemoryType::DEVICE; }
+                [](HostStorageT const&) -> MemoryType { return MemoryType::HOST; },
+                [](DeviceStorageT const&) -> MemoryType { return MemoryType::DEVICE; }
             },
             storage_
         );
     }
 
     /**
-     * @brief Override the event for the buffer.
+     * @brief Get the associated CUDA stream.
      *
-     * @note Use this if you want the buffer to sync with an event happening after the
-     * original event. Need to be used with care when dealing with multiple streams.
+     * All operations must either use this stream or synchronize with it
+     * before accessing the underlying data (both host and device memory).
      *
-     * @param event The event to set.
+     * @return The associated CUDA stream.
      */
-    inline void override_event(std::shared_ptr<Event> event) {
-        event_ = std::move(event);
+    [[nodiscard]] constexpr rmm::cuda_stream_view stream() const noexcept {
+        return stream_;
     }
 
     /**
-     * @brief Check if the device memory operation has completed.
+     * @brief Check whether the buffer's most recent write has completed.
      *
-     * @return true if the device memory operation has completed or no device
-     * memory operation was performed, false if it is still in progress.
+     * Returns whether the CUDA event that tracks the most recent write into this
+     * buffer has been signaled.
+     *
+     * Use this to guard *non-stream-ordered* consumer-APIs that do not accept a CUDA
+     * stream (e.g., MPI sends/receives, host-side reads).
+     *
+     * @note This is a non-blocking, point-in-time status check and is subject to TOCTOU
+     * races: another thread may enqueue additional writes after this returns `true`.
+     * Ensure no further writes are enqueued, or establish stronger synchronization (e.g.,
+     * synchronize the buffer's stream) before using the buffer.
+     *
+     * @return `true` if the last recorded write event has completed; `false` otherwise.
+     *
+     * @throws std::logic_error If the buffer is locked.
+     *
+     * @code{.cpp}
+     * // Example: send the buffer via MPI (non-stream-ordered).
+     * if (buffer.is_latest_write_done()) {
+     *   MPI_Isend(buffer.data(), buffer.size(), MPI_BYTE, dst, tag, comm, &req);
+     * } else {
+     *   // Ensure completion before handing to MPI.
+     *   buffer.stream().synchronize();
+     *   MPI_Isend(buffer.data(), buffer.size(), MPI_BYTE, dst, tag, comm, &req);
+     * }
+     * @endcode
      */
-    [[nodiscard]] bool is_ready() const;
-
-    /**
-     * @brief Wait for the device memory operation to complete.
-     *
-     * @throws rapidsmpf::cuda_error if event wait fails (if set).
-     */
-    void wait_for_ready() const;
-
-    /**
-     * @brief Copy a slice of the buffer to a new buffer allocated from the target
-     * reservation.
-     *
-     * @param offset Non-negative offset from the start of the buffer (in bytes).
-     * @param length Length of the slice (in bytes).
-     * @param target_reserv Memory reservation for the new buffer.
-     * @param stream CUDA stream to use for the copy.
-     * @returns A new buffer containing the copied slice.
-     */
-    [[nodiscard]] std::unique_ptr<Buffer> copy_slice(
-        std::ptrdiff_t offset,
-        std::size_t length,
-        MemoryReservation& target_reserv,
-        rmm::cuda_stream_view stream
-    ) const;
-
-    /**
-     * @brief Create a copy of this buffer by allocating a new buffer from the
-     * reservation.
-     *
-     * @param stream CUDA stream used for the device buffer allocation and copy.
-     * @param reservation Memory reservation for data allocations.
-     * @return A unique pointer to a new Buffer containing the copied data.
-     */
-    [[nodiscard]] std::unique_ptr<Buffer> copy(
-        rmm::cuda_stream_view stream, MemoryReservation& reservation
-    ) const;
-
-    /**
-     * @brief Copy data from this buffer to a destination buffer with a given offset.
-     *
-     * @param dest Destination buffer.
-     * @param dest_offset Non-negative offset of the destination buffer (in bytes).
-     * @param stream CUDA stream to use for the copy.
-     * @param attach_event If true, attach the event to the copy. Else, the caller needs
-     * to attach appropriate event to the destination buffer. If the copy is host-to-host,
-     * the copy is synchronous and the event is not needed, hence this argument is
-     * ignored.
-     * @returns Number of bytes written to the destination buffer.
-     *
-     * @note If this buffer and destination buffer are both on the host, the copy is
-     * synchronous.
-     *
-     * @throws std::invalid_argument if copy violates the bounds of the destination
-     * buffer.
-     */
-    [[nodiscard]] std::ptrdiff_t copy_to(
-        Buffer& dest,
-        std::ptrdiff_t dest_offset,
-        rmm::cuda_stream_view stream,
-        bool attach_event = false
-    ) const;
+    [[nodiscard]] bool is_latest_write_done() const;
 
     /// @brief Delete move and copy constructors and assignment operators.
     Buffer(Buffer&&) = delete;
@@ -274,30 +258,51 @@ class Buffer {
 
   private:
     /**
-     * @brief Construct a Buffer from host memory.
+     * @brief Construct a stream-ordered Buffer from synchronized host memory.
      *
-     * @param host_buffer A unique pointer to a vector containing host memory.
+     * Adopts @p host_buffer as the Buffer's storage and associates the Buffer with
+     * @p stream for subsequent stream-ordered operations.
      *
-     * @throws std::invalid_argument if `host_buffer` is null.
-     */
-    Buffer(std::unique_ptr<std::vector<uint8_t>> host_buffer);
-
-    /**
-     * @brief Construct a Buffer from device memory.
+     * @note The constructor does **not** perform any synchronization. The caller must
+     * ensure that @p host_buffer is already synchronized (no pending GPU or stream work)
+     * at the time of construction. A newly constructed Buffer is therefore considered
+     * ready (i.e., `is_latest_write_done() == true`).
      *
-     * @param device_buffer A unique pointer to a device buffer.
-     * @param stream CUDA stream used for the device buffer allocation.
-     * @param event The shared event to use for the buffer.
+     * @param host_buffer Unique pointer to a vector containing host memory.
+     * @param stream CUDA stream to associate with the Buffer for future operations.
      *
-     * @throws std::invalid_argument if `device_buffer` is null.
-     * @throws std::invalid_argument if `stream` or `br->mr` isn't the same used by
-     * `device_buffer`.
+     * @throws std::invalid_argument If @p host_buffer is null.
+     * @throws std::logic_error If the buffer is locked.
      */
     Buffer(
-        std::unique_ptr<rmm::device_buffer> device_buffer,
-        rmm::cuda_stream_view stream,
-        std::shared_ptr<Event> event = nullptr
+        std::unique_ptr<std::vector<uint8_t>> host_buffer, rmm::cuda_stream_view stream
     );
+
+    /**
+     * @brief Construct a stream-ordered Buffer from device memory.
+     *
+     * Adopts @p device_buffer as the Buffer's storage and inherits its CUDA stream.
+     * At construction, the Buffer records an initial "latest write" on that stream,
+     * so `is_latest_write_done()` will become `true` once all work enqueued on the
+     * adopted stream up to this point has completed.
+     *
+     * @note No synchronization is performed by the constructor. Any producer that
+     * initialized or modified @p device_buffer must have enqueued that work on the same
+     * stream (or established ordering with it) for correctness.
+     *
+     * @param device_buffer Unique pointer to a device buffer. Must be non-null.
+     *
+     * @throws std::invalid_argument If @p device_buffer is null.
+     * @throws std::logic_error If the buffer is locked.
+     */
+    Buffer(std::unique_ptr<rmm::device_buffer> device_buffer);
+
+    /**
+     * @brief Throws if the buffer is currently locked by `exclusive_data_access()`.
+     *
+     * @throws std::logic_error If the buffer is locked.
+     */
+    void throw_if_locked() const;
 
     /**
      * @brief Access the underlying host memory buffer.
@@ -305,14 +310,9 @@ class Buffer {
      * @return A reference to the unique pointer managing the host memory.
      *
      * @throws std::logic_error if the buffer does not manage host memory.
+     * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] constexpr HostStorageT& host() {
-        if (auto ref = std::get_if<HostStorageT>(&storage_)) {
-            return *ref;
-        } else {
-            RAPIDSMPF_FAIL("Buffer is not host memory");
-        }
-    }
+    [[nodiscard]] HostStorageT& host();
 
     /**
      * @brief Access the underlying device memory buffer.
@@ -320,14 +320,9 @@ class Buffer {
      * @return A reference to the unique pointer managing the device memory.
      *
      * @throws std::logic_error if the buffer does not manage device memory.
+     * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] constexpr DeviceStorageT& device() {
-        if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
-            return *ref;
-        } else {
-            RAPIDSMPF_FAIL("Buffer is not device memory");
-        }
-    }
+    [[nodiscard]] DeviceStorageT& device();
 
     /**
      * @brief Release the underlying device memory buffer.
@@ -335,10 +330,9 @@ class Buffer {
      * @return The underlying device memory buffer.
      *
      * @throws std::logic_error if the buffer does not manage device memory.
+     * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] DeviceStorageT release_device() {
-        return std::move(device());
-    }
+    [[nodiscard]] DeviceStorageT release_device();
 
     /**
      * @brief Release the underlying host memory buffer.
@@ -346,10 +340,9 @@ class Buffer {
      * @return The underlying host memory buffer.
      *
      * @throws std::logic_error if the buffer does not manage host memory.
+     * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] HostStorageT release_host() {
-        return std::move(host());
-    }
+    [[nodiscard]] HostStorageT release_host();
 
   public:
     std::size_t const size;  ///< The size of the buffer in bytes.
@@ -358,8 +351,30 @@ class Buffer {
     /// @brief The underlying storage host memory or device memory buffer (where
     /// applicable).
     StorageT storage_;
-    /// @brief CUDA event used to track copy operations
-    std::shared_ptr<Event> event_;
+    rmm::cuda_stream_view stream_;
+    CudaEvent latest_write_event_;
+    std::atomic_bool lock_;
 };
+
+/**
+ * @brief Asynchronously copy data between buffers.
+ *
+ * Copies @p size bytes from @p src at @p src_offset into @p dst at @p dst_offset.
+ *
+ * @param dst Destination buffer.
+ * @param src Source buffer.
+ * @param size Number of bytes to copy.
+ * @param dst_offset Offset (in bytes) into the destination buffer.
+ * @param src_offset Offset (in bytes) into the source buffer.
+ *
+ * @throws std::invalid_argument If out of bounds.
+ */
+void buffer_copy(
+    Buffer& dst,
+    Buffer& src,
+    std::size_t size,
+    std::ptrdiff_t dst_offset = 0,
+    std::ptrdiff_t src_offset = 0
+);
 
 }  // namespace rapidsmpf

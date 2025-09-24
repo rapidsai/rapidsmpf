@@ -1,0 +1,46 @@
+/**
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#pragma once
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
+#include <cudf/utilities/default_stream.hpp>
+#include <rmm/mr/device/cuda_memory_resource.hpp>
+
+#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/communicator/single.hpp>
+#include <rapidsmpf/streaming/core/channel.hpp>
+#include <rapidsmpf/streaming/core/context.hpp>
+#include <rapidsmpf/streaming/core/node.hpp>
+
+class BaseStreamingFixture : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        SetUp(1);  // default number of streaming threads
+    }
+
+    void SetUp(int num_streaming_threads) {
+        rapidsmpf::config::Options options{
+            rapidsmpf::config::get_environment_variables()
+        };
+        RAPIDSMPF_EXPECTS(
+            options.insert_if_absent(
+                "num_streaming_threads", std::to_string(num_streaming_threads)
+            ),
+            "num_streaming_threads already set"
+        );
+        stream = cudf::get_default_stream();
+        br = std::make_unique<rapidsmpf::BufferResource>(mr_cuda);
+        ctx = std::make_shared<rapidsmpf::streaming::Context>(
+            options, std::make_shared<rapidsmpf::Single>(options), br.get()
+        );
+    }
+
+    rmm::cuda_stream_view stream;
+    rmm::mr::cuda_memory_resource mr_cuda;
+    std::unique_ptr<rapidsmpf::BufferResource> br;
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx;
+};

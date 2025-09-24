@@ -33,7 +33,7 @@ cdef class ProgressThread:
     """
     def __init__(
         self,
-        Communicator comm,
+        Communicator comm not None,
         Statistics statistics = None,
     ):
         if statistics is None:

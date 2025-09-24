@@ -142,9 +142,7 @@ class ShufflingActor(BaseShufflingActor):
             partition_id = shuffler.wait_any()
             packed_chunks = shuffler.extract(partition_id)
             partition = unpack_and_concat(
-                unspill_partitions(
-                    packed_chunks, stream=stream, br=br, allow_overbooking=True
-                ),
+                unspill_partitions(packed_chunks, br=br, allow_overbooking=True),
                 br=br,
                 stream=stream,
             )

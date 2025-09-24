@@ -12,6 +12,23 @@
 
 
 /**
+ * @brief The type of random data to generate.
+ */
+using random_data_t = std::int32_t;
+
+/**
+ * @brief The lower bound of the size of a random table.
+ *
+ * @param ncolumns The number of columns in the table.
+ * @param nrows The number of rows in the table.
+ */
+size_t constexpr random_table_size_lower_bound(
+    cudf::size_type ncolumns, cudf::size_type nrows
+) {
+    return static_cast<size_t>(ncolumns * nrows) * sizeof(random_data_t);
+}
+
+/**
  * @brief Generates a random numeric device vector (std::int32_t).
  *
  * Creates a device vector with random integer values uniformly distributed in
