@@ -489,6 +489,7 @@ class CompetingShufflerAsyncTest : public BaseStreamingFixture {
             // else extract_result should be valid and an empty vector
             EXPECT_EQ(extract_result.return_value().size(), 0);
         }
+        GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     }
 };
 
