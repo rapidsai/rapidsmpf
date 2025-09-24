@@ -36,7 +36,7 @@ Chunk::Chunk(
 Chunk::Chunk(ChunkID id) : id_{id}, metadata_{nullptr}, data_{nullptr}, data_size_{0} {}
 
 bool Chunk::is_ready() const noexcept {
-    return data_size_ == 0 || (data_ && data_->is_ready());
+    return data_size_ == 0 || (data_ && data_->is_latest_write_done());
 }
 
 MemoryType Chunk::memory_type() const noexcept {
