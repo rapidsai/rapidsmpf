@@ -462,6 +462,8 @@ TEST_F(BaseStreamingFixture, extract_any_before_extract) {
     for (auto pid : local_pids) {
         EXPECT_THROW(coro::sync_wait(shuffler->extract_async(pid)), std::out_of_range);
     }
+    shuffler.reset();
+    GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
 }
 
 class CompetingShufflerAsyncTest : public BaseStreamingFixture {
@@ -474,7 +476,6 @@ class CompetingShufflerAsyncTest : public BaseStreamingFixture {
         shuffler::PartID const this_pid = ctx->comm()->rank();
 
         auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
-        GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
 
         shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
