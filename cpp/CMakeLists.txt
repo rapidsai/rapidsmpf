@@ -162,6 +162,7 @@ add_library(
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
   src/shuffler/chunk.cpp
+  src/shuffler/chunk_message_adapter.cpp
   src/shuffler/finish_counter.cpp
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
