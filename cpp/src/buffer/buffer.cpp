@@ -9,6 +9,8 @@
 
 #include <cuda/std/cstdint>
 
+#include <rmm/cuda_stream_view.hpp>
+
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
@@ -155,13 +157,13 @@ void buffer_copy(
     // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
     // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
     cuda_stream_join(dst.stream(), src.stream());
-    dst.write_access(dst.stream(), [&](std::byte* dst_data) {
+    dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
             dst_data + dst_offset,
             src.data() + src_offset,
             size,
             cudaMemcpyDefault,
-            dst.stream()
+            stream
         ));
     });
     cuda_stream_join(src.stream(), dst.stream());

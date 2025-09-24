@@ -221,7 +221,7 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
         auto buf = br->allocate(size, stream, alloc_reserve);
         EXPECT_EQ(buf->mem_type(), mem_type);
         // copy the host pattern to the Buffer
-        buf->write_access(stream, [&](std::byte* buf_data) {
+        buf->write_access([&](std::byte* buf_data, rmm::cuda_stream_view stream) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 buf_data, host_pattern.data(), size, cudaMemcpyDefault, stream
             ));
@@ -452,7 +452,7 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
         EXPECT_EQ(buf1->size, buffer_size);
         EXPECT_EQ(buf1->mem_type(), MemoryType::DEVICE);
 
-        buf1->write_access(stream, [&](std::byte* buf1_data) {
+        buf1->write_access([&](std::byte* buf1_data, rmm::cuda_stream_view stream) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 buf1_data,
                 host_pattern.data(),
@@ -566,7 +566,7 @@ TEST_F(BufferCopyEdgeCases, ZeroSizeIsNoOp) {
 
     // Pre-fill dst with a sentinel pattern
     std::vector<uint8_t> sent(N, 0xCD);
-    dst->write_access(stream, [&](std::byte* dst_data) {
+    dst->write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(
             cudaMemcpyAsync(dst_data, sent.data(), N, cudaMemcpyDefault, stream)
         );

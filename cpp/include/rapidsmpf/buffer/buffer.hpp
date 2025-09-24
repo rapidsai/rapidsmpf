@@ -71,6 +71,7 @@ class Buffer {
      * @return A reference to the unique pointer managing the host memory.
      *
      * @throws std::logic_error if the buffer does not manage host memory.
+     * @throws std::logic_error If the buffer is locked.
      */
     [[nodiscard]] HostStorageT const& host() const;
 
@@ -80,6 +81,7 @@ class Buffer {
      * @return A const reference to the unique pointer managing the device memory.
      *
      * @throws std::logic_error if the buffer does not manage device memory.
+     * @throws std::logic_error If the buffer is locked.
      */
     [[nodiscard]] DeviceStorageT const& device() const;
 
@@ -89,58 +91,69 @@ class Buffer {
      * @return A const pointer to the underlying host or device memory.
      *
      * @throws std::logic_error if the buffer does not manage any memory.
+     * @throws std::logic_error If the buffer is locked.
      */
     [[nodiscard]] std::byte const* data() const;
 
     /**
-     * @brief Provides write access to the buffer.
+     * @brief Provides stream-ordered write access to the buffer.
      *
-     * Calls @p f with a pointer to the buffer's memory. The callable must be invocable
-     * as `R(std::byte*)`; its return value (if any) is returned by this function.
+     * Calls @p f with a pointer to the buffer's memory and the buffer's stream
+     * (i.e., `this->stream()`).
      *
-     * The provided @p stream is the stream associated with this access. Any work enqueued
-     * on the buffer memory must use @p stream or synchronize with it before @p f returns.
-     * Synchronizing with @p stream only after @p f returns is not sufficient and results
-     * in undefined behavior. Normally, @p stream should be the buffer's own stream.
+     * The callable must be invocable as:
+     *   - `R(std::byte*, rmm::cuda_stream_view)`.
      *
-     * @warning The pointer is valid only for the duration of the call. Using it outside
-     * of @p f is undefined behavior.
+     * All work performed by @p f must be stream-ordered on the buffer's stream.
+     * Enqueuing work on any other stream without synchronizing with the buffer's
+     * stream before and after the call is undefined behavior. In other words,
+     * @p f must behave as a single stream-ordered operation, similar to issuing one
+     * `cudaMemcpyAsync` on the buffer's stream. For non-stream-aware integrations,
+     * use `exclusive_data_access()`.
+     *
+     * After @p f returns, an event is recorded on the buffer's stream, establishing
+     * the new "latest write" for this buffer.
+     *
+     * @warning The pointer is valid only for the duration of the call. Using it
+     * outside of @p f is undefined behavior.
      *
      * @tparam F Callable type.
-     * @param stream CUDA stream to use or synchronize with during buffer access.
-     * @param f Callable that accepts a single `std::byte*`.
+     * @param f Callable that accepts `(std::byte*, rmm::cuda_stream_view)`.
      * @return Whatever @p f returns (`void` if none).
      *
+     * @throws std::logic_error If the buffer is locked.
+     *
      * @code{.cpp}
-     * // Snippet: copy data from `src_ptr` into `buffer`.
-     * buffer.write_access(stream, [&](std::byte* buffer_ptr) {
-     *     RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-     *         buffer_ptr,
-     *         src_ptr,
-     *         num_bytes,
-     *         cudaMemcpyDefault,
-     *         stream
-     *     ));
+     * // Snippet: copy data from `src_ptr` into `buffer` on the buffer's stream.
+     * buffer.write_access([&](std::byte* buffer_ptr, rmm::cuda_stream_view stream) {
+     *   assert(buffer.stream().value() = stream.value());
+     *   RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+     *       buffer_ptr,
+     *       src_ptr,
+     *       num_bytes,
+     *       cudaMemcpyDefault,
+     *       stream
+     *   ));
      * });
      * @endcode
      */
     template <typename F>
-    auto write_access(rmm::cuda_stream_view stream, F&& f)
-        -> std::invoke_result_t<F, std::byte*> {
+    auto write_access(F&& f)
+        -> std::invoke_result_t<F, std::byte*, rmm::cuda_stream_view> {
+        using Fn = std::remove_reference_t<F>;
         static_assert(
-            std::is_invocable_v<std::remove_reference_t<F>, std::byte*>,
-            "write_access() expects a callable with signature: R(std::byte*)"
+            std::is_invocable_v<Fn, std::byte*, rmm::cuda_stream_view>,
+            "write_access() expects callable R(std::byte*, rmm::cuda_stream_view)"
         );
-        using R = std::invoke_result_t<F, std::byte*>;
+        using R = std::invoke_result_t<Fn, std::byte*, rmm::cuda_stream_view>;
 
-        // After `f()` completes, an event is recorded on `stream`; this becomes the new
-        // latest-write event.
+        auto* ptr = const_cast<std::byte*>(data());
         if constexpr (std::is_void_v<R>) {
-            std::invoke(std::forward<F>(f), const_cast<std::byte*>(data()));
-            latest_write_event_.record(stream);
+            std::invoke(std::forward<F>(f), ptr, stream_);
+            latest_write_event_.record(stream_);
         } else {
-            auto ret = std::invoke(std::forward<F>(f), const_cast<std::byte*>(data()));
-            latest_write_event_.record(stream);
+            auto ret = std::invoke(std::forward<F>(f), ptr, stream_);
+            latest_write_event_.record(stream_);
             return ret;
         }
     }
