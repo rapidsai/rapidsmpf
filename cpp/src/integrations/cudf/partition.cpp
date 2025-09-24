@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <ranges>
 #include <utility>
 
 #include <cudf/concatenate.hpp>
@@ -213,7 +214,7 @@ std::unique_ptr<cudf::table> unpack_and_concat(
     // underlying device buffers to use `stream` going forward. This ensures
     // the packed data are not deallocated before we have a chance to
     // concatenate them on `stream`.
-    cuda_stream_join(std::array{stream}, packed_data_streams);
+    cuda_stream_join(std::views::single(stream), packed_data_streams);
     for (cudf::packed_columns& packed_columns : references) {
         packed_columns.gpu_data->set_stream(stream);
     }
