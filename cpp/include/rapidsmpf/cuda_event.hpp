@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include <atomic>
+#include <mutex>
 
 #include <cuda_runtime.h>
 
@@ -103,14 +103,14 @@ class CudaEvent {
      *
      * @throws rapidsmpf::cuda_error if cudaEventQuery fails.
      */
-    [[nodiscard]] bool is_ready();
+    [[nodiscard]] bool is_ready() const;
 
     /**
      * @brief Wait for the event to be completed (blocking).
      *
      * @throws rapidsmpf::cuda_error if cudaEventSynchronize fails.
      */
-    void host_wait();
+    void host_wait() const;
 
     /**
      * @brief Make a CUDA stream wait on this event (non-blocking).
@@ -122,7 +122,7 @@ class CudaEvent {
      *
      * @throws rapidsmpf::cuda_error if cudaStreamWaitEvent fails.
      */
-    void stream_wait(rmm::cuda_stream_view stream);
+    void stream_wait(rmm::cuda_stream_view stream) const;
 
     /**
      * @brief Access the underlying CUDA event handle.
@@ -141,8 +141,7 @@ class CudaEvent {
     }
 
   private:
-    cudaEvent_t event_{};  ///< Underlying CUDA event handle.
-    std::atomic<bool> done_{false};  ///< Cache of the event status.
+    cudaEvent_t event_{};
 };
 
 
