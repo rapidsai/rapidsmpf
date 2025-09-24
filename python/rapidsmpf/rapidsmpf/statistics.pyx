@@ -83,7 +83,9 @@ cdef class Statistics:
     @property
     def mr(self):
         """
-        The RMM Memory Resource this Statistics was initialized with.
+        The RMM Memory Resource this Statistics was initialized with, if enabled.
+
+        This is None if statistics are not enabled.
         """
         return self._mr
 
