@@ -151,11 +151,15 @@ class Buffer {
      * Alternative to `write_access()`. Acquires an internal exclusive lock so that
      * **any other access through the Buffer API** (including `write_access()`) will
      * fail with `std::logic_error` while the lock is held. The lock remains held
-     * until `unlock()` is called.
+     * until `unlock()` is called. This lock is not a concurrency mechanism; it only
+     prevents accedenalt access to the Buffer while  it simultaneous access through the
+     Buffer API.
      *
      * Use this when integrating with non-stream-aware consumer APIs that require a
      * raw pointer and cannot be expressed as work on a CUDA stream (e.g., MPI,
      * blocking host I/O).
+     *
+
      *
      * @note Prefer `write_access(stream, ...)` if you can express the operation as a
      * single callable on a stream, even if that requires manually synchronizing the
@@ -171,23 +175,11 @@ class Buffer {
     std::byte* exclusive_data_access();
 
     /**
-     * @brief Check whether the buffer is currently exclusively locked.
-     *
-     * @return `true` if `exclusive_data_access()` has acquired the lock and `unlock()`
-     * has not yet been called; `false` otherwise.
-     */
-    [[nodiscard]] bool is_locked() const {
-        return lock_.load(std::memory_order_acquire);
-    }
-
-    /**
      * @brief Release the exclusive lock acquired by `exclusive_data_access()`.
      *
      * @post `is_locked() == false`.
      */
-    void unlock() {
-        lock_.store(false, std::memory_order_release);
-    }
+    void unlock();
 
     /**
      * @brief Get the memory type of the buffer.
@@ -247,10 +239,7 @@ class Buffer {
      * }
      * @endcode
      */
-    [[nodiscard]] bool is_latest_write_done() const {
-        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
-        return latest_write_event_.is_ready();
-    }
+    [[nodiscard]] bool is_latest_write_done() const;
 
     /// @brief Delete move and copy constructors and assignment operators.
     Buffer(Buffer&&) = delete;
@@ -300,6 +289,13 @@ class Buffer {
     Buffer(std::unique_ptr<rmm::device_buffer> device_buffer);
 
     /**
+     * @brief Throws if the buffer is currently locked by `exclusive_data_access()`.
+     *
+     * @throws std::logic_error If the buffer is locked.
+     */
+    void throw_if_locked() const;
+
+    /**
      * @brief Access the underlying host memory buffer.
      *
      * @return A reference to the unique pointer managing the host memory.
@@ -327,10 +323,7 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage device memory.
      * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] DeviceStorageT release_device() {
-        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
-        return std::move(device());
-    }
+    [[nodiscard]] DeviceStorageT release_device();
 
     /**
      * @brief Release the underlying host memory buffer.
@@ -340,10 +333,7 @@ class Buffer {
      * @throws std::logic_error if the buffer does not manage host memory.
      * @throws std::logic_error If the buffer is locked.
      */
-    [[nodiscard]] HostStorageT release_host() {
-        RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
-        return std::move(host());
-    }
+    [[nodiscard]] HostStorageT release_host();
 
   public:
     std::size_t const size;  ///< The size of the buffer in bytes.

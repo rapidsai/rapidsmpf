@@ -39,8 +39,12 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
     latest_write_event_.record(stream_);
 }
 
+void Buffer::throw_if_locked() const {
+    RAPIDSMPF_EXPECTS(!lock_.load(std::memory_order_acquire), "the buffer is locked");
+}
+
 Buffer::HostStorageT const& Buffer::host() const {
-    RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
+    throw_if_locked();
     if (const auto* ref = std::get_if<HostStorageT>(&storage_)) {
         return *ref;
     } else {
@@ -49,7 +53,7 @@ Buffer::HostStorageT const& Buffer::host() const {
 }
 
 Buffer::HostStorageT& Buffer::host() {
-    RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
+    throw_if_locked();
     if (auto ref = std::get_if<HostStorageT>(&storage_)) {
         return *ref;
     } else {
@@ -58,7 +62,7 @@ Buffer::HostStorageT& Buffer::host() {
 }
 
 Buffer::DeviceStorageT& Buffer::device() {
-    RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
+    throw_if_locked();
     if (auto ref = std::get_if<DeviceStorageT>(&storage_)) {
         return *ref;
     } else {
@@ -67,7 +71,7 @@ Buffer::DeviceStorageT& Buffer::device() {
 }
 
 Buffer::DeviceStorageT const& Buffer::device() const {
-    RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
+    throw_if_locked();
     if (const auto* ref = std::get_if<DeviceStorageT>(&storage_)) {
         return *ref;
     } else {
@@ -76,7 +80,7 @@ Buffer::DeviceStorageT const& Buffer::device() const {
 }
 
 std::byte const* Buffer::data() const {
-    RAPIDSMPF_EXPECTS(!is_locked(), "the buffer is locked");
+    throw_if_locked();
     return std::visit(
         [](auto&& storage) -> std::byte const* {
             return reinterpret_cast<std::byte const*>(storage->data());
@@ -101,6 +105,25 @@ std::byte* Buffer::exclusive_data_access() {
         },
         storage_
     );
+}
+
+void Buffer::unlock() {
+    lock_.store(false, std::memory_order_release);
+}
+
+bool Buffer::is_latest_write_done() const {
+    throw_if_locked();
+    return latest_write_event_.is_ready();
+}
+
+Buffer::DeviceStorageT Buffer::release_device() {
+    throw_if_locked();
+    return std::move(device());
+}
+
+Buffer::HostStorageT Buffer::release_host() {
+    throw_if_locked();
+    return std::move(host());
 }
 
 void buffer_copy(
