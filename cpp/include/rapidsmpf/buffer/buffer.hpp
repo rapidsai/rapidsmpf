@@ -152,8 +152,7 @@ class Buffer {
      * **any other access through the Buffer API** (including `write_access()`) will
      * fail with `std::logic_error` while the lock is held. The lock remains held
      * until `unlock()` is called. This lock is not a concurrency mechanism; it only
-     prevents accedenalt access to the Buffer while  it simultaneous access through the
-     Buffer API.
+     * prevents accidental access to the Buffer through the rest of the Buffer API while locked.
      *
      * Use this when integrating with non-stream-aware consumer APIs that require a
      * raw pointer and cannot be expressed as work on a CUDA stream (e.g., MPI,
