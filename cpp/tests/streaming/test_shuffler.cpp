@@ -469,12 +469,12 @@ class CompetingShufflerAsyncTest : public BaseStreamingFixture {
     // produce_results_fn is a function that produces the results of the extract_any_async
     // and extract_async coroutines.
     void run_test(auto produce_results_fn) {
-        GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
         static constexpr OpID op_id = 0;
         shuffler::PartID const n_partitions = ctx->comm()->nranks();
         shuffler::PartID const this_pid = ctx->comm()->rank();
 
         auto shuffler = std::make_unique<ShufflerAsync>(ctx, stream, op_id, n_partitions);
+        GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
 
         shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
@@ -489,6 +489,7 @@ class CompetingShufflerAsyncTest : public BaseStreamingFixture {
             // else extract_result should be valid and an empty vector
             EXPECT_EQ(extract_result.return_value().size(), 0);
         }
+        shuffler.reset();
         GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     }
 };
