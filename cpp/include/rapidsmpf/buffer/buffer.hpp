@@ -172,7 +172,7 @@ class Buffer {
      * raw pointer and cannot be expressed as work on a CUDA stream (e.g., MPI, blocking
      * host I/O).
      *
-     * @note Prefer `write_access(stream, ...)` if you can express the operation as a
+     * @note Prefer `write_access(...)` if you can express the operation as a
      * single callable on a stream, even if that requires manually synchronizing the
      * stream before the callable returns.
      *
