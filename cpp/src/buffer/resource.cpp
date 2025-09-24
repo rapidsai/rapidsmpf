@@ -4,7 +4,6 @@
  */
 
 #include <limits>
-#include <ranges>
 
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
@@ -161,7 +160,7 @@ std::unique_ptr<Buffer> BufferResource::move(
 ) {
     auto upstream = data->stream();
     if (upstream.value() != stream.value()) {
-        cuda_stream_join(std::views::single(stream), std::views::single(upstream));
+        cuda_stream_join(stream, upstream);
         data->set_stream(stream);
     }
     return std::unique_ptr<Buffer>(new Buffer(std::move(data)));

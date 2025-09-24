@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ranges>
 #include <utility>
 
 #include <cudf/concatenate.hpp>

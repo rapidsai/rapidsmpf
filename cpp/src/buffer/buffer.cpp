@@ -2,7 +2,6 @@
  * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
-#include <ranges>
 #include <stdexcept>
 #include <utility>
 
@@ -155,7 +154,7 @@ void buffer_copy(
 
     // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
     // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
-    cuda_stream_join(std::views::single(dst.stream()), std::views::single(src.stream()));
+    cuda_stream_join(dst.stream(), src.stream());
     dst.write_access(dst.stream(), [&](std::byte* dst_data) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
             dst_data + dst_offset,
@@ -165,7 +164,7 @@ void buffer_copy(
             dst.stream()
         ));
     });
-    cuda_stream_join(std::views::single(src.stream()), std::views::single(dst.stream()));
+    cuda_stream_join(src.stream(), dst.stream());
 }
 
 }  // namespace rapidsmpf
