@@ -426,8 +426,6 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
 
-    auto event = CudaEvent::make_shared_record(stream_);
-
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_data] : chunks) {
         if (packed_data.empty()) {  // skip empty packed data
