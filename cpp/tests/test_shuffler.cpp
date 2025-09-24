@@ -1294,7 +1294,7 @@ TEST(ShufflerTest, multiple_shutdowns) {
             shuffler->shutdown();
         }));
     }
-    shuffler.reset();
     std::ranges::for_each(futures, [](auto& future) { future.get(); });
+    shuffler.reset();
     GlobalEnvironment->barrier();
 }
