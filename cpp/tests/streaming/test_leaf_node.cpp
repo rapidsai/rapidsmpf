@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <atomic>
 #include <memory>
 #include <vector>
 
@@ -70,4 +71,109 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
             outputs[i].get<TableChunk>().table_view(), expects[i].view()
         );
     }
+}
+
+namespace {
+Node shutdown(
+    std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch, std::vector<Node>&& tasks
+) {
+    ShutdownAtExit c{ch};
+    auto results = co_await coro::when_all(std::move(tasks));
+    for (auto& r : results) {
+        r.return_value();
+    }
+    co_await ch->drain(ctx->executor());
+}
+
+Node producer(
+    std::shared_ptr<Context> ctx,
+    std::shared_ptr<ThrottlingAdaptor> ch,
+    int val,
+    bool should_throw = false
+) {
+    co_await ctx->executor()->schedule();
+    auto ticket = co_await ch->acquire();
+    auto [_, receipt] = co_await ticket.send(Message(std::make_unique<int>(val)));
+    if (should_throw) {
+        throw std::runtime_error("Producer throws");
+    }
+    EXPECT_THROW(
+        co_await ticket.send(Message(std::make_unique<int>(val))), std::logic_error
+    );
+    co_await receipt;
+    EXPECT_TRUE(receipt.is_ready());
+}
+
+Node consumer(
+    std::shared_ptr<Context> ctx,
+    std::shared_ptr<Channel> ch,
+    std::atomic<int>& result,
+    bool should_throw = false
+) {
+    ShutdownAtExit c{ch};
+    co_await ctx->executor()->schedule();
+    while (true) {
+        auto msg = co_await ch->receive();
+        if (should_throw) {
+            throw std::runtime_error("Consumer throws");
+        }
+        if (msg.empty()) {
+            break;
+        }
+        auto val = msg.release<int>();
+        result.fetch_add(val, std::memory_order_relaxed);
+    }
+}
+}  // namespace
+
+TEST_F(StreamingLeafTasks, ThrottledAdaptor) {
+    auto ch = std::make_shared<Channel>();
+    auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
+    std::vector<Node> producers;
+    std::vector<Node> consumers;
+    constexpr int n_producer{100};
+    constexpr int n_consumer{3};
+    for (int i = 0; i < n_producer; i++) {
+        producers.push_back(producer(ctx, throttle, i));
+    }
+    consumers.push_back(shutdown(ctx, ch, std::move(producers)));
+    std::atomic<int> result{0};
+    for (int i = 0; i < n_consumer; i++) {
+        consumers.push_back(consumer(ctx, ch, result));
+    }
+    run_streaming_pipeline(std::move(consumers));
+    EXPECT_EQ(result, ((n_producer - 1) * n_producer) / 2);
+}
+
+TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInProduce) {
+    auto ch = std::make_shared<Channel>();
+    auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
+    std::vector<Node> producers;
+    std::vector<Node> consumers;
+    constexpr int n_producer{10};
+    for (int i = 0; i < n_producer; i++) {
+        producers.push_back(producer(ctx, throttle, i, i == 2));
+    }
+    consumers.push_back(shutdown(ctx, ch, std::move(producers)));
+    std::atomic<int> result;
+    consumers.push_back(consumer(ctx, ch, result));
+    EXPECT_THROW(run_streaming_pipeline(std::move(consumers)), std::runtime_error);
+}
+
+TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInConsume) {
+    auto ch = std::make_shared<Channel>();
+    auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
+    std::vector<Node> producers;
+    std::vector<Node> consumers;
+    constexpr int n_producer{100};
+    constexpr int n_consumer{3};
+    for (int i = 0; i < n_producer; i++) {
+        producers.push_back(producer(ctx, throttle, i));
+    }
+    consumers.push_back(shutdown(ctx, ch, std::move(producers)));
+    std::atomic<int> result;
+    for (int i = 0; i < n_consumer; i++) {
+        consumers.push_back(consumer(ctx, ch, result, i == 1));
+    }
+    EXPECT_THROW(run_streaming_pipeline(std::move(consumers)), std::runtime_error);
 }
