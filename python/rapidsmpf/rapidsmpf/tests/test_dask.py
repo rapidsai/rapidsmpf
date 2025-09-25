@@ -379,6 +379,7 @@ def test_gather_shuffle_statistics() -> None:
             "comms-interface-setup-data-receives",
             "event-loop-process-communication",
             "event-loop-submit-outgoing",
+            "event-loop-total",
             "shuffle-payload-recv",
             "shuffle-payload-send",
             "spill-bytes-host-to-device",
