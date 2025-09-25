@@ -10,6 +10,8 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
+#include <unordered_map>
 #include <vector>
 
 #include <rapidsmpf/buffer/packed_data.hpp>
@@ -259,6 +261,13 @@ class Shuffler {
     [[nodiscard]] std::string str() const;
 
     /**
+     * @brief Returns the local partition IDs owned by the shuffler`.
+     *
+     * @return A span of partition IDs owned by the shuffler.
+     */
+    [[nodiscard]] std::span<PartID const> local_partitions() const;
+
+    /**
      * @brief The number of bits used to store the counter in a chunk ID.
      */
     static constexpr int chunk_id_counter_bits = 38;
@@ -342,6 +351,8 @@ class Shuffler {
     OpID const op_id_;
 
     SpillManager::SpillFunctionID spill_function_id_;
+
+    std::vector<PartID> const local_partitions_;
 
     detail::FinishCounter finish_counter_;
     std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;
