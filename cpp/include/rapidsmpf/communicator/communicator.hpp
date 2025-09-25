@@ -489,8 +489,19 @@ class Communicator {
      * @return A unique pointer to the GPU data buffer (or `nullptr` if the future had no
      * data).
      */
-    [[nodiscard]] virtual std::unique_ptr<Buffer> wait(
-        std::unique_ptr<Future> future
+    [[nodiscard]] virtual std::unique_ptr<Buffer> wait(std::unique_ptr<Future> future
+    ) = 0;
+
+    /**
+     * @brief Retrieves data associated with a completed future.
+     *
+     * @param future The completed future.
+     * @return A unique pointer to the GPU data buffer.
+     *
+     * @throws std::runtime_error if the future has no data.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> virtual release_data(
+        std::unique_ptr<Communicator::Future> future
     ) = 0;
 
     /**
@@ -498,8 +509,10 @@ class Communicator {
      *
      * @param future The completed future.
      * @return A unique pointer to the GPU data buffer.
+     *
+     * @throws std::runtime_error if the future has no data.
      */
-    [[nodiscard]] std::unique_ptr<Buffer> virtual release_data(
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> virtual release_host_data(
         std::unique_ptr<Communicator::Future> future
     ) = 0;
 
