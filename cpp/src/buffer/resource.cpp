@@ -26,7 +26,7 @@ BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
     std::optional<Duration> periodic_spill_check,
-    std::unique_ptr<rmm::cuda_stream_pool> stream_pool,
+    std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 )
     : device_mr_{device_mr},

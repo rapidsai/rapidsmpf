@@ -163,7 +163,7 @@ class BufferResource {
         rmm::device_async_resource_ref device_mr,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
-        std::unique_ptr<rmm::cuda_stream_pool> stream_pool = std::make_unique<
+        std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
             rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
@@ -407,7 +407,7 @@ class BufferResource {
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
-    std::unique_ptr<rmm::cuda_stream_pool> stream_pool_;
+    std::shared_ptr<rmm::cuda_stream_pool> stream_pool_;
     SpillManager spill_manager_;
     std::shared_ptr<Statistics> statistics_;
 };
