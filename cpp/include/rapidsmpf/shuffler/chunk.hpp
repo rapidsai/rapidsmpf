@@ -150,7 +150,7 @@ class Chunk {
      * @param br The buffer resource to use for copying the data.
      * @return A new chunk containing the data of the i-th message.
      *
-     * @note This will create a copy of the packed data using `br->stream_pool()`.
+     * @note This will create a copy of the packed data using a new stream from `br->stream_pool()`.
      * If there is only one message and the message is a data message, the buffers
      * will be moved to the new chunk. Otherwise a new chunk will be created by copying
      * data. If the i'th message is,
@@ -339,7 +339,7 @@ class Chunk {
     /**
      * @brief Concatenate multiple chunks into a single chunk.
      *
-     * Using `br->stream_pool()` for the concatenation.
+     * Using a new stream from `br->stream_pool()` for the concatenation.
      *
      * @param chunks Vector of chunks to concatenate.
      * @param chunk_id The ID for the resulting concatenated chunk.

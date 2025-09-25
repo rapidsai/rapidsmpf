@@ -164,7 +164,7 @@ class BufferResource {
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::unique_ptr<rmm::cuda_stream_pool> stream_pool =
-            std::make_unique<rmm::cuda_stream_pool>(16),
+            std::make_unique<rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
@@ -380,7 +380,7 @@ class BufferResource {
     /**
      * @brief Returns the CUDA stream pool used by this buffer resource.
      *
-     * Uses this pool for operations that do not take an explicit CUDA stream.
+     * Use this pool for operations that do not take an explicit CUDA stream.
      *
      * @return Reference to the underlying CUDA stream pool.
      */
