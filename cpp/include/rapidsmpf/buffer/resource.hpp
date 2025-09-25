@@ -302,23 +302,6 @@ class BufferResource {
     );
 
     /**
-     * @brief Move host vector data into a Buffer.
-     *
-     * This operation is cheap; no copy is performed. The resulting Buffer resides in
-     * host memory.
-     *
-     * The resulting Buffer adopts @p stream without synchronization.
-     *
-     * @param data Unique pointer to the host vector.
-     * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
-     * this stream when operating on the Buffer.
-     * @return Unique pointer to the resulting Buffer.
-     */
-    std::unique_ptr<Buffer> move(
-        std::unique_ptr<std::vector<uint8_t>> data, rmm::cuda_stream_view stream
-    );
-
-    /**
      * @brief Move device buffer data into a Buffer.
      *
      * This operation is cheap; no copy is performed. The resulting Buffer resides in

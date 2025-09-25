@@ -314,12 +314,13 @@ class Chunk {
      * @note chunk is ready if it has no data or if the data is ready. data_ buffer
      * could be set later, so we need to check if it is non-null.
      */
-    [[nodiscard]] inline bool is_ready() const {
+    [[nodiscard]] bool is_ready() const {
         // data_offsets_[-1] contains the size of the data buffer. If it is 0, the chunk
         // has no data messages, so it is ready. Else, the chunk is ready if the data
         // buffer is non-null and the data buffer is ready.
         return !data_offsets_.empty()
-               && (data_offsets_[n_messages() - 1] == 0 || (data_ && data_->is_ready()));
+               && (data_offsets_[n_messages() - 1] == 0
+                   || (data_ && data_->is_latest_write_done()));
     }
 
     /**
