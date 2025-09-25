@@ -25,25 +25,25 @@ TagCommunicationInterface::TagCommunicationInterface(
 )
     : comm_(std::move(comm)),
       rank_(rank),
-      ready_for_data_tag_{op_id, 1},
-      metadata_tag_{op_id, 2},
-      gpu_data_tag_{op_id, 3},
+      metadata_tag_{op_id, 1},
+      gpu_data_tag_{op_id, 2},
       statistics_{std::move(statistics)} {}
 
 void TagCommunicationInterface::submit_outgoing_messages(
     std::vector<std::unique_ptr<MessageInterface>>&& messages,
-    BufferResource* br,
-    rmm::cuda_stream_view stream
+    BufferResource* /* br */,
+    rmm::cuda_stream_view /* stream */
 ) {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
 
-    // Store messages for sending and initiate metadata transmission
+    // Send metadata followed immediately by data for each message
     for (auto&& message : messages) {
         auto dst = message->peer_rank();
         log.trace("send metadata to ", dst, ": ", message->to_string());
         RAPIDSMPF_EXPECTS(dst != rank_, "sending message to ourselves");
 
+        // Send metadata
         auto metadata = message->serialize_metadata();
         fire_and_forget_.push_back(comm_->send(
             std::make_unique<std::vector<std::uint8_t>>(std::move(metadata)),
@@ -51,20 +51,14 @@ void TagCommunicationInterface::submit_outgoing_messages(
             metadata_tag_
         ));
 
+        // Send data immediately after metadata (if any)
         if (message->total_data_size() > 0) {
-            auto message_id = message->message_id();
-            RAPIDSMPF_EXPECTS(
-                outgoing_messages_.emplace(message_id, std::move(message)).second,
-                "outgoing message already exists"
+            auto data_buffer = message->release_data_buffer();
+            RAPIDSMPF_EXPECTS(data_buffer, "No data buffer available");
+
+            fire_and_forget_.push_back(
+                comm_->send(std::move(data_buffer), dst, gpu_data_tag_)
             );
-            ready_ack_receives_[dst].push_back(comm_->recv(
-                dst,
-                ready_for_data_tag_,
-                br->allocate(
-                    stream,
-                    br->reserve_or_fail(ReadyForDataMessage::byte_size, MemoryType::HOST)
-                )
-            ));
         }
     }
 
@@ -82,7 +76,6 @@ TagCommunicationInterface::process_communication(
     // Process all phases of the communication protocol
     receive_metadata(message_factory);
     setup_data_receives(message_factory, stream);
-    process_ready_acks();
     auto completed_messages = complete_data_transfers();
     cleanup_completed_operations();
 
@@ -95,11 +88,7 @@ TagCommunicationInterface::process_communication(
 
 bool TagCommunicationInterface::is_idle() const {
     return fire_and_forget_.empty() && incoming_messages_.empty()
-           && outgoing_messages_.empty() && in_transit_messages_.empty()
-           && in_transit_futures_.empty()
-           && std::ranges::all_of(ready_ack_receives_, [](auto const& kv) {
-                  return kv.second.empty();
-              });
+           && in_transit_messages_.empty() && in_transit_futures_.empty();
 }
 
 void TagCommunicationInterface::receive_metadata(MessageFactory const& message_factory) {
@@ -142,7 +131,7 @@ void TagCommunicationInterface::setup_data_receives(
 
             if (!message->is_ready()) {
                 ++it;
-                continue;
+                break;
             }
 
             // Extract the message and set up for data transfer
@@ -163,13 +152,6 @@ void TagCommunicationInterface::setup_data_receives(
                 in_transit_messages_.emplace(message_id, std::move(message_ptr)).second,
                 "in transit message already exists"
             );
-
-            auto ready_msg = ReadyForDataMessage{message_id};
-            fire_and_forget_.push_back(comm_->send(
-                std::make_unique<std::vector<std::uint8_t>>(ready_msg.pack()),
-                src,
-                ready_for_data_tag_
-            ));
         } else {
             // Control/metadata-only message - will be handled in
             // complete_data_transfers()
@@ -179,41 +161,6 @@ void TagCommunicationInterface::setup_data_receives(
 
     statistics_->add_duration_stat(
         "comms-interface-setup-data-receives", Clock::now() - t0
-    );
-}
-
-void TagCommunicationInterface::process_ready_acks() {
-    auto const t0 = Clock::now();
-
-    for (auto& [dst, futures] : ready_ack_receives_) {
-        auto [finished, _] = comm_->test_some(futures);
-        for (auto&& future : finished) {
-            auto const msg_data = comm_->get_gpu_data(std::move(future));
-
-            // The msg_data should be a Buffer containing the message data
-            // We need to convert it to vector for processing
-            std::vector<std::uint8_t> data(msg_data->size);
-            memcpy(data.data(), msg_data->data(), msg_data->size);
-            auto msg = ReadyForDataMessage::unpack(data);
-
-            auto message_it = outgoing_messages_.find(msg.message_id);
-            RAPIDSMPF_EXPECTS(
-                message_it != outgoing_messages_.end(), "outgoing message not found"
-            );
-
-            auto data_buffer = message_it->second->release_data_buffer();
-            RAPIDSMPF_EXPECTS(data_buffer, "No data buffer available");
-
-            fire_and_forget_.push_back(
-                comm_->send(std::move(data_buffer), dst, gpu_data_tag_)
-            );
-
-            outgoing_messages_.erase(message_it);
-        }
-    }
-
-    statistics_->add_duration_stat(
-        "comms-interface-process-ready-acks", Clock::now() - t0
     );
 }
 
@@ -272,23 +219,6 @@ void TagCommunicationInterface::cleanup_completed_operations() {
     if (!fire_and_forget_.empty()) {
         std::ignore = comm_->test_some(fire_and_forget_);
     }
-}
-
-std::vector<std::uint8_t> ReadyForDataMessage::pack() const {
-    std::vector<std::uint8_t> buffer(byte_size);
-    std::memcpy(buffer.data(), &message_id, sizeof(message_id));
-    return buffer;
-}
-
-ReadyForDataMessage ReadyForDataMessage::unpack(std::vector<std::uint8_t> const& data) {
-    RAPIDSMPF_EXPECTS(data.size() == byte_size, "Invalid message size");
-    ReadyForDataMessage msg;
-    std::memcpy(&msg.message_id, data.data(), sizeof(msg.message_id));
-    return msg;
-}
-
-std::string ReadyForDataMessage::to_string() const {
-    return "ReadyForDataMessage{message_id=" + std::to_string(message_id) + "}";
 }
 
 }  // namespace rapidsmpf::communicator

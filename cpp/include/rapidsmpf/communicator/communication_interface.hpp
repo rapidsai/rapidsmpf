@@ -54,7 +54,6 @@ class CommunicationInterface {
      * Advances the communication state machine by:
      * - Receiving incoming message metadata
      * - Setting up data transfers
-     * - Processing ready-for-data acknowledgments
      * - Handling completed data transfers
      * - Cleaning up completed operations
      *
@@ -127,7 +126,6 @@ class TagCommunicationInterface : public CommunicationInterface {
     // Core communication infrastructure
     std::shared_ptr<Communicator> comm_;
     Rank rank_;
-    Tag ready_for_data_tag_;
     Tag metadata_tag_;
     Tag gpu_data_tag_;
 
@@ -142,8 +140,6 @@ class TagCommunicationInterface : public CommunicationInterface {
         in_transit_messages_;  ///< Messages currently in transit.
     std::unordered_map<std::uint64_t, std::unique_ptr<Communicator::Future>>
         in_transit_futures_;  ///< Futures corresponding to in-transit messages.
-    std::unordered_map<Rank, std::vector<std::unique_ptr<Communicator::Future>>>
-        ready_ack_receives_;  ///< Receives matching ready for data messages.
 
     // Statistics tracking
     std::shared_ptr<Statistics> statistics_;
@@ -168,13 +164,6 @@ class TagCommunicationInterface : public CommunicationInterface {
         MessageFactory const& message_factory, rmm::cuda_stream_view stream
     );
 
-    /**
-     * @brief Process ready-for-data ack messages.
-     *
-     * @throw std::runtime_error if a ready-for-data ack message is not found,
-     * or if no data buffer is available
-     */
-    void process_ready_acks();
 
     /**
      * @brief Complete data transfers for in-transit messages.
@@ -192,43 +181,5 @@ class TagCommunicationInterface : public CommunicationInterface {
     void cleanup_completed_operations();
 };
 
-/**
- * @brief Message representing a ready-for-data ack.
- *
- * This is used internally by the communication protocol to coordinate data transfers.
- * When a receiver is ready to receive data for a specific message, it sends this
- * ack back to the sender containing the message ID.
- */
-struct ReadyForDataMessage {
-    /// @brief The unique ID of the message that the receiver is ready to receive data
-    /// for.
-    std::uint64_t message_id;
-
-    /// @brief The size in bytes of the serialized message.
-    static constexpr std::size_t byte_size = sizeof(std::uint64_t);
-
-    /**
-     * @brief Serialize the message into a byte vector.
-     *
-     * @return A vector containing the serialized message data.
-     */
-    [[nodiscard]] std::vector<std::uint8_t> pack() const;
-
-    /**
-     * @brief Deserialize a byte vector into a ReadyForDataMessage.
-     *
-     * @param data The serialized message data.
-     * @return The deserialized ReadyForDataMessage.
-     * @throws std::runtime_error if the data size is incorrect.
-     */
-    static ReadyForDataMessage unpack(std::vector<std::uint8_t> const& data);
-
-    /**
-     * @brief Create a string representation of the message for debugging.
-     *
-     * @return A string describing the message contents.
-     */
-    [[nodiscard]] std::string to_string() const;
-};
 
 }  // namespace rapidsmpf::communicator
