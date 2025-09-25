@@ -295,7 +295,7 @@ class DaskCudfJoinIntegration:
     def join_partition(
         left_input: Callable[[int], cudf.DataFrame],
         right_input: Callable[[int], cudf.DataFrame],
-        bcast_info: BCastJoinInfo,
+        bcast_info: BCastJoinInfo | None,
         options: Any,
     ) -> cudf.DataFrame:
         """
@@ -313,6 +313,7 @@ class DaskCudfJoinIntegration:
             to the number of chunks the callable can produce.
         bcast_info
             The broadcast join information.
+            This should be None for a regular hash join.
         options
             Additional join options.
 
@@ -330,7 +331,7 @@ class DaskCudfJoinIntegration:
             "how": options["how"],
         }
 
-        if bcast_info.bcast_side == "none":
+        if bcast_info is None:
             return left_input(0).merge(right_input(0), **join_kwargs)
         else:  # pragma: no cover
             raise NotImplementedError("Broadcast join not implemented.")

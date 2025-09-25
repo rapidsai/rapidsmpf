@@ -362,7 +362,7 @@ def extract_partition(
 
 
 @dataclass
-class BCastJoinInfo:
+class BCastJoinInfo:  # pragma: no cover; TODO: Cover in follow-up
     """
     Broadcast join information.
 
@@ -379,7 +379,7 @@ class BCastJoinInfo:
         This is not necessary for inner or regular hash joins.
     """
 
-    bcast_side: Literal["left", "right", "none"] = "none"
+    bcast_side: Literal["left", "right"]
     bcast_count: int = 1
     need_local_repartition: bool = False
 
@@ -396,7 +396,7 @@ class JoinIntegration(Protocol[DataFrameT]):
     def join_partition(
         left_input: Callable[[int], DataFrameT],
         right_input: Callable[[int], DataFrameT],
-        bcast_info: BCastJoinInfo,
+        bcast_info: BCastJoinInfo | None,
         options: Any,
     ) -> DataFrameT:
         """
@@ -413,7 +413,8 @@ class JoinIntegration(Protocol[DataFrameT]):
             The ``bcast_info.bcast_count`` parameter corresponds
             to the number of chunks the callable can produce.
         bcast_info
-            The broadcast join information.
+            The broadcast join information. This should be None
+            for a regular hash join.
         options
             Additional join options.
 
@@ -464,15 +465,11 @@ class FetchJoinChunk(Generic[DataFrameT]):
         integration: JoinIntegration[DataFrameT],
         op_id: int | None,
         barrier: DataFrameT | tuple[int, ...],
-        bcast_info: BCastJoinInfo,
+        bcast_info: BCastJoinInfo | None,
         n_worker_tasks: int,
         options: Any,
     ):
-        if (
-            bcast_info.bcast_side != "none"
-            or bcast_info.bcast_count != 1
-            or bcast_info.need_local_repartition
-        ):  # pragma: no cover
+        if bcast_info is not None:  # pragma: no cover
             raise NotImplementedError("Broadcast join not yet supported.")
 
         self.side = side
@@ -524,19 +521,19 @@ class FetchJoinChunk(Generic[DataFrameT]):
         -------
         A DataFrame chunk to be used in a join operation.
         """
-        if self.side == self.bcast_info.bcast_side:  # pragma: no cover
-            # Fetch a chunk of the broadcasted partition.
-            raise NotImplementedError("Broadcast join not implemented.")
-        else:
-            # Fetch a chunk of the other partition.
+        if self.bcast_info is None:
+            # Fetch a chunk of a non-broadcasted partition.
             # The partition_id is ignored, because we only have a single chunk.
             return self._data[0]
+        else:  # pragma: no cover
+            # Fetch a chunk of the broadcasted partition.
+            raise NotImplementedError("Broadcast join not implemented.")
 
 
 def join_partition(
     get_context: Callable[..., WorkerContext],
     integration: JoinIntegration[DataFrameT],
-    bcast_info: BCastJoinInfo,
+    bcast_info: BCastJoinInfo | None,
     left_op_id: int | None,
     right_op_id: int | None,
     left_dependency: DataFrameT | tuple[int, ...],
@@ -558,6 +555,7 @@ def join_partition(
         The JoinIntegration protocol to use.
     bcast_info
         The broadcast join information.
+        This should be None for a regular hash join.
     left_op_id
         The left-table operation id. The operation may correspond
         to an allgather or a shuffle operation. If None, the

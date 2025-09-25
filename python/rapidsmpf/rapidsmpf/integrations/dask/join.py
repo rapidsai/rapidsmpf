@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Literal
 
 from rapidsmpf.config import Options
-from rapidsmpf.integrations.core import BCastJoinInfo, join_partition
+from rapidsmpf.integrations.core import join_partition
 from rapidsmpf.integrations.dask.core import (
     get_dask_client,
     get_dask_worker_rank,
@@ -135,7 +135,6 @@ def rapidsmpf_join_graph(
             graph.update(right_graph)
 
         # Add basic hash-join tasks
-        bcast_info = BCastJoinInfo(bcast_side="none")  # Not a broadcast join
         for part_id in range(partition_count_out):
             rank = part_id % n_workers
             n_worker_tasks = partition_count_out // n_workers + int(
@@ -146,7 +145,7 @@ def rapidsmpf_join_graph(
                 join_partition,
                 get_worker_context,
                 integration,
-                bcast_info,
+                None,  # Not a broadcast join
                 left_op_id,
                 right_op_id,
                 left_barrier_name or (left_name, part_id),
