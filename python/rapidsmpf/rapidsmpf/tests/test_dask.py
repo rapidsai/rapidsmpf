@@ -374,7 +374,6 @@ def test_gather_shuffle_statistics() -> None:
         expected_stats = {
             "comms-interface-complete-data-transfers",
             "comms-interface-process-communication-total",
-            "comms-interface-process-ready-acks",
             "comms-interface-receive-metadata",
             "comms-interface-setup-data-receives",
             "event-loop-process-communication",
