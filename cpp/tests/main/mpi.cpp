@@ -23,9 +23,9 @@ void Environment::SetUp() {
 
     RAPIDSMPF_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm_));
 
-    rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
+    options_ = rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
 
-    comm_ = std::make_shared<rapidsmpf::MPI>(mpi_comm_, options);
+    comm_ = std::make_shared<rapidsmpf::MPI>(mpi_comm_, options_);
     progress_thread_ = std::make_shared<rapidsmpf::ProgressThread>(comm_->logger());
 }
 
