@@ -32,7 +32,7 @@ coro::task<void> insert_and_notify(
     std::unordered_set<shuffler::PartID>& set,
     shuffler::PartID pid
 ) {
-    // Note: this coroutine is not needed to be scheduled, because it is offloaded to the
+    // Note: this coroutine does not need to be scheduled, because it is offloaded to the
     // thread pool using `spawn`.
     {
         auto lock = co_await mtx.scoped_lock();
