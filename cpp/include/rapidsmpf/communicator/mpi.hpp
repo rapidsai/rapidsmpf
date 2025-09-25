@@ -197,9 +197,9 @@ class MPI final : public Communicator {
     ) override;
 
     /**
-     * @copydoc Communicator::get_gpu_data
+     * @copydoc Communicator::release_data
      */
-    [[nodiscard]] std::unique_ptr<Buffer> get_gpu_data(
+    [[nodiscard]] std::unique_ptr<Buffer> release_data(
         std::unique_ptr<Communicator::Future> future
     ) override;
 

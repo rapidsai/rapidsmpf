@@ -50,8 +50,8 @@ std::unique_ptr<Buffer> Single::wait(std::unique_ptr<Communicator::Future>) {
     RAPIDSMPF_FAIL("Unexpected wait from self", std::runtime_error);
 }
 
-std::unique_ptr<Buffer> Single::get_gpu_data(std::unique_ptr<Communicator::Future>) {
-    RAPIDSMPF_FAIL("Unexpected get_gpu_data from self", std::runtime_error);
+std::unique_ptr<Buffer> Single::release_data(std::unique_ptr<Communicator::Future>) {
+    RAPIDSMPF_FAIL("Unexpected release_data from self", std::runtime_error);
 }
 
 std::string Single::str() const {

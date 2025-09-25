@@ -263,7 +263,7 @@ static std::vector<std::unique_ptr<Chunk>> test_some(
     std::ranges::transform(
         indices, complete_futures, std::back_inserter(result), [&](auto i, auto&& fut) {
             auto chunk = std::move(chunks[i]);
-            chunk->attach_data_buffer(comm->get_gpu_data(std::move(fut)));
+            chunk->attach_data_buffer(comm->release_data(std::move(fut)));
             return std::move(chunk);
         }
     );

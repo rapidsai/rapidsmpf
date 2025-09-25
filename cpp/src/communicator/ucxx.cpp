@@ -1287,7 +1287,7 @@ std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future)
     return std::move(ucxx_future->data_buffer_);
 }
 
-std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
+std::unique_ptr<Buffer> UCXX::release_data(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
     RAPIDSMPF_EXPECTS(ucxx_future->data_buffer_ != nullptr, "future has no data");

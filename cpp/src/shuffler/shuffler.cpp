@@ -361,7 +361,7 @@ class Shuffler::Progress {
                 auto [finished, _] = shuffler_.comm_->test_some(futures);
                 for (auto&& future : finished) {
                     auto const msg_data =
-                        shuffler_.comm_->get_gpu_data(std::move(future));
+                        shuffler_.comm_->release_data(std::move(future));
                     auto msg = ReadyForDataMessage::unpack(
                         const_cast<Buffer const&>(*msg_data).host()
                     );
@@ -390,7 +390,7 @@ class Shuffler::Progress {
                     auto chunk = extract_value(in_transit_chunks_, cid);
                     auto future = extract_value(in_transit_futures_, cid);
                     chunk.set_data_buffer(
-                        shuffler_.comm_->get_gpu_data(std::move(future))
+                        shuffler_.comm_->release_data(std::move(future))
                     );
 
                     for (size_t i = 0; i < chunk.n_messages(); ++i) {

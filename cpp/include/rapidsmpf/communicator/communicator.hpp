@@ -499,7 +499,7 @@ class Communicator {
      * @param future The completed future.
      * @return A unique pointer to the GPU data buffer.
      */
-    [[nodiscard]] std::unique_ptr<Buffer> virtual get_gpu_data(
+    [[nodiscard]] std::unique_ptr<Buffer> virtual release_data(
         std::unique_ptr<Communicator::Future> future
     ) = 0;
 
