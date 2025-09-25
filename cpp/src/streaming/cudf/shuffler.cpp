@@ -5,6 +5,7 @@
 
 #include <memory>
 #include <numeric>
+#include <ranges>
 
 #include <rmm/cuda_stream_view.hpp>
 
@@ -196,7 +197,9 @@ Node shuffler(
         // Make sure that the input chunk's stream is in sync with shuffler's stream.
         cuda_stream_join(
             std::ranges::single_view(stream),
-            std::ranges::single_view(partition_map.stream),
+            std::ranges::transform_view(
+                partition_map.data, [](auto& v) { return v.second.data->stream(); }
+            ),
             &event
         );
 

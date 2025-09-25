@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <ranges>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -221,11 +223,13 @@ Node shuffler_nb(
                 break;
             }
             auto partition_map = msg.template release<PartitionMapChunk>();
-
-            // Make sure that the input chunk's stream is in sync with shuffler's stream.
+            // Make sure that the input chunk's streams are in sync with shuffler's
+            // stream.
             cuda_stream_join(
                 std::ranges::single_view(stream),
-                std::ranges::single_view(partition_map.stream),
+                std::views::transform(
+                    partition_map.data, [](auto& v) { return v.second.data->stream(); }
+                ),
                 &event
             );
 

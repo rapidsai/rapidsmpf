@@ -46,8 +46,7 @@ Node partition_and_pack(
                 table.stream(),
                 ctx->br(),
                 ctx->statistics()
-            ),
-            .stream = tbl.stream()
+            )
         };
 
         co_await ch_out->send(
@@ -79,12 +78,14 @@ Node unpack_and_concat(
             auto partition_map = msg.release<PartitionMapChunk>();
             seq = partition_map.sequence_number;
             data = to_vector(std::move(partition_map.data));
-            stream = partition_map.stream;
         } else {
             auto partition_vec = msg.release<PartitionVectorChunk>();
             seq = partition_vec.sequence_number;
             data = std::move(partition_vec.data);
-            stream = partition_vec.stream;
+        }
+        // TODO: Get a stream from the buffer resource
+        if (data.size() > 0) {
+            stream = data[0].data->stream();
         }
         std::unique_ptr<cudf::table> ret = rapidsmpf::unpack_and_concat(
             rapidsmpf::unspill_partitions(std::move(data), ctx->br(), false),

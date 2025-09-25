@@ -39,11 +39,6 @@ struct PartitionMapChunk {
      * @brief Packed data for each partition, keyed by partition ID.
      */
     std::unordered_map<shuffler::PartID, PackedData> data;
-
-    /**
-     * @brief The CUDA stream on which this chunk was created.
-     */
-    rmm::cuda_stream_view stream;
 };
 
 /**
@@ -64,11 +59,6 @@ struct PartitionVectorChunk {
      * @brief Packed data for each partition stored in a vector.
      */
     std::vector<PackedData> data;
-
-    /**
-     * @brief The CUDA stream on which this chunk was created.
-     */
-    rmm::cuda_stream_view stream;
 };
 
 namespace node {
