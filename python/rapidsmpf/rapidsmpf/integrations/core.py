@@ -370,13 +370,11 @@ class BCastJoinInfo:  # pragma: no cover; TODO: Cover in follow-up
     ----------
     bcast_side
         The side of the join being broadcasted.
-        If "none", this is a regular hash join.
     bcast_count
         The number of broadcasted partitions.
-        This value is ignored for regular hash joins.
     need_local_repartition
         Whether to locally repartition on the broadcasted table.
-        This is not necessary for inner or regular hash joins.
+        This is not necessary for inner joins.
     """
 
     bcast_side: Literal["left", "right"]

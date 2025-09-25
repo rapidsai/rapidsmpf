@@ -344,7 +344,6 @@ def dask_cudf_join(
     right_on: list[str],
     *,
     how: Literal["inner", "left", "right"] = "inner",
-    bcast_side: Literal["left", "right", "none"] = "none",
     left_pre_shuffled: bool = False,
     right_pre_shuffled: bool = False,
     cluster_kind: Literal["distributed", "single", "auto"] = "auto",
@@ -366,10 +365,6 @@ def dask_cudf_join(
     how
         The type of join to perform.
         Options are ``{'inner', 'left', 'right'}``.
-    bcast_side
-        The side of the join to broadcast (if either).
-        Options are ``{'left', 'right', 'none'}``.
-        Note: Only ``'none'`` is supported for now.
     left_pre_shuffled
         Whether the left collection is already shuffled.
     right_pre_shuffled
@@ -392,10 +387,6 @@ def dask_cudf_join(
     This API is currently intended for demonstration and
     testing purposes only.
     """
-    if bcast_side != "none":  # pragma: no cover
-        # TODO: Support broadcast joins.
-        raise ValueError("Only bcast_side='none' is supported for now.")
-
     if (cluster_kind := _get_cluster_kind(cluster_kind)) == "distributed":
         from rapidsmpf.integrations.dask.join import rapidsmpf_join_graph
     else:  # pragma: no cover
@@ -407,7 +398,7 @@ def dask_cudf_join(
     left_partition_count_in = left0.npartitions
     right_partition_count_in = right0.npartitions
 
-    token = tokenize(left0, right0, left_on, bcast_side, right_on, how)
+    token = tokenize(left0, right0, left_on, right_on, how)
     left_name_in = left0._name
     right_name_in = right0._name
     name_out = f"unified-join-{token}"
@@ -436,7 +427,6 @@ def dask_cudf_join(
             "right_on": right_on,
             "how": how,
         },
-        bcast_side=bcast_side,
         left_pre_shuffled=left_pre_shuffled,
         right_pre_shuffled=right_pre_shuffled,
         config_options=config_options,

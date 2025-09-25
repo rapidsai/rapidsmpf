@@ -30,7 +30,7 @@ def rapidsmpf_join_graph(
     right_options: Any,
     join_options: Any,
     *,
-    bcast_side: Literal["left", "right", "none"] = "none",
+    bcast_side: Literal["left", "right", None] = None,
     left_pre_shuffled: bool = False,
     right_pre_shuffled: bool = False,
     config_options: Options = Options(),
@@ -60,8 +60,8 @@ def rapidsmpf_join_graph(
         Additional options for the join.
     bcast_side
         The side of the join being broadcasted.
-        Options are ``{'left', 'right', 'none'}``.
-        Note: Only ``'none'`` is supported for now.
+        Options are ``{'left', 'right', None}``.
+        Note: Only ``None`` is supported for now.
     left_pre_shuffled
         Whether the left table is already shuffled.
     right_pre_shuffled
@@ -88,7 +88,7 @@ def rapidsmpf_join_graph(
     left_op_id: int | None = None
     right_op_id: int | None = None
 
-    if bcast_side == "none":
+    if bcast_side is None:
         # Regular hash join
 
         # Determine the number of partitions in the output table
