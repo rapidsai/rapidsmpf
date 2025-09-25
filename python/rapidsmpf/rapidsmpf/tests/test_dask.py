@@ -506,3 +506,16 @@ def test_dask_cudf_join(
                 right0, left_on=left_on, right_on=right_on, how=how
             ).compute()
             dd.assert_eq(joined, expected, check_index=False)
+
+
+@gen_test(timeout=30)
+async def test_bootstrap_multiple_clients(
+    loop: pytest.FixtureDef,  # noqa: F811
+) -> None:
+    # https://github.com/rapidsai/rapidsmpf/issues/458
+    with LocalCUDACluster(loop=loop) as cluster:
+        with Client(cluster) as client_1:
+            bootstrap_dask_cluster(client_1)
+
+        with Client(cluster) as client_2:
+            bootstrap_dask_cluster(client_2)

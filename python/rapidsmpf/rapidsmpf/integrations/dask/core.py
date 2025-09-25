@@ -18,7 +18,6 @@ from rapidsmpf.config import (
 )
 from rapidsmpf.integrations import WorkerContext
 from rapidsmpf.integrations.core import rmpf_worker_setup
-from rapidsmpf.integrations.dask import _compat
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -228,17 +227,19 @@ def bootstrap_dask_cluster(
     if client.asynchronous:
         raise ValueError("Client must be synchronous")
 
-    if client.id in _initialized_clusters:
+    info = client.scheduler_info(n_workers=-1)
+
+    if info["id"] in _initialized_clusters:
+        # TODO: this isn't safe.
+        # Clients sharing a cluster can be created in multiple processes.
+        # We should be using a distributed variable to track this (cached locally).
         return
 
     # Scheduler stuff
     scheduler_plugin = RMPFSchedulerPlugin()
     client.register_plugin(scheduler_plugin)
 
-    kwargs = {}
-    if _compat.DISTRIBUTED_2025_4_0():
-        kwargs["n_workers"] = -1
-    workers = sorted(client.scheduler_info(**kwargs)["workers"])
+    workers = sorted(info["workers"])
     n_ranks = len(workers)
 
     # Insert missing config options from environment variables.
@@ -246,7 +247,7 @@ def bootstrap_dask_cluster(
     # Set up the comms for the root worker
     root_address_bytes = client.submit(
         rapidsmpf_ucxx_rank_setup_root,
-        n_ranks=len(workers),
+        n_ranks=n_ranks,
         options=options,
         workers=workers[0],
         pure=False,
@@ -273,7 +274,7 @@ def bootstrap_dask_cluster(
     )
 
     # Only run the above steps once
-    _initialized_clusters.add(client.id)
+    _initialized_clusters.add(info["id"])
 
 
 class RMPFSchedulerPlugin(SchedulerPlugin):
