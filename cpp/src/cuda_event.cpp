@@ -25,8 +25,7 @@ CudaEvent::~CudaEvent() noexcept {
     }
 }
 
-CudaEvent::CudaEvent(CudaEvent&& other) noexcept
-    : event_{other.event_}, done_{other.done_.load()} {
+CudaEvent::CudaEvent(CudaEvent&& other) noexcept : event_{other.event_} {
     other.event_ = nullptr;
 }
 
@@ -37,8 +36,6 @@ CudaEvent& CudaEvent::operator=(CudaEvent&& other) {
             "cannot move into an already-initialized CudaEvent",
             std::invalid_argument
         );
-        event_ = other.event_;
-        done_.store(other.done_.load());
         other.event_ = nullptr;
     }
     return *this;
@@ -48,26 +45,19 @@ void CudaEvent::record(rmm::cuda_stream_view stream) {
     RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream));
 }
 
-[[nodiscard]] bool CudaEvent::CudaEvent::is_ready() {
-    if (!done_.load(std::memory_order_acquire)) {
-        auto result = cudaEventQuery(event_);
-        done_.store(result == cudaSuccess, std::memory_order_release);
-        if (result != cudaSuccess && result != cudaErrorNotReady) {
-            RAPIDSMPF_CUDA_TRY(result);
-        }
-        return result == cudaSuccess;
+[[nodiscard]] bool CudaEvent::CudaEvent::is_ready() const {
+    auto result = cudaEventQuery(event_);
+    if (result != cudaSuccess && result != cudaErrorNotReady) {
+        RAPIDSMPF_CUDA_TRY(result);
     }
-    return true;
+    return result == cudaSuccess;
 }
 
-void CudaEvent::CudaEvent::host_wait() {
-    if (!done_.load(std::memory_order_relaxed)) {
-        RAPIDSMPF_CUDA_TRY(cudaEventSynchronize(event_));
-        done_.store(true, std::memory_order_relaxed);
-    }
+void CudaEvent::CudaEvent::host_wait() const {
+    RAPIDSMPF_CUDA_TRY(cudaEventSynchronize(event_));
 }
 
-void CudaEvent::stream_wait(rmm::cuda_stream_view stream) {
+void CudaEvent::stream_wait(rmm::cuda_stream_view stream) const {
     RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(stream, event_));
 }
 

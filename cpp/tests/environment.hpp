@@ -28,6 +28,10 @@ class Environment : public ::testing::Environment {
 
     [[nodiscard]] TestEnvironmentType type() const;
 
+    constexpr rapidsmpf::config::Options& options() {
+        return options_;
+    }
+
     std::shared_ptr<rapidsmpf::Communicator> split_comm();
 
     std::shared_ptr<rapidsmpf::Communicator> comm_;
@@ -38,6 +42,7 @@ class Environment : public ::testing::Environment {
     char** argv_;
     MPI_Comm mpi_comm_;
     std::shared_ptr<rapidsmpf::Communicator> split_comm_{nullptr};
+    rapidsmpf::config::Options options_;
 };
 
 extern Environment* GlobalEnvironment;
