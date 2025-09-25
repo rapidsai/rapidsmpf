@@ -87,6 +87,9 @@ class ShufflerAsync {
         return shuffler_.partition_owner;
     }
 
+    /// @copydoc rapidsmpf::shuffler::Shuffler::local_partitions
+    [[nodiscard]] std::span<shuffler::PartID const> local_partitions() const;
+
     /// @copydoc rapidsmpf::shuffler::Shuffler::insert
     void insert(std::unordered_map<shuffler::PartID, PackedData>&& chunks);
 
@@ -137,12 +140,19 @@ class ShufflerAsync {
     coro::task<std::optional<ExtractResult>> extract_any_async();
 
   private:
+    /// @brief Checks if all local partitions have been extracted (not thread safe).
+    [[nodiscard]] bool all_extracted_unsafe() const;
+
     coro::mutex mtx_{};
     coro::condition_variable cv_{};
     std::shared_ptr<Context> ctx_;
     shuffler::Shuffler shuffler_;
-    std::unordered_set<shuffler::PartID> ready_pids_;
-    std::unordered_set<shuffler::PartID> extracted_pids_;
+    std::unordered_set<shuffler::PartID>
+        ready_pids_;  ///< set to collect all the partitions that are ready for
+                      ///< extraction. It will be untimately be emptied once all local
+                      ///< partitions have been extracted.
+    std::unordered_set<shuffler::PartID>
+        extracted_pids_;  ///< set to collect all the partitions that have been extracted.
 };
 
 namespace node {
