@@ -338,7 +338,7 @@ class Shuffler {
   private:
     rmm::cuda_stream_view stream_;
     BufferResource* br_;
-    bool active_{true};
+    std::atomic<bool> active_{true};
     detail::PostBox<Rank> outgoing_postbox_;  ///< Postbox for outgoing chunks, that are
                                               ///< ready to be sent to other ranks.
     detail::PostBox<PartID> ready_postbox_;  ///< Postbox for received chunks, that are
