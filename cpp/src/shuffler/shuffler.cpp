@@ -418,7 +418,7 @@ class Shuffler::Progress {
 
         // Return Done only if the shuffler is inactive (shutdown was called) _and_
         // all containers are empty (all work is done).
-        return (shuffler_.active_
+        return (shuffler_.active_.load(std::memory_order_acquire)
                 || !(
                     fire_and_forget_.empty() && incoming_chunks_.empty()
                     && outgoing_chunks_.empty() && in_transit_chunks_.empty()
@@ -486,11 +486,8 @@ Shuffler::Shuffler(
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
-      finish_counter_{
-          comm_->nranks(),
-          local_partitions(comm_, total_num_partitions, partition_owner),
-          std::move(finished_callback)
-      },
+      local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
+      finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},
       statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
@@ -514,15 +511,19 @@ Shuffler::Shuffler(
     );
 }
 
+std::span<PartID const> Shuffler::local_partitions() const {
+    return local_partitions_;
+}
+
 Shuffler::~Shuffler() {
     shutdown();
 }
 
 void Shuffler::shutdown() {
-    if (active_) {
+    bool expected = true;
+    if (active_.compare_exchange_strong(expected, false)) {
         auto& log = comm_->logger();
         log.debug("Shuffler.shutdown() - initiate");
-        active_ = false;
         progress_thread_->remove_function(progress_thread_function_id_);
         br_->spill_manager().remove_spill_function(spill_function_id_);
         log.debug("Shuffler.shutdown() - done");

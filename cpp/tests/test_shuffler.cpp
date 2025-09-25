@@ -1269,3 +1269,26 @@ TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
         return pid % 3 == 0;
     }));
 }
+
+TEST(ShufflerTest, multiple_shutdowns) {
+    GlobalEnvironment->barrier();
+    auto& comm = GlobalEnvironment->comm_;
+    rapidsmpf::BufferResource br(cudf::get_current_device_resource_ref());
+    auto shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
+        comm, GlobalEnvironment->progress_thread_, 0, comm->nranks(), &br
+    );
+
+    shuffler->insert_finished(iota_vector<rapidsmpf::shuffler::PartID>(comm->nranks()));
+    std::ignore = shuffler->extract(shuffler->wait_any());
+
+    constexpr int n_threads = 10;
+    std::vector<std::future<void>> futures;
+    for (int i = 0; i < n_threads; ++i) {
+        futures.emplace_back(std::async(std::launch::async, [&] {
+            shuffler->shutdown();
+        }));
+    }
+    std::ranges::for_each(futures, [](auto& future) { future.get(); });
+    shuffler.reset();
+    GlobalEnvironment->barrier();
+}

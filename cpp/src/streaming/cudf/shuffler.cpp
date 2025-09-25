@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
 #include <memory>
 #include <numeric>
 
@@ -33,13 +32,15 @@ coro::task<void> insert_and_notify(
     std::unordered_set<shuffler::PartID>& set,
     shuffler::PartID pid
 ) {
-    // Note: this coroutine is not needed to be scheduled, because it is called from the
-    // progress thread. Wrapping mtx lock and cv notify in a coroutine task will avoid
-    // calling coro::sync_wait multiple times.
+    // Note: this coroutine does not need to be scheduled, because it is offloaded to the
+    // thread pool using `spawn`.
     {
         auto lock = co_await mtx.scoped_lock();
         set.insert(pid);
     }
+    // notify_all because there could be extract tasks waiting for different pids. All of
+    // them need to be notified, to forward the pid immediately. Otherwise, worst case,
+    // all of them will be notified only after the shuffler is finished.
     co_await cv.notify_all();
 }
 
@@ -60,11 +61,21 @@ ShufflerAsync::ShufflerAsync(
           ctx_->br(),
           [this](shuffler::PartID pid) -> void {
               ctx_->comm()->logger().trace("notifying waiters that ", pid, " is ready");
-              coro::sync_wait(insert_and_notify(mtx_, cv_, ready_pids_, pid));
+              // Libcoro may resume suspended coroutines during cv notification, using the
+              // caller thread. Submitting a detached task ensures that the progress
+              // thread is not used to resume the coroutines.
+              RAPIDSMPF_EXPECTS(
+                  ctx_->executor()->spawn(insert_and_notify(mtx_, cv_, ready_pids_, pid)),
+                  "failed to spawn task to notify waiters that the partition is ready"
+              );
           },
           ctx_->statistics(),
           std::move(partition_owner)
       ) {}
+
+std::span<shuffler::PartID const> ShufflerAsync::local_partitions() const {
+    return shuffler_.local_partitions();
+}
 
 bool ShufflerAsync::finished() const {
     return shuffler_.finished();
@@ -76,6 +87,10 @@ void ShufflerAsync::insert(std::unordered_map<shuffler::PartID, PackedData>&& ch
 
 void ShufflerAsync::insert_finished(std::vector<shuffler::PartID>&& pids) {
     shuffler_.insert_finished(std::move(pids));
+}
+
+bool ShufflerAsync::all_extracted_unsafe() const {
+    return extracted_pids_.size() == shuffler_.local_partitions().size();
 }
 
 coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartID pid) {
@@ -92,8 +107,8 @@ coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartI
         // Note: purposefully not checking for extracted_pids_.contains(pid) here,
         // because it would require notifying the cv every time a partition is extracted.
         // Consequence of this is that, if pid was extracted by some other task, this task
-        // would only be notified during the shuffler.finished() check.
-        return shuffler_.finished() || ready_pids_.contains(pid);
+        // would only be notified during the all_extracted check.
+        return all_extracted_unsafe() || ready_pids_.contains(pid);
     });
 
     // partition not found (may have been already extracted or shuffler was finished
@@ -104,12 +119,14 @@ coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartI
         std::out_of_range
     );
     extracted_pids_.emplace(pid);
+    auto all_extracted = all_extracted_unsafe();
     lock.unlock();  // no longer need the lock
 
     auto chunks = shuffler_.extract(pid);
-    // shuffler gets marked as finished when all the partitions are extracted. So, tasks
-    // waiting on the cv should be notified.
-    if (shuffler_.finished()) {
+
+    // if all partitions have been extracted, notify all waiting tasks.
+    if (all_extracted) {
+        ctx_->comm()->logger().trace("all partitions extracted");
         co_await cv_.notify_all();
     }
 
@@ -121,7 +138,7 @@ ShufflerAsync::extract_any_async() {
     // wait until at least one partition is ready for extraction
     auto lock = co_await mtx_.scoped_lock();
     co_await cv_.wait(lock, [this]() {
-        return shuffler_.finished() || !ready_pids_.empty();
+        return all_extracted_unsafe() || !ready_pids_.empty();
     });
 
     // no partitions to extract or shuffle is already finished. Gracefully return an
@@ -134,12 +151,14 @@ ShufflerAsync::extract_any_async() {
 
     auto pid = ready_pids_.extract(ready_pids_.begin()).value();
     extracted_pids_.emplace(pid);
+    auto all_extracted = all_extracted_unsafe();
     lock.unlock();
 
     auto chunks = shuffler_.extract(pid);
-    // shuffler gets marked as finished when all the partitions are extracted. So, tasks
-    // waiting on the cv should be notified.
-    if (shuffler_.finished()) {
+
+    // if all partitions have been extracted, notify all waiting tasks.
+    if (all_extracted) {
+        ctx_->comm()->logger().trace("all partitions extracted");
         co_await cv_.notify_all();
     }
 
@@ -179,16 +198,19 @@ Node shuffler(
     std::iota(finished.begin(), finished.end(), 0);
     shuffler_async.insert_finished(std::move(finished));
 
-    for (shuffler::PartID i = 0; i < shuffler_async.total_num_partitions(); i++) {
+    for ([[maybe_unused]] auto& _ : shuffler_async.local_partitions()) {
         auto finished = co_await shuffler_async.extract_any_async();
-        RAPIDSMPF_EXPECTS(finished.has_value(), "Invalid result received");
+        RAPIDSMPF_EXPECTS(finished.has_value(), "extract_any_async returned null");
+
         co_await ch_out->send(
             std::make_unique<PartitionVectorChunk>(
                 finished->first, std::move(finished->second)
             )
         );
     }
-    RAPIDSMPF_EXPECTS(shuffler_async.finished(), "Shuffler not finished");
+    RAPIDSMPF_EXPECTS(
+        shuffler_async.finished(), "shuffler not finished after extracting all partitions"
+    );
 
     co_await ch_out->drain(ctx->executor());
 }
