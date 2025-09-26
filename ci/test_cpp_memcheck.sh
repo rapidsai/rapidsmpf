@@ -31,9 +31,15 @@ rapids-print-env
 rapids-logger "Check GPU usage"
 nvidia-smi
 
-# Trap ERR so that `EXITCODE=1` is set when a command fails
+# Trap ERR so that `EXITCODE` is printed when a command fails and the script
+# exits with error status
 EXITCODE=0
-trap "EXITCODE=1" ERR
+# shellcheck disable=SC2317
+set_exit_code() {
+    EXITCODE=$?
+    rapids-logger "Test failed with error ${EXITCODE}"
+}
+trap set_exit_code ERR
 set +e
 
 # Support customizing the ctests' install location
@@ -42,5 +48,5 @@ cd "${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/tests/librapidsmpf/"
 rapids-logger "Run librapidsmpf gtests with compute-sanitizer (Single Node)"
 compute-sanitizer --tool memcheck --track-stream-ordered-races=all gtests/single_tests --gtest_filter=-CuptiMonitorTest.*
 
-rapids-logger "Test script exiting with value: $EXITCODE"
+rapids-logger "Test script exiting with latest error code: $EXITCODE"
 exit ${EXITCODE}

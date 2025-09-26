@@ -34,9 +34,15 @@ nvidia-smi
 # Support invoking test_cpp.sh outside the script directory
 cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 
-# Trap ERR so that `EXITCODE=1` is set when a command fails
+# Trap ERR so that `EXITCODE` is printed when a command fails and the script
+# exits with error status
 EXITCODE=0
-trap "EXITCODE=1" ERR
+# shellcheck disable=SC2317
+set_exit_code() {
+    EXITCODE=$?
+    rapids-logger "Test failed with error ${EXITCODE}"
+}
+trap set_exit_code ERR
 set +e
 
 rapids-logger "Run librapidsmpf gtests"
@@ -44,17 +50,11 @@ rapids-logger "Run librapidsmpf gtests"
 
 # Ensure that examples are runnable
 rapids-logger "Run example smoketests"
-
-if (( EXITCODE == 0 )); then
-    ./run_cpp_example_smoketests.sh
-fi
+./run_cpp_example_smoketests.sh
 
 # Ensure that benchmarks are runnable
 rapids-logger "Run benchmark smoketests"
+./run_cpp_benchmark_smoketests.sh
 
-if (( EXITCODE == 0 )); then
-    ./run_cpp_benchmark_smoketests.sh
-fi
-
-rapids-logger "Test script exiting with value: $EXITCODE"
+rapids-logger "Test script exiting with latest error code: $EXITCODE"
 exit ${EXITCODE}

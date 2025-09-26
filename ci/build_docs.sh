@@ -32,8 +32,15 @@ rapids-print-env
 RAPIDS_DOCS_DIR="$(mktemp -d)"
 export RAPIDS_DOCS_DIR
 
+# Trap ERR so that `EXITCODE` is printed when a command fails and the script
+# exits with error status
 EXITCODE=0
-trap "EXITCODE=1" ERR
+# shellcheck disable=SC2317
+set_exit_code() {
+    EXITCODE=$?
+    rapids-logger "Test failed with error ${EXITCODE}"
+}
+trap set_exit_code ERR
 set +e
 
 rapids-logger "Build CPP docs"
@@ -56,4 +63,5 @@ popd
 
 RAPIDS_VERSION_NUMBER="${RAPIDS_VERSION_MAJOR_MINOR}" rapids-upload-docs
 
+rapids-logger "Test script exiting with latest error code: $EXITCODE"
 exit ${EXITCODE}
