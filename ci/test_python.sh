@@ -37,8 +37,11 @@ nvidia-smi
 # Support invoking test_python.sh outside the script directory
 cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"/../
 
-rapids-logger "pytest rapidsmpf"
+rapids-logger "Pytest RapidsMPF (MPI+UCXX)"
 ./ci/run_pytests.sh && EXITCODE=$? || EXITCODE=$?;
+
+rapids-logger "Pytest RapidsMPF (UCXX polling mode)"
+RAPIDSMPF_UCXX_PROGRESS_MODE=polling ./ci/run_pytests.sh --disable-mpi && EXITCODE=$? || EXITCODE=$?;
 
 rapids-logger "Test script exiting with value: $EXITCODE"
 exit "${EXITCODE}"

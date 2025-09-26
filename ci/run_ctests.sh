@@ -26,8 +26,10 @@ timeout_secs=$((5*60)) # 5m timeout
 python "${TIMEOUT_TOOL_PATH}" "${timeout_secs}" \
    ctest --verbose --no-tests=error --output-on-failure -R "mpi_tests_*" "${EXTRA_ARGS[@]}"
 
-# ucxx_tests cases
+# ucxx_tests cases, includes both default (thread-blocking) and polling progress modes
 python "${TIMEOUT_TOOL_PATH}" "${timeout_secs}" \
+    ctest --verbose --no-tests=error --output-on-failure -R "ucxx_tests_*" "${EXTRA_ARGS[@]}"
+RAPIDSMPF_UCXX_PROGRESS_MODE=polling python "${TIMEOUT_TOOL_PATH}" "${timeout_secs}" \
     ctest --verbose --no-tests=error --output-on-failure -R "ucxx_tests_*" "${EXTRA_ARGS[@]}"
 
 # single_tests case
