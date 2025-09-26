@@ -210,11 +210,8 @@ class Shuffler::Progress {
                     ready_ack_receives_[dst].push_back(shuffler_.comm_->recv(
                         dst,
                         ready_for_data_tag,
-                        shuffler_.br_->allocate(
-                            shuffler_.stream_,
-                            shuffler_.br_->reserve_or_fail(
-                                ReadyForDataMessage::byte_size, MemoryType::HOST
-                            )
+                        std::make_unique<std::vector<uint8_t>>(
+                            ReadyForDataMessage::byte_size
                         )
                     ));
                 }
@@ -361,10 +358,8 @@ class Shuffler::Progress {
                 auto [finished, _] = shuffler_.comm_->test_some(futures);
                 for (auto&& future : finished) {
                     auto const msg_data =
-                        shuffler_.comm_->release_data(std::move(future));
-                    auto msg = ReadyForDataMessage::unpack(
-                        const_cast<Buffer const&>(*msg_data).host()
-                    );
+                        shuffler_.comm_->release_host_data(std::move(future));
+                    auto msg = ReadyForDataMessage::unpack(msg_data);
                     auto chunk = extract_value(outgoing_chunks_, msg.cid);
                     shuffler_.statistics_->add_bytes_stat(
                         "shuffle-payload-send", chunk.concat_data_size()

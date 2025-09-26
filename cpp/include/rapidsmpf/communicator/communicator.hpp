@@ -416,7 +416,7 @@ class Communicator {
     ) = 0;
 
     /**
-     * @brief Receives a message from a specific rank.
+     * @brief Receives a message from a specific rank to a buffer.
      *
      * @param rank The source rank.
      * @param tag Message tag for identification.
@@ -431,6 +431,18 @@ class Communicator {
      */
     [[nodiscard]] virtual std::unique_ptr<Future> recv(
         Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
+    ) = 0;
+
+    /**
+     * @brief Receives a message from a specific rank to an allocated host buffer.
+     *
+     * @param rank The source rank.
+     * @param tag Message tag for identification.
+     * @param recv_host_buffer The receive buffer.
+     * @return A unique pointer to a `Future` representing the asynchronous operation.
+     */
+    [[nodiscard]] virtual std::unique_ptr<Future> recv(
+        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> recv_host_buffer
     ) = 0;
 
     /**
@@ -489,7 +501,8 @@ class Communicator {
      * @return A unique pointer to the GPU data buffer (or `nullptr` if the future had no
      * data).
      */
-    [[nodiscard]] virtual std::unique_ptr<Buffer> wait(std::unique_ptr<Future> future
+    [[nodiscard]] virtual std::unique_ptr<Buffer> wait(
+        std::unique_ptr<Future> future
     ) = 0;
 
     /**

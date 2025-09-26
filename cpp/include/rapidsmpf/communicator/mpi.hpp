@@ -106,6 +106,8 @@ class MPI final : public Communicator {
 
       private:
         MPI_Request req_;
+        // TODO: these buffers are mutually exclusive and looks similar to
+        // Buffer::storage_.
         std::unique_ptr<Buffer> data_buffer_;
         // Dedicated storage for host data that is valid at the time of construction.
         std::unique_ptr<std::vector<uint8_t>> synced_host_data_;
@@ -158,6 +160,15 @@ class MPI final : public Communicator {
         Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
     ) override;
 
+    // clang-format off
+    /**
+     * @copydoc Communicator::recv(Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> recv_host_buffer)
+     */
+    // clang-format on
+    [[nodiscard]] std::unique_ptr<Communicator::Future> recv(
+        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> recv_host_buffer
+    ) override;
+
     /**
      * @copydoc Communicator::recv_any
      */
@@ -200,6 +211,13 @@ class MPI final : public Communicator {
      * @copydoc Communicator::release_data
      */
     [[nodiscard]] std::unique_ptr<Buffer> release_data(
+        std::unique_ptr<Communicator::Future> future
+    ) override;
+
+    /**
+     * @copydoc Communicator::release_host_data
+     */
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> release_host_data(
         std::unique_ptr<Communicator::Future> future
     ) override;
 

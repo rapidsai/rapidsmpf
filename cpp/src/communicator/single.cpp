@@ -27,6 +27,12 @@ std::unique_ptr<Communicator::Future> Single::recv(Rank, Tag, std::unique_ptr<Bu
     RAPIDSMPF_FAIL("Unexpected recv from self", std::runtime_error);
 }
 
+std::unique_ptr<Communicator::Future> Single::recv(
+    Rank, Tag, std::unique_ptr<std::vector<uint8_t>>
+) {
+    RAPIDSMPF_FAIL("Unexpected recv from self", std::runtime_error);
+}
+
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> Single::recv_any(Tag) {
     return {nullptr, 0};
 }
@@ -52,6 +58,12 @@ std::unique_ptr<Buffer> Single::wait(std::unique_ptr<Communicator::Future>) {
 
 std::unique_ptr<Buffer> Single::release_data(std::unique_ptr<Communicator::Future>) {
     RAPIDSMPF_FAIL("Unexpected release_data from self", std::runtime_error);
+}
+
+std::unique_ptr<std::vector<uint8_t>> Single::release_host_data(
+    std::unique_ptr<Communicator::Future>
+) {
+    RAPIDSMPF_FAIL("Unexpected release_host_data from self", std::runtime_error);
 }
 
 std::string Single::str() const {

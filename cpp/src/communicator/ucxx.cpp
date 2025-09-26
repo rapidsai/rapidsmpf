@@ -1145,6 +1145,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
+    RAPIDSMPF_EXPECTS(recv_buffer != nullptr, "recv buffer is nullptr");
     RAPIDSMPF_EXPECTS(recv_buffer->is_latest_write_done(), "msg must be ready");
     auto req = get_endpoint(rank)->tagRecv(
         recv_buffer->exclusive_data_access(),
@@ -1153,6 +1154,19 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
         ::ucxx::TagMaskFull
     );
     return std::make_unique<Future>(req, std::move(recv_buffer));
+}
+
+std::unique_ptr<Communicator::Future> UCXX::recv(
+    Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> recv_host_buffer
+) {
+    RAPIDSMPF_EXPECTS(recv_host_buffer != nullptr, "recv host buffer is nullptr");
+    auto req = get_endpoint(rank)->tagRecv(
+        recv_host_buffer->data(),
+        recv_host_buffer->size(),
+        tag_with_rank(rank, tag),
+        ::ucxx::TagMaskFull
+    );
+    return std::make_unique<Future>(req, std::move(recv_host_buffer));
 }
 
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
@@ -1293,6 +1307,15 @@ std::unique_ptr<Buffer> UCXX::release_data(std::unique_ptr<Communicator::Future>
     RAPIDSMPF_EXPECTS(ucxx_future->data_buffer_ != nullptr, "future has no data");
     ucxx_future->data_buffer_->unlock();
     return std::move(ucxx_future->data_buffer_);
+}
+
+std::unique_ptr<std::vector<uint8_t>> UCXX::release_host_data(
+    std::unique_ptr<Communicator::Future> future
+) {
+    auto ucxx_future = dynamic_cast<Future*>(future.get());
+    RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    RAPIDSMPF_EXPECTS(ucxx_future->synced_host_data_ != nullptr, "future has no data");
+    return std::move(ucxx_future->synced_host_data_);
 }
 
 std::string UCXX::str() const {
