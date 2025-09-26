@@ -37,7 +37,7 @@ EXITCODE=0
 # shellcheck disable=SC2317
 set_exit_code() {
     EXITCODE=$?
-    rapids-logger "Test failed with error ${EXITCODE}"
+    rapids-logger "Test failed with exit code ${EXITCODE}"
 }
 trap set_exit_code ERR
 set +e
@@ -48,5 +48,5 @@ cd "${INSTALL_PREFIX:-${CONDA_PREFIX:-/usr}}/bin/tests/librapidsmpf/"
 rapids-logger "Run librapidsmpf gtests with compute-sanitizer (Single Node)"
 compute-sanitizer --tool memcheck --track-stream-ordered-races=all gtests/single_tests --gtest_filter=-CuptiMonitorTest.*
 
-rapids-logger "Test script exiting with latest error code: $EXITCODE"
+rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit ${EXITCODE}

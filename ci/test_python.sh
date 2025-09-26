@@ -43,7 +43,7 @@ EXITCODE=0
 # shellcheck disable=SC2317
 set_exit_code() {
     EXITCODE=$?
-    rapids-logger "Test failed with error ${EXITCODE}"
+    rapids-logger "Test failed with exit code ${EXITCODE}"
 }
 trap set_exit_code ERR
 set +e
@@ -54,5 +54,5 @@ rapids-logger "Pytest RapidsMPF (MPI+UCXX)"
 rapids-logger "Pytest RapidsMPF (UCXX polling mode)"
 RAPIDSMPF_UCXX_PROGRESS_MODE=polling ./ci/run_pytests.sh --disable-mpi
 
-rapids-logger "Test script exiting with latest error code: $EXITCODE"
+rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit "${EXITCODE}"

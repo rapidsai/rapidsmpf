@@ -38,7 +38,7 @@ EXITCODE=0
 # shellcheck disable=SC2317
 set_exit_code() {
     EXITCODE=$?
-    rapids-logger "Test failed with error ${EXITCODE}"
+    rapids-logger "Test failed with exit code ${EXITCODE}"
 }
 trap set_exit_code ERR
 set +e
@@ -63,5 +63,5 @@ popd
 
 RAPIDS_VERSION_NUMBER="${RAPIDS_VERSION_MAJOR_MINOR}" rapids-upload-docs
 
-rapids-logger "Test script exiting with latest error code: $EXITCODE"
+rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit ${EXITCODE}
