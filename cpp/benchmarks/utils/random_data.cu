@@ -80,9 +80,12 @@ void random_fill(
                 stream,
                 mr
             );
-            RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-                buffer.data(), vec.data(), buffer.size, cudaMemcpyDeviceToDevice, stream
-            ));
+            buffer.write_access([&](std::byte* buffer_data,
+                                    rmm::cuda_stream_view stream) {
+                RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+                    buffer_data, vec.data(), buffer.size, cudaMemcpyDeviceToDevice, stream
+                ));
+            });
             break;
         }
     default:

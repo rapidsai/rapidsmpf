@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0 All rights reserved.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
