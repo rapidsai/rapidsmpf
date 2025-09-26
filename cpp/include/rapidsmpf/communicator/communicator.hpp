@@ -509,7 +509,7 @@ class Communicator {
      * @brief Retrieves data associated with a completed future.
      *
      * @param future The completed future.
-     * @return A unique pointer to the GPU data buffer.
+     * @return A unique pointer to the data buffer.
      *
      * @throws std::runtime_error if the future has no data.
      */
@@ -518,10 +518,10 @@ class Communicator {
     ) = 0;
 
     /**
-     * @brief Retrieves GPU data associated with a completed future.
+     * @brief Retrieves synchronized host data associated with a completed future.
      *
      * @param future The completed future.
-     * @return A unique pointer to the GPU data buffer.
+     * @return A unique pointer to the synchronized host data.
      *
      * @throws std::runtime_error if the future has no data.
      */
