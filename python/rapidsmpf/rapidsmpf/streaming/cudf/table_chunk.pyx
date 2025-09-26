@@ -1,10 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cpython.object cimport PyObject
+from cpython.ref cimport Py_XDECREF
 from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
 from libc.stdint cimport uint64_t
-from libcpp.memory cimport make_unique, unique_ptr
+from libcpp.memory cimport unique_ptr
 from libcpp.utility cimport move
 from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
@@ -13,10 +15,11 @@ from pylibcudf.table cimport Table
 from rapidsmpf.streaming.core.channel cimport Message, cpp_Message
 
 
-# Help function to release a table chunk from a message, which is needed
+# Helper function to release a table chunk from a message, which is needed
 # because TableChunk doesn't have a default ctor.
 cdef extern from *:
     """
+    namespace {
     std::unique_ptr<rapidsmpf::streaming::TableChunk>
     cpp_release_table_chunk_from_message(
         rapidsmpf::streaming::Message &&msg
@@ -25,9 +28,36 @@ cdef extern from *:
             msg.release<rapidsmpf::streaming::TableChunk>()
         );
     }
+
+    std::unique_ptr<rapidsmpf::streaming::TableChunk> cpp_from_table_view_with_owner(
+        std::uint64_t sequence_number,
+        cudf::table_view view,
+        std::size_t device_alloc_size,
+        rmm::cuda_stream_view stream,
+        PyObject *owner,
+        void(*py_deleter)(void *)
+    ) {
+        // Called holding the gil.
+        // Decref is done by the deleter.
+        Py_XINCREF(owner);
+        return std::make_unique<rapidsmpf::streaming::TableChunk>(
+            sequence_number, view, device_alloc_size, stream,
+            rapidsmpf::streaming::OwningWrapper(owner, py_deleter)
+        );
+    }
+    }
     """
     unique_ptr[cpp_TableChunk] \
         cpp_release_table_chunk_from_message(cpp_Message) except +
+
+    unique_ptr[cpp_TableChunk] cpp_from_table_view_with_owner(...) except +
+
+
+cdef void py_deleter(void *p) noexcept nogil:
+    if p == NULL:
+        return
+    with gil:
+        Py_XDECREF(<PyObject*>p)
 
 
 cdef class TableChunk:
@@ -52,9 +82,7 @@ cdef class TableChunk:
             self._handle.reset()
 
     @staticmethod
-    cdef TableChunk from_handle(
-        unique_ptr[cpp_TableChunk] handle, Stream stream, object owner
-    ):
+    cdef TableChunk from_handle(unique_ptr[cpp_TableChunk] handle):
         """
         Construct a TableChunk from an existing C++ handle.
 
@@ -62,26 +90,13 @@ cdef class TableChunk:
         ----------
         handle
             A unique pointer to a C++ TableChunk.
-        stream
-            The CUDA stream on which this chunk was created. If `None`,
-            the stream is obtained from the handle.
-        owner
-            An optional Python object to keep alive for as long as this
-            TableChunk exists (e.g., to maintain resource lifetime).
 
         Returns
         -------
         A new TableChunk wrapping the given handle.
         """
-
-        if stream is None:
-            stream = Stream._from_cudaStream_t(
-                deref(handle).stream().value()
-            )
         cdef TableChunk ret = TableChunk.__new__(TableChunk)
         ret._handle = move(handle)
-        ret._stream = stream
-        ret._owner = owner
         return ret
 
     @staticmethod
@@ -107,7 +122,14 @@ cdef class TableChunk:
         Notes
         -----
         The returned TableChunk maintains a reference to `table` to ensure
-        its underlying buffers remain valid for the lifetime of the chunk.
+        its underlying buffers remain valid for the lifetime of the chunk,
+        this reference is managed by the underlying C++ object so it
+        persists through Channels.
+
+        Warning
+        -------
+        This object does not keep the provided stream alive, the user must
+        promise to keep it alive for the lifetime of the streaming pipeline.
         """
         cdef cuda_stream_view _stream = stream.view()
         cdef size_t device_alloc_size = 0
@@ -116,14 +138,15 @@ cdef class TableChunk:
 
         cdef cpp_table_view view = table.view()
         cdef unique_ptr[cpp_TableChunk] ret
-        with nogil:
-            ret = make_unique[cpp_TableChunk](
-                sequence_number,
-                view,
-                device_alloc_size,
-                _stream
-            )
-        return TableChunk.from_handle(move(ret), stream=stream, owner=table)
+        ret = cpp_from_table_view_with_owner(
+            sequence_number,
+            view,
+            device_alloc_size,
+            _stream,
+            <PyObject *>table,
+            py_deleter
+        )
+        return TableChunk.from_handle(move(ret))
 
     @staticmethod
     def from_message(Message message not None):
@@ -141,9 +164,7 @@ cdef class TableChunk:
         A new TableChunk extracted from the given message.
         """
         return TableChunk.from_handle(
-            cpp_release_table_chunk_from_message(move(message._handle)),
-            stream = None,
-            owner = None,
+            cpp_release_table_chunk_from_message(move(message._handle))
         )
 
     def into_message(self, Message message not None):
@@ -230,7 +251,9 @@ cdef class TableChunk:
         Stream
             The CUDA stream.
         """
-        return self._stream
+        return Stream._from_cudaStream_t(
+            deref(self.handle_ptr()).stream().value()
+        )
 
     def data_alloc_size(self, MemoryType mem_type):
         """
