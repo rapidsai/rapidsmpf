@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+import distributed
 import ucxx._lib.libucxx as ucx_api
 from distributed import get_client, get_worker, wait
 from distributed.diagnostics.plugin import SchedulerPlugin
@@ -22,7 +23,6 @@ from rapidsmpf.integrations.core import rmpf_worker_setup
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    import distributed
     from distributed.scheduler import Scheduler, TaskState
 
 
@@ -191,6 +191,15 @@ def dask_worker_setup(
 _initialized_clusters: set[str] = set()
 
 
+def _has_scheduler_plugin(name: str, dask_scheduler: distributed.Scheduler) -> bool:
+    """
+    Check whether a plugin with 'name' is registered with the Scheduler.
+
+    Use via `Client.run_on_scheduler`.
+    """
+    return name in dask_scheduler.plugins
+
+
 def bootstrap_dask_cluster(
     client: distributed.Client,
     *,
@@ -230,51 +239,58 @@ def bootstrap_dask_cluster(
     info = client.scheduler_info(n_workers=-1)
 
     if info["id"] in _initialized_clusters:
-        # TODO: this isn't safe.
-        # Clients sharing a cluster can be created in multiple processes.
-        # We should be using a distributed variable to track this (cached locally).
+        # Quick check
         return
 
-    # Scheduler stuff
-    scheduler_plugin = RMPFSchedulerPlugin()
-    client.register_plugin(scheduler_plugin)
+    lock = distributed.Lock("rapidsmpf.integrations.dask.is_initialized_lock")
 
-    workers = sorted(info["workers"])
-    n_ranks = len(workers)
+    with lock:
+        if client.run_on_scheduler(_has_scheduler_plugin, RMPFSchedulerPlugin.name):
+            # Some other process has bootstrapped this cluster.
+            # Cache that locally to speed up future checks.
+            _initialized_clusters.add(info["id"])
+            return
 
-    # Insert missing config options from environment variables.
-    options.insert_if_absent(get_environment_variables())
-    # Set up the comms for the root worker
-    root_address_bytes = client.submit(
-        rapidsmpf_ucxx_rank_setup_root,
-        n_ranks=n_ranks,
-        options=options,
-        workers=workers[0],
-        pure=False,
-    ).result()
+        # Scheduler stuff
+        scheduler_plugin = RMPFSchedulerPlugin()
+        client.register_plugin(scheduler_plugin)
 
-    # Set up the entire ucxx cluster
-    ucxx_setup_futures = [
-        client.submit(
-            rapidsmpf_ucxx_rank_setup_node,
+        workers = sorted(info["workers"])
+        n_ranks = len(workers)
+
+        # Insert missing config options from environment variables.
+        options.insert_if_absent(get_environment_variables())
+        # Set up the comms for the root worker
+        root_address_bytes = client.submit(
+            rapidsmpf_ucxx_rank_setup_root,
             n_ranks=n_ranks,
-            root_address_bytes=root_address_bytes,
             options=options,
-            workers=worker,
+            workers=workers[0],
             pure=False,
+        ).result()
+
+        # Set up the entire ucxx cluster
+        ucxx_setup_futures = [
+            client.submit(
+                rapidsmpf_ucxx_rank_setup_node,
+                n_ranks=n_ranks,
+                root_address_bytes=root_address_bytes,
+                options=options,
+                workers=worker,
+                pure=False,
+            )
+            for worker in workers
+        ]
+        wait(ucxx_setup_futures)
+
+        # finally, prepare the rapidsmpf resources on top of the ucxx comms
+        client.run(
+            dask_worker_setup,
+            options=options,
         )
-        for worker in workers
-    ]
-    wait(ucxx_setup_futures)
 
-    # Finally, prepare the RapidsMPF resources on top of the UCXX comms
-    client.run(
-        dask_worker_setup,
-        options=options,
-    )
-
-    # Only run the above steps once
-    _initialized_clusters.add(info["id"])
+        # only run the above steps once
+        _initialized_clusters.add(info["id"])
 
 
 class RMPFSchedulerPlugin(SchedulerPlugin):
@@ -287,6 +303,7 @@ class RMPFSchedulerPlugin(SchedulerPlugin):
     constrained to specific workers.
     """
 
+    name = "rapidsmpf-scheduler-plugin"
     scheduler: Scheduler
     _rmpf_restricted_tasks: dict[str, str]
 
