@@ -332,7 +332,7 @@ class ShufflerAsyncTest
     std::unique_ptr<ShufflerAsync> shuffler;
 
     static constexpr OpID op_id = 0;
-    static constexpr size_t n_bytes = 100;
+    static constexpr size_t n_elements = 100;
 
     void SetUp() override {
         std::tie(n_threads, n_inserts, n_partitions, n_consumers) = GetParam();
@@ -395,15 +395,8 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     for (size_t i = 0; i < n_inserts; ++i) {
         std::unordered_map<shuffler::PartID, PackedData> data;
         data.reserve(n_partitions);
-        auto [res, _] = br->reserve(MemoryType::DEVICE, n_bytes * n_partitions, true);
         for (shuffler::PartID pid = 0; pid < n_partitions; ++pid) {
-            data.emplace(
-                pid,
-                PackedData(
-                    std::make_unique<std::vector<std::uint8_t>>(n_bytes),
-                    br->allocate(n_bytes, stream, res)
-                )
-            );
+            data.emplace(pid, generate_packed_data(n_elements, 0, stream, *br));
         }
         shuffler->insert(std::move(data));
     }
