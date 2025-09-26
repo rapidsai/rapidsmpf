@@ -431,6 +431,8 @@ class SharedResources {
     }
 
     void maybe_progress_worker() {
+        // The value here is the default borrowed from OpenMPI:
+        // https://github.com/open-mpi/ompi/blob/7ad7adad676773fc61203e9a536d17b2ebdfa9c8/opal/mca/common/ucx/common_ucx.c#L42
         if (++progress_count % 100) {
             progress_worker();
         }
