@@ -283,13 +283,13 @@ def bootstrap_dask_cluster(
         ]
         wait(ucxx_setup_futures)
 
-        # finally, prepare the rapidsmpf resources on top of the ucxx comms
+        # Finally, prepare the RapidsMPF resources on top of the UCXX comms
         client.run(
             dask_worker_setup,
             options=options,
         )
 
-        # only run the above steps once
+        # Only run the above steps once
         _initialized_clusters.add(info["id"])
 
 
