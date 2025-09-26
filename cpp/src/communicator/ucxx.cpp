@@ -431,8 +431,7 @@ class SharedResources {
     }
 
     void maybe_progress_worker() {
-        if (++progress_count % 100)
-            progress_worker();
+        if (++progress_count % 100) { progress_worker(); }
     }
 
     /**
@@ -832,7 +831,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
     std::optional<RemoteAddress> remote_address,
     config::Options options
 ) {
-    auto progress_mode = options.get<ProgressMode>("ucxx_progress_mode", [](auto s) {
+    auto progress_mode = options.get<ProgressMode>("ucxx_progress_mode", [](auto const &s) {
         if (s.empty()) {
             return ProgressMode::ThreadBlocking;
         } else if (s == "blocking") {

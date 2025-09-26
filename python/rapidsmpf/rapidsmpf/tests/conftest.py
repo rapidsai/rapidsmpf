@@ -33,9 +33,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 @pytest.fixture(scope="session")
-def _mpi_disabled(pytestconfig: pytest.Config) -> Any:
+def _mpi_disabled(pytestconfig: pytest.Config) -> bool:
     """Check if MPI tests are disabled via command line argument."""
-    return pytestconfig.getoption("--disable-mpi")
+    return bool(pytestconfig.getoption("--disable-mpi"))
 
 
 def _get_mpi_module_or_skip(*, mpi_disabled: bool = False) -> MPI:
@@ -48,7 +48,7 @@ def _get_mpi_module_or_skip(*, mpi_disabled: bool = False) -> MPI:
 
     Parameters
     ----------
-    mpi_disabled : bool, optional
+    mpi_disabled
         Whether MPI tests are disabled, by default False
 
     Returns
@@ -72,7 +72,7 @@ def _get_mpi_module_or_skip(*, mpi_disabled: bool = False) -> MPI:
 
 
 @pytest.fixture(scope="session")
-def _mpi_comm(_mpi_disabled: bool) -> Communicator:  # noqa: FBT001
+def _mpi_comm(*, _mpi_disabled: bool) -> Communicator:
     """
     Fixture for rapidsmpf's MPI communicator to use throughout the session.
 
