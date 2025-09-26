@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import multiprocessing
 from typing import TYPE_CHECKING, Literal
 
 import dask
@@ -509,13 +510,32 @@ def test_dask_cudf_join(
 
 
 @gen_test(timeout=30)
+@pytest.mark.filterwarnings("ignore")
 async def test_bootstrap_multiple_clients(
     loop: pytest.FixtureDef,  # noqa: F811
 ) -> None:
     # https://github.com/rapidsai/rapidsmpf/issues/458
+
+    def connect_from_subprocess(
+        scheduler_address: str, q: multiprocessing.Queue
+    ) -> None:
+        client = Client(scheduler_address)
+        bootstrap_dask_cluster(client)
+        q.put(obj=True)
+
     with LocalCUDACluster(loop=loop) as cluster:
         with Client(cluster) as client_1:
             bootstrap_dask_cluster(client_1)
 
         with Client(cluster) as client_2:
             bootstrap_dask_cluster(client_2)
+
+        q: multiprocessing.Queue[bool] = multiprocessing.Queue()
+        p = multiprocessing.Process(
+            target=connect_from_subprocess, args=(cluster.scheduler_address, q)
+        )
+        p.start()
+        result = q.get(timeout=10)
+        p.join()
+
+    assert result is True
