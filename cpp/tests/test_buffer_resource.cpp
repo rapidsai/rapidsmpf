@@ -27,6 +27,30 @@ constexpr std::size_t operator"" _KiB(unsigned long long n) {
     return n * (1 << 10);
 }
 
+/**
+ * @brief Allocate a Buffer and initialize its contents to zero.
+ *
+ * @param br Buffer resource used for allocation.
+ * @param size Number of bytes to allocate.
+ * @param stream CUDA stream associated with the allocation.
+ * @param reservation Memory reservation used to track the allocation.
+ * @return A unique pointer to the zero-initialized Buffer.
+ */
+std::unique_ptr<Buffer> zeros(
+    BufferResource& br,
+    std::size_t size,
+    rmm::cuda_stream_view stream,
+    MemoryReservation& reservation
+) {
+    auto ret = br.allocate(size, stream, reservation);
+    if (size > 0) {
+        ret->write_access([&](std::byte* ptr, rmm::cuda_stream_view s) {
+            RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0, size, s));
+        });
+    }
+    return ret;
+}
+
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always have 10 KiB of available device memory.
     auto dev_mem_available = []() -> std::int64_t { return 10_KiB; };
@@ -155,7 +179,7 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
 
     // Allocating a Buffer also requires a reservation, which are then released.
-    auto dev_buf1 = br.allocate(10_KiB, stream, reserve1);
+    auto dev_buf1 = zeros(br, 10_KiB, stream, reserve1);
     EXPECT_EQ(dev_buf1->mem_type(), MemoryType::DEVICE);
     EXPECT_EQ(dev_buf1->size, 10_KiB);
     EXPECT_EQ(reserve1.size(), 0);
@@ -164,7 +188,7 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(dev_mem_available(), 0);
 
     // Insufficent reservation for the allocation.
-    EXPECT_THROW(br.allocate(10_KiB, stream, reserve1), std::overflow_error);
+    EXPECT_THROW(zeros(br, 10_KiB, stream, reserve1), std::overflow_error);
 
     // Freeing a buffer increases the available but the reserved memory is unchanged.
     dev_buf1.reset();
@@ -174,7 +198,7 @@ TEST(BufferResource, LimitAvailableMemory) {
 
     // Moving buffers between memory types requires a reservation.
     auto [reserve2, overbooking2] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
-    auto dev_buf2 = br.allocate(10_KiB, stream, reserve2);
+    auto dev_buf2 = zeros(br, 10_KiB, stream, reserve2);
     EXPECT_EQ(dev_buf2->mem_type(), MemoryType::DEVICE);
     auto [reserve3, overbooking3] = br.reserve(MemoryType::HOST, 10_KiB, true);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
