@@ -10,6 +10,8 @@
 
 #include <mpi.h>
 
+#include <rmm/cuda_stream_view.hpp>
+
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
 
@@ -122,10 +124,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
 std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
-    if (!msg->is_ready()) {
-        logger().warn("msg is not ready. This is irrecoverable, terminating.");
-        std::terminate();
-    }
+    RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready");
     RAPIDSMPF_EXPECTS(
         msg->size <= std::numeric_limits<int>::max(),
         "send buffer size exceeds MPI max count"
@@ -138,17 +137,20 @@ std::unique_ptr<Communicator::Future> MPI::send(
 std::unique_ptr<Communicator::Future> MPI::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
-    if (!recv_buffer->is_ready()) {
-        logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
-        std::terminate();
-    }
+    RAPIDSMPF_EXPECTS(recv_buffer->is_latest_write_done(), "msg must be ready");
     RAPIDSMPF_EXPECTS(
         recv_buffer->size <= std::numeric_limits<int>::max(),
         "recv buffer size exceeds MPI max count"
     );
     MPI_Request req;
     RAPIDSMPF_MPI(MPI_Irecv(
-        recv_buffer->data(), recv_buffer->size, MPI_UINT8_T, rank, tag, comm_, &req
+        recv_buffer->exclusive_data_access(),
+        recv_buffer->size,
+        MPI_UINT8_T,
+        rank,
+        tag,
+        comm_,
+        &req
     ));
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
@@ -296,6 +298,7 @@ std::unique_ptr<Buffer> MPI::wait(std::unique_ptr<Communicator::Future> future) 
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
     RAPIDSMPF_MPI(MPI_Wait(&mpi_future->req_, MPI_STATUS_IGNORE));
+    mpi_future->data_buffer_->unlock();
     return std::move(mpi_future->data_buffer_);
 }
 
@@ -303,6 +306,7 @@ std::unique_ptr<Buffer> MPI::get_gpu_data(std::unique_ptr<Communicator::Future> 
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
     RAPIDSMPF_EXPECTS(mpi_future->data_buffer_ != nullptr, "future has no data");
+    mpi_future->data_buffer_->unlock();
     return std::move(mpi_future->data_buffer_);
 }
 

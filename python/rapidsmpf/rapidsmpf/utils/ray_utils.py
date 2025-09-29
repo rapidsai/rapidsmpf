@@ -84,11 +84,6 @@ class BaseShufflingActor(RapidsMPFActor):
         if self.comm is None:
             raise RuntimeError("Communicator not initialized")
 
-        if stream is None:
-            from rmm.pylibrmm.stream import DEFAULT_STREAM
-
-            stream = DEFAULT_STREAM
-
         assert self._comm is not None
         progress_thread = ProgressThread(self._comm, statistics)
 
@@ -97,7 +92,6 @@ class BaseShufflingActor(RapidsMPFActor):
             progress_thread,
             op_id,
             total_num_partitions if total_num_partitions is not None else self.nranks(),
-            stream,
             buffer_resource
             if buffer_resource is not None
             else self.default_buffer_resource,

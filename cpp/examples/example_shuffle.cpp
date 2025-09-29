@@ -67,7 +67,6 @@ int main(int argc, char** argv) {
         progress_thread,
         0,  // op_id
         total_num_partitions,
-        stream,
         &br,
         stats,
         rapidsmpf::shuffler::Shuffler::round_robin  // partition owner
@@ -118,9 +117,7 @@ int main(int argc, char** argv) {
         // convenience function.
         local_outputs.push_back(
             rapidsmpf::unpack_and_concat(
-                rapidsmpf::unspill_partitions(
-                    std::move(packed_chunks), stream, &br, true
-                ),
+                rapidsmpf::unspill_partitions(std::move(packed_chunks), &br, true),
                 stream,
                 &br
             )

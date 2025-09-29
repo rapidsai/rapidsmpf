@@ -4,9 +4,7 @@
  */
 
 #include <algorithm>
-#include <cstdint>
 #include <iterator>
-#include <memory>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -15,6 +13,7 @@
 #include <cudf_test/table_utilities.hpp>
 
 #include <rapidsmpf/allgather/allgather.hpp>
+#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -23,60 +22,11 @@
 #include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
-#include "rapidsmpf/buffer/buffer.hpp"
 #include "utils.hpp"
 
 using namespace rapidsmpf::allgather;
 
 extern Environment* GlobalEnvironment;
-
-// Generate a packed data object with the given number of elements and offset.
-// Both metadata and gpu_data contains the same data.
-rapidsmpf::PackedData generate_packed_data(
-    int n_elements,
-    int offset,
-    rmm::cuda_stream_view stream,
-    rapidsmpf::BufferResource& br
-) {
-    auto values = iota_vector<int>(n_elements, offset);
-
-    auto metadata = std::make_unique<std::vector<uint8_t>>(n_elements * sizeof(int));
-    std::memcpy(metadata->data(), values.data(), n_elements * sizeof(int));
-
-    auto data = std::make_unique<rmm::device_buffer>(
-        values.data(), n_elements * sizeof(int), stream, br.device_mr()
-    );
-
-    return {std::move(metadata), br.move(std::move(data), stream)};
-}
-
-// Validate the packed data object by checking the metadata and gpu_data.
-void validate_packed_data(
-    rapidsmpf::PackedData&& packed_data,
-    int n_elements,
-    int offset,
-    rmm::cuda_stream_view stream,
-    rapidsmpf::BufferResource& br
-) {
-    auto const& metadata = *packed_data.metadata;
-    EXPECT_EQ(n_elements * sizeof(int), metadata.size());
-
-    for (int i = 0; i < n_elements; i++) {
-        int val;
-        std::memcpy(&val, metadata.data() + i * sizeof(int), sizeof(int));
-        EXPECT_EQ(offset + i, val);
-    }
-
-    EXPECT_EQ(n_elements * sizeof(int), packed_data.data->size);
-    auto copied_vec = br.allocate(
-        stream, br.reserve_or_fail(n_elements * sizeof(int), rapidsmpf::MemoryType::HOST)
-    );
-    rapidsmpf::buffer_copy(
-        *copied_vec, *packed_data.data, n_elements * sizeof(int), 0, 0, stream, true
-    );
-    RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
-    EXPECT_EQ(metadata, *const_cast<rapidsmpf::Buffer const&>(*copied_vec).host());
-}
 
 class BaseAllGatherTest : public ::testing::Test {
   protected:
@@ -89,11 +39,7 @@ class BaseAllGatherTest : public ::testing::Test {
         comm = GlobalEnvironment->comm_.get();
 
         allgather = std::make_unique<AllGather>(
-            GlobalEnvironment->comm_,
-            GlobalEnvironment->progress_thread_,
-            0,
-            stream,
-            br.get()
+            GlobalEnvironment->comm_, GlobalEnvironment->progress_thread_, 0, br.get()
         );
     }
 

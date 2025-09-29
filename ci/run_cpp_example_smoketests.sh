@@ -15,7 +15,8 @@ export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
 
 # Ensure that shuffle example is runnable
-mpirun --map-by node --bind-to none -np 2 ./example_shuffle
+python "${TIMEOUT_TOOL_PATH}" 30 \
+    mpirun --map-by node --bind-to none -np 2 ./example_shuffle
 
 # Ensure that cupti monitor example is runnable and creates the expected csv file
 python "${TIMEOUT_TOOL_PATH}" 30 ./example_cupti_monitor

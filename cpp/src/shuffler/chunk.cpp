@@ -38,14 +38,13 @@ Chunk::Chunk(
     );
 }
 
-Chunk Chunk::get_data(
-    ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view stream, BufferResource* br
-) {
+Chunk Chunk::get_data(ChunkID new_chunk_id, size_t i, BufferResource* br) {
     RAPIDSMPF_EXPECTS(i < n_messages(), "index out of bounds", std::out_of_range);
 
     if (is_control_message(i)) {
         return from_finished_partition(new_chunk_id, part_id(i), expected_num_chunks(i));
     }
+    auto stream = br->stream_pool().get_stream();
 
     if (n_messages() == 1) {
         // If there is only one message, move the metadata and data to the new chunk.
@@ -83,9 +82,7 @@ Chunk Chunk::get_data(
                 *data_,
                 data_slice_size,
                 0,  // dst_offset
-                data_slice_offset,  // src_offset
-                stream,
-                true
+                data_slice_offset  // src_offset
             );
         }
 
@@ -256,7 +253,6 @@ bool Chunk::validate_format(std::vector<uint8_t> const& serialized_buf) {
 Chunk Chunk::concat(
     std::vector<Chunk>&& chunks,
     ChunkID chunk_id,
-    rmm::cuda_stream_view stream,
     BufferResource* br,
     std::optional<MemoryType> preferred_mem_type
 ) {
@@ -274,6 +270,9 @@ Chunk Chunk::concat(
             std::move(chunks[0].data_)
         );
     }
+
+    // Get the stream to use for the concatenation.
+    auto stream = br->stream_pool().get_stream();
 
     // Calculate total number of messages and sizes
     size_t total_messages = 0;
@@ -304,15 +303,12 @@ Chunk Chunk::concat(
     // Create concatenated data buffer if needed
     std::unique_ptr<Buffer> concat_data;
     if (total_data_size > 0) {
-        auto reserve = br->reserve_or_fail(total_data_size, preferred_mem_type);
-        concat_data = br->allocate(total_data_size, stream, reserve);
+        concat_data = br->allocate(
+            stream, br->reserve_or_fail(total_data_size, preferred_mem_type)
+        );
     } else {  // no data, allocate an empty host buffer
         concat_data = br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST));
     }
-
-    // if the data buffer is on the device, we need to create an event to track the
-    // async copies
-    bool need_event = (concat_data->mem_type() == MemoryType::DEVICE);
 
     // Track current offsets
     uint32_t curr_meta_offset = 0;
@@ -368,17 +364,13 @@ Chunk Chunk::concat(
                 *chunk.data_,
                 chunk.data_->size,
                 std::ptrdiff_t(curr_data_offset),  // dst_offset
-                0,  // src_offset
-                stream,
-                false
+                0  // src_offset
             );
             // Update offsets for each message in the chunk
             for (size_t i = 0; i < chunk_messages; ++i) {
                 curr_data_offset += chunk.data_size(i);
                 data_offsets[curr_msg_offset + i] = curr_data_offset;
             }
-            // if the staged buffer is on the device, we need an event
-            need_event |= (chunk.data_->mem_type() == MemoryType::DEVICE);
         } else {
             // No data, add zero offset
             std::fill(
@@ -389,11 +381,6 @@ Chunk Chunk::concat(
         }
         curr_msg_offset += chunk_messages;
     }
-
-    if (need_event) {  // create a new event to track the async copies
-        concat_data->override_event(CudaEvent::make_shared_record(stream));
-    }
-
     return Chunk(
         chunk_id,
         std::move(part_ids),

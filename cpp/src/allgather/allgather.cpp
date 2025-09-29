@@ -36,7 +36,7 @@ Chunk::Chunk(
 Chunk::Chunk(ChunkID id) : id_{id}, metadata_{nullptr}, data_{nullptr}, data_size_{0} {}
 
 bool Chunk::is_ready() const noexcept {
-    return data_size_ == 0 || (data_ && data_->is_ready());
+    return data_size_ == 0 || (data_ && data_->is_latest_write_done());
 }
 
 MemoryType Chunk::memory_type() const noexcept {
@@ -107,7 +107,7 @@ std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
 }
 
 std::unique_ptr<Chunk> Chunk::deserialize(
-    std::vector<std::uint8_t>& data, rmm::cuda_stream_view stream, BufferResource* br
+    std::vector<std::uint8_t>& data, BufferResource* br
 ) {
     ChunkID id;
     std::uint64_t data_size;
@@ -124,10 +124,11 @@ std::unique_ptr<Chunk> Chunk::deserialize(
         data.data() + sizeof(ChunkID) + sizeof(data_size),
         metadata->size()
     );
-    auto reservation = br->reserve_or_fail(data_size);
-    return std::unique_ptr<Chunk>(
-        new Chunk(id, std::move(metadata), br->allocate(data_size, stream, reservation))
-    );
+    return std::unique_ptr<Chunk>(new Chunk(
+        id,
+        std::move(metadata),
+        br->allocate(br->stream_pool().get_stream(), br->reserve_or_fail(data_size))
+    ));
 }
 
 PackedData Chunk::release() {
@@ -192,10 +193,7 @@ bool PostBox::empty() const noexcept {
 }
 
 std::size_t PostBox::spill(
-    BufferResource* br,
-    Communicator::Logger& log,
-    rmm::cuda_stream_view stream,
-    std::size_t amount
+    BufferResource* br, Communicator::Logger& log, std::size_t amount
 ) {
     std::lock_guard lock(mutex_);
     std::vector<Chunk*> spillable_chunks;
@@ -217,9 +215,7 @@ std::size_t PostBox::spill(
             );
             return 0;
         }
-        chunk->attach_data_buffer(
-            br->move(chunk->release_data_buffer(), stream, reservation)
-        );
+        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), reservation));
         return chunk->data_size();
     };
     if (max_spillable < amount) {
@@ -383,10 +379,9 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         // Spill from ready post box then inserted postbox
-        spilled = for_extraction_.spill(br_, comm_->logger(), stream_, spill_need);
+        spilled = for_extraction_.spill(br_, comm_->logger(), spill_need);
         if (spilled < spill_need) {
-            spilled +=
-                inserted_.spill(br_, comm_->logger(), stream_, spill_need - spilled);
+            spilled += inserted_.spill(br_, comm_->logger(), spill_need - spilled);
         }
     }
     return spilled;
@@ -403,13 +398,11 @@ AllGather::AllGather(
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
-    rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics
 )
     : comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
-      stream_{stream},
       br_{br},
       statistics_{std::move(statistics)},
       finish_counter_{comm_->nranks()},
@@ -489,7 +482,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
             if (!msg) {
                 break;
             }
-            auto chunk = detail::Chunk::deserialize(*msg, stream_, br_);
+            auto chunk = detail::Chunk::deserialize(*msg, br_);
             if (chunk->is_finish()) {
                 if (chunk->origin() != dst) {
                     // Finish chunk, if we're not the end of the ring, must forward on.

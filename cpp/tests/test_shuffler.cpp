@@ -70,13 +70,18 @@ using MemoryAvailableMap =
 MemoryAvailableMap get_memory_available_map(rapidsmpf::MemoryType priorities) {
     using namespace rapidsmpf;
 
-    // We set all memory types to use an available function that always return zero.
-    BufferResource::MemoryAvailable always_zero = []() -> std::int64_t { return 0; };
+    // We set all memory types to use an available function that is unlimited.
     MemoryAvailableMap ret = {
-        {MemoryType::DEVICE, always_zero}, {MemoryType::HOST, always_zero}
+        {MemoryType::DEVICE, std::numeric_limits<std::int64_t>::max},
+        {MemoryType::HOST, std::numeric_limits<std::int64_t>::max}
     };
-    // And then set the prioritized memory type to use the max function.
-    ret.at(priorities) = std::numeric_limits<std::int64_t>::max;
+
+    // And then set device memory to zero if it isn't prioritized.
+    if (priorities != MemoryType::DEVICE) {
+        ret.at(MemoryType::DEVICE) = []() -> std::int64_t { return 0; };
+    }
+    // Note, we never set host memory to zero because it is used to allocate
+    // stuff like metadata and control messages.
     return ret;
 }
 
@@ -158,7 +163,7 @@ void test_shuffler(
         auto finished_partition = shuffler.wait_any(wait_timeout);
         auto packed_chunks = shuffler.extract(finished_partition);
         auto result = rapidsmpf::unpack_and_concat(
-            rapidsmpf::unspill_partitions(std::move(packed_chunks), stream, br, true),
+            rapidsmpf::unspill_partitions(std::move(packed_chunks), br, true),
             stream,
             br,
             nullptr,  // statistics
@@ -193,7 +198,6 @@ class MemoryAvailable_NumPartition
             GlobalEnvironment->progress_thread_,
             0,  // op_id
             total_num_partitions,
-            stream,
             br.get()
         );
 
@@ -344,7 +348,6 @@ class ConcurrentShuffleTest
             GlobalEnvironment->progress_thread_,
             t_id,  // op_id, use t_id as a proxy
             total_num_partitions,
-            stream,
             br.get()
         );
 
@@ -630,7 +633,7 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
         std::nullopt  // disable periodic spill check
     );
     shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
+        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), br.get()
     );
 
     // pause the progress thread to avoid extracting from outgoing_postbox_
@@ -656,7 +659,7 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
         std::nullopt  // disable periodic spill check
     );
     shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
+        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), br.get()
     );
 
     // pause the progress thread to avoid extracting from outgoing_postbox_
@@ -723,7 +726,6 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         progress_thread,
         0,  // op_id
         total_num_partitions,
-        stream,
         &br
     );
     cudf::table input_table = random_table_with_index(seed, 1000, 0, 10);
@@ -744,7 +746,7 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     {
         // Now extract triggers spilling of the partition not being extracted.
         std::vector<rapidsmpf::PackedData> output_chunks =
-            rapidsmpf::unspill_partitions(shuffler.extract(0), stream, &br, true);
+            rapidsmpf::unspill_partitions(shuffler.extract(0), &br, true);
         EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
 
         // And insert also triggers spilling. We end up with zero device allocations.
@@ -756,10 +758,10 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 
     // Extract and unspill both partitions.
     std::vector<rapidsmpf::PackedData> out0 =
-        rapidsmpf::unspill_partitions(shuffler.extract(0), stream, &br, true);
+        rapidsmpf::unspill_partitions(shuffler.extract(0), &br, true);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
     std::vector<rapidsmpf::PackedData> out1 =
-        rapidsmpf::unspill_partitions(shuffler.extract(1), stream, &br, true);
+        rapidsmpf::unspill_partitions(shuffler.extract(1), &br, true);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
     // Disable spilling and insert the first partition.
@@ -1118,7 +1120,6 @@ TEST_F(PostBoxTest, ThreadSafety) {
 }
 
 TEST(Shuffler, ShutdownWhilePaused) {
-    auto stream = cudf::get_default_stream();
     auto progress_thread =
         std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger());
     auto mr = cudf::get_current_device_resource_ref();
@@ -1126,7 +1127,7 @@ TEST(Shuffler, ShutdownWhilePaused) {
     auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
 
     auto shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-        GlobalEnvironment->comm_, progress_thread, 0, 1, stream, br.get()
+        GlobalEnvironment->comm_, progress_thread, 0, 1, br.get()
     );
 
     // pause the progress thread to avoid extracting from outgoing_postbox_
@@ -1169,7 +1170,6 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
             GlobalEnvironment->progress_thread_,
             0,
             nparts,
-            stream,
             br.get()
         );
 
@@ -1268,4 +1268,27 @@ TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
     EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto pid) {
         return pid % 3 == 0;
     }));
+}
+
+TEST(ShufflerTest, multiple_shutdowns) {
+    GlobalEnvironment->barrier();
+    auto& comm = GlobalEnvironment->comm_;
+    rapidsmpf::BufferResource br(cudf::get_current_device_resource_ref());
+    auto shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
+        comm, GlobalEnvironment->progress_thread_, 0, comm->nranks(), &br
+    );
+
+    shuffler->insert_finished(iota_vector<rapidsmpf::shuffler::PartID>(comm->nranks()));
+    std::ignore = shuffler->extract(shuffler->wait_any());
+
+    constexpr int n_threads = 10;
+    std::vector<std::future<void>> futures;
+    for (int i = 0; i < n_threads; ++i) {
+        futures.emplace_back(std::async(std::launch::async, [&] {
+            shuffler->shutdown();
+        }));
+    }
+    std::ranges::for_each(futures, [](auto& future) { future.get(); });
+    shuffler.reset();
+    GlobalEnvironment->barrier();
 }

@@ -246,7 +246,6 @@ rapidsmpf::Duration do_run(
             progress_thread,
             0,  // op_id
             total_num_partitions,
-            stream,
             br,
             statistics,
             rapidsmpf::shuffler::Shuffler::round_robin
@@ -261,7 +260,7 @@ rapidsmpf::Duration do_run(
             output_partitions.emplace_back(
                 rapidsmpf::unpack_and_concat(
                     rapidsmpf::unspill_partitions(
-                        std::move(packed_chunks), stream, br, true, statistics
+                        std::move(packed_chunks), br, true, statistics
                     ),
                     stream,
                     br,

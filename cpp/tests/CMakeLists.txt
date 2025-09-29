@@ -49,17 +49,31 @@ target_sources(
             test_chunk.cpp
             test_communicator.cpp
             test_config.cpp
+            test_cuda_stream.cpp
             test_cudf_utils.cpp
             test_cupti_monitor.cpp
             test_partition.cpp
             test_pausable_thread_loop.cpp
             test_progress_thread.cpp
             test_rmm_resource_adaptor.cpp
+            test_shuffler_many_streams.cpp
             test_shuffler.cpp
             test_spill_manager.cpp
             test_statistics.cpp
             test_utils.cpp
 )
+
+# if streaming is enabled, add the streaming test sources
+if(RAPIDSMPF_HAVE_STREAMING)
+  target_sources(
+    test_sources
+    INTERFACE streaming/test_error_handling.cpp
+              streaming/test_leaf_node.cpp
+              streaming/test_partition.cpp
+              streaming/test_shuffler.cpp
+              streaming/test_table_chunk.cpp
+  )
+endif()
 
 if(RAPIDSMPF_HAVE_MPI)
   add_executable(mpi_tests main/mpi.cpp)
@@ -131,14 +145,9 @@ if(RAPIDSMPF_HAVE_MPI)
     rapidsmpf_mpirun_test_add(TEST_TARGET ucxx_tests)
   endif()
 endif()
+
 add_executable(single_tests main/single.cpp)
-if(RAPIDSMPF_HAVE_STREAMING)
-  target_sources(
-    single_tests
-    PRIVATE streaming/test_error_handling.cpp streaming/test_leaf_node.cpp
-            streaming/test_partition.cpp streaming/test_shuffler.cpp streaming/test_table_chunk.cpp
-  )
-endif()
+
 set_target_properties(
   single_tests
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/gtests>"

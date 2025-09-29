@@ -27,6 +27,30 @@ constexpr std::size_t operator"" _KiB(unsigned long long n) {
     return n * (1 << 10);
 }
 
+/**
+ * @brief Allocate a Buffer and initialize its contents to zero.
+ *
+ * @param br Buffer resource used for allocation.
+ * @param size Number of bytes to allocate.
+ * @param stream CUDA stream associated with the allocation.
+ * @param reservation Memory reservation used to track the allocation.
+ * @return A unique pointer to the zero-initialized Buffer.
+ */
+std::unique_ptr<Buffer> zeros(
+    BufferResource& br,
+    std::size_t size,
+    rmm::cuda_stream_view stream,
+    MemoryReservation& reservation
+) {
+    auto ret = br.allocate(size, stream, reservation);
+    if (size > 0) {
+        ret->write_access([&](std::byte* ptr, rmm::cuda_stream_view s) {
+            RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0, size, s));
+        });
+    }
+    return ret;
+}
+
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always have 10 KiB of available device memory.
     auto dev_mem_available = []() -> std::int64_t { return 10_KiB; };
@@ -155,7 +179,7 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0);
 
     // Allocating a Buffer also requires a reservation, which are then released.
-    auto dev_buf1 = br.allocate(10_KiB, stream, reserve1);
+    auto dev_buf1 = zeros(br, 10_KiB, stream, reserve1);
     EXPECT_EQ(dev_buf1->mem_type(), MemoryType::DEVICE);
     EXPECT_EQ(dev_buf1->size, 10_KiB);
     EXPECT_EQ(reserve1.size(), 0);
@@ -164,7 +188,7 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(dev_mem_available(), 0);
 
     // Insufficent reservation for the allocation.
-    EXPECT_THROW(br.allocate(10_KiB, stream, reserve1), std::overflow_error);
+    EXPECT_THROW(zeros(br, 10_KiB, stream, reserve1), std::overflow_error);
 
     // Freeing a buffer increases the available but the reserved memory is unchanged.
     dev_buf1.reset();
@@ -174,21 +198,21 @@ TEST(BufferResource, LimitAvailableMemory) {
 
     // Moving buffers between memory types requires a reservation.
     auto [reserve2, overbooking2] = br.reserve(MemoryType::DEVICE, 10_KiB, true);
-    auto dev_buf2 = br.allocate(10_KiB, stream, reserve2);
+    auto dev_buf2 = zeros(br, 10_KiB, stream, reserve2);
     EXPECT_EQ(dev_buf2->mem_type(), MemoryType::DEVICE);
     auto [reserve3, overbooking3] = br.reserve(MemoryType::HOST, 10_KiB, true);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
     EXPECT_EQ(dev_mem_available(), 0);
 
-    auto host_buf2 = br.move(std::move(dev_buf2), stream, reserve3);
+    auto host_buf2 = br.move(std::move(dev_buf2), reserve3);
     EXPECT_EQ(host_buf2->mem_type(), MemoryType::HOST);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0_KiB);
     EXPECT_EQ(dev_mem_available(), 10_KiB);
 
     // Moving buffers to the same memory type accepts an empty reservation.
-    auto host_buf3 = br.move(std::move(host_buf2), stream, reserve3);
+    auto host_buf3 = br.move(std::move(host_buf2), reserve3);
     EXPECT_EQ(host_buf3->mem_type(), MemoryType::HOST);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 0_KiB);
@@ -199,120 +223,6 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(reserve4.size(), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
-}
-
-TEST(BufferResource, CUDAEventTracking) {
-    constexpr std::size_t buffer_size = 1 * 1024 * 1024;  // 1 MiB
-
-    rmm::mr::cuda_memory_resource mr_cuda;
-    auto stream = cudf::get_default_stream();
-
-    // Create a buffer resource with no memory limits
-    BufferResource br{mr_cuda, {}};
-
-    // Helper lambdas for data initialization and verification
-    auto initialize_data = [](std::vector<uint8_t>& data) {
-        for (std::size_t i = 0; i < data.size(); ++i) {
-            data[i] = static_cast<uint8_t>(i % 256);
-        }
-    };
-
-    auto verify_data = [](const std::vector<uint8_t>& data) {
-        for (std::size_t i = 0; i < data.size(); ++i) {
-            EXPECT_EQ(data[i], static_cast<uint8_t>(i % 256));
-        }
-    };
-
-    // Test device-to-device copy (should create an event)
-    {
-        auto [alloc_reserve, alloc_overbooking] =
-            br.reserve(MemoryType::DEVICE, buffer_size, false);
-        auto dev_buf = br.allocate(buffer_size, stream, alloc_reserve);
-        EXPECT_EQ(dev_buf->mem_type(), MemoryType::DEVICE);
-
-        // Initialize device data with a pattern
-        auto host_pattern = std::make_unique<std::vector<uint8_t>>(buffer_size);
-        initialize_data(*host_pattern);
-        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-            dev_buf->data(),
-            host_pattern->data(),
-            buffer_size,
-            cudaMemcpyHostToDevice,
-            stream
-        ));
-
-        auto dev_copy = br.allocate(stream, br.reserve_or_fail(buffer_size));
-        buffer_copy(*dev_copy, *dev_buf, buffer_size, 0, 0, stream, true);
-        EXPECT_EQ(dev_copy->mem_type(), MemoryType::DEVICE);
-
-        // Wait for copy to complete
-        dev_copy->wait_for_ready();
-        EXPECT_TRUE(dev_copy->is_ready());
-
-        // Verify the data
-        auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(buffer_size);
-        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpy(
-            verify_data_buf->data(), dev_copy->data(), buffer_size, cudaMemcpyDeviceToHost
-        ));
-        verify_data(*verify_data_buf);
-    }
-
-    // Test host-to-device copy (should create an event)
-    {
-        auto host_data = std::make_unique<std::vector<uint8_t>>(buffer_size);
-        initialize_data(*host_data);
-        auto host_buf = br.move(std::move(host_data));
-        auto [dev_reserve, dev_overbooking] =
-            br.reserve(MemoryType::DEVICE, buffer_size, false);
-
-        auto dev_copy = br.allocate(stream, br.reserve_or_fail(buffer_size));
-        buffer_copy(*dev_copy, *host_buf, buffer_size, 0, 0, stream, true);
-        EXPECT_EQ(dev_copy->mem_type(), MemoryType::DEVICE);
-
-        // Wait for copy to complete
-        dev_copy->wait_for_ready();
-        EXPECT_TRUE(dev_copy->is_ready());
-
-        // Verify the data
-        auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(buffer_size);
-        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpy(
-            verify_data_buf->data(), dev_copy->data(), buffer_size, cudaMemcpyDeviceToHost
-        ));
-        verify_data(*verify_data_buf);
-    }
-
-    // Test device-to-host copy (should create an event)
-    {
-        auto [alloc_reserve, alloc_overbooking] =
-            br.reserve(MemoryType::DEVICE, buffer_size, false);
-        auto dev_buf = br.allocate(buffer_size, stream, alloc_reserve);
-        EXPECT_EQ(dev_buf->mem_type(), MemoryType::DEVICE);
-
-        // Initialize device data with a pattern
-        auto host_pattern = std::make_unique<std::vector<uint8_t>>(buffer_size);
-        initialize_data(*host_pattern);
-        RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-            dev_buf->data(),
-            host_pattern->data(),
-            buffer_size,
-            cudaMemcpyHostToDevice,
-            stream
-        ));
-
-        auto host_copy =
-            br.allocate(stream, br.reserve_or_fail(buffer_size, MemoryType::HOST));
-        buffer_copy(*host_copy, *dev_buf, buffer_size, 0, 0, stream, true);
-        EXPECT_EQ(host_copy->mem_type(), MemoryType::HOST);
-
-        // Wait for copy to complete
-        host_copy->wait_for_ready();
-        EXPECT_TRUE(host_copy->is_ready());
-
-        // Verify the data
-        auto verify_data_buf = std::make_unique<std::vector<uint8_t>>(buffer_size);
-        std::memcpy(verify_data_buf->data(), host_copy->data(), buffer_size);
-        verify_data(*verify_data_buf);
-    }
 }
 
 class BaseBufferResourceCopyTest : public ::testing::Test {
@@ -334,19 +244,12 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
         auto [alloc_reserve, alloc_overbooking] = br->reserve(mem_type, size, false);
         auto buf = br->allocate(size, stream, alloc_reserve);
         EXPECT_EQ(buf->mem_type(), mem_type);
-
-        if (mem_type == MemoryType::DEVICE) {
-            // copy the host pattern to the device buffer
+        // copy the host pattern to the Buffer
+        buf->write_access([&](std::byte* buf_data, rmm::cuda_stream_view stream) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                buf->data(), host_pattern.data(), size, cudaMemcpyHostToDevice, stream
+                buf_data, host_pattern.data(), size, cudaMemcpyDefault, stream
             ));
-            // add an event to guarantee async copy is complete
-            buf->override_event(CudaEvent::make_shared_record(stream));
-        } else {
-            // copy the host pattern to the host buffer
-            std::memcpy(buf->data(), host_pattern.data(), size);
-        }
-
+        });
         return buf;
     }
 
@@ -382,14 +285,11 @@ class BufferResourceCopySliceTest
             *source,
             length,
             0,  // dst_offset
-            std::ptrdiff_t(offset),  // src_offset
-            stream,
-            false
+            std::ptrdiff_t(offset)  // src_offset
         );
-
         EXPECT_EQ(slice->mem_type(), dest_type);
-        slice->wait_for_ready();
-        EXPECT_TRUE(slice->is_ready());
+        slice->stream().synchronize();
+        EXPECT_TRUE(slice->is_latest_write_done());
 
         if (dest_type == MemoryType::HOST) {
             verify_slice(*const_cast<const Buffer&>(*slice).host(), offset, length);
@@ -470,12 +370,11 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
             *source,
             source->size,
             std::ptrdiff_t(dest_offset),  // dst_offset
-            0,  // src_offset
-            stream,
-            false
+            0  // src_offset
+
         );
-        dest->wait_for_ready();
-        EXPECT_TRUE(dest->is_ready());
+        dest->stream().synchronize();
+        EXPECT_TRUE(dest->is_latest_write_done());
 
         if (dest->mem_type() == MemoryType::HOST) {
             verify_slice(*const_cast<const Buffer&>(*dest).host(), dest_offset, length);
@@ -577,12 +476,16 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
         EXPECT_EQ(buf1->size, buffer_size);
         EXPECT_EQ(buf1->mem_type(), MemoryType::DEVICE);
 
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            buf1->data(), host_pattern.data(), buffer_size, cudaMemcpyHostToDevice, stream
-        ));
-        buf1->override_event(CudaEvent::make_shared_record(stream));
-        buf1->wait_for_ready();
-
+        buf1->write_access([&](std::byte* buf1_data, rmm::cuda_stream_view stream) {
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                buf1_data,
+                host_pattern.data(),
+                buffer_size,
+                cudaMemcpyHostToDevice,
+                stream
+            ));
+        });
+        buf1->stream().synchronize();
         EXPECT_EQ(mr1->get_main_record().total(), buffer_size);
         return buf1;
     }
@@ -622,13 +525,12 @@ TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
         *buf1,
         slice_length,
         0,  // dst_offset
-        slice_offset,  // src_offset
-        stream,
-        false
+        slice_offset  // src_offset
+
     );
     EXPECT_EQ(buf2->size, slice_length);
     EXPECT_EQ(res2.size(), 0);  // reservation should be consumed
-    buf2->wait_for_ready();
+    buf2->stream().synchronize();
 
     // Verify memory allocation
     verify_memory_allocation(buffer_size, slice_length);
@@ -639,9 +541,9 @@ TEST_F(BufferResourceDifferentResourcesTest, Copy) {
 
     // Create copy of buf1 on br2
     auto buf2 = br2->allocate(stream, br2->reserve_or_fail(buffer_size));
-    buffer_copy(*buf2, *buf1, buffer_size, 0, 0, stream, true);
+    buffer_copy(*buf2, *buf1, buffer_size);
     EXPECT_EQ(buf2->size, buffer_size);
-    buf2->wait_for_ready();
+    buf2->stream().synchronize();
 
     // Verify memory allocation
     verify_memory_allocation(buffer_size, buffer_size);
@@ -656,30 +558,26 @@ TEST_F(BufferCopyEdgeCases, IllegalArguments) {
     auto dst = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
 
     // Negative offsets
-    EXPECT_THROW(
-        buffer_copy(*dst, *src, 10, -1, 0, stream, false), std::invalid_argument
-    );
-    EXPECT_THROW(
-        buffer_copy(*dst, *src, 10, 0, -1, stream, false), std::invalid_argument
-    );
+    EXPECT_THROW(buffer_copy(*dst, *src, 10, -1, 0), std::invalid_argument);
+    EXPECT_THROW(buffer_copy(*dst, *src, 10, 0, -1), std::invalid_argument);
 
     // Offsets beyond size
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0, stream, false),
+        buffer_copy(*dst, *src, 10, static_cast<std::ptrdiff_t>(N + 1), 0),
         std::invalid_argument
     );
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1), stream, false),
+        buffer_copy(*dst, *src, 10, 0, static_cast<std::ptrdiff_t>(N + 1)),
         std::invalid_argument
     );
 
     // Ranges out of bounds
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0, stream, false),
+        buffer_copy(*dst, *src, 16, static_cast<std::ptrdiff_t>(N - 8), 0),
         std::invalid_argument
     );
     EXPECT_THROW(
-        buffer_copy(*dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8), stream, false),
+        buffer_copy(*dst, *src, 16, 0, static_cast<std::ptrdiff_t>(N - 8)),
         std::invalid_argument
     );
 }
@@ -692,10 +590,13 @@ TEST_F(BufferCopyEdgeCases, ZeroSizeIsNoOp) {
 
     // Pre-fill dst with a sentinel pattern
     std::vector<uint8_t> sent(N, 0xCD);
-    std::memcpy(dst->data(), sent.data(), N);
-
-    EXPECT_NO_THROW(buffer_copy(*dst, *src, 0, 0, 0, stream, false));
-    dst->wait_for_ready();
+    dst->write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
+        RAPIDSMPF_CUDA_TRY(
+            cudaMemcpyAsync(dst_data, sent.data(), N, cudaMemcpyDefault, stream)
+        );
+    });
+    EXPECT_NO_THROW(buffer_copy(*dst, *src, 0, 0, 0));
+    dst->stream().synchronize();
 
     // dst unchanged
     for (std::size_t i = 0; i < N; ++i) {
@@ -709,5 +610,5 @@ TEST_F(BufferCopyEdgeCases, SameBufferIsDisallowed) {
 
     auto buf = br->allocate(stream, br->reserve_or_fail(N, MemoryType::HOST));
 
-    EXPECT_THROW(buffer_copy(*buf, *buf, 16, 0, 0, stream, false), std::invalid_argument);
+    EXPECT_THROW(buffer_copy(*buf, *buf, 16, 0, 0), std::invalid_argument);
 }

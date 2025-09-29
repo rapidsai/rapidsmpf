@@ -10,6 +10,8 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
+#include <unordered_map>
 #include <vector>
 
 #include <rapidsmpf/buffer/packed_data.hpp>
@@ -88,18 +90,20 @@ class Shuffler {
      * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
      * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
-     * @param stream The CUDA stream for memory operations.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param finished_callback Callback to notify when a partition is finished.
      * @param statistics The statistics instance to use (disabled by default).
      * @param partition_owner Function to determine partition ownership.
+     *
+     * @note The caller promises that inserted buffers are stream-ordered with respect
+     * to their own stream, and extracted buffers are likewise guaranteed to be stream-
+     * ordered with respect to their own stream.
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         PartID total_num_partitions,
-        rmm::cuda_stream_view stream,
         BufferResource* br,
         FinishedCallback&& finished_callback,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
@@ -114,17 +118,19 @@ class Shuffler {
      * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
      * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
-     * @param stream The CUDA stream for memory operations.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param statistics The statistics instance to use (disabled by default).
      * @param partition_owner Function to determine partition ownership.
+     *
+     * @note The caller promises that inserted buffers are stream-ordered with respect
+     * to their own stream, and extracted buffers are likewise guaranteed to be stream-
+     * ordered with respect to their own stream.
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         PartID total_num_partitions,
-        rmm::cuda_stream_view stream,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin
@@ -134,7 +140,6 @@ class Shuffler {
               progress_thread,
               op_id,
               total_num_partitions,
-              stream,
               br,
               nullptr,
               statistics,
@@ -142,6 +147,9 @@ class Shuffler {
           ) {}
 
     ~Shuffler();
+
+    Shuffler(Shuffler const&) = delete;
+    Shuffler& operator=(Shuffler const&) = delete;
 
     /**
      * @brief Shutdown the shuffle, blocking until all inflight communication is done.
@@ -256,6 +264,13 @@ class Shuffler {
     [[nodiscard]] std::string str() const;
 
     /**
+     * @brief Returns the local partition IDs owned by the shuffler`.
+     *
+     * @return A span of partition IDs owned by the shuffler.
+     */
+    [[nodiscard]] std::span<PartID const> local_partitions() const;
+
+    /**
      * @brief The number of bits used to store the counter in a chunk ID.
      */
     static constexpr int chunk_id_counter_bits = 38;
@@ -325,9 +340,8 @@ class Shuffler {
     PartitionOwner const partition_owner;  ///< Function to determine partition ownership
 
   private:
-    rmm::cuda_stream_view stream_;
     BufferResource* br_;
-    bool active_{true};
+    std::atomic<bool> active_{true};
     detail::PostBox<Rank> outgoing_postbox_;  ///< Postbox for outgoing chunks, that are
                                               ///< ready to be sent to other ranks.
     detail::PostBox<PartID> ready_postbox_;  ///< Postbox for received chunks, that are
@@ -339,6 +353,8 @@ class Shuffler {
     OpID const op_id_;
 
     SpillManager::SpillFunctionID spill_function_id_;
+
+    std::vector<PartID> const local_partitions_;
 
     detail::FinishCounter finish_counter_;
     std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;

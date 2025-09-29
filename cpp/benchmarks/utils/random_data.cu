@@ -65,11 +65,7 @@ cudf::table random_table(
     return cudf::table(std::move(cols));
 }
 
-void random_fill(
-    rapidsmpf::Buffer& buffer,
-    rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
-) {
+void random_fill(rapidsmpf::Buffer& buffer, rmm::device_async_resource_ref mr) {
     switch (buffer.mem_type()) {
     case rapidsmpf::MemoryType::DEVICE:
         {
@@ -77,12 +73,15 @@ void random_fill(
                 buffer.size / sizeof(std::int32_t) + sizeof(std::int32_t),
                 std::numeric_limits<std::int32_t>::min(),
                 std::numeric_limits<std::int32_t>::max(),
-                stream,
+                buffer.stream(),
                 mr
             );
-            RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
-                buffer.data(), vec.data(), buffer.size, cudaMemcpyDeviceToDevice, stream
-            ));
+            buffer.write_access([&](std::byte* buffer_data,
+                                    rmm::cuda_stream_view stream) {
+                RAPIDSMPF_CUDA_TRY_ALLOC(cudaMemcpyAsync(
+                    buffer_data, vec.data(), buffer.size, cudaMemcpyDefault, stream
+                ));
+            });
             break;
         }
     default:

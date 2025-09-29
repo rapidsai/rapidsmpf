@@ -185,15 +185,14 @@ Duration run(
         for (Rank rank = 0; rank < comm->nranks(); ++rank) {
             auto [res, _] = br->reserve(MemoryType::DEVICE, args.msg_size * 2, true);
             auto buf = br->allocate(args.msg_size, stream, res);
-            random_fill(*buf, stream, br->device_mr());
+            random_fill(*buf, br->device_mr());
             send_bufs.push_back(std::move(buf));
             recv_bufs.push_back(br->allocate(args.msg_size, stream, res));
         }
     }
 
-    // Wait for all buffers to be ready before proceeding. Since allocations are
-    // stream-ordered, we only need to check the last one in the stream.
-    recv_bufs.back()->wait_for_ready();
+    // Sync before we start the timer.
+    RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
 
     auto const t0_elapsed = Clock::now();
 

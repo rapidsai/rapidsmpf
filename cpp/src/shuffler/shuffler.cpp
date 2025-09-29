@@ -93,6 +93,8 @@ std::unique_ptr<Buffer> allocate_buffer(
  * or another lower-priority memory space, helping manage limited GPU memory
  * by offloading excess data.
  *
+ * The spilling is stream-ordered on the individual CUDA stream of each spilled buffer.
+ *
  * @note While spilling, chunks are temporarily extracted from the postbox thus other
  * threads trying to extract a chunk that is in the process of being spilled, will fail.
  * To avoid this, the Shuffler uses `outbox_spillling_mutex_` to serialize extractions.
@@ -101,7 +103,6 @@ std::unique_ptr<Buffer> allocate_buffer(
  * @param log A logger for recording events and debugging information.
  * @param statistics The statistics instance to use.
  * @param stream CUDA stream to use for memory and kernel operations.
- * @param postbox The PostBox containing buffers to be spilled.
  * @param amount The maximum amount of data (in bytes) to be spilled.
  *
  * @return The actual amount of data successfully spilled from the postbox.
@@ -114,7 +115,6 @@ template <typename KeyType>
 std::size_t postbox_spilling(
     BufferResource* br,
     Communicator::Logger& log,
-    rmm::cuda_stream_view stream,
     PostBox<KeyType>& postbox,
     std::size_t amount
 ) {
@@ -140,9 +140,7 @@ std::size_t postbox_spilling(
         }
         // We extract the chunk, spilled it, and insert it back into the PostBox.
         auto chunk = postbox.extract(pid, cid);
-        chunk.set_data_buffer(
-            br->move(chunk.release_data_buffer(), stream, host_reservation)
-        );
+        chunk.set_data_buffer(br->move(chunk.release_data_buffer(), host_reservation));
         postbox.insert(std::move(chunk));
         if ((total_spilled += size) >= amount) {
             break;
@@ -212,9 +210,10 @@ class Shuffler::Progress {
                     ready_ack_receives_[dst].push_back(shuffler_.comm_->recv(
                         dst,
                         ready_for_data_tag,
-                        shuffler_.br_->move(
-                            std::make_unique<std::vector<std::uint8_t>>(
-                                ReadyForDataMessage::byte_size
+                        shuffler_.br_->allocate(
+                            shuffler_.br_->stream_pool().get_stream(),
+                            shuffler_.br_->reserve_or_fail(
+                                ReadyForDataMessage::byte_size, MemoryType::HOST
                             )
                         )
                     ));
@@ -271,7 +270,9 @@ class Shuffler::Progress {
                         // Create a new buffer and let the buffer resource decide the
                         // memory type.
                         chunk.set_data_buffer(allocate_buffer(
-                            chunk.concat_data_size(), shuffler_.stream_, shuffler_.br_
+                            chunk.concat_data_size(),
+                            shuffler_.br_->stream_pool().get_stream(),
+                            shuffler_.br_
                         ));
                         if (chunk.data_memory_type() == MemoryType::HOST) {
                             stats.add_bytes_stat(
@@ -326,9 +327,8 @@ class Shuffler::Progress {
                         // ready postbox uniquely identifies chunks by their [partition
                         // ID, chunk ID] pair. We can reuse the same chunk ID for the
                         // copy because the partition IDs are unique within a chunk.
-                        auto chunk_copy = chunk.get_data(
-                            chunk.chunk_id(), i, shuffler_.stream_, shuffler_.br_
-                        );
+                        auto chunk_copy =
+                            chunk.get_data(chunk.chunk_id(), i, shuffler_.br_);
                         shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
                     }
                 }
@@ -398,9 +398,9 @@ class Shuffler::Progress {
                         // ready postbox uniquely identifies chunks by their [partition
                         // ID, chunk ID] pair. We can reuse the same chunk ID for the
                         // copy because the partition IDs are unique within a chunk.
-                        shuffler_.insert_into_ready_postbox(chunk.get_data(
-                            chunk.chunk_id(), i, shuffler_.stream_, shuffler_.br_
-                        ));
+                        shuffler_.insert_into_ready_postbox(
+                            chunk.get_data(chunk.chunk_id(), i, shuffler_.br_)
+                        );
                     }
                 }
             }
@@ -418,7 +418,7 @@ class Shuffler::Progress {
 
         // Return Done only if the shuffler is inactive (shutdown was called) _and_
         // all containers are empty (all work is done).
-        return (shuffler_.active_
+        return (shuffler_.active_.load(std::memory_order_acquire)
                 || !(
                     fire_and_forget_.empty() && incoming_chunks_.empty()
                     && outgoing_chunks_.empty() && in_transit_chunks_.empty()
@@ -465,7 +465,6 @@ Shuffler::Shuffler(
     std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
     PartID total_num_partitions,
-    rmm::cuda_stream_view stream,
     BufferResource* br,
     FinishedCallback&& finished_callback,
     std::shared_ptr<Statistics> statistics,
@@ -473,7 +472,6 @@ Shuffler::Shuffler(
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
-      stream_{stream},
       br_{br},
       outgoing_postbox_{
           [this](PartID pid) -> Rank {
@@ -488,11 +486,8 @@ Shuffler::Shuffler(
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
-      finish_counter_{
-          comm_->nranks(),
-          local_partitions(comm_, total_num_partitions, partition_owner),
-          std::move(finished_callback)
-      },
+      local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
+      finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},
       statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
@@ -516,15 +511,19 @@ Shuffler::Shuffler(
     );
 }
 
+std::span<PartID const> Shuffler::local_partitions() const {
+    return local_partitions_;
+}
+
 Shuffler::~Shuffler() {
     shutdown();
 }
 
 void Shuffler::shutdown() {
-    if (active_) {
+    bool expected = true;
+    if (active_.compare_exchange_strong(expected, false)) {
         auto& log = comm_->logger();
         log.debug("Shuffler.shutdown() - initiate");
-        active_ = false;
         progress_thread_->remove_function(progress_thread_function_id_);
         br_->spill_manager().remove_spill_function(spill_function_id_);
         log.debug("Shuffler.shutdown() - done");
@@ -589,8 +588,6 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     auto& log = comm_->logger();
 
-    auto event = CudaEvent::make_shared_record(stream_);
-
     // Insert each chunk into the inbox.
     for (auto& [pid, packed_data] : chunks) {
         if (packed_data.empty()) {  // skip empty packed data
@@ -613,7 +610,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
             chunk.set_data_buffer(
-                br_->move(chunk.release_data_buffer(), stream_, host_reservation)
+                br_->move(chunk.release_data_buffer(), host_reservation)
             );
             statistics_->add_duration_stat(
                 "spill-time-device-to-host", Clock::now() - t0_elapsed
@@ -658,7 +655,7 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
     auto build_all_groups_and_insert = [&]() {
         for (auto&& group : chunk_groups) {
             if (!group.empty()) {
-                insert(Chunk::concat(std::move(group), get_new_cid(), stream_, br_));
+                insert(Chunk::concat(std::move(group), get_new_cid(), br_));
             }
         }
     };
@@ -761,7 +758,7 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
     for (auto&& group : chunk_groups) {
         if (!group.empty()) {
-            insert(Chunk::concat(std::move(group), get_new_cid(), stream_, br_));
+            insert(Chunk::concat(std::move(group), get_new_cid(), br_));
         }
     }
 }
@@ -816,8 +813,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         std::lock_guard<std::mutex> lock(ready_postbox_spilling_mutex_);
-        spilled =
-            postbox_spilling(br_, comm_->logger(), stream_, ready_postbox_, spill_need);
+        spilled = postbox_spilling(br_, comm_->logger(), ready_postbox_, spill_need);
     }
     return spilled;
 }

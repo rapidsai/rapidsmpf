@@ -203,7 +203,6 @@ class Chunk {
      * @brief Deserialize a chunk from a byte vector of its metadata.
      *
      * @param data The serialized chunk data.
-     * @param stream CUDA stream for operations.
      * @param br Buffer resource for memory allocation.
      * @return A unique pointer to the deserialized chunk.
      *
@@ -211,7 +210,7 @@ class Chunk {
      * function allocates space for the data buffer.
      */
     [[nodiscard]] static std::unique_ptr<Chunk> deserialize(
-        std::vector<std::uint8_t>& data, rmm::cuda_stream_view stream, BufferResource* br
+        std::vector<std::uint8_t>& data, BufferResource* br
     );
 
     /**
@@ -326,9 +325,10 @@ class PostBox {
     /**
      * @brief Spill device data from the post box.
      *
+     * The spilling is stream ordered by the spilled buffers' CUDA streams.
+     *
      * @param br The buffer resource for host and device allocations.
      * @param log Logger instance.
-     * @param stream Stream on which device data should be spilled.
      * @param amount Requested amount of data to spill in bytes.
      * @return Actual amount of data spilled in bytes.
      *
@@ -336,10 +336,7 @@ class PostBox {
      * spilled, as well as the amount of "overspill".
      */
     [[nodiscard]] std::size_t spill(
-        BufferResource* br,
-        Communicator::Logger& log,
-        rmm::cuda_stream_view stream,
-        std::size_t amount
+        BufferResource* br, Communicator::Logger& log, std::size_t amount
     );
 
   private:
@@ -445,20 +442,18 @@ class AllGather {
      * @param comm The communicator for communication.
      * @param progress_thread The progress thread for asynchronous operations.
      * @param op_id Unique operation identifier for this allgather.
-     * @param stream CUDA stream for memory operations.
      * @param br Buffer resource for memory allocation.
      * @param statistics Statistics collection instance (disabled by
      * default).
      *
-     * @note The caller promises that all inserted data is
-     * stream-ordered with respect to `stream`. Extracted data is
-     * guaranteed to be stream-ordered with respect to `stream`.
+     * @note The caller promises that inserted buffers are stream-ordered with respect
+     * to their own stream, and extracted buffers are likewise guaranteed to be stream-
+     * ordered with respect to their own stream.
      */
     AllGather(
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
-        rmm::cuda_stream_view stream,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
@@ -527,7 +522,6 @@ class AllGather {
     std::shared_ptr<Communicator> comm_;  ///< Communicator
     std::shared_ptr<ProgressThread>
         progress_thread_;  ///< Progress thread for async operations
-    rmm::cuda_stream_view stream_;  ///< CUDA stream for memory operations
     BufferResource* br_;  ///< Buffer resource for memory allocation
     std::shared_ptr<Statistics> statistics_;  ///< Statistics collection instance
     std::atomic<Rank> finish_counter_;  ///< Counter for finish markers received
