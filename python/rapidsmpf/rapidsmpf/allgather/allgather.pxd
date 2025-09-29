@@ -29,7 +29,6 @@ cdef extern from "<rapidsmpf/allgather/allgather.hpp>" nogil:
             shared_ptr[cpp_Communicator] comm,
             shared_ptr[cpp_ProgressThread] progress_thread,
             uint8_t op_id,
-            cuda_stream_view stream,
             cpp_BufferResource *br,
             shared_ptr[cpp_Statistics] statistics
         ) except +

@@ -38,14 +38,13 @@ Chunk::Chunk(
     );
 }
 
-Chunk Chunk::get_data(
-    ChunkID new_chunk_id, size_t i, rmm::cuda_stream_view stream, BufferResource* br
-) {
+Chunk Chunk::get_data(ChunkID new_chunk_id, size_t i, BufferResource* br) {
     RAPIDSMPF_EXPECTS(i < n_messages(), "index out of bounds", std::out_of_range);
 
     if (is_control_message(i)) {
         return from_finished_partition(new_chunk_id, part_id(i), expected_num_chunks(i));
     }
+    auto stream = br->stream_pool().get_stream();
 
     if (n_messages() == 1) {
         // If there is only one message, move the metadata and data to the new chunk.
@@ -254,7 +253,6 @@ bool Chunk::validate_format(std::vector<uint8_t> const& serialized_buf) {
 Chunk Chunk::concat(
     std::vector<Chunk>&& chunks,
     ChunkID chunk_id,
-    rmm::cuda_stream_view stream,
     BufferResource* br,
     std::optional<MemoryType> preferred_mem_type
 ) {
@@ -272,6 +270,9 @@ Chunk Chunk::concat(
             std::move(chunks[0].data_)
         );
     }
+
+    // Get the stream to use for the concatenation.
+    auto stream = br->stream_pool().get_stream();
 
     // Calculate total number of messages and sizes
     size_t total_messages = 0;

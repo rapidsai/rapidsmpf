@@ -90,18 +90,20 @@ class Shuffler {
      * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
      * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
-     * @param stream The CUDA stream for memory operations.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param finished_callback Callback to notify when a partition is finished.
      * @param statistics The statistics instance to use (disabled by default).
      * @param partition_owner Function to determine partition ownership.
+     *
+     * @note The caller promises that inserted buffers are stream-ordered with respect
+     * to their own stream, and extracted buffers are likewise guaranteed to be stream-
+     * ordered with respect to their own stream.
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         PartID total_num_partitions,
-        rmm::cuda_stream_view stream,
         BufferResource* br,
         FinishedCallback&& finished_callback,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
@@ -116,17 +118,19 @@ class Shuffler {
      * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
      * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
-     * @param stream The CUDA stream for memory operations.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param statistics The statistics instance to use (disabled by default).
      * @param partition_owner Function to determine partition ownership.
+     *
+     * @note The caller promises that inserted buffers are stream-ordered with respect
+     * to their own stream, and extracted buffers are likewise guaranteed to be stream-
+     * ordered with respect to their own stream.
      */
     Shuffler(
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         PartID total_num_partitions,
-        rmm::cuda_stream_view stream,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin
@@ -136,7 +140,6 @@ class Shuffler {
               progress_thread,
               op_id,
               total_num_partitions,
-              stream,
               br,
               nullptr,
               statistics,
@@ -337,7 +340,6 @@ class Shuffler {
     PartitionOwner const partition_owner;  ///< Function to determine partition ownership
 
   private:
-    rmm::cuda_stream_view stream_;
     BufferResource* br_;
     std::atomic<bool> active_{true};
     detail::PostBox<Rank> outgoing_postbox_;  ///< Postbox for outgoing chunks, that are

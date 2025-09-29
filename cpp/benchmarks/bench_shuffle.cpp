@@ -246,7 +246,6 @@ rapidsmpf::Duration do_run(
             progress_thread,
             0,  // op_id
             total_num_partitions,
-            stream,
             br,
             statistics,
             rapidsmpf::shuffler::Shuffler::round_robin

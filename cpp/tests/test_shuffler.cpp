@@ -198,7 +198,6 @@ class MemoryAvailable_NumPartition
             GlobalEnvironment->progress_thread_,
             0,  // op_id
             total_num_partitions,
-            stream,
             br.get()
         );
 
@@ -349,7 +348,6 @@ class ConcurrentShuffleTest
             GlobalEnvironment->progress_thread_,
             t_id,  // op_id, use t_id as a proxy
             total_num_partitions,
-            stream,
             br.get()
         );
 
@@ -635,7 +633,7 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
         std::nullopt  // disable periodic spill check
     );
     shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
+        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), br.get()
     );
 
     // pause the progress thread to avoid extracting from outgoing_postbox_
@@ -661,7 +659,7 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
         std::nullopt  // disable periodic spill check
     );
     shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), stream, br.get()
+        GlobalEnvironment->comm_, progress_thread, 0, pids.size(), br.get()
     );
 
     // pause the progress thread to avoid extracting from outgoing_postbox_
@@ -728,7 +726,6 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         progress_thread,
         0,  // op_id
         total_num_partitions,
-        stream,
         &br
     );
     cudf::table input_table = random_table_with_index(seed, 1000, 0, 10);
@@ -1123,7 +1120,6 @@ TEST_F(PostBoxTest, ThreadSafety) {
 }
 
 TEST(Shuffler, ShutdownWhilePaused) {
-    auto stream = cudf::get_default_stream();
     auto progress_thread =
         std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger());
     auto mr = cudf::get_current_device_resource_ref();
@@ -1131,7 +1127,7 @@ TEST(Shuffler, ShutdownWhilePaused) {
     auto br = std::make_unique<rapidsmpf::BufferResource>(mr);
 
     auto shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-        GlobalEnvironment->comm_, progress_thread, 0, 1, stream, br.get()
+        GlobalEnvironment->comm_, progress_thread, 0, 1, br.get()
     );
 
     // pause the progress thread to avoid extracting from outgoing_postbox_
@@ -1174,7 +1170,6 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
             GlobalEnvironment->progress_thread_,
             0,
             nparts,
-            stream,
             br.get()
         );
 
@@ -1278,10 +1273,9 @@ TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
 TEST(ShufflerTest, multiple_shutdowns) {
     GlobalEnvironment->barrier();
     auto& comm = GlobalEnvironment->comm_;
-    auto stream = cudf::get_default_stream();
     rapidsmpf::BufferResource br(cudf::get_current_device_resource_ref());
     auto shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
-        comm, GlobalEnvironment->progress_thread_, 0, comm->nranks(), stream, &br
+        comm, GlobalEnvironment->progress_thread_, 0, comm->nranks(), &br
     );
 
     shuffler->insert_finished(iota_vector<rapidsmpf::shuffler::PartID>(comm->nranks()));

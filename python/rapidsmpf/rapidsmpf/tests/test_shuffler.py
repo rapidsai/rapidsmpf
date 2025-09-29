@@ -51,7 +51,6 @@ def test_shuffler_single_nonempty_partition(
         progress_thread,
         op_id=0,
         total_num_partitions=total_num_partitions,
-        stream=DEFAULT_STREAM,
         br=br,
     )
 
@@ -160,7 +159,6 @@ def test_shuffler_uniform(
         progress_thread,
         op_id=0,
         total_num_partitions=total_num_partitions,
-        stream=DEFAULT_STREAM,
         br=br,
     )
 
