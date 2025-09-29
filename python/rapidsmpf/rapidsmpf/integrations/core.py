@@ -249,7 +249,6 @@ def get_shuffler(
                 ctx.progress_thread,
                 op_id=shuffle_id,
                 total_num_partitions=partition_count,
-                stream=DEFAULT_STREAM,
                 br=ctx.br,
                 statistics=ctx.statistics,
             )

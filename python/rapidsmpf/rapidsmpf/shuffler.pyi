@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 
-from rmm.pylibrmm.stream import Stream
-
 from rapidsmpf.buffer.packed_data import PackedData
 from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.communicator.communicator import Communicator
@@ -20,7 +18,6 @@ class Shuffler:
         progress_thread: ProgressThread,
         op_id: int,
         total_num_partitions: int,
-        stream: Stream,
         br: BufferResource,
         statistics: Statistics | None = None,
     ) -> None: ...
