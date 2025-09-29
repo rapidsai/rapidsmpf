@@ -403,12 +403,14 @@ AllGather::AllGather(
     std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    std::function<void(void)>&& finished_callback
 )
     : comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
       br_{br},
       statistics_{std::move(statistics)},
+      finished_callback_{std::move(finished_callback)},
       finish_counter_{comm_->nranks()},
       op_id_{op_id} {
     function_id_ = progress_thread_->add_function([this]() { return event_loop(); });
@@ -542,9 +544,15 @@ ProgressThread::ProgressState AllGather::event_loop() {
         !active_.load(std::memory_order_acquire) || (is_finished && containers_empty);
     if (is_finished) {
         // We can release our output buffers so notify a waiter.
-        std::lock_guard lock(mutex_);
-        can_extract_ = true;
+        {
+            std::lock_guard lock(mutex_);
+            can_extract_ = true;
+        }
         cv_.notify_one();
+        std::function<void()> callback = std::move(finished_callback_);
+        if (callback) {
+            callback();
+        }
     }
     return is_done ? ProgressThread::ProgressState::Done
                    : ProgressThread::ProgressState::InProgress;

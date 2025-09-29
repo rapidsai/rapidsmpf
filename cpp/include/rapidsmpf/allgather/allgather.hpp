@@ -8,6 +8,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -458,6 +459,9 @@ class AllGather {
      * @param br Buffer resource for memory allocation.
      * @param statistics Statistics collection instance (disabled by
      * default).
+     * @param finished_callback Optional callback run when partitions are locally
+     * finished. The callback is guaranteed to be called by the progress thread exactly
+     * once when the allgather is locally ready.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -468,7 +472,8 @@ class AllGather {
         std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
         BufferResource* br,
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+        std::function<void(void)>&& finished_callback = nullptr
     );
 
     /// @brief Deleted copy constructor.
@@ -537,6 +542,9 @@ class AllGather {
         progress_thread_;  ///< Progress thread for async operations
     BufferResource* br_;  ///< Buffer resource for memory allocation
     std::shared_ptr<Statistics> statistics_;  ///< Statistics collection instance
+    std::function<void(void)> finished_callback_{
+        nullptr
+    };  ///< Optional callback to run when allgather is finished and ready for extraction.
     std::atomic<Rank> finish_counter_;  ///< Counter for finish markers received
     std::atomic<std::uint32_t> nlocal_insertions_;  ///< Number of local data insertions
     std::atomic<std::uint64_t> sequence_number_;  ///< Sequence number for chunks
