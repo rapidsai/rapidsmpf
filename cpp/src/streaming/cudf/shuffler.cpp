@@ -5,7 +5,6 @@
 
 #include <memory>
 #include <numeric>
-#include <ranges>
 
 #include <rmm/cuda_stream_view.hpp>
 
