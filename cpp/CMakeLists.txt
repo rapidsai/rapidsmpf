@@ -156,11 +156,13 @@ add_library(
   src/buffer/buffer.cpp
   src/buffer/resource.cpp
   src/buffer/spill_manager.cpp
+  src/communicator/communication_interface.cpp
   src/communicator/communicator.cpp
   src/communicator/single.cpp
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
   src/shuffler/chunk.cpp
+  src/shuffler/chunk_message_adapter.cpp
   src/shuffler/finish_counter.cpp
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
