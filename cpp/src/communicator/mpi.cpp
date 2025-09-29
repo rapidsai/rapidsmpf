@@ -150,7 +150,9 @@ void mpi_recv_impl(
 std::unique_ptr<Communicator::Future> MPI::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
-    RAPIDSMPF_EXPECTS(recv_buffer != nullptr, "recv buffer is nullptr");
+    RAPIDSMPF_EXPECTS(
+        recv_buffer != nullptr, "recv buffer cannot be null", std::invalid_argument
+    );
     RAPIDSMPF_EXPECTS(recv_buffer->is_latest_write_done(), "msg must be ready");
     MPI_Request req;
     mpi_recv_impl(
@@ -159,15 +161,17 @@ std::unique_ptr<Communicator::Future> MPI::recv(
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
-std::unique_ptr<Communicator::Future> MPI::recv(
-    Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> recv_host_buffer
+std::unique_ptr<Communicator::Future> MPI::recv_sync_host_data(
+    Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
 ) {
-    RAPIDSMPF_EXPECTS(recv_host_buffer != nullptr, "recv host buffer is nullptr");
-    MPI_Request req;
-    mpi_recv_impl(
-        rank, tag, recv_host_buffer->data(), recv_host_buffer->size(), comm_, &req
+    RAPIDSMPF_EXPECTS(
+        synced_buffer != nullptr,
+        "synced host buffer cannot be null",
+        std::invalid_argument
     );
-    return std::make_unique<Future>(req, std::move(recv_host_buffer));
+    MPI_Request req;
+    mpi_recv_impl(rank, tag, synced_buffer->data(), synced_buffer->size(), comm_, &req);
+    return std::make_unique<Future>(req, std::move(synced_buffer));
 }
 
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> MPI::recv_any(Tag tag) {
@@ -320,7 +324,9 @@ std::unique_ptr<Buffer> MPI::wait(std::unique_ptr<Communicator::Future> future) 
 std::unique_ptr<Buffer> MPI::release_data(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-    RAPIDSMPF_EXPECTS(mpi_future->data_buffer_ != nullptr, "future has no data");
+    RAPIDSMPF_EXPECTS(
+        mpi_future->data_buffer_ != nullptr, "future has no data", std::invalid_argument
+    );
     mpi_future->data_buffer_->unlock();
     return std::move(mpi_future->data_buffer_);
 }
@@ -331,7 +337,9 @@ std::unique_ptr<std::vector<uint8_t>> MPI::release_host_data(
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
     RAPIDSMPF_EXPECTS(
-        mpi_future->synced_host_data_ != nullptr, "future has no host data"
+        mpi_future->synced_host_data_ != nullptr,
+        "future has no synced host data",
+        std::invalid_argument
     );
     return std::move(mpi_future->synced_host_data_);
 }

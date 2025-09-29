@@ -1156,17 +1156,17 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
-std::unique_ptr<Communicator::Future> UCXX::recv(
-    Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> recv_host_buffer
+std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
+    Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
 ) {
-    RAPIDSMPF_EXPECTS(recv_host_buffer != nullptr, "recv host buffer is nullptr");
+    RAPIDSMPF_EXPECTS(synced_buffer != nullptr, "recv host buffer is nullptr");
     auto req = get_endpoint(rank)->tagRecv(
-        recv_host_buffer->data(),
-        recv_host_buffer->size(),
+        synced_buffer->data(),
+        synced_buffer->size(),
         tag_with_rank(rank, tag),
         ::ucxx::TagMaskFull
     );
-    return std::make_unique<Future>(req, std::move(recv_host_buffer));
+    return std::make_unique<Future>(req, std::move(synced_buffer));
 }
 
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {

@@ -416,7 +416,8 @@ class Communicator {
     ) = 0;
 
     /**
-     * @brief Receives a message from a specific rank to a buffer.
+     * @brief Receives a message from a specific rank to a buffer. Use `release_data` to
+     * extract the data out of the buffer once the future is completed.
      *
      * @param rank The source rank.
      * @param tag Message tag for identification.
@@ -434,15 +435,17 @@ class Communicator {
     ) = 0;
 
     /**
-     * @brief Receives a message from a specific rank to an allocated host buffer.
+     * @brief Receives a message from a specific rank to an allocated (synchronized) host
+     * buffer. Use `release_host_data` to extract the data out of the buffer once the
+     * future is completed.
      *
      * @param rank The source rank.
      * @param tag Message tag for identification.
-     * @param recv_host_buffer The receive buffer.
+     * @param synced_buffer The receive buffer.
      * @return A unique pointer to a `Future` representing the asynchronous operation.
      */
-    [[nodiscard]] virtual std::unique_ptr<Future> recv(
-        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> recv_host_buffer
+    [[nodiscard]] virtual std::unique_ptr<Future> recv_sync_host_data(
+        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
     ) = 0;
 
     /**
@@ -518,7 +521,9 @@ class Communicator {
     ) = 0;
 
     /**
-     * @brief Retrieves synchronized host data associated with a completed future.
+     * @brief Retrieves synchronized host data associated with a completed future. When
+     * the future is completed, the the host data is valid, and ready, but  not
+     * stream-ordered.
      *
      * @param future The completed future.
      * @return A unique pointer to the synchronized host data.

@@ -92,14 +92,14 @@ class Single final : public Communicator {
 
     // clang-format off
     /**
-     * @copydoc Communicator::recv(Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> recv_host_buffer)
+     * @copydoc Communicator::recv_sync_host_data(Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer)
      *
      * @throws std::runtime_error if called (single-process communicators should never
      * send messages).
      */
     // clang-format on
-    [[nodiscard]] std::unique_ptr<Communicator::Future> recv(
-        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> recv_host_buffer
+    [[nodiscard]] std::unique_ptr<Communicator::Future> recv_sync_host_data(
+        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
     ) override;
 
     /**

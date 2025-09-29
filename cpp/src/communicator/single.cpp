@@ -27,7 +27,7 @@ std::unique_ptr<Communicator::Future> Single::recv(Rank, Tag, std::unique_ptr<Bu
     RAPIDSMPF_FAIL("Unexpected recv from self", std::runtime_error);
 }
 
-std::unique_ptr<Communicator::Future> Single::recv(
+std::unique_ptr<Communicator::Future> Single::recv_sync_host_data(
     Rank, Tag, std::unique_ptr<std::vector<uint8_t>>
 ) {
     RAPIDSMPF_FAIL("Unexpected recv from self", std::runtime_error);

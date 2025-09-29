@@ -207,13 +207,15 @@ class Shuffler::Progress {
                             .second,
                         "outgoing chunk already exist"
                     );
-                    ready_ack_receives_[dst].push_back(shuffler_.comm_->recv(
-                        dst,
-                        ready_for_data_tag,
-                        std::make_unique<std::vector<uint8_t>>(
-                            ReadyForDataMessage::byte_size
+                    ready_ack_receives_[dst].push_back(
+                        shuffler_.comm_->recv_sync_host_data(
+                            dst,
+                            ready_for_data_tag,
+                            std::make_unique<std::vector<uint8_t>>(
+                                ReadyForDataMessage::byte_size
+                            )
                         )
-                    ));
+                    );
                 }
             }
             stats.add_duration_stat(
