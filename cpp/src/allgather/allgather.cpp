@@ -273,7 +273,7 @@ static std::vector<std::unique_ptr<Chunk>> test_some(
 }
 }  // namespace detail
 
-void AllGather::insert(PackedData&& packed_data) {
+void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) {
     if (packed_data.data->size == 0) {
         // No point communicating zero-sized insertions.
         // Note: this means the caller must handle the metadata
@@ -284,11 +284,15 @@ void AllGather::insert(PackedData&& packed_data) {
     nlocal_insertions_.fetch_add(1, std::memory_order_relaxed);
     return insert(
         detail::Chunk::from_packed_data(
-            sequence_number_.fetch_add(1, std::memory_order_relaxed),
-            comm_->rank(),
-            std::move(packed_data)
+            sequence_number, comm_->rank(), std::move(packed_data)
         )
 
+    );
+}
+
+void AllGather::insert(PackedData&& packed_data) {
+    insert(
+        sequence_number_.fetch_add(1, std::memory_order_relaxed), std::move(packed_data)
     );
 }
 
