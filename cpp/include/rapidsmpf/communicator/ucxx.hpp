@@ -13,6 +13,7 @@
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf {
@@ -27,6 +28,16 @@ using RemoteAddress = std::variant<
     HostPortPair,
     std::shared_ptr<::ucxx::Address>>;  ///< Host/port pair or worker address identifying
                                         ///< the remote UCXX listener or worker.
+
+/**
+ * @brief The progress mode to use with UCXX worker.
+ */
+enum class ProgressMode : std::uint8_t {
+    Blocking = 0,
+    Polling,
+    ThreadBlocking,
+    ThreadPolling
+};
 
 /**
  * @brief Storage for a listener address.
@@ -77,13 +88,16 @@ class InitializedRank {
  *                       listener or worker. Used only by non-root ranks to connect to a
  *                       previously initialized root rank, for which the default
  *                       `std::nullopt` is specified.
+ * @param options The options to use for the communicator, currently supports only
+ *                `"ucxx_progress_mode"`.
  *
  * @throws std::logic_error if the `remote_address` is an invalid object.
  */
 std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
     Rank nranks,
-    std::optional<RemoteAddress> remote_address = std::nullopt
+    std::optional<RemoteAddress> remote_address,
+    config::Options options
 );
 
 /**
