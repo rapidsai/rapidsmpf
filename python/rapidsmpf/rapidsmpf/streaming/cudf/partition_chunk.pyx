@@ -157,7 +157,6 @@ cdef class PartitionVectorChunk:
         -------
         A new PartitionVectorChunk wrapping the given handle.
         """
-
         cdef PartitionVectorChunk ret = PartitionVectorChunk.__new__(
             PartitionVectorChunk
         )

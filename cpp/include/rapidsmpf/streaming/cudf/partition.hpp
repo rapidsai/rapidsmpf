@@ -26,8 +26,6 @@ namespace rapidsmpf::streaming {
  *
  * Represents a single unit of work in a streaming pipeline where each partition
  * is associated with a `PartID` and contains packed (serialized) data.
- *
- * The `sequence_number` is used to preserve ordering across chunks.
  */
 struct PartitionMapChunk {
     /**
@@ -46,8 +44,6 @@ struct PartitionMapChunk {
  *
  * Represents a single unit of work in a streaming pipeline where the partitions
  * are stored in a vector.
- *
- * The `sequence_number` is used to preserve ordering across chunks.
  */
 struct PartitionVectorChunk {
     /**

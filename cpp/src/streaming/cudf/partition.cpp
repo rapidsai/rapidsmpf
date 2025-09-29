@@ -43,7 +43,7 @@ Node partition_and_pack(
                 num_partitions,
                 hash_function,
                 seed,
-                table.stream(),
+                tbl.stream(),
                 ctx->br(),
                 ctx->statistics()
             )
@@ -68,12 +68,11 @@ Node unpack_and_concat(
         if (msg.empty()) {
             break;
         }
-        std::uint64_t seq;
-        std::vector<PackedData> data;
-        rmm::cuda_stream_view stream;
 
         // If receiving a partition map, we convert it to a vector and discards
         // partition IDs.
+        std::uint64_t seq;
+        std::vector<PackedData> data;
         if (msg.holds<PartitionMapChunk>()) {
             auto partition_map = msg.release<PartitionMapChunk>();
             seq = partition_map.sequence_number;
@@ -83,10 +82,9 @@ Node unpack_and_concat(
             seq = partition_vec.sequence_number;
             data = std::move(partition_vec.data);
         }
-        // TODO: Get a stream from the buffer resource
-        if (data.size() > 0) {
-            stream = data[0].data->stream();
-        }
+        // Get a stream for the concatenated table chunk.
+        auto stream = ctx->br()->stream_pool().get_stream();
+
         std::unique_ptr<cudf::table> ret = rapidsmpf::unpack_and_concat(
             rapidsmpf::unspill_partitions(std::move(data), ctx->br(), false),
             stream,

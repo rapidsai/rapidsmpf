@@ -250,7 +250,7 @@ rapidsmpf::Duration run(
         auto ch3 = std::make_shared<rapidsmpf::streaming::Channel>();
         nodes.push_back(
             rapidsmpf::streaming::node::shuffler(
-                ctx, stream, ch2, ch3, op_id, total_num_partitions
+                ctx, ch2, ch3, op_id, total_num_partitions
             )
         );
         auto ch4 = std::make_shared<rapidsmpf::streaming::Channel>();

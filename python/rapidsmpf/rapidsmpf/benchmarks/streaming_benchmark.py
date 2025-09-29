@@ -144,7 +144,6 @@ def streaming_shuffle(
         progress_thread,
         op_id=0,
         total_num_partitions=output_nparts,
-        stream=DEFAULT_STREAM,
         br=br,
         statistics=stats,
     )

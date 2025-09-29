@@ -6,10 +6,13 @@
 #pragma once
 
 #include <array>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
 #include <utility>
+
+#include <rmm/cuda_stream_pool.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/spill_manager.hpp>
@@ -152,12 +155,16 @@ class BufferResource {
      * continuously checks and perform spilling based on the memory availability
      * functions. The value of `periodic_spill_check` is used as the pause between checks.
      * If `std::nullopt`, no periodic spill check is performed.
+     * @param stream_pool Pool of CUDA streams. Used throughout RapidsMPF for operations
+     * that do not take an explicit CUDA stream.
      * @param statistics The statistics instance to use (disabled by default).
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
+        std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
+            rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
@@ -371,6 +378,15 @@ class BufferResource {
     );
 
     /**
+     * @brief Returns the CUDA stream pool used by this buffer resource.
+     *
+     * Use this pool for operations that do not take an explicit CUDA stream.
+     *
+     * @return Reference to the underlying CUDA stream pool.
+     */
+    rmm::cuda_stream_pool const& stream_pool() const;
+
+    /**
      * @brief Gets a reference to the spill manager used.
      *
      * @return Reference to the SpillManager instance.
@@ -391,6 +407,7 @@ class BufferResource {
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
+    std::shared_ptr<rmm::cuda_stream_pool> stream_pool_;
     SpillManager spill_manager_;
     std::shared_ptr<Statistics> statistics_;
 };
