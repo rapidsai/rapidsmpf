@@ -7,8 +7,6 @@ from libc.stdint cimport uint8_t
 from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
-from rmm.librmm.cuda_stream_view cimport cuda_stream_view
-from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.allgather.allgather cimport (Ordered, cpp_AllGather,
                                             milliseconds_t)
@@ -40,8 +38,6 @@ cdef class AllGather:
     op_id
         Unique operation identifier for this allgather. Must have a value
         between 0 and 255.
-    stream
-        CUDA stream for memory operations.
     br
         Buffer resource for memory allocation.
     statistics
@@ -49,9 +45,9 @@ cdef class AllGather:
 
     Notes
     -----
-    The caller promises that all inserted data is stream-ordered with respect
-    to `stream`. Extracted data is guaranteed to be stream-ordered with respect
-    to `stream`.
+    The caller promises that inserted buffers are stream-ordered with respect to
+    their own stream, and extracted buffers are likewise guaranteed to be stream-
+    ordered with respect to their own stream.
     """
 
     def __init__(
@@ -59,15 +55,12 @@ cdef class AllGather:
         Communicator comm,
         ProgressThread progress_thread,
         uint8_t op_id,
-        Stream stream,
         BufferResource br,
         Statistics statistics = None,
     ):
-        self._stream = stream
         self._comm = comm
         self._br = br
         cdef cpp_BufferResource* br_ = br.ptr()
-        cdef cuda_stream_view _stream = self._stream.view()
         if statistics is None:
             statistics = Statistics(enable=False)  # Disables statistics.
         with nogil:
@@ -75,7 +68,6 @@ cdef class AllGather:
                 comm._handle,
                 progress_thread._handle,
                 op_id,
-                _stream,
                 br_,
                 statistics._handle,
             )

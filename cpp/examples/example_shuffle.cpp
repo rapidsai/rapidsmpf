@@ -67,7 +67,6 @@ int main(int argc, char** argv) {
         progress_thread,
         0,  // op_id
         total_num_partitions,
-        stream,
         &br,
         stats,
         rapidsmpf::shuffler::Shuffler::round_robin  // partition owner

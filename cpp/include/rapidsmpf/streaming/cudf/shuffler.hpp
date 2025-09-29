@@ -30,16 +30,18 @@ class ShufflerAsync {
      * @brief Constructs a new ShufflerAsync instance.
      *
      * @param ctx The streaming context to use.
-     * @param stream The CUDA stream on which shuffling operations will be performed.
      * @param op_id Unique operation ID for this shuffle. Must not be reused until all
      * participants have completed the shuffle operation.
      * @param total_num_partitions Total number of partitions to shuffle data into.
      * @param partition_owner Function that maps a partition ID to its owning rank/node.
      * Defaults to round-robin distribution.
+     *
+     * @note The caller promises that inserted buffers are stream-ordered with respect
+     * to their own stream, and extracted buffers are likewise guaranteed to be stream-
+     * ordered with respect to their own stream.
      */
     ShufflerAsync(
         std::shared_ptr<Context> ctx,
-        rmm::cuda_stream_view stream,
         OpID op_id,
         shuffler::PartID total_num_partitions,
         shuffler::Shuffler::PartitionOwner partition_owner =
@@ -166,8 +168,6 @@ namespace node {
  * chunks grouped by `partition_owner`.
  *
  * @param ctx The context to use.
- * @param stream The CUDA stream on which to perform the shuffling. If chunks from the
- * input channel aren't created on `stream`, the streams are all synchronized.
  * @param ch_in Input channel providing PartitionMapChunk to be shuffled.
  * @param ch_out Output channel where the resulting PartitionVectorChunks are sent.
  * @param op_id Unique operation ID for this shuffle. Must not be reused until all
@@ -180,7 +180,6 @@ namespace node {
  */
 Node shuffler(
     std::shared_ptr<Context> ctx,
-    rmm::cuda_stream_view stream,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,

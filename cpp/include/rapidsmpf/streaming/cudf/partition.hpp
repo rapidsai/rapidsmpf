@@ -26,8 +26,6 @@ namespace rapidsmpf::streaming {
  *
  * Represents a single unit of work in a streaming pipeline where each partition
  * is associated with a `PartID` and contains packed (serialized) data.
- *
- * The `sequence_number` is used to preserve ordering across chunks.
  */
 struct PartitionMapChunk {
     /**
@@ -39,11 +37,6 @@ struct PartitionMapChunk {
      * @brief Packed data for each partition, keyed by partition ID.
      */
     std::unordered_map<shuffler::PartID, PackedData> data;
-
-    /**
-     * @brief The CUDA stream on which this chunk was created.
-     */
-    rmm::cuda_stream_view stream;
 };
 
 /**
@@ -51,8 +44,6 @@ struct PartitionMapChunk {
  *
  * Represents a single unit of work in a streaming pipeline where the partitions
  * are stored in a vector.
- *
- * The `sequence_number` is used to preserve ordering across chunks.
  */
 struct PartitionVectorChunk {
     /**
@@ -64,11 +55,6 @@ struct PartitionVectorChunk {
      * @brief Packed data for each partition stored in a vector.
      */
     std::vector<PackedData> data;
-
-    /**
-     * @brief The CUDA stream on which this chunk was created.
-     */
-    rmm::cuda_stream_view stream;
 };
 
 namespace node {

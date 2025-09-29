@@ -107,7 +107,7 @@ std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
 }
 
 std::unique_ptr<Chunk> Chunk::deserialize(
-    std::vector<std::uint8_t>& data, rmm::cuda_stream_view stream, BufferResource* br
+    std::vector<std::uint8_t>& data, BufferResource* br
 ) {
     ChunkID id;
     std::uint64_t data_size;
@@ -124,10 +124,11 @@ std::unique_ptr<Chunk> Chunk::deserialize(
         data.data() + sizeof(ChunkID) + sizeof(data_size),
         metadata->size()
     );
-    auto reservation = br->reserve_or_fail(data_size);
-    return std::unique_ptr<Chunk>(
-        new Chunk(id, std::move(metadata), br->allocate(data_size, stream, reservation))
-    );
+    return std::unique_ptr<Chunk>(new Chunk(
+        id,
+        std::move(metadata),
+        br->allocate(br->stream_pool().get_stream(), br->reserve_or_fail(data_size))
+    ));
 }
 
 PackedData Chunk::release() {
@@ -397,13 +398,11 @@ AllGather::AllGather(
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
-    rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics
 )
     : comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
-      stream_{stream},
       br_{br},
       statistics_{std::move(statistics)},
       finish_counter_{comm_->nranks()},
@@ -483,7 +482,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
             if (!msg) {
                 break;
             }
-            auto chunk = detail::Chunk::deserialize(*msg, stream_, br_);
+            auto chunk = detail::Chunk::deserialize(*msg, br_);
             if (chunk->is_finish()) {
                 if (chunk->origin() != dst) {
                     // Finish chunk, if we're not the end of the ring, must forward on.

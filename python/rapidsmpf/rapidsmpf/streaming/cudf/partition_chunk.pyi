@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from rmm.pylibrmm.stream import Stream
-
 from rapidsmpf.streaming.core.channel import Message, Payload
 
 class PartitionMapChunk:
@@ -14,8 +12,6 @@ class PartitionMapChunk:
     def into_message(self, message: Message[Self]) -> None: ...
     @property
     def sequence_number(self) -> int: ...
-    @property
-    def stream(self) -> Stream: ...
 
 class PartitionVectorChunk:
     @classmethod
@@ -23,8 +19,6 @@ class PartitionVectorChunk:
     def into_message(self, message: Message[Self]) -> None: ...
     @property
     def sequence_number(self) -> int: ...
-    @property
-    def stream(self) -> Stream: ...
 
 if TYPE_CHECKING:
     # Check that PartitionMapChunk implements Payload.

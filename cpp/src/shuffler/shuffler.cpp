@@ -269,7 +269,9 @@ class Shuffler::Progress {
                         // Create a new buffer and let the buffer resource decide the
                         // memory type.
                         chunk.set_data_buffer(allocate_buffer(
-                            chunk.concat_data_size(), shuffler_.stream_, shuffler_.br_
+                            chunk.concat_data_size(),
+                            shuffler_.br_->stream_pool().get_stream(),
+                            shuffler_.br_
                         ));
                         if (chunk.data_memory_type() == MemoryType::HOST) {
                             stats.add_bytes_stat(
@@ -324,9 +326,8 @@ class Shuffler::Progress {
                         // ready postbox uniquely identifies chunks by their [partition
                         // ID, chunk ID] pair. We can reuse the same chunk ID for the
                         // copy because the partition IDs are unique within a chunk.
-                        auto chunk_copy = chunk.get_data(
-                            chunk.chunk_id(), i, shuffler_.stream_, shuffler_.br_
-                        );
+                        auto chunk_copy =
+                            chunk.get_data(chunk.chunk_id(), i, shuffler_.br_);
                         shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
                     }
                 }
@@ -394,9 +395,9 @@ class Shuffler::Progress {
                         // ready postbox uniquely identifies chunks by their [partition
                         // ID, chunk ID] pair. We can reuse the same chunk ID for the
                         // copy because the partition IDs are unique within a chunk.
-                        shuffler_.insert_into_ready_postbox(chunk.get_data(
-                            chunk.chunk_id(), i, shuffler_.stream_, shuffler_.br_
-                        ));
+                        shuffler_.insert_into_ready_postbox(
+                            chunk.get_data(chunk.chunk_id(), i, shuffler_.br_)
+                        );
                     }
                 }
             }
@@ -461,7 +462,6 @@ Shuffler::Shuffler(
     std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
     PartID total_num_partitions,
-    rmm::cuda_stream_view stream,
     BufferResource* br,
     FinishedCallback&& finished_callback,
     std::shared_ptr<Statistics> statistics,
@@ -469,7 +469,6 @@ Shuffler::Shuffler(
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
-      stream_{stream},
       br_{br},
       outgoing_postbox_{
           [this](PartID pid) -> Rank {
@@ -653,7 +652,7 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
     auto build_all_groups_and_insert = [&]() {
         for (auto&& group : chunk_groups) {
             if (!group.empty()) {
-                insert(Chunk::concat(std::move(group), get_new_cid(), stream_, br_));
+                insert(Chunk::concat(std::move(group), get_new_cid(), br_));
             }
         }
     };
@@ -756,7 +755,7 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
     for (auto&& group : chunk_groups) {
         if (!group.empty()) {
-            insert(Chunk::concat(std::move(group), get_new_cid(), stream_, br_));
+            insert(Chunk::concat(std::move(group), get_new_cid(), br_));
         }
     }
 }
