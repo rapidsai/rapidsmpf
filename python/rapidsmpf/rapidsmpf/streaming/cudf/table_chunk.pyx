@@ -54,10 +54,9 @@ cdef extern from *:
 
 
 cdef void py_deleter(void *p) noexcept nogil:
-    if p == NULL:
-        return
-    with gil:
-        Py_XDECREF(<PyObject*>p)
+    if p != NULL:
+        with gil:
+            Py_XDECREF(<PyObject*>p)
 
 
 cdef class TableChunk:
@@ -137,16 +136,16 @@ cdef class TableChunk:
             device_alloc_size += (<Column?>col).device_buffer_size()
 
         cdef cpp_table_view view = table.view()
-        cdef unique_ptr[cpp_TableChunk] ret
-        ret = cpp_from_table_view_with_owner(
-            sequence_number,
-            view,
-            device_alloc_size,
-            _stream,
-            <PyObject *>table,
-            py_deleter
+        return TableChunk.from_handle(
+            cpp_from_table_view_with_owner(
+                sequence_number,
+                view,
+                device_alloc_size,
+                _stream,
+                <PyObject *>table,
+                py_deleter,
+            )
         )
-        return TableChunk.from_handle(move(ret))
 
     @staticmethod
     def from_message(Message message not None):
