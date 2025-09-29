@@ -27,7 +27,7 @@ namespace rapidsmpf::streaming {
  *
  * To square this circle, such C++ objects have an `OwningWrapper` slot that stores a
  * type-erased pointer with, as far as we are concerned, unique ownership semantics. When
- * this object is destroyed, the customer deleter runs and can do whatever deallocation is
+ * this object is destroyed, the custom deleter runs and can do whatever deallocation is
  * necessary.
  *
  * @warning Behaviour is undefined if the unique ownership semantic is not respected. The
