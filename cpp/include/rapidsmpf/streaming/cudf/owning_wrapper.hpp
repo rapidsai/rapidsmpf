@@ -20,7 +20,7 @@ namespace rapidsmpf::streaming {
  * `TableChunk` has a non-owning `cudf::table_view` of the `Table` and someone must be
  * responsible for keeping the `Table` alive for the lifetime of the `TableChunk`. If we
  * want to allow creation of such objects in Python with the ability to sink them on the
- * C++ side, we cannot rely on the Python side of things keeping the `Table` alive (the
+ * C++ side we cannot rely on the Python side of things keeping the `Table` alive (the
  * reference disappears!). Similarly when we send a message through a `Channel` the sender
  * will, once pushed into the channel, drop the reference to the message payload and so,
  * again, we need some way of keeping the payload alive.
