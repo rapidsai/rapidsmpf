@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # =================================================================================
 
-set(cython_modules partition.pyx partition_chunk.pyx table_chunk.pyx)
+set(cython_modules shuffler.pyx)
 
 rapids_cython_create_modules(
   CXX
