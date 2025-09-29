@@ -208,4 +208,67 @@
     </hostStack>
   </record>
 
+ <record>
+    <kind>InitcheckApiError</kind>
+    <level>Error</level>
+    <what>
+      <text>Host API uninitialized memory access</text>
+    </what>
+    <hostStack>
+      <saveLocation>error</saveLocation>
+      <frame>
+        <module>.*/libcuda.so.*</module>
+      </frame>
+      <frame>
+        <module>.*/libcudart.so.*</module>
+      </frame>
+      <frame>
+        <module>.*/libcudart.so.*</module>
+      </frame>
+      <frame>
+        <func>cudaMemcpyAsync</func>
+        <module>.*/libcudart.so.*</module>
+      </frame>
+      <frame>
+        <func>rapidsmpf::buffer_copy const</func>
+        <path>.*/buffer/buffer.cpp</path>
+        <module>.*/librapidsmpf.so</module>
+      </frame>
+      <frame>
+        <func>.*rapidsmpf::buffer_copy</func>
+        <path>.*/c++/bits/invoke.h</path>
+        <module>.*/librapidsmpf.so</module>
+      </frame>
+      <frame>
+        <func>.*rapidsmpf::buffer_copy</func>
+        <path>.*/c++/bits/invoke.h</path>
+        <module>.*/librapidsmpf.so</module>
+      </frame>
+      <frame>
+        <func>.*rapidsmpf::buffer_copy</func>
+        <path>.*/c++/functional</path>
+        <module>.*/librapidsmpf.so</module>
+      </frame>
+      <frame>
+        <func>std::invoke_result&lt;rapidsmpf::buffer_copy</func>
+        <path>/home/mkristensen/repos/rapidsmpf/cpp/include/rapidsmpf/buffer/buffer.hpp</path>
+        <module>.*/librapidsmpf.so</module>
+      </frame>
+      <frame>
+        <func>rapidsmpf::buffer_copy</func>
+        <path>.*/buffer/buffer.cpp</path>
+        <module>.*/librapidsmpf.so</module>
+      </frame>
+      <frame>
+        <func>rapidsmpf::BufferResource::move</func>
+        <path>.*/buffer/resource.cpp</path>
+        <module>.*/librapidsmpf.so</module>
+      </frame>
+      <frame>
+        <func>rapidsmpf::streaming::TableChunk::spill_to_host</func>
+        <path>.*/streaming/cudf/table_chunk.cpp</path>
+        <module>.*/librapidsmpf.so</module>
+      </frame>
+    </hostStack>
+  </record>
 </ComputeSanitizerOutput>
