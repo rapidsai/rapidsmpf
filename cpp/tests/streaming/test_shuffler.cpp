@@ -39,7 +39,6 @@ class StreamingShuffler : public BaseStreamingShuffle,
     const cudf::hash_id hash_function = cudf::hash_id::HASH_MURMUR3;
     const OpID op_id = 0;
 
-    // override the base SetUp
     void SetUp() override {
         BaseStreamingShuffle::SetUpWithThreads(GetParam());
         GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
@@ -320,8 +319,6 @@ class ShufflerAsyncTest
     uint32_t n_partitions;
     int n_consumers;
 
-    std::unique_ptr<ShufflerAsync> shuffler;
-
     static constexpr OpID op_id = 0;
     static constexpr size_t n_elements = 100;
 
@@ -329,14 +326,11 @@ class ShufflerAsyncTest
         std::tie(n_threads, n_inserts, n_partitions, n_consumers) = GetParam();
         BaseStreamingShuffle::SetUpWithThreads(n_threads);
         GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
-
-        shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
     }
 
     void TearDown() override {
-        shuffler.reset();
-        BaseStreamingShuffle::TearDown();
         GlobalEnvironment->barrier();
+        BaseStreamingShuffle::TearDown();
     }
 };
 
@@ -358,6 +352,7 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
+    auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
     // extract data (executed by thread pool)
     auto extract_task = [](int tid,
                            auto* shuffler,
@@ -416,47 +411,58 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
 
     std::ranges::sort(finished_pids);
     EXPECT_EQ(local_pids, finished_pids);
-
-    GlobalEnvironment->barrier();  // wait for all ranks to finish
 }
 
 TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
     GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     static constexpr OpID op_id = 0;
     static constexpr size_t n_partitions = 10;
-    auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
+    {
+        auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
 
-    // all empty partitions
-    shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
+        // all empty partitions
+        shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
-    auto local_pids = shuffler::Shuffler::local_partitions(
-        ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
-    );
+        auto local_pids = shuffler::Shuffler::local_partitions(
+            ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
+        );
 
-    size_t parts_extracted = 0;
-    while (true) {  // extract all partitions
-        auto res = coro::sync_wait(shuffler->extract_any_async());
-        if (!res.has_value()) {
-            break;
+        size_t parts_extracted = 0;
+        while (true) {  // extract all partitions
+            auto res = coro::sync_wait(shuffler->extract_any_async());
+            if (!res.has_value()) {
+                break;
+            }
+            parts_extracted++;
         }
-        parts_extracted++;
-    }
-    EXPECT_EQ(local_pids.size(), parts_extracted);
+        EXPECT_EQ(local_pids.size(), parts_extracted);
 
-    // now extract should throw
-    for (auto pid : local_pids) {
-        EXPECT_THROW(coro::sync_wait(shuffler->extract_async(pid)), std::out_of_range);
+        // now extract should throw
+        for (auto pid : local_pids) {
+            EXPECT_THROW(
+                coro::sync_wait(shuffler->extract_async(pid)), std::out_of_range
+            );
+        }
     }
-    shuffler.reset();
     GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
 }
 
 class CompetingShufflerAsyncTest : public BaseStreamingShuffle {
+  public:
+    void SetUp() override {
+        BaseStreamingShuffle::SetUp();
+        GlobalEnvironment->barrier();
+    }
+
+    void TearDown() override {
+        GlobalEnvironment->barrier();
+        BaseStreamingShuffle::TearDown();
+    }
+
   protected:
     // produce_results_fn is a function that produces the results of the extract_any_async
     // and extract_async coroutines.
     void run_test(auto produce_results_fn) {
-        GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
         static constexpr OpID op_id = 0;
         shuffler::PartID const n_partitions = ctx->comm()->nranks();
         shuffler::PartID const this_pid = ctx->comm()->rank();
@@ -476,8 +482,6 @@ class CompetingShufflerAsyncTest : public BaseStreamingShuffle {
             // else extract_result should be valid and an empty vector
             EXPECT_EQ(extract_result.return_value().size(), 0);
         }
-        shuffler.reset();
-        GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     }
 };
 
