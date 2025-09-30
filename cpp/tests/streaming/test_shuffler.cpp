@@ -149,9 +149,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(StreamingShuffler, basic_shuffler) {
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
-        return node::shuffler(
-            ctx, std::move(ch_in), std::move(ch_out), op_id, num_partitions
-        );
+        return node::shuffler(ctx, ch_in, ch_out, op_id, num_partitions);
     }));
 }
 
@@ -288,25 +286,19 @@ Node shuffler_nb(
 
 TEST_P(StreamingShuffler, callbacks_1_consumer) {
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
-        return shuffler_nb(
-            ctx, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 1
-        );
+        return shuffler_nb(ctx, ch_in, ch_out, op_id, num_partitions, 1);
     }));
 }
 
 TEST_P(StreamingShuffler, callbacks_2_consumer) {
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
-        return shuffler_nb(
-            ctx, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 2
-        );
+        return shuffler_nb(ctx, ch_in, ch_out, op_id, num_partitions, 2);
     }));
 }
 
 TEST_P(StreamingShuffler, callbacks_4_consumer) {
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto ch_in, auto ch_out) -> Node {
-        return shuffler_nb(
-            ctx, std::move(ch_in), std::move(ch_out), op_id, num_partitions, 4
-        );
+        return shuffler_nb(ctx, ch_in, ch_out, op_id, num_partitions, 4);
     }));
 }
 
