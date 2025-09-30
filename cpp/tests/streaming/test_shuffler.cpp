@@ -260,6 +260,9 @@ Node shuffler_nb(
         co_await latch;  // wait for all extract tasks to finish before clean up
         co_await ch_out->drain(ctx->executor());
 
+        RAPIDSMPF_EXPECTS(
+            shuffler_ctx->shuffler->finished(), "Shuffler not yet finished"
+        );
         shuffler_ctx->shuffler->shutdown();
     };
 
@@ -368,6 +371,9 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
                 finished_pids.push_back(pid);
             }
         }
+        RAPIDSMPF_EXPECTS(
+            shuffler->finished(), "Didn't extract a result but shuffler not finished"
+        );
         ctx->comm()->logger().debug(tid, " extract task finished");
     };
 
@@ -398,6 +404,9 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     // thread)
     run_streaming_pipeline(std::move(extract_tasks));
 
+    RAPIDSMPF_EXPECTS(
+        shuffler->finished(), "Shuffler not finished after running pipeline"
+    );
     auto local_pids = shuffler::Shuffler::local_partitions(
         ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
     );
@@ -430,7 +439,9 @@ TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
             parts_extracted++;
         }
         EXPECT_EQ(local_pids.size(), parts_extracted);
-
+        RAPIDSMPF_EXPECTS(
+            shuffler->finished(), "Shuffler not finished after extraction completed"
+        );
         // now extract should throw
         for (auto pid : local_pids) {
             EXPECT_THROW(
