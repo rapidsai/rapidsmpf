@@ -279,7 +279,10 @@ Node shuffler_nb(
         shutdown_task(std::move(shuffler_ctx), ctx.get(), std::move(ch_out), latch)
     );
 
-    co_await coro::when_all(std::move(nodes));
+    auto results = co_await coro::when_all(std::move(nodes));
+    for (auto& result : results) {
+        result.return_value();
+    }
 }
 
 }  // namespace
