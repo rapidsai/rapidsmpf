@@ -26,7 +26,9 @@ using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
 namespace node = rapidsmpf::streaming::node;
 
-class StreamingShuffler : public BaseStreamingFixture,
+class BaseStreamingShuffle : public BaseStreamingFixture {};
+
+class StreamingShuffler : public BaseStreamingShuffle,
                           public ::testing::WithParamInterface<int> {
   public:
     const unsigned int num_partitions = 10;
@@ -39,13 +41,13 @@ class StreamingShuffler : public BaseStreamingFixture,
 
     // override the base SetUp
     void SetUp() override {
-        BaseStreamingFixture::SetUpWithThreads(GetParam());
+        BaseStreamingShuffle::SetUpWithThreads(GetParam());
         GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     }
 
     void TearDown() override {
         GlobalEnvironment->barrier();
-        BaseStreamingFixture::TearDown();
+        BaseStreamingShuffle::TearDown();
     }
 
     void run_test(auto make_shuffler_node_fn) {
@@ -307,7 +309,7 @@ TEST_P(StreamingShuffler, callbacks_4_consumer) {
 }
 
 class ShufflerAsyncTest
-    : public BaseStreamingFixture,
+    : public BaseStreamingShuffle,
       public ::testing::WithParamInterface<std::tuple<int, size_t, uint32_t, int>> {
   protected:
     int n_threads;
@@ -322,7 +324,7 @@ class ShufflerAsyncTest
 
     void SetUp() override {
         std::tie(n_threads, n_inserts, n_partitions, n_consumers) = GetParam();
-        BaseStreamingFixture::SetUpWithThreads(n_threads);
+        BaseStreamingShuffle::SetUpWithThreads(n_threads);
         GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
 
         shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
@@ -330,7 +332,7 @@ class ShufflerAsyncTest
 
     void TearDown() override {
         shuffler.reset();
-        BaseStreamingFixture::TearDown();
+        BaseStreamingShuffle::TearDown();
         GlobalEnvironment->barrier();
     }
 };
@@ -415,7 +417,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     GlobalEnvironment->barrier();  // wait for all ranks to finish
 }
 
-TEST_F(BaseStreamingFixture, extract_any_before_extract) {
+TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
     GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     static constexpr OpID op_id = 0;
     static constexpr size_t n_partitions = 10;
@@ -446,7 +448,7 @@ TEST_F(BaseStreamingFixture, extract_any_before_extract) {
     GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
 }
 
-class CompetingShufflerAsyncTest : public BaseStreamingFixture {
+class CompetingShufflerAsyncTest : public BaseStreamingShuffle {
   protected:
     // produce_results_fn is a function that produces the results of the extract_any_async
     // and extract_async coroutines.
