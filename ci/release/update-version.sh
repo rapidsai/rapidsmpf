@@ -42,6 +42,7 @@ DEPENDENCIES=(
   dask-cudf
   libcudf
   librapidsmpf
+  librapidsmpf-tests
   librmm
   pylibcudf
   rapidsmpf
@@ -49,7 +50,7 @@ DEPENDENCIES=(
 )
 for DEP in "${DEPENDENCIES[@]}"; do
   for FILE in dependencies.yaml conda/environments/*.yaml; do
-    sed_runner "/-.* ${DEP}\(-cu[[:digit:]]\{2\}\)\{0,1\}==/ s/==.*/==${NEXT_SHORT_TAG_PEP440}.*,>=0.0.0a0/g" "${FILE}"
+    sed_runner "/-.* ${DEP}\(-cu[[:digit:]]\{2\}\)\{0,1\}\(\[.*\]\)\{0,1\}==/ s/==.*/==${NEXT_SHORT_TAG_PEP440}.*,>=0.0.0a0/g" "${FILE}"
   done
   for FILE in python/*/pyproject.toml; do
     sed_runner "/\"${DEP}==/ s/==.*\"/==${NEXT_SHORT_TAG_PEP440}.*,>=0.0.0a0\"/g" "${FILE}"
@@ -73,7 +74,7 @@ for FILE in conda/recipes/*/conda_build_config.yaml; do
 done
 
 # rapids-cmake version
-sed_runner 's/'"set(rapids-cmake-version.*"'/'"set(rapids-cmake-version ${NEXT_RAPIDS_SHORT_TAG})"'/g' cmake/RAPIDS.cmake
+sed_runner 's/'"set(rapids-cmake-version.*"'/'"set(rapids-cmake-version ${NEXT_SHORT_TAG})"'/g' cmake/RAPIDS.cmake
 
 # CI files
 for FILE in .github/workflows/*.yaml; do
@@ -85,5 +86,5 @@ done
 find .devcontainer/ -type f -name devcontainer.json -print0 | while IFS= read -r -d '' filename; do
   sed_runner "s/rapidsai\/devcontainers:[0-9]*\\.[0-9]*-/rapidsai\/devcontainers:${NEXT_SHORT_TAG}-/g" "${filename}"
   sed_runner "s/rapids-\${localWorkspaceFolderBasename}-[0-9]*\\.[0-9]*-/rapids-\${localWorkspaceFolderBasename}-${NEXT_SHORT_TAG}-/g" "${filename}"
-  sed_runner "s/rapids-build-utils:[0-9]*\\.[0-9]*\"/rapids-build-utils:${NEXT_SHORT_TAG}\"/g" "${filename}"
+  sed_runner "s/rapids-build-utils:[0-9]*\\.[0-9]*\"/rapids-build-utils:${NEXT_SHORT_TAG_PEP440}\"/g" "${filename}"
 done
