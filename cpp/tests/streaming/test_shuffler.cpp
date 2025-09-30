@@ -349,7 +349,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     auto extract_task = [](int tid,
                            auto* shuffler,
                            auto* ctx,
-                           coro::mutex& mtx,
+                           std::mutex& mtx,
                            std::vector<shuffler::PartID>& finished_pids,
                            size_t& n_chunks_received) -> coro::task<void> {
         co_await ctx->executor()->schedule();
@@ -361,10 +361,12 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
                 break;
             }
 
-            auto lock = co_await mtx.scoped_lock();
-            auto& [pid, chunks] = *result;
-            n_chunks_received += chunks.size();
-            finished_pids.push_back(pid);
+            {
+                auto lock = std::unique_lock(mtx);
+                auto& [pid, chunks] = *result;
+                n_chunks_received += chunks.size();
+                finished_pids.push_back(pid);
+            }
         }
         ctx->comm()->logger().debug(tid, " extract task finished");
     };
@@ -382,7 +384,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     // insert finished (executed by main thread)
     shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
-    coro::mutex mtx;
+    std::mutex mtx;
     std::vector<shuffler::PartID> finished_pids;
     size_t n_chunks_received = 0;
     std::vector<Node> extract_tasks;
