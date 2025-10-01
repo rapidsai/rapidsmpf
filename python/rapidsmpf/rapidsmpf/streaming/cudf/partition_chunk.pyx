@@ -18,7 +18,7 @@ cdef class PartitionMapChunk:
 
     @staticmethod
     cdef PartitionMapChunk from_handle(
-        unique_ptr[cpp_PartitionMapChunk] handle, object owner
+        unique_ptr[cpp_PartitionMapChunk] handle
     ):
         """
         Construct a PartitionMapChunk from an existing C++ handle.
@@ -27,17 +27,14 @@ cdef class PartitionMapChunk:
         ----------
         handle
             A unique pointer to a C++ PartitionMapChunk.
-        owner
-            An optional Python object to keep alive for as long as this
-            PartitionMapChunk exists (e.g., to maintain resource lifetime).
 
         Returns
         -------
         A new PartitionMapChunk wrapping the given handle.
         """
+
         cdef PartitionMapChunk ret = PartitionMapChunk.__new__(PartitionMapChunk)
         ret._handle = move(handle)
-        ret._owner = owner
         return ret
 
     @staticmethod
@@ -58,8 +55,7 @@ cdef class PartitionMapChunk:
         return PartitionMapChunk.from_handle(
             make_unique[cpp_PartitionMapChunk](
                 message._handle.release[cpp_PartitionMapChunk]()
-            ),
-            owner = None,
+            )
         )
 
     def into_message(self, Message message not None):
@@ -84,6 +80,8 @@ cdef class PartitionMapChunk:
         --------
         The PartitionMapChunk is released and must not be used after this call.
         """
+        if not message.empty():
+            raise ValueError("cannot move into a non-empty message")
         message._handle = cpp_Message(self.release_handle())
 
     cdef const cpp_PartitionMapChunk* handle_ptr(self):
@@ -145,7 +143,7 @@ cdef class PartitionVectorChunk:
 
     @staticmethod
     cdef PartitionVectorChunk from_handle(
-        unique_ptr[cpp_PartitionVectorChunk] handle, object owner
+        unique_ptr[cpp_PartitionVectorChunk] handle
     ):
         """
         Construct a PartitionVectorChunk from an existing C++ handle.
@@ -154,9 +152,6 @@ cdef class PartitionVectorChunk:
         ----------
         handle
             A unique pointer to a C++ PartitionVectorChunk.
-        owner
-            An optional Python object to keep alive for as long as this
-            PartitionVectorChunk exists (e.g., to maintain resource lifetime).
 
         Returns
         -------
@@ -166,7 +161,6 @@ cdef class PartitionVectorChunk:
             PartitionVectorChunk
         )
         ret._handle = move(handle)
-        ret._owner = owner
         return ret
 
     @staticmethod
@@ -187,8 +181,7 @@ cdef class PartitionVectorChunk:
         return PartitionVectorChunk.from_handle(
             make_unique[cpp_PartitionVectorChunk](
                 message._handle.release[cpp_PartitionVectorChunk]()
-            ),
-            owner = None,
+            )
         )
 
     def into_message(self, Message message not None):
@@ -213,6 +206,8 @@ cdef class PartitionVectorChunk:
         --------
         The PartitionVectorChunk is released and must not be used after this call.
         """
+        if not message.empty():
+            raise ValueError("cannot move into a non-empty message")
         message._handle = cpp_Message(self.release_handle())
 
     cdef const cpp_PartitionVectorChunk* handle_ptr(self):

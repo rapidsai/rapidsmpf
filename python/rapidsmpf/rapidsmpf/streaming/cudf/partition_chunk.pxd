@@ -21,11 +21,10 @@ cdef extern from "<rapidsmpf/streaming/cudf/partition.hpp>" nogil:
 
 cdef class PartitionMapChunk:
     cdef unique_ptr[cpp_PartitionMapChunk] _handle
-    cdef object _owner
 
     @staticmethod
     cdef PartitionMapChunk from_handle(
-        unique_ptr[cpp_PartitionMapChunk] handle, object owner
+        unique_ptr[cpp_PartitionMapChunk] handle
     )
     cdef const cpp_PartitionMapChunk* handle_ptr(self)
     cdef unique_ptr[cpp_PartitionMapChunk] release_handle(self)
@@ -33,11 +32,10 @@ cdef class PartitionMapChunk:
 
 cdef class PartitionVectorChunk:
     cdef unique_ptr[cpp_PartitionVectorChunk] _handle
-    cdef object _owner
 
     @staticmethod
     cdef PartitionVectorChunk from_handle(
-        unique_ptr[cpp_PartitionVectorChunk] handle, object owner
+        unique_ptr[cpp_PartitionVectorChunk] handle
     )
     cdef const cpp_PartitionVectorChunk* handle_ptr(self)
     cdef unique_ptr[cpp_PartitionVectorChunk] release_handle(self)
