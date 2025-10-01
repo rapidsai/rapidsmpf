@@ -15,59 +15,88 @@
 
 #include <rapidsmpf/buffer/pinned_memory_resource.hpp>
 
+#include "utils.hpp"
+
 class PinnedHostBufferTest : public ::testing::TestWithParam<size_t> {
   protected:
     void SetUp() override {
-        stream = rmm::cuda_stream_default;
         p_pool = std::make_unique<rapidsmpf::PinnedMemoryPool>(0);
-        p_resource = std::make_shared<rapidsmpf::PinnedMemoryResource>(*p_pool);
+        p_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>(*p_pool);
+        stream.wait();
     }
 
     void TearDown() override {
-        p_resource.reset();
+        p_mr.reset();
         p_pool.reset();
     }
 
-    rmm::cuda_stream_view stream;
+    // rmm::cuda_stream_view stream;
+    cuda::stream_ref stream{};
     std::unique_ptr<rapidsmpf::PinnedMemoryPool> p_pool;
-    std::shared_ptr<rapidsmpf::PinnedMemoryResource> p_resource;
+    std::shared_ptr<rapidsmpf::PinnedMemoryResource> p_mr;
 };
 
 TEST_P(PinnedHostBufferTest, BufferWithDeepCopy) {
     const size_t buffer_size = GetParam();
-    const size_t num_elements = buffer_size / sizeof(int);
 
     // Create a vector with random data
-    std::vector<int> source_data(num_elements);
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> dis(1, 1000);
-
-    for (auto& val : source_data) {
-        val = dis(gen);
-    }
+    auto source_data = random_vector<uint8_t>(0, buffer_size);
 
     // Create pinned buffer using deep copy constructor
-    rapidsmpf::PinnedHostBuffer buffer(
-        source_data.data(), buffer_size, stream, p_resource
-    );
+    rapidsmpf::PinnedHostBuffer buffer(source_data.data(), buffer_size, stream, p_mr);
 
     // Synchronize on stream to ensure copy is complete
-    stream.synchronize();
+    buffer.synchronize();
 
-    // Check the contents using std::memcmp
+    // Check the contents using std::equal
     ASSERT_EQ(buffer.size(), buffer_size);
     ASSERT_NE(buffer.data(), nullptr);
 
+    const auto* data = buffer.data();
     EXPECT_TRUE(
         std::equal(
-            source_data.begin(), source_data.end(), reinterpret_cast<int*>(buffer.data())
+            source_data.begin(), source_data.end(), reinterpret_cast<const uint8_t*>(data)
+        )
+    );
+
+    // move constructor
+    rapidsmpf::PinnedHostBuffer buffer2(std::move(buffer));
+    // no need to synchronize because the stream is the same
+    EXPECT_TRUE(
+        std::equal(
+            source_data.begin(),
+            source_data.end(),
+            reinterpret_cast<const uint8_t*>(buffer2.data())
+        )
+    );
+    EXPECT_EQ(data, buffer2.data());
+
+    // move assignment
+    buffer = std::move(buffer2);
+    // no need to synchronize because the stream is the same
+    EXPECT_TRUE(
+        std::equal(
+            source_data.begin(),
+            source_data.end(),
+            reinterpret_cast<const uint8_t*>(buffer.data())
+        )
+    );
+    EXPECT_EQ(data, buffer.data());
+
+    // deep copy
+    rapidsmpf::PinnedHostBuffer buffer3(buffer, stream, p_mr);
+    buffer3.synchronize();
+    EXPECT_TRUE(
+        std::equal(
+            source_data.begin(),
+            source_data.end(),
+            reinterpret_cast<const uint8_t*>(buffer3.data())
         )
     );
 
     // Clean up
     buffer.deallocate_async();
-    stream.synchronize();
+    buffer3.deallocate_async();
 }
 
 // Test with various buffer sizes

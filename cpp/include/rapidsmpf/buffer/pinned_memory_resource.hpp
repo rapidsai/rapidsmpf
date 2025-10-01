@@ -125,15 +125,32 @@ class PinnedMemoryResource {
 };
 
 /**
- * @brief A buffer that manages pinned host memory.
+ * @brief A buffer that manages stream-ordered pinned host memory.
  *
- * This class provides a convenient interface for managing pinned host memory
- * buffers. It automatically handles allocation and deallocation through a
- * PinnedMemoryResource and supports both empty buffer creation and buffer
- * creation with data copying.
+ * @note The buffer is allocated asynchronously on a given stream. Even though `data()`
+ * ptr is immediately available, the buffer may not be ready to use in stream-unaware
+ * operations until the stream is synchronized. Use `stream_ref()` to get the stream
+ * reference and synchronize it as needed. See for more details:
+ * https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY__POOLS.html#group__CUDART__MEMORY__POOLS_1g871003f518e27ec92f7b331307fa32d4
+ *
+ * @code{.cpp}
+ * rapidsmpf::PinnedHostBuffer buffer1(1024, stream, mr);
+ * rapidsmpf::PinnedHostBuffer buffer2(1024, stream, mr);
+ *
+ * // data() is immediately available for cuda*Async operations. Eg.
+ * cudaMemcpyAsync(buffer2.data(), buffer1.data(), 1024, cudaMemcpyDefault, stream);
+ *
+ * // for stream-unaware operations, the stream must be synchronized.
+ * std::vector<uint8_t> data(1024);
+ * buffer1.synchronize(); // now buffer1 is ready to use in stream-unaware operations.
+ * std::memcpy(data.data(), buffer1.data(), 1024);
+ * std::cout << buffer1.data()[0] << ", " << data[0] << std::endl;
+ * @endcode
  */
 class PinnedHostBuffer {
   public:
+    PinnedHostBuffer() = default;
+
     /**
      * @brief Constructs an empty pinned host buffer.
      *
@@ -178,8 +195,7 @@ class PinnedHostBuffer {
     );
 
     /**
-     * @brief Destroys the pinned host buffer and waits for the associated stream to
-     * complete.
+     * @brief Asynchronously destroys the pinned host buffer.
      */
     ~PinnedHostBuffer() noexcept;
 
@@ -255,6 +271,13 @@ class PinnedHostBuffer {
     constexpr void set_stream(cuda::stream_ref stream) noexcept {
         stream_ref_ = stream;
     }
+
+    /**
+     * @brief Synchronizes the buffer with the underlying stream.
+     *
+     * @throws rapidsmpf::cuda_error if the stream synchronization fails.
+     */
+    void synchronize();
 
     std::byte* data_ = nullptr;  ///< Pointer to the allocated buffer data.
     size_t size_;  ///< Size of the buffer in bytes.

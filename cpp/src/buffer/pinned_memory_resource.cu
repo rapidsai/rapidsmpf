@@ -111,7 +111,6 @@ PinnedHostBuffer::PinnedHostBuffer(
 
 PinnedHostBuffer::~PinnedHostBuffer() noexcept {
     deallocate_async();
-    stream_ref_.wait();
 }
 
 PinnedHostBuffer::PinnedHostBuffer(PinnedHostBuffer&& other)
@@ -138,6 +137,10 @@ void PinnedHostBuffer::deallocate_async() noexcept {
         data_ = nullptr;
         size_ = 0;
     }
+}
+
+void PinnedHostBuffer::synchronize() {
+    RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream_ref_.get()));
 }
 
 }  // namespace rapidsmpf
