@@ -55,38 +55,46 @@ TEST_P(PinnedHostBufferTest, synchronized_host_data) {
     ASSERT_NE(buffer.data(), nullptr);
 
     const auto* data = buffer.data();
-    EXPECT_TRUE(std::equal(
-        source_data.begin(), source_data.end(), reinterpret_cast<const uint8_t*>(data)
-    ));
+    EXPECT_TRUE(
+        std::equal(
+            source_data.begin(), source_data.end(), reinterpret_cast<const uint8_t*>(data)
+        )
+    );
 
     // move constructor
     rapidsmpf::PinnedHostBuffer buffer2(std::move(buffer));
     // no need to synchronize because the stream is the same
-    EXPECT_TRUE(std::equal(
-        source_data.begin(),
-        source_data.end(),
-        reinterpret_cast<const uint8_t*>(buffer2.data())
-    ));
+    EXPECT_TRUE(
+        std::equal(
+            source_data.begin(),
+            source_data.end(),
+            reinterpret_cast<const uint8_t*>(buffer2.data())
+        )
+    );
     EXPECT_EQ(data, buffer2.data());
 
     // move assignment
     buffer = std::move(buffer2);
     // no need to synchronize because the stream is the same
-    EXPECT_TRUE(std::equal(
-        source_data.begin(),
-        source_data.end(),
-        reinterpret_cast<const uint8_t*>(buffer.data())
-    ));
+    EXPECT_TRUE(
+        std::equal(
+            source_data.begin(),
+            source_data.end(),
+            reinterpret_cast<const uint8_t*>(buffer.data())
+        )
+    );
     EXPECT_EQ(data, buffer.data());
 
     // deep copy
     rapidsmpf::PinnedHostBuffer buffer3(buffer, stream, p_mr);
     buffer3.synchronize();
-    EXPECT_TRUE(std::equal(
-        source_data.begin(),
-        source_data.end(),
-        reinterpret_cast<const uint8_t*>(buffer3.data())
-    ));
+    EXPECT_TRUE(
+        std::equal(
+            source_data.begin(),
+            source_data.end(),
+            reinterpret_cast<const uint8_t*>(buffer3.data())
+        )
+    );
 
     // Clean up
     buffer.deallocate_async();
@@ -108,11 +116,13 @@ TEST_P(PinnedHostBufferTest, device_data) {
     ASSERT_NE(buffer.data(), nullptr);
 
     buffer.synchronize();
-    EXPECT_TRUE(std::equal(
-        host_data.begin(),
-        host_data.end(),
-        reinterpret_cast<const uint8_t*>(buffer.data())
-    ));
+    EXPECT_TRUE(
+        std::equal(
+            host_data.begin(),
+            host_data.end(),
+            reinterpret_cast<const uint8_t*>(buffer.data())
+        )
+    );
 }
 
 // Test with various buffer sizes
