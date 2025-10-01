@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
@@ -67,6 +68,15 @@ struct PackedData {
      */
     [[nodiscard]] bool empty() const {
         return metadata->empty() && data->size == 0;
+    }
+
+    /**
+     * @brief Get the stream associated with the data buffer.
+     *
+     * @return The CUDA stream.
+     */
+    [[nodiscard]] rmm::cuda_stream_view stream() const {
+        return data->stream();
     }
 };
 
