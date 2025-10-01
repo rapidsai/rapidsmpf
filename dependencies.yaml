@@ -281,6 +281,7 @@ dependencies:
           - gdb
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - valgrind
+          - gdb
   test_python:
     common:
       - output_types: conda

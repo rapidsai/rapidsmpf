@@ -24,12 +24,8 @@ cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
 
 cdef class TableChunk:
     cdef unique_ptr[cpp_TableChunk] _handle
-    cdef Stream _stream
-    cdef object _owner
 
     @staticmethod
-    cdef TableChunk from_handle(
-        unique_ptr[cpp_TableChunk] handle, Stream stream, object owner
-    )
+    cdef TableChunk from_handle(unique_ptr[cpp_TableChunk] handle)
     cdef const cpp_TableChunk* handle_ptr(self)
     cdef unique_ptr[cpp_TableChunk] release_handle(self)
