@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <random>
 #include <vector>
 
@@ -19,7 +20,7 @@ class PinnedHostBufferTest : public ::testing::TestWithParam<size_t> {
     void SetUp() override {
         stream = rmm::cuda_stream_default;
         p_pool = std::make_unique<rapidsmpf::PinnedMemoryPool>(0);
-        p_resource = std::make_unique<rapidsmpf::PinnedMemoryResource>(*p_pool);
+        p_resource = std::make_shared<rapidsmpf::PinnedMemoryResource>(*p_pool);
     }
 
     void TearDown() override {
@@ -29,7 +30,7 @@ class PinnedHostBufferTest : public ::testing::TestWithParam<size_t> {
 
     rmm::cuda_stream_view stream;
     std::unique_ptr<rapidsmpf::PinnedMemoryPool> p_pool;
-    std::unique_ptr<rapidsmpf::PinnedMemoryResource> p_resource;
+    std::shared_ptr<rapidsmpf::PinnedMemoryResource> p_resource;
 };
 
 TEST_P(PinnedHostBufferTest, BufferWithDeepCopy) {
@@ -48,7 +49,7 @@ TEST_P(PinnedHostBufferTest, BufferWithDeepCopy) {
 
     // Create pinned buffer using deep copy constructor
     rapidsmpf::PinnedHostBuffer buffer(
-        source_data.data(), buffer_size, stream, p_resource.get()
+        source_data.data(), buffer_size, stream, p_resource
     );
 
     // Synchronize on stream to ensure copy is complete
@@ -60,7 +61,7 @@ TEST_P(PinnedHostBufferTest, BufferWithDeepCopy) {
 
     EXPECT_TRUE(
         std::equal(
-            source_data.begin(), source_data.end(), static_cast<int*>(buffer.data())
+            source_data.begin(), source_data.end(), reinterpret_cast<int*>(buffer.data())
         )
     );
 

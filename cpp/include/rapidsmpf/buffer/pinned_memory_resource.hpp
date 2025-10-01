@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <memory>
 
 #include <cuda_runtime_api.h>
@@ -13,19 +14,17 @@
 namespace rapidsmpf {
 
 class PinnedMemoryResource;  // forward declaration
-class PinnedHostBuffer;  // forward declaration
 
 /**
- * @brief Properties for configuring a pinned memory pool, mimics
+ * @brief Properties for configuring a pinned memory pool. It is aimed to mimic
  * `cuda::experimental::memory_pool_properties`. See for more details:
  * https://nvidia.github.io/cccl/cudax/api/structcuda_1_1experimental_1_1memory__pool__properties.html
+ *
+ * Currently, this is a placeholder and does not have any effect. It was observed that
+ * priming async pools have little effect for performance. See for more details:
+ * https://github.com/rapidsai/rmm/issues/1931
  */
-struct PinnedPoolProperties {
-    size_t initial_pool_size{0};  ///< Initial size of the memory pool in bytes.
-    size_t release_threshold{
-        0
-    };  ///< Threshold below which memory is released back to the system.
-};
+struct PinnedPoolProperties {};
 
 /**
  * @brief A pinned host memory pool for stream-ordered allocations/deallocations. This
@@ -87,8 +86,6 @@ class PinnedMemoryPool {
  * (page-locked) host memory asynchronously using CUDA streams.
  */
 class PinnedMemoryResource {
-    friend class PinnedHostBuffer;
-
   public:
     /**
      * @brief Constructs a new pinned memory resource.
@@ -142,27 +139,42 @@ class PinnedHostBuffer {
      *
      * @param size The size of the buffer in bytes.
      * @param stream The CUDA stream to use for memory operations.
-     * @param p_resource Pointer to the memory resource to use for allocation and
+     * @param mr Shared pointer to the memory resource to use for allocation and
      * deallocation.
      */
     PinnedHostBuffer(
-        size_t size, cuda::stream_ref stream, PinnedMemoryResource* p_resource
+        size_t size, cuda::stream_ref stream, std::shared_ptr<PinnedMemoryResource> mr
     );
 
     /**
      * @brief Constructs a pinned host buffer and copies data into it.
      *
-     * @param data Pointer to the source data to copy.
+     * @param src_data Pointer to the source data to copy.
      * @param size The size of the data to copy in bytes.
      * @param stream The CUDA stream to use for memory operations.
-     * @param p_resource Pointer to the memory resource to use for allocation and
+     * @param mr Shared pointer to the memory resource to use for allocation and
      * deallocation.
      */
     PinnedHostBuffer(
-        void const* data,
+        void const* src_data,
         size_t size,
         cuda::stream_ref stream,
-        PinnedMemoryResource* p_resource
+        std::shared_ptr<PinnedMemoryResource> mr
+    );
+
+    /**
+     * @brief Constructs a pinned host buffer by copying data from another pinned host
+     * buffer on the given stream.
+     *
+     * @param other The other pinned host buffer to copy from.
+     * @param stream The CUDA stream to use for memory operations.
+     * @param mr Shared pointer to the memory resource to use for allocation and
+     * deallocation.
+     */
+    PinnedHostBuffer(
+        PinnedHostBuffer const& other,
+        cuda::stream_ref stream,
+        std::shared_ptr<PinnedMemoryResource> mr
     );
 
     /**
@@ -171,6 +183,24 @@ class PinnedHostBuffer {
      */
     ~PinnedHostBuffer() noexcept;
 
+    /**
+     * @brief Move constructor.
+     *
+     * @param other The other pinned host buffer to move from.
+     */
+    PinnedHostBuffer(PinnedHostBuffer&& other);
+
+    /**
+     * @brief Move assignment operator.
+     *
+     * @param other The other pinned host buffer to move from.
+     * @return Moved this.
+     */
+    PinnedHostBuffer& operator=(PinnedHostBuffer&& other);
+
+    // copy constructor and assignment operator are deleted. Use stream variant instead.
+    PinnedHostBuffer(const PinnedHostBuffer& other) = delete;
+    PinnedHostBuffer& operator=(const PinnedHostBuffer& other) = delete;
 
     /**
      * @brief Deallocates the buffer memory asynchronously.
@@ -186,7 +216,7 @@ class PinnedHostBuffer {
      *
      * @return A const pointer to the buffer data, or nullptr if not allocated.
      */
-    [[nodiscard]] constexpr void* data() const noexcept {
+    [[nodiscard]] constexpr std::byte const* data() const noexcept {
         return data_;
     }
 
@@ -195,7 +225,7 @@ class PinnedHostBuffer {
      *
      * @return A pointer to the buffer data, or nullptr if not allocated.
      */
-    constexpr void* data() noexcept {
+    constexpr std::byte* data() noexcept {
         return data_;
     }
 
@@ -226,11 +256,11 @@ class PinnedHostBuffer {
         stream_ref_ = stream;
     }
 
-    void* data_ = nullptr;  ///< Pointer to the allocated buffer data.
+    std::byte* data_ = nullptr;  ///< Pointer to the allocated buffer data.
     size_t size_;  ///< Size of the buffer in bytes.
     cuda::stream_ref stream_ref_;  ///< CUDA stream used for memory operations.
-    PinnedMemoryResource*
-        p_resource_;  ///< Pointer to the memory resource used for allocation.
+    std::shared_ptr<PinnedMemoryResource>
+        mr_;  ///< Shared pointer to the memory resource used for allocation/deallocation.
 };
 
 }  // namespace rapidsmpf
