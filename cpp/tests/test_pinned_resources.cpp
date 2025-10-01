@@ -1,4 +1,7 @@
-
+/**
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <algorithm>
 #include <cstring>
@@ -10,23 +13,6 @@
 #include <rmm/cuda_stream_view.hpp>
 
 #include <rapidsmpf/buffer/pinned_memory_resource.hpp>
-
-TEST(PinnedHostBufferTest, Basic) {
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
-    rapidsmpf::PinnedMemoryPool p_pool(0);
-    rapidsmpf::PinnedMemoryResource p_resource(p_pool);
-
-    rapidsmpf::PinnedHostBuffer buffer(1024, stream, &p_resource);
-
-    stream.synchronize();
-
-    std::cout << "buffer.data: " << buffer.data() << " " << buffer.size() << std::endl;
-
-    buffer.deallocate_async();
-    stream.synchronize();
-
-    std::cout << "buffer deallocated" << std::endl;
-}
 
 class PinnedHostBufferTest : public ::testing::TestWithParam<size_t> {
   protected:
@@ -72,9 +58,11 @@ TEST_P(PinnedHostBufferTest, BufferWithDeepCopy) {
     ASSERT_EQ(buffer.size(), buffer_size);
     ASSERT_NE(buffer.data(), nullptr);
 
-    EXPECT_TRUE(std::equal(
-        source_data.begin(), source_data.end(), static_cast<int*>(buffer.data())
-    ));
+    EXPECT_TRUE(
+        std::equal(
+            source_data.begin(), source_data.end(), static_cast<int*>(buffer.data())
+        )
+    );
 
     // Clean up
     buffer.deallocate_async();

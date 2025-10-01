@@ -22,7 +22,8 @@ class PinnedHostBuffer;  // forward declaration
  */
 struct PinnedPoolProperties {
     size_t initial_pool_size{0};  ///< Initial size of the memory pool in bytes.
-    size_t release_threshold{0
+    size_t release_threshold{
+        0
     };  ///< Threshold below which memory is released back to the system.
 };
 
@@ -165,7 +166,8 @@ class PinnedHostBuffer {
     );
 
     /**
-     * @brief Destroys the pinned host buffer and waits for the associated stream to complete.
+     * @brief Destroys the pinned host buffer and waits for the associated stream to
+     * complete.
      */
     ~PinnedHostBuffer() noexcept;
 

@@ -37,9 +37,11 @@ struct PinnedMemoryPool::PinnedMemoryPoolImpl {
 PinnedMemoryPool::PinnedMemoryPool(int numa_id, PinnedPoolProperties properties)
     : numa_id_(numa_id),
       properties_(std::move(properties)),
-      impl_(std::make_unique<PinnedMemoryPoolImpl>(
-          numa_id, get_memory_pool_properties(properties_)
-      )) {}
+      impl_(
+          std::make_unique<PinnedMemoryPoolImpl>(
+              numa_id, get_memory_pool_properties(properties_)
+          )
+      ) {}
 
 PinnedMemoryPool::~PinnedMemoryPool() = default;
 
@@ -60,9 +62,7 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
 };
 
 PinnedMemoryResource::PinnedMemoryResource(PinnedMemoryPool& pool)
-    : impl_(std::make_unique<PinnedMemoryResourceImpl>(
-          pool.impl_->p_pool
-      )) {}
+    : impl_(std::make_unique<PinnedMemoryResourceImpl>(pool.impl_->p_pool)) {}
 
 PinnedMemoryResource::~PinnedMemoryResource() = default;
 
