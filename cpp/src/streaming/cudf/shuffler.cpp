@@ -120,9 +120,9 @@ coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartI
     );
     extracted_pids_.emplace(pid);
     auto all_extracted = all_extracted_unsafe();
-    lock.unlock();  // no longer need the lock
 
     auto chunks = shuffler_.extract(pid);
+    lock.unlock();  // no longer need the lock
 
     // if all partitions have been extracted, notify all waiting tasks.
     if (all_extracted) {
@@ -152,9 +152,8 @@ ShufflerAsync::extract_any_async() {
     auto pid = ready_pids_.extract(ready_pids_.begin()).value();
     extracted_pids_.emplace(pid);
     auto all_extracted = all_extracted_unsafe();
-    lock.unlock();
-
     auto chunks = shuffler_.extract(pid);
+    lock.unlock();
 
     // if all partitions have been extracted, notify all waiting tasks.
     if (all_extracted) {
