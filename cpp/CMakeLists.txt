@@ -113,6 +113,7 @@ rapids_find_package(
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
+include(../cmake/thirdparty/get_cccl_cudax.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
     ucxx REQUIRED
@@ -154,6 +155,7 @@ add_library(
   src/utils.cpp
   src/allgather/allgather.cpp
   src/buffer/buffer.cpp
+  src/buffer/pinned_memory_resource.cu
   src/buffer/resource.cpp
   src/buffer/spill_manager.cpp
   src/communicator/communicator.cpp
@@ -217,9 +219,10 @@ target_include_directories(
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
+  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
+         $<TARGET_NAME_IF_EXISTS:libcoro>
   PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
-          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan $<TARGET_NAME_IF_EXISTS:CCCL_CUDAX>
 )
 
 target_compile_definitions(
