@@ -122,7 +122,7 @@ coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartI
     auto all_extracted = all_extracted_unsafe();
 
     auto chunks = shuffler_.extract(pid);
-    lock.unlock();  // no longer need the lock
+    lock.unlock();
 
     // if all partitions have been extracted, notify all waiting tasks.
     if (all_extracted) {
