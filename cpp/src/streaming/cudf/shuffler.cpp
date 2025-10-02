@@ -93,7 +93,9 @@ bool ShufflerAsync::all_extracted_unsafe() const {
     return extracted_pids_.size() == shuffler_.local_partitions().size();
 }
 
-coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartID pid) {
+coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
+    shuffler::PartID pid
+) {
     // Wait until the partition is finished
     auto lock = co_await mtx_.scoped_lock();
 
@@ -108,11 +110,9 @@ coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartI
     });
 
     // Did we wake up because all partitions have been extracted?.
-    RAPIDSMPF_EXPECTS(
-        !all_extracted_unsafe(),
-        "all partition have been extracted already",
-        std::out_of_range
-    );
+    if (all_extracted_unsafe()) {
+        co_return std::nullopt;
+    }
 
     // pid has now been extracted and isn't ready anymore.
     RAPIDSMPF_EXPECTS(ready_pids_.erase(pid) > 0, "something went wrong");

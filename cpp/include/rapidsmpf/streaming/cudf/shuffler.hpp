@@ -101,22 +101,22 @@ class ShufflerAsync {
     /**
      * @brief Asynchronously extracts all data for a specific partition.
      *
-     * This coroutine will suspend until the specified partition is ready for extraction
-     * (i.e., insert_finished has been called for this partition and all data has been
+     * This coroutine suspends until the specified partition is ready for extraction
+     * (i.e., `insert_finished` has been called for this partition and all data has been
      * shuffled).
      *
-     * @warning Users should be careful when using `extract_async` and `extract_any_async`
-     * together, because a pid intended for `extract_async` may be extracted by
-     * `extract_any_async`, hence there will be no guarantee that the chunks will be
-     * returned. If that happens, `extract_async` will throw an std::out_of_range error.
+     * @warning Be careful when mixing `extract_async` and `extract_any_async`.
+     * A partition intended for `extract_async` may already have been consumed by
+     * `extract_any_async`, in which case this function returns `std::nullopt`.
      *
      * @param pid The partition ID to extract data for.
-     * @return A vector of PackedData chunks for the partition.
-     *
-     * @throws std::out_of_range if the partition ID is not found or already extracted.
-     *
+     * @return
+     *   - `std::nullopt` if the partition ID is not ready or has already been extracted.
+     *   - Otherwise, a vector of `PackedData` chunks belonging to the partition.
      */
-    coro::task<std::vector<PackedData>> extract_async(shuffler::PartID pid);
+    coro::task<std::optional<std::vector<PackedData>>> extract_async(
+        shuffler::PartID pid
+    );
 
     /**
      * @brief Result type for extract_any_async operations.
@@ -138,6 +138,21 @@ class ShufflerAsync {
      * @warning Users should be careful when using `extract_async` and `extract_any_async`
      * together, because a pid intended for `extract_async` may be extracted by
      * `extract_any_async`.
+     */
+    /**
+     * @brief Asynchronously extracts data for any ready partition.
+     *
+     * This coroutine will suspend until at least one partition is ready for extraction,
+     * then extract and return the data for one such partition. If no partitions become
+     * ready and the shuffle is finished, returns a nullopt.
+     *
+     * @return `ExtractResult` containing the partition ID and data chunks, or a nullopt
+     * if all partitions has been extracted.
+     *
+     * @warning Be careful when mixing `extract_async` and `extract_any_async`.
+     * A partition intended for `extract_async` may already have been consumed by
+     * `extract_any_async`, in which case `extract_async` will later return
+     * `std::nullopt`.
      */
     coro::task<std::optional<ExtractResult>> extract_any_async();
 

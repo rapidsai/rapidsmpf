@@ -434,8 +434,7 @@ TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
 
         size_t parts_extracted = 0;
         while (true) {  // extract all partitions
-            auto res = coro::sync_wait(shuffler->extract_any_async());
-            if (!res.has_value()) {
+            if (!coro::sync_wait(shuffler->extract_any_async()).has_value()) {
                 break;
             }
             parts_extracted++;
@@ -481,13 +480,14 @@ class CompetingShufflerAsyncTest : public BaseStreamingShuffle {
         auto [extract_any_result, extract_result] =
             produce_results_fn(shuffler.get(), this_pid);
 
-        // if extract_any_result is valid, then extract_result should throw
+        // if extract_any_result is valid, then extract_result should return nullopt
         if (extract_any_result.return_value().has_value()) {
             EXPECT_EQ(extract_any_result.return_value()->first, this_pid);
-            EXPECT_THROW(extract_result.return_value(), std::out_of_range);
+            EXPECT_EQ(extract_result.return_value(), std::nullopt);
         } else {
             // else extract_result should be valid and an empty vector
-            EXPECT_EQ(extract_result.return_value().size(), 0);
+            EXPECT_TRUE(extract_result.return_value().has_value());
+            EXPECT_EQ(extract_result.return_value()->size(), 0);
         }
     }
 };
