@@ -104,33 +104,20 @@ coro::task<std::vector<PackedData>> ShufflerAsync::extract_async(shuffler::PartI
     );
 
     co_await cv_.wait(lock, [this, pid]() {
-        // Note: purposefully not checking for extracted_pids_.contains(pid) here,
-        // because it would require notifying the cv every time a partition is extracted.
-        // Consequence of this is that, if pid was extracted by some other task, this task
-        // would only be notified during the all_extracted check.
         return all_extracted_unsafe() || ready_pids_.contains(pid);
     });
 
-    // partition not found (may have been already extracted or shuffler was finished
-    // before the pid was inserted into ready_pids_)
+    // Did we wake up because all partitions have been extracted?.
     RAPIDSMPF_EXPECTS(
-        !extracted_pids_.contains(pid) && ready_pids_.erase(pid) > 0,
-        "partition already extracted or not found: " + std::to_string(pid),
+        !all_extracted_unsafe(),
+        "all partition have been extracted already",
         std::out_of_range
     );
-    extracted_pids_.emplace(pid);
-    auto all_extracted = all_extracted_unsafe();
 
-    auto chunks = shuffler_.extract(pid);
-    lock.unlock();
-
-    // if all partitions have been extracted, notify all waiting tasks.
-    if (all_extracted) {
-        ctx_->comm()->logger().trace("all partitions extracted");
-        co_await cv_.notify_all();
-    }
-
-    co_return std::move(chunks);
+    // pid has now been extracted and isn't ready anymore.
+    RAPIDSMPF_EXPECTS(ready_pids_.erase(pid) > 0, "something went wrong");
+    RAPIDSMPF_EXPECTS(extracted_pids_.emplace(pid).second, "something went wrong");
+    co_return shuffler_.extract(pid);
 }
 
 coro::task<std::optional<ShufflerAsync::ExtractResult>>
@@ -141,27 +128,17 @@ ShufflerAsync::extract_any_async() {
         return all_extracted_unsafe() || !ready_pids_.empty();
     });
 
-    // no partitions to extract or shuffle is already finished. Gracefully return an
-    // invalid result.
-    if (ready_pids_.empty()) {
-        lock.unlock();
+    // If all partitions have been extract, return an invalid result.
+    if (all_extracted_unsafe()) {
+        RAPIDSMPF_EXPECTS(ready_pids_.empty(), "something went wrong");
         ctx_->comm()->logger().trace("no partitions to extract");
         co_return std::nullopt;
     }
 
+    // Move the pid from the ready to extracted set.
     auto pid = ready_pids_.extract(ready_pids_.begin()).value();
     extracted_pids_.emplace(pid);
-    auto all_extracted = all_extracted_unsafe();
-    auto chunks = shuffler_.extract(pid);
-    lock.unlock();
-
-    // if all partitions have been extracted, notify all waiting tasks.
-    if (all_extracted) {
-        ctx_->comm()->logger().trace("all partitions extracted");
-        co_await cv_.notify_all();
-    }
-
-    co_return std::make_pair(pid, std::move(chunks));
+    co_return std::make_pair(pid, shuffler_.extract(pid));
 }
 
 namespace node {

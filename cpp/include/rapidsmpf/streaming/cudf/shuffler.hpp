@@ -150,11 +150,9 @@ class ShufflerAsync {
     std::shared_ptr<Context> ctx_;
     shuffler::Shuffler shuffler_;
     std::unordered_set<shuffler::PartID>
-        ready_pids_;  ///< set to collect all the partitions that are ready for
-                      ///< extraction. It will be untimately be emptied once all local
-                      ///< partitions have been extracted.
-    std::unordered_set<shuffler::PartID>
-        extracted_pids_;  ///< set to collect all the partitions that have been extracted.
+        ready_pids_;  ///< all partitions that are ready for extraction AND hasn't
+                      ///< been extracted yet.
+    std::unordered_set<shuffler::PartID> extracted_pids_;  ///< all extracted partitions.
 };
 
 namespace node {
