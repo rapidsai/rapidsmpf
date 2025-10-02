@@ -25,9 +25,13 @@ TableChunk::TableChunk(
     std::uint64_t sequence_number,
     cudf::table_view table_view,
     std::size_t device_alloc_size,
-    rmm::cuda_stream_view stream
+    rmm::cuda_stream_view stream,
+    OwningWrapper&& owner
 )
-    : sequence_number_{sequence_number}, table_view_{table_view}, stream_{stream} {
+    : owner_{std::move(owner)},
+      sequence_number_{sequence_number},
+      table_view_{table_view},
+      stream_{stream} {
     data_alloc_size_[static_cast<std::size_t>(MemoryType::DEVICE)] = device_alloc_size;
     make_available_cost_ = 0;
 }

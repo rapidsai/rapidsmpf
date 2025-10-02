@@ -19,6 +19,7 @@
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/cudf/owning_wrapper.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -58,12 +59,17 @@ class TableChunk {
      * @param table_view Device-resident table view.
      * @param device_alloc_size The number of bytes in device memory.
      * @param stream The CUDA stream on which the table was created.
+     * @param owner Optional object owning the memory backing the @p table_view. If it
+     * exists this object will be destructed last when the @p TableChunk is destroyed.
+     * This is typically used when constructing a @p TableChunk from python and we need to
+     * keep the owning python object alive.
      */
     TableChunk(
         std::uint64_t sequence_number,
         cudf::table_view table_view,
         std::size_t device_alloc_size,
-        rmm::cuda_stream_view stream
+        rmm::cuda_stream_view stream,
+        OwningWrapper&& owner = {}
     );
 
     /**
@@ -183,6 +189,9 @@ class TableChunk {
     [[nodiscard]] TableChunk spill_to_host(BufferResource* br);
 
   private:
+    ///< @brief Optional owning object if the TableChunk was constructed from a
+    ///< table_view.
+    OwningWrapper owner_{};
     std::uint64_t sequence_number_;
 
     // At most, one of the following unique pointers is non-null. If all of them are null,

@@ -17,6 +17,8 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 
+#include <rapidsmpf/streaming/core/channel.hpp>
+#include <rapidsmpf/streaming/cudf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 #include "../utils.hpp"
@@ -41,6 +43,51 @@ TEST_F(StreamingTableChunk, FromTable) {
     EXPECT_TRUE(chunk.is_available());
     EXPECT_EQ(chunk.make_available_cost(), 0);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk.table_view(), expect);
+}
+
+TEST_F(StreamingTableChunk, TableChunkOwner) {
+    constexpr unsigned int num_rows = 100;
+    constexpr std::int64_t seed = 1337;
+    constexpr std::uint64_t seq = 42;
+
+    cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
+    // Static because the deleter function is a void(*)(void*) which precludes the use of
+    // a lambda with captures.
+    static std::size_t num_deletions{0};
+    auto deleter = [](void* p) {
+        num_deletions++;
+        delete static_cast<int*>(p);
+    };
+    auto make_chunk = [&]() {
+        return TableChunk{
+            seq, expect, expect.alloc_size(), stream, OwningWrapper(new int, deleter)
+        };
+    };
+    auto check_chunk = [&](TableChunk const& chunk) {
+        EXPECT_EQ(chunk.sequence_number(), seq);
+        EXPECT_EQ(chunk.stream().value(), stream.value());
+        EXPECT_TRUE(chunk.is_available());
+        EXPECT_EQ(chunk.make_available_cost(), 0);
+        CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk.table_view(), expect);
+    };
+    {
+        auto chunk = make_chunk();
+        check_chunk(chunk);
+        EXPECT_EQ(num_deletions, 0);
+    }
+    EXPECT_EQ(num_deletions, 1);
+    {
+        auto msg = Message(std::make_unique<TableChunk>(make_chunk()));
+        EXPECT_EQ(num_deletions, 1);
+    }
+    EXPECT_EQ(num_deletions, 2);
+    {
+        auto msg = Message(std::make_unique<TableChunk>(make_chunk()));
+        auto chunk = msg.release<TableChunk>();
+        check_chunk(chunk);
+        EXPECT_EQ(num_deletions, 2);
+    }
+    EXPECT_EQ(num_deletions, 3);
 }
 
 TEST_F(StreamingTableChunk, FromTableView) {

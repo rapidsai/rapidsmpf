@@ -56,10 +56,10 @@ TEST_F(ChunkTest, FromFinishedPartition) {
     auto chunk2 = Chunk::deserialize(*msg, true);
     test_chunk(chunk2);
 
-    auto chunk3 = chunk2.get_data(chunk_id, 0, stream, br.get());
+    auto chunk3 = chunk2.get_data(chunk_id, 0, br.get());
     test_chunk(chunk3);
 
-    EXPECT_THROW(chunk3.get_data(chunk_id, 1, stream, br.get()), std::out_of_range);
+    EXPECT_THROW(chunk3.get_data(chunk_id, 1, br.get()), std::out_of_range);
 }
 
 TEST_F(ChunkTest, FromPackedData) {
@@ -101,7 +101,7 @@ TEST_F(ChunkTest, FromPackedData) {
     chunk2.set_data_buffer(chunk.release_data_buffer());
     test_chunk(chunk2);
 
-    auto chunk3 = chunk2.get_data(chunk_id, 0, stream, br.get());
+    auto chunk3 = chunk2.get_data(chunk_id, 0, br.get());
     test_chunk(chunk3);
 }
 
@@ -114,7 +114,7 @@ TEST_F(ChunkTest, ChunkConcatControlMessages) {
     chunks.push_back(Chunk::from_finished_partition(0, 2, 20));
     chunks.push_back(Chunk::from_finished_partition(0, 3, 30));
 
-    auto concat_chunk = Chunk::concat(std::move(chunks), chunk_id, stream, br.get());
+    auto concat_chunk = Chunk::concat(std::move(chunks), chunk_id, br.get());
 
     // Verify the concatenated chunk properties
     EXPECT_EQ(concat_chunk.chunk_id(), chunk_id);
@@ -160,7 +160,7 @@ TEST_F(ChunkTest, ChunkConcatPackedData) {
         )
     );
 
-    auto concat_chunk = Chunk::concat(std::move(chunks), chunk_id, stream, br.get());
+    auto concat_chunk = Chunk::concat(std::move(chunks), chunk_id, br.get());
 
     // Verify the concatenated chunk properties
     EXPECT_EQ(concat_chunk.chunk_id(), chunk_id);
@@ -182,6 +182,7 @@ TEST_F(ChunkTest, ChunkConcatPackedData) {
     // Verify the concatenated metadata and data
     auto released_metadata = concat_chunk.release_metadata_buffer();
     auto released_data = concat_chunk.release_data_buffer();
+    released_data->stream().synchronize();
 
     ASSERT_NE(released_metadata, nullptr);
     EXPECT_EQ(released_metadata->size(), 5);  // Total size of both metadata chunks
@@ -247,7 +248,7 @@ std::tuple<Chunk, std::vector<uint8_t>, std::vector<uint8_t>, size_t> make_mixed
     );  // metadata only packed data
 
     return std::make_tuple(
-        Chunk::concat(std::move(chunks), chunk_id, stream, br), metadata, data, 6
+        Chunk::concat(std::move(chunks), chunk_id, br), metadata, data, 6
     );
 }
 
@@ -275,7 +276,7 @@ TEST_F(ChunkTest, ChunkConcatMixedMessages) {
         EXPECT_EQ(concat_chunk.metadata_size(i), meta_size);
         EXPECT_EQ(concat_chunk.data_size(i), data_size);
 
-        auto chunk_copy = concat_chunk.get_data(chunk_id, i, stream, br.get());
+        auto chunk_copy = concat_chunk.get_data(chunk_id, i, br.get());
 
         EXPECT_EQ(chunk_copy.part_id(0), part_id);
         EXPECT_EQ(chunk_copy.expected_num_chunks(0), expected_chunks);
@@ -294,6 +295,7 @@ TEST_F(ChunkTest, ChunkConcatMixedMessages) {
     // Verify the concatenated metadata and data
     auto released_metadata = concat_chunk.release_metadata_buffer();
     auto released_data = concat_chunk.release_data_buffer();
+    released_data->stream().synchronize();
 
     ASSERT_NE(released_metadata, nullptr);
     EXPECT_EQ(released_metadata->size(), 6);  // Total size of metadata
@@ -318,7 +320,7 @@ TEST_F(ChunkTest, ChunkConcatMixedMessagesMultiple) {
     chunks.push_back(std::move(concat_chunk1));
     chunks.push_back(std::move(concat_chunk2));
 
-    auto concat_chunk = Chunk::concat(std::move(chunks), 2, stream, br.get());
+    auto concat_chunk = Chunk::concat(std::move(chunks), 2, br.get());
 
     // Verify the concatenated chunk properties
     EXPECT_EQ(concat_chunk.chunk_id(), 2);
@@ -327,6 +329,7 @@ TEST_F(ChunkTest, ChunkConcatMixedMessagesMultiple) {
     // Verify the concatenated metadata and data
     auto released_metadata = concat_chunk.release_metadata_buffer();
     auto released_data = concat_chunk.release_data_buffer();
+    released_data->stream().synchronize();
 
     ASSERT_NE(released_metadata, nullptr);
     // Total size of metadata
@@ -369,7 +372,7 @@ TEST_F(ChunkTest, ChunkConcatSingleChunk) {
 
     chunks.push_back(Chunk::from_packed_data(0, 1, std::move(packed_data)));
 
-    auto concat_chunk = Chunk::concat(std::move(chunks), chunk_id, stream, br.get());
+    auto concat_chunk = Chunk::concat(std::move(chunks), chunk_id, br.get());
 
     // Verify the concatenated chunk properties
     EXPECT_EQ(concat_chunk.chunk_id(), chunk_id);
@@ -385,6 +388,7 @@ TEST_F(ChunkTest, ChunkConcatSingleChunk) {
     // Verify the metadata and data
     auto released_metadata = concat_chunk.release_metadata_buffer();
     auto released_data = concat_chunk.release_data_buffer();
+    released_data->stream().synchronize();
 
     ASSERT_NE(released_metadata, nullptr);
     EXPECT_EQ(*released_metadata, metadata);
@@ -404,9 +408,7 @@ TEST_F(ChunkTest, ChunkConcatSingleChunk) {
 
 TEST_F(ChunkTest, ChunkConcatEmptyVector) {
     std::vector<Chunk> chunks;
-    EXPECT_THROW(
-        Chunk::concat(std::move(chunks), 123, stream, br.get()), std::logic_error
-    );
+    EXPECT_THROW(Chunk::concat(std::move(chunks), 123, br.get()), std::logic_error);
 }
 
 TEST_F(ChunkTest, ChunkConcatHostBufferAllocation) {
@@ -437,7 +439,7 @@ TEST_F(ChunkTest, ChunkConcatHostBufferAllocation) {
             2, 2, create_packed_data(metadata, data, stream, br.get())
         )
     );
-    auto chunk = Chunk::concat(std::move(chunks), chunk_id, stream, br.get());
+    auto chunk = Chunk::concat(std::move(chunks), chunk_id, br.get());
 
     EXPECT_EQ(MemoryType::HOST, chunk.data_memory_type());
 }
@@ -466,7 +468,7 @@ TEST_F(ChunkTest, ChunkConcatPreferredMemoryType) {
     // test with both memory types
     for (auto mem_type : {MemoryType::HOST, MemoryType::DEVICE}) {
         SCOPED_TRACE("mem_type: " + std::to_string(static_cast<int>(mem_type)));
-        auto chunk = Chunk::concat(gen_chunks(), chunk_id, stream, br.get(), mem_type);
+        auto chunk = Chunk::concat(gen_chunks(), chunk_id, br.get(), mem_type);
         EXPECT_EQ(mem_type, chunk.data_memory_type());
     }
 }

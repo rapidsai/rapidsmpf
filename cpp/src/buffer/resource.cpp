@@ -26,16 +26,19 @@ BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
     std::optional<Duration> periodic_spill_check,
+    std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 )
     : device_mr_{device_mr},
       memory_available_{std::move(memory_available)},
+      stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
       statistics_{std::move(statistics)} {
     for (MemoryType mem_type : MEMORY_TYPES) {
         // Add missing memory availability functions.
         memory_available_.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);
     }
+    RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
@@ -204,6 +207,10 @@ std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
         std::invalid_argument
     );
     return move(std::move(buffer), reservation)->release_host();
+}
+
+rmm::cuda_stream_pool const& BufferResource::stream_pool() const {
+    return *stream_pool_;
 }
 
 SpillManager& BufferResource::spill_manager() {

@@ -68,21 +68,21 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     }
     constexpr int nelems{10};
     auto send_data_h = iota_vector<std::uint8_t>(nelems);
-    auto send_buf =
-        br->allocate(stream, br->reserve_or_fail(nelems, rapidsmpf::MemoryType::HOST));
+    auto send_buf = br->allocate(stream, br->reserve_or_fail(nelems, memory_type()));
     send_buf->write_access([&](std::byte* send_buf_data, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
             send_buf_data, send_data_h.data(), nelems, cudaMemcpyDefault, stream
         ));
     });
-    stream.synchronize();
+    send_buf->stream().synchronize();
     rapidsmpf::Tag tag{0, 0};
-
     auto send_fut = comm->send(std::move(send_buf), comm->rank(), tag);
-    auto recv_fut =
-        comm->recv(comm->rank(), tag, br->allocate(stream, br->reserve_or_fail(nelems)));
+
+    auto recv_buf = br->allocate(stream, br->reserve_or_fail(nelems, memory_type()));
+    recv_buf->stream().synchronize();
+    auto recv_fut = comm->recv(comm->rank(), tag, std::move(recv_buf));
     std::ignore = comm->wait(std::move(send_fut));
-    auto recv_buf = comm->wait(std::move(recv_fut));
+    recv_buf = comm->wait(std::move(recv_fut));
     auto [host_reservation, host_ob] =
         br->reserve(rapidsmpf::MemoryType::HOST, nelems, true);
     auto recv_data_h = br->move_to_host_vector(std::move(recv_buf), host_reservation);
