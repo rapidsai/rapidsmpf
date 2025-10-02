@@ -77,10 +77,6 @@ std::span<shuffler::PartID const> ShufflerAsync::local_partitions() const {
     return shuffler_.local_partitions();
 }
 
-bool ShufflerAsync::finished() const {
-    return shuffler_.finished();
-}
-
 void ShufflerAsync::insert(std::unordered_map<shuffler::PartID, PackedData>&& chunks) {
     shuffler_.insert(std::move(chunks));
 }
@@ -184,10 +180,6 @@ Node shuffler(
             )
         );
     }
-    RAPIDSMPF_EXPECTS(
-        shuffler_async.finished(), "shuffler not finished after extracting all partitions"
-    );
-
     co_await ch_out->drain(ctx->executor());
 }
 

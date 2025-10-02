@@ -232,7 +232,7 @@ Node shuffler_nb(
         [](auto shuffler_ctx, auto ctx, auto ch_out, auto& latch) -> Node {
         co_await ctx->executor()->schedule();
 
-        while (!shuffler_ctx->shuffler->finished()) {
+        while (true) {
             auto pid = co_await shuffler_ctx->ready_pids.pop();
             if (!pid) {
                 break;  // queue is shutdown, so exit the loop
@@ -360,22 +360,16 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
         co_await ctx->executor()->schedule();
         ctx->comm()->logger().debug(tid, " extract task started");
 
-        while (!shuffler->finished()) {
+        while (true) {
             auto result = co_await shuffler->extract_any_async();
             if (!result.has_value()) {
                 break;
             }
-
-            {
-                auto lock = std::unique_lock(mtx);
-                auto& [pid, chunks] = *result;
-                n_chunks_received += chunks.size();
-                finished_pids.push_back(pid);
-            }
+            auto lock = std::unique_lock(mtx);
+            auto& [pid, chunks] = *result;
+            n_chunks_received += chunks.size();
+            finished_pids.push_back(pid);
         }
-        RAPIDSMPF_EXPECTS(
-            shuffler->finished(), "Didn't extract a result but shuffler not finished"
-        );
         ctx->comm()->logger().debug(tid, " extract task finished");
     };
 
@@ -406,9 +400,6 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     // thread)
     run_streaming_pipeline(std::move(extract_tasks));
 
-    RAPIDSMPF_EXPECTS(
-        shuffler->finished(), "Shuffler not finished after running pipeline"
-    );
     auto local_pids = shuffler::Shuffler::local_partitions(
         ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
     );
@@ -440,9 +431,6 @@ TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
             parts_extracted++;
         }
         EXPECT_EQ(local_pids.size(), parts_extracted);
-        RAPIDSMPF_EXPECTS(
-            shuffler->finished(), "Shuffler not finished after extraction completed"
-        );
         // now extract should throw
         for (auto pid : local_pids) {
             EXPECT_THROW(

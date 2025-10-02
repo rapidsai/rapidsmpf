@@ -23,6 +23,11 @@ namespace rapidsmpf::streaming {
  * inserted while previously shuffled partitions are extracted concurrently. This is
  * useful for streaming scenarios where data can be processed as soon as individual
  * partitions are ready, rather than waiting for the entire shuffle to complete.
+ *
+ * @note Unlike the synchronous shuffler, this class does not provide a `finished()`
+ * method. Instead, completion is implied: extraction coroutines (`extract_async`,
+ * `extract_any_async`) will return `std::nullopt` when no more partitions are
+ * available.
  */
 class ShufflerAsync {
   public:
@@ -62,14 +67,6 @@ class ShufflerAsync {
     constexpr std::shared_ptr<Context> const& ctx() const {
         return ctx_;
     }
-
-    /**
-     * @brief Checks if the shuffle operation has completed.
-     *
-     * @return true if all partitions have been processed and the shuffle is complete,
-     * false otherwise.
-     */
-    bool finished() const;
 
     /**
      * @brief Gets the total number of partitions for this shuffle operation.
