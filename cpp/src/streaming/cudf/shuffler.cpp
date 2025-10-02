@@ -122,7 +122,7 @@ ShufflerAsync::extract_any_async() {
         return all_extracted_unsafe() || !ready_pids_.empty();
     });
 
-    // If all partitions have been extract, return an invalid result.
+    // If all partitions have been extracted, return an invalid result.
     if (all_extracted_unsafe()) {
         RAPIDSMPF_EXPECTS(ready_pids_.empty(), "something went wrong");
         ctx_->comm()->logger().trace("no partitions to extract");

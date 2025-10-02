@@ -148,7 +148,7 @@ class ShufflerAsync {
     std::shared_ptr<Context> ctx_;
     shuffler::Shuffler shuffler_;
     std::unordered_set<shuffler::PartID>
-        ready_pids_;  ///< all partitions that are ready for extraction AND hasn't
+        ready_pids_;  ///< all partitions that are ready for extraction AND haven't
                       ///< been extracted yet.
     std::unordered_set<shuffler::PartID> extracted_pids_;  ///< all extracted partitions.
 };
