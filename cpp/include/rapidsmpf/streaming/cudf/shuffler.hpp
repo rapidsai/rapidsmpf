@@ -129,20 +129,6 @@ class ShufflerAsync {
      * then extract and return the data for one such partition. If no partitions become
      * ready and the shuffle is finished, returns a nullopt.
      *
-     * @return ExtractResult containing the partition ID and data chunks, or a nullopt
-     * if no more partitions are available.
-     *
-     * @warning Users should be careful when using `extract_async` and `extract_any_async`
-     * together, because a pid intended for `extract_async` may be extracted by
-     * `extract_any_async`.
-     */
-    /**
-     * @brief Asynchronously extracts data for any ready partition.
-     *
-     * This coroutine will suspend until at least one partition is ready for extraction,
-     * then extract and return the data for one such partition. If no partitions become
-     * ready and the shuffle is finished, returns a nullopt.
-     *
      * @return `ExtractResult` containing the partition ID and data chunks, or a nullopt
      * if all partitions has been extracted.
      *

@@ -110,7 +110,7 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
         co_return std::nullopt;
     }
 
-    // pid has now been extracted and isn't ready anymore.
+    // pid is now being extracted and isn't ready anymore.
     RAPIDSMPF_EXPECTS(ready_pids_.erase(pid) > 0, "something went wrong");
     RAPIDSMPF_EXPECTS(extracted_pids_.emplace(pid).second, "something went wrong");
     co_return shuffler_.extract(pid);
