@@ -13,15 +13,17 @@ function(find_and_configure_cccl_cudax)
     set(CMAKE_CUDA_ARCHITECTURES 86)
   endif()
 
-  set(CCCL_CUDAX_VERSION 3.0.2)
+  set(CCCL_VERSION 3.1.0)
+  set(CCCL_TAG v3.1.0-rc8)
 
+  include("${rapids-cmake-dir}/cpm/find.cmake")
   rapids_cpm_find(
-    CCCL_CUDAX ${CCCL_CUDAX_VERSION} COMPONENTS cudax
+    CCCL_CUDAX ${CCCL_VERSION} COMPONENTS cudax
     GLOBAL_TARGETS cudax
     BUILD_EXPORT_SET rapidsmpf-exports
     CPM_ARGS
     GIT_REPOSITORY https://github.com/NVIDIA/cccl.git
-    GIT_TAG v${CCCL_CUDAX_VERSION}
+    GIT_TAG ${CCCL_TAG}
     GIT_SHALLOW TRUE
     OPTIONS "CCCL_ENABLE_UNSTABLE ON" "CCCL_ENABLE_CUDAX OFF" # We dont want to build the CUDAX
                                                               # components

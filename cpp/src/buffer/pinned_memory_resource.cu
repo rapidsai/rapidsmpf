@@ -49,12 +49,12 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
     PinnedMemoryResourceImpl(cuda::experimental::pinned_memory_pool& pool)
         : p_resource{pool} {}
 
-    void* allocate_async(size_t bytes, const cuda::stream_ref stream_ref) {
-        return p_resource.allocate_async(bytes, stream_ref);
+    void* allocate_async(size_t bytes, rmm::cuda_stream_view stream) {
+        return p_resource.allocate(stream, bytes);
     }
 
-    void deallocate_async(void* ptr, const cuda::stream_ref stream_ref) {
-        p_resource.deallocate_async(ptr, size_t{}, stream_ref);
+    void deallocate_async(void* ptr, rmm::cuda_stream_view stream) {
+        p_resource.deallocate(stream, ptr, size_t{});
     }
 
     cuda::experimental::pinned_memory_resource p_resource;
@@ -65,23 +65,19 @@ PinnedMemoryResource::PinnedMemoryResource(PinnedMemoryPool& pool)
 
 PinnedMemoryResource::~PinnedMemoryResource() = default;
 
-void* PinnedMemoryResource::allocate_async(
-    size_t bytes, const cuda::stream_ref stream_ref
-) {
-    return impl_->allocate_async(bytes, stream_ref);
+void* PinnedMemoryResource::allocate_async(size_t bytes, rmm::cuda_stream_view stream) {
+    return impl_->allocate_async(bytes, stream);
 }
 
-void PinnedMemoryResource::deallocate_async(
-    void* ptr, const cuda::stream_ref stream_ref
-) {
-    impl_->deallocate_async(ptr, stream_ref);
+void PinnedMemoryResource::deallocate_async(void* ptr, rmm::cuda_stream_view stream) {
+    impl_->deallocate_async(ptr, stream);
 }
 
 // PinnedHostBuffer implementation
 PinnedHostBuffer::PinnedHostBuffer(
-    size_t size, cuda::stream_ref stream, std::shared_ptr<PinnedMemoryResource> mr
+    size_t size, rmm::cuda_stream_view stream, std::shared_ptr<PinnedMemoryResource> mr
 )
-    : size_(size), stream_ref_(stream), mr_(std::move(mr)) {
+    : size_(size), stream_(stream), mr_(std::move(mr)) {
     RAPIDSMPF_EXPECTS(mr_ != nullptr, "mr cannot be nullptr");
     data_ = static_cast<std::byte*>(mr_->allocate_async(size, stream));
 }
@@ -89,7 +85,7 @@ PinnedHostBuffer::PinnedHostBuffer(
 PinnedHostBuffer::PinnedHostBuffer(
     void const* src_data,
     size_t size,
-    cuda::stream_ref stream,
+    rmm::cuda_stream_view stream,
     std::shared_ptr<PinnedMemoryResource> mr
 )
     : PinnedHostBuffer(size, stream, std::move(mr)) {
@@ -97,14 +93,14 @@ PinnedHostBuffer::PinnedHostBuffer(
         RAPIDSMPF_EXPECTS(nullptr != src_data, "Invalid copy from nullptr.");
         RAPIDSMPF_EXPECTS(nullptr != data_, "Invalid copy to nullptr.");
         RAPIDSMPF_CUDA_TRY(
-            cudaMemcpyAsync(data_, src_data, size, cudaMemcpyDefault, stream.get())
+            cudaMemcpyAsync(data_, src_data, size, cudaMemcpyDefault, stream.value())
         );
     }
 }
 
 PinnedHostBuffer::PinnedHostBuffer(
     PinnedHostBuffer const& other,
-    cuda::stream_ref stream,
+    rmm::cuda_stream_view stream,
     std::shared_ptr<PinnedMemoryResource> mr
 )
     : PinnedHostBuffer(other.data_, other.size_, stream, std::move(mr)) {}
@@ -116,7 +112,7 @@ PinnedHostBuffer::~PinnedHostBuffer() noexcept {
 PinnedHostBuffer::PinnedHostBuffer(PinnedHostBuffer&& other)
     : data_(other.data_),
       size_(other.size_),
-      stream_ref_(other.stream_ref_),
+      stream_(other.stream_),
       mr_(std::move(other.mr_)) {
     other.data_ = nullptr;
     other.size_ = 0;
@@ -126,21 +122,21 @@ PinnedHostBuffer& PinnedHostBuffer::operator=(PinnedHostBuffer&& other) {
     deallocate_async();
     data_ = other.data_;
     size_ = other.size_;
-    stream_ref_ = other.stream_ref_;
+    stream_ = other.stream_;
     mr_ = std::move(other.mr_);
     return *this;
 }
 
 void PinnedHostBuffer::deallocate_async() noexcept {
     if (mr_ && data_) {
-        mr_->deallocate_async(data_, stream_ref_);
+        mr_->deallocate_async(data_, stream_);
         data_ = nullptr;
         size_ = 0;
     }
 }
 
 void PinnedHostBuffer::synchronize() {
-    RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream_ref_.get()));
+    stream_.synchronize();
 }
 
 }  // namespace rapidsmpf

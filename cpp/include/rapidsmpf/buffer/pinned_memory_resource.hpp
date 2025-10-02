@@ -9,7 +9,7 @@
 
 #include <cuda_runtime_api.h>
 
-#include <cuda/stream_ref>
+#include <rmm/cuda_stream_view.hpp>
 
 namespace rapidsmpf {
 
@@ -72,6 +72,8 @@ class PinnedMemoryPool {
     int numa_id_;  ///< The NUMA node ID associated with this pool.
     PinnedPoolProperties properties_;  ///< Configuration properties for this pool.
 
+    // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will
+    // only be used by the impl in .cu file.
     struct PinnedMemoryPoolImpl;
     std::unique_ptr<PinnedMemoryPoolImpl> impl_;
 };
@@ -106,20 +108,22 @@ class PinnedMemoryResource {
      * @brief Allocates pinned memory asynchronously.
      *
      * @param bytes The number of bytes to allocate.
-     * @param stream_ref The CUDA stream to use for the allocation operation.
+     * @param stream The CUDA stream to use for the allocation operation.
      * @return A pointer to the allocated memory, or nullptr if allocation failed.
      */
-    void* allocate_async(size_t bytes, const cuda::stream_ref stream_ref);
+    void* allocate_async(size_t bytes, rmm::cuda_stream_view stream);
 
     /**
      * @brief Deallocates pinned memory asynchronously.
      *
      * @param ptr A pointer to the memory to deallocate.
-     * @param stream_ref The CUDA stream to use for the deallocation operation.
+     * @param stream The CUDA stream to use for the deallocation operation.
      */
-    void deallocate_async(void* ptr, const cuda::stream_ref stream_ref);
+    void deallocate_async(void* ptr, rmm::cuda_stream_view stream);
 
   private:
+    // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will
+    // only be used by the impl in .cu file.
     struct PinnedMemoryResourceImpl;
     std::unique_ptr<PinnedMemoryResourceImpl> impl_;
 };
@@ -129,8 +133,8 @@ class PinnedMemoryResource {
  *
  * @note The buffer is allocated asynchronously on a given stream. Even though `data()`
  * ptr is immediately available, the buffer may not be ready to use in stream-unaware
- * operations until the stream is synchronized. Use `stream_ref()` to get the stream
- * reference and synchronize it as needed. See for more details:
+ * operations until the stream is synchronized. Use `stream()` to get the stream
+ * view and synchronize it as needed. See for more details:
  * https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY__POOLS.html#group__CUDART__MEMORY__POOLS_1g871003f518e27ec92f7b331307fa32d4
  *
  * @code{.cpp}
@@ -160,7 +164,9 @@ class PinnedHostBuffer {
      * deallocation.
      */
     PinnedHostBuffer(
-        size_t size, cuda::stream_ref stream, std::shared_ptr<PinnedMemoryResource> mr
+        size_t size,
+        rmm::cuda_stream_view stream,
+        std::shared_ptr<PinnedMemoryResource> mr
     );
 
     /**
@@ -175,7 +181,7 @@ class PinnedHostBuffer {
     PinnedHostBuffer(
         void const* src_data,
         size_t size,
-        cuda::stream_ref stream,
+        rmm::cuda_stream_view stream,
         std::shared_ptr<PinnedMemoryResource> mr
     );
 
@@ -190,7 +196,7 @@ class PinnedHostBuffer {
      */
     PinnedHostBuffer(
         PinnedHostBuffer const& other,
-        cuda::stream_ref stream,
+        rmm::cuda_stream_view stream,
         std::shared_ptr<PinnedMemoryResource> mr
     );
 
@@ -257,10 +263,10 @@ class PinnedHostBuffer {
     /**
      * @brief Gets the CUDA stream associated with this buffer.
      *
-     * @return The CUDA stream reference.
+     * @return The CUDA stream view.
      */
-    [[nodiscard]] constexpr cuda::stream_ref stream_ref() const noexcept {
-        return stream_ref_;
+    [[nodiscard]] constexpr rmm::cuda_stream_view stream() const noexcept {
+        return stream_;
     }
 
     /**
@@ -268,8 +274,8 @@ class PinnedHostBuffer {
      *
      * @param stream The new CUDA stream to use for memory operations.
      */
-    constexpr void set_stream(cuda::stream_ref stream) noexcept {
-        stream_ref_ = stream;
+    constexpr void set_stream(rmm::cuda_stream_view stream) noexcept {
+        stream_ = stream;
     }
 
     /**
@@ -281,7 +287,7 @@ class PinnedHostBuffer {
 
     std::byte* data_ = nullptr;  ///< Pointer to the allocated buffer data.
     size_t size_;  ///< Size of the buffer in bytes.
-    cuda::stream_ref stream_ref_;  ///< CUDA stream used for memory operations.
+    rmm::cuda_stream_view stream_;  ///< CUDA stream used for memory operations.
     std::shared_ptr<PinnedMemoryResource>
         mr_;  ///< Shared pointer to the memory resource used for allocation/deallocation.
 };
