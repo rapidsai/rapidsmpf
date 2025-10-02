@@ -110,10 +110,13 @@ rapids_find_package(
   INSTALL_EXPORT_SET rapidsmpf-exports
 )
 
+# NOTE: get_cccl_cudax.cmake needs to be included before rmm and cudf, because both require CCCL
+# (but without CUDAX). All of these will call rapids_cpm_cccl. So, if get_cccl_cudax is included
+# after, the CCCL::cudax target will not be available.
+include(../cmake/thirdparty/get_cccl_cudax.cmake)
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
-include(../cmake/thirdparty/get_cccl_cudax.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
     ucxx REQUIRED
@@ -222,7 +225,7 @@ target_link_libraries(
   PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
          $<TARGET_NAME_IF_EXISTS:libcoro>
   PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
-          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan $<TARGET_NAME_IF_EXISTS:CCCL_CUDAX>
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan $<TARGET_NAME_IF_EXISTS:CCCL::cudax>
 )
 
 target_compile_definitions(
