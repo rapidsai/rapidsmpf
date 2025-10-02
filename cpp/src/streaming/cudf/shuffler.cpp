@@ -92,15 +92,13 @@ bool ShufflerAsync::all_extracted_unsafe() const {
 coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
     shuffler::PartID pid
 ) {
-    // Wait until the partition is finished
     auto lock = co_await mtx_.scoped_lock();
 
-    RAPIDSMPF_EXPECTS(
-        !extracted_pids_.contains(pid),
-        "partition already extracted: " + std::to_string(pid),
-        std::out_of_range
-    );
+    if (extracted_pids_.contains(pid)) {
+        co_return std::nullopt;  // The partition has already been extracted.
+    }
 
+    // Wait until the partition is finished or all partitions has been extracted.
     co_await cv_.wait(lock, [this, pid]() {
         return all_extracted_unsafe() || ready_pids_.contains(pid);
     });

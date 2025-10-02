@@ -431,11 +431,9 @@ TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
             parts_extracted++;
         }
         EXPECT_EQ(local_pids.size(), parts_extracted);
-        // now extract should throw
+        // now extract should return std::nullopt.
         for (auto pid : local_pids) {
-            EXPECT_THROW(
-                coro::sync_wait(shuffler->extract_async(pid)), std::out_of_range
-            );
+            EXPECT_EQ(coro::sync_wait(shuffler->extract_async(pid)), std::nullopt);
         }
     }
     GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
