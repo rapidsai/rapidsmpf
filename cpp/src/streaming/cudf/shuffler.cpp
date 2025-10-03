@@ -42,7 +42,7 @@ coro::task<void> insert_and_notify(
             "something went wrong, pid is already in the ready set!"
         );
     }
-    cv.notify_all(executor);
+    cv.notify_all(std::move(executor));
 }
 
 }  // namespace
