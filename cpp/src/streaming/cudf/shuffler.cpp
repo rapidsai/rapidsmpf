@@ -94,24 +94,20 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
 ) {
     auto lock = co_await mtx_.scoped_lock();
 
-    if (extracted_pids_.contains(pid)) {
-        co_return std::nullopt;  // The partition has already been extracted.
-    }
-
-    // Wait until the partition is finished or all partitions has been extracted.
+    // Wait until the partition is ready or has been extracted (by somebody else).
     co_await cv_.wait(lock, [this, pid]() {
-        return all_extracted_unsafe() || ready_pids_.contains(pid);
+        return ready_pids_.contains(pid) || extracted_pids_.contains(pid);
     });
 
-    // Did we wake up because all partitions have been extracted?.
-    if (all_extracted_unsafe()) {
-        co_return std::nullopt;
+    // Did we wake up because the partition is ready?.
+    if (ready_pids_.contains(pid)) {
+        // pid is now being extracted and isn't ready anymore.
+        RAPIDSMPF_EXPECTS(ready_pids_.erase(pid) > 0, "something went wrong");
+        RAPIDSMPF_EXPECTS(extracted_pids_.emplace(pid).second, "something went wrong");
+        co_return shuffler_.extract(pid);
     }
-
-    // pid is now being extracted and isn't ready anymore.
-    RAPIDSMPF_EXPECTS(ready_pids_.erase(pid) > 0, "something went wrong");
-    RAPIDSMPF_EXPECTS(extracted_pids_.emplace(pid).second, "something went wrong");
-    co_return shuffler_.extract(pid);
+    // If not, we were woken because the partition was extracted by somebody else.
+    co_return std::nullopt;
 }
 
 coro::task<std::optional<ShufflerAsync::ExtractResult>>

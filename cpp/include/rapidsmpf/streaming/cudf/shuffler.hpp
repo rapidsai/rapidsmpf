@@ -147,10 +147,16 @@ class ShufflerAsync {
     coro::condition_variable cv_{};
     std::shared_ptr<Context> ctx_;
     shuffler::Shuffler shuffler_;
-    std::unordered_set<shuffler::PartID>
-        ready_pids_;  ///< all partitions that are ready for extraction AND haven't
-                      ///< been extracted yet.
-    std::unordered_set<shuffler::PartID> extracted_pids_;  ///< all extracted partitions.
+
+    /**
+     * @brief Tracks partition states for extraction.
+     *
+     * A partition ID is always in exactly one of the two sets:
+     *   - `ready_pids_`: partitions ready for extraction but not yet extracted.
+     *   - `extracted_pids_`: partitions that have already been extracted.
+     */
+    std::unordered_set<shuffler::PartID> ready_pids_;
+    std::unordered_set<shuffler::PartID> extracted_pids_;
 };
 
 namespace node {

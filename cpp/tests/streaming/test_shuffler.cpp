@@ -356,7 +356,7 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
                            auto* ctx,
                            std::mutex& mtx,
                            std::vector<shuffler::PartID>& finished_pids,
-                           size_t& n_chunks_received) -> coro::task<void> {
+                           size_t& n_chunks_received) -> Node {
         co_await ctx->executor()->schedule();
         ctx->comm()->logger().debug(tid, " extract task started");
 
