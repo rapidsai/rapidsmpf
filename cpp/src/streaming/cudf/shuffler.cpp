@@ -17,11 +17,11 @@ namespace rapidsmpf::streaming {
 namespace {
 
 /**
- * @brief Inserts a partition ID into `ready_pids` and notifies all waiting tasks.
+ * @brief Inserts a partition ID into a ready set and notifies all waiting tasks.
  *
  * @param mtx The mutex to use for synchronization.
  * @param cv The condition variable to use for notification.
- * @param ready_pids The ready_pids to insert the partition ID into.
+ * @param ready_pids The ready set to insert the ready partition ID into.
  * @param pid The partition ID to insert.
  * @return A coroutine task that completes when the partition ID is inserted into the set.
  */
