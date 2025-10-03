@@ -105,10 +105,12 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
     });
 
     // Did we wake up because the partition is ready?.
-    if (ready_pids_.contains(pid)) {
+    if (ready_pids_.erase(pid) > 0) {
         // pid is now being extracted and isn't ready anymore.
-        RAPIDSMPF_EXPECTS(ready_pids_.erase(pid) > 0, "something went wrong");
-        RAPIDSMPF_EXPECTS(extracted_pids_.emplace(pid).second, "something went wrong");
+        RAPIDSMPF_EXPECTS(
+            extracted_pids_.emplace(pid).second,
+            "something went wrong, pid was both in the ready and the extracted set!"
+        );
         co_return shuffler_.extract(pid);
     }
     // If not, we were woken because the partition was extracted by somebody else.
