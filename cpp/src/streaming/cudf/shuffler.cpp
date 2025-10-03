@@ -105,14 +105,11 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
     auto lock = co_await mtx_.scoped_lock();
 
     // Ensure that `pid` is owned by this rank.
-    {
-        auto pids = shuffler_.local_partitions();
-        RAPIDSMPF_EXPECTS(
-            std::ranges::find(pids, pid) != pids.end(),
-            "the pid isn't owned by this rank, see ShufflerAsync::partition_owner()",
-            std::out_of_range
-        );
-    }
+    RAPIDSMPF_EXPECTS(
+        shuffler_.partition_owner(ctx_->comm(), pid) == ctx_->comm()->rank(),
+        "the pid isn't owned by this rank, see ShufflerAsync::partition_owner()",
+        std::out_of_range
+    );
 
     // Wait until the partition is ready or has been extracted (by somebody else).
     co_await cv_.wait(lock, [this, pid]() {
