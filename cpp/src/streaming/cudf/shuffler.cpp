@@ -19,6 +19,7 @@ namespace {
 /**
  * @brief Inserts a partition ID into a ready set and notifies all waiting tasks.
  *
+ * @param executor The libcoro executor to run the notified tasks.
  * @param mtx The mutex to use for synchronization.
  * @param cv The condition variable to use for notification.
  * @param ready_pids The ready set to insert the ready partition ID into.
@@ -26,6 +27,7 @@ namespace {
  * @return A coroutine task that completes when the partition ID is inserted into the set.
  */
 coro::task<void> insert_and_notify(
+    std::shared_ptr<coro::thread_pool> executor,
     coro::mutex& mtx,
     coro::condition_variable& cv,
     std::unordered_set<shuffler::PartID>& ready_pids,
@@ -40,7 +42,7 @@ coro::task<void> insert_and_notify(
             "something went wrong, pid is already in the ready set!"
         );
     }
-    co_await cv.notify_all();
+    cv.notify_all(executor);
 }
 
 }  // namespace
@@ -64,7 +66,9 @@ ShufflerAsync::ShufflerAsync(
               // caller thread. Submitting a detached task ensures that the progress
               // thread is not used to resume the coroutines.
               RAPIDSMPF_EXPECTS(
-                  ctx_->executor()->spawn(insert_and_notify(mtx_, cv_, ready_pids_, pid)),
+                  ctx_->executor()->spawn(
+                      insert_and_notify(ctx_->executor(), mtx_, cv_, ready_pids_, pid)
+                  ),
                   "failed to spawn task to notify waiters that the partition is ready"
               );
           },
