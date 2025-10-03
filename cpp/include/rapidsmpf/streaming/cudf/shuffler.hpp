@@ -57,7 +57,7 @@ class ShufflerAsync {
     ShufflerAsync(ShufflerAsync const&) = delete;
     ShufflerAsync& operator=(ShufflerAsync const&) = delete;
 
-    ~ShufflerAsync() = default;
+    ~ShufflerAsync() noexcept;
 
     /**
      * @brief Gets the streaming context associated with this shuffler.

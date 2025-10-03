@@ -72,6 +72,17 @@ ShufflerAsync::ShufflerAsync(
           std::move(partition_owner)
       ) {}
 
+ShufflerAsync::~ShufflerAsync() noexcept {
+    if (!ready_pids_.empty()) {
+        ctx_->comm()->logger().warn("~ShufflerAsync: still ready partitions");
+    }
+    if (extracted_pids_.size() != shuffler_.local_partitions().size()) {
+        ctx_->comm()->logger().warn(
+            "~ShufflerAsync: not all partitions has been extracted"
+        );
+    }
+}
+
 std::span<shuffler::PartID const> ShufflerAsync::local_partitions() const {
     return shuffler_.local_partitions();
 }
