@@ -143,9 +143,6 @@ class ShufflerAsync {
     coro::task<std::optional<ExtractResult>> extract_any_async();
 
   private:
-    /// @brief Checks if all local partitions have been extracted (not thread safe).
-    [[nodiscard]] bool all_extracted_unsafe() const;
-
     coro::mutex mtx_{};
     coro::condition_variable cv_{};
     std::shared_ptr<Context> ctx_;

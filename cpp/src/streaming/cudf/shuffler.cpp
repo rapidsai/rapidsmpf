@@ -84,10 +84,6 @@ void ShufflerAsync::insert_finished(std::vector<shuffler::PartID>&& pids) {
     shuffler_.insert_finished(std::move(pids));
 }
 
-bool ShufflerAsync::all_extracted_unsafe() const {
-    return extracted_pids_.size() == shuffler_.local_partitions().size();
-}
-
 coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
     shuffler::PartID pid
 ) {
@@ -121,26 +117,27 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
 
 coro::task<std::optional<ShufflerAsync::ExtractResult>>
 ShufflerAsync::extract_any_async() {
-    // wait until at least one partition is ready for extraction
+    auto const total_num_pids = shuffler_.local_partitions().size();
     auto lock = co_await mtx_.scoped_lock();
-    co_await cv_.wait(lock, [this]() {
-        return all_extracted_unsafe() || !ready_pids_.empty();
+
+    // Wait until either all partitions has been extracted or at least one partition is
+    // ready for extraction.
+    co_await cv_.wait(lock, [this, total_num_pids]() {
+        return extracted_pids_.size() == total_num_pids || !ready_pids_.empty();
     });
 
-    // If all partitions have been extracted, return an invalid result.
-    if (all_extracted_unsafe()) {
-        RAPIDSMPF_EXPECTS(ready_pids_.empty(), "something went wrong");
-        ctx_->comm()->logger().trace("no partitions to extract");
-        co_return std::nullopt;
+    // Did we wake up because a partition is ready?.
+    if (!ready_pids_.empty()) {
+        // Move a pid from the ready to the extracted set.
+        auto pid = ready_pids_.extract(ready_pids_.begin()).value();
+        RAPIDSMPF_EXPECTS(
+            extracted_pids_.emplace(pid).second,
+            "something went wrong, pid is already in the extracted set!"
+        );
+        co_return std::make_pair(pid, shuffler_.extract(pid));
     }
-
-    // Move the pid from the ready to extracted set.
-    auto pid = ready_pids_.extract(ready_pids_.begin()).value();
-    RAPIDSMPF_EXPECTS(
-        extracted_pids_.emplace(pid).second,
-        "something went wrong, pid is already in the extracted set!"
-    );
-    co_return std::make_pair(pid, shuffler_.extract(pid));
+    // If not, we were woken because all partitions have been extracted.
+    co_return std::nullopt;
 }
 
 namespace node {
