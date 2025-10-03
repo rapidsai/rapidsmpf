@@ -110,6 +110,9 @@ class ShufflerAsync {
      * @return
      *   - `std::nullopt` if the partition ID is not ready or has already been extracted.
      *   - Otherwise, a vector of `PackedData` chunks belonging to the partition.
+     *
+     * @throws std::out_of_range If the partition ID isn't owned by this rank, see
+     * `partition_owner()`.
      */
     coro::task<std::optional<std::vector<PackedData>>> extract_async(
         shuffler::PartID pid
@@ -151,7 +154,7 @@ class ShufflerAsync {
     /**
      * @brief Tracks partition states for extraction.
      *
-     * A partition ID is always in exactly one of the two sets:
+     * A received partition's ID is always in exactly one of the two sets:
      *   - `ready_pids_`: partitions ready for extraction but not yet extracted.
      *   - `extracted_pids_`: partitions that have already been extracted.
      */
