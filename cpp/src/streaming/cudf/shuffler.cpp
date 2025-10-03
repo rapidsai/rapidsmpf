@@ -17,26 +17,28 @@ namespace rapidsmpf::streaming {
 namespace {
 
 /**
- * @brief Caller side coroutine that inserts a partition ID into a set and notifies all
- * waiting tasks.
+ * @brief Inserts a partition ID into `ready_pids` and notifies all waiting tasks.
  *
  * @param mtx The mutex to use for synchronization.
  * @param cv The condition variable to use for notification.
- * @param set The set to insert the partition ID into.
+ * @param ready_pids The ready_pids to insert the partition ID into.
  * @param pid The partition ID to insert.
  * @return A coroutine task that completes when the partition ID is inserted into the set.
  */
 coro::task<void> insert_and_notify(
     coro::mutex& mtx,
     coro::condition_variable& cv,
-    std::unordered_set<shuffler::PartID>& set,
+    std::unordered_set<shuffler::PartID>& ready_pids,
     shuffler::PartID pid
 ) {
     // Note: this coroutine does not need to be scheduled, because it is offloaded to the
     // thread pool using `spawn`.
     {
         auto lock = co_await mtx.scoped_lock();
-        set.insert(pid);
+        RAPIDSMPF_EXPECTS(
+            ready_pids.insert(pid).second,
+            "something went wrong, pid is already in the ready set!"
+        );
     }
     co_await cv.notify_all();
 }
@@ -134,7 +136,10 @@ ShufflerAsync::extract_any_async() {
 
     // Move the pid from the ready to extracted set.
     auto pid = ready_pids_.extract(ready_pids_.begin()).value();
-    extracted_pids_.emplace(pid);
+    RAPIDSMPF_EXPECTS(
+        extracted_pids_.emplace(pid).second,
+        "something went wrong, pid is already in the extracted set!"
+    );
     co_return std::make_pair(pid, shuffler_.extract(pid));
 }
 
