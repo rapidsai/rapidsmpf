@@ -5,32 +5,13 @@
 
 # This function finds CCCL with CUDAX.
 function(find_and_configure_cccl_cudax)
-  # TODO: Replace this with rapids_cpm_cccl(... ENABLE_UNSTABLE) once
-  # #https://github.com/rapidsai/rapids-cmake/pull/919 is merged.
-
   message(STATUS "Finding CCCL with CUDAX")
-
-  set(CCCL_VERSION 3.1.0)
-  set(CCCL_TAG v3.1.0-rc8)
-
-  include("${rapids-cmake-dir}/cpm/find.cmake")
-  rapids_cpm_find(
-    CCCL_CUDAX ${CCCL_VERSION} COMPONENTS cudax
-    GLOBAL_TARGETS CCCL::cudax
+  include("${rapids-cmake-dir}/cpm/cccl.cmake")
+  rapids_cpm_cccl(
     BUILD_EXPORT_SET rapidsmpf-exports
-    CPM_ARGS
-    GIT_REPOSITORY https://github.com/NVIDIA/cccl.git
-    GIT_TAG ${CCCL_TAG}
-    GIT_SHALLOW TRUE
-    OPTIONS "CCCL_ENABLE_UNSTABLE ON" "CCCL_ENABLE_CUDAX OFF" # We dont want to build the CUDAX
-                                                              # components
+    INSTALL_EXPORT_SET rapidsmpf-exports
+    ENABLE_UNSTABLE
   )
-
-  if(CCCL_CUDAX_ADDED)
-    message(STATUS "Found CCCL_CUDAX: ${CCCL_CUDAX_SOURCE_DIR}")
-  else()
-    message(ERROR "Unable to add CCCL_CUDAX")
-  endif()
 endfunction()
 
 find_and_configure_cccl_cudax()
