@@ -141,13 +141,13 @@ class TableChunk {
     TableChunk& operator=(TableChunk const&) = delete;
 
     /**
-     * @brief Returns the sequence number of this chunk.
+     * @brief Returns the sequence number of this table chunk.
      * @return the sequence number.
      */
     [[nodiscard]] std::uint64_t sequence_number() const noexcept;
 
     /**
-     * @brief Returns the CUDA stream on which this chunk was created.
+     * @brief Returns the CUDA stream on which this table chunk was created.
      *
      * @return The CUDA stream view.
      */
@@ -181,7 +181,7 @@ class TableChunk {
     [[nodiscard]] std::size_t make_available_cost() const noexcept;
 
     /**
-     * @brief Moves this chunk into a new one with its cudf table made available.
+     * @brief Moves this table chunk into a new one with its cudf table made available.
      *
      * As part of the move, a copy or unpack may be performed, the associated CUDA
      * stream is used.
@@ -206,9 +206,9 @@ class TableChunk {
     [[nodiscard]] cudf::table_view table_view() const;
 
     /**
-     * @brief Indicates whether this chunk can be spilled.
+     * @brief Indicates whether this table chunk can be spilled.
      *
-     * A chunk is considered spillable if it was created from one of the following:
+     * A table chunk is considered spillable if it was created from one of the following:
      *   - A device-owning source such as a `cudf::table`, `cudf::packed_columns`, or
      *     `PackedData`.
      *   - A `cudf::table_view` constructed with `is_exclusive_view == true`, indicating
@@ -218,7 +218,7 @@ class TableChunk {
      * In contrast, chunks constructed from non-exclusive `cudf::table_view` instances are
      * non-owning views of externally managed memory and therefore not spillable.
      *
-     * @return `true` if the chunk can be spilled; otherwise, `false`.
+     * @return `true` if the table chunk can be spilled; otherwise, `false`.
      */
     [[nodiscard]] bool is_spillable() const;
 
