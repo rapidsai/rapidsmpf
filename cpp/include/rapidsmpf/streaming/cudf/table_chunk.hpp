@@ -175,6 +175,19 @@ class TableChunk {
     [[nodiscard]] cudf::table_view table_view() const;
 
     /**
+     * @brief Indicates whether this chunk can be spilled.
+     *
+     * A chunk is considered spillable if it was created from a device-owning source,
+     * such as a `cudf::table`, `cudf::packed_columns`, or `PackedData`.
+     *
+     * In contrast, chunks constructed from a `cudf::table_view` are non-owning views
+     * of externally managed memory and therefore not spillableq.
+     *
+     * @return `true` if the chunk can be spilled; otherwise, `false`.
+     */
+    [[nodiscard]] bool is_spillable() const;
+
+    /**
      * @brief Move this table chunk into host memory.
      *
      * Converts the device-resident table into a `PackedData` stored in host memory using
@@ -209,6 +222,7 @@ class TableChunk {
     std::size_t make_available_cost_;  // For now, only device memory cost is tracked.
 
     rmm::cuda_stream_view stream_;
+    bool is_spillable_;
 };
 
 }  // namespace rapidsmpf::streaming

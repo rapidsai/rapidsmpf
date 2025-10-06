@@ -12,7 +12,10 @@ TableChunk::TableChunk(
     std::unique_ptr<cudf::table> table,
     rmm::cuda_stream_view stream
 )
-    : sequence_number_{sequence_number}, table_{std::move(table)}, stream_{stream} {
+    : sequence_number_{sequence_number},
+      table_{std::move(table)},
+      stream_{stream},
+      is_spillable_{true} {
     RAPIDSMPF_EXPECTS(
         table_ != nullptr, "table pointer cannot be null", std::invalid_argument
     );
@@ -31,7 +34,8 @@ TableChunk::TableChunk(
     : owner_{std::move(owner)},
       sequence_number_{sequence_number},
       table_view_{table_view},
-      stream_{stream} {
+      stream_{stream},
+      is_spillable_{false} {
     data_alloc_size_[static_cast<std::size_t>(MemoryType::DEVICE)] = device_alloc_size;
     make_available_cost_ = 0;
 }
@@ -43,7 +47,8 @@ TableChunk::TableChunk(
 )
     : sequence_number_{sequence_number},
       packed_columns_{std::move(packed_columns)},
-      stream_{stream} {
+      stream_{stream},
+      is_spillable_{true} {
     RAPIDSMPF_EXPECTS(
         packed_columns_ != nullptr,
         "packed columns pointer cannot be null",
@@ -60,7 +65,8 @@ TableChunk::TableChunk(
 )
     : sequence_number_{sequence_number},
       packed_data_{std::move(packed_data)},
-      stream_{packed_data_->data->stream()} {
+      stream_{packed_data_->data->stream()},
+      is_spillable_{true} {
     RAPIDSMPF_EXPECTS(
         packed_data_ != nullptr,
         "packed data pointer cannot be null",
@@ -123,6 +129,10 @@ cudf::table_view TableChunk::table_view() const {
     return table_view_.value();
 }
 
+bool TableChunk::is_spillable() const {
+    return is_spillable_;
+}
+
 TableChunk TableChunk::spill_to_host(BufferResource* br) {
     std::unique_ptr<PackedData> packed_data = std::move(packed_data_);
 
@@ -150,5 +160,4 @@ TableChunk TableChunk::spill_to_host(BufferResource* br) {
 
     return TableChunk{sequence_number_, std::move(packed_data)};
 }
-
 }  // namespace rapidsmpf::streaming
