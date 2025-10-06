@@ -23,6 +23,11 @@ namespace rapidsmpf::streaming {
  * inserted while previously shuffled partitions are extracted concurrently. This is
  * useful for streaming scenarios where data can be processed as soon as individual
  * partitions are ready, rather than waiting for the entire shuffle to complete.
+ *
+ * @note Unlike the synchronous shuffler, this class does not provide a `finished()`
+ * method. Instead, completion is implied: extraction coroutines (`extract_async`,
+ * `extract_any_async`) will return `std::nullopt` when no more partitions are
+ * available.
  */
 class ShufflerAsync {
   public:
@@ -52,7 +57,7 @@ class ShufflerAsync {
     ShufflerAsync(ShufflerAsync const&) = delete;
     ShufflerAsync& operator=(ShufflerAsync const&) = delete;
 
-    ~ShufflerAsync() = default;
+    ~ShufflerAsync() noexcept;
 
     /**
      * @brief Gets the streaming context associated with this shuffler.
@@ -62,14 +67,6 @@ class ShufflerAsync {
     constexpr std::shared_ptr<Context> const& ctx() const {
         return ctx_;
     }
-
-    /**
-     * @brief Checks if the shuffle operation has completed.
-     *
-     * @return true if all partitions have been processed and the shuffle is complete,
-     * false otherwise.
-     */
-    bool finished() const;
 
     /**
      * @brief Gets the total number of partitions for this shuffle operation.
@@ -101,22 +98,25 @@ class ShufflerAsync {
     /**
      * @brief Asynchronously extracts all data for a specific partition.
      *
-     * This coroutine will suspend until the specified partition is ready for extraction
-     * (i.e., insert_finished has been called for this partition and all data has been
+     * This coroutine suspends until the specified partition is ready for extraction
+     * (i.e., `insert_finished` has been called for this partition and all data has been
      * shuffled).
      *
-     * @warning Users should be careful when using `extract_async` and `extract_any_async`
-     * together, because a pid intended for `extract_async` may be extracted by
-     * `extract_any_async`, hence there will be no guarantee that the chunks will be
-     * returned. If that happens, `extract_async` will throw an std::out_of_range error.
+     * @warning Be careful when mixing `extract_async` and `extract_any_async`.
+     * A partition intended for `extract_async` may already have been consumed by
+     * `extract_any_async`, in which case this function returns `std::nullopt`.
      *
      * @param pid The partition ID to extract data for.
-     * @return A vector of PackedData chunks for the partition.
+     * @return
+     *   - `std::nullopt` if the partition ID is not ready or has already been extracted.
+     *   - Otherwise, a vector of `PackedData` chunks belonging to the partition.
      *
-     * @throws std::out_of_range if the partition ID is not found or already extracted.
-     *
+     * @throws std::out_of_range If the partition ID isn't owned by this rank, see
+     * `partition_owner()`.
      */
-    coro::task<std::vector<PackedData>> extract_async(shuffler::PartID pid);
+    coro::task<std::optional<std::vector<PackedData>>> extract_async(
+        shuffler::PartID pid
+    );
 
     /**
      * @brief Result type for extract_any_async operations.
@@ -132,29 +132,31 @@ class ShufflerAsync {
      * then extract and return the data for one such partition. If no partitions become
      * ready and the shuffle is finished, returns a nullopt.
      *
-     * @return ExtractResult containing the partition ID and data chunks, or a nullopt
-     * if no more partitions are available.
+     * @return `ExtractResult` containing the partition ID and data chunks, or a nullopt
+     * if all partitions has been extracted.
      *
-     * @warning Users should be careful when using `extract_async` and `extract_any_async`
-     * together, because a pid intended for `extract_async` may be extracted by
-     * `extract_any_async`.
+     * @warning Be careful when mixing `extract_async` and `extract_any_async`.
+     * A partition intended for `extract_async` may already have been consumed by
+     * `extract_any_async`, in which case `extract_async` will later return
+     * `std::nullopt`.
      */
     coro::task<std::optional<ExtractResult>> extract_any_async();
 
   private:
-    /// @brief Checks if all local partitions have been extracted (not thread safe).
-    [[nodiscard]] bool all_extracted_unsafe() const;
-
     coro::mutex mtx_{};
     coro::condition_variable cv_{};
     std::shared_ptr<Context> ctx_;
     shuffler::Shuffler shuffler_;
-    std::unordered_set<shuffler::PartID>
-        ready_pids_;  ///< set to collect all the partitions that are ready for
-                      ///< extraction. It will be untimately be emptied once all local
-                      ///< partitions have been extracted.
-    std::unordered_set<shuffler::PartID>
-        extracted_pids_;  ///< set to collect all the partitions that have been extracted.
+
+    /**
+     * @brief Tracks partition states for extraction.
+     *
+     * A received partition's ID is always in exactly one of the two sets:
+     *   - `ready_pids_`: partitions ready for extraction but not yet extracted.
+     *   - `extracted_pids_`: partitions that have already been extracted.
+     */
+    std::unordered_set<shuffler::PartID> ready_pids_;
+    std::unordered_set<shuffler::PartID> extracted_pids_;
 };
 
 namespace node {
