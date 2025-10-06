@@ -22,7 +22,9 @@ if TYPE_CHECKING:
 def test_from_pylibcudf_table(context: Context, stream: Stream) -> None:
     seq = 42
     expect = cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}))
-    table_chunk = TableChunk.from_pylibcudf_table(seq, expect, stream)
+    table_chunk = TableChunk.from_pylibcudf_table(
+        seq, expect, stream, is_exclusive_view=False
+    )
     assert table_chunk.sequence_number == seq
     assert is_equal_streams(table_chunk.stream, stream)
     assert table_chunk.is_available()

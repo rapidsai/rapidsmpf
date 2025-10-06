@@ -55,7 +55,11 @@ def main() -> int:
     # Wrap tables in TableChunk objects before sending them into the pipeline.
     # A TableChunk contains a pylibcudf table, a sequence number, and a CUDA stream.
     table_chunks = [
-        Message(TableChunk.from_pylibcudf_table(seq, expect, DEFAULT_STREAM))
+        Message(
+            TableChunk.from_pylibcudf_table(
+                seq, expect, DEFAULT_STREAM, is_exclusive_view=False
+            )
+        )
         for seq, expect in enumerate(tables)
     ]
 

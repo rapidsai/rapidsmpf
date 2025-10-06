@@ -33,7 +33,11 @@ def test_partition_and_pack_unpack(
         cudf_to_pylibcudf_table(cudf.DataFrame({"0": [], "1": []})),
     ]
     table_chunks = [
-        Message(TableChunk.from_pylibcudf_table(seq, expect, stream))
+        Message(
+            TableChunk.from_pylibcudf_table(
+                seq, expect, stream, is_exclusive_view=False
+            )
+        )
         for seq, expect in enumerate(expects)
     ]
     ch1: Channel[TableChunk] = Channel()

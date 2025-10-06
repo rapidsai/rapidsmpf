@@ -16,6 +16,8 @@ class TableChunk:
         sequence_number: int,
         table: Table,
         stream: Stream,
+        *,
+        is_exclusive_view: bool,
     ) -> TableChunk: ...
     @classmethod
     def from_message(cls, message: Message[Self]) -> Self: ...

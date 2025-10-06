@@ -26,7 +26,11 @@ def test_roundtrip(context: Context, stream: Stream) -> None:
         for seq in range(10)
     ]
     table_chunks = [
-        Message(TableChunk.from_pylibcudf_table(seq, expect, stream))
+        Message(
+            TableChunk.from_pylibcudf_table(
+                seq, expect, stream, is_exclusive_view=False
+            )
+        )
         for seq, expect in enumerate(expects)
     ]
     ch1: Channel[TableChunk] = Channel()
