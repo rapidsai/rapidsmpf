@@ -371,7 +371,6 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
             source->size,
             std::ptrdiff_t(dest_offset),  // dst_offset
             0  // src_offset
-
         );
         dest->stream().synchronize();
         EXPECT_TRUE(dest->is_latest_write_done());

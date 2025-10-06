@@ -4,7 +4,6 @@
  */
 
 #include <algorithm>
-#include <concepts>
 #include <functional>
 #include <memory>
 #include <numeric>

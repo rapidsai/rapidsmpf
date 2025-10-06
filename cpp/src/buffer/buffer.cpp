@@ -130,7 +130,7 @@ Buffer::HostStorageT Buffer::release_host() {
 
 void buffer_copy(
     Buffer& dst,
-    Buffer& src,
+    Buffer const& src,
     std::size_t size,
     std::ptrdiff_t dst_offset,
     std::ptrdiff_t src_offset
