@@ -208,11 +208,15 @@ class TableChunk {
     /**
      * @brief Indicates whether this chunk can be spilled.
      *
-     * A chunk is considered spillable if it was created from a device-owning source,
-     * such as a `cudf::table`, `cudf::packed_columns`, or `PackedData`.
+     * A chunk is considered spillable if it was created from one of the following:
+     *   - A device-owning source such as a `cudf::table`, `cudf::packed_columns`, or
+     *     `PackedData`.
+     *   - A `cudf::table_view` constructed with `is_exclusive_view == true`, indicating
+     *     that the view is the sole representation of the underlying table and its
+     *     associated owner exclusively manages the table's memory.
      *
-     * In contrast, chunks constructed from a `cudf::table_view` are non-owning views
-     * of externally managed memory and therefore not spillableq.
+     * In contrast, chunks constructed from non-exclusive `cudf::table_view` instances are
+     * non-owning views of externally managed memory and therefore not spillable.
      *
      * @return `true` if the chunk can be spilled; otherwise, `false`.
      */
