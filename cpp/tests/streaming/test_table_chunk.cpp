@@ -108,22 +108,6 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
     }
 }
 
-TEST_F(StreamingTableChunk, FromTableView) {
-    constexpr unsigned int num_rows = 100;
-    constexpr std::int64_t seed = 1337;
-    constexpr std::uint64_t seq = 42;
-
-    cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
-
-    TableChunk chunk{seq, expect.view(), expect.alloc_size(), stream};
-    EXPECT_EQ(chunk.sequence_number(), seq);
-    EXPECT_EQ(chunk.stream().value(), stream.value());
-    EXPECT_TRUE(chunk.is_available());
-    EXPECT_FALSE(chunk.is_spillable());
-    EXPECT_EQ(chunk.make_available_cost(), 0);
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk.table_view(), expect);
-}
-
 TEST_F(StreamingTableChunk, FromPackedColumns) {
     constexpr unsigned int num_rows = 100;
     constexpr std::int64_t seed = 1337;

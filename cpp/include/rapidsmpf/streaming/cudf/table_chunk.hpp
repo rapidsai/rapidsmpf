@@ -51,26 +51,6 @@ class TableChunk {
     /**
      * @brief Construct a TableChunk from a device table view.
      *
-     * The TableChunk does not take ownership of the underlying data; the caller
-     * is responsible for ensuring the data remains valid for the lifetime of
-     * the TableChunk.
-     *
-     * @param sequence_number Ordering identifier for the chunk.
-     * @param table_view Device-resident table view.
-     * @param device_alloc_size The number of bytes in device memory.
-     * @param stream The CUDA stream on which the table was created.
-     */
-    TableChunk(
-        std::uint64_t sequence_number,
-        cudf::table_view table_view,
-        std::size_t device_alloc_size,
-        rmm::cuda_stream_view stream
-    );
-
-
-    /**
-     * @brief Construct a TableChunk from a device table view.
-     *
      * The TableChunk does not take ownership of the underlying data; instead, the
      * provided @p owner object is kept alive for the lifetime of the TableChunk.
      * The caller is responsible for ensuring that the underlying device memory
