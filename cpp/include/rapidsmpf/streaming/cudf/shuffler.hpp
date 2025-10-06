@@ -29,10 +29,15 @@ namespace rapidsmpf::streaming {
  * `extract_any_async`) will return `std::nullopt` when no more partitions are
  * available.
  */
-class ShufflerAsync {
+class ShufflerAsync : public std::enable_shared_from_this<ShufflerAsync> {
+    /// @brief Private tag for making a new instance.
+    struct Private {
+        explicit Private() = default;
+    };
+
   public:
     /**
-     * @brief Constructs a new ShufflerAsync instance.
+     * @brief Makes a new ShufflerAsync instance.
      *
      * @param ctx The streaming context to use.
      * @param op_id Unique operation ID for this shuffle. Must not be reused until all
@@ -41,16 +46,44 @@ class ShufflerAsync {
      * @param partition_owner Function that maps a partition ID to its owning rank/node.
      * Defaults to round-robin distribution.
      *
+     * @return A shared pointer to the new instance.
+     *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
      * ordered with respect to their own stream.
      */
-    ShufflerAsync(
+    static std::shared_ptr<ShufflerAsync> make(
         std::shared_ptr<Context> ctx,
         OpID op_id,
         shuffler::PartID total_num_partitions,
         shuffler::Shuffler::PartitionOwner partition_owner =
             shuffler::Shuffler::round_robin
+    );
+
+    /// @brief Returns a shared pointer to this instance.
+    /// @return A shared pointer to this instance.
+    std::shared_ptr<ShufflerAsync> get_ptr() {
+        return shared_from_this();
+    }
+
+    /**
+     * @brief Privately constructs a new ShufflerAsync instance. Use `make` instead to
+     * create a new instance.
+     *
+     * @param private_tag Private tag for making a new instance.
+     * @param ctx The streaming context to use.
+     * @param op_id Unique operation ID for this shuffle. Must not be reused until all
+     * participants have completed the shuffle operation.
+     * @param total_num_partitions Total number of partitions to shuffle data into.
+     * @param partition_owner Function that maps a partition ID to its owning rank/node.
+     * Defaults to round-robin distribution.
+     */
+    ShufflerAsync(
+        [[maybe_unused]] Private&& private_tag,
+        std::shared_ptr<Context> ctx,
+        OpID op_id,
+        shuffler::PartID total_num_partitions,
+        shuffler::Shuffler::PartitionOwner partition_owner
     );
 
     // Prevent copying
@@ -147,6 +180,22 @@ class ShufflerAsync {
     coro::condition_variable cv_{};
     std::shared_ptr<Context> ctx_;
     shuffler::Shuffler shuffler_;
+
+    /**
+     * @brief Inserts a partition ID into a ready set and notifies all waiting tasks.
+     *
+     * @param executor The libcoro executor to run the notified tasks.
+     * @param shuffler Shared pointer to the shuffler to insert the partition ID into. It
+     * keeps the ShufflerAsync instance alive until all coroutines are finished.
+     * @param pid The partition ID to insert.
+     * @return A coroutine task that completes when the partition ID is inserted into the
+     * set.
+     */
+    static coro::task<void> insert_and_notify(
+        std::shared_ptr<coro::thread_pool> executor,
+        std::shared_ptr<ShufflerAsync> shuffler,
+        shuffler::PartID pid
+    );
 
     /**
      * @brief Tracks partition states for extraction.

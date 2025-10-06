@@ -14,40 +14,36 @@
 
 namespace rapidsmpf::streaming {
 
-namespace {
-
-/**
- * @brief Inserts a partition ID into a ready set and notifies all waiting tasks.
- *
- * @param executor The libcoro executor to run the notified tasks.
- * @param mtx The mutex to use for synchronization.
- * @param cv The condition variable to use for notification.
- * @param ready_pids The ready set to insert the ready partition ID into.
- * @param pid The partition ID to insert.
- * @return A coroutine task that completes when the partition ID is inserted into the set.
- */
-coro::task<void> insert_and_notify(
+coro::task<void> ShufflerAsync::insert_and_notify(
     std::shared_ptr<coro::thread_pool> executor,
-    coro::mutex& mtx,
-    coro::condition_variable& cv,
-    std::unordered_set<shuffler::PartID>& ready_pids,
+    std::shared_ptr<ShufflerAsync> shuffler,
     shuffler::PartID pid
 ) {
     // Note: this coroutine does not need to be scheduled, because it is offloaded to the
     // thread pool using `spawn`.
     {
-        auto lock = co_await mtx.scoped_lock();
+        auto lock = co_await shuffler->mtx_.scoped_lock();
         RAPIDSMPF_EXPECTS(
-            ready_pids.insert(pid).second,
+            shuffler->ready_pids_.insert(pid).second,
             "something went wrong, pid is already in the ready set!"
         );
     }
-    cv.notify_all(std::move(executor));
+    shuffler->cv_.notify_all(std::move(executor));
 }
 
-}  // namespace
+std::shared_ptr<ShufflerAsync> ShufflerAsync::make(
+    std::shared_ptr<Context> ctx,
+    OpID op_id,
+    shuffler::PartID total_num_partitions,
+    shuffler::Shuffler::PartitionOwner partition_owner
+) {
+    return std::make_shared<ShufflerAsync>(
+        Private(), std::move(ctx), op_id, total_num_partitions, std::move(partition_owner)
+    );
+}
 
 ShufflerAsync::ShufflerAsync(
+    Private&&,
     std::shared_ptr<Context> ctx,
     OpID op_id,
     shuffler::PartID total_num_partitions,
@@ -67,7 +63,7 @@ ShufflerAsync::ShufflerAsync(
               // thread is not used to resume the coroutines.
               RAPIDSMPF_EXPECTS(
                   ctx_->executor()->spawn(
-                      insert_and_notify(ctx_->executor(), mtx_, cv_, ready_pids_, pid)
+                      insert_and_notify(ctx_->executor(), get_ptr(), pid)
                   ),
                   "failed to spawn task to notify waiters that the partition is ready"
               );
@@ -167,9 +163,8 @@ Node shuffler(
     ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
 
-    ShufflerAsync shuffler_async(
-        ctx, op_id, total_num_partitions, std::move(partition_owner)
-    );
+    auto shuffler_async =
+        ShufflerAsync::make(ctx, op_id, total_num_partitions, std::move(partition_owner));
 
     while (true) {
         auto msg = co_await ch_in->receive();
@@ -177,18 +172,18 @@ Node shuffler(
             break;
         }
         auto partition_map = msg.release<PartitionMapChunk>();
-        shuffler_async.insert(std::move(partition_map.data));
+        shuffler_async->insert(std::move(partition_map.data));
     }
 
     // Tell the shuffler that we have no more input data.
     std::vector<rapidsmpf::shuffler::PartID> finished(
-        shuffler_async.total_num_partitions()
+        shuffler_async->total_num_partitions()
     );
     std::iota(finished.begin(), finished.end(), 0);
-    shuffler_async.insert_finished(std::move(finished));
+    shuffler_async->insert_finished(std::move(finished));
 
-    for ([[maybe_unused]] auto& _ : shuffler_async.local_partitions()) {
-        auto finished = co_await shuffler_async.extract_any_async();
+    for ([[maybe_unused]] auto& _ : shuffler_async->local_partitions()) {
+        auto finished = co_await shuffler_async->extract_any_async();
         RAPIDSMPF_EXPECTS(finished.has_value(), "extract_any_async returned null");
 
         co_await ch_out->send(

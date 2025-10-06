@@ -201,7 +201,7 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
-    auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
+    auto shuffler = ShufflerAsync::make(ctx, op_id, n_partitions);
     // extract data (executed by thread pool)
     auto extract_task = [](int tid,
                            auto* shuffler,
@@ -266,7 +266,7 @@ TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
     static constexpr OpID op_id = 0;
     static constexpr size_t n_partitions = 10;
     {
-        auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
+        auto shuffler = ShufflerAsync::make(ctx, op_id, n_partitions);
 
         // all empty partitions
         shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
@@ -311,7 +311,7 @@ class CompetingShufflerAsyncTest : public BaseStreamingShuffle {
         shuffler::PartID const n_partitions = ctx->comm()->nranks();
         shuffler::PartID const this_pid = ctx->comm()->rank();
 
-        auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
+        auto shuffler = ShufflerAsync::make(ctx, op_id, n_partitions);
 
         shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
