@@ -436,7 +436,7 @@ class Communicator {
 
     /**
      * @brief Receives a message from a specific rank to an allocated (synchronized) host
-     * buffer. Use `release_host_data` to extract the data out of the buffer once the
+     * buffer. Use `release_sync_host_data` to extract the data out of the buffer once the
      * future is completed.
      *
      * @param rank The source rank.
@@ -530,7 +530,7 @@ class Communicator {
      *
      * @throws std::runtime_error if the future has no data.
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> virtual release_host_data(
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> virtual release_sync_host_data(
         std::unique_ptr<Communicator::Future> future
     ) = 0;
 

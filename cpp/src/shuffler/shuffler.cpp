@@ -360,7 +360,7 @@ class Shuffler::Progress {
                 auto [finished, _] = shuffler_.comm_->test_some(futures);
                 for (auto&& future : finished) {
                     auto const msg_data =
-                        shuffler_.comm_->release_host_data(std::move(future));
+                        shuffler_.comm_->release_sync_host_data(std::move(future));
                     auto msg = ReadyForDataMessage::unpack(msg_data);
                     auto chunk = extract_value(outgoing_chunks_, msg.cid);
                     shuffler_.statistics_->add_bytes_stat(

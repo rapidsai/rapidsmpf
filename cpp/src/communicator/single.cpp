@@ -60,10 +60,10 @@ std::unique_ptr<Buffer> Single::release_data(std::unique_ptr<Communicator::Futur
     RAPIDSMPF_FAIL("Unexpected release_data from self", std::runtime_error);
 }
 
-std::unique_ptr<std::vector<uint8_t>> Single::release_host_data(
+std::unique_ptr<std::vector<uint8_t>> Single::release_sync_host_data(
     std::unique_ptr<Communicator::Future>
 ) {
-    RAPIDSMPF_FAIL("Unexpected release_host_data from self", std::runtime_error);
+    RAPIDSMPF_FAIL("Unexpected release_sync_host_data from self", std::runtime_error);
 }
 
 std::string Single::str() const {

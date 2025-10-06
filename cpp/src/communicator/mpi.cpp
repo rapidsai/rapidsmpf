@@ -331,7 +331,7 @@ std::unique_ptr<Buffer> MPI::release_data(std::unique_ptr<Communicator::Future> 
     return std::move(mpi_future->data_buffer_);
 }
 
-std::unique_ptr<std::vector<uint8_t>> MPI::release_host_data(
+std::unique_ptr<std::vector<uint8_t>> MPI::release_sync_host_data(
     std::unique_ptr<Communicator::Future> future
 ) {
     auto mpi_future = dynamic_cast<Future*>(future.get());

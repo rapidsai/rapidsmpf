@@ -166,12 +166,12 @@ class Single final : public Communicator {
     ) override;
 
     /**
-     * @copydoc Communicator::release_host_data
+     * @copydoc Communicator::release_sync_host_data
      *
      * @throws std::runtime_error if called (single-process communicators should never
      * send messages).
      */
-    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> release_host_data(
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> release_sync_host_data(
         std::unique_ptr<Communicator::Future> future
     ) override;
 
