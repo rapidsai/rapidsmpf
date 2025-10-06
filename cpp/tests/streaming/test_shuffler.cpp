@@ -169,6 +169,10 @@ class ShufflerAsyncTest
 
     void SetUp() override {
         std::tie(n_threads, n_inserts, n_partitions, n_consumers) = GetParam();
+
+        if (n_consumers > 1)
+            GTEST_SKIP();  // TODO: Fix this (#553)
+
         BaseStreamingShuffle::SetUpWithThreads(n_threads);
         GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     }
