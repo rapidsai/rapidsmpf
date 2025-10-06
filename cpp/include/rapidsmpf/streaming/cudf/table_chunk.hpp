@@ -59,17 +59,48 @@ class TableChunk {
      * @param table_view Device-resident table view.
      * @param device_alloc_size The number of bytes in device memory.
      * @param stream The CUDA stream on which the table was created.
-     * @param owner Optional object owning the memory backing the @p table_view. If it
-     * exists this object will be destructed last when the @p TableChunk is destroyed.
-     * This is typically used when constructing a @p TableChunk from python and we need to
-     * keep the owning python object alive.
+     */
+    TableChunk(
+        std::uint64_t sequence_number,
+        cudf::table_view table_view,
+        std::size_t device_alloc_size,
+        rmm::cuda_stream_view stream
+    );
+
+
+    /**
+     * @brief Construct a TableChunk from a device table view.
+     *
+     * The TableChunk does not take ownership of the underlying data; instead, the
+     * provided @p owner object is kept alive for the lifetime of the TableChunk.
+     * The caller is responsible for ensuring that the underlying device memory
+     * referenced by @p table_view remains valid during this period.
+     *
+     * This constructor is typically used when creating a TableChunk from Python,
+     * where @p owner is used to keep the corresponding Python object alive until
+     * the TableChunk is destroyed.
+     *
+     * @param sequence_number Ordering identifier for the chunk.
+     * @param table_view Device-resident table view.
+     * @param device_alloc_size Number of bytes allocated in device memory.
+     * @param stream CUDA stream on which the table was created.
+     * @param owner Object owning the memory backing @p table_view. This object will be
+     * destroyed last when the @p TableChunk is destroyed or spilled.
+     * @param is_exclusive_view Indicates that this TableChunk has exclusive ownership
+     * semantics over the underlying table data. When `true`, the following guarantees
+     * must hold:
+     *   - The @p table_view is the sole representation of the table.
+     *   - The @p owner exclusively owns the table memory.
+     * These guarantees allow the TableChunk to be spillable and ensure that destroying
+     * the @p owner will correctly free the associated device memory.
      */
     TableChunk(
         std::uint64_t sequence_number,
         cudf::table_view table_view,
         std::size_t device_alloc_size,
         rmm::cuda_stream_view stream,
-        OwningWrapper&& owner = {}
+        OwningWrapper&& owner,
+        bool is_exclusive_view
     );
 
     /**

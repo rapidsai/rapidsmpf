@@ -59,37 +59,53 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
         num_deletions++;
         delete static_cast<int*>(p);
     };
-    auto make_chunk = [&]() {
+    auto make_chunk = [&](bool is_exclusive_view) {
         return TableChunk{
-            seq, expect, expect.alloc_size(), stream, OwningWrapper(new int, deleter)
+            seq,
+            expect,
+            expect.alloc_size(),
+            stream,
+            OwningWrapper(new int, deleter),
+            is_exclusive_view
         };
     };
-    auto check_chunk = [&](TableChunk const& chunk) {
+    auto check_chunk = [&](TableChunk const& chunk, bool is_spillable) {
         EXPECT_EQ(chunk.sequence_number(), seq);
         EXPECT_EQ(chunk.stream().value(), stream.value());
         EXPECT_TRUE(chunk.is_available());
-        EXPECT_FALSE(chunk.is_spillable());
+        EXPECT_EQ(chunk.is_spillable(), is_spillable);
         EXPECT_EQ(chunk.make_available_cost(), 0);
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk.table_view(), expect);
     };
     {
-        auto chunk = make_chunk();
-        check_chunk(chunk);
+        auto chunk = make_chunk(false);
+        check_chunk(chunk, false);
         EXPECT_EQ(num_deletions, 0);
     }
     EXPECT_EQ(num_deletions, 1);
     {
-        auto msg = Message(std::make_unique<TableChunk>(make_chunk()));
+        auto msg = Message(std::make_unique<TableChunk>(make_chunk(false)));
         EXPECT_EQ(num_deletions, 1);
     }
     EXPECT_EQ(num_deletions, 2);
     {
-        auto msg = Message(std::make_unique<TableChunk>(make_chunk()));
+        auto msg = Message(std::make_unique<TableChunk>(make_chunk(true)));
         auto chunk = msg.release<TableChunk>();
-        check_chunk(chunk);
+        check_chunk(chunk, true);
         EXPECT_EQ(num_deletions, 2);
     }
     EXPECT_EQ(num_deletions, 3);
+    {
+        auto chunk = make_chunk(true);
+        check_chunk(chunk, true);
+        chunk = chunk.spill_to_host(br.get());
+        EXPECT_EQ(num_deletions, 4);
+    }
+    {
+        auto chunk = make_chunk(false);
+        check_chunk(chunk, false);
+        EXPECT_THROW(std::ignore = chunk.spill_to_host(br.get()), std::invalid_argument);
+    }
 }
 
 TEST_F(StreamingTableChunk, FromTableView) {
@@ -99,7 +115,7 @@ TEST_F(StreamingTableChunk, FromTableView) {
 
     cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
 
-    TableChunk chunk{seq, expect, expect.alloc_size(), stream};
+    TableChunk chunk{seq, expect.view(), expect.alloc_size(), stream};
     EXPECT_EQ(chunk.sequence_number(), seq);
     EXPECT_EQ(chunk.stream().value(), stream.value());
     EXPECT_TRUE(chunk.is_available());
