@@ -324,3 +324,21 @@ cdef class TableChunk:
         with nogil:
             ret = deref(handle).table_view()
         return Table.from_table_view_of_arbitrary(ret, owner=self)
+
+    def is_spillable(self):
+        """
+        Indicates whether this chunk can be spilled.
+
+        A chunk is considered spillable if it was created from one of the following:
+          - A message (via ``.from_message()``).
+          - An exclusive pylibcudf table (via
+            ``.from_pylibcudf_table(..., is_exclusive_view=True)``).
+
+        Both of these creation paths imply device-owning semantics, meaning the
+        TableChunk owns its underlying memory and can safely be spilled to host memory.
+
+        Returns
+        -------
+        True if the table chunk can be spilled, otherwise, False.
+        """
+        return deref(self.handle_ptr()).is_spillable()

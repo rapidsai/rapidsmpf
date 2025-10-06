@@ -20,6 +20,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
         cuda_stream_view stream() noexcept
         size_t data_alloc_size(MemoryType mem_type) except +
         bool_t is_available() noexcept
+        bool_t is_spillable() noexcept
 
 
 cdef class TableChunk:
