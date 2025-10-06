@@ -199,6 +199,15 @@ class UCXX final : public Communicator {
         Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
     ) override;
 
+    // clang-format off
+    /**
+     * @copydoc Communicator::recv_sync_host_data(Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer)
+     */
+    // clang-format on
+    [[nodiscard]] std::unique_ptr<Communicator::Future> recv_sync_host_data(
+        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
+    ) override;
+
     /**
      * @copydoc Communicator::recv_any
      *
@@ -251,9 +260,16 @@ class UCXX final : public Communicator {
     ) override;
 
     /**
-     * @copydoc Communicator::get_gpu_data
+     * @copydoc Communicator::release_data
      */
-    [[nodiscard]] std::unique_ptr<Buffer> get_gpu_data(
+    [[nodiscard]] std::unique_ptr<Buffer> release_data(
+        std::unique_ptr<Communicator::Future> future
+    ) override;
+
+    /**
+     * @copydoc Communicator::release_sync_host_data
+     */
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> release_sync_host_data(
         std::unique_ptr<Communicator::Future> future
     ) override;
 
