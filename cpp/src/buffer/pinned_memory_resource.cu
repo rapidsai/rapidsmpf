@@ -118,12 +118,14 @@ PinnedHostBuffer::PinnedHostBuffer(PinnedHostBuffer&& other)
     other.size_ = 0;
 }
 
-PinnedHostBuffer& PinnedHostBuffer::operator=(PinnedHostBuffer&& other) {
-    deallocate_async();
-    data_ = other.data_;
-    size_ = other.size_;
-    stream_ = other.stream_;
-    mr_ = std::move(other.mr_);
+PinnedHostBuffer& PinnedHostBuffer::operator=(PinnedHostBuffer&& other) noexcept {
+    if (this != &other) {
+        deallocate_async();
+        data_ = std::exchange(other.data_, nullptr);
+        size_ = other.size_;
+        stream_ = other.stream_;
+        mr_ = std::move(other.mr_);
+    }
     return *this;
 }
 
