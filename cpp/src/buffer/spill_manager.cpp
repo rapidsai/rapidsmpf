@@ -58,9 +58,9 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
     }
     spill_functions_.erase(fid);
 
-    // Pause the spill thread if no spill functions are left.
+    // Pause asynchronously the spill thread if no spill functions are left.
     if (periodic_spill_thread_.has_value() && spill_functions_.empty()) {
-        periodic_spill_thread_->pause();
+        periodic_spill_thread_->pause_nb();
     }
 }
 
