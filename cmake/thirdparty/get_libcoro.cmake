@@ -14,10 +14,11 @@ function(find_and_configure_libcoro)
     GLOBAL_TARGETS libcoro
     BUILD_EXPORT_SET rapidsmpf-exports
     CPM_ARGS
-    GIT_REPOSITORY https://github.com/jbaldwin/libcoro
+    GIT_REPOSITORY https://github.com/wence-/libcoro
     # We need a version that includes https://github.com/jbaldwin/libcoro/pull/371,
-    # https://github.com/jbaldwin/libcoro/pull/384, and https://github.com/jbaldwin/libcoro/pull/389
-    GIT_TAG c301d7df8a6ad13bfb51a7037bd72505b3d606ec
+    # https://github.com/jbaldwin/libcoro/pull/384, https://github.com/jbaldwin/libcoro/pull/389,
+    # and https://github.com/jbaldwin/libcoro/issues/398
+    GIT_TAG ccc62c4e1bc8bdc466426ac82eca63cb14db0f84
     GIT_SHALLOW FALSE
     OPTIONS "LIBCORO_FEATURE_NETWORKING OFF"
             "LIBCORO_EXTERNAL_DEPENDENCIES OFF"
