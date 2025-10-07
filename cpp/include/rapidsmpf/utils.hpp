@@ -15,6 +15,8 @@
 #include <utility>
 #include <vector>
 
+#include <cuda_runtime_api.h>
+
 namespace rapidsmpf {
 
 /// Alias for high-resolution clock from the chrono library.
@@ -376,5 +378,15 @@ template <class... Ts>
 struct overloaded : Ts... {
     using Ts::operator()...;
 };
+
+// Ensure CUDA_VERSION is defined (it should be from cuda_runtime_api.h)
+#ifndef CUDA_VERSION
+#define CUDA_VERSION 0
+#endif
+
+/// @brief Helper macro to check if the CUDA version is at least the specified version.
+/// @param version The minimum CUDA version to check against. Must be in the format of
+/// MAJOR*1000 + MINOR*10.
+#define RAPIDSMPF_CUDA_VERSION_AT_LEAST(version) (CUDA_VERSION >= version)
 
 }  // namespace rapidsmpf

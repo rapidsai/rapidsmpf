@@ -11,9 +11,10 @@
 
 #include <rapidsmpf/buffer/pinned_memory_resource.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
-
+#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
 namespace {
 cuda::experimental::memory_pool_properties get_memory_pool_properties(
     PinnedPoolProperties const&
@@ -24,30 +25,16 @@ cuda::experimental::memory_pool_properties get_memory_pool_properties(
 
 // PinnedMemoryPool implementation
 struct PinnedMemoryPool::PinnedMemoryPoolImpl {
-    PinnedMemoryPoolImpl(
-        int numa_id, cuda::experimental::memory_pool_properties properties
-    )
-        : numa_id(numa_id), p_pool{numa_id, std::move(properties)} {}
+    PinnedMemoryPoolImpl(int numa_id, PinnedPoolProperties const& properties)
+        : numa_id(numa_id), p_pool{numa_id, get_memory_pool_properties(properties)} {}
 
     int numa_id;
     cuda::experimental::pinned_memory_pool p_pool;
 };
 
-PinnedMemoryPool::PinnedMemoryPool(int numa_id, PinnedPoolProperties properties)
-    : numa_id_(numa_id),
-      properties_(std::move(properties)),
-      impl_(
-          std::make_unique<PinnedMemoryPoolImpl>(
-              numa_id, get_memory_pool_properties(properties_)
-          )
-      ) {}
-
-PinnedMemoryPool::~PinnedMemoryPool() = default;
-
 // PinnedMemoryResource implementation
 struct PinnedMemoryResource::PinnedMemoryResourceImpl {
-    PinnedMemoryResourceImpl(cuda::experimental::pinned_memory_pool& pool)
-        : p_resource{pool} {}
+    PinnedMemoryResourceImpl(PinnedMemoryPool& pool) : p_resource{pool.impl_->p_pool} {}
 
     void* allocate_async(size_t bytes, rmm::cuda_stream_view stream) {
         return p_resource.allocate(stream, bytes);
@@ -59,9 +46,49 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
 
     cuda::experimental::pinned_memory_resource p_resource;
 };
+#else  // CUDA_VERSION < RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION
+struct PinnedMemoryPool::PinnedMemoryPoolImpl {
+    PinnedMemoryPoolImpl(int, PinnedPoolProperties const&) {
+        RAPIDSMPF_FAIL(
+            "PinnedMemoryPool is not supported for CUDA versions "
+            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+        );
+    }
+};
+
+struct PinnedMemoryResource::PinnedMemoryResourceImpl {
+    PinnedMemoryResourceImpl(PinnedMemoryPool&) {
+        RAPIDSMPF_FAIL(
+            "PinnedMemoryResource is not supported for CUDA versions "
+            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+        );
+    }
+
+    void* allocate_async(size_t, rmm::cuda_stream_view) {
+        RAPIDSMPF_FAIL(
+            "PinnedMemoryResource::allocate_async is not supported for CUDA versions "
+            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+        );
+    }
+
+    void deallocate_async(void*, rmm::cuda_stream_view) {
+        RAPIDSMPF_FAIL(
+            "PinnedMemoryResource::deallocate_async is not supported for CUDA versions "
+            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+        );
+    }
+};
+#endif
+
+PinnedMemoryPool::PinnedMemoryPool(int numa_id, PinnedPoolProperties properties)
+    : numa_id_(numa_id),
+      properties_(std::move(properties)),
+      impl_(std::make_unique<PinnedMemoryPoolImpl>(numa_id, properties_)) {}
+
+PinnedMemoryPool::~PinnedMemoryPool() = default;
 
 PinnedMemoryResource::PinnedMemoryResource(PinnedMemoryPool& pool)
-    : impl_(std::make_unique<PinnedMemoryResourceImpl>(pool.impl_->p_pool)) {}
+    : impl_(std::make_unique<PinnedMemoryResourceImpl>(pool)) {}
 
 PinnedMemoryResource::~PinnedMemoryResource() = default;
 
@@ -118,7 +145,7 @@ PinnedHostBuffer::PinnedHostBuffer(PinnedHostBuffer&& other)
     other.size_ = 0;
 }
 
-PinnedHostBuffer& PinnedHostBuffer::operator=(PinnedHostBuffer&& other) noexcept {
+PinnedHostBuffer& PinnedHostBuffer::operator=(PinnedHostBuffer&& other) {
     if (this != &other) {
         deallocate_async();
         data_ = std::exchange(other.data_, nullptr);

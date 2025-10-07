@@ -11,19 +11,26 @@
 
 #include <gtest/gtest.h>
 
+#include <rmm/cuda_stream_pool.hpp>
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
 
 #include <rapidsmpf/buffer/pinned_memory_resource.hpp>
+#include <rapidsmpf/utils.hpp>
 
 #include "utils.hpp"
 
 class PinnedHostBufferTest : public ::testing::TestWithParam<size_t> {
   protected:
     void SetUp() override {
+#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
         p_pool = std::make_unique<rapidsmpf::PinnedMemoryPool>(0);
         p_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>(*p_pool);
+#else
+        GTEST_SKIP() << "PinnedHostBuffer is not supported for CUDA versions "
+                        "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR;
+#endif
     }
 
     void TearDown() override {
@@ -36,6 +43,24 @@ class PinnedHostBufferTest : public ::testing::TestWithParam<size_t> {
     std::shared_ptr<rapidsmpf::PinnedMemoryResource> p_mr;
     rmm::mr::cuda_async_memory_resource cuda_mr{};
 };
+
+// Test with various buffer sizes
+INSTANTIATE_TEST_SUITE_P(
+    VariableSizes,
+    PinnedHostBufferTest,
+    ::testing::Values(
+        1024,  // 1KB
+        4096,  // 4KB
+        16384,  // 16KB
+        65536,  // 64KB
+        262144,  // 256KB
+        1048576,  // 1MB
+        4194304  // 4MB
+    ),
+    [](const ::testing::TestParamInfo<size_t>& info) {
+        return std::to_string(info.param);
+    }
+);
 
 TEST_P(PinnedHostBufferTest, synchronized_host_data) {
     const size_t buffer_size = GetParam();
@@ -124,20 +149,42 @@ TEST_P(PinnedHostBufferTest, device_data) {
     );
 }
 
-// Test with various buffer sizes
-INSTANTIATE_TEST_SUITE_P(
-    VariableSizes,
-    PinnedHostBufferTest,
-    ::testing::Values(
-        1024,  // 1KB
-        4096,  // 4KB
-        16384,  // 16KB
-        65536,  // 64KB
-        262144,  // 256KB
-        1048576,  // 1MB
-        4194304  // 4MB
-    ),
-    [](const ::testing::TestParamInfo<size_t>& info) {
-        return std::to_string(info.param);
-    }
-);
+template <typename SourceBufferT>
+void stream_sync_copy_test(size_t buffer_size, auto& src_mr, auto& pinned_mr) {
+    rmm::cuda_stream_pool stream_pool(2, rmm::cuda_stream::flags::non_blocking);
+    auto stream1 = stream_pool.get_stream();
+    auto stream2 = stream_pool.get_stream();
+
+    auto host_data = random_vector<uint8_t>(0, buffer_size);
+
+    // create a src buffer on stream1 with host data (blocking copy)
+    SourceBufferT src_buf1(host_data.data(), buffer_size, stream1, src_mr);
+    // create a src buffer on stream1 with the same data (non-blocking copy)
+    SourceBufferT src_buf2(src_buf1, stream1, src_mr);
+
+    // create a pinned host buffer on stream2 with src_buf2 (non-blocking copy)
+    auto pinned_buf1 = rapidsmpf::PinnedHostBuffer::stream_synchronized_copy(
+        src_buf2, stream2, pinned_mr
+    );
+
+    pinned_buf1.synchronize();
+    EXPECT_TRUE(
+        std::equal(
+            host_data.begin(),
+            host_data.end(),
+            reinterpret_cast<const uint8_t*>(pinned_buf1.data())
+        )
+    );
+}
+
+TEST_P(PinnedHostBufferTest, stream_synchronized_copy_rmm) {
+    EXPECT_NO_FATAL_FAILURE(
+        stream_sync_copy_test<rmm::device_buffer>(GetParam(), cuda_mr, p_mr)
+    );
+}
+
+TEST_P(PinnedHostBufferTest, stream_synchronized_copy_pinned) {
+    EXPECT_NO_FATAL_FAILURE(
+        stream_sync_copy_test<rapidsmpf::PinnedHostBuffer>(GetParam(), p_mr, p_mr)
+    );
+}
