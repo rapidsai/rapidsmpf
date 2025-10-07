@@ -416,7 +416,8 @@ class Communicator {
     ) = 0;
 
     /**
-     * @brief Receives a message from a specific rank.
+     * @brief Receives a message from a specific rank to a buffer. Use `release_data` to
+     * extract the data out of the buffer once the future is completed.
      *
      * @param rank The source rank.
      * @param tag Message tag for identification.
@@ -431,6 +432,20 @@ class Communicator {
      */
     [[nodiscard]] virtual std::unique_ptr<Future> recv(
         Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
+    ) = 0;
+
+    /**
+     * @brief Receives a message from a specific rank to an allocated (synchronized) host
+     * buffer. Use `release_sync_host_data` to extract the data out of the buffer once the
+     * future is completed.
+     *
+     * @param rank The source rank.
+     * @param tag Message tag for identification.
+     * @param synced_buffer The receive buffer.
+     * @return A unique pointer to a `Future` representing the asynchronous operation.
+     */
+    [[nodiscard]] virtual std::unique_ptr<Future> recv_sync_host_data(
+        Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
     ) = 0;
 
     /**
@@ -494,12 +509,28 @@ class Communicator {
     ) = 0;
 
     /**
-     * @brief Retrieves GPU data associated with a completed future.
+     * @brief Retrieves data associated with a completed future.
      *
      * @param future The completed future.
-     * @return A unique pointer to the GPU data buffer.
+     * @return A unique pointer to the data buffer.
+     *
+     * @throws std::runtime_error if the future has no data.
      */
-    [[nodiscard]] std::unique_ptr<Buffer> virtual get_gpu_data(
+    [[nodiscard]] std::unique_ptr<Buffer> virtual release_data(
+        std::unique_ptr<Communicator::Future> future
+    ) = 0;
+
+    /**
+     * @brief Retrieves synchronized host data associated with a completed future. When
+     * the future is completed, the the host data is valid, and ready, but  not
+     * stream-ordered.
+     *
+     * @param future The completed future.
+     * @return A unique pointer to the synchronized host data.
+     *
+     * @throws std::runtime_error if the future has no data.
+     */
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> virtual release_sync_host_data(
         std::unique_ptr<Communicator::Future> future
     ) = 0;
 

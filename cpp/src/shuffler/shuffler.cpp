@@ -206,16 +206,15 @@ class Shuffler::Progress {
                             .second,
                         "outgoing chunk already exist"
                     );
-                    ready_ack_receives_[dst].push_back(shuffler_.comm_->recv(
-                        dst,
-                        ready_for_data_tag,
-                        shuffler_.br_->allocate(
-                            shuffler_.br_->stream_pool().get_stream(),
-                            shuffler_.br_->reserve_or_fail(
-                                ReadyForDataMessage::byte_size, MemoryType::HOST
+                    ready_ack_receives_[dst].push_back(
+                        shuffler_.comm_->recv_sync_host_data(
+                            dst,
+                            ready_for_data_tag,
+                            std::make_unique<std::vector<uint8_t>>(
+                                ReadyForDataMessage::byte_size
                             )
                         )
-                    ));
+                    );
                 }
             }
             stats.add_duration_stat(
@@ -361,10 +360,8 @@ class Shuffler::Progress {
                 auto [finished, _] = shuffler_.comm_->test_some(futures);
                 for (auto&& future : finished) {
                     auto const msg_data =
-                        shuffler_.comm_->get_gpu_data(std::move(future));
-                    auto msg = ReadyForDataMessage::unpack(
-                        const_cast<Buffer const&>(*msg_data).host()
-                    );
+                        shuffler_.comm_->release_sync_host_data(std::move(future));
+                    auto msg = ReadyForDataMessage::unpack(msg_data);
                     auto chunk = extract_value(outgoing_chunks_, msg.cid);
                     shuffler_.statistics_->add_bytes_stat(
                         "shuffle-payload-send", chunk.concat_data_size()
@@ -390,7 +387,7 @@ class Shuffler::Progress {
                     auto chunk = extract_value(in_transit_chunks_, cid);
                     auto future = extract_value(in_transit_futures_, cid);
                     chunk.set_data_buffer(
-                        shuffler_.comm_->get_gpu_data(std::move(future))
+                        shuffler_.comm_->release_data(std::move(future))
                     );
 
                     for (size_t i = 0; i < chunk.n_messages(); ++i) {
