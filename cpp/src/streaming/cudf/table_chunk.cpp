@@ -89,6 +89,10 @@ std::uint64_t TableChunk::sequence_number() const noexcept {
     return sequence_number_;
 }
 
+rmm::cuda_stream_view TableChunk::stream() const noexcept {
+    return stream_;
+}
+
 std::size_t TableChunk::data_alloc_size(MemoryType mem_type) const {
     return data_alloc_size_.at(static_cast<std::size_t>(mem_type));
 }

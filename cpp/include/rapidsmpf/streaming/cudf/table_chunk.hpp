@@ -131,9 +131,7 @@ class TableChunk {
      *
      * @return The CUDA stream view.
      */
-    [[nodiscard]] rmm::cuda_stream_view stream() const noexcept {
-        return stream_;
-    }
+    [[nodiscard]] rmm::cuda_stream_view stream() const noexcept;
 
     /**
      * @brief Number of bytes allocated for the data in the specified memory type.
