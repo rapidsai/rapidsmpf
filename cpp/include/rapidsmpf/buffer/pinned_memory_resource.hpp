@@ -149,9 +149,6 @@ class PinnedMemoryResource {
  *
  * // synchronize buffer1
  * buffer1.synchronize();
- * // this is equivalent to:
- * //  buffer1.stream().synchronize(); throws
- * //  cudaStreamSynchronize(buffer1.stream()); no throw
  *
  * // now buffer1 is ready to use in stream-unaware operations.
  * std::memcpy(data.data(), buffer1.data(), 1024);
