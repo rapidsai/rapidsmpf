@@ -34,7 +34,6 @@ class PinnedHostBufferTest : public ::testing::TestWithParam<size_t> {
     rmm::cuda_stream_view stream{};
     std::unique_ptr<rapidsmpf::PinnedMemoryPool> p_pool;
     std::shared_ptr<rapidsmpf::PinnedMemoryResource> p_mr;
-
     rmm::mr::cuda_async_memory_resource cuda_mr{};
 };
 
