@@ -358,18 +358,40 @@ class ThrottlingAdaptor {
  * unhandled exception escapes the coroutine. Relying on a channel's own destructor
  * is insufficient when the channel is shared (e.g., via `std::shared_ptr`), because
  * other owners keep it alive.
- *
- * @tparam T Variadic list of channel handle types.
  */
-template <typename... T>
 class ShutdownAtExit {
   public:
     /**
-     * @brief Constructor accepting one or more channel handles.
+     * @brief Construct from a vector of channel handles.
      *
-     * @param channels Channels to be shut down on destruction.
+     * The order of elements determines the shutdown order invoked by the destructor.
+     *
+     * @param channels Vector of shared channel handles to be shut down on destruction.
      */
-    explicit ShutdownAtExit(T... channels) : channels_{channels...} {}
+    explicit ShutdownAtExit(std::vector<std::shared_ptr<Channel>> channels)
+        : channels_{std::move(channels)} {}
+
+    /**
+     * @brief Variadic convenience constructor.
+     *
+     * Enables `ShutdownAtExit{ch1, ch2, ...}` without explicitly creating a vector.
+     * Each argument must be convertible to `std::shared_ptr<Channel>`. The order of
+     * the arguments determines the shutdown order in the destructor.
+     *
+     * @tparam T Parameter pack of types convertible to `std::shared_ptr<Channel>`.
+     * @param channels One or more channel handles.
+     */
+    template <class... T>
+    explicit ShutdownAtExit(T&&... channels) {
+        channels_.reserve(sizeof...(T));
+        (channels_.emplace_back(std::forward<T>(channels)), ...);
+    }
+
+    // Non-copyable, non-movable.
+    ShutdownAtExit(ShutdownAtExit const&) = delete;
+    ShutdownAtExit& operator=(ShutdownAtExit const&) = delete;
+    ShutdownAtExit(ShutdownAtExit&&) = delete;
+    ShutdownAtExit& operator=(ShutdownAtExit&&) = delete;
 
     /**
      * @brief Destructor that synchronously shuts down all channels.
@@ -377,13 +399,15 @@ class ShutdownAtExit {
      * Calls `shutdown()` on each channel in the same order they were passed.
      */
     ~ShutdownAtExit() noexcept {
-        std::apply(
-            [](auto&... ch) { (coro::sync_wait(ch->shutdown()), ...); }, channels_
-        );
+        for (auto& ch : channels_) {
+            if (ch) {
+                coro::sync_wait(ch->shutdown());
+            }
+        }
     }
 
   private:
-    std::tuple<T...> channels_;
+    std::vector<std::shared_ptr<Channel>> channels_;
 };
 
 }  // namespace rapidsmpf::streaming
