@@ -263,7 +263,7 @@ class ThrottlingAdaptor {
             } else {
                 // If the channel is closed we want to wake any waiters so shutdown the
                 // semaphore.
-                semaphore_->shutdown();
+                co_await semaphore_->shutdown();
                 co_return {sent, []() -> coro::task<void> { co_return; }()};
             }
         }

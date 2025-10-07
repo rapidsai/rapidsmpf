@@ -19,22 +19,23 @@ namespace {
 /**
  * @brief Inserts a partition ID into a ready set and notifies all waiting tasks.
  *
- * @param executor The libcoro executor to run the notified tasks.
  * @param mtx The mutex to use for synchronization.
- * @param cv The condition variable to use for notification.
+ * @param semaphore Semaphore releasing resources to consumers.
+ * @param latch Counting notifications so we can shutdown when all notifications have been
+ * received.
  * @param ready_pids The ready set to insert the ready partition ID into.
  * @param pid The partition ID to insert.
  * @return A coroutine task that completes when the partition ID is inserted into the set.
  */
 coro::task<void> insert_and_notify(
-    std::shared_ptr<coro::thread_pool> executor,
     coro::mutex& mtx,
-    coro::condition_variable& cv,
+    coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()>& semaphore,
+    coro::latch& latch,
     std::unordered_set<shuffler::PartID>& ready_pids,
     shuffler::PartID pid
 ) {
     // Note: this coroutine does not need to be scheduled, because it is offloaded to the
-    // thread pool using `spawn`.
+    // thread pool using a task_container.
     {
         auto lock = co_await mtx.scoped_lock();
         RAPIDSMPF_EXPECTS(
@@ -42,7 +43,10 @@ coro::task<void> insert_and_notify(
             "something went wrong, pid is already in the ready set!"
         );
     }
-    cv.notify_all(std::move(executor));
+    // Let a consumer know a pid is ready.
+    co_await semaphore.release();
+    // keeping track of how many notifications we've received.
+    latch.count_down();
 }
 
 }  // namespace
@@ -66,23 +70,37 @@ ShufflerAsync::ShufflerAsync(
               // caller thread. Submitting a detached task ensures that the progress
               // thread is not used to resume the coroutines.
               RAPIDSMPF_EXPECTS(
-                  ctx_->executor()->spawn(
-                      insert_and_notify(ctx_->executor(), mtx_, cv_, ready_pids_, pid)
+                  notifications_.start(
+                      insert_and_notify(mtx_, semaphore_, latch_, ready_pids_, pid)
                   ),
-                  "failed to spawn task to notify waiters that the partition is ready"
+                  "failed to start task to notify waiters that the partition is ready"
               );
           },
           ctx_->statistics(),
           std::move(partition_owner)
-      ) {}
+      ),
+      notifications_(ctx_->executor()),
+      latch_{static_cast<std::int64_t>(local_partitions().size())} {
+    RAPIDSMPF_EXPECTS(
+        local_partitions().size() <= std::numeric_limits<std::int64_t>::max(),
+        "Too many local partitions"
+    );
+}
 
 ShufflerAsync::~ShufflerAsync() noexcept {
+    if (!notifications_.empty()) {
+        ctx_->comm()->logger().warn(
+            "~ShufflerAsync: not all notification tasks complete, remember to co_await "
+            "this->drain()"
+        );
+        std::terminate();
+    }
     if (!ready_pids_.empty()) {
         ctx_->comm()->logger().warn("~ShufflerAsync: still ready partitions");
     }
     if (extracted_pids_.size() != shuffler_.local_partitions().size()) {
         ctx_->comm()->logger().warn(
-            "~ShufflerAsync: not all partitions has been extracted"
+            "~ShufflerAsync: not all partitions have been extracted"
         );
     }
 }
@@ -102,8 +120,6 @@ void ShufflerAsync::insert_finished(std::vector<shuffler::PartID>&& pids) {
 coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
     shuffler::PartID pid
 ) {
-    auto lock = co_await mtx_.scoped_lock();
-
     // Ensure that `pid` is owned by this rank.
     RAPIDSMPF_EXPECTS(
         shuffler_.partition_owner(ctx_->comm(), pid) == ctx_->comm()->rank(),
@@ -111,35 +127,33 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
         std::out_of_range
     );
 
-    // Wait until the partition is ready or has been extracted (by somebody else).
-    co_await cv_.wait(lock, [this, pid]() {
-        return ready_pids_.contains(pid) || extracted_pids_.contains(pid);
-    });
-
-    // Did we wake up because the partition is ready?.
-    if (ready_pids_.erase(pid) > 0) {
-        // pid is now being extracted and isn't ready anymore.
-        RAPIDSMPF_EXPECTS(
-            extracted_pids_.emplace(pid).second,
-            "something went wrong, pid was both in the ready and the extracted set!"
-        );
-        co_return shuffler_.extract(pid);
+    while (true) {
+        // We don't care if the semaphore is shut down here, our pid might still be in the
+        // ready set to extract.
+        std::ignore = co_await semaphore_.acquire();
+        auto lock = co_await mtx_.scoped_lock();
+        if (extracted_pids_.contains(pid)) {
+            co_return std::nullopt;
+        }
+        if (ready_pids_.erase(pid) > 0) {
+            RAPIDSMPF_EXPECTS(
+                extracted_pids_.emplace(pid).second,
+                "something went wrong, pid was both in the ready and the extracted set!"
+            );
+            co_return shuffler_.extract(pid);
+        }
+        // The pid we are waiting on is not yet available, release so that someone else
+        // can try and extract the pid that was available.
+        co_await semaphore_.release();
     }
-    // If not, we were woken because the partition was extracted by somebody else.
-    co_return std::nullopt;
 }
 
 coro::task<std::optional<ShufflerAsync::ExtractResult>>
 ShufflerAsync::extract_any_async() {
-    auto const total_num_pids = shuffler_.local_partitions().size();
+    // We don't care if the semaphore is shut down here, there might still be pids in the
+    // ready set to extract.
+    std::ignore = co_await semaphore_.acquire();
     auto lock = co_await mtx_.scoped_lock();
-
-    // Wait until either all partitions has been extracted or at least one partition is
-    // ready for extraction.
-    co_await cv_.wait(lock, [this, total_num_pids]() {
-        return extracted_pids_.size() == total_num_pids || !ready_pids_.empty();
-    });
-
     // Did we wake up because a partition is ready?.
     if (!ready_pids_.empty()) {
         // Move a pid from the ready to the extracted set.
@@ -150,8 +164,14 @@ ShufflerAsync::extract_any_async() {
         );
         co_return std::make_pair(pid, shuffler_.extract(pid));
     }
-    // If not, we were woken because all partitions have been extracted.
+    // If not, we were released because all partitions have been extracted.
     co_return std::nullopt;
+}
+
+Node ShufflerAsync::drain() {
+    co_await latch_;
+    co_await notifications_.yield_until_empty();
+    co_await semaphore_.shutdown();
 }
 
 namespace node {
@@ -197,6 +217,7 @@ Node shuffler(
             )
         );
     }
+    co_await shuffler_async.drain();
     co_await ch_out->drain(ctx->executor());
 }
 

@@ -170,9 +170,6 @@ class ShufflerAsyncTest
     void SetUp() override {
         std::tie(n_threads, n_inserts, n_partitions, n_consumers) = GetParam();
 
-        if (n_consumers > 1)
-            GTEST_SKIP();  // TODO: Fix this (#553)
-
         BaseStreamingShuffle::SetUpWithThreads(n_threads);
         GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     }
@@ -241,16 +238,17 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
     std::mutex mtx;
     std::vector<shuffler::PartID> finished_pids;
     size_t n_chunks_received = 0;
-    std::vector<Node> extract_tasks;
+    std::vector<Node> tasks;
     for (int i = 0; i < n_consumers; ++i) {
-        extract_tasks.emplace_back(extract_task(
+        tasks.emplace_back(extract_task(
             i, shuffler.get(), ctx.get(), mtx, finished_pids, n_chunks_received
         ));
     }
-
-    // wait for the extract task to finish (executed by thread pool, waited by main
-    // thread)
-    run_streaming_pipeline(std::move(extract_tasks));
+    tasks.push_back(shuffler->drain());
+    auto results = coro::sync_wait(coro::when_all(std::move(tasks)));
+    for (auto& r : results) {
+        r.return_value();
+    }
 
     auto local_pids = shuffler::Shuffler::local_partitions(
         ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
@@ -276,17 +274,23 @@ TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
         );
 
         size_t parts_extracted = 0;
+        // For this test we need to drain the shuffler, i.e. ensure all insertion
+        // notifications have been received before extracting. This is only bwecause we
+        // sync_wait each individual extract_any_async.s
+        coro::sync_wait(shuffler->drain());
         while (true) {  // extract all partitions
             if (!coro::sync_wait(shuffler->extract_any_async()).has_value()) {
                 break;
             }
             parts_extracted++;
         }
+        std::cout << "Finished extraction" << std::endl;
         EXPECT_EQ(local_pids.size(), parts_extracted);
         // now extract should return std::nullopt.
         for (auto pid : local_pids) {
             EXPECT_EQ(coro::sync_wait(shuffler->extract_async(pid)), std::nullopt);
         }
+        coro::sync_wait(shuffler->drain());
     }
     GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
 }
@@ -315,7 +319,7 @@ class CompetingShufflerAsyncTest : public BaseStreamingShuffle {
 
         shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
-        auto [extract_any_result, extract_result] =
+        auto [extract_any_result, extract_result, _] =
             produce_results_fn(shuffler.get(), this_pid);
 
         // if extract_any_result is valid, then extract_result should return nullopt
@@ -334,7 +338,9 @@ TEST_F(CompetingShufflerAsyncTest, extract_any_then_extract) {
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto shuffler, auto this_pid) {
         return coro::sync_wait(
             coro::when_all(
-                shuffler->extract_any_async(), shuffler->extract_async(this_pid)
+                shuffler->extract_any_async(),
+                shuffler->extract_async(this_pid),
+                shuffler->drain()
             )
         );
     }));
@@ -342,12 +348,16 @@ TEST_F(CompetingShufflerAsyncTest, extract_any_then_extract) {
 
 TEST_F(CompetingShufflerAsyncTest, extract_then_extract_any) {
     EXPECT_NO_FATAL_FAILURE(run_test([&](auto shuffler, auto this_pid) {
-        auto [extract_result, extract_any_result] = coro::sync_wait(
+        auto [extract_result, extract_any_result, drain] = coro::sync_wait(
             coro::when_all(
-                shuffler->extract_async(this_pid), shuffler->extract_any_async()
+                shuffler->extract_async(this_pid),
+                shuffler->extract_any_async(),
+                shuffler->drain()
             )
         );
         // rotate the results to match the order of the coroutines
-        return std::make_tuple(std::move(extract_any_result), std::move(extract_result));
+        return std::make_tuple(
+            std::move(extract_any_result), std::move(extract_result), std::move(drain)
+        );
     }));
 }

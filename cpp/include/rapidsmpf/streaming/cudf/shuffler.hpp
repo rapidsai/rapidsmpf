@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cstddef>
+#include <limits>
 #include <unordered_set>
 
 #include <rapidsmpf/shuffler/shuffler.hpp>
@@ -142,11 +144,23 @@ class ShufflerAsync {
      */
     coro::task<std::optional<ExtractResult>> extract_any_async();
 
+    /**
+     * @brief Drain all pending notifications from the shuffle.
+     *
+     * This is required to ensure that all asynchronous notification tasks have completed
+     * before the shuffle destructs.
+     *
+     * @return A coroutine representing the completion of all notifications.
+     */
+    Node drain();
+
   private:
-    coro::mutex mtx_{};
-    coro::condition_variable cv_{};
     std::shared_ptr<Context> ctx_;
     shuffler::Shuffler shuffler_;
+    coro::task_container<coro::thread_pool> notifications_;
+    coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()> semaphore_{0};
+    coro::mutex mtx_;
+    coro::latch latch_;
 
     /**
      * @brief Tracks partition states for extraction.
