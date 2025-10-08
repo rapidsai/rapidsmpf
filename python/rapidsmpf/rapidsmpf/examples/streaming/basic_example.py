@@ -57,7 +57,7 @@ def main() -> int:
     table_chunks = [
         Message(
             TableChunk.from_pylibcudf_table(
-                seq, expect, DEFAULT_STREAM, is_exclusive_view=False
+                seq, expect, DEFAULT_STREAM, exclusive_view=False
             )
         )
         for seq, expect in enumerate(tables)

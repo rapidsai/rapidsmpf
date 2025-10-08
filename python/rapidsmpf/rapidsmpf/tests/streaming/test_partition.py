@@ -34,9 +34,7 @@ def test_partition_and_pack_unpack(
     ]
     table_chunks = [
         Message(
-            TableChunk.from_pylibcudf_table(
-                seq, expect, stream, is_exclusive_view=False
-            )
+            TableChunk.from_pylibcudf_table(seq, expect, stream, exclusive_view=False)
         )
         for seq, expect in enumerate(expects)
     ]

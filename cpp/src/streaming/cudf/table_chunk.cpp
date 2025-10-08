@@ -30,13 +30,13 @@ TableChunk::TableChunk(
     std::size_t device_alloc_size,
     rmm::cuda_stream_view stream,
     OwningWrapper&& owner,
-    bool is_exclusive_view
+    ExclusiveView exclusive_view
 )
     : owner_{std::move(owner)},
       sequence_number_{sequence_number},
       table_view_{table_view},
       stream_{stream},
-      is_spillable_{is_exclusive_view} {
+      is_spillable_{static_cast<bool>(exclusive_view)} {
     data_alloc_size_[static_cast<std::size_t>(MemoryType::DEVICE)] = device_alloc_size;
     make_available_cost_ = 0;
 }

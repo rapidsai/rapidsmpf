@@ -36,6 +36,26 @@ namespace rapidsmpf::streaming {
 class TableChunk {
   public:
     /**
+     * @brief Indicates whether the `TableChunk` holds an exclusive or shared view
+     * of the underlying table data.
+     *
+     * This boolean enum is used to explicitly express ownership semantics
+     * when constructing a `TableChunk` from a `cudf::table_view`.
+     *
+     * - `ExclusiveView::YES`: The `TableChunk` has exclusive ownership of
+     *   the table's device memory. The `table_view` and its `owner` represent
+     *   the only reference to this data. Such chunks are considered spillable.
+     *
+     * - `ExclusiveView::NO`: The `TableChunk` is a non-owning view of data
+     *   managed elsewhere. The memory may be shared or externally owned,
+     *   and the chunk is therefore *not spillable*.
+     */
+    enum class ExclusiveView : bool {
+        NO,
+        YES,
+    };
+
+    /**
      * @brief Construct a TableChunk from a device table.
      *
      * @param sequence_number Ordering identifier for the chunk.
@@ -65,14 +85,16 @@ class TableChunk {
      * @param device_alloc_size Number of bytes allocated in device memory.
      * @param stream CUDA stream on which the table was created.
      * @param owner Object owning the memory backing @p table_view. This object will be
-     * destroyed last when the @p TableChunk is destroyed or spilled.
-     * @param is_exclusive_view Indicates that this TableChunk has exclusive ownership
-     * semantics over the underlying table data. When `true`, the following guarantees
-     * must hold:
-     *   - The @p table_view is the sole representation of the table.
-     *   - The @p owner exclusively owns the table memory.
-     * These guarantees allow the TableChunk to be spillable and ensure that destroying
-     * the @p owner will correctly free the associated device memory.
+     * destroyed last when the TableChunk is destroyed or spilled.
+     * @param exclusive_view Specifies whether this TableChunk has exclusive ownership
+     * semantics over the underlying table data:
+     *   - When `ExclusiveView::YES`, the following guarantees must hold:
+     *       - The @p table_view is the sole representation of the table.
+     *       - The @p owner exclusively owns the table memory.
+     *     These guarantees allow the TableChunk to be spillable and ensure that
+     *     destroying @p owner will correctly free the associated device memory.
+     *   - When `ExclusiveView::NO`, the chunk is considered a non-owning view and
+     *     is therefore not spillable.
      */
     TableChunk(
         std::uint64_t sequence_number,
@@ -80,7 +102,7 @@ class TableChunk {
         std::size_t device_alloc_size,
         rmm::cuda_stream_view stream,
         OwningWrapper&& owner,
-        bool is_exclusive_view
+        ExclusiveView exclusive_view
     );
 
     /**

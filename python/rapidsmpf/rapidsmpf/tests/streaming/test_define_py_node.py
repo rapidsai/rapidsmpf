@@ -45,7 +45,7 @@ def test_send_table_chunks(
                         sequence_number=seq,
                         table=chunk,
                         stream=stream,
-                        is_exclusive_view=False,
+                        exclusive_view=False,
                     )
                 ),
             )
@@ -121,9 +121,7 @@ def test_recv_table_chunks(
     ]
     table_chunks = [
         Message(
-            TableChunk.from_pylibcudf_table(
-                seq, expect, stream, is_exclusive_view=False
-            )
+            TableChunk.from_pylibcudf_table(seq, expect, stream, exclusive_view=False)
         )
         for seq, expect in enumerate(expects)
     ]

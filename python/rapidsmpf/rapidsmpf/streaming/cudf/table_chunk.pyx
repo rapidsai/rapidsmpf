@@ -36,7 +36,7 @@ cdef extern from *:
         rmm::cuda_stream_view stream,
         PyObject *owner,
         void(*py_deleter)(void *),
-        bool is_exclusive_view
+        rapidsmpf::streaming::TableChunk::ExclusiveView exclusive_view
     ) {
         // Called holding the gil.
         // Decref is done by the deleter.
@@ -47,7 +47,7 @@ cdef extern from *:
             device_alloc_size,
             stream,
             rapidsmpf::streaming::OwningWrapper(owner, py_deleter),
-            is_exclusive_view
+            exclusive_view
         );
     }
     }
@@ -109,7 +109,7 @@ cdef class TableChunk:
         Table table not None,
         Stream stream not None,
         *,
-        bool_t is_exclusive_view,
+        ExclusiveView exclusive_view,
     ):
         """
         Construct a TableChunk from a pylibcudf Table.
@@ -122,11 +122,11 @@ cdef class TableChunk:
             A pylibcudf Table to wrap as a TableChunk.
         stream
             The CUDA stream on which this chunk was created.
-        is_exclusive_view
+        exclusive_view
             Indicates that this TableChunk has exclusive ownership semantics for the
             underlying table view.
 
-            When ``True``, the following guarantees must hold:
+            When ``ExclusiveView.YES``, the following guarantees must hold:
               - The pylibcudf Table is the sole representation of the table data,
                 i.e. no views exist.
               - The Table object exclusively owns the table's device memory.
@@ -166,7 +166,7 @@ cdef class TableChunk:
                 _stream,
                 <PyObject *>table,
                 py_deleter,
-                is_exclusive_view,
+                exclusive_view,
             )
         )
 
@@ -332,7 +332,7 @@ cdef class TableChunk:
         A chunk is considered spillable if it was created from one of the following:
           - A message (via ``.from_message()``).
           - An exclusive pylibcudf table (via
-            ``.from_pylibcudf_table(..., is_exclusive_view=True)``).
+            ``.from_pylibcudf_table(..., exclusive_view=True)``).
 
         Both of these creation paths imply device-owning semantics, meaning the
         TableChunk owns its underlying memory and can safely be spilled to host memory.

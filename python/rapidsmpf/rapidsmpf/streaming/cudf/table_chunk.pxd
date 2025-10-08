@@ -3,7 +3,7 @@
 
 from libc.stddef cimport size_t
 from libc.stdint cimport uint64_t
-from libcpp cimport bool as bool_t
+from libcpp cimport bool
 from libcpp.memory cimport unique_ptr
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
@@ -19,9 +19,14 @@ cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
         uint64_t sequence_number() noexcept
         cuda_stream_view stream() noexcept
         size_t data_alloc_size(MemoryType mem_type) except +
-        bool_t is_available() noexcept
-        bool_t is_spillable() noexcept
+        bool is_available() noexcept
+        bool is_spillable() noexcept
 
+cdef extern from "<rapidsmpf/allgather/allgather.hpp>" namespace \
+        "rapidsmpf::streaming::TableChunk" nogil:
+    cpdef enum class ExclusiveView(bool):
+        NO
+        YES
 
 cdef class TableChunk:
     cdef unique_ptr[cpp_TableChunk] _handle

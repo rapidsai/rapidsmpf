@@ -17,7 +17,7 @@ class TableChunk:
         table: Table,
         stream: Stream,
         *,
-        is_exclusive_view: bool,
+        exclusive_view: bool,
     ) -> TableChunk: ...
     @classmethod
     def from_message(cls, message: Message[Self]) -> Self: ...

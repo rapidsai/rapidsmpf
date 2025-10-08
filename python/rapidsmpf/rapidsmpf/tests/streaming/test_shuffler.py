@@ -59,7 +59,7 @@ def test_single_rank_shuffler(
             sequence_number=i,
             table=cudf_to_pylibcudf_table(df_chunk),
             stream=stream,
-            is_exclusive_view=False,
+            exclusive_view=False,
         )
         input_chunks.append(Message(chunk))
 

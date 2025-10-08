@@ -22,21 +22,21 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.parametrize(
-    "is_exclusive_view",
+    "exclusive_view",
     [True, False],
 )
 def test_from_pylibcudf_table(
-    context: Context, stream: Stream, *, is_exclusive_view: bool
+    context: Context, stream: Stream, *, exclusive_view: bool
 ) -> None:
     seq = 42
     expect = cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}))
     table_chunk = TableChunk.from_pylibcudf_table(
-        seq, expect, stream, is_exclusive_view=is_exclusive_view
+        seq, expect, stream, exclusive_view=exclusive_view
     )
     assert table_chunk.sequence_number == seq
     assert is_equal_streams(table_chunk.stream, stream)
     assert table_chunk.is_available()
-    assert table_chunk.is_spillable() == is_exclusive_view
+    assert table_chunk.is_spillable() == exclusive_view
     assert_eq(expect, table_chunk.table_view())
 
     # Message roundtrip check.
