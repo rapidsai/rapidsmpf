@@ -82,7 +82,7 @@ class ShufflerAsync {
      *
      * @return A reference to the shared context object.
      */
-    constexpr std::shared_ptr<Context> const& ctx() const {
+    [[nodiscard]] constexpr std::shared_ptr<Context> const& ctx() const {
         return ctx_;
     }
 
@@ -91,7 +91,7 @@ class ShufflerAsync {
      *
      * @return The total number of partitions that data will be shuffled into.
      */
-    constexpr shuffler::PartID total_num_partitions() const {
+    [[nodiscard]] constexpr shuffler::PartID total_num_partitions() const {
         return shuffler_.total_num_partitions;
     }
 
@@ -100,7 +100,8 @@ class ShufflerAsync {
      *
      * @return A const reference to the function that maps partition IDs to owning ranks.
      */
-    constexpr shuffler::Shuffler::PartitionOwner const& partition_owner() const {
+    [[nodiscard]] constexpr shuffler::Shuffler::PartitionOwner const&
+    partition_owner() const {
         return shuffler_.partition_owner;
     }
 
@@ -141,7 +142,7 @@ class ShufflerAsync {
      * @throws std::out_of_range If the partition ID isn't owned by this rank, see
      * `partition_owner()`.
      */
-    coro::task<std::optional<std::vector<PackedData>>> extract_async(
+    [[nodiscard]] coro::task<std::optional<std::vector<PackedData>>> extract_async(
         shuffler::PartID pid
     );
 
@@ -167,7 +168,7 @@ class ShufflerAsync {
      * `extract_any_async`, in which case `extract_async` will later return
      * `std::nullopt`.
      */
-    coro::task<std::optional<ExtractResult>> extract_any_async();
+    [[nodiscard]] coro::task<std::optional<ExtractResult>> extract_any_async();
 
   private:
     /**
@@ -184,7 +185,7 @@ class ShufflerAsync {
      * @return A coroutine representing the completion of all notifications and the
      * shutdown of the semaphore.
      */
-    Node finished_drain();
+    [[nodiscard]] Node finished_drain();
 
     std::shared_ptr<Context> ctx_;
     coro::task_container<coro::thread_pool>
@@ -227,7 +228,7 @@ namespace node {
  * @return A streaming node that completes when the shuffling has finished and the
  * output channel is drained.
  */
-Node shuffler(
+[[nodiscard]] Node shuffler(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
