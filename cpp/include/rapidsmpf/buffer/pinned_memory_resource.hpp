@@ -12,7 +12,6 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
-#include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
@@ -184,7 +183,7 @@ class PinnedHostBuffer {
     );
 
     /**
-     * @brief Constructs a pinned host buffer and copies data into it.
+     * @brief Constructs a pinned host buffer and asynchronously copies data into it.
      *
      * @param src_data Pointer to the source data to copy. If the data ptr is ordered on a
      * stream other than @p stream, it must be synchronized with @p stream before calling
@@ -202,53 +201,18 @@ class PinnedHostBuffer {
     );
 
     /**
-     * @brief Constructs a pinned host buffer by copying data from another pinned host
-     * buffer on the given stream.
+     * @brief Constructs a pinned host buffer by copying data asynchronously from another
+     * pinned host buffer/ device buffer on the same stream.
      *
-     * @param other The other pinned host buffer to copy from. If @p other is ordered
-     * on a stream other than @p stream, it must be synchronized with @p stream before
-     * calling this constructor. Otherwise, it will result in undefined behavior.
-     * @param stream The CUDA stream to use for memory operations.
+     * @param other The other pinned host buffer to copy from.
      * @param mr Shared pointer to the memory resource to use for allocation and
      * deallocation.
-     */
-    PinnedHostBuffer(
-        PinnedHostBuffer const& other,
-        rmm::cuda_stream_view stream,
-        std::shared_ptr<PinnedMemoryResource> mr
-    );
-
-    /**
-     * @brief Constructs a pinned host buffer by copying data from another pinned host
-     * buffer or device buffer on the given stream.
-     *
-     * @param src The source buffer to copy from.
-     * @param stream The CUDA stream to use for memory operations.
-     * @param mr Shared pointer to the memory resource to use for allocation and
-     * deallocation.
-     *
-     * @return A new pinned host buffer with the data copied from @p src.
      */
     template <typename SourceBufferT>
         requires std::is_same_v<PinnedHostBuffer, SourceBufferT>
                  || std::is_same_v<rmm::device_buffer, SourceBufferT>
-    static PinnedHostBuffer stream_synchronized_copy(
-        SourceBufferT const& src,
-        rmm::cuda_stream_view stream,
-        std::shared_ptr<PinnedMemoryResource> mr
-    ) {
-        if (src.size() > 0) {
-            // allocate a new buffer on the downstream stream
-            PinnedHostBuffer ret(src.size(), stream, std::move(mr));
-            // synchronize the downstream stream with upstream stream
-            cuda_stream_join(stream, src.stream());
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                ret.data(), src.data(), src.size(), cudaMemcpyDefault, stream
-            ));
-            return ret;
-        }
-        return PinnedHostBuffer(0, stream, std::move(mr));
-    }
+    PinnedHostBuffer(SourceBufferT const& other, std::shared_ptr<PinnedMemoryResource> mr)
+        : PinnedHostBuffer(other.data(), other.size(), other.stream(), std::move(mr)) {}
 
     /**
      * @brief Asynchronously destroys the pinned host buffer.

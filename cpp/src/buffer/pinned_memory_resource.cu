@@ -125,13 +125,6 @@ PinnedHostBuffer::PinnedHostBuffer(
     }
 }
 
-PinnedHostBuffer::PinnedHostBuffer(
-    PinnedHostBuffer const& other,
-    rmm::cuda_stream_view stream,
-    std::shared_ptr<PinnedMemoryResource> mr
-)
-    : PinnedHostBuffer(other.data_, other.size_, stream, std::move(mr)) {}
-
 PinnedHostBuffer::~PinnedHostBuffer() noexcept {
     deallocate_async();
 }

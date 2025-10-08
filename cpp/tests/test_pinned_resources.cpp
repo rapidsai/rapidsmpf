@@ -17,6 +17,7 @@
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
 
 #include <rapidsmpf/buffer/pinned_memory_resource.hpp>
+#include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/utils.hpp>
 
 #include "utils.hpp"
@@ -110,7 +111,7 @@ TEST_P(PinnedHostBufferTest, synchronized_host_data) {
     EXPECT_EQ(data, buffer.data());
 
     // deep copy
-    rapidsmpf::PinnedHostBuffer buffer3(buffer, stream, p_mr);
+    rapidsmpf::PinnedHostBuffer buffer3(buffer, p_mr);
     buffer3.synchronize();
     EXPECT_TRUE(
         std::equal(
@@ -149,6 +150,25 @@ TEST_P(PinnedHostBufferTest, device_data) {
     );
 }
 
+namespace {
+rapidsmpf::PinnedHostBuffer stream_synchronized_copy(
+    auto const& src,
+    rmm::cuda_stream_view stream,
+    std::shared_ptr<rapidsmpf::PinnedMemoryResource> mr
+) {
+    if (src.size() > 0) {
+        // allocate a new buffer on the downstream stream
+        rapidsmpf::PinnedHostBuffer ret(src.size(), stream, std::move(mr));
+        // synchronize the downstream stream with upstream stream
+        rapidsmpf::cuda_stream_join(stream, src.stream());
+        RAPIDSMPF_CUDA_TRY(
+            cudaMemcpyAsync(ret.data(), src.data(), src.size(), cudaMemcpyDefault, stream)
+        );
+        return ret;
+    }
+    return rapidsmpf::PinnedHostBuffer(0, stream, std::move(mr));
+}
+
 template <typename SourceBufferT>
 void stream_sync_copy_test(size_t buffer_size, auto& src_mr, auto& pinned_mr) {
     rmm::cuda_stream_pool stream_pool(2, rmm::cuda_stream::flags::non_blocking);
@@ -160,12 +180,15 @@ void stream_sync_copy_test(size_t buffer_size, auto& src_mr, auto& pinned_mr) {
     // create a src buffer on stream1 with host data (blocking copy)
     SourceBufferT src_buf1(host_data.data(), buffer_size, stream1, src_mr);
     // create a src buffer on stream1 with the same data (non-blocking copy)
-    SourceBufferT src_buf2(src_buf1, stream1, src_mr);
+    SourceBufferT src_buf2;
+    if constexpr (std::is_same_v<SourceBufferT, rmm::device_buffer>) {
+        src_buf2 = SourceBufferT(src_buf1, stream1, src_mr);
+    } else {
+        src_buf2 = SourceBufferT(src_buf1, src_mr);
+    }
 
     // create a pinned host buffer on stream2 with src_buf2 (non-blocking copy)
-    auto pinned_buf1 = rapidsmpf::PinnedHostBuffer::stream_synchronized_copy(
-        src_buf2, stream2, pinned_mr
-    );
+    auto pinned_buf1 = stream_synchronized_copy(src_buf2, stream2, pinned_mr);
 
     pinned_buf1.synchronize();
     EXPECT_TRUE(
@@ -176,6 +199,7 @@ void stream_sync_copy_test(size_t buffer_size, auto& src_mr, auto& pinned_mr) {
         )
     );
 }
+}  // namespace
 
 TEST_P(PinnedHostBufferTest, stream_synchronized_copy_rmm) {
     EXPECT_NO_FATAL_FAILURE(
