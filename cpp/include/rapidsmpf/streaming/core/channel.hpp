@@ -22,6 +22,11 @@
 namespace rapidsmpf::streaming {
 
 /**
+ * @brief An awaitable semaphore to manage acquisition and release of finite resources.
+ */
+using Semaphore = coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()>;
+
+/**
  * @brief Move-only, type-erased message holding a payload as shared pointer.
  */
 class Message {
@@ -204,8 +209,6 @@ class Channel {
  */
 class ThrottlingAdaptor {
   private:
-    using semaphore_type = coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()>;
-
     ///< @brief Ticket with permission to send into the channel.
     class Ticket {
       public:
@@ -263,7 +266,7 @@ class ThrottlingAdaptor {
             } else {
                 // If the channel is closed we want to wake any waiters so shutdown the
                 // semaphore.
-                semaphore_->shutdown();
+                co_await semaphore_->shutdown();
                 co_return {sent, []() -> coro::task<void> { co_return; }()};
             }
         }
@@ -274,12 +277,12 @@ class ThrottlingAdaptor {
          * @param channel The channel to send into.
          * @param semaphore Semaphore to release after send is complete.
          */
-        Ticket(Channel* channel, semaphore_type* semaphore)
+        Ticket(Channel* channel, Semaphore* semaphore)
             : ch_{channel}, semaphore_{semaphore} {};
 
       private:
         Channel* ch_;
-        semaphore_type* semaphore_;
+        Semaphore* semaphore_;
     };
 
   public:
@@ -344,7 +347,7 @@ class ThrottlingAdaptor {
 
   private:
     std::shared_ptr<Channel> ch_;
-    coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()> semaphore_;
+    Semaphore semaphore_;
 };
 
 /**
