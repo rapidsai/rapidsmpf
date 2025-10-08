@@ -17,6 +17,7 @@
 #include <rapidsmpf/integrations/cudf/partition.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>
+#include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
 #include <rapidsmpf/streaming/cudf/shuffler.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
@@ -170,9 +171,6 @@ class ShufflerAsyncTest
     void SetUp() override {
         std::tie(n_threads, n_inserts, n_partitions, n_consumers) = GetParam();
 
-        if (n_consumers > 1)
-            GTEST_SKIP();  // TODO: Fix this (#553)
-
         BaseStreamingShuffle::SetUpWithThreads(n_threads);
         GlobalEnvironment->barrier();  // prevent accidental mixup between shufflers
     }
@@ -225,7 +223,6 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
         ctx->comm()->logger().debug(tid, " extract task finished");
     };
 
-    // insert data (executed by main thread)
     for (size_t i = 0; i < n_inserts; ++i) {
         std::unordered_map<shuffler::PartID, PackedData> data;
         data.reserve(n_partitions);
@@ -235,22 +232,20 @@ TEST_P(ShufflerAsyncTest, multi_consumer_extract) {
         shuffler->insert(std::move(data));
     }
 
-    // insert finished (executed by main thread)
-    shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
+    auto finish_token =
+        shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
     std::mutex mtx;
     std::vector<shuffler::PartID> finished_pids;
     size_t n_chunks_received = 0;
-    std::vector<Node> extract_tasks;
+    std::vector<Node> tasks;
     for (int i = 0; i < n_consumers; ++i) {
-        extract_tasks.emplace_back(extract_task(
+        tasks.emplace_back(extract_task(
             i, shuffler.get(), ctx.get(), mtx, finished_pids, n_chunks_received
         ));
     }
-
-    // wait for the extract task to finish (executed by thread pool, waited by main
-    // thread)
-    run_streaming_pipeline(std::move(extract_tasks));
+    tasks.push_back(ctx->executor()->schedule(std::move(finish_token)));
+    run_streaming_pipeline(std::move(tasks));
 
     auto local_pids = shuffler::Shuffler::local_partitions(
         ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
@@ -269,13 +264,18 @@ TEST_F(BaseStreamingShuffle, extract_any_before_extract) {
         auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
 
         // all empty partitions
-        shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
+        auto finish_token =
+            shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
 
         auto local_pids = shuffler::Shuffler::local_partitions(
             ctx->comm(), n_partitions, shuffler::Shuffler::round_robin
         );
 
         size_t parts_extracted = 0;
+        // For this test we need to await the shuffler being finished and drained, i.e.
+        // ensure all insertion notifications have been received before extracting. This
+        // is only because we sync_wait each individual extract_any_async.
+        coro::sync_wait(finish_token);
         while (true) {  // extract all partitions
             if (!coro::sync_wait(shuffler->extract_any_async()).has_value()) {
                 break;
@@ -313,8 +313,9 @@ class CompetingShufflerAsyncTest : public BaseStreamingShuffle {
 
         auto shuffler = std::make_unique<ShufflerAsync>(ctx, op_id, n_partitions);
 
-        shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
-
+        auto finish_token =
+            shuffler->insert_finished(iota_vector<shuffler::PartID>(n_partitions));
+        coro::sync_wait(finish_token);
         auto [extract_any_result, extract_result] =
             produce_results_fn(shuffler.get(), this_pid);
 

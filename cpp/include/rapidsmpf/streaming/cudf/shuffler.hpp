@@ -24,10 +24,28 @@ namespace rapidsmpf::streaming {
  * useful for streaming scenarios where data can be processed as soon as individual
  * partitions are ready, rather than waiting for the entire shuffle to complete.
  *
- * @note Unlike the synchronous shuffler, this class does not provide a `finished()`
- * method. Instead, completion is implied: extraction coroutines (`extract_async`,
- * `extract_any_async`) will return `std::nullopt` when no more partitions are
- * available.
+ * Inserting the finished flags provides a token that one must await to "finalize"
+ * extractions. One can asynchronously extract partitions before awaiting this token.
+ *
+ * @warning The finish token _must_ be awaited otherwise the shuffle will throw in
+ * destruction or deadlocks will occur.
+ *
+ * Example usage:
+ * @code{.cpp}
+ * auto shuffle = ShufflerAsync(...);
+ * while (...) {
+ *   shuffle.insert(...);
+ * }
+ * auto finished_token = shuffle.insert_finished(...);
+ * for (auto i = 0; i < shuffle.local_partitions().size(); i++) {
+ *   auto part = co_await shuffle.extract_any_async();
+ * }
+ * co_await finished_token;
+ * @endcode{}
+ *
+ * @note One can launch more extraction tasks than there are partitions to extract, for
+ * example if we have multiple consumers of a shuffle, the extraction will return
+ * `std::nullopt` if no more partitions are available.
  */
 class ShufflerAsync {
   public:
@@ -64,7 +82,7 @@ class ShufflerAsync {
      *
      * @return A reference to the shared context object.
      */
-    constexpr std::shared_ptr<Context> const& ctx() const {
+    [[nodiscard]] constexpr std::shared_ptr<Context> const& ctx() const {
         return ctx_;
     }
 
@@ -73,7 +91,7 @@ class ShufflerAsync {
      *
      * @return The total number of partitions that data will be shuffled into.
      */
-    constexpr shuffler::PartID total_num_partitions() const {
+    [[nodiscard]] constexpr shuffler::PartID total_num_partitions() const {
         return shuffler_.total_num_partitions;
     }
 
@@ -82,7 +100,8 @@ class ShufflerAsync {
      *
      * @return A const reference to the function that maps partition IDs to owning ranks.
      */
-    constexpr shuffler::Shuffler::PartitionOwner const& partition_owner() const {
+    [[nodiscard]] constexpr shuffler::Shuffler::PartitionOwner const&
+    partition_owner() const {
         return shuffler_.partition_owner;
     }
 
@@ -92,8 +111,17 @@ class ShufflerAsync {
     /// @copydoc rapidsmpf::shuffler::Shuffler::insert
     void insert(std::unordered_map<shuffler::PartID, PackedData>&& chunks);
 
-    /// @copydoc rapidsmpf::shuffler::Shuffler::insert_finished(std::vector<PartID>&&)
-    void insert_finished(std::vector<shuffler::PartID>&& pids);
+    /**
+     * @copydoc rapidsmpf::shuffler::Shuffler::insert_finished(std::vector<PartID>&&)
+     *
+     * @note This coroutine must be awaited on, but need not be before extraction begins.
+     * This is required to ensure that all asynchronous notifications from the underlying
+     * shuffler have completed before the shuffle destructs. Any pending extractions will
+     * wake up and extract any remaining pids (or wake up empty if no pids are remaining).
+     *
+     * @return Coroutine that represents completion of the shuffle.
+     */
+    [[nodiscard]] Node insert_finished(std::vector<shuffler::PartID>&& pids);
 
     /**
      * @brief Asynchronously extracts all data for a specific partition.
@@ -114,7 +142,7 @@ class ShufflerAsync {
      * @throws std::out_of_range If the partition ID isn't owned by this rank, see
      * `partition_owner()`.
      */
-    coro::task<std::optional<std::vector<PackedData>>> extract_async(
+    [[nodiscard]] coro::task<std::optional<std::vector<PackedData>>> extract_async(
         shuffler::PartID pid
     );
 
@@ -140,12 +168,32 @@ class ShufflerAsync {
      * `extract_any_async`, in which case `extract_async` will later return
      * `std::nullopt`.
      */
-    coro::task<std::optional<ExtractResult>> extract_any_async();
+    [[nodiscard]] coro::task<std::optional<ExtractResult>> extract_any_async();
 
   private:
-    coro::mutex mtx_{};
-    coro::condition_variable cv_{};
+    /**
+     * @brief Ensure that all notifications have been received and drain pending
+     * extractions.
+     *
+     * This is required to ensure that all asynchronous notifications from the underlying
+     * shuffler have completed before the shuffle destructs. Any pending extractions will
+     * wake up and extract any remaining pids (or wake up empty if no pids are remaining).
+     *
+     * @note Typically this is not called directly, the coroutine it represents is
+     * returned from `insert_finished`.
+     *
+     * @return A coroutine representing the completion of all notifications and the
+     * shutdown of the semaphore.
+     */
+    [[nodiscard]] Node finished_drain();
+
     std::shared_ptr<Context> ctx_;
+    coro::task_container<coro::thread_pool>
+        notifications_;  ///< Container tracking the notifications that have fired.
+    Semaphore semaphore_{0};  ///< Releases resources (inserted ready pids)
+    coro::latch
+        latch_;  ///< Tracks notifications so that we know when all have been received.
+    std::mutex mtx_;  ///< Protects modification of ready_pids_ and extracted_pids_
     shuffler::Shuffler shuffler_;
 
     /**
@@ -180,7 +228,7 @@ namespace node {
  * @return A streaming node that completes when the shuffling has finished and the
  * output channel is drained.
  */
-Node shuffler(
+[[nodiscard]] Node shuffler(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
