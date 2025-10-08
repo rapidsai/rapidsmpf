@@ -36,7 +36,7 @@ cdef extern from *:
         rmm::cuda_stream_view stream,
         PyObject *owner,
         void(*py_deleter)(void *),
-        rapidsmpf::streaming::TableChunk::ExclusiveView exclusive_view
+        bool exclusive_view
     ) {
         // Called holding the gil.
         // Decref is done by the deleter.
@@ -47,7 +47,9 @@ cdef extern from *:
             device_alloc_size,
             stream,
             rapidsmpf::streaming::OwningWrapper(owner, py_deleter),
-            exclusive_view
+            exclusive_view ?
+                rapidsmpf::streaming::TableChunk::ExclusiveView::YES
+                : rapidsmpf::streaming::TableChunk::ExclusiveView::NO
         );
     }
     }
@@ -109,7 +111,7 @@ cdef class TableChunk:
         Table table not None,
         Stream stream not None,
         *,
-        ExclusiveView exclusive_view,
+        bool_t exclusive_view,
     ):
         """
         Construct a TableChunk from a pylibcudf Table.
@@ -126,7 +128,7 @@ cdef class TableChunk:
             Indicates that this TableChunk has exclusive ownership semantics for the
             underlying table view.
 
-            When ``ExclusiveView.YES``, the following guarantees must hold:
+            When ``True``, the following guarantees must hold:
               - The pylibcudf Table is the sole representation of the table data,
                 i.e. no views exist.
               - The Table object exclusively owns the table's device memory.
