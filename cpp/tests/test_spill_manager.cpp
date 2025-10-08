@@ -42,14 +42,14 @@ TEST(SpillManager, SpillFunction) {
     std::int64_t mem_available = 10_KiB;
     BufferResource br{
         cudf::get_current_device_resource_ref(),
-        {{MemoryType::DEVICE, [&mem_available]() -> std::int64_t { return mem_available; }
-        }}
+        {{MemoryType::DEVICE,
+          [&mem_available]() -> std::int64_t { return mem_available; }}}
     };
     EXPECT_EQ(br.memory_available(MemoryType::DEVICE)(), 10_KiB);
 
     // Spill function that increases the available memory perfectly.
-    SpillManager::SpillFunction func1 = [&mem_available](std::size_t amount
-                                        ) -> std::size_t {
+    SpillManager::SpillFunction func1 =
+        [&mem_available](std::size_t amount) -> std::size_t {
         mem_available += amount;
         return amount;
     };

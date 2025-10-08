@@ -11,12 +11,29 @@ from libcpp.vector cimport vector
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf.buffer.packed_data cimport PackedData, cpp_PackedData
+from rapidsmpf.buffer.packed_data cimport (PackedData, cpp_PackedData,
+                                           packed_data_vector_to_list)
 from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics
 
-from collections.abc import Iterable
-from typing import Mapping
+
+# Insert PackedData into a partition map. We implement this in C++ because
+# PackedData doesn't have a default ctor.
+cdef extern from *:
+    """
+    void cpp_insert_chunk_into_partition_map(
+        std::unordered_map<std::uint32_t, rapidsmpf::PackedData> &partition_map,
+        std::uint32_t pid,
+        std::unique_ptr<rapidsmpf::PackedData> packed_data
+    ) {
+        partition_map.insert({pid, std::move(*packed_data)});
+    }
+    """
+    void cpp_insert_chunk_into_partition_map(
+        unordered_map[uint32_t, cpp_PackedData] &partition_map,
+        uint32_t pid,
+        unique_ptr[cpp_PackedData] packed_data,
+    ) except + nogil
 
 
 cdef class Shuffler:
@@ -61,21 +78,19 @@ cdef class Shuffler:
 
     def __init__(
         self,
-        Communicator comm,
-        ProgressThread progress_thread,
+        Communicator comm not None,
+        ProgressThread progress_thread not None,
         uint8_t op_id,
         uint32_t total_num_partitions,
-        stream,
-        BufferResource br,
+        Stream stream not None,
+        BufferResource br not None,
         Statistics statistics = None,
     ):
-        if stream is None:
-            raise ValueError("stream cannot be None")
-        self._stream = Stream(stream)
+        self._stream = stream
+        cdef cuda_stream_view _stream = stream.view()
         self._comm = comm
         self._br = br
         cdef cpp_BufferResource* br_ = br.ptr()
-        cdef cuda_stream_view _stream = self._stream.view()
         if statistics is None:
             statistics = Statistics(enable=False)  # Disables statistics.
         with nogil:
@@ -125,7 +140,7 @@ cdef class Shuffler:
         """
         return self._comm
 
-    def insert_chunks(self, chunks: Mapping[int, PackedData]):
+    def insert_chunks(self, chunks):
         """
         Insert a batch of packed (serialized) chunks into the shuffle.
 
@@ -146,12 +161,14 @@ cdef class Shuffler:
         for pid, chunk in chunks.items():
             if not (<PackedData?>chunk).c_obj:
                 raise ValueError("PackedData was empty")
-            _chunks[<uint32_t?>pid] = move(deref((<PackedData?>chunk).c_obj))
+            cpp_insert_chunk_into_partition_map(
+                _chunks, <uint32_t?>pid, move((<PackedData?>chunk).c_obj)
+            )
 
         with nogil:
             deref(self._handle).insert(move(_chunks))
 
-    def concat_insert(self, chunks: Mapping[int, PackedData]):
+    def concat_insert(self, chunks):
         """
         Insert a batch of packed (serialized) chunks into the shuffle while
         concatenating the chunks based on the destination rank.
@@ -179,12 +196,14 @@ cdef class Shuffler:
         for pid, chunk in chunks.items():
             if not (<PackedData?>chunk).c_obj:
                 raise ValueError("PackedData was empty")
-            _chunks[<uint32_t?>pid] = move(deref((<PackedData?>chunk).c_obj))
+            cpp_insert_chunk_into_partition_map(
+                _chunks, <uint32_t?>pid, move((<PackedData?>chunk).c_obj)
+            )
 
         with nogil:
             deref(self._handle).concat_insert(move(_chunks))
 
-    def insert_finished(self, pids: int | Iterable[int]):
+    def insert_finished(self, pids):
         """
         Mark partitions as finished.
 
@@ -228,18 +247,7 @@ cdef class Shuffler:
         cdef vector[cpp_PackedData] _ret
         with nogil:
             _ret = deref(self._handle).extract(pid)
-
-        # Move the result into a python list of `PackedData`.
-        cdef list ret = []
-        for i in range(_ret.size()):
-            ret.append(
-                PackedData.from_librapidsmpf(
-                    make_unique[cpp_PackedData](
-                        move(_ret.at(i).metadata), move(_ret.at(i).gpu_data)
-                    )
-                )
-            )
-        return ret
+        return packed_data_vector_to_list(move(_ret))
 
     def finished(self):
         """

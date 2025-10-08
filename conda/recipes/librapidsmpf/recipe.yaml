@@ -27,7 +27,7 @@ cache:
         export CXXFLAGS=$(echo $CXXFLAGS | sed -E 's@\-fdebug\-prefix\-map[^ ]*@@g')
         set +x
 
-        ./build.sh -v -n librapidsmpf
+        ./build.sh -v -n --cmake-args=\"-DBUILD_CUPTI_SUPPORT=ON\" librapidsmpf
       secrets:
         - AWS_ACCESS_KEY_ID
         - AWS_SECRET_ACCESS_KEY
@@ -50,6 +50,7 @@ cache:
       - ${{ compiler("c") }}
       - ${{ compiler("cxx") }}
       - ${{ compiler("cuda") }} =${{ cuda_version }}
+      - cuda-cupti-dev
       - cuda-version =${{ cuda_version }}
       - cmake ${{ cmake_version }}
       - ninja
@@ -57,9 +58,10 @@ cache:
     host:
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
+      - cuda-cupti-dev
       - librmm =${{ minor_version }}
       - libcudf =${{ minor_version }}
-      - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+      - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
       - ucxx ${{ ucxx_version }}
 
 outputs:
@@ -81,19 +83,22 @@ outputs:
     requirements:
       build:
         - cmake ${{ cmake_version }}
+        - cuda-cupti-dev
         - ${{ stdlib("c") }}
       host:
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
+        - cuda-cupti-dev
         - libcudf =${{ minor_version }}
-        - openmpi
+        - openmpi >=5.0
         - ucxx ${{ ucxx_version }}
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cudart
+        - cuda-cupti
         - librmm =${{ minor_version }}
         - libcudf =${{ minor_version }}
-        - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+        - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
         - ucxx ${{ ucxx_version }}
       ignore_run_exports:
         from_package:
@@ -103,6 +108,7 @@ outputs:
           - ${{ stdlib("c") }}
         by_name:
           - cuda-cudart
+          - cuda-cupti
           - libcudf
           - openmpi
           - librmm
@@ -122,20 +128,23 @@ outputs:
     requirements:
       build:
         - cmake ${{ cmake_version }}
+        - cuda-cupti-dev
         - ${{ stdlib("c") }}
       host:
         - cuda-cudart-dev
+        - cuda-cupti-dev
         - cuda-version =${{ cuda_version }}
         - libcudf =${{ minor_version }}
         - librmm =${{ minor_version }}
-        - openmpi
+        - openmpi >=5.0
         - ${{ pin_subpackage("librapidsmpf", exact=True) }}
       run:
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - cuda-cudart
+        - cuda-cupti
         - librmm =${{ minor_version }}
         - libcudf =${{ minor_version }}
-        - openmpi  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
+        - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
         - ucxx ${{ ucxx_version }}
       ignore_run_exports:
         from_package:
@@ -145,6 +154,7 @@ outputs:
           - ${{ stdlib("c") }}
         by_name:
           - cuda-cudart
+          - cuda-cupti
           - librmm
           - libcudf
           - openmpi

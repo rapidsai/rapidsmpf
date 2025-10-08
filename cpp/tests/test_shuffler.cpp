@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <atomic>
 #include <future>
 #include <memory>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -13,9 +15,11 @@
 #include <cudf_test/debug_utilities.hpp>
 #include <cudf_test/table_utilities.hpp>
 
+#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/shuffler/finish_counter.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -23,85 +27,6 @@
 #include "utils.hpp"
 
 extern Environment* GlobalEnvironment;
-
-/**
- * @brief Get the logger object
- *
- * @return rapidsmpf::communicator::Logger&
- */
-static rapidsmpf::Communicator::Logger& log() {
-    return GlobalEnvironment->comm_->logger();
-}
-
-class NumOfPartitions : public cudf::test::BaseFixtureWithParam<std::tuple<int, int>> {};
-
-// test different `num_partitions` and `num_rows`.
-INSTANTIATE_TEST_SUITE_P(
-    Shuffler,
-    NumOfPartitions,
-    testing::Combine(
-        testing::Range(1, 10),  // num_partitions
-        testing::Range(1, 100, 9)  // num_rows
-    )
-);
-
-TEST_P(NumOfPartitions, partition_and_pack) {
-    int const num_partitions = std::get<0>(GetParam());
-    int const num_rows = std::get<1>(GetParam());
-    std::int64_t const seed = 42;
-    cudf::hash_id const hash_fn = cudf::hash_id::HASH_MURMUR3;
-    auto stream = cudf::get_default_stream();
-    auto mr = cudf::get_current_device_resource_ref();
-
-    cudf::table expect =
-        random_table_with_index(seed, static_cast<std::size_t>(num_rows), 0, 10);
-
-    auto chunks = rapidsmpf::partition_and_pack(
-        expect, {1}, num_partitions, hash_fn, seed, stream, mr
-    );
-
-    // Convert to a vector
-    std::vector<rapidsmpf::PackedData> chunks_vector;
-    for (auto& [_, chunk] : chunks) {
-        chunks_vector.push_back(std::move(chunk));
-    }
-    EXPECT_EQ(chunks_vector.size(), num_partitions);
-
-    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, mr);
-
-    // Compare the input table with the result. We ignore the row order by
-    // sorting by their index (first column).
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(sort_table(expect), sort_table(result));
-}
-
-TEST_P(NumOfPartitions, split_and_pack) {
-    int const num_partitions = std::get<0>(GetParam());
-    int const num_rows = std::get<1>(GetParam());
-    std::int64_t const seed = 42;
-    auto stream = cudf::get_default_stream();
-    auto mr = cudf::get_current_device_resource_ref();
-
-    cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
-
-    std::vector<cudf::size_type> splits;
-    for (int i = 1; i < num_partitions; ++i) {
-        splits.emplace_back(i * num_rows / num_partitions);
-    }
-
-    auto chunks = rapidsmpf::split_and_pack(expect, splits, stream, mr);
-
-    // Convert to a vector (restoring the original order).
-    std::vector<rapidsmpf::PackedData> chunks_vector;
-    for (int i = 0; i < num_partitions; ++i) {
-        chunks_vector.emplace_back(std::move(chunks.at(i)));
-    }
-    EXPECT_EQ(chunks_vector.size(), num_partitions);
-
-    auto result = rapidsmpf::unpack_and_concat(std::move(chunks_vector), stream, mr);
-
-    // Compare the input table with the result.
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(expect, *result);
-}
 
 TEST(MetadataMessage, round_trip) {
     auto stream = cudf::get_default_stream();
@@ -113,11 +38,10 @@ TEST(MetadataMessage, round_trip) {
     auto expect = rapidsmpf::shuffler::detail::Chunk::from_packed_data(
         1,  // chunk_id
         2,  // part_id
-        {std::make_unique<std::vector<uint8_t>>(metadata),  // non-empty metadata
-         std::make_unique<rmm::device_buffer>()},  // empty gpu_data
-        nullptr,  // event
-        stream,
-        br.get()
+        rapidsmpf::PackedData{
+            std::make_unique<std::vector<uint8_t>>(metadata),  // non-empty metadata
+            br->move(std::make_unique<rmm::device_buffer>(), stream)  // empty data
+        }
     );
 
     // Extract the metadata from then chunk.
@@ -146,13 +70,18 @@ using MemoryAvailableMap =
 MemoryAvailableMap get_memory_available_map(rapidsmpf::MemoryType priorities) {
     using namespace rapidsmpf;
 
-    // We set all memory types to use an available function that always return zero.
-    BufferResource::MemoryAvailable always_zero = []() -> std::int64_t { return 0; };
+    // We set all memory types to use an available function that is unlimited.
     MemoryAvailableMap ret = {
-        {MemoryType::DEVICE, always_zero}, {MemoryType::HOST, always_zero}
+        {MemoryType::DEVICE, std::numeric_limits<std::int64_t>::max},
+        {MemoryType::HOST, std::numeric_limits<std::int64_t>::max}
     };
-    // And then set the prioritized memory type to use the max function.
-    ret.at(priorities) = std::numeric_limits<std::int64_t>::max;
+
+    // And then set device memory to zero if it isn't prioritized.
+    if (priorities != MemoryType::DEVICE) {
+        ret.at(MemoryType::DEVICE) = []() -> std::int64_t { return 0; };
+    }
+    // Note, we never set host memory to zero because it is used to allocate
+    // stuff like metadata and control messages.
     return ret;
 }
 
@@ -171,10 +100,10 @@ void test_shuffler(
     std::int64_t seed,
     cudf::hash_id hash_fn,
     rmm::cuda_stream_view stream,
-    rmm::device_async_resource_ref mr
+    rapidsmpf::BufferResource* br
 ) {
-    // To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the shuffle
-    // shouldn't get near 30s.
+    // To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the
+    // shuffle shouldn't get near 30s.
     std::chrono::milliseconds const wait_timeout(30 * 1000);
 
     // Every rank creates the full input table and all the expected partitions (also
@@ -187,7 +116,9 @@ void test_shuffler(
         hash_fn,
         seed,
         stream,
-        mr
+        br,
+        nullptr,  // statistics
+        true  // allow_overbooking because this is an input table
     );
 
     cudf::size_type row_offset = 0;
@@ -197,7 +128,8 @@ void test_shuffler(
         // To simulate that `full_input_table` is distributed between multiple ranks,
         // we divided them into `total_num_partitions` number of partitions and pick
         // the partitions this rank should use as input. We pick using round robin but
-        // any distribution would work (as long as no rows are picked by multiple ranks).
+        // any distribution would work (as long as no rows are picked by multiple
+        // ranks).
         // TODO: we should test different distributions of the input partitions.
         if (rapidsmpf::shuffler::Shuffler::round_robin(comm, i) == comm->rank()) {
             cudf::size_type row_end = row_offset + partiton_size;
@@ -215,7 +147,9 @@ void test_shuffler(
                 hash_fn,
                 seed,
                 stream,
-                mr
+                br,
+                nullptr,  // statistics
+                true  // allow_overbooking because this is an input table
             );
             // Add the chunks to the shuffle
             insert_fn(std::move(packed_chunks));
@@ -228,7 +162,13 @@ void test_shuffler(
     while (!shuffler.finished()) {
         auto finished_partition = shuffler.wait_any(wait_timeout);
         auto packed_chunks = shuffler.extract(finished_partition);
-        auto result = rapidsmpf::unpack_and_concat(std::move(packed_chunks), stream, mr);
+        auto result = rapidsmpf::unpack_and_concat(
+            rapidsmpf::unspill_partitions(std::move(packed_chunks), br, true),
+            stream,
+            br,
+            nullptr,  // statistics
+            true  // allow_overbooking because this is an output table
+        );
 
         // We should only receive the partitions assigned to this rank.
         EXPECT_EQ(shuffler.partition_owner(comm, finished_partition), comm->rank());
@@ -290,8 +230,13 @@ INSTANTIATE_TEST_SUITE_P(
              get_memory_available_map(rapidsmpf::MemoryType::DEVICE)}
         ),
         testing::Values(1, 2, 5, 10),  // total_num_partitions
-        testing::Values(1, 9, 100)  // total_num_rows
-    )
+        testing::Values(1, 9, 100, 100'000)  // total_num_rows
+    ),
+    [](const testing::TestParamInfo<MemoryAvailable_NumPartition::ParamType>& info) {
+        return std::to_string(info.index) + "__nparts_"
+               + std::to_string(std::get<1>(info.param)) + "__nrows_"
+               + std::to_string(std::get<2>(info.param));
+    }
 );
 
 // both insert and insert_finished ungrouped
@@ -310,7 +255,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip) {
         seed,
         hash_fn,
         stream,
-        mr()
+        br.get()
     ));
 }
 
@@ -330,7 +275,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip_both_grouped) {
         seed,
         hash_fn,
         stream,
-        mr()
+        br.get()
     ));
 }
 
@@ -350,7 +295,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip_insert_grouped) {
         seed,
         hash_fn,
         stream,
-        mr()
+        br.get()
     ));
 }
 
@@ -370,7 +315,7 @@ TEST_P(MemoryAvailable_NumPartition, round_trip_finished_grouped) {
         seed,
         hash_fn,
         stream,
-        mr()
+        br.get()
     ));
 }
 
@@ -414,11 +359,11 @@ class ConcurrentShuffleTest
             total_num_partitions,
             [&](auto&& packed_chunks) { insert_fn(shuffler, std::move(packed_chunks)); },
             [&]() { insert_finished_fn(shuffler); },
-            100,  // total_num_rows
+            100'000,  // total_num_rows
             t_id,  // seed
             cudf::hash_id::HASH_MURMUR3,
             stream,
-            mr()
+            br.get()
         ));
     }
 
@@ -429,17 +374,19 @@ class ConcurrentShuffleTest
 
         for (int t_id = 0; t_id < num_shufflers; t_id++) {
             // pass a copy of the insert_fn and insert_finished_fn to each thread
-            futures.push_back(std::async(
-                std::launch::async,
-                [this,
-                 t_id,
-                 insert_fn1 = insert_fn,
-                 insert_finished_fn1 = insert_finished_fn] {
-                    ASSERT_NO_FATAL_FAILURE(this->RunTest(
-                        t_id, std::move(insert_fn1), std::move(insert_finished_fn1)
-                    ));
-                }
-            ));
+            futures.push_back(
+                std::async(
+                    std::launch::async,
+                    [this,
+                     t_id,
+                     insert_fn1 = insert_fn,
+                     insert_finished_fn1 = insert_finished_fn] {
+                        ASSERT_NO_FATAL_FAILURE(this->RunTest(
+                            t_id, std::move(insert_fn1), std::move(insert_finished_fn1)
+                        ));
+                    }
+                )
+            );
         }
 
         for (auto& f : futures) {
@@ -539,16 +486,17 @@ class ShuffleInsertGroupedTest
 
         stream = cudf::get_default_stream();
 
-        progress_thread =
-            std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger()
-            );
+        progress_thread = std::make_shared<rapidsmpf::ProgressThread>(
+            GlobalEnvironment->comm_->logger()
+        );
 
         GlobalEnvironment->barrier();
     }
 
     void TearDown() override {
-        // resume progress thread - this will guarantee that shuffler progress function is
-        // marked as done. This is important to ensure that the test does not hang.
+        // resume progress thread - this will guarantee that shuffler progress
+        // function is marked as done. This is important to ensure that the test does
+        // not hang.
         progress_thread->resume();
 
         if (shuffler) {
@@ -577,8 +525,11 @@ class ShuffleInsertGroupedTest
                 pid,
                 rapidsmpf::PackedData(
                     std::make_unique<std::vector<std::uint8_t>>(*dummy_meta),
-                    std::make_unique<rmm::device_buffer>(
-                        dummy_data->data(), num_bytes, stream
+                    br->move(
+                        std::make_unique<rmm::device_buffer>(
+                            dummy_data->data(), num_bytes, stream
+                        ),
+                        stream
                     )
                 )
             );
@@ -676,8 +627,8 @@ class ShuffleInsertGroupedTest
 };
 
 TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
-    // note: we disable periodic spill check to avoid the buffer resource from spilling
-    // chunks in the ready postbox
+    // note: we disable periodic spill check to avoid the buffer resource from
+    // spilling chunks in the ready postbox
     br = std::make_unique<rapidsmpf::BufferResource>(
         mr(),
         get_memory_available_map(rapidsmpf::MemoryType::DEVICE),
@@ -702,8 +653,8 @@ TEST_P(ShuffleInsertGroupedTest, InsertPackedData) {
 }
 
 TEST_P(ShuffleInsertGroupedTest, InsertPackedDataNoHeadroom) {
-    // note: we disable periodic spill check to avoid the buffer resource from spilling
-    // chunks in the ready postbox
+    // note: we disable periodic spill check to avoid the buffer resource from
+    // spilling chunks in the ready postbox
     br = std::make_unique<rapidsmpf::BufferResource>(
         mr(),
         get_memory_available_map(rapidsmpf::MemoryType::HOST),
@@ -755,8 +706,9 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmpf::BufferResource br{
         mr,
         {{rapidsmpf::MemoryType::DEVICE,
-          [&device_memory_available]() -> std::int64_t { return device_memory_available; }
-        }},
+          [&device_memory_available]() -> std::int64_t {
+              return device_memory_available;
+          }}},
         std::nullopt  // disable periodic spill check
     };
     EXPECT_EQ(
@@ -781,8 +733,8 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     );
     cudf::table input_table = random_table_with_index(seed, 1000, 0, 10);
     auto input_chunks = rapidsmpf::partition_and_pack(
-        input_table, {1}, total_num_partitions, hash_fn, seed, stream, mr
-    );
+        input_table, {1}, total_num_partitions, hash_fn, seed, stream, &br, nullptr, true
+    );  // with overbooking
 
     // Insert spills does nothing when device memory is available, we start
     // with 2 device allocations.
@@ -796,7 +748,8 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 
     {
         // Now extract triggers spilling of the partition not being extracted.
-        std::vector<rapidsmpf::PackedData> output_chunks = shuffler.extract(0);
+        std::vector<rapidsmpf::PackedData> output_chunks =
+            rapidsmpf::unspill_partitions(shuffler.extract(0), &br, true);
         EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
 
         // And insert also triggers spilling. We end up with zero device allocations.
@@ -807,9 +760,11 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     }
 
     // Extract and unspill both partitions.
-    std::vector<rapidsmpf::PackedData> out0 = shuffler.extract(0);
+    std::vector<rapidsmpf::PackedData> out0 =
+        rapidsmpf::unspill_partitions(shuffler.extract(0), &br, true);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
-    std::vector<rapidsmpf::PackedData> out1 = shuffler.extract(1);
+    std::vector<rapidsmpf::PackedData> out1 =
+        rapidsmpf::unspill_partitions(shuffler.extract(1), &br, true);
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 2);
 
     // Disable spilling and insert the first partition.
@@ -838,20 +793,15 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
 /**
  * @brief A test util that runs the wait test by first calling wait_fn lambda with no
  * partitions finished, and then with one partition finished. Former case, should timeout,
- * while the latter should pass. Since each wait function (wait, wait_on, wait_some) has
- * different output types, extract_pid_fn lambda is used to extract the pid from the
- * output.
+ * while the latter should pass.
  *
  * @tparam WaitFn a lambda that takes FinishCounter and PartID as arguments and returns
  * the result of the wait function.
- * @tparam ExctractPidFn a lambda that takes the result of WaitFn and returns the PID
- * extracted from the result.
  *
  * @param wait_fn wait lambda
- * @param extract_pid_fn extract partition ID lambda
  */
-template <typename WaitFn, typename ExctractPidFn>
-void run_wait_test(WaitFn&& wait_fn, ExctractPidFn&& extract_pid_fn) {
+template <typename WaitFn>
+void run_wait_test(WaitFn&& wait_fn) {
     rapidsmpf::shuffler::PartID out_nparts = 20;
     auto comm = GlobalEnvironment->comm_;
 
@@ -891,52 +841,172 @@ void run_wait_test(WaitFn&& wait_fn, ExctractPidFn&& extract_pid_fn) {
     }
 
     // pass the wait_fn result to extract_pid_fn. It should return p_id
-    EXPECT_EQ(p_id, extract_pid_fn(wait_fn(finish_counter, p_id)));
+    EXPECT_EQ(p_id, wait_fn(finish_counter, p_id));
 }
 
 TEST(FinishCounterTests, wait_with_timeout) {
-    ASSERT_NO_FATAL_FAILURE(run_wait_test(
-        [](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
-           rapidsmpf::shuffler::PartID const& /* exp_pid */) {
-            auto [pid, n_data_chunks] =
-                finish_counter.wait_any(std::chrono::milliseconds(10));
-            EXPECT_EQ(1, n_data_chunks);  // only one data chunk
-            return pid;
-        },
-        [](rapidsmpf::shuffler::PartID const p_id) { return p_id; }  // pass through
-    ));
+    ASSERT_NO_FATAL_FAILURE(
+        run_wait_test([](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
+                         rapidsmpf::shuffler::PartID const& /* exp_pid */) {
+            return finish_counter.wait_any(std::chrono::milliseconds(10));
+        })
+    );
 }
 
 TEST(FinishCounterTests, wait_on_with_timeout) {
-    ASSERT_NO_FATAL_FAILURE(run_wait_test(
-        [&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
-            rapidsmpf::shuffler::PartID const& exp_pid) {
-            EXPECT_EQ(
-                1, finish_counter.wait_on(exp_pid, std::chrono::milliseconds(10))
-            );  // only one data chunk
+    ASSERT_NO_FATAL_FAILURE(
+        run_wait_test([&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
+                          rapidsmpf::shuffler::PartID const& exp_pid) {
+            finish_counter.wait_on(exp_pid, std::chrono::milliseconds(10));
             return exp_pid;  // return expected PID as wait_on return void
-        },
-        [&](rapidsmpf::shuffler::PartID const p_id) { return p_id; }  // pass through
-    ));
+        })
+    );
 }
 
-TEST(FinishCounterTests, wait_some_with_timeout) {
-    ASSERT_NO_FATAL_FAILURE(run_wait_test(
-        [&](rapidsmpf::shuffler::detail::FinishCounter& finish_counter,
-            rapidsmpf::shuffler::PartID const& /* exp_pid */) {
-            auto [pid, n_data_chunks] =
-                finish_counter.wait_some(std::chrono::milliseconds(10));
+class FinishCounterMultithreadingTest
+    : public ::testing::TestWithParam<std::tuple<rapidsmpf::shuffler::PartID, uint32_t>> {
+  protected:
+    std::chrono::milliseconds const timeout{500};
+    rapidsmpf::Rank const nranks{1};  // simulate a single rank
 
-            EXPECT_EQ(1, std::ranges::count_if(n_data_chunks, [](auto n) {
-                          return n > 0;
-                      }));  // only one data chunk
-            return std::move(pid);
-        },
-        [&](std::vector<rapidsmpf::shuffler::PartID> const p_ids) {
-            // extract the first element, as there will be only one finished partition
-            return p_ids[0];
+    std::unique_ptr<rapidsmpf::shuffler::detail::FinishCounter> finish_counter;
+    std::vector<rapidsmpf::shuffler::PartID> local_partitions;
+    rapidsmpf::shuffler::PartID npartitions;
+    uint32_t nthreads;
+
+    std::mutex mtx;
+    std::condition_variable cv;
+    std::vector<rapidsmpf::shuffler::PartID> finished_pids;
+    rapidsmpf::shuffler::PartID n_finished_pids;
+
+    void SetUp() override {
+        std::tie(npartitions, nthreads) = GetParam();
+        local_partitions = iota_vector<rapidsmpf::shuffler::PartID>(npartitions);
+
+        n_finished_pids = 0;
+
+        finish_counter = std::make_unique<rapidsmpf::shuffler::detail::FinishCounter>(
+            nranks, local_partitions, [&](rapidsmpf::shuffler::PartID pid) {
+                {
+                    std::lock_guard lock(mtx);
+                    finished_pids.push_back(pid);
+                }
+                cv.notify_all();
+            }
+        );
+    }
+
+    auto create_consumer_threads_with_cb() {
+        std::vector<std::future<void>> futures;
+        futures.reserve(nthreads);
+        for (uint32_t tid = 0; tid < nthreads; tid++) {
+            futures.emplace_back(std::async(std::launch::async, [&] {
+                while (true) {
+                    std::unique_lock lock(mtx);
+                    // wait until a new pid is added to the deque or all partitions are
+                    // finished
+                    EXPECT_TRUE(cv.wait_for(lock, timeout, [&]() {
+                        return !finished_pids.empty() || n_finished_pids == npartitions;
+                    }));
+
+                    // consume the finished partition
+                    if (n_finished_pids == npartitions) {
+                        break;
+                    } else {
+                        EXPECT_FALSE(finished_pids.empty());
+                        finished_pids.pop_back();
+                        n_finished_pids++;
+                    }
+                }
+            }));
         }
-    ));
+        return futures;
+    }
+
+    auto create_consumer_threads_with_wait(auto&& wait_fn) {
+        std::vector<std::future<void>> futures;
+        for (uint32_t tid = 0; tid < nthreads; tid++) {
+            futures.emplace_back(std::async(std::launch::async, [&, tid] {
+                for (uint32_t i = tid; i < npartitions; i += nthreads) {
+                    wait_fn(static_cast<rapidsmpf::shuffler::PartID>(i));
+                }
+            }));
+        }
+        return futures;
+    }
+
+    void produce_data() {
+        for (auto& pid : local_partitions) {
+            finish_counter->move_goalpost(pid, 1);  // move goalpost for finished msg
+            finish_counter->add_finished_chunk(pid);
+        }
+    }
+};
+
+// Parametrize on number of partitions and number of consumer threads
+INSTANTIATE_TEST_SUITE_P(
+    FinishCounterMultithreadingTestP,
+    FinishCounterMultithreadingTest,
+    testing::Combine(testing::Values(1, 2, 100, 101), testing::Values(1, 2, 3)),
+    [](const auto& info) {
+        return "npartitions_" + std::to_string(std::get<0>(info.param)) + "__nthreads_"
+               + std::to_string(std::get<1>(info.param));
+    }
+);
+
+TEST_P(FinishCounterMultithreadingTest, consume_then_produce) {
+    auto futures = create_consumer_threads_with_cb();
+    produce_data();
+
+    EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
+
+    EXPECT_TRUE(finish_counter->all_finished());
+}
+
+TEST_P(FinishCounterMultithreadingTest, produce_then_consume) {
+    produce_data();
+    auto futures = create_consumer_threads_with_cb();
+    EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
+
+    EXPECT_TRUE(finish_counter->all_finished());
+}
+
+TEST_P(FinishCounterMultithreadingTest, wait_any) {
+    produce_data();
+
+    std::atomic<uint32_t> n_wait_calls{0};
+    auto futures = create_consumer_threads_with_wait([&](auto /* pid */) {
+        finish_counter->wait_any(timeout);
+        n_wait_calls.fetch_add(1, std::memory_order_relaxed);
+    });
+
+    EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
+
+    EXPECT_EQ(npartitions, n_wait_calls);
+    EXPECT_TRUE(finish_counter->all_finished());
+
+    // callbacks should still receive all finished partitions, even after the wait_any
+    auto cb_futures = create_consumer_threads_with_cb();
+    EXPECT_NO_THROW(std::ranges::for_each(cb_futures, [](auto& f) { f.get(); }));
+}
+
+TEST_P(FinishCounterMultithreadingTest, wait_on) {
+    produce_data();
+
+    std::atomic<uint32_t> n_wait_calls{0};
+    auto futures = create_consumer_threads_with_wait([&](auto pid) {
+        finish_counter->wait_on(pid, timeout);
+        n_wait_calls.fetch_add(1, std::memory_order_relaxed);
+    });
+
+    EXPECT_NO_THROW(std::ranges::for_each(futures, [](auto& f) { f.get(); }));
+
+    EXPECT_EQ(npartitions, n_wait_calls);
+    EXPECT_TRUE(finish_counter->all_finished());
+
+    // callbacks should still receive all finished partitions, even after the wait_on
+    auto cb_futures = create_consumer_threads_with_cb();
+    EXPECT_NO_THROW(std::ranges::for_each(cb_futures, [](auto& f) { f.get(); }));
 }
 
 namespace rapidsmpf::shuffler::detail {
@@ -1017,25 +1087,6 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
     auto all_chunks = postbox->extract_all_ready();
     EXPECT_TRUE(postbox->empty());
     EXPECT_EQ(all_chunks.size(), num_chunks);
-}
-
-TEST(ReadyPostBoxTest, MarkEmpty) {
-    auto postbox = std::make_unique<
-        rapidsmpf::shuffler::detail::PostBox<rapidsmpf::shuffler::PartID>>(std::identity{}
-    );
-
-    rapidsmpf::shuffler::PartID pid = 0, pid1 = 1;
-    postbox->mark_empty(pid);
-    EXPECT_NO_THROW(postbox->mark_empty(pid));  // should not raise an error
-
-    postbox->insert(rapidsmpf::shuffler::detail::make_dummy_chunk(
-        rapidsmpf::shuffler::detail::ChunkID{0}, pid1
-    ));
-    EXPECT_THROW(postbox->mark_empty(pid1), std::logic_error);  // should raise an error
-
-    EXPECT_EQ(0, postbox->extract_by_key(pid).size());
-    EXPECT_EQ(1, postbox->extract_by_key(pid1).size());
-    EXPECT_TRUE(postbox->empty());
 }
 
 TEST_F(PostBoxTest, ThreadSafety) {
@@ -1147,34 +1198,32 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
         shuffler->insert_finished(std::move(pids));
     }
 
-    void verify_extracted_chunks(auto skip_pid_fn) {
+    void verify_extracted_chunks(auto expected_empty_fn) {
         while (!shuffler->finished()) {
             auto pid = shuffler->wait_any(wait_timeout);
-
-            if (skip_pid_fn(pid)) {
-                continue;
-            }
-
             SCOPED_TRACE("pid: " + std::to_string(pid));
             std::vector<rapidsmpf::PackedData> chunks;
             EXPECT_NO_THROW({ chunks = shuffler->extract(pid); });
 
-            log().trace("pid: ", pid, " chunks: ", chunks.size());
-            EXPECT_TRUE(chunks.empty());
+            if (expected_empty_fn(pid)) {
+                EXPECT_TRUE(chunks.empty());
+            } else {
+                EXPECT_EQ(GlobalEnvironment->comm_->nranks(), chunks.size());
+            }
         }
     }
 
-    static auto empty_packed_data() {
+    auto empty_packed_data() {
         return rapidsmpf::PackedData{
             std::make_unique<std::vector<uint8_t>>(),
-            std::make_unique<rmm::device_buffer>()
+            br->move(std::make_unique<rmm::device_buffer>(), stream)
         };
     }
 
     auto non_empty_packed_data() {
         return rapidsmpf::PackedData{
             std::make_unique<std::vector<uint8_t>>(10),
-            std::make_unique<rmm::device_buffer>(10, stream)
+            br->move(std::make_unique<rmm::device_buffer>(10, stream), stream)
         };
     }
 
@@ -1185,7 +1234,7 @@ class ExtractEmptyPartitionsTest : public cudf::test::BaseFixture {
 
 TEST_F(ExtractEmptyPartitionsTest, NoInsertions) {
     insert_chunks({});
-    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto) { return false; }));
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto) { return true; }));
 }
 
 TEST_F(ExtractEmptyPartitionsTest, AllEmptyInsertions) {
@@ -1195,7 +1244,7 @@ TEST_F(ExtractEmptyPartitionsTest, AllEmptyInsertions) {
     }
 
     insert_chunks(std::move(chunks));
-    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto) { return false; }));
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto) { return true; }));
 }
 
 TEST_F(ExtractEmptyPartitionsTest, SomeEmptyInsertions) {
@@ -1207,7 +1256,7 @@ TEST_F(ExtractEmptyPartitionsTest, SomeEmptyInsertions) {
     }
 
     insert_chunks(std::move(chunks));
-    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto) { return false; }));
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto) { return true; }));
 }
 
 TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
@@ -1221,6 +1270,31 @@ TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
     }
 
     insert_chunks(std::move(chunks));
-    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto pid) { return pid % 3 != 0; })
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto pid) {
+        return pid % 3 == 0;
+    }));
+}
+
+TEST(ShufflerTest, multiple_shutdowns) {
+    GlobalEnvironment->barrier();
+    auto& comm = GlobalEnvironment->comm_;
+    auto stream = cudf::get_default_stream();
+    rapidsmpf::BufferResource br(cudf::get_current_device_resource_ref());
+    auto shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
+        comm, GlobalEnvironment->progress_thread_, 0, comm->nranks(), stream, &br
     );
+
+    shuffler->insert_finished(iota_vector<rapidsmpf::shuffler::PartID>(comm->nranks()));
+    std::ignore = shuffler->extract(shuffler->wait_any());
+
+    constexpr int n_threads = 10;
+    std::vector<std::future<void>> futures;
+    for (int i = 0; i < n_threads; ++i) {
+        futures.emplace_back(std::async(std::launch::async, [&] {
+            shuffler->shutdown();
+        }));
+    }
+    std::ranges::for_each(futures, [](auto& future) { future.get(); });
+    shuffler.reset();
+    GlobalEnvironment->barrier();
 }

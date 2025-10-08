@@ -17,7 +17,8 @@
 template <typename T>
     requires std::is_integral_v<T>
 [[nodiscard]] std::int64_t convert_to_64bit(T value) {
-    if constexpr (std::numeric_limits<T>::max() > std::numeric_limits<std::int64_t>::max())
+    if constexpr (std::numeric_limits<T>::max()
+                  > std::numeric_limits<std::int64_t>::max())
     {
         if (value > std::numeric_limits<std::int64_t>::max()) {
             throw std::overflow_error(

@@ -6,9 +6,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
+#include <unordered_map>
 #include <vector>
 
 #include <rapidsmpf/buffer/packed_data.hpp>
@@ -76,6 +79,35 @@ class Shuffler {
         PartitionOwner partition_owner
     );
 
+    /// @copydoc detail::FinishCounter::FinishedCallback
+    using FinishedCallback = detail::FinishCounter::FinishedCallback;
+
+    /**
+     * @brief Construct a new shuffler for a single shuffle.
+     *
+     * @param comm The communicator to use.
+     * @param progress_thread The progress thread to use.
+     * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
+     * and should not be reused until all nodes has called `Shuffler::shutdown()`.
+     * @param total_num_partitions Total number of partitions in the shuffle.
+     * @param stream The CUDA stream for memory operations.
+     * @param br Buffer resource used to allocate temporary and the shuffle result.
+     * @param finished_callback Callback to notify when a partition is finished.
+     * @param statistics The statistics instance to use (disabled by default).
+     * @param partition_owner Function to determine partition ownership.
+     */
+    Shuffler(
+        std::shared_ptr<Communicator> comm,
+        std::shared_ptr<ProgressThread> progress_thread,
+        OpID op_id,
+        PartID total_num_partitions,
+        rmm::cuda_stream_view stream,
+        BufferResource* br,
+        FinishedCallback&& finished_callback,
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+        PartitionOwner partition_owner = round_robin
+    );
+
     /**
      * @brief Construct a new shuffler for a single shuffle.
      *
@@ -98,23 +130,30 @@ class Shuffler {
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         PartitionOwner partition_owner = round_robin
-    );
+    )
+        : Shuffler(
+              comm,
+              progress_thread,
+              op_id,
+              total_num_partitions,
+              stream,
+              br,
+              nullptr,
+              statistics,
+              partition_owner
+          ) {}
 
     ~Shuffler();
+
+    Shuffler(Shuffler const&) = delete;
+    Shuffler& operator=(Shuffler const&) = delete;
 
     /**
      * @brief Shutdown the shuffle, blocking until all inflight communication is done.
      *
-     * @throw std::logic_error If the shuffler is already inactive.
+     * @throws std::logic_error If the shuffler is already inactive.
      */
     void shutdown();
-
-    /**
-     * @brief Insert a chunk into the shuffle.
-     *
-     * @param chunk The chunk to insert.
-     */
-    void insert(detail::Chunk&& chunk);
 
     /**
      * @brief Insert a map of packed data, grouping them by destination rank, and
@@ -148,10 +187,16 @@ class Shuffler {
     void insert_finished(std::vector<PartID>&& pids);
 
     /**
-     * @brief Extract all chunks of a specific partition.
+     * @brief Extract all chunks belonging to the specified partition.
      *
-     * @param pid The partition ID.
-     * @return A vector of packed data (chunks) for the partition.
+     * It is valid to extract a partition that has not yet been fully received.
+     * In such cases, only the chunks received so far are returned.
+     *
+     * To ensure the partition is complete, use `wait_any()`, `wait_on()`,
+     * or another appropriate synchronization mechanism beforehand.
+     *
+     * @param pid The ID of the partition to extract.
+     * @return A vector of PackedData chunks associated with the partition.
      */
     [[nodiscard]] std::vector<PackedData> extract(PartID pid);
 
@@ -163,11 +208,21 @@ class Shuffler {
     [[nodiscard]] bool finished() const;
 
     /**
+     * @brief Check if a partition is finished.
+     *
+     * @param pid The partition ID to check.
+     * @return True if the partition is finished, otherwise False.
+     */
+    [[nodiscard]] bool is_finished(PartID pid) const;
+
+    /**
      * @brief Wait for any partition to finish.
      *
      * @param timeout Optional timeout (ms) to wait.
      *
      * @return The partition ID of the next finished partition.
+     *
+     * @throws std::runtime_error if the timeout is reached.
      */
     PartID wait_any(std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -176,17 +231,10 @@ class Shuffler {
      *
      * @param pid The desired partition ID.
      * @param timeout Optional timeout (ms) to wait.
+     *
+     * @throws std::runtime_error if the timeout is reached.
      */
     void wait_on(PartID pid, std::optional<std::chrono::milliseconds> timeout = {});
-
-    /**
-     * @brief Wait for at least one partition to finish.
-     *
-     * @param timeout Optional timeout (ms) to wait.
-     *
-     * @return The partition IDs of all finished partitions.
-     */
-    std::vector<PartID> wait_some(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Spills data to device if necessary.
@@ -212,7 +260,58 @@ class Shuffler {
      */
     [[nodiscard]] std::string str() const;
 
+    /**
+     * @brief Returns the local partition IDs owned by the shuffler`.
+     *
+     * @return A span of partition IDs owned by the shuffler.
+     */
+    [[nodiscard]] std::span<PartID const> local_partitions() const;
+
+    /**
+     * @brief The number of bits used to store the counter in a chunk ID.
+     */
+    static constexpr int chunk_id_counter_bits = 38;
+
+    /**
+     * @brief The mask for the counter in a chunk ID.
+     */
+    static constexpr uint64_t counter_mask = (uint64_t(1) << chunk_id_counter_bits) - 1;
+
+    /**
+     * @brief Extract the counter from a chunk ID.
+     * @param cid The chunk ID.
+     * @return The counter.
+     */
+    static constexpr uint64_t extract_counter(detail::ChunkID cid) {
+        return cid & counter_mask;
+    }
+
+    /**
+     * @brief Extract the rank from a chunk ID.
+     * @param cid The chunk ID.
+     * @return The rank.
+     */
+    static constexpr Rank extract_rank(detail::ChunkID cid) {
+        return static_cast<Rank>(cid >> chunk_id_counter_bits);
+    }
+
+    /**
+     * @brief Extract the rank and counter from a chunk ID.
+     * @param cid The chunk ID.
+     * @return A pair of the rank and counter.
+     */
+    static constexpr std::pair<Rank, uint64_t> extract_info(detail::ChunkID cid) {
+        return std::make_pair(extract_rank(cid), extract_counter(cid));
+    }
+
   private:
+    /**
+     * @brief Insert a chunk into the shuffle.
+     *
+     * @param chunk The chunk to insert.
+     */
+    void insert(detail::Chunk&& chunk);
+
     /**
      * @brief Insert a chunk into the outbox (the chunk is ready for the user).
      *
@@ -229,14 +328,9 @@ class Shuffler {
      * The chunk is assigned a new unique ID using `get_new_cid()`.
      *
      * @param pid The partition ID of the new chunk.
-     * @param metadata The metadata of the new chunk, can be null.
-     * @param gpu_data The gpu data of the new chunk, can be null.
-     * @param stream The CUDA stream for BufferResource memory operations.
-     * @param event The event to use for the new chunk.
+     * @param packed_data The pack data of the new chunk.
      */
-    [[nodiscard]] detail::Chunk create_chunk(
-        PartID pid, PackedData&& packed_data, std::shared_ptr<Buffer::Event> event
-    );
+    [[nodiscard]] detail::Chunk create_chunk(PartID pid, PackedData&& packed_data);
 
   public:
     PartID const total_num_partitions;  ///< Total number of partition in the shuffle.
@@ -245,7 +339,7 @@ class Shuffler {
   private:
     rmm::cuda_stream_view stream_;
     BufferResource* br_;
-    bool active_{true};
+    std::atomic<bool> active_{true};
     detail::PostBox<Rank> outgoing_postbox_;  ///< Postbox for outgoing chunks, that are
                                               ///< ready to be sent to other ranks.
     detail::PostBox<PartID> ready_postbox_;  ///< Postbox for received chunks, that are
@@ -257,6 +351,8 @@ class Shuffler {
     OpID const op_id_;
 
     SpillManager::SpillFunctionID spill_function_id_;
+
+    std::vector<PartID> const local_partitions_;
 
     detail::FinishCounter finish_counter_;
     std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;

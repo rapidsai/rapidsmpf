@@ -56,7 +56,8 @@ Chunk Chunk::get_data(
             {meta_offsets_[0]},
             {data_offsets_[0]},
             std::move(metadata_),
-            data_ ? std::move(data_) : br->allocate_empty_host_buffer()
+            data_ ? std::move(data_)
+                  : br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST))
         );
     } else {
         // copy the metadata to the new chunk
@@ -72,13 +73,18 @@ Chunk Chunk::get_data(
         size_t data_slice_size = data_size(i);
         std::unique_ptr<Buffer> data_slice;
         if (data_slice_size == 0) {
-            data_slice = br->allocate_empty_host_buffer();
+            data_slice = br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST));
         } else {
             std::ptrdiff_t data_slice_offset =
                 (i == 0 ? 0 : std::ptrdiff_t(data_offsets_[i - 1]));
-            auto reserve = reserve_or_fail(br, data_slice_size);
-            data_slice =
-                data_->copy_slice(data_slice_offset, data_slice_size, reserve, stream);
+            data_slice = br->allocate(stream, br->reserve_or_fail(data_slice_size));
+            buffer_copy(
+                *data_slice,
+                *data_,
+                data_slice_size,
+                0,  // dst_offset
+                data_slice_offset  // src_offset
+            );
         }
 
         return {
@@ -94,26 +100,18 @@ Chunk Chunk::get_data(
 }
 
 Chunk Chunk::from_packed_data(
-    ChunkID chunk_id,
-    PartID part_id,
-    PackedData&& packed_data,
-    std::shared_ptr<Buffer::Event> event,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
+    ChunkID chunk_id, PartID part_id, PackedData&& packed_data
 ) {
     RAPIDSMPF_EXPECTS(packed_data.metadata != nullptr, "packed_data.metadata is nullptr");
-    RAPIDSMPF_EXPECTS(packed_data.gpu_data != nullptr, "packed_data.gpu_data is nullptr");
-
-    return {
+    RAPIDSMPF_EXPECTS(packed_data.data != nullptr, "packed_data.data is nullptr");
+    return Chunk{
         chunk_id,
         {part_id},
         {0},  // expected_num_chunks
         {static_cast<uint32_t>(packed_data.metadata->size())},
-        {packed_data.gpu_data->size()},
+        {packed_data.data->size},
         std::move(packed_data.metadata),
-        packed_data.gpu_data->size() > 0
-            ? br->move(std::move(packed_data.gpu_data), stream, std::move(event))
-            : br->allocate_empty_host_buffer()
+        std::move(packed_data.data),
     };
 }
 
@@ -190,6 +188,18 @@ bool Chunk::validate_format(std::vector<uint8_t> const& serialized_buf) {
     size_t header_size = metadata_message_header_size(n);
     if (serialized_buf.size() < header_size) {
         return false;
+    }
+
+    // Check if the partition IDs are unique
+    std::unordered_set<PartID> seen_pids;
+    seen_pids.reserve(n);
+    auto const* pids = serialized_buf.data() + sizeof(ChunkID) + sizeof(size_t);
+    for (size_t i = 0; i < n; ++i) {
+        PartID pid;
+        std::memcpy(&pid, pids + i * sizeof(PartID), sizeof(PartID));
+        if (!seen_pids.emplace(pid).second) {
+            return false;
+        }
     }
 
     // For each message, validate the metadata and data sizes
@@ -292,15 +302,12 @@ Chunk Chunk::concat(
     // Create concatenated data buffer if needed
     std::unique_ptr<Buffer> concat_data;
     if (total_data_size > 0) {
-        auto reserve = reserve_or_fail(br, total_data_size, preferred_mem_type);
-        concat_data = br->allocate(reserve.mem_type(), total_data_size, stream, reserve);
+        concat_data = br->allocate(
+            stream, br->reserve_or_fail(total_data_size, preferred_mem_type)
+        );
     } else {  // no data, allocate an empty host buffer
-        concat_data = br->allocate_empty_host_buffer();
+        concat_data = br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST));
     }
-
-    // if the data buffer is on the device, we need to create an event to track the
-    // async copies
-    bool need_event = (concat_data->mem_type() == MemoryType::DEVICE);
 
     // Track current offsets
     uint32_t curr_meta_offset = 0;
@@ -310,6 +317,9 @@ Chunk Chunk::concat(
     // Process each chunk
     for (auto& chunk : chunks) {
         size_t chunk_messages = chunk.n_messages();
+
+        // TODO: check that the partition IDs are unique (maybe in debug mode)
+
         // Copy partition IDs and expected number of chunks
         std::memcpy(
             part_ids.data() + curr_msg_offset,
@@ -348,16 +358,18 @@ Chunk Chunk::concat(
         // Process data
         if (chunk.is_data_buffer_set() && chunk.concat_data_size() > 0) {
             // Copy data
-            std::ignore = chunk.data_->copy_to(
-                *concat_data, std::ptrdiff_t(curr_data_offset), stream, false
+            buffer_copy(
+                *concat_data,
+                *chunk.data_,
+                chunk.data_->size,
+                std::ptrdiff_t(curr_data_offset),  // dst_offset
+                0  // src_offset
             );
             // Update offsets for each message in the chunk
             for (size_t i = 0; i < chunk_messages; ++i) {
                 curr_data_offset += chunk.data_size(i);
                 data_offsets[curr_msg_offset + i] = curr_data_offset;
             }
-            // if the staged buffer is on the device, we need an event
-            need_event |= (chunk.data_->mem_type() == MemoryType::DEVICE);
         } else {
             // No data, add zero offset
             std::fill(
@@ -368,11 +380,6 @@ Chunk Chunk::concat(
         }
         curr_msg_offset += chunk_messages;
     }
-
-    if (need_event) {  // create a new event to track the async copies
-        concat_data->override_event(std::make_shared<Buffer::Event>(stream));
-    }
-
     return Chunk(
         chunk_id,
         std::move(part_ids),

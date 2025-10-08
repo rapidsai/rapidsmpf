@@ -24,6 +24,11 @@ project(
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/")
 
+# For now, disable CMake's automatic module scanning for C++ files. There is an sccache bug in the
+# version RAPIDS uses in CI that causes it to handle the resulting -M* flags incorrectly with
+# gcc>=14. We can remove this once we upgrade to a newer sccache version.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
 # Write the version header
 rapids_cmake_write_version_file(include/rapidsmpf/version_config.hpp)
 
@@ -35,6 +40,8 @@ rapids_cmake_build_type(Release)
 
 option(BUILD_MPI_SUPPORT "Build RapidsMPF with MPI support" ON)
 option(BUILD_UCXX_SUPPORT "Build RapidsMPF with UCXX support" ON)
+option(BUILD_STREAMING_SUPPORT "Build RapidsMPF with streaming support" ON)
+option(BUILD_CUPTI_SUPPORT "Build RapidsMPF with CUPTI support" OFF)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
@@ -44,8 +51,24 @@ option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
 
+message(STATUS "librapidsmpf build options:")
+message(STATUS "  BUILD_MPI_SUPPORT       : ${BUILD_MPI_SUPPORT}")
+message(STATUS "  BUILD_UCXX_SUPPORT      : ${BUILD_UCXX_SUPPORT}")
+message(STATUS "  BUILD_STREAMING_SUPPORT : ${BUILD_STREAMING_SUPPORT}")
+message(STATUS "  BUILD_CUPTI_SUPPORT     : ${BUILD_CUPTI_SUPPORT}")
+message(STATUS "  BUILD_TESTS             : ${BUILD_TESTS}")
+message(STATUS "  BUILD_BENCHMARKS        : ${BUILD_BENCHMARKS}")
+message(STATUS "  BUILD_EXAMPLES          : ${BUILD_EXAMPLES}")
+message(STATUS "  BUILD_SHARED_LIBS       : ${BUILD_SHARED_LIBS}")
+message(STATUS "  CUDA_STATIC_RUNTIME     : ${CUDA_STATIC_RUNTIME}")
+message(STATUS "  RAPIDSMPF_CLANG_TIDY    : ${RAPIDSMPF_CLANG_TIDY}")
+message(STATUS "  RAPIDSMPF_ASAN          : ${RAPIDSMPF_ASAN}")
+
+# Copy options to our prefix to prevent upstream projects from modifying them.
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_HAVE_UCXX ${BUILD_UCXX_SUPPORT})
+set(RAPIDSMPF_HAVE_STREAMING ${BUILD_STREAMING_SUPPORT})
+set(RAPIDSMPF_HAVE_CUPTI ${BUILD_CUPTI_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
@@ -92,11 +115,6 @@ include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
-    UCX REQUIRED
-    BUILD_EXPORT_SET rapidsmpf-exports
-    INSTALL_EXPORT_SET rapidsmpf-exports
-  )
-  rapids_find_package(
     ucxx REQUIRED
     BUILD_EXPORT_SET rapidsmpf-exports
     INSTALL_EXPORT_SET rapidsmpf-exports
@@ -112,6 +130,9 @@ endif()
 if(RAPIDSMPF_BUILD_TESTS)
   include(../cmake/thirdparty/get_gtest.cmake)
 endif()
+if(RAPIDSMPF_HAVE_STREAMING)
+  include(../cmake/thirdparty/get_libcoro.cmake)
+endif()
 
 # ##################################################################################################
 # * library targets --------------------------------------------------------------------------------
@@ -122,22 +143,51 @@ target_compile_options(
 )
 target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize=address>")
 
-file(GLOB SOURCES "src/*.cpp" "src/buffer/*.cpp" "src/communicator/*.cpp"
-     "src/integrations/cudf/*.cpp" "src/shuffler/*.cpp"
+add_library(
+  rapidsmpf
+  src/config.cpp
+  src/cuda_event.cpp
+  src/pausable_thread_loop.cpp
+  src/progress_thread.cpp
+  src/rmm_resource_adaptor.cpp
+  src/statistics.cpp
+  src/utils.cpp
+  src/allgather/allgather.cpp
+  src/buffer/buffer.cpp
+  src/buffer/resource.cpp
+  src/buffer/spill_manager.cpp
+  src/communicator/communicator.cpp
+  src/communicator/single.cpp
+  src/integrations/cudf/partition.cpp
+  src/integrations/cudf/utils.cpp
+  src/shuffler/chunk.cpp
+  src/shuffler/finish_counter.cpp
+  src/shuffler/postbox.cpp
+  src/shuffler/shuffler.cpp
 )
-
-# Without UCXX support, remove the UCXX communicator from the source list.
-if(NOT RAPIDSMPF_HAVE_UCXX)
-  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx.cpp")
-  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx_utils.cpp")
+if(RAPIDSMPF_HAVE_STREAMING)
+  target_sources(
+    rapidsmpf
+    PRIVATE src/streaming/core/context.cpp
+            src/streaming/core/leaf_node.cpp
+            src/streaming/core/node.cpp
+            src/streaming/cudf/partition.cpp
+            src/streaming/cudf/shuffler.cpp
+            src/streaming/cudf/table_chunk.cpp
+  )
 endif()
-# Without MPI support, remove the MPI communicator from the source list.
-if(NOT RAPIDSMPF_HAVE_MPI)
-  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/mpi.cpp")
-  list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/communicator/ucxx_utils.cpp")
+if(RAPIDSMPF_HAVE_UCXX)
+  target_sources(rapidsmpf PRIVATE src/communicator/ucxx.cpp)
 endif()
-
-add_library(rapidsmpf ${SOURCES})
+if(RAPIDSMPF_HAVE_MPI)
+  target_sources(rapidsmpf PRIVATE src/communicator/mpi.cpp)
+endif()
+if(RAPIDSMPF_HAVE_MPI AND RAPIDSMPF_HAVE_UCXX)
+  target_sources(rapidsmpf PRIVATE src/communicator/ucxx_utils.cpp)
+endif()
+if(RAPIDSMPF_HAVE_CUPTI)
+  target_sources(rapidsmpf PRIVATE src/cupti.cpp)
+endif()
 
 set_target_properties(
   rapidsmpf
@@ -167,13 +217,17 @@ target_include_directories(
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
-  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
+  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
 target_compile_definitions(
-  rapidsmpf PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>
-                   $<$<BOOL:${RAPIDSMPF_HAVE_UCXX}>:RAPIDSMPF_HAVE_UCXX>
+  rapidsmpf
+  PUBLIC $<$<BOOL:${RAPIDSMPF_HAVE_MPI}>:RAPIDSMPF_HAVE_MPI>
+         $<$<BOOL:${RAPIDSMPF_HAVE_UCXX}>:RAPIDSMPF_HAVE_UCXX>
+         $<$<BOOL:${RAPIDSMPF_HAVE_STREAMING}>:RAPIDSMPF_HAVE_STREAMING>
+         $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:RAPIDSMPF_HAVE_CUPTI>
 )
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
@@ -216,29 +270,24 @@ if(RAPIDSMPF_CLANG_TIDY)
     )
   endif()
 
-  # clang will complain about unused link libraries on the compile line unless we specify
-  # -Qunused-arguments.
+  # Restrict clang-tidy to only run on our own source/include dirs.
+  set(CLANG_TIDY_HEADER_FILTER
+      "^-?(${CMAKE_SOURCE_DIR}/src|${CMAKE_SOURCE_DIR}/include|${CMAKE_SOURCE_DIR}/benchmarks|${CMAKE_SOURCE_DIR}/tests)/.*"
+  )
+
+  # adding `-Qunused-arguments`, otherwise clang complains about unused link libraries.
   set_target_properties(
     rapidsmpf
-    PROPERTIES CXX_CLANG_TIDY
-               "clang-tidy;-header-filter=^${CMAKE_SOURCE_DIR}/.*;--extra-arg=-Qunused-arguments"
+    PROPERTIES
+      CXX_CLANG_TIDY
+      "${CLANG_TIDY_EXE};--header-filter=${CLANG_TIDY_HEADER_FILTER};--extra-arg=-Qunused-arguments"
   )
 endif()
 
 # ##################################################################################################
 # * add tests -------------------------------------------------------------------------------------
 if(RAPIDSMPF_BUILD_TESTS)
-  # include CTest module -- automatically calls enable_testing()
   include(CTest)
-
-  # ctest cuda memcheck
-  find_program(CUDA_SANITIZER compute-sanitizer)
-  set(MEMORYCHECK_COMMAND ${CUDA_SANITIZER})
-  set(MEMORYCHECK_TYPE CudaSanitizer)
-  set(CUDA_SANITIZER_COMMAND_OPTIONS "--tool memcheck")
-
-  # Always print verbose output when tests fail if run using `make test`.
-  list(APPEND CMAKE_CTEST_ARGUMENTS "--output-on-failure")
   add_subdirectory(tests)
 endif()
 
@@ -252,7 +301,7 @@ endif()
 # ##################################################################################################
 # * add examples
 # -------------------------------------------------------------------------------------
-if(RAPIDSMPF_BUILD_BENCHMARKS)
+if(RAPIDSMPF_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()
 
@@ -277,9 +326,15 @@ RAPIDSMPF.
     ]=]
 )
 
-# Export `RAPIDSMPF_HAVE_MPI/UCXX` to let downstream projects know if MPI/UCXX is supported.
-string(JOIN "\n" final_code_string "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_MPI}]=])"
-       "set(RAPIDSMPF_HAVE_UCXX [=[${RAPIDSMPF_HAVE_UCXX}]=])"
+# Export `RAPIDSMPF_HAVE_*` to let downstream projects know what is supported.
+string(
+  JOIN
+  "\n"
+  final_code_string
+  "set(RAPIDSMPF_HAVE_MPI [=[${RAPIDSMPF_HAVE_MPI}]=])"
+  "set(RAPIDSMPF_HAVE_UCXX [=[${RAPIDSMPF_HAVE_UCXX}]=])"
+  "set(RAPIDSMPF_HAVE_STREAMING [=[${RAPIDSMPF_HAVE_STREAMING}]=])"
+  "set(RAPIDSMPF_HAVE_CUPTI [=[${RAPIDSMPF_HAVE_CUPTI}]=])"
 )
 
 rapids_export(

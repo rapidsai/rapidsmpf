@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 
@@ -25,6 +27,14 @@ def test_add_get_stat() -> None:
     assert stats.add_stat("stat1", 4) == 5
     assert stats.get_stat("stat1") == {"count": 2, "value": 5.0}
     assert stats.get_stat("stat2") == {"count": 1, "value": 2}
+
+
+def test_get_nonexistent_stat() -> None:
+    """Test that accessing a non-existent statistic raises KeyError."""
+    stats = Statistics(enable=True)
+
+    with pytest.raises(KeyError, match="Statistic 'foo' does not exist"):
+        stats.get_stat("foo")
 
 
 def test_enable_memory_profiling(device_mr: rmm.mr.CudaMemoryResource) -> None:
@@ -66,3 +76,27 @@ def test_memory_profiling(device_mr: rmm.mr.CudaMemoryResource) -> None:
     assert outer.scoped.total() == 1024 + 1024 + 512 + 512
     assert outer.global_peak == 1024 + 512
     assert outer.num_calls == 1
+
+
+def test_list_stat_names() -> None:
+    stats = Statistics(enable=True)
+    assert stats.list_stat_names() == []
+    stats.add_stat("stat1", 1.0)
+    assert stats.list_stat_names() == ["stat1"]
+    stats.add_stat("stat2", 2.0)
+    assert stats.list_stat_names() == ["stat1", "stat2"]
+    stats.add_stat("stat1", 3.0)
+    assert stats.list_stat_names() == ["stat1", "stat2"]
+
+
+def test_clear() -> None:
+    # stats
+    stats = Statistics(enable=True)
+    stats.add_stat("stat1", 10.0)
+
+    assert stats.get_stat("stat1") == {"count": 1, "value": 10.0}
+    stats.clear()
+    assert stats.list_stat_names() == []
+
+    stats.add_stat("stat1", 10.0)
+    assert stats.get_stat("stat1") == {"count": 1, "value": 10.0}

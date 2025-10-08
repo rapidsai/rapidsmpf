@@ -3,9 +3,10 @@
 
 from cython.operator cimport dereference as deref
 from cython.operator cimport preincrement
-from libcpp cimport bool
+from libcpp cimport bool as bool_t
 from libcpp.memory cimport make_shared, make_unique
 from libcpp.string cimport string
+from libcpp.vector cimport vector
 
 from dataclasses import dataclass
 
@@ -23,14 +24,22 @@ cdef extern from *:
     ) {
         return stats.get_stat(name).count();
     }
-    std::size_t cpp_get_statistic_value(
+    double cpp_get_statistic_value(
         rapidsmpf::Statistics const& stats, std::string const& name
     ) {
         return stats.get_stat(name).value();
     }
+    std::vector<std::string> cpp_list_stat_names(rapidsmpf::Statistics const& stats) {
+        return stats.list_stat_names();
+    }
+    void cpp_clear_statistics(rapidsmpf::Statistics& stats) {
+        stats.clear();
+    }
     """
-    size_t cpp_get_statistic_count(cpp_Statistics stats, string name) nogil
-    double cpp_get_statistic_value(cpp_Statistics stats, string name) nogil
+    size_t cpp_get_statistic_count(cpp_Statistics stats, string name) except + nogil
+    double cpp_get_statistic_value(cpp_Statistics stats, string name) except + nogil
+    vector[string] cpp_list_stat_names(cpp_Statistics stats) except + nogil
+    void cpp_clear_statistics(cpp_Statistics stats) except + nogil
 
 cdef class Statistics:
     """
@@ -43,7 +52,7 @@ cdef class Statistics:
     mr
         Enable memory profiling by providing a RMM resource adaptor.
     """
-    def __cinit__(self, *, bool enable, RmmResourceAdaptor mr = None):
+    def __cinit__(self, *, bool_t enable, RmmResourceAdaptor mr = None):
         cdef cpp_RmmResourceAdaptor* mr_handle
         self._mr = mr  # Keep mr alive.
         if enable and mr is not None:
@@ -107,10 +116,27 @@ cdef class Statistics:
         cdef string name_ = str.encode(name)
         cdef size_t count
         cdef double value
-        with nogil:
-            count = cpp_get_statistic_count(deref(self._handle), name_)
-            value = cpp_get_statistic_value(deref(self._handle), name_)
+        try:
+            with nogil:
+                count = cpp_get_statistic_count(deref(self._handle), name_)
+                value = cpp_get_statistic_value(deref(self._handle), name_)
+        except IndexError:
+            # The C++ implementation throws a std::out_of_range exception
+            # which we / Cython translate to a KeyError.
+            raise KeyError(f"Statistic '{name}' does not exist") from None
         return {"count": count, "value": value}
+
+    def list_stat_names(self):
+        """
+        Returns a list of all statistic names.
+        """
+        cdef vector[string] names = cpp_list_stat_names(deref(self._handle))
+        cdef vector[string].iterator it = names.begin()
+        ret = []
+        while it != names.end():
+            ret.append(deref(it).decode("utf-8"))
+            preincrement(it)
+        return ret
 
     def add_stat(self, name, double value):
         """
@@ -171,21 +197,22 @@ cdef class Statistics:
         Returns a context manager that tracks memory allocations and
         deallocations made through the associated memory resource while
         the context is active. The profiling data is aggregated under
-        the provided `name` and made available via `get_memory_records()`.
+        the provided ``name`` and made available via
+        :meth:`Statistics.get_memory_records()`.
 
         The statistics include:
-        - Total and peak memory allocated within the scope (`scoped`)
-        - Global peak memory usage during the scope (`global_peak`)
-        - Number of times the named scope was entered (`num_calls`)
+        - Total and peak memory allocated within the scope (``scoped``)
+        - Global peak memory usage during the scope (``global_peak``)
+        - Number of times the named scope was entered (``num_calls``)
 
-        If memory profiling is disabled or the memory resource is `None`,
+        If memory profiling is disabled or the memory resource is ``None``,
         this is a no-op.
 
         Parameters
         ----------
         name
             A unique identifier for the profiling scope. Used as a key
-            when accessing profiling data via `get_memory_records()`.
+            when accessing profiling data via :meth:`Statistics.get_memory_records`.
 
         Returns
         -------
@@ -208,6 +235,15 @@ cdef class Statistics:
         2048
         """
         return MemoryRecorder(self, self._mr, name)
+
+    def clear(self) -> None:
+        """
+        Clears all statistics.
+
+        Memory profiling records are not cleared.
+        """
+        with nogil:
+            cpp_clear_statistics(deref(self._handle))
 
 
 @dataclass
@@ -245,7 +281,7 @@ cdef class MemoryRecorder:
     A context manager for recording memory allocation statistics within a code block.
 
     This class is not intended to be used directly by end users. Instead, use
-    `Statistics.memory_profiling(name)`, which creates and manages an instance
+    :meth:`Statistics.memory_profiling`, which creates and manages an instance
     of this class.
 
     Parameters
@@ -257,7 +293,9 @@ cdef class MemoryRecorder:
     name
         The name of the profiling scope. Used as a key in the statistics record.
     """
-    def __cinit__(self, Statistics stats, RmmResourceAdaptor mr, name):
+    def __cinit__(
+        self, Statistics stats not None, RmmResourceAdaptor mr not None, name
+    ):
         self._stats = stats
         self._mr = mr
         self._name = str.encode(name)

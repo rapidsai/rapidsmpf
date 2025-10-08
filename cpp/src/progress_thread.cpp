@@ -40,17 +40,17 @@ ProgressThread::ProgressThread(
     Communicator::Logger& logger, std::shared_ptr<Statistics> statistics, Duration sleep
 )
     : thread_(
-        [this]() {
-            if (!is_thread_initialized_) {
-                // This thread needs to have a cuda context associated with it.
-                // For now, do so by calling cudaFree to initialise the driver.
-                RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
-                is_thread_initialized_ = true;
-            }
-            return event_loop();
-        },
-        sleep
-    ),
+          [this]() {
+              if (!is_thread_initialized_) {
+                  // This thread needs to have a cuda context associated with it.
+                  // For now, do so by calling cudaFree to initialise the driver.
+                  RAPIDSMPF_CUDA_TRY(cudaFree(nullptr));
+                  is_thread_initialized_ = true;
+              }
+              return event_loop();
+          },
+          sleep
+      ),
       logger_(logger),
       statistics_(std::move(statistics)) {
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
@@ -123,7 +123,7 @@ bool ProgressThread::is_running() const {
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard lock(mutex_);
         for (auto& [id, function] : functions_) {
             function();
         }

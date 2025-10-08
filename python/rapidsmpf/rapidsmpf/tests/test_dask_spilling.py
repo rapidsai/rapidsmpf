@@ -57,6 +57,11 @@ def test_spillable_wrapper(stream: Stream, device_mr: DeviceMemoryResource) -> N
     # A SpillableWrapper never deletes spilled data.
     assert wrapper._on_host is not None
 
+    # Check that we can spill again.
+    wrapper.spill(amount=1, stream=stream, device_mr=device_mr)
+    assert wrapper.mem_type() == MemoryType.HOST
+    assert wrapper.approx_spillable_amount() == 0
+
 
 @pytest.mark.parametrize(
     "memtype",
