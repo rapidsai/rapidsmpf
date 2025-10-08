@@ -36,19 +36,18 @@ namespace rapidsmpf::streaming {
 class TableChunk {
   public:
     /**
-     * @brief Indicates whether the `TableChunk` holds an exclusive or shared view
+     * @brief Indicates whether the TableChunk holds an exclusive or shared view
      * of the underlying table data.
      *
      * This boolean enum is used to explicitly express ownership semantics
-     * when constructing a `TableChunk` from a `cudf::table_view`.
+     * when constructing a TableChunk from a `cudf::table_view`.
      *
-     * - `ExclusiveView::YES`: The `TableChunk` has exclusive ownership of
-     *   the table's device memory. The `table_view` and its `owner` represent
-     *   the only reference to this data. Such chunks are considered spillable.
+     * - `ExclusiveView::YES`: The TableChunk has exclusive ownership of
+     *   the table's device memory and are considered spillable.
      *
-     * - `ExclusiveView::NO`: The `TableChunk` is a non-owning view of data
+     * - `ExclusiveView::NO`: The TableChunk is a non-owning view of data
      *   managed elsewhere. The memory may be shared or externally owned,
-     *   and the chunk is therefore *not spillable*.
+     *   and the chunk is therefore not spillable.
      */
     enum class ExclusiveView : bool {
         NO,
