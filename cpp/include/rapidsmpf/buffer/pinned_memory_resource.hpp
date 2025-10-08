@@ -304,7 +304,7 @@ class PinnedHostBuffer {
     size_t size_;  ///< Size of the buffer in bytes.
     rmm::cuda_stream_view stream_;  ///< CUDA stream used for memory operations.
     std::shared_ptr<PinnedMemoryResource>
-        mr_;  ///< Shared pointer to the memory resource used for allocation/deallocation.
+        mr_;  ///< memory resource used for allocation/deallocation.
 };
 
 }  // namespace rapidsmpf
