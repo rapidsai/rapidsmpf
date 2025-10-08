@@ -16,6 +16,36 @@ namespace rapidsmpf::streaming {
 
 namespace {
 
+// Async notification mechanism:
+// The underlying shuffle object has a callback that fires every time a partition
+// arrives and, if the shuffle has N local partitions, is guaranteed to fire exactly N
+// times. To wrap an async interface around this we use the following scheme:
+// We attach a callback to the shuffle object that spawns a background coroutine task
+// that we track in a `coro::task_container`. This task inserts the id of the ready
+// partition into a set of `ready_pids_`. Consumers move received ids from `ready_pids_`
+// to `extracted_pids_` and extract the partition. Insertion to, and extraction from, the
+// ready and extracted sets is protected by a std::mutex (the manipulation of these
+// objects does not cross coroutine suspension points).
+//
+// To keep track of when all notifications have been received we use a `coro::latch`.
+// This must be awaited before the async shuffle goes out of scope to ensure that all
+// notifications have arrived, after which we yield until the task container is empty
+// ensuring that all notifications have been processed.
+//
+// Extraction waiters wait on acquisition of a semaphore that is released by the
+// notification task and then inspect the ready_pid set. If it contains anything, that
+// partition is removed from the ready set and moved into the extracted set. The
+// extraction then completes and extracts a partition.
+//
+// Note, we do not use `coro::condition_variable` for this signalling because it
+// currently has race conditions between notification of sleeping waiters and new
+// waiters arriving. See https://github.com/jbaldwin/libcoro/issues/398 for details.
+//
+// So, in sum, the latch is required so that we do not have dangling references to the
+// shuffle in the notification callback, the task_container allows us to wait until all
+// notifications have truly finished firing, and a semaphore is used to release the
+// "resource" of arrived partitions as they appear.
+
 /**
  * @brief Inserts a partition ID into a ready set and notifies all waiting tasks.
  *
@@ -138,6 +168,8 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
     );
 
     while (true) {
+        // Note this loop might be unfair, but does not suffer from starvation because
+        // eventually every pid will either be in ready_pids_ or extracted_pids_.
         // We don't care if the semaphore is shut down here, our pid might still be in the
         // ready set to extract.
         std::ignore = co_await semaphore_.acquire();
@@ -147,6 +179,7 @@ coro::task<std::optional<std::vector<PackedData>>> ShufflerAsync::extract_async(
         std::unique_lock lock(mtx_);
         if (extracted_pids_.contains(pid)) {
             lock.unlock();
+            // Someone else got our partition.
             co_return std::nullopt;
         }
         if (ready_pids_.erase(pid) > 0) {
