@@ -227,7 +227,7 @@ def unpack_and_concat(
             _stream,
             _br,
         )
-    return Table.from_libcudf(move(_ret))
+    return Table.from_libcudf(move(_ret), stream, br._mr)
 
 
 cdef extern from "<rapidsmpf/integrations/cudf/partition.hpp>" nogil:
