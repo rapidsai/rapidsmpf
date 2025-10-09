@@ -380,11 +380,6 @@ struct overloaded : Ts... {
     using Ts::operator()...;
 };
 
-// Ensure CUDA_VERSION is defined (it should be from cuda_runtime_api.h)
-#ifndef CUDA_VERSION
-#define CUDA_VERSION 0
-#endif
-
 /// @brief Helper macro to check if the CUDA version is at least the specified version.
 /// @param version The minimum CUDA version to check against. Must be in the format of
 /// MAJOR*1000 + MINOR*10.
