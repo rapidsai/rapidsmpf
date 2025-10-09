@@ -385,10 +385,10 @@ class ShutdownAtExit {
      * @param channels One or more channel handles.
      */
     template <class... T>
-    explicit ShutdownAtExit(T&&... channels) {
-        channels_.reserve(sizeof...(T));
-        (channels_.emplace_back(std::forward<T>(channels)), ...);
-    }
+    explicit ShutdownAtExit(T&&... channels)
+        : ShutdownAtExit(
+              std::vector<std::shared_ptr<Channel>>{std::forward<T>(channels)...}
+          ) {}
 
     // Non-copyable, non-movable.
     ShutdownAtExit(ShutdownAtExit const&) = delete;
