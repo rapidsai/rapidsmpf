@@ -269,26 +269,16 @@ class PinnedHostBuffer {
 
     /**
      * @brief Constructs a pinned host buffer by copying data asynchronously from another
-     * pinned host buffer on the same stream.
+     * buffer on the same stream.
+     *
+     * @tparam OtherBufferT The type of the other buffer to copy from. Eg.
+     * `rmm::device_buffer` or `PinnedHostBuffer`.
      *
      * @param other The other pinned host buffer to copy from.
      * @param mr Memory resource to use for allocation and deallocation.
      */
-    PinnedHostBuffer(
-        PinnedHostBuffer const& other, std::shared_ptr<PinnedMemoryResource> mr
-    )
-        : PinnedHostBuffer(other.data(), other.size(), other.stream(), std::move(mr)) {}
-
-    /**
-     * @brief Constructs a pinned host buffer by copying data asynchronously from another
-     * device buffer on the same stream.
-     *
-     * @param other The other device buffer to copy from.
-     * @param mr Memory resource to use for allocation and deallocation.
-     */
-    PinnedHostBuffer(
-        rmm::device_buffer const& other, std::shared_ptr<PinnedMemoryResource> mr
-    )
+    template <typename OtherBufferT>
+    PinnedHostBuffer(OtherBufferT const& other, std::shared_ptr<PinnedMemoryResource> mr)
         : PinnedHostBuffer(other.data(), other.size(), other.stream(), std::move(mr)) {}
 
     /**
