@@ -40,7 +40,7 @@ struct throw_at_limit_resource final : public rmm::mr::device_memory_resource {
     void do_deallocate(
         void* ptr, std::size_t, rmm::cuda_stream_view stream
     ) noexcept override {
-        RAPIDSMPF_CUDA_TRY(cudaFreeAsync(ptr, stream.value()));
+        RAPIDSMPF_ASSERT_CUDA_SUCCESS(cudaFreeAsync(ptr, stream.value()));
         allocs.erase(ptr);
     }
 
