@@ -370,9 +370,15 @@ class ShutdownAtExit {
      * The order of elements determines the shutdown order invoked by the destructor.
      *
      * @param channels Vector of shared channel handles to be shut down on destruction.
+     *
+     * @throws std::invalid_argument If any channel in the vector is `nullptr`.
      */
     explicit ShutdownAtExit(std::vector<std::shared_ptr<Channel>> channels)
-        : channels_{std::move(channels)} {}
+        : channels_{std::move(channels)} {
+        for (auto& ch : channels_) {
+            RAPIDSMPF_EXPECTS(ch, "channel cannot be null", std::invalid_argument);
+        }
+    }
 
     /**
      * @brief Variadic convenience constructor.
@@ -383,6 +389,8 @@ class ShutdownAtExit {
      *
      * @tparam T Parameter pack of types convertible to `std::shared_ptr<Channel>`.
      * @param channels One or more channel handles.
+     *
+     * @throws std::invalid_argument If any of the provided channel pointers is `nullptr`.
      */
     template <class... T>
     explicit ShutdownAtExit(T&&... channels)
@@ -403,9 +411,7 @@ class ShutdownAtExit {
      */
     ~ShutdownAtExit() noexcept {
         for (auto& ch : channels_) {
-            if (ch) {
-                coro::sync_wait(ch->shutdown());
-            }
+            coro::sync_wait(ch->shutdown());
         }
     }
 
