@@ -105,7 +105,7 @@ PinnedHostBuffer::PinnedHostBuffer(
     size_t size, rmm::cuda_stream_view stream, std::shared_ptr<PinnedMemoryResource> mr
 )
     : size_(size), stream_(stream), mr_(std::move(mr)) {
-    RAPIDSMPF_EXPECTS(mr_ != nullptr, "mr cannot be nullptr");
+    RAPIDSMPF_EXPECTS(mr_ != nullptr, "mr cannot be nullptr", std::invalid_argument);
     data_ = static_cast<std::byte*>(mr_->allocate_async(size, stream));
 }
 
@@ -117,8 +117,12 @@ PinnedHostBuffer::PinnedHostBuffer(
 )
     : PinnedHostBuffer(size, stream, std::move(mr)) {
     if (size > 0) {
-        RAPIDSMPF_EXPECTS(nullptr != src_data, "Invalid copy from nullptr.");
-        RAPIDSMPF_EXPECTS(nullptr != data_, "Invalid copy to nullptr.");
+        RAPIDSMPF_EXPECTS(
+            nullptr != src_data, "Invalid copy from nullptr.", std::invalid_argument
+        );
+        RAPIDSMPF_EXPECTS(
+            nullptr != data_, "Invalid copy to nullptr.", std::invalid_argument
+        );
         RAPIDSMPF_CUDA_TRY(
             cudaMemcpyAsync(data_, src_data, size, cudaMemcpyDefault, stream.value())
         );

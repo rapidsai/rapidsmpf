@@ -173,8 +173,9 @@ class PinnedHostBuffer {
      *
      * @param size The size of the buffer in bytes.
      * @param stream The CUDA stream to use for memory operations.
-     * @param mr Shared pointer to the memory resource to use for allocation and
-     * deallocation.
+     * @param mr Memory resource to use for allocation and deallocation.
+     *
+     * @throws std::invalid_argument If @p mr is nullptr.
      */
     PinnedHostBuffer(
         size_t size,
@@ -190,8 +191,11 @@ class PinnedHostBuffer {
      * this constructor. Otherwise, it will result in undefined behavior.
      * @param size The size of the data to copy in bytes.
      * @param stream The CUDA stream to use for memory operations.
-     * @param mr Shared pointer to the memory resource to use for allocation and
-     * deallocation.
+     * @param mr Memory resource to use for allocation and deallocation.
+     *
+     * @throws std::invalid_argument If @p src_data is nullptr.
+     * @throws std::invalid_argument If @p data_ is nullptr (ie. allocation failed).
+     * @throws rapidsmpf::cuda_error If @p cudaMemcpyAsync fails.
      */
     PinnedHostBuffer(
         void const* src_data,
@@ -202,16 +206,26 @@ class PinnedHostBuffer {
 
     /**
      * @brief Constructs a pinned host buffer by copying data asynchronously from another
-     * pinned host buffer/ device buffer on the same stream.
+     * pinned host buffer on the same stream.
      *
      * @param other The other pinned host buffer to copy from.
-     * @param mr Shared pointer to the memory resource to use for allocation and
-     * deallocation.
+     * @param mr Memory resource to use for allocation and deallocation.
      */
-    template <typename SourceBufferT>
-        requires std::is_same_v<PinnedHostBuffer, SourceBufferT>
-                 || std::is_same_v<rmm::device_buffer, SourceBufferT>
-    PinnedHostBuffer(SourceBufferT const& other, std::shared_ptr<PinnedMemoryResource> mr)
+    PinnedHostBuffer(
+        PinnedHostBuffer const& other, std::shared_ptr<PinnedMemoryResource> mr
+    )
+        : PinnedHostBuffer(other.data(), other.size(), other.stream(), std::move(mr)) {}
+
+    /**
+     * @brief Constructs a pinned host buffer by copying data asynchronously from another
+     * device buffer on the same stream.
+     *
+     * @param other The other device buffer to copy from.
+     * @param mr Memory resource to use for allocation and deallocation.
+     */
+    PinnedHostBuffer(
+        rmm::device_buffer const& other, std::shared_ptr<PinnedMemoryResource> mr
+    )
         : PinnedHostBuffer(other.data(), other.size(), other.stream(), std::move(mr)) {}
 
     /**
