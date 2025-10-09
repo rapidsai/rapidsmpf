@@ -35,14 +35,21 @@ cdef extern from *:
         std::size_t device_alloc_size,
         rmm::cuda_stream_view stream,
         PyObject *owner,
-        void(*py_deleter)(void *)
+        void(*py_deleter)(void *),
+        bool exclusive_view
     ) {
         // Called holding the gil.
         // Decref is done by the deleter.
         Py_XINCREF(owner);
         return std::make_unique<rapidsmpf::streaming::TableChunk>(
-            sequence_number, view, device_alloc_size, stream,
-            rapidsmpf::streaming::OwningWrapper(owner, py_deleter)
+            sequence_number,
+            view,
+            device_alloc_size,
+            stream,
+            rapidsmpf::streaming::OwningWrapper(owner, py_deleter),
+            exclusive_view ?
+                rapidsmpf::streaming::TableChunk::ExclusiveView::YES
+                : rapidsmpf::streaming::TableChunk::ExclusiveView::NO
         );
     }
     }
@@ -100,7 +107,11 @@ cdef class TableChunk:
 
     @staticmethod
     def from_pylibcudf_table(
-        uint64_t sequence_number, Table table not None, Stream stream not None
+        uint64_t sequence_number,
+        Table table not None,
+        Stream stream not None,
+        *,
+        bool_t exclusive_view,
     ):
         """
         Construct a TableChunk from a pylibcudf Table.
@@ -113,22 +124,35 @@ cdef class TableChunk:
             A pylibcudf Table to wrap as a TableChunk.
         stream
             The CUDA stream on which this chunk was created.
+        exclusive_view
+            Indicates that this TableChunk has exclusive ownership semantics for the
+            underlying table view.
+
+            When ``True``, the following guarantees must hold:
+              - The pylibcudf Table is the sole representation of the table data,
+                i.e. no views exist.
+              - The Table object exclusively owns the table's device memory.
+
+            These guarantees allow the TableChunk to be spillable and ensure that
+            when the owner is destroyed, the underlying device memory is correctly
+            freed.
 
         Returns
         -------
-        A new TableChunk wrapping the given pylibcudf Table.
+        TableChunk
+            A new TableChunk wrapping the given pylibcudf Table.
 
         Notes
         -----
-        The returned TableChunk maintains a reference to `table` to ensure
-        its underlying buffers remain valid for the lifetime of the chunk,
-        this reference is managed by the underlying C++ object so it
-        persists through Channels.
+        The returned TableChunk maintains a reference to ``table`` to ensure
+        its underlying buffers remain valid for the lifetime of the chunk.
+        This reference is managed by the underlying C++ object, so it
+        persists even when the chunk is transferred through Channels.
 
         Warning
         -------
-        This object does not keep the provided stream alive, the user must
-        promise to keep it alive for the lifetime of the streaming pipeline.
+        This object does not keep the provided stream alive. The caller must
+        ensure the stream remains valid for the lifetime of the streaming pipeline.
         """
         cdef cuda_stream_view _stream = stream.view()
         cdef size_t device_alloc_size = 0
@@ -144,6 +168,7 @@ cdef class TableChunk:
                 _stream,
                 <PyObject *>table,
                 py_deleter,
+                exclusive_view,
             )
         )
 
@@ -301,3 +326,21 @@ cdef class TableChunk:
         with nogil:
             ret = deref(handle).table_view()
         return Table.from_table_view_of_arbitrary(ret, owner=self)
+
+    def is_spillable(self):
+        """
+        Indicates whether this chunk can be spilled.
+
+        A chunk is considered spillable if it was created from one of the following:
+          - A message (via ``.from_message()``).
+          - An exclusive pylibcudf table (via
+            ``.from_pylibcudf_table(..., exclusive_view=True)``).
+
+        Both of these creation paths imply device-owning semantics, meaning the
+        TableChunk owns its underlying memory and can safely be spilled to host memory.
+
+        Returns
+        -------
+        True if the table chunk can be spilled, otherwise, False.
+        """
+        return deref(self.handle_ptr()).is_spillable()
