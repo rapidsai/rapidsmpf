@@ -5,7 +5,10 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+
+#include <cuda/memory_resource>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
@@ -96,6 +99,13 @@ class PinnedMemoryPool {
 class PinnedMemoryResource {
   public:
     /**
+     * @brief Friend function to get the host_accessible property.
+     */
+    friend constexpr void get_property(
+        const PinnedMemoryResource&, cuda::mr::host_accessible
+    ) noexcept {}
+
+    /**
      * @brief Constructs a new pinned memory resource.
      *
      * @param pool The pinned memory pool to use for allocations.
@@ -113,19 +123,70 @@ class PinnedMemoryResource {
     /**
      * @brief Allocates pinned memory asynchronously.
      *
-     * @param bytes The number of bytes to allocate.
      * @param stream The CUDA stream to use for the allocation operation.
+     * @param bytes The number of bytes to allocate.
      * @return A pointer to the allocated memory, or nullptr if allocation failed.
      */
-    void* allocate_async(size_t bytes, rmm::cuda_stream_view stream);
+    void* allocate(rmm::cuda_stream_view stream, size_t bytes);
+
+    /**
+     * @brief Allocates pinned memory asynchronously with alignment.
+     *
+     * @param stream The CUDA stream to use for the allocation operation.
+     * @param bytes The number of bytes to allocate.
+     * @param alignment The alignment requirement for the allocation.
+     * @return A pointer to the allocated memory, or nullptr if allocation failed.
+     */
+    void* allocate(rmm::cuda_stream_view stream, size_t bytes, size_t alignment);
+
+    /**
+     * @brief Allocates pinned memory synchronously.
+     *
+     * @param bytes The number of bytes to allocate.
+     * @param alignment The alignment requirement for the allocation.
+     * @return A pointer to the allocated memory, or nullptr if allocation failed.
+     */
+    void* allocate_sync(size_t bytes, size_t alignment);
 
     /**
      * @brief Deallocates pinned memory asynchronously.
      *
-     * @param ptr A pointer to the memory to deallocate.
      * @param stream The CUDA stream to use for the deallocation operation.
+     * @param ptr A pointer to the memory to deallocate.
+     * @param bytes The size of the memory to deallocate.
      */
-    void deallocate_async(void* ptr, rmm::cuda_stream_view stream);
+    void deallocate(rmm::cuda_stream_view stream, void* ptr, size_t bytes) noexcept;
+
+    /**
+     * @brief Deallocates pinned memory asynchronously with alignment.
+     *
+     * @param stream The CUDA stream to use for the deallocation operation.
+     * @param ptr A pointer to the memory to deallocate.
+     * @param bytes The size of the memory to deallocate.
+     * @param alignment The alignment that was used for allocation.
+     */
+    void deallocate(
+        rmm::cuda_stream_view stream, void* ptr, size_t bytes, size_t alignment
+    ) noexcept;
+
+    /**
+     * @brief Deallocates pinned memory synchronously with alignment.
+     *
+     * @param ptr A pointer to the memory to deallocate.
+     * @param bytes The size of the memory to deallocate.
+     * @param alignment The alignment that was used for allocation.
+     */
+    void deallocate_sync(void* ptr, size_t bytes, size_t alignment);
+
+    /**
+     * @brief equality operator
+     *
+     * @param other The other pinned memory resource to compare with.
+     * @return True if the two pinned memory resources are equal, false otherwise.
+     */
+    bool operator==(const PinnedMemoryResource& other) const noexcept {
+        return impl_ == other.impl_;
+    }
 
   private:
     // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will
@@ -133,6 +194,10 @@ class PinnedMemoryResource {
     struct PinnedMemoryResourceImpl;
     std::unique_ptr<PinnedMemoryResourceImpl> impl_;
 };
+
+// static assert that PinnedMemoryResource satisfies the cuda::mr::resource concept with
+// cuda::mr::host_accessible property
+static_assert(cuda::mr::resource_with<PinnedMemoryResource, cuda::mr::host_accessible>);
 
 /**
  * @brief A buffer that manages stream-ordered pinned host memory. Only available for CUDA

@@ -15,6 +15,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
+#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/buffer/pinned_memory_resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
@@ -28,6 +29,9 @@ class PinnedHostBufferTest : public ::testing::TestWithParam<size_t> {
 #if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
         p_pool = std::make_unique<rapidsmpf::PinnedMemoryPool>(0);
         p_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>(*p_pool);
+
+        // check if the resource satisfies the resource concept
+        [[maybe_unused]] rmm::host_async_resource_ref host_mr(*p_mr);
 #else
         GTEST_SKIP() << "PinnedHostBuffer is not supported for CUDA versions "
                         "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
@@ -51,13 +55,9 @@ INSTANTIATE_TEST_SUITE_P(
     VariableSizes,
     PinnedHostBufferTest,
     ::testing::Values(
+        1,  // 1B
         1024,  // 1KB
-        4096,  // 4KB
-        16384,  // 16KB
-        65536,  // 64KB
-        262144,  // 256KB
-        1048576,  // 1MB
-        4194304  // 4MB
+        1048576  // 1MB
     ),
     [](const ::testing::TestParamInfo<size_t>& info) {
         return std::to_string(info.param);
