@@ -1,6 +1,7 @@
 # Background
 
-This document provides some background into the `rapidsmpf` is designed to solve.
+This document provides some background to `rapidsmpf` and the problems
+it is designed to solve.
 
 ## Architecture
 
