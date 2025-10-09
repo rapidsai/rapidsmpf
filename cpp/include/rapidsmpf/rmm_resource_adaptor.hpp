@@ -306,7 +306,7 @@ class RmmResourceAdaptor final : public rmm::mr::device_memory_resource {
      */
     void do_deallocate(
         void* ptr, std::size_t bytes, rmm::cuda_stream_view stream
-    ) override;
+    ) noexcept override;
 
     /**
      * @brief Check if this memory resource is equal to another.
