@@ -177,7 +177,7 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
 
 void RmmResourceAdaptor::do_deallocate(
     void* ptr, std::size_t nbytes, rmm::cuda_stream_view stream
-) {
+) noexcept {
     constexpr auto PRIMARY = ScopedMemoryRecord::AllocType::PRIMARY;
     constexpr auto FALLBACK = ScopedMemoryRecord::AllocType::FALLBACK;
 
