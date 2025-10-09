@@ -36,6 +36,25 @@ namespace rapidsmpf::streaming {
 class TableChunk {
   public:
     /**
+     * @brief Indicates whether the TableChunk holds an exclusive or shared view
+     * of the underlying table data.
+     *
+     * This boolean enum is used to explicitly express ownership semantics
+     * when constructing a TableChunk from a `cudf::table_view`.
+     *
+     * - `ExclusiveView::YES`: The TableChunk has exclusive ownership of
+     *   the table's device memory and are considered spillable.
+     *
+     * - `ExclusiveView::NO`: The TableChunk is a non-owning view of data
+     *   managed elsewhere. The memory may be shared or externally owned,
+     *   and the chunk is therefore not spillable.
+     */
+    enum class ExclusiveView : bool {
+        NO,
+        YES,
+    };
+
+    /**
      * @brief Construct a TableChunk from a device table.
      *
      * @param sequence_number Ordering identifier for the chunk.
@@ -51,25 +70,38 @@ class TableChunk {
     /**
      * @brief Construct a TableChunk from a device table view.
      *
-     * The TableChunk does not take ownership of the underlying data; the caller
-     * is responsible for ensuring the data remains valid for the lifetime of
-     * the TableChunk.
+     * The TableChunk does not take ownership of the underlying data; instead, the
+     * provided @p owner object is kept alive for the lifetime of the TableChunk.
+     * The caller is responsible for ensuring that the underlying device memory
+     * referenced by @p table_view remains valid during this period.
+     *
+     * This constructor is typically used when creating a TableChunk from Python,
+     * where @p owner is used to keep the corresponding Python object alive until
+     * the TableChunk is destroyed.
      *
      * @param sequence_number Ordering identifier for the chunk.
      * @param table_view Device-resident table view.
-     * @param device_alloc_size The number of bytes in device memory.
-     * @param stream The CUDA stream on which the table was created.
-     * @param owner Optional object owning the memory backing the @p table_view. If it
-     * exists this object will be destructed last when the @p TableChunk is destroyed.
-     * This is typically used when constructing a @p TableChunk from python and we need to
-     * keep the owning python object alive.
+     * @param device_alloc_size Number of bytes allocated in device memory.
+     * @param stream CUDA stream on which the table was created.
+     * @param owner Object owning the memory backing @p table_view. This object will be
+     * destroyed last when the TableChunk is destroyed or spilled.
+     * @param exclusive_view Specifies whether this TableChunk has exclusive ownership
+     * semantics over the underlying table data:
+     *   - When `ExclusiveView::YES`, the following guarantees must hold:
+     *       - The @p table_view is the sole representation of the table.
+     *       - The @p owner exclusively owns the table memory.
+     *     These guarantees allow the TableChunk to be spillable and ensure that
+     *     destroying @p owner will correctly free the associated device memory.
+     *   - When `ExclusiveView::NO`, the chunk is considered a non-owning view and
+     *     is therefore not spillable.
      */
     TableChunk(
         std::uint64_t sequence_number,
         cudf::table_view table_view,
         std::size_t device_alloc_size,
         rmm::cuda_stream_view stream,
-        OwningWrapper&& owner = {}
+        OwningWrapper&& owner,
+        ExclusiveView exclusive_view
     );
 
     /**
@@ -110,19 +142,17 @@ class TableChunk {
     TableChunk& operator=(TableChunk const&) = delete;
 
     /**
-     * @brief Returns the sequence number of this chunk.
+     * @brief Returns the sequence number of this table chunk.
      * @return the sequence number.
      */
     [[nodiscard]] std::uint64_t sequence_number() const noexcept;
 
     /**
-     * @brief Returns the CUDA stream on which this chunk was created.
+     * @brief Returns the CUDA stream on which this table chunk was created.
      *
      * @return The CUDA stream view.
      */
-    [[nodiscard]] rmm::cuda_stream_view stream() const noexcept {
-        return stream_;
-    }
+    [[nodiscard]] rmm::cuda_stream_view stream() const noexcept;
 
     /**
      * @brief Number of bytes allocated for the data in the specified memory type.
@@ -150,7 +180,7 @@ class TableChunk {
     [[nodiscard]] std::size_t make_available_cost() const noexcept;
 
     /**
-     * @brief Moves this chunk into a new one with its cudf table made available.
+     * @brief Moves this table chunk into a new one with its cudf table made available.
      *
      * As part of the move, a copy or unpack may be performed, the associated CUDA
      * stream is used.
@@ -173,6 +203,23 @@ class TableChunk {
      * @throws std::invalid_argument if `is_available() == false`.
      */
     [[nodiscard]] cudf::table_view table_view() const;
+
+    /**
+     * @brief Indicates whether this table chunk can be spilled.
+     *
+     * A table chunk is considered spillable if it was created from one of the following:
+     *   - A device-owning source such as a `cudf::table`, `cudf::packed_columns`, or
+     *     `PackedData`.
+     *   - A `cudf::table_view` constructed with `is_exclusive_view == true`, indicating
+     *     that the view is the sole representation of the underlying table and its
+     *     associated owner exclusively manages the table's memory.
+     *
+     * In contrast, chunks constructed from non-exclusive `cudf::table_view` instances are
+     * non-owning views of externally managed memory and therefore not spillable.
+     *
+     * @return `true` if the table chunk can be spilled; otherwise, `false`.
+     */
+    [[nodiscard]] bool is_spillable() const;
 
     /**
      * @brief Move this table chunk into host memory.
@@ -209,6 +256,7 @@ class TableChunk {
     std::size_t make_available_cost_;  // For now, only device memory cost is tracked.
 
     rmm::cuda_stream_view stream_;
+    bool is_spillable_;
 };
 
 }  // namespace rapidsmpf::streaming
