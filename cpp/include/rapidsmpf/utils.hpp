@@ -388,6 +388,6 @@ struct overloaded : Ts... {
 /// @brief Helper macro to check if the CUDA version is at least the specified version.
 /// @param version The minimum CUDA version to check against. Must be in the format of
 /// MAJOR*1000 + MINOR*10.
-#define RAPIDSMPF_CUDA_VERSION_AT_LEAST(version) (CUDA_VERSION >= version)
+#define RAPIDSMPF_CUDA_VERSION_AT_LEAST(version) (CUDART_VERSION >= version)
 
 }  // namespace rapidsmpf
