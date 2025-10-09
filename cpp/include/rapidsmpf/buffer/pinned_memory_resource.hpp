@@ -7,15 +7,13 @@
 #include <cstddef>
 #include <memory>
 
-#include <cuda_runtime_api.h>
-
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
-#include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils.hpp>
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
-#define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 12600
+#define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 12060
 #define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR \
     RAPIDSMPF_STRINGIFY(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
 

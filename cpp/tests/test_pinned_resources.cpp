@@ -30,7 +30,8 @@ class PinnedHostBufferTest : public ::testing::TestWithParam<size_t> {
         p_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>(*p_pool);
 #else
         GTEST_SKIP() << "PinnedHostBuffer is not supported for CUDA versions "
-                        "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR;
+                        "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+                     << " (" << CUDA_VERSION << ")";
 #endif
     }
 

@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include <cuda.h>
 #include <cuda_runtime_api.h>
 
 namespace rapidsmpf {
