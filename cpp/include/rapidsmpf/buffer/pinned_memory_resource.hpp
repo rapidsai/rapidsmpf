@@ -193,8 +193,8 @@ class PinnedHostBuffer {
      * @param stream The CUDA stream to use for memory operations.
      * @param mr Memory resource to use for allocation and deallocation.
      *
-     * @throws std::invalid_argument If @p src_data is nullptr.
-     * @throws std::invalid_argument If @p data_ is nullptr (ie. allocation failed).
+     * @throws std::invalid_argument If @p src_data is nullptr or @p data_ is nullptr (ie.
+     * allocation failed).
      * @throws rapidsmpf::cuda_error If @p cudaMemcpyAsync fails.
      */
     PinnedHostBuffer(
