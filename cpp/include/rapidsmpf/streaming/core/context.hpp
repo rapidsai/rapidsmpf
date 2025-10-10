@@ -30,7 +30,7 @@ class Context {
      * @param options Configuration options.
      * @param comm Shared pointer to a communicator.
      * @param progress_thread Shared pointer to a progress thread.
-     * @param executor Shared pointer to a coroutine thread pool.
+     * @param executor Unique pointer to a coroutine thread pool.
      * @param br Shared pointer to a buffer resource.
      * @param statistics Shared pointer to a statistics collector.
      */
@@ -38,7 +38,7 @@ class Context {
         config::Options options,
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
-        std::shared_ptr<coro::thread_pool> executor,
+        std::unique_ptr<coro::thread_pool> executor,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics
     );
@@ -84,9 +84,9 @@ class Context {
     /**
      * @brief Returns the coroutine thread pool.
      *
-     * @return Shared pointer to the thread pool.
+     * @return Reference to unique pointer to the thread pool.
      */
-    std::shared_ptr<coro::thread_pool> executor();
+    std::unique_ptr<coro::thread_pool>& executor();
 
     /**
      * @brief Returns the buffer resource.
@@ -106,7 +106,7 @@ class Context {
     config::Options options_;
     std::shared_ptr<Communicator> comm_;
     std::shared_ptr<ProgressThread> progress_thread_;
-    std::shared_ptr<coro::thread_pool> executor_;
+    std::unique_ptr<coro::thread_pool> executor_;
     BufferResource* br_;
     std::shared_ptr<Statistics> statistics_;
 };
