@@ -223,8 +223,6 @@ class PinnedMemoryResource {
     std::unique_ptr<PinnedMemoryResourceImpl> impl_;
 };
 
-// static assert that PinnedMemoryResource satisfies the cuda::mr::resource concept with
-// cuda::mr::host_accessible property
 static_assert(cuda::mr::resource_with<PinnedMemoryResource, cuda::mr::host_accessible>);
 
 /**
