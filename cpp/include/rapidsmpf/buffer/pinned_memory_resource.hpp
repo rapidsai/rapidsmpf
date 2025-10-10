@@ -63,7 +63,7 @@ class PinnedMemoryResource;  // forward declaration
  * @sa https://github.com/rapidsai/rmm/issues/1931
  */
 struct PinnedPoolProperties {
-    size_t initial_pool_size = 0;
+    size_t initial_pool_size = 0;  ///< The initial size of the pool in bytes.
 };
 
 /**
