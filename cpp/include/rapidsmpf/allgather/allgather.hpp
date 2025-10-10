@@ -374,18 +374,6 @@ class AllGather {
     /**
      * @brief Insert packed data into the allgather operation.
      *
-     * @param packed_data The data to contribute to the allgather.
-     *
-     * @note If multiple threads insert simultaneously with this routine, there is no
-     * total ordering imposed as to the sequence numbers of the inserted chunks. If you
-     * need guaranteed extraction order use `insert(std::uint64_t, PackedData&&)` to
-     * control the sequence number of the inserted chunk.
-     */
-    void insert(PackedData&& packed_data);
-
-    /**
-     * @brief Insert packed data into the allgather operation.
-     *
      * @param sequence_number Local ordered sequence number of the data.
      * @param packed_data The data to contribute to the allgather.
      */
@@ -547,7 +535,6 @@ class AllGather {
     };  ///< Optional callback to run when allgather is finished and ready for extraction.
     std::atomic<Rank> finish_counter_;  ///< Counter for finish markers received
     std::atomic<std::uint32_t> nlocal_insertions_;  ///< Number of local data insertions
-    std::atomic<std::uint64_t> sequence_number_;  ///< Sequence number for chunks
     OpID op_id_;  ///< Unique operation identifier
     std::atomic<bool> locally_finished_{false};  ///< Whether this rank has finished
     std::atomic<bool> active_{true};  ///< Whether the operation is active

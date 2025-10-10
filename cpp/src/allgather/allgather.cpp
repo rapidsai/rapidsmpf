@@ -290,12 +290,6 @@ void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) 
     );
 }
 
-void AllGather::insert(PackedData&& packed_data) {
-    insert(
-        sequence_number_.fetch_add(1, std::memory_order_relaxed), std::move(packed_data)
-    );
-}
-
 void AllGather::insert(std::unique_ptr<detail::Chunk> chunk) {
     RAPIDSMPF_EXPECTS(
         !locally_finished_.load(std::memory_order_acquire),
