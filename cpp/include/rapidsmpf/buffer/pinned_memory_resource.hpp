@@ -295,7 +295,7 @@ class PinnedHostBuffer {
 
     /**
      * @brief Constructs a pinned host buffer by copying data asynchronously from another
-     * buffer on the same stream.
+     * buffer on the same stream as @p other.
      *
      * @tparam OtherBufferT The type of the other buffer to copy from. Eg.
      * `rmm::device_buffer` or `PinnedHostBuffer`.
@@ -378,6 +378,9 @@ class PinnedHostBuffer {
 
     /**
      * @brief Sets the CUDA stream for this buffer.
+     *
+     * @note This operation does not synchronize current `stream_` before setting the
+     * @p stream.
      *
      * @param stream The new CUDA stream to use for memory operations.
      */
