@@ -172,8 +172,8 @@ class Channel {
      * @param executor The thread pool used to process remaining messages.
      * @return A coroutine representing the completion of the shutdown drain.
      */
-    Node drain(std::shared_ptr<coro::thread_pool> executor) {
-        return rb_.shutdown_drain(std::move(executor));
+    Node drain(std::unique_ptr<coro::thread_pool>& executor) {
+        return rb_.shutdown_drain(executor);
     }
 
     /**
