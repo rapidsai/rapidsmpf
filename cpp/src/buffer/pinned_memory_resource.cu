@@ -7,7 +7,6 @@
 
 #include <cuda_runtime_api.h>
 
-#include <cuda/experimental/memory_resource.cuh>
 #include <cuda/memory_resource>
 
 #include <rmm/resource_ref.hpp>
@@ -15,6 +14,10 @@
 #include <rapidsmpf/buffer/pinned_memory_resource.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
+
+#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
+#include <cuda/experimental/memory_resource.cuh>
+#endif
 
 namespace rapidsmpf {
 #if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
@@ -86,58 +89,44 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
     }
 
     void* allocate(rmm::cuda_stream_view, size_t) {
-        RAPIDSMPF_FAIL(
-            "PinnedMemoryResource::allocate is not supported for CUDA versions "
-            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
-        );
+        return nullptr;
     }
 
     void* allocate(rmm::cuda_stream_view, size_t, size_t) {
-        RAPIDSMPF_FAIL(
-            "PinnedMemoryResource::allocate is not supported for CUDA versions "
-            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
-        );
+        return nullptr;
     }
 
-    void deallocate(rmm::cuda_stream_view, void*, size_t) {
-        RAPIDSMPF_FAIL(
-            "PinnedMemoryResource::deallocate is not supported for CUDA versions "
-            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
-        );
-    }
+    void deallocate(rmm::cuda_stream_view, void*, size_t) {}
 
-    void deallocate(rmm::cuda_stream_view, void*, size_t, size_t) {
-        RAPIDSMPF_FAIL(
-            "PinnedMemoryResource::deallocate is not supported for CUDA versions "
-            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
-        );
-    }
+    void deallocate(rmm::cuda_stream_view, void*, size_t, size_t) {}
 
-    void* allocate_sync(size_t, size_t) {
-        RAPIDSMPF_FAIL(
-            "PinnedMemoryResource::allocate_sync is not supported for CUDA versions "
-            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
-        );
-    }
+    void* allocate_sync(size_t, size_t) {}
 
-    void deallocate_sync(void*, size_t, size_t) {
-        RAPIDSMPF_FAIL(
-            "PinnedMemoryResource::deallocate_sync is not supported for CUDA versions "
-            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
-        );
-    }
+    void deallocate_sync(void*, size_t, size_t) {}
 };
 #endif
 
 PinnedMemoryPool::PinnedMemoryPool(int numa_id, PinnedPoolProperties properties)
     : numa_id_(numa_id),
       properties_(std::move(properties)),
-      impl_(std::make_unique<PinnedMemoryPoolImpl>(numa_id, properties_)) {}
+      impl_(std::make_unique<PinnedMemoryPoolImpl>(numa_id, properties_)) {
+    RAPIDSMPF_EXPECTS(
+        is_pinned_memory_resources_supported(),
+        "PinnedMemoryPool is not supported for CUDA versions "
+        "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+    );
+}
 
 PinnedMemoryPool::~PinnedMemoryPool() = default;
 
 PinnedMemoryResource::PinnedMemoryResource(PinnedMemoryPool& pool)
-    : impl_(std::make_unique<PinnedMemoryResourceImpl>(pool)) {}
+    : impl_(std::make_unique<PinnedMemoryResourceImpl>(pool)) {
+    RAPIDSMPF_EXPECTS(
+        is_pinned_memory_resources_supported(),
+        "PinnedMemoryResource is not supported for CUDA versions "
+        "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+    );
+}
 
 PinnedMemoryResource::~PinnedMemoryResource() = default;
 

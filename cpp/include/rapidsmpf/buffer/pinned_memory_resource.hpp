@@ -8,12 +8,17 @@
 #include <cstdint>
 #include <memory>
 
+#include <cuda.h>
+#include <cuda_runtime_api.h>
+
 #include <cuda/memory_resource>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
+
 
 /// @brief The minimum CUDA version required for PinnedMemoryResource.
 #define RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION 12060
@@ -21,6 +26,23 @@
     RAPIDSMPF_STRINGIFY(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
 
 namespace rapidsmpf {
+
+/**
+ * @brief Checks if the PinnedMemoryResource is supported for the current CUDA version.
+ *
+ * Requires rapidsmpf to be build with cuda>=12.6.
+ */
+static constexpr bool is_pinned_memory_resources_supported() {
+#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
+    return [] {
+        int driver_version = 0;
+        RAPIDSMPF_CUDA_TRY(cudaDriverGetVersion(&driver_version));
+        return driver_version >= RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION;
+    }();
+#else
+    return false;
+#endif
+}
 
 class PinnedMemoryResource;  // forward declaration
 
@@ -49,6 +71,9 @@ class PinnedMemoryPool {
      *
      * @param numa_id The NUMA node ID to associate with this pool. Default is 0.
      * @param properties Configuration properties for the memory pool.
+     *
+     * @throws rapidsmpf::cuda_error If the pinned memory pool is not supported for the
+     * current CUDA version.
      */
     PinnedMemoryPool(int numa_id = 0, PinnedPoolProperties properties = {});
 
@@ -109,6 +134,9 @@ class PinnedMemoryResource {
      * @brief Constructs a new pinned memory resource.
      *
      * @param pool The pinned memory pool to use for allocations.
+     *
+     * @throws rapidsmpf::cuda_error If the pinned memory resource is not supported for
+     * the current CUDA version.
      */
     PinnedMemoryResource(PinnedMemoryPool& pool);
 

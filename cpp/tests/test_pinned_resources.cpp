@@ -26,17 +26,16 @@
 class PinnedHostBufferTest : public ::testing::TestWithParam<size_t> {
   protected:
     void SetUp() override {
-#if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
-        p_pool = std::make_unique<rapidsmpf::PinnedMemoryPool>(0);
-        p_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>(*p_pool);
+        if (rapidsmpf::is_pinned_memory_resources_supported()) {
+            p_pool = std::make_unique<rapidsmpf::PinnedMemoryPool>(0);
+            p_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>(*p_pool);
 
-        // check if the resource satisfies the resource concept
-        [[maybe_unused]] rmm::host_async_resource_ref host_mr(*p_mr);
-#else
-        GTEST_SKIP() << "PinnedHostBuffer is not supported for CUDA versions "
-                        "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
-                     << " (" << CUDA_VERSION << ")";
-#endif
+            // check if the resource satisfies the resource concept
+            [[maybe_unused]] rmm::host_async_resource_ref host_mr(*p_mr);
+        } else {
+            GTEST_SKIP() << "PinnedHostBuffer is not supported for CUDA versions "
+                            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR;
+        }
     }
 
     void TearDown() override {
@@ -160,11 +159,15 @@ rapidsmpf::PinnedHostBuffer stream_synchronized_copy(
     if (src.size() > 0) {
         // allocate a new buffer on the downstream stream
         rapidsmpf::PinnedHostBuffer ret(src.size(), stream, std::move(mr));
-        // synchronize the downstream stream with upstream stream
+        // synchronize the downstream stream with upstream stream, so that src.data() is
+        // ready to be copied.
         rapidsmpf::cuda_stream_join(stream, src.stream());
         RAPIDSMPF_CUDA_TRY(
             cudaMemcpyAsync(ret.data(), src.data(), src.size(), cudaMemcpyDefault, stream)
         );
+        // synchronize the upstream stream with the downstream stream, so that we complete
+        // the async copy before src deallocation.
+        rapidsmpf::cuda_stream_join(src.stream(), stream);
         return ret;
     }
     return rapidsmpf::PinnedHostBuffer(0, stream, std::move(mr));
