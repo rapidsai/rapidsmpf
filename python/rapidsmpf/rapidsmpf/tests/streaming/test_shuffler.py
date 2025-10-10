@@ -22,11 +22,11 @@ from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table, pylibcudf_to_cudf_data
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
 
-    from rapidsmpf.streaming.core.context import Context
-    from rapidsmpf.streaming.cudf.partition_chunk import (
+    from rapidsmpf.streaming.chunks.partition import (
         PartitionMapChunk,
         PartitionVectorChunk,
     )
+    from rapidsmpf.streaming.core.context import Context
 
 
 @pytest.mark.parametrize("num_partitions", [1, 2, 3, 10])

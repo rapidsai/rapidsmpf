@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # =================================================================================
 
+add_subdirectory(chunks)
 add_subdirectory(coll)
 add_subdirectory(core)
 add_subdirectory(cudf)
