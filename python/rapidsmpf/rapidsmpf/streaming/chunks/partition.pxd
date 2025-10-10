@@ -9,7 +9,7 @@ from libcpp.vector cimport vector
 from rapidsmpf.buffer.packed_data cimport cpp_PackedData
 
 
-cdef extern from "<rapidsmpf/streaming/cudf/partition.hpp>" nogil:
+cdef extern from "<rapidsmpf/streaming/chunks/partition.hpp>" nogil:
     cdef cppclass cpp_PartitionMapChunk "rapidsmpf::streaming::PartitionMapChunk":
         uint64_t sequence_number
         unordered_map[uint32_t, cpp_PackedData] data
