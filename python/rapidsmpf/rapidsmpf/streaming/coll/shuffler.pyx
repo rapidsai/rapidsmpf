@@ -10,7 +10,7 @@ from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
 
 
-cdef extern from "<rapidsmpf/streaming/cudf/shuffler.hpp>" nogil:
+cdef extern from "<rapidsmpf/streaming/coll/shuffler.hpp>" nogil:
     cdef cpp_Node cpp_shuffler \
         "rapidsmpf::streaming::node::shuffler"(
             shared_ptr[cpp_Context] ctx,
