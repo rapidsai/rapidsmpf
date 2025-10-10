@@ -113,7 +113,7 @@ TEST_P(AllGatherTest, basic_allgather) {
     for (int i = 0; i < n_inserts; i++) {
         auto packed_data =
             generate_packed_data(n_elements, gen_offset(i, this_rank), stream, *br);
-        allgather->insert(std::move(packed_data));
+        allgather->insert(i, std::move(packed_data));
     }
 
     allgather->insert_finished();
@@ -186,7 +186,7 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
     for (int i = 0; i < n_inserts; i++) {
         auto packed_data =
             generate_packed_data(this_rank, gen_offset(i, this_rank), stream, *br);
-        allgather->insert(std::move(packed_data));
+        allgather->insert(i, std::move(packed_data));
     }
 
     allgather->insert_finished();
@@ -240,7 +240,7 @@ TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
     for (int i = 0; i < n_inserts; i++) {
         auto packed_data =
             generate_packed_data(n_elements, gen_offset(i, this_rank), stream, *br);
-        allgather->insert(std::move(packed_data));
+        allgather->insert(i, std::move(packed_data));
     }
 
     allgather->insert_finished();

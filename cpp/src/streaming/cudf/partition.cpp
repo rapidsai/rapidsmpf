@@ -7,7 +7,9 @@
 #include <cudf/partitioning.hpp>
 
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
+#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming::node {
 

@@ -3,7 +3,7 @@
 """The AllGather interface for RapidsMPF."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint8_t
+from libc.stdint cimport uint8_t, uint64_t
 from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
@@ -87,12 +87,14 @@ cdef class AllGather:
         """
         return self._comm
 
-    def insert(self, PackedData packed_data):
+    def insert(self, uint64_t sequence_number, PackedData packed_data):
         """
         Insert packed data into the allgather operation (non-blocking).
 
         Parameters
         ----------
+        sequence_number
+            The sequence number of this insertion, used when extracting ordered data.
         packed_data
             The data to contribute to the allgather.
 
@@ -105,7 +107,7 @@ cdef class AllGather:
             raise ValueError("PackedData was empty")
 
         with nogil:
-            deref(self._handle).insert(move(deref(packed_data.c_obj)))
+            deref(self._handle).insert(sequence_number, move(deref(packed_data.c_obj)))
 
     def insert_finished(self):
         """
