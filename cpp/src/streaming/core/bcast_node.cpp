@@ -4,6 +4,7 @@
  */
 
 #include <rapidsmpf/streaming/core/bcast_node.hpp>
+#include <rapidsmpf/streaming/core/coro_utils.hpp>
 
 #include <coro/coro.hpp>
 
@@ -24,7 +25,7 @@ Node send_to_channels(
     for (auto& ch_out : chs_out) {
         tasks.push_back(ch_out->send(msg.shallow_copy()));
     }
-    co_await coro::when_all(std::move(tasks));
+    coro_results(co_await coro::when_all(std::move(tasks)));
 }
 }  // namespace
 
@@ -79,7 +80,7 @@ Node bcast_node(
     for (auto& ch_out : chs_out) {
         tasks.push_back(ch_out->drain(ctx->executor()));
     }
-    co_await coro::when_all(std::move(tasks));
+    coro_results(co_await coro::when_all(std::move(tasks)));
 }
 
 }  // namespace rapidsmpf::streaming::node
