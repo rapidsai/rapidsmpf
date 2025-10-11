@@ -121,7 +121,7 @@ class Message {
      */
     template <typename T>
     T const& get() {
-        auto [ret, lock] = get_lock_and_ptr<T>();
+        auto [ret, lock] = get_ptr_and_lock<T>();
         return *ret;
     }
 
@@ -145,7 +145,7 @@ class Message {
     T release() {
         std::shared_ptr<T> ret;
         {
-            auto [ptr, lock] = get_lock_and_ptr<T>();
+            auto [ptr, lock] = get_ptr_and_lock<T>();
             RAPIDSMPF_EXPECTS(
                 payload_.use_count() == 1,
                 "release() requires this to be the sole owner of the payload",
@@ -201,7 +201,7 @@ class Message {
      */
     template <typename T>
     [[nodiscard]] std::pair<std::shared_ptr<T>, std::unique_lock<std::mutex>>
-    get_lock_and_ptr() const {
+    get_ptr_and_lock() const {
         RAPIDSMPF_EXPECTS(holds<T>(), "wrong message type", std::invalid_argument);
         auto lock = lock_payload();
         return std::make_pair(
