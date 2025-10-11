@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from libc.stdint cimport int64_t, uint8_t
+from libc.stdint cimport int64_t, uint8_t, uint64_t
 from libcpp cimport bool
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.vector cimport vector
@@ -32,7 +32,7 @@ cdef extern from "<rapidsmpf/allgather/allgather.hpp>" nogil:
             cpp_BufferResource *br,
             shared_ptr[cpp_Statistics] statistics
         ) except +
-        void insert(cpp_PackedData packed_data) except +
+        void insert(uint64_t sequence_number, cpp_PackedData packed_data) except +
         void insert_finished() except +
         bool finished() except +
         vector[cpp_PackedData] wait_and_extract(

@@ -3,9 +3,9 @@
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint64_t
+from rmm.librmm.memory_resource cimport device_memory_resource
 from rmm.pylibrmm.memory_resource cimport (DeviceMemoryResource,
-                                           UpstreamResourceAdaptor,
-                                           device_memory_resource)
+                                           UpstreamResourceAdaptor)
 
 
 cdef extern from "<rapidsmpf/rmm_resource_adaptor.hpp>" nogil:
