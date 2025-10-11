@@ -77,5 +77,5 @@ TEST_F(StreamingErrorHandling, ConsumerThrows) {
         }(ctx, ch)
     );
 
-    EXPECT_THROW(run_streaming_pipeline(std::move(nodes)), std::invalid_argument);
+    EXPECT_THROW(run_streaming_pipeline(std::move(nodes)), std::runtime_error);
 }
