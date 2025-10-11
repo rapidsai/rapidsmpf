@@ -273,7 +273,7 @@ static std::vector<std::unique_ptr<Chunk>> test_some(
 }
 }  // namespace detail
 
-void AllGather::insert(PackedData&& packed_data) {
+void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) {
     if (packed_data.data->size == 0) {
         // No point communicating zero-sized insertions.
         // Note: this means the caller must handle the metadata
@@ -284,9 +284,7 @@ void AllGather::insert(PackedData&& packed_data) {
     nlocal_insertions_.fetch_add(1, std::memory_order_relaxed);
     return insert(
         detail::Chunk::from_packed_data(
-            sequence_number_.fetch_add(1, std::memory_order_relaxed),
-            comm_->rank(),
-            std::move(packed_data)
+            sequence_number, comm_->rank(), std::move(packed_data)
         )
 
     );
@@ -399,12 +397,14 @@ AllGather::AllGather(
     std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    std::function<void(void)>&& finished_callback
 )
     : comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
       br_{br},
       statistics_{std::move(statistics)},
+      finished_callback_{std::move(finished_callback)},
       finish_counter_{comm_->nranks()},
       op_id_{op_id} {
     function_id_ = progress_thread_->add_function([this]() { return event_loop(); });
@@ -538,9 +538,15 @@ ProgressThread::ProgressState AllGather::event_loop() {
         !active_.load(std::memory_order_acquire) || (is_finished && containers_empty);
     if (is_finished) {
         // We can release our output buffers so notify a waiter.
-        std::lock_guard lock(mutex_);
-        can_extract_ = true;
+        {
+            std::lock_guard lock(mutex_);
+            can_extract_ = true;
+        }
         cv_.notify_one();
+        std::function<void()> callback = std::move(finished_callback_);
+        if (callback) {
+            callback();
+        }
     }
     return is_done ? ProgressThread::ProgressState::Done
                    : ProgressThread::ProgressState::InProgress;

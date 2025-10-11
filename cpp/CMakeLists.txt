@@ -168,12 +168,13 @@ add_library(
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     rapidsmpf
-    PRIVATE src/streaming/core/bcast_node.cpp
+    PRIVATE src/streaming/coll/allgather.cpp
+            src/streaming/core/bcast_node.cpp
+            src/streaming/coll/shuffler.cpp
             src/streaming/core/context.cpp
             src/streaming/core/leaf_node.cpp
             src/streaming/core/node.cpp
             src/streaming/cudf/partition.cpp
-            src/streaming/cudf/shuffler.cpp
             src/streaming/cudf/table_chunk.cpp
   )
 endif()

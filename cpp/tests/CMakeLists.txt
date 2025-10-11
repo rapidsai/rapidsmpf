@@ -67,7 +67,8 @@ target_sources(
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     test_sources
-    INTERFACE streaming/test_bcast_node.cpp
+    INTERFACE streaming/test_allgather.cpp
+              streaming/test_bcast_node.cpp
               streaming/test_error_handling.cpp
               streaming/test_leaf_node.cpp
               streaming/test_message.cpp
