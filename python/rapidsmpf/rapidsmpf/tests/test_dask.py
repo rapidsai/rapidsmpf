@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import multiprocessing
 from typing import TYPE_CHECKING, Literal
 
 import dask
@@ -11,7 +12,11 @@ import pytest
 import rapidsmpf.integrations.single
 from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options
-from rapidsmpf.examples.dask import DaskCudfIntegration, dask_cudf_shuffle
+from rapidsmpf.examples.dask import (
+    DaskCudfIntegration,
+    dask_cudf_join,
+    dask_cudf_shuffle,
+)
 from rapidsmpf.integrations.dask.core import get_worker_context
 from rapidsmpf.integrations.dask.shuffler import (
     clear_shuffle_statistics,
@@ -416,3 +421,123 @@ def test_clear_shuffle_statistics() -> None:
 
         assert len(stats) > 0
         assert len(stats2) == 0
+
+
+@pytest.mark.parametrize("how", ["inner", "left", "right"])
+@pytest.mark.parametrize("left_pre_shuffled", [True, False])
+@pytest.mark.parametrize("right_pre_shuffled", [True, False])
+def test_dask_cudf_join(
+    loop: pytest.FixtureDef,  # noqa: F811
+    how: Literal["inner", "left", "right"],
+    left_pre_shuffled: bool,  # noqa: FBT001
+    right_pre_shuffled: bool,  # noqa: FBT001
+) -> None:
+    # Test basic Dask-cuDF unified join integration
+    pytest.importorskip("dask_cudf")
+
+    with LocalCUDACluster(loop=loop) as cluster:  # noqa: SIM117
+        with Client(cluster) as client:
+            bootstrap_dask_cluster(
+                client, options=Options({"dask_spill_device": "0.1"})
+            )
+            left0 = (
+                dask.datasets.timeseries(
+                    freq="3600s",
+                    partition_freq="2D",
+                )
+                .reset_index(drop=True)
+                .to_backend("cudf")
+            )
+            right0 = (
+                dask.datasets.timeseries(
+                    freq="360s",
+                    partition_freq="15D",
+                )
+                .reset_index(drop=True)
+                .to_backend("cudf")
+                .rename(
+                    columns={
+                        "id": "id2",
+                        "name": "name2",
+                        "x": "x2",
+                        "y": "y2",
+                    }
+                )
+            )
+            left_on = ["id", "name"]
+            right_on = ["id2", "name2"]
+
+            # Maybe pre-shuffle the inputs
+            left = (
+                dask_cudf_shuffle(
+                    left0,
+                    left_on,
+                    partition_count=max(left0.npartitions, right0.npartitions),
+                    cluster_kind="distributed",
+                )
+                if left_pre_shuffled
+                else left0
+            )
+            right = (
+                dask_cudf_shuffle(
+                    right0,
+                    right_on,
+                    partition_count=max(left0.npartitions, right0.npartitions),
+                    cluster_kind="distributed",
+                )
+                if right_pre_shuffled
+                else right0
+            )
+
+            # Join the inputs
+            joined = dask_cudf_join(
+                left,
+                right,
+                left_on=left_on,
+                right_on=right_on,
+                how=how,
+                left_pre_shuffled=left_pre_shuffled,
+                right_pre_shuffled=right_pre_shuffled,
+            ).compute()
+
+            # Check the result.
+            # NOTE: We cannot call compute on a collection containing
+            # a RMPF shuffle multiple times. Therefore, we use left0
+            # and right0 to generate the expected result (left and
+            # right may be "pre-shuffled").
+            expected = left0.merge(
+                right0, left_on=left_on, right_on=right_on, how=how
+            ).compute()
+            dd.assert_eq(joined, expected, check_index=False)
+
+
+@gen_test(timeout=30)
+@pytest.mark.filterwarnings("ignore")
+async def test_bootstrap_multiple_clients(
+    loop: pytest.FixtureDef,  # noqa: F811
+) -> None:
+    # https://github.com/rapidsai/rapidsmpf/issues/458
+
+    def connect_from_subprocess(
+        scheduler_address: str, q: multiprocessing.Queue
+    ) -> None:
+        client = Client(scheduler_address)
+        bootstrap_dask_cluster(client)
+        q.put(obj=True)
+
+    with LocalCUDACluster(loop=loop) as cluster:
+        with Client(cluster) as client_1:
+            bootstrap_dask_cluster(client_1)
+
+        with Client(cluster) as client_2:
+            bootstrap_dask_cluster(client_2)
+
+        q: multiprocessing.Queue[bool] = multiprocessing.Queue()
+        p = multiprocessing.Process(
+            target=connect_from_subprocess, args=(cluster.scheduler_address, q)
+        )
+        p.start()
+        result = q.get(timeout=10)
+        p.join()
+
+    assert result is True

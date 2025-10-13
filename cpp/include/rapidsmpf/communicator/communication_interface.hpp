@@ -40,12 +40,9 @@ class CommunicationInterface {
      *
      * @param messages Vector of messages ready to be sent to remote ranks.
      * @param br Buffer resource for communication operations.
-     * @param stream CUDA stream for memory operations.
      */
     virtual void submit_outgoing_messages(
-        std::vector<std::unique_ptr<MessageInterface>>&& messages,
-        BufferResource* br,
-        rmm::cuda_stream_view stream
+        std::vector<std::unique_ptr<MessageInterface>>&& messages, BufferResource* br
     ) = 0;
 
     /**
@@ -59,13 +56,10 @@ class CommunicationInterface {
      * - Cleaning up completed operations
      *
      * @param message_factory Factory for creating message instances from metadata.
-     * @param stream CUDA stream for memory operations.
      * @return Vector of completed messages ready for local processing.
      */
     [[nodiscard]] virtual std::vector<std::unique_ptr<MessageInterface>>
-    process_communication(
-        MessageFactory const& message_factory, rmm::cuda_stream_view stream
-    ) = 0;
+    process_communication(MessageFactory const& message_factory) = 0;
 
     /**
      * @brief Check if all communication operations are complete.
@@ -106,16 +100,14 @@ class TagCommunicationInterface : public CommunicationInterface {
      * message already exists.
      */
     void submit_outgoing_messages(
-        std::vector<std::unique_ptr<MessageInterface>>&& messages,
-        BufferResource* br,
-        rmm::cuda_stream_view stream
+        std::vector<std::unique_ptr<MessageInterface>>&& messages, BufferResource* br
     ) override;
 
     /**
      * @copydoc CommunicationInterface::process_communication
      */
     std::vector<std::unique_ptr<MessageInterface>> process_communication(
-        MessageFactory const& message_factory, rmm::cuda_stream_view stream
+        MessageFactory const& message_factory
     ) override;
 
     /**
@@ -159,14 +151,11 @@ class TagCommunicationInterface : public CommunicationInterface {
      * @brief Setup data receives for incoming messages.
      *
      * @param message_factory Factory for creating message instances from metadata.
-     * @param stream CUDA stream for memory operations.
      *
      * @throw std::runtime_error if an in-transit message or future is not found, or
      * if a data buffer is not available.
      */
-    void setup_data_receives(
-        MessageFactory const& message_factory, rmm::cuda_stream_view stream
-    );
+    void setup_data_receives(MessageFactory const& message_factory);
 
     /**
      * @brief Process ready-for-data ack messages.

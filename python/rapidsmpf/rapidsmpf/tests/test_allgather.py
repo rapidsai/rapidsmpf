@@ -141,7 +141,6 @@ def test_basic_allgather(
         comm=comm,
         progress_thread=progress_thread,
         op_id=0,  # Use operation ID 0
-        stream=stream,
         br=br,
         statistics=statistics,
     )
@@ -154,7 +153,7 @@ def test_basic_allgather(
         packed_data = generate_packed_data(
             n_elements, gen_offset(i, this_rank), stream, br
         )
-        allgather.insert(packed_data)
+        allgather.insert(i, packed_data)
 
     # Mark this rank as finished
     allgather.insert_finished()

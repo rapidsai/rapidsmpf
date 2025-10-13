@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <iterator>
 #include <memory>
@@ -104,19 +105,26 @@ class SharedResources {
     };  ///< UCXX callback info for control messages
     std::vector<std::unique_ptr<HostFuture>>
         futures_{};  ///< Futures to incomplete requests.
-    std::vector<std::function<void()>> delayed_progress_callbacks_{};
-    std::mutex endpoints_mutex_{};
-    std::mutex futures_mutex_{};
-    std::mutex listener_mutex_{};
-    std::mutex delayed_progress_callbacks_mutex_{};
+    std::vector<std::function<void()>>
+        delayed_progress_callbacks_{};  ///< Callbacks from incomplete requests to execute
+                                        ///< before progressing the worker
+    std::mutex endpoints_mutex_{};  ///< Mutex to control access to `endpoints_`
+    std::mutex futures_mutex_{};  ///< Mutex to control access to `futures_`
+    std::mutex listener_mutex_{};  ///< Mutex to control access to `listener_` and
+                                   ///< `rank_to_listener_address_`
+    std::mutex delayed_progress_callbacks_mutex_{};  ///< Mutex to control access to
+                                                     ///< `delayed_progress_callbacks_`
     bool endpoint_error_handling_{
         false
     };  ///< Whether to request UCX endpoint error handling. This is currently disabled
         ///< as it impacts performance very negatively.
         ///< See https://github.com/rapidsai/rapidsmpf/issues/140.
+    std::atomic<std::uint64_t> progress_count{
+        0
+    };  ///< Counts how many times `maybe_progress_worker` has been called
 
   public:
-    UCXX::Logger* logger{nullptr};  ///< UCXX Listener
+    UCXX::Logger* logger{nullptr};  ///< UCXX logger
 
     /**
      * @brief Construct UCXX shared resources.
@@ -415,11 +423,19 @@ class SharedResources {
         for (auto& callback : delayed_progress_callbacks)
             callback();
         if (!worker_->isProgressThreadRunning()) {
+            // TODO: Support blocking progress mode in addition to polling
             worker_->progress();
-            // TODO: Support blocking progress mode
         }
 
         clear_completed_futures();
+    }
+
+    void maybe_progress_worker() {
+        // The value here is the default borrowed from OpenMPI:
+        // https://github.com/open-mpi/ompi/blob/7ad7adad676773fc61203e9a536d17b2ebdfa9c8/opal/mca/common/ucx/common_ucx.c#L42
+        if (++progress_count % 100) {
+            progress_worker();
+        }
     }
 
     /**
@@ -816,14 +832,42 @@ InitializedRank::InitializedRank(
 std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
     std::shared_ptr<::ucxx::Worker> worker,
     Rank nranks,
-    std::optional<RemoteAddress> remote_address
+    std::optional<RemoteAddress> remote_address,
+    config::Options options
 ) {
-    auto create_worker = []() {
+    auto progress_mode =
+        options.get<ProgressMode>("ucxx_progress_mode", [](auto const& s) {
+            if (s.empty()) {
+                return ProgressMode::ThreadBlocking;
+            } else if (s == "blocking") {
+                return ProgressMode::Blocking;
+            } else if (s == "polling") {
+                return ProgressMode::Polling;
+            } else if (s == "thread-blocking") {
+                return ProgressMode::ThreadBlocking;
+            } else if (s == "thread-polling") {
+                return ProgressMode::ThreadPolling;
+            } else {
+                RAPIDSMPF_FAIL("Invalid progress mode");
+            }
+        });
+
+    auto create_worker = [progress_mode]() {
         auto context = ::ucxx::createContext({}, ::ucxx::Context::defaultFeatureFlags);
         auto worker = context->createWorker(false);
-        // TODO: Allow other modes
-        worker->setProgressThreadStartCallback(create_cuda_context_callback, nullptr);
-        worker->startProgressThread(true);
+
+        RAPIDSMPF_EXPECTS(
+            progress_mode != ProgressMode::Blocking,
+            "Blocking progress mode not implemented yet."
+        );
+
+        if (progress_mode == ProgressMode::ThreadBlocking
+            || progress_mode == ProgressMode::ThreadPolling)
+        {
+            worker->setProgressThreadStartCallback(create_cuda_context_callback, nullptr);
+            worker->startProgressThread(progress_mode == ProgressMode::ThreadPolling);
+        };
+
         return worker;
     };
 
@@ -1101,6 +1145,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
 std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
+    RAPIDSMPF_EXPECTS(recv_buffer != nullptr, "recv buffer is nullptr");
     RAPIDSMPF_EXPECTS(recv_buffer->is_latest_write_done(), "msg must be ready");
     auto req = get_endpoint(rank)->tagRecv(
         recv_buffer->exclusive_data_access(),
@@ -1111,7 +1156,21 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
     return std::make_unique<Future>(req, std::move(recv_buffer));
 }
 
+std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
+    Rank rank, Tag tag, std::unique_ptr<std::vector<uint8_t>> synced_buffer
+) {
+    RAPIDSMPF_EXPECTS(synced_buffer != nullptr, "recv host buffer is nullptr");
+    auto req = get_endpoint(rank)->tagRecv(
+        synced_buffer->data(),
+        synced_buffer->size(),
+        tag_with_rank(rank, tag),
+        ::ucxx::TagMaskFull
+    );
+    return std::make_unique<Future>(req, std::move(synced_buffer));
+}
+
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
+    progress_worker();
     auto probe = shared_resources_->get_worker()->tagProbe(
         ::ucxx::Tag(static_cast<int>(tag)), UserTagMask
     );
@@ -1138,6 +1197,7 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
 }
 
 std::unique_ptr<std::vector<uint8_t>> UCXX::recv_from(Rank src, Tag tag) {
+    progress_worker();
     auto probe = shared_resources_->get_worker()->tagProbe(
         tag_with_rank(src, static_cast<int>(tag)), ::ucxx::TagMaskFull
     );
@@ -1241,12 +1301,21 @@ std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future)
     return std::move(ucxx_future->data_buffer_);
 }
 
-std::unique_ptr<Buffer> UCXX::get_gpu_data(std::unique_ptr<Communicator::Future> future) {
+std::unique_ptr<Buffer> UCXX::release_data(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
     RAPIDSMPF_EXPECTS(ucxx_future->data_buffer_ != nullptr, "future has no data");
     ucxx_future->data_buffer_->unlock();
     return std::move(ucxx_future->data_buffer_);
+}
+
+std::unique_ptr<std::vector<uint8_t>> UCXX::release_sync_host_data(
+    std::unique_ptr<Communicator::Future> future
+) {
+    auto ucxx_future = dynamic_cast<Future*>(future.get());
+    RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    RAPIDSMPF_EXPECTS(ucxx_future->synced_host_data_ != nullptr, "future has no data");
+    return std::move(ucxx_future->synced_host_data_);
 }
 
 std::string UCXX::str() const {
@@ -1268,7 +1337,7 @@ UCXX::~UCXX() noexcept {
 }
 
 void UCXX::progress_worker() {
-    shared_resources_->progress_worker();
+    shared_resources_->maybe_progress_worker();
 }
 
 ListenerAddress UCXX::listener_address() {

@@ -31,9 +31,7 @@ TagCommunicationInterface::TagCommunicationInterface(
       statistics_{std::move(statistics)} {}
 
 void TagCommunicationInterface::submit_outgoing_messages(
-    std::vector<std::unique_ptr<MessageInterface>>&& messages,
-    BufferResource* br,
-    rmm::cuda_stream_view stream
+    std::vector<std::unique_ptr<MessageInterface>>&& messages, BufferResource* br
 ) {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
@@ -57,13 +55,10 @@ void TagCommunicationInterface::submit_outgoing_messages(
                 outgoing_messages_.emplace(message_id, std::move(message)).second,
                 "outgoing message already exists"
             );
-            ready_ack_receives_[dst].push_back(comm_->recv(
+            ready_ack_receives_[dst].push_back(comm_->recv_sync_host_data(
                 dst,
                 ready_for_data_tag_,
-                br->allocate(
-                    stream,
-                    br->reserve_or_fail(ReadyForDataMessage::byte_size, MemoryType::HOST)
-                )
+                std::make_unique<std::vector<uint8_t>>(ReadyForDataMessage::byte_size)
             ));
         }
     }
@@ -74,14 +69,12 @@ void TagCommunicationInterface::submit_outgoing_messages(
 }
 
 std::vector<std::unique_ptr<MessageInterface>>
-TagCommunicationInterface::process_communication(
-    MessageFactory const& message_factory, rmm::cuda_stream_view stream
-) {
+TagCommunicationInterface::process_communication(MessageFactory const& message_factory) {
     auto const t0 = Clock::now();
 
     // Process all phases of the communication protocol
     receive_metadata(message_factory);
-    setup_data_receives(message_factory, stream);
+    setup_data_receives(message_factory);
     process_ready_acks();
     auto completed_messages = complete_data_transfers();
     cleanup_completed_operations();
@@ -121,7 +114,7 @@ void TagCommunicationInterface::receive_metadata(MessageFactory const& message_f
 }
 
 void TagCommunicationInterface::setup_data_receives(
-    MessageFactory const& message_factory, rmm::cuda_stream_view /* stream */
+    MessageFactory const& message_factory
 ) {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
@@ -188,13 +181,8 @@ void TagCommunicationInterface::process_ready_acks() {
     for (auto& [dst, futures] : ready_ack_receives_) {
         auto [finished, _] = comm_->test_some(futures);
         for (auto&& future : finished) {
-            auto const msg_data = comm_->get_gpu_data(std::move(future));
-
-            // The msg_data should be a Buffer containing the message data
-            // We need to convert it to vector for processing
-            std::vector<std::uint8_t> data(msg_data->size);
-            memcpy(data.data(), msg_data->data(), msg_data->size);
-            auto msg = ReadyForDataMessage::unpack(data);
+            auto const msg_data = comm_->release_sync_host_data(std::move(future));
+            auto msg = ReadyForDataMessage::unpack(msg_data);
 
             auto message_it = outgoing_messages_.find(msg.message_id);
             RAPIDSMPF_EXPECTS(
@@ -239,7 +227,7 @@ TagCommunicationInterface::complete_data_transfers() {
 
             auto message = std::move(message_it->second);
             auto future = std::move(future_it->second);
-            auto received_buffer = comm_->get_gpu_data(std::move(future));
+            auto received_buffer = comm_->release_data(std::move(future));
 
             message->set_data_buffer(std::move(received_buffer));
 

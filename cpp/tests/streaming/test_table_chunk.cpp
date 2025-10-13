@@ -17,6 +17,8 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 
+#include <rapidsmpf/streaming/core/channel.hpp>
+#include <rapidsmpf/streaming/cudf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 #include "../utils.hpp"
@@ -39,23 +41,75 @@ TEST_F(StreamingTableChunk, FromTable) {
     EXPECT_EQ(chunk.sequence_number(), seq);
     EXPECT_EQ(chunk.stream().value(), stream.value());
     EXPECT_TRUE(chunk.is_available());
+    EXPECT_TRUE(chunk.is_spillable());
     EXPECT_EQ(chunk.make_available_cost(), 0);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk.table_view(), expect);
 }
 
-TEST_F(StreamingTableChunk, FromTableView) {
+TEST_F(StreamingTableChunk, TableChunkOwner) {
     constexpr unsigned int num_rows = 100;
     constexpr std::int64_t seed = 1337;
     constexpr std::uint64_t seq = 42;
 
     cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
-
-    TableChunk chunk{seq, expect, expect.alloc_size(), stream};
-    EXPECT_EQ(chunk.sequence_number(), seq);
-    EXPECT_EQ(chunk.stream().value(), stream.value());
-    EXPECT_TRUE(chunk.is_available());
-    EXPECT_EQ(chunk.make_available_cost(), 0);
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk.table_view(), expect);
+    // Static because the deleter function is a void(*)(void*) which precludes the use of
+    // a lambda with captures.
+    static std::size_t num_deletions{0};
+    auto deleter = [](void* p) {
+        num_deletions++;
+        delete static_cast<int*>(p);
+    };
+    auto make_chunk = [&](TableChunk::ExclusiveView exclusive_view) {
+        return TableChunk{
+            seq,
+            expect,
+            expect.alloc_size(),
+            stream,
+            OwningWrapper(new int, deleter),
+            exclusive_view
+        };
+    };
+    auto check_chunk = [&](TableChunk const& chunk, bool is_spillable) {
+        EXPECT_EQ(chunk.sequence_number(), seq);
+        EXPECT_EQ(chunk.stream().value(), stream.value());
+        EXPECT_TRUE(chunk.is_available());
+        EXPECT_EQ(chunk.is_spillable(), is_spillable);
+        EXPECT_EQ(chunk.make_available_cost(), 0);
+        CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk.table_view(), expect);
+    };
+    {
+        auto chunk = make_chunk(TableChunk::ExclusiveView::NO);
+        check_chunk(chunk, false);
+        EXPECT_EQ(num_deletions, 0);
+    }
+    EXPECT_EQ(num_deletions, 1);
+    {
+        auto msg = Message(
+            std::make_unique<TableChunk>(make_chunk(TableChunk::ExclusiveView::NO))
+        );
+        EXPECT_EQ(num_deletions, 1);
+    }
+    EXPECT_EQ(num_deletions, 2);
+    {
+        auto msg = Message(
+            std::make_unique<TableChunk>(make_chunk(TableChunk::ExclusiveView::YES))
+        );
+        auto chunk = msg.release<TableChunk>();
+        check_chunk(chunk, true);
+        EXPECT_EQ(num_deletions, 2);
+    }
+    EXPECT_EQ(num_deletions, 3);
+    {
+        auto chunk = make_chunk(TableChunk::ExclusiveView::YES);
+        check_chunk(chunk, true);
+        chunk = chunk.spill_to_host(br.get());
+        EXPECT_EQ(num_deletions, 4);
+    }
+    {
+        auto chunk = make_chunk(TableChunk::ExclusiveView::NO);
+        check_chunk(chunk, false);
+        EXPECT_THROW(std::ignore = chunk.spill_to_host(br.get()), std::invalid_argument);
+    }
 }
 
 TEST_F(StreamingTableChunk, FromPackedColumns) {
@@ -73,6 +127,7 @@ TEST_F(StreamingTableChunk, FromPackedColumns) {
     EXPECT_EQ(chunk.sequence_number(), seq);
     EXPECT_EQ(chunk.stream().value(), stream.value());
     EXPECT_TRUE(chunk.is_available());
+    EXPECT_TRUE(chunk.is_spillable());
     EXPECT_EQ(chunk.make_available_cost(), 0);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk.table_view(), expect);
 }
@@ -94,6 +149,7 @@ TEST_F(StreamingTableChunk, FromPackedDataOnDevice) {
     EXPECT_EQ(chunk.sequence_number(), seq);
     EXPECT_EQ(chunk.stream().value(), stream.value());
     EXPECT_FALSE(chunk.is_available());
+    EXPECT_TRUE(chunk.is_spillable());
     EXPECT_THROW((void)chunk.table_view(), std::invalid_argument);
 
     // Eventhough the table isn't available, it is still all in device memory
@@ -125,6 +181,7 @@ TEST_F(StreamingTableChunk, FromPackedDataOnHost) {
     EXPECT_EQ(chunk.sequence_number(), seq);
     EXPECT_EQ(chunk.stream().value(), stream.value());
     EXPECT_FALSE(chunk.is_available());
+    EXPECT_TRUE(chunk.is_spillable());
     EXPECT_THROW((void)chunk.table_view(), std::invalid_argument);
     EXPECT_EQ(chunk.make_available_cost(), size);
 }
@@ -138,6 +195,7 @@ TEST_F(StreamingTableChunk, SpillUnspillRoundTrip) {
 
     TableChunk chunk_on_device{seq, std::make_unique<cudf::table>(expect), stream};
     EXPECT_TRUE(chunk_on_device.is_available());
+    EXPECT_TRUE(chunk_on_device.is_spillable());
 
     // Spill to host memory.
     TableChunk chunk_on_host = chunk_on_device.spill_to_host(br.get());

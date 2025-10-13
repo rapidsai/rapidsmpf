@@ -18,11 +18,11 @@
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/streaming/coll/shuffler.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
-#include <rapidsmpf/streaming/cudf/shuffler.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -250,7 +250,7 @@ rapidsmpf::Duration run(
         auto ch3 = std::make_shared<rapidsmpf::streaming::Channel>();
         nodes.push_back(
             rapidsmpf::streaming::node::shuffler(
-                ctx, stream, ch2, ch3, op_id, total_num_partitions
+                ctx, ch2, ch3, op_id, total_num_partitions
             )
         );
         auto ch4 = std::make_shared<rapidsmpf::streaming::Channel>();

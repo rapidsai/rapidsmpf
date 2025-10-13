@@ -5,71 +5,16 @@
 
 #pragma once
 
-#include <unordered_map>
+#include <cstdint>
 #include <vector>
 
 #include <cudf/partitioning.hpp>
-#include <cudf/table/table.hpp>
 
-#include <rapidsmpf/buffer/packed_data.hpp>
-#include <rapidsmpf/shuffler/shuffler.hpp>
-#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
-#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
-
-/**
- * @brief Chunk of packed partitions identified by partition ID.
- *
- * Represents a single unit of work in a streaming pipeline where each partition
- * is associated with a `PartID` and contains packed (serialized) data.
- *
- * The `sequence_number` is used to preserve ordering across chunks.
- */
-struct PartitionMapChunk {
-    /**
-     * @brief Sequence number used to preserve chunk ordering.
-     */
-    std::uint64_t sequence_number;
-
-    /**
-     * @brief Packed data for each partition, keyed by partition ID.
-     */
-    std::unordered_map<shuffler::PartID, PackedData> data;
-
-    /**
-     * @brief The CUDA stream on which this chunk was created.
-     */
-    rmm::cuda_stream_view stream;
-};
-
-/**
- * @brief Chunk of packed partitions stored as a vector.
- *
- * Represents a single unit of work in a streaming pipeline where the partitions
- * are stored in a vector.
- *
- * The `sequence_number` is used to preserve ordering across chunks.
- */
-struct PartitionVectorChunk {
-    /**
-     * @brief Sequence number used to preserve chunk ordering.
-     */
-    std::uint64_t sequence_number;
-
-    /**
-     * @brief Packed data for each partition stored in a vector.
-     */
-    std::vector<PackedData> data;
-
-    /**
-     * @brief The CUDA stream on which this chunk was created.
-     */
-    rmm::cuda_stream_view stream;
-};
 
 namespace node {
 

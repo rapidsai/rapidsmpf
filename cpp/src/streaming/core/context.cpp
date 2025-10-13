@@ -14,7 +14,7 @@ Context::Context(
     config::Options options,
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<ProgressThread> progress_thread,
-    std::shared_ptr<coro::thread_pool> executor,
+    std::unique_ptr<coro::thread_pool> executor,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics
 )
@@ -41,7 +41,7 @@ Context::Context(
           options,
           comm,
           std::make_shared<ProgressThread>(comm->logger(), statistics),
-          coro::thread_pool::make_shared(
+          coro::thread_pool::make_unique(
               coro::thread_pool::options{
                   .thread_count = options.get<std::uint32_t>(
                       "num_streaming_threads",
@@ -75,7 +75,7 @@ std::shared_ptr<ProgressThread> Context::progress_thread() {
     return progress_thread_;
 }
 
-std::shared_ptr<coro::thread_pool> Context::executor() {
+std::unique_ptr<coro::thread_pool>& Context::executor() {
     return executor_;
 }
 

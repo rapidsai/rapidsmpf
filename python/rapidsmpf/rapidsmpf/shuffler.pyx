@@ -8,8 +8,6 @@ from libcpp.memory cimport make_unique
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
-from rmm.librmm.cuda_stream_view cimport cuda_stream_view
-from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
@@ -56,8 +54,6 @@ cdef class Shuffler:
         ``max_concurrent_shuffles-1``.
     total_num_partitions
         Total number of partitions in the shuffle.
-    stream
-        The CUDA stream used for memory operations.
     br
         The buffer resource used to allocate temporary storage and shuffle results.
     statistics
@@ -73,6 +69,10 @@ cdef class Shuffler:
     This class is designed to handle distributed operations by partitioning data
     and redistributing it across ranks in a cluster. It is typically used in
     distributed data processing workflows involving cuDF tables.
+
+    The caller promises that inserted buffers are stream-ordered with respect to
+    their own stream, and extracted buffers are likewise guaranteed to be stream-
+    ordered with respect to their own stream.
     """
     max_concurrent_shuffles = UINT8_MAX + 1  # match the type of the `op_id` argument.
 
@@ -82,12 +82,9 @@ cdef class Shuffler:
         ProgressThread progress_thread not None,
         uint8_t op_id,
         uint32_t total_num_partitions,
-        Stream stream not None,
         BufferResource br not None,
         Statistics statistics = None,
     ):
-        self._stream = stream
-        cdef cuda_stream_view _stream = stream.view()
         self._comm = comm
         self._br = br
         cdef cpp_BufferResource* br_ = br.ptr()
@@ -99,7 +96,6 @@ cdef class Shuffler:
                 progress_thread._handle,
                 op_id,
                 total_num_partitions,
-                _stream,
                 br_,
                 statistics._handle,
             )

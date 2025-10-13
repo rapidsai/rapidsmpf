@@ -20,16 +20,12 @@ cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
         cuda_stream_view stream() noexcept
         size_t data_alloc_size(MemoryType mem_type) except +
         bool_t is_available() noexcept
-
+        bool_t is_spillable() noexcept
 
 cdef class TableChunk:
     cdef unique_ptr[cpp_TableChunk] _handle
-    cdef Stream _stream
-    cdef object _owner
 
     @staticmethod
-    cdef TableChunk from_handle(
-        unique_ptr[cpp_TableChunk] handle, Stream stream, object owner
-    )
+    cdef TableChunk from_handle(unique_ptr[cpp_TableChunk] handle)
     cdef const cpp_TableChunk* handle_ptr(self)
     cdef unique_ptr[cpp_TableChunk] release_handle(self)

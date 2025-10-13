@@ -41,13 +41,15 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace "rapidsmpf::ucxx"
     unique_ptr[cpp_UCXX_InitializedRank] init(
         shared_ptr[Worker] worker,
         Rank nranks,
-        shared_ptr[Address] remote_address
+        shared_ptr[Address] remote_address,
+        cpp_Options options
     )
 
     unique_ptr[cpp_UCXX_InitializedRank] init(
         shared_ptr[Worker] worker,
         Rank nranks,
-        nullopt_t remote_address
+        nullopt_t remote_address,
+        cpp_Options options
     )
 
     cdef cppclass cpp_UCXX_Communicator "rapidsmpf::ucxx::UCXX":
@@ -70,9 +72,9 @@ cdef Communicator cpp_new_communicator(
     cdef Communicator ret = Communicator.__new__(Communicator)
     with nogil:
         if root_address == <shared_ptr[Address]>nullptr:
-            ucxx_initialized_rank = init(worker, nranks, nullopt)
+            ucxx_initialized_rank = init(worker, nranks, nullopt, options._handle)
         else:
-            ucxx_initialized_rank = init(worker, nranks, root_address)
+            ucxx_initialized_rank = init(worker, nranks, root_address, options._handle)
         ret._handle = make_shared[cpp_UCXX_Communicator](
             move(ucxx_initialized_rank), options._handle
         )
@@ -117,7 +119,10 @@ def new_communicator(
         root_ucxx_address_ptr = root_ucxx_address.get_ucxx_shared_ptr()
 
     return cpp_new_communicator(
-        nranks, ucx_worker_ptr, root_ucxx_address_ptr, options
+        nranks,
+        ucx_worker_ptr,
+        root_ucxx_address_ptr,
+        options,
     )
 
 

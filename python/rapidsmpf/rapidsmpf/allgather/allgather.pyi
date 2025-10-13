@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from rmm.pylibrmm.stream import Stream
-
 from rapidsmpf.buffer.packed_data import PackedData
 from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.communicator.communicator import Communicator
@@ -16,13 +14,12 @@ class AllGather:
         comm: Communicator,
         progress_thread: ProgressThread,
         op_id: int,
-        stream: Stream,
         br: BufferResource,
         statistics: Statistics | None = None,
     ) -> None: ...
     @property
     def comm(self) -> Communicator: ...
-    def insert(self, packed_data: PackedData) -> None: ...
+    def insert(self, sequence_number: int, packed_data: PackedData) -> None: ...
     def insert_finished(self) -> None: ...
     def finished(self) -> bool: ...
     def wait_and_extract(

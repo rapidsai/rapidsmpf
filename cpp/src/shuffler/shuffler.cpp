@@ -4,7 +4,6 @@
  */
 
 #include <algorithm>
-#include <concepts>
 #include <functional>
 #include <memory>
 #include <numeric>
@@ -202,7 +201,7 @@ class Shuffler::Progress {
                 auto messages = chunks_to_messages(std::move(ready_chunks), peer_rank_fn);
 
                 shuffler_.comm_interface_->submit_outgoing_messages(
-                    std::move(messages), shuffler_.br_, shuffler_.stream_
+                    std::move(messages), shuffler_.br_
                 );
             }
             stats.add_duration_stat(
@@ -217,13 +216,14 @@ class Shuffler::Progress {
 
             auto allocate_buffer_fn =
                 [&shuffler = shuffler_](std::size_t size) -> std::unique_ptr<Buffer> {
-                return allocate_buffer(size, shuffler.stream_, shuffler.br_);
+                return allocate_buffer(
+                    size, shuffler.br_->stream_pool().get_stream(), shuffler.br_
+                );
             };
 
             ChunkMessageFactory factory{allocate_buffer_fn};
-            auto completed_messages = shuffler_.comm_interface_->process_communication(
-                factory, shuffler_.stream_
-            );
+            auto completed_messages =
+                shuffler_.comm_interface_->process_communication(factory);
 
             auto final_chunks = messages_to_chunks(std::move(completed_messages));
 
@@ -249,9 +249,7 @@ class Shuffler::Progress {
 
                 // Split multi-message chunks into individual chunks for the ready postbox
                 for (size_t i = 0; i < chunk.n_messages(); ++i) {
-                    auto chunk_copy = chunk.get_data(
-                        chunk.chunk_id(), i, shuffler_.stream_, shuffler_.br_
-                    );
+                    auto chunk_copy = chunk.get_data(chunk.chunk_id(), i, shuffler_.br_);
                     shuffler_.insert_into_ready_postbox(std::move(chunk_copy));
                 }
             }
@@ -296,7 +294,6 @@ Shuffler::Shuffler(
     std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
     PartID total_num_partitions,
-    rmm::cuda_stream_view stream,
     BufferResource* br,
     FinishedCallback&& finished_callback,
     std::shared_ptr<Statistics> statistics,
@@ -305,7 +302,6 @@ Shuffler::Shuffler(
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
-      stream_{stream},
       br_{br},
       outgoing_postbox_{
           [this](PartID pid) -> Rank {
@@ -326,11 +322,8 @@ Shuffler::Shuffler(
       },
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
-      finish_counter_{
-          comm_->nranks(),
-          local_partitions(comm_, total_num_partitions, partition_owner),
-          std::move(finished_callback)
-      },
+      local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
+      finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},
       statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
@@ -352,6 +345,10 @@ Shuffler::Shuffler(
         [this](std::size_t amount) -> std::size_t { return spill(amount); },
         /* priority = */ 0
     );
+}
+
+std::span<PartID const> Shuffler::local_partitions() const {
+    return local_partitions_;
 }
 
 Shuffler::~Shuffler() {
@@ -494,7 +491,7 @@ void Shuffler::concat_insert(std::unordered_map<PartID, PackedData>&& chunks) {
     auto build_all_groups_and_insert = [&]() {
         for (auto&& group : chunk_groups) {
             if (!group.empty()) {
-                insert(Chunk::concat(std::move(group), get_new_cid(), stream_, br_));
+                insert(Chunk::concat(std::move(group), get_new_cid(), br_));
             }
         }
     };
@@ -597,7 +594,7 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
     for (auto&& group : chunk_groups) {
         if (!group.empty()) {
-            insert(Chunk::concat(std::move(group), get_new_cid(), stream_, br_));
+            insert(Chunk::concat(std::move(group), get_new_cid(), br_));
         }
     }
 }

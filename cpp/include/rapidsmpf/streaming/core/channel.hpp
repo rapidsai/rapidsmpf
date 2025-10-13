@@ -22,6 +22,11 @@
 namespace rapidsmpf::streaming {
 
 /**
+ * @brief An awaitable semaphore to manage acquisition and release of finite resources.
+ */
+using Semaphore = coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()>;
+
+/**
  * @brief Move-only, type-erased message holding a payload as shared pointer.
  */
 class Message {
@@ -167,8 +172,8 @@ class Channel {
      * @param executor The thread pool used to process remaining messages.
      * @return A coroutine representing the completion of the shutdown drain.
      */
-    Node drain(std::shared_ptr<coro::thread_pool> executor) {
-        return rb_.shutdown_drain(std::move(executor));
+    Node drain(std::unique_ptr<coro::thread_pool>& executor) {
+        return rb_.shutdown_drain(executor);
     }
 
     /**
@@ -204,8 +209,6 @@ class Channel {
  */
 class ThrottlingAdaptor {
   private:
-    using semaphore_type = coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()>;
-
     ///< @brief Ticket with permission to send into the channel.
     class Ticket {
       public:
@@ -263,7 +266,7 @@ class ThrottlingAdaptor {
             } else {
                 // If the channel is closed we want to wake any waiters so shutdown the
                 // semaphore.
-                semaphore_->shutdown();
+                co_await semaphore_->shutdown();
                 co_return {sent, []() -> coro::task<void> { co_return; }()};
             }
         }
@@ -274,12 +277,12 @@ class ThrottlingAdaptor {
          * @param channel The channel to send into.
          * @param semaphore Semaphore to release after send is complete.
          */
-        Ticket(Channel* channel, semaphore_type* semaphore)
+        Ticket(Channel* channel, Semaphore* semaphore)
             : ch_{channel}, semaphore_{semaphore} {};
 
       private:
         Channel* ch_;
-        semaphore_type* semaphore_;
+        Semaphore* semaphore_;
     };
 
   public:
@@ -344,7 +347,7 @@ class ThrottlingAdaptor {
 
   private:
     std::shared_ptr<Channel> ch_;
-    coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()> semaphore_;
+    Semaphore semaphore_;
 };
 
 /**
@@ -358,18 +361,49 @@ class ThrottlingAdaptor {
  * unhandled exception escapes the coroutine. Relying on a channel's own destructor
  * is insufficient when the channel is shared (e.g., via `std::shared_ptr`), because
  * other owners keep it alive.
- *
- * @tparam T Variadic list of channel handle types.
  */
-template <typename... T>
 class ShutdownAtExit {
   public:
     /**
-     * @brief Constructor accepting one or more channel handles.
+     * @brief Construct from a vector of channel handles.
      *
-     * @param channels Channels to be shut down on destruction.
+     * The order of elements determines the shutdown order invoked by the destructor.
+     *
+     * @param channels Vector of shared channel handles to be shut down on destruction.
+     *
+     * @throws std::invalid_argument If any channel in the vector is `nullptr`.
      */
-    explicit ShutdownAtExit(T... channels) : channels_{channels...} {}
+    explicit ShutdownAtExit(std::vector<std::shared_ptr<Channel>> channels)
+        : channels_{std::move(channels)} {
+        for (auto& ch : channels_) {
+            RAPIDSMPF_EXPECTS(ch, "channel cannot be null", std::invalid_argument);
+        }
+    }
+
+    /**
+     * @brief Variadic convenience constructor.
+     *
+     * Enables `ShutdownAtExit{ch1, ch2, ...}` without explicitly creating a vector.
+     * Each argument must be convertible to `std::shared_ptr<Channel>`. The order of
+     * the arguments determines the shutdown order in the destructor.
+     *
+     * @tparam T Parameter pack of types convertible to `std::shared_ptr<Channel>`.
+     * @param channels One or more channel handles.
+     *
+     * @throws std::invalid_argument If any of the provided channel pointers is `nullptr`.
+     */
+    template <class... T>
+    explicit ShutdownAtExit(T&&... channels)
+        requires(std::convertible_to<T, std::shared_ptr<Channel>> && ...)
+        : ShutdownAtExit(
+              std::vector<std::shared_ptr<Channel>>{std::forward<T>(channels)...}
+          ) {}
+
+    // Non-copyable, non-movable.
+    ShutdownAtExit(ShutdownAtExit const&) = delete;
+    ShutdownAtExit& operator=(ShutdownAtExit const&) = delete;
+    ShutdownAtExit(ShutdownAtExit&&) = delete;
+    ShutdownAtExit& operator=(ShutdownAtExit&&) = delete;
 
     /**
      * @brief Destructor that synchronously shuts down all channels.
@@ -377,13 +411,13 @@ class ShutdownAtExit {
      * Calls `shutdown()` on each channel in the same order they were passed.
      */
     ~ShutdownAtExit() noexcept {
-        std::apply(
-            [](auto&... ch) { (coro::sync_wait(ch->shutdown()), ...); }, channels_
-        );
+        for (auto& ch : channels_) {
+            coro::sync_wait(ch->shutdown());
+        }
     }
 
   private:
-    std::tuple<T...> channels_;
+    std::vector<std::shared_ptr<Channel>> channels_;
 };
 
 }  // namespace rapidsmpf::streaming

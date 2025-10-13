@@ -107,7 +107,7 @@ std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
 }
 
 std::unique_ptr<Chunk> Chunk::deserialize(
-    std::vector<std::uint8_t>& data, rmm::cuda_stream_view stream, BufferResource* br
+    std::vector<std::uint8_t>& data, BufferResource* br
 ) {
     ChunkID id;
     std::uint64_t data_size;
@@ -124,10 +124,11 @@ std::unique_ptr<Chunk> Chunk::deserialize(
         data.data() + sizeof(ChunkID) + sizeof(data_size),
         metadata->size()
     );
-    auto reservation = br->reserve_or_fail(data_size);
-    return std::unique_ptr<Chunk>(
-        new Chunk(id, std::move(metadata), br->allocate(data_size, stream, reservation))
-    );
+    return std::unique_ptr<Chunk>(new Chunk(
+        id,
+        std::move(metadata),
+        br->allocate(br->stream_pool().get_stream(), br->reserve_or_fail(data_size))
+    ));
 }
 
 PackedData Chunk::release() {
@@ -263,7 +264,7 @@ static std::vector<std::unique_ptr<Chunk>> test_some(
     std::ranges::transform(
         indices, complete_futures, std::back_inserter(result), [&](auto i, auto&& fut) {
             auto chunk = std::move(chunks[i]);
-            chunk->attach_data_buffer(comm->get_gpu_data(std::move(fut)));
+            chunk->attach_data_buffer(comm->release_data(std::move(fut)));
             return std::move(chunk);
         }
     );
@@ -272,7 +273,7 @@ static std::vector<std::unique_ptr<Chunk>> test_some(
 }
 }  // namespace detail
 
-void AllGather::insert(PackedData&& packed_data) {
+void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) {
     if (packed_data.data->size == 0) {
         // No point communicating zero-sized insertions.
         // Note: this means the caller must handle the metadata
@@ -283,9 +284,7 @@ void AllGather::insert(PackedData&& packed_data) {
     nlocal_insertions_.fetch_add(1, std::memory_order_relaxed);
     return insert(
         detail::Chunk::from_packed_data(
-            sequence_number_.fetch_add(1, std::memory_order_relaxed),
-            comm_->rank(),
-            std::move(packed_data)
+            sequence_number, comm_->rank(), std::move(packed_data)
         )
 
     );
@@ -397,15 +396,15 @@ AllGather::AllGather(
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
-    rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    std::function<void(void)>&& finished_callback
 )
     : comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
-      stream_{stream},
       br_{br},
       statistics_{std::move(statistics)},
+      finished_callback_{std::move(finished_callback)},
       finish_counter_{comm_->nranks()},
       op_id_{op_id} {
     function_id_ = progress_thread_->add_function([this]() { return event_loop(); });
@@ -483,7 +482,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
             if (!msg) {
                 break;
             }
-            auto chunk = detail::Chunk::deserialize(*msg, stream_, br_);
+            auto chunk = detail::Chunk::deserialize(*msg, br_);
             if (chunk->is_finish()) {
                 if (chunk->origin() != dst) {
                     // Finish chunk, if we're not the end of the ring, must forward on.
@@ -539,9 +538,15 @@ ProgressThread::ProgressState AllGather::event_loop() {
         !active_.load(std::memory_order_acquire) || (is_finished && containers_empty);
     if (is_finished) {
         // We can release our output buffers so notify a waiter.
-        std::lock_guard lock(mutex_);
-        can_extract_ = true;
+        {
+            std::lock_guard lock(mutex_);
+            can_extract_ = true;
+        }
         cv_.notify_one();
+        std::function<void()> callback = std::move(finished_callback_);
+        if (callback) {
+            callback();
+        }
     }
     return is_done ? ProgressThread::ProgressState::Done
                    : ProgressThread::ProgressState::InProgress;
