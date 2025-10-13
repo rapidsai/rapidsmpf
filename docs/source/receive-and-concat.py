@@ -81,7 +81,6 @@ async def send_chunk(ctx, ch_out, chunk, sleep_time=0):
     msg = Message(chunk)
     await ch_out.send(ctx, msg)
 
-# Receive  ch_left and ch_right concurrently
 @define_py_node()
 async def sleep_transform_concurrent(ctx: Context, ch_left: Channel, ch_right: Channel, ch_out: Channel):
     ch1_done = False
@@ -101,21 +100,47 @@ async def sleep_transform_concurrent(ctx: Context, ch_left: Channel, ch_right: C
     await asyncio.gather(worker(ctx, ch_left, ch_out, .5), worker(ctx, ch_right, ch_out, 0.2))
     await ch_out.drain(ctx)
 
-
-
-# Receive all of ch_left before ch_right
-@define_py_node()
-async def sleep_transform_staged(ctx: Context, ch_left: Channel, ch_right: Channel, ch_out: Channel):
+    # assume ch_left is small and ch_right is large
+    # read all of ch_left before right
     while (msg := await ch_left.recv(ctx)) is not None:
         chunk = TableChunk.from_message(msg)
         seq = chunk.sequence_number
-        await send_chunk(ctx, ch_out, chunk, sleep_time=0.2)
+        # store then concat all the chunks
     
     while (msg := await ch_right.recv(ctx)) is not None:
         chunk = TableChunk.from_message(msg)
         seq = chunk.sequence_number
-        await send_chunk(ctx, ch_out, chunk, sleep_time=0.1)
+        # join chunk with concatatenated table
+        # then send immmediately
+        await send_chunk(ctx, ch_out, chunk, sleep_time=0)
+
+
+@define_py_node()
+async def sleep_transform_staged(ctx: Context, ch_left: Channel, ch_right: Channel, ch_out: Channel):
+    # assume ch_left is small and ch_right is large
+    # read all of ch_left before right
+    chunks = []
+    while (msg := await ch_left.recv(ctx)) is not None:
+        chunk = TableChunk.from_message(msg)
+        seq = chunk.sequence_number
+        # store then concat all the chunks
+        chunks.append(chunk)
     
+    # Convert the list of TableChunks to cuDF DataFrames -> concat
+    dfs = [pylibcudf_to_cudf_dataframe(chunk.table_view()) for chunk in chunks]
+
+    # Concatenate the pylibcudf tables from the TableChunks
+    # from pylibcudf.concat import concat as plc_concat
+    acc_df = cudf.concat(dfs)
+    
+    while (msg := await ch_right.recv(ctx)) is not None:
+        chunk = TableChunk.from_message(msg)
+        seq = chunk.sequence_number
+        # join chunk with concatatenated table
+        # then send immmediately
+    
+    msg = Message(chunk)
+    await ch_out.send(ctx, msg)
     await ch_out.drain(ctx)
 
 @define_py_node()
@@ -129,33 +154,17 @@ async def consumer(ctx: Context, ch_in: Channel):
         seq = chunk.sequence_number
 
         received_order.append(seq)
+        # print(f"[Consumer] Received chunk {seq}")
 
-    print(f"\t[Consumer] Expected order: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]")
-    print(f"\t[Consumer] Actual order:   {received_order}")
     print()
+    print(f"[Consumer] Expected order: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]")
+    print(f"[Consumer] Actual order:   {received_order}")
 
 # Run pipeline
 ch1 = Channel()
 ch2 = Channel()
 ch3 = Channel()
 
-print("Running pipeline with concurrent transformation")
-run_streaming_pipeline(
-    nodes=(
-        producer_0(ctx, ch_out=ch1),
-        producer_1(ctx, ch_out=ch2),
-        sleep_transform_concurrent(ctx, ch_left=ch1, ch_right=ch2, ch_out=ch3),
-        consumer(ctx, ch_in=ch3)
-    ),
-    py_executor=py_executor
-)
-
-# Run pipeline
-ch1 = Channel()
-ch2 = Channel()
-ch3 = Channel()
-
-print("Running pipeline with staged transformations")
 run_streaming_pipeline(
     nodes=(
         producer_0(ctx, ch_out=ch1),

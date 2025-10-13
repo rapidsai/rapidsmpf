@@ -97,7 +97,9 @@ This hybrid model, which combines a SPMD-style distribution model and a local CS
   - Buffers have an attached [CUDA Stream](https://developer.download.nvidia.com/CUDA/training/StreamsAndConcurrencyWebinar.pdf) maintained for the lifetime of the buffer. 
   - Streams are created or used from an existing stream pool
   
-- **Messages**:[Type-erased](https://en.wikipedia.org/wiki/Type_erasure) container for data payloads (shared memory pointers) including: cudf tables, buffers, and RapidsMPF internal data structures like packed data 
+- **Messages**:[Type-erased](https://en.wikipedia.org/wiki/Type_erasure) container for data payloads (shared memory pointers) including: cudf tables, buffers, and RapidsMPF internal data structures like packed data
+  - Messages also contain metadata like a sequence number
+  - Sequences _do not_ guarantee that chunks arrive in order but they do provide the order in which the data was created
 
 
 - **Nodes**: Coroutine-based asynchronous relational operator: read, filter, select, join.  
