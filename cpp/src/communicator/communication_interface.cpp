@@ -31,7 +31,7 @@ TagCommunicationInterface::TagCommunicationInterface(
       statistics_{std::move(statistics)} {}
 
 void TagCommunicationInterface::submit_outgoing_messages(
-    std::vector<std::unique_ptr<MessageInterface>>&& messages, BufferResource* br
+    std::vector<std::unique_ptr<MessageInterface>>&& messages
 ) {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
@@ -182,7 +182,7 @@ void TagCommunicationInterface::process_ready_acks() {
         auto [finished, _] = comm_->test_some(futures);
         for (auto&& future : finished) {
             auto const msg_data = comm_->release_sync_host_data(std::move(future));
-            auto msg = ReadyForDataMessage::unpack(msg_data);
+            auto msg = ReadyForDataMessage::unpack(*msg_data);
 
             auto message_it = outgoing_messages_.find(msg.message_id);
             RAPIDSMPF_EXPECTS(

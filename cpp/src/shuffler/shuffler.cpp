@@ -200,9 +200,7 @@ class Shuffler::Progress {
 
                 auto messages = chunks_to_messages(std::move(ready_chunks), peer_rank_fn);
 
-                shuffler_.comm_interface_->submit_outgoing_messages(
-                    std::move(messages), shuffler_.br_
-                );
+                shuffler_.comm_interface_->submit_outgoing_messages(std::move(messages));
             }
             stats.add_duration_stat(
                 "event-loop-submit-outgoing", Clock::now() - t0_submit_outgoing

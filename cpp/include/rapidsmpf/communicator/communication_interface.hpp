@@ -39,10 +39,9 @@ class CommunicationInterface {
      * metadata sending and coordination of data transfer.
      *
      * @param messages Vector of messages ready to be sent to remote ranks.
-     * @param br Buffer resource for communication operations.
      */
     virtual void submit_outgoing_messages(
-        std::vector<std::unique_ptr<MessageInterface>>&& messages, BufferResource* br
+        std::vector<std::unique_ptr<MessageInterface>>&& messages
     ) = 0;
 
     /**
@@ -100,7 +99,7 @@ class TagCommunicationInterface : public CommunicationInterface {
      * message already exists.
      */
     void submit_outgoing_messages(
-        std::vector<std::unique_ptr<MessageInterface>>&& messages, BufferResource* br
+        std::vector<std::unique_ptr<MessageInterface>>&& messages
     ) override;
 
     /**
