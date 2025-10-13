@@ -26,6 +26,7 @@
 #include <rmm/cuda_stream.hpp>
 
 #include <rapidsmpf/buffer/pinned_memory_resource.hpp>
+#include <rapidsmpf/error.hpp>
 
 namespace {
 
@@ -198,25 +199,29 @@ void BM_DeviceToHostCopyComparison(
         // Time device to regular host copies (synchronous)
         auto host_copy_start = std::chrono::high_resolution_clock::now();
         for (size_t i = 0; i < n_copies; ++i) {
-            cudaMemcpy(
+            RAPIDSMPF_CUDA_TRY(cudaMemcpy(
                 host_bufs[i].data(), device_buf.data(), copy_size, cudaMemcpyDefault
-            );
+            ));
         }
         auto host_copy_end = std::chrono::high_resolution_clock::now();
 
         // Time device to stream-ordered pinned copies (asynchronous)
         auto pinned_copy_start = std::chrono::high_resolution_clock::now();
         for (size_t i = 0; i < n_copies; ++i) {
-            cudaMemcpyAsync(
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 pinned_bufs[i].data(),
                 device_buf.data(),
                 copy_size,
                 cudaMemcpyDefault,
                 stream.value()
-            );
+            ));
         }
         stream.synchronize();
         auto pinned_copy_end = std::chrono::high_resolution_clock::now();
+
+        benchmark::DoNotOptimize(device_buf);
+        benchmark::DoNotOptimize(host_bufs);
+        benchmark::DoNotOptimize(pinned_bufs);
 
         // Calculate times in nanoseconds
         auto host_copy_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -227,6 +232,7 @@ void BM_DeviceToHostCopyComparison(
                                        pinned_copy_end - pinned_copy_start
         )
                                        .count();
+
 
         // Calculate bandwidth (GB/s) - total data transferred
         auto total_bytes = static_cast<double>(copy_size * n_copies);
@@ -262,39 +268,53 @@ BENCHMARK_CAPTURE(
 // no priming
 BENCHMARK_CAPTURE(BM_AsyncConstructionTime, unprimed, &make_pinned_resource, 0)
     ->Unit(benchmark::kMicrosecond);
-// 1000MB priming
-BENCHMARK_CAPTURE(BM_AsyncConstructionTime, primed, &make_pinned_resource, 1000 << 20)
+// 1GB priming
+BENCHMARK_CAPTURE(BM_AsyncConstructionTime, primed_1GB, &make_pinned_resource, 1 << 30)
+    ->Unit(benchmark::kMicrosecond);
+// 4GB priming
+BENCHMARK_CAPTURE(BM_AsyncConstructionTime, primed_4GB, &make_pinned_resource, 4 << 30)
     ->Unit(benchmark::kMicrosecond);
 
-// Device to Host Copy Comparison benchmarks
-// 1MB copy, 1 copy
-BENCHMARK_CAPTURE(
-    BM_DeviceToHostCopyComparison, 1MB_1copy, &make_pinned_resource, 1 << 20, 1
-)
-    ->Unit(benchmark::kMicrosecond);
+// Device to Host Copy Comparison benchmarks - registered in a loop
+static auto register_device_to_host_copy_benchmarks = [] {
+    struct BenchConfig {
+        size_t copy_size_mb;
+        size_t n_copies;
+    };
 
-// 1MB copy, 10 copies
-BENCHMARK_CAPTURE(
-    BM_DeviceToHostCopyComparison, 1MB_10copies, &make_pinned_resource, 1 << 20, 10
-)
-    ->Unit(benchmark::kMicrosecond);
+    constexpr std::array<BenchConfig, 12> configs = {{
+        {.copy_size_mb = 1, .n_copies = 1},
+        {.copy_size_mb = 1, .n_copies = 10},
+        {.copy_size_mb = 1, .n_copies = 100},
+        {.copy_size_mb = 4, .n_copies = 1},
+        {.copy_size_mb = 4, .n_copies = 10},
+        {.copy_size_mb = 4, .n_copies = 100},
+        {.copy_size_mb = 10, .n_copies = 1},
+        {.copy_size_mb = 10, .n_copies = 10},
+        {.copy_size_mb = 10, .n_copies = 100},
+        {.copy_size_mb = 100, .n_copies = 1},
+        {.copy_size_mb = 100, .n_copies = 10},
+        {.copy_size_mb = 100, .n_copies = 100},
+    }};
 
-// 10MB copy, 1 copy
-BENCHMARK_CAPTURE(
-    BM_DeviceToHostCopyComparison, 10MB_1copy, &make_pinned_resource, 10 << 20, 1
-)
-    ->Unit(benchmark::kMicrosecond);
+    for (const auto& config : configs) {
+        std::string name = "BM_DeviceToHostCopyComparison/"
+                           + std::to_string(config.copy_size_mb) + "MB_"
+                           + std::to_string(config.n_copies) + "copies";
 
-// 10MB copy, 10 copies
-BENCHMARK_CAPTURE(
-    BM_DeviceToHostCopyComparison, 10MB_10copies, &make_pinned_resource, 10 << 20, 10
-)
-    ->Unit(benchmark::kMicrosecond);
+        benchmark::RegisterBenchmark(
+            name.c_str(),
+            [](benchmark::State& state, auto factory, size_t copy_size, size_t n_copies) {
+                BM_DeviceToHostCopyComparison(state, factory, copy_size, n_copies);
+            },
+            &make_pinned_resource,
+            config.copy_size_mb << 20,
+            config.n_copies
+        )
+            ->Unit(benchmark::kMicrosecond);
+    }
 
-// 100MB copy, 1 copy
-BENCHMARK_CAPTURE(
-    BM_DeviceToHostCopyComparison, 100MB_1copy, &make_pinned_resource, 100 << 20, 1
-)
-    ->Unit(benchmark::kMicrosecond);
+    return 0;
+}();
 
 BENCHMARK_MAIN();
