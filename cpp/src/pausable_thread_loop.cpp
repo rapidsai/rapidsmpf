@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
 
 namespace rapidsmpf::detail {
@@ -10,28 +11,22 @@ namespace rapidsmpf::detail {
 PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration sleep) {
     thread_ = std::thread([this, f = std::move(func), sleep]() {
         while (true) {
-            {
-                std::unique_lock<std::mutex> lock(mutex_);
-                cv_.wait(lock, [this]() { return state_ != State::Paused; });
-                // Note: state changes here must notify any waiters.
-                switch (state_) {
-                case State::Running:
-                    break;
-                case State::Pausing:
-                    state_ = State::Paused;
-                    lock.unlock();
-                    cv_.notify_one();
-                case State::Paused:
-                    continue;
-                case State::Stopping:
-                    state_ = State::Stopped;
-                    lock.unlock();
-                    cv_.notify_one();
-                case State::Stopped:
-                    return;
-                }
-            }
+            state_.wait(State::Paused);
+
+            State expected = State::Pausing;
+            if (state_.compare_exchange_strong(expected, State::Paused)) {
+                state_.notify_all();
+                continue;
+            } else if (expected == State::Stopping) {
+                state_.store(State::Stopped);
+                state_.notify_all();
+                return;
+            } else if (expected == State::Paused) {
+                continue;
+            }  // else its Running
+
             f();
+
             if (sleep > std::chrono::seconds{0}) {
                 std::this_thread::sleep_for(sleep);
             } else {
@@ -50,18 +45,14 @@ PausableThreadLoop::~PausableThreadLoop() {
 }
 
 bool PausableThreadLoop::is_running() const noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
     return state_ != State::Paused;
 }
 
 void PausableThreadLoop::pause_nb() {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (state_ == State::Running) {
-            state_ = State::Pausing;
-        }
+    State expected = State::Running;
+    if (state_.compare_exchange_strong(expected, State::Pausing)) {
+        state_.notify_all();
     }
-    cv_.notify_one();
 }
 
 void PausableThreadLoop::pause() {
@@ -69,28 +60,46 @@ void PausableThreadLoop::pause() {
     // And wait for the loop to flip to paused state. Behaviour is
     // undefined if someone else called resume/stop while we're in
     // this function.
-    std::unique_lock lock(mutex_);
-    cv_.wait(lock, [this]() { return state_ == State::Paused; });
+    // std::unique_lock lock(mutex_);
+    // cv_.wait(lock, [this]() { return state_ == State::Paused; });
+    state_.wait(State::Pausing);
 }
 
 void PausableThreadLoop::resume() {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (state_ != State::Stopping) {
-            state_ = State::Running;
+    while (true) {
+        State expected = State::Paused;
+        if (state_.compare_exchange_strong(expected, State::Running)) {
+            state_.notify_all();
+            return;
+        } else if (expected == State::Running) {  // if its already running, we're done
+            return;
+        } else if (expected == State::Pausing) {
+            // if its pausing, we need to wait for it to finish
+            continue;
+        } else {
+            RAPIDSMPF_FAIL(
+                "Unable to resume Pausable thread, because it is Stopped/Stopping."
+            );
         }
     }
-    cv_.notify_one();
 }
 
 void PausableThreadLoop::stop() {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        state_ = State::Stopping;
-    }
-    cv_.notify_one();  // Wake up thread to exit
-    if (thread_.joinable()) {
-        thread_.join();
+    // {
+    //     std::lock_guard<std::mutex> lock(mutex_);
+    //     state_ = State::Stopping;
+    // }
+    // cv_.notify_one();  // Wake up thread to exit
+
+    if (state_ != State::Stopped) {
+        state_.store(State::Stopping);
+        state_.notify_all();
+
+        state_.wait(State::Stopping);
+
+        if (thread_.joinable()) {
+            thread_.join();
+        }
     }
 }
 

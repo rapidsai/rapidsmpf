@@ -85,9 +85,9 @@ void ProgressThread::remove_function(FunctionID function_id) {
     );
 
     std::unique_lock lock(mutex_);
-    auto it = functions_.find(function_id.function_index);
     RAPIDSMPF_EXPECTS(
-        it != functions_.end(), "Function not registered or already removed"
+        functions_.contains(function_id.function_index),
+        "Function not registered or already removed"
     );
 
     // Wait for the function to complete. If the thread is paused, then function will not
