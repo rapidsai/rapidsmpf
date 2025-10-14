@@ -207,6 +207,10 @@ cdef class Channel:
         with nogil:
             self._handle.reset()
 
+    @classmethod
+    def __class_getitem__(cls, args):
+        return cls
+
     async def drain(self, Context ctx not None):
         """
         Drain pending messages and then shut down the channel.
