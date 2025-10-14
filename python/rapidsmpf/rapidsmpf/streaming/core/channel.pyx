@@ -57,6 +57,10 @@ cdef class Message:
     def __init__(self, payload):
         payload.into_message(self)
 
+    @classmethod
+    def __class_getitem__(cls, args):
+        return cls
+
     @staticmethod
     cdef from_handle(cpp_Message handle):
         """
@@ -259,6 +263,10 @@ cdef class Channel:
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
+
+    @classmethod
+    def __class_getitem__(cls, args):
+        return cls
 
     async def drain(self, Context ctx not None):
         """
