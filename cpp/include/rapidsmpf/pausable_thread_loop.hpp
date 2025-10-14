@@ -74,10 +74,6 @@ class PausableThreadLoop {
      * `resume()` is called.
      *
      * @note Pausing the thread does not interrupt the current iteration.
-     *
-     * @note This function blocks until the thread is actually paused.
-     * Behaviour is undefined if multiple threads attempt to change
-     * the state without synchronization.
      */
     void pause();
 
@@ -109,6 +105,17 @@ class PausableThreadLoop {
         Pausing,  ///< Thread is pausing (transitioning to Paused)
         Running,  ///< Thread is running
     };
+
+    // State transitions:
+    // | cur_state |         |          | nxt_state |          |         || Ops     |
+    // |           |---------|----------|-----------|----------|---------||         |
+    // |           | STOPPED | STOPPING | PAUSED    | PAUSING  | RUNNING ||---------|
+    // |-----------|---------|----------|-----------|----------|---------|| e_loop  |
+    // | STOPPED   | no_op   | X        | X         | X        | X       || pause   |
+    // | STOPPING  | e_loop  | no_op    | X         | X        | X       || resume  |
+    // | PAUSED    | X       | stop     | no_op     | X        | resume  || stop    |
+    // | PAUSING   | e_loop  | stop     | e_loop    | no_op    | resume  || no_op   |
+    // | RUNNING   | X       | stop     | X         | pause    | no_op   || X       |
 
     std::thread thread_;
     std::atomic<State> state_{State::Paused};

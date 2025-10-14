@@ -12,7 +12,7 @@ PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration slee
     thread_ = std::thread([this, f = std::move(func), sleep]() {
         while (true) {
             // wait until the thread is not paused
-            state_.wait(State::Paused);
+            state_.wait(State::Paused, std::memory_order_acquire);
 
             // if the thread is pausing, set it to paused, and loop again
             State expected = State::Pausing;
@@ -75,7 +75,7 @@ void PausableThreadLoop::pause_nb() {
 
 void PausableThreadLoop::pause() {
     pause_nb();
-    state_.wait(State::Pausing);
+    state_.wait(State::Pausing, std::memory_order_acquire);
 }
 
 void PausableThreadLoop::resume() {
@@ -110,7 +110,7 @@ void PausableThreadLoop::stop() {
             state_.notify_all();
 
             // wait for state_ Stopping -> Stopped
-            state_.wait(State::Stopping);
+            state_.wait(State::Stopping, std::memory_order_acquire);
 
             if (thread_.joinable()) {
                 thread_.join();
