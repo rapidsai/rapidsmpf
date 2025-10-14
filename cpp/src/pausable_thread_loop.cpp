@@ -11,19 +11,34 @@ namespace rapidsmpf::detail {
 PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration sleep) {
     thread_ = std::thread([this, f = std::move(func), sleep]() {
         while (true) {
+            // wait until the thread is not paused
             state_.wait(State::Paused);
 
+            // if the thread is pausing, set it to paused, and loop again
             State expected = State::Pausing;
-            if (state_.compare_exchange_strong(expected, State::Paused)) {
+            if (state_.compare_exchange_strong(
+                    expected,
+                    State::Paused,
+                    std::memory_order_acq_rel,
+                    std::memory_order_relaxed
+                ))
+            {
                 state_.notify_all();
                 continue;
-            } else if (expected == State::Stopping) {
-                state_.store(State::Stopped);
+            }  // else - We don't have to worry about Stopped state, because Stopping ->
+               // Stopped state change only performed by this thread.
+
+            expected = State::Stopping;
+            if (state_.compare_exchange_strong(
+                    expected,
+                    State::Stopped,
+                    std::memory_order_acq_rel,
+                    std::memory_order_relaxed
+                ))
+            {
                 state_.notify_all();
                 return;
-            } else if (expected == State::Paused) {
-                continue;
-            }  // else its Running
+            }
 
             f();
 
@@ -50,56 +65,59 @@ bool PausableThreadLoop::is_running() const noexcept {
 
 void PausableThreadLoop::pause_nb() {
     State expected = State::Running;
-    if (state_.compare_exchange_strong(expected, State::Pausing)) {
+    if (state_.compare_exchange_strong(
+            expected, State::Pausing, std::memory_order_acq_rel, std::memory_order_relaxed
+        ))
+    {
         state_.notify_all();
     }
 }
 
 void PausableThreadLoop::pause() {
     pause_nb();
-    // And wait for the loop to flip to paused state. Behaviour is
-    // undefined if someone else called resume/stop while we're in
-    // this function.
-    // std::unique_lock lock(mutex_);
-    // cv_.wait(lock, [this]() { return state_ == State::Paused; });
     state_.wait(State::Pausing);
 }
 
 void PausableThreadLoop::resume() {
-    while (true) {
-        State expected = State::Paused;
-        if (state_.compare_exchange_strong(expected, State::Running)) {
+    State curr = state_.load(std::memory_order_relaxed);
+    while (curr != State::Stopping && curr != State::Stopped && curr != State::Running) {
+        // if state_ is still the value we saw, toggle it to Running
+        // (possible values for curr: Paused, Pausing)
+        if (state_.compare_exchange_weak(
+                curr, State::Running, std::memory_order_acq_rel, std::memory_order_relaxed
+            ))
+        // using CAS weak because we can tolerate a spurious failure on retry
+        {
             state_.notify_all();
             return;
-        } else if (expected == State::Running) {  // if its already running, we're done
-            return;
-        } else if (expected == State::Pausing) {
-            // if its pausing, we need to wait for it to finish
-            continue;
-        } else {
-            RAPIDSMPF_FAIL(
-                "Unable to resume Pausable thread, because it is Stopped/Stopping."
-            );
         }
     }
 }
 
 void PausableThreadLoop::stop() {
-    // {
-    //     std::lock_guard<std::mutex> lock(mutex_);
-    //     state_ = State::Stopping;
-    // }
-    // cv_.notify_one();  // Wake up thread to exit
+    State curr = state_.load(std::memory_order_relaxed);
+    while (curr != State::Stopping && curr != State::Stopped) {
+        // if state_ is still the value we saw, toggle it to Stopping
+        // (possible values for curr: Paused, Pausing, Running)
+        if (state_.compare_exchange_weak(
+                curr,
+                State::Stopping,
+                std::memory_order_acq_rel,
+                std::memory_order_relaxed
+            ))
+        // using CAS weak because we can tolerate a spurious failure on retry
+        {
+            state_.notify_all();
 
-    if (state_ != State::Stopped) {
-        state_.store(State::Stopping);
-        state_.notify_all();
+            // wait for state_ Stopping -> Stopped
+            state_.wait(State::Stopping);
 
-        state_.wait(State::Stopping);
-
-        if (thread_.joinable()) {
-            thread_.join();
+            if (thread_.joinable()) {
+                thread_.join();
+            }
+            return;
         }
+        // else (someone other thread has changed state_) curr has the new value. retry.
     }
 }
 

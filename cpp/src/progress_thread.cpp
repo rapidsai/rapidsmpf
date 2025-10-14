@@ -74,6 +74,7 @@ ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
         FunctionID(reinterpret_cast<ProgressThreadAddress>(this), next_function_id_++);
     functions_.emplace(id.function_index, std::move(function));
     thread_.resume();
+    active_ = true;
     return id;
 }
 
@@ -95,7 +96,7 @@ void ProgressThread::remove_function(FunctionID function_id) {
     // can get invalidated, if some other thread erases a function. So, query functions_
     // instead
     cv_.wait(lock, [&]() {
-        return !thread_.is_running() || functions_.at(function_id.function_index).is_done;
+        return !active_ || functions_.at(function_id.function_index).is_done;
     });
 
     // Waiting done. Now, mutex_ is locked again
@@ -103,21 +104,33 @@ void ProgressThread::remove_function(FunctionID function_id) {
 
     if (functions_.empty()) {
         thread_.pause_nb();
+        active_ = false;
     }
+    lock.unlock();
+    cv_.notify_all();
 }
 
 void ProgressThread::pause() {
     thread_.pause();
-    cv_.notify_all();  // notify any thread waiting on thread_.is_running()
+    {
+        std::lock_guard lock(mutex_);
+        active_ = false;
+    }
+    cv_.notify_all();  // notify any thread waiting on active_
 }
 
 void ProgressThread::resume() {
     thread_.resume();
+    {
+        std::lock_guard lock(mutex_);
+        active_ = true;
+    }
     cv_.notify_all();
 }
 
 bool ProgressThread::is_running() const {
-    return thread_.is_running();
+    std::lock_guard lock(mutex_);
+    return active_;
 }
 
 void ProgressThread::event_loop() {

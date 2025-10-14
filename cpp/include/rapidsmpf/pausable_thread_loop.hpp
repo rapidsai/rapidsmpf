@@ -5,12 +5,10 @@
 
 #pragma once
 
-#include <condition_variable>
+#include <atomic>
 #include <cstdint>
 #include <functional>
-#include <mutex>
 #include <thread>
-#include <atomic>
 
 #include <rapidsmpf/utils.hpp>
 
@@ -113,8 +111,6 @@ class PausableThreadLoop {
     };
 
     std::thread thread_;
-    // mutable std::mutex mutex_;
-    // std::condition_variable cv_;
     std::atomic<State> state_{State::Paused};
 };
 
