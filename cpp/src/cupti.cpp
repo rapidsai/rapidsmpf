@@ -100,8 +100,6 @@ void CuptiMonitor::start_monitoring() {
 }
 
 void CuptiMonitor::stop_monitoring() {
-    std::lock_guard<std::mutex> lock(mutex_);
-
     if (!monitoring_active_.load()) {
         return;
     }
