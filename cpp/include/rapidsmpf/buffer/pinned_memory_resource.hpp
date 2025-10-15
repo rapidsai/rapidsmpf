@@ -401,7 +401,7 @@ class PinnedHostBuffer {
     void synchronize();
 
   private:
-    std::byte* data_ = nullptr;  ///< Pointer to the allocated buffer data.
+    std::byte* data_{nullptr};  ///< Pointer to the allocated buffer data.
     size_t size_;  ///< Size of the buffer in bytes.
     rmm::cuda_stream_view stream_;  ///< CUDA stream used for memory operations.
     std::shared_ptr<PinnedMemoryResource>
