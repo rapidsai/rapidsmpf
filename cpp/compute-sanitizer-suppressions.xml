@@ -251,7 +251,7 @@
       </frame>
       <frame>
         <func>std::invoke_result&lt;rapidsmpf::buffer_copy</func>
-        <path>/home/mkristensen/repos/rapidsmpf/cpp/include/rapidsmpf/buffer/buffer.hpp</path>
+        <path>*/buffer/buffer.hpp</path>
         <module>.*/librapidsmpf.so</module>
       </frame>
       <frame>
