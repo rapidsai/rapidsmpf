@@ -123,6 +123,7 @@ TEST_P(PinnedHostBufferTest, synchronized_host_data) {
 
     // Clean up
     buffer.deallocate_async();
+    buffer2.deallocate_async();
     buffer3.deallocate_async();
 }
 
