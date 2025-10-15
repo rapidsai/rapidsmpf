@@ -55,6 +55,18 @@ class OwningWrapper {
     explicit OwningWrapper(void* obj, deleter_type deleter)
         : obj_{owning_type(obj, deleter)} {}
 
+    /**
+     * @brief Release ownership of the wrapped object.
+     *
+     * Returns the raw pointer to the owned object and releases ownership.
+     * The caller is responsible for properly destroying the object.
+     *
+     * @return The raw pointer to the owned object.
+     */
+    [[nodiscard]] void* release() {
+        return obj_.release();
+    }
+
   private:
     using owning_type = std::unique_ptr<void, deleter_type>;
     owning_type obj_{nullptr, [](void*) {}};

@@ -9,53 +9,13 @@ from rapidsmpf.streaming.core.channel import Message, Payload
 
 class PyObjectPayload:
     @staticmethod
-    def from_object(sequence_number: int, obj: Any) -> PyObjectPayload:
-        """
-        Create a PyObjectPayload from a Python object.
-
-        Parameters
-        ----------
-        sequence_number
-            Sequence number for this payload.
-        obj
-            Any Python object to wrap.
-
-        Returns
-        -------
-        PyObjectPayload
-            A new payload wrapping the given object.
-        """
-
+    def from_object(sequence_number: int, obj: Any) -> PyObjectPayload: ...
     @classmethod
-    def from_message(cls, message: Message[Self]) -> Self:
-        """
-        Construct a PyObjectPayload by consuming a Message.
-
-        Parameters
-        ----------
-        message
-            Message containing a PyObjectPayload.
-
-        Returns
-        -------
-        A new PyObjectPayload extracted from the given message.
-        """
-
-    def into_message(self, message: Message[Self]) -> None:
-        """Move this PyObjectPayload into a Message."""
-
+    def from_message(cls, message: Message[Self]) -> Self: ...
+    def into_message(self, message: Message[Self]) -> None: ...
     @property
-    def sequence_number(self) -> int:
-        """Return the sequence number of this payload."""
-
-    def get_object(self) -> Any:
-        """
-        Get the wrapped Python object.
-
-        Returns
-        -------
-        The Python object wrapped by this payload.
-        """
+    def sequence_number(self) -> int: ...
+    def extract_object(self) -> Any: ...
 
 if TYPE_CHECKING:
     # Check that PyObjectPayload implements Payload.

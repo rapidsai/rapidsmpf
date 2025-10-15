@@ -9,19 +9,25 @@ from rapidsmpf.streaming.core.channel cimport cpp_Message
 
 
 cdef extern from *:
-    cdef cppclass cpp_PyObjectPayload "rapidsmpf::streaming::PyObjectPayload":
-        uint64_t sequence_number
-        PyObject* py_obj
-        cpp_PyObjectPayload(uint64_t seq, PyObject* obj) except +
+    cdef cppclass cpp_OwningWrapper "rapidsmpf::streaming::OwningWrapper":
+        cpp_OwningWrapper() except +
+        cpp_OwningWrapper(void*, void (*)(void*)) except +
+        void* release() except +
 
-    unique_ptr[cpp_PyObjectPayload] \
-        cpp_release_pyobject_from_message(cpp_Message) except +
+    cdef cppclass cpp_TypeErasedChunk "rapidsmpf::streaming::TypeErasedChunk":
+        uint64_t sequence_
+        cpp_OwningWrapper obj_  # Public member for accessing wrapped object
+        cpp_TypeErasedChunk() except +
+        cpp_TypeErasedChunk(cpp_OwningWrapper, uint64_t) except +
+        void* release() except +
+
+    unique_ptr[cpp_TypeErasedChunk] cpp_release_from_message(cpp_Message) except +
 
 
 cdef class PyObjectPayload:
-    cdef unique_ptr[cpp_PyObjectPayload] _handle
+    cdef unique_ptr[cpp_TypeErasedChunk] _handle
 
     @staticmethod
-    cdef PyObjectPayload from_handle(unique_ptr[cpp_PyObjectPayload] handle)
-    cdef const cpp_PyObjectPayload* handle_ptr(self)
-    cdef unique_ptr[cpp_PyObjectPayload] release_handle(self)
+    cdef PyObjectPayload from_handle(unique_ptr[cpp_TypeErasedChunk] handle)
+    cdef const cpp_TypeErasedChunk* handle_ptr(self)
+    cdef unique_ptr[cpp_TypeErasedChunk] release_handle(self)

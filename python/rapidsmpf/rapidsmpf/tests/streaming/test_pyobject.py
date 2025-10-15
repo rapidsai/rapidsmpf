@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import weakref
 from typing import TYPE_CHECKING
 
 from rapidsmpf.streaming.core.channel import Channel, Message
@@ -22,19 +23,19 @@ def test_from_object_basic() -> None:
     data = {"key": "value", "number": 42}
     payload = PyObjectPayload.from_object(sequence_number=0, obj=data)
     assert payload.sequence_number == 0
-    assert payload.get_object() == data
+    assert payload.extract_object() == data
 
     # Test with list
     data_list = [1, 2, 3, 4, 5]
     payload_list = PyObjectPayload.from_object(sequence_number=1, obj=data_list)
     assert payload_list.sequence_number == 1
-    assert payload_list.get_object() == data_list
+    assert payload_list.extract_object() == data_list
 
     # Test with tuple
     data_tuple = ("a", "b", "c")
     payload_tuple = PyObjectPayload.from_object(sequence_number=2, obj=data_tuple)
     assert payload_tuple.sequence_number == 2
-    assert payload_tuple.get_object() == data_tuple
+    assert payload_tuple.extract_object() == data_tuple
 
 
 def test_message_roundtrip() -> None:
@@ -52,7 +53,7 @@ def test_message_roundtrip() -> None:
 
     # Verify data
     assert payload2.sequence_number == 42
-    assert payload2.get_object() == original_data
+    assert payload2.extract_object() == original_data
 
 
 def test_streaming_pipeline(context: Context, py_executor: ThreadPoolExecutor) -> None:
@@ -82,7 +83,7 @@ def test_streaming_pipeline(context: Context, py_executor: ThreadPoolExecutor) -
     async def multiply_values(ctx: Context, ch_in: Channel, ch_out: Channel) -> None:
         while (msg := await ch_in.recv(ctx)) is not None:
             payload = PyObjectPayload.from_message(msg)
-            data = payload.get_object()
+            data = payload.extract_object()
             # Transform data
             data["value"] *= 10
             # Forward transformed data
@@ -107,10 +108,50 @@ def test_streaming_pipeline(context: Context, py_executor: ThreadPoolExecutor) -
     results = []
     for msg in output.release():
         payload = PyObjectPayload.from_message(msg)
-        results.append(payload.get_object())
+        results.append(payload.extract_object())
     assert len(results) == len(test_objects)
 
     # Values should be multiplied by 10
     assert results[0]["value"] == 100
     assert results[1]["value"] == 200
     assert results[2]["value"] == 300
+
+
+def test_pyobject_garbage_collection() -> None:
+    """Test that wrapped objects are properly garbage collected."""
+
+    class TrackedObject:
+        def __init__(self, value: int) -> None:
+            self.value = value
+
+    # Create object and attach finalizer
+    finalized = []
+    obj = TrackedObject(42)
+    weakref.finalize(obj, lambda: finalized.append(True))
+
+    # Wrap in payload
+    payload1 = PyObjectPayload.from_object(sequence_number=0, obj=obj)
+
+    # Delete original reference - object should still be alive in payload
+    del obj
+    assert len(finalized) == 0, "Object should not be collected yet"
+
+    # Wrap in message
+    msg = Message(payload1)
+    del payload1
+    assert len(finalized) == 0, "Object should still be alive in message"
+
+    # Extract from message
+    payload2 = PyObjectPayload.from_message(msg)
+    assert len(finalized) == 0, "Object should still be alive in extracted payload"
+
+    # Extract object (this consumes the payload)
+    retrieved_obj = payload2.extract_object()
+    assert retrieved_obj.value == 42
+    assert len(finalized) == 0, "Object should still be alive while we hold reference"
+
+    # Delete the extracted object - now it should be collected
+    del retrieved_obj
+    assert len(finalized) == 1, (
+        "Object should be collected after all references are gone"
+    )
