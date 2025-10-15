@@ -53,8 +53,6 @@ TEST_F(StreamingErrorHandling, ProducerThrows) {
 }
 
 TEST_F(StreamingErrorHandling, ConsumerThrows) {
-    GTEST_SKIP() << "This test hangs, please fix before enabling";
-
     auto ch = std::make_shared<Channel>();
     std::vector<Node> nodes;
 
