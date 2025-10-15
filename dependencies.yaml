@@ -292,6 +292,7 @@ dependencies:
           - psutil  # Used for timeout_with_stack.py
           - pytest
           - nvidia-ml-py>=12
+          - ray-default>=2.49.*,>=0.0.0a0
     specific:
       - output_types: conda
         matrices:
@@ -302,7 +303,6 @@ dependencies:
           - matrix:
               arch: x86_64
             packages:
-              - ray-default==2.42.*,>=0.0.0a0
           - matrix:
               arch: aarch64
             packages:
@@ -409,6 +409,7 @@ dependencies:
           - myst-parser
           - numpydoc
           - pydata-sphinx-theme
+          - ray-default>=2.49.*,>=0.0.0a0
           - sphinx
           - sphinx-autobuild
           - sphinx-copybutton
@@ -418,15 +419,9 @@ dependencies:
           - matrix:
               arch: x86_64
               py: "3.13"
-            packages:
-              - pip:
-                # Ray for Python 3.13 not available from conda-forge, for
-                # now install it from PyPI just to build docs
-                - ray==2.45.*,>=0.0.0a0
           - matrix:
               arch: x86_64
             packages:
-              - ray-default==2.42.*,>=0.0.0a0
           - matrix:
               arch: aarch64
             packages:
