@@ -50,7 +50,8 @@ class PinnedMemoryResource;  // forward declaration
  * @brief Properties for configuring a pinned memory pool. It is aimed to mimic
  * `cuda::experimental::memory_pool_properties`.
  *
- * @sa https://nvidia.github.io/cccl/cudax/api/structcuda_1_1experimental_1_1memory__pool__properties.html
+ * @sa
+ * https://nvidia.github.io/cccl/cudax/api/structcuda_1_1experimental_1_1memory__pool__properties.html
  *
  * Currently, this is a placeholder and does not have any effect. It was observed that
  * priming async pools have little effect for performance.
@@ -63,7 +64,8 @@ struct PinnedPoolProperties {};
  * @brief A pinned host memory pool for stream-ordered allocations/deallocations. This
  * internally uses `cuda::experimental::pinned_memory_pool`.
  *
- * @sa https://nvidia.github.io/cccl/cudax/api/classcuda_1_1experimental_1_1pinned__memory__pool.html
+ * @sa
+ * https://nvidia.github.io/cccl/cudax/api/classcuda_1_1experimental_1_1pinned__memory__pool.html
  */
 class PinnedMemoryPool {
     friend class PinnedMemoryResource;
@@ -120,7 +122,8 @@ class PinnedMemoryPool {
  * host memory pool. This internally uses
  * `cuda::experimental::pinned_memory_resource`.
  *
- * @sa https://nvidia.github.io/cccl/cudax/api/classcuda_1_1experimental_1_1pinned__memory__resource.html
+ * @sa
+ * https://nvidia.github.io/cccl/cudax/api/classcuda_1_1experimental_1_1pinned__memory__resource.html
  *
  * This class provides an interface for allocating and deallocating pinned
  * (page-locked) host memory asynchronously using CUDA streams.
@@ -238,7 +241,8 @@ static_assert(cuda::mr::resource_with<PinnedMemoryResource, cuda::mr::host_acces
  * operations until the stream is synchronized. Use `stream()` to get the stream
  * view and synchronize it as needed.
  *
- * \sa https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY__POOLS.html#group__CUDART__MEMORY__POOLS_1g871003f518e27ec92f7b331307fa32d4
+ * \sa
+ * https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY__POOLS.html#group__CUDART__MEMORY__POOLS_1g871003f518e27ec92f7b331307fa32d4
  *
  * @code{.cpp}
  * rapidsmpf::PinnedHostBuffer buffer1(1024, stream, mr);
