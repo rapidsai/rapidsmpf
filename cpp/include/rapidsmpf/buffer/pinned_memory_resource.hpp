@@ -48,8 +48,9 @@ class PinnedMemoryResource;  // forward declaration
 
 /**
  * @brief Properties for configuring a pinned memory pool. It is aimed to mimic
- * `cuda::experimental::memory_pool_properties`. See for more details:
- * https://nvidia.github.io/cccl/cudax/api/structcuda_1_1experimental_1_1memory__pool__properties.html
+ * `cuda::experimental::memory_pool_properties`.
+ *
+ * @sa https://nvidia.github.io/cccl/cudax/api/structcuda_1_1experimental_1_1memory__pool__properties.html
  *
  * Currently, this is a placeholder and does not have any effect. It was observed that
  * priming async pools have little effect for performance. See for more details:
