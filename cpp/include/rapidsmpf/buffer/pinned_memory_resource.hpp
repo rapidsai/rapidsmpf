@@ -118,8 +118,9 @@ class PinnedMemoryPool {
 /**
  * @brief A memory resource that allocates/deallocates pinned host memory from a pinned
  * host memory pool. This internally uses
- * `cuda::experimental::pinned_memory_resource`. See for more details:
- * https://nvidia.github.io/cccl/cudax/api/classcuda_1_1experimental_1_1pinned__memory__resource.html
+ * `cuda::experimental::pinned_memory_resource`.
+ *
+ * @sa https://nvidia.github.io/cccl/cudax/api/classcuda_1_1experimental_1_1pinned__memory__resource.html
  *
  * This class provides an interface for allocating and deallocating pinned
  * (page-locked) host memory asynchronously using CUDA streams.
