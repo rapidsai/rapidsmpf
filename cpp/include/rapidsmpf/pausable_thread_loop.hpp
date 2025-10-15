@@ -43,12 +43,12 @@ class PausableThreadLoop {
     ~PausableThreadLoop();
 
     /**
-     * @brief Checks if the thread is currently running (not paused).
+     * @brief Checks if the thread is currently running (not paused or stopped).
      *
      * @note If false, the loop function might still be in the middle of running its
-     * last iteration before being paused.
+     * last iteration before being paused or stopped.
      *
-     * @return True if the thread is running, false if paused.
+     * @return True if the thread is running, false if paused or stopped.
      */
     [[nodiscard]] bool is_running() const noexcept;
 

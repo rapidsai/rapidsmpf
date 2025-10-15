@@ -60,7 +60,8 @@ PausableThreadLoop::~PausableThreadLoop() {
 }
 
 bool PausableThreadLoop::is_running() const noexcept {
-    return state_ != State::Paused;
+    auto state = state_.load(std::memory_order_acquire);
+    return state != State::Paused && state != State::Stopped;
 }
 
 void PausableThreadLoop::pause_nb() {
