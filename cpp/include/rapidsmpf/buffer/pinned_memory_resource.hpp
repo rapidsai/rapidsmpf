@@ -53,8 +53,9 @@ class PinnedMemoryResource;  // forward declaration
  * @sa https://nvidia.github.io/cccl/cudax/api/structcuda_1_1experimental_1_1memory__pool__properties.html
  *
  * Currently, this is a placeholder and does not have any effect. It was observed that
- * priming async pools have little effect for performance. See for more details:
- * https://github.com/rapidsai/rmm/issues/1931
+ * priming async pools have little effect for performance.
+ *
+ * @sa https://github.com/rapidsai/rmm/issues/1931
  */
 struct PinnedPoolProperties {};
 
