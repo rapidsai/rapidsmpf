@@ -95,20 +95,25 @@ void CuptiMonitor::start_monitoring() {
 }
 
 void CuptiMonitor::stop_monitoring() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
 
-    if (!monitoring_active_.load()) {
-        return;
+        if (!monitoring_active_.load()) {
+            return;
+        }
+
+        monitoring_active_.store(false);
     }
-
-    monitoring_active_.store(false);
 
     if (sampling_thread_.joinable()) {
         sampling_thread_.join();
     }
 
-    // Capture final memory state
-    capture_memory_usage_impl();
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // Capture final memory state
+        capture_memory_usage_impl();
+    }
 
     unsubscribe();
 }
