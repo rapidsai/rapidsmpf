@@ -25,6 +25,7 @@ Components:
 
 Channels provide asynchronous communication with **backpressure**:
 
+```
 Producer Side:                    Consumer Side:
 ┌──────────────┐                 ┌──────────────┐
 │   Producer   │                 │   Consumer   │
@@ -33,15 +34,36 @@ Producer Side:                    Consumer Side:
 │   (async)    │     [buffer]    │    (async)   │
 └──────────────┘                 └──────────────┘
       │                                  │
-      │ If buffer is full:               │ 
+      │ If consumer is full,             │ 
       │ Suspends (backpressure)          │ 
       ▼                                  ▼
    Resumes when                      Operates when
    space available                   data available
+```
 
 Key Properties:
   • Non-blocking: Coroutines suspend, not threads
   • Backpressure: Slow consumers throttle producers
   • Type-safe: Messages are type-erased but validated
 
-INFO ON TUNNING THROTTLE
+Consumer is **"full"** when an internal ring_buffer `coro::ring_buffer<Message, 1> rb_;` has reached capacity.  
+
+Additional backpressure control can be applied by usage of semaphores controlling the number of threads/concurrent operations. 
+
+
+```python
+throttle = asyncio.Semaphore(4)
+async with throttle:
+      msg = Message(chunk)
+      await ch_out.send(msg)
+```
+
+
+```c++
+auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
+std::vector<Node> producers;]
+constexpr int n_producer{100};
+for (int i = 0; i < n_producer; i++) {
+    producers.push_back(producer(ctx, throttle, i));
+}
+```
