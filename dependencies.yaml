@@ -292,7 +292,7 @@ dependencies:
           - psutil  # Used for timeout_with_stack.py
           - pytest
           - nvidia-ml-py>=12
-          - ray-default>=2.49.*,>=0.0.0a0
+          - ray-default>=2.49
     specific:
       - output_types: conda
         matrices:
@@ -409,7 +409,7 @@ dependencies:
           - myst-parser
           - numpydoc
           - pydata-sphinx-theme
-          - ray-default>=2.49.*,>=0.0.0a0
+          - ray-default>=2.49
           - sphinx
           - sphinx-autobuild
           - sphinx-copybutton
