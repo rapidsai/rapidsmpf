@@ -297,10 +297,6 @@ dependencies:
         matrices:
           - matrix:
               arch: x86_64
-              py: "3.13"
-            packages:
-          - matrix:
-              arch: x86_64
             packages:
               - ray-default>=2.49
           - matrix:
@@ -415,9 +411,6 @@ dependencies:
     specific:
       - output_types: conda
         matrices:
-          - matrix:
-              arch: x86_64
-              py: "3.13"
           - matrix:
               arch: x86_64
             packages:
