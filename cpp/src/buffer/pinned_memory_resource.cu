@@ -206,7 +206,7 @@ PinnedHostBuffer& PinnedHostBuffer::operator=(PinnedHostBuffer&& other) {
     if (this != &other) {
         deallocate_async();
         data_ = std::exchange(other.data_, nullptr);
-        size_ = other.size_;
+        size_ = std::exchange(other.size_, 0);
         stream_ = other.stream_;
         mr_ = std::move(other.mr_);
     }
