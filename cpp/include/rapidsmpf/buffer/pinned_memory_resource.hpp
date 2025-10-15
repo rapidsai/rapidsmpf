@@ -236,8 +236,9 @@ static_assert(cuda::mr::resource_with<PinnedMemoryResource, cuda::mr::host_acces
  * @note The buffer is allocated asynchronously on a given stream. Even though `data()`
  * ptr is immediately available, the buffer may not be ready to use in stream-unaware
  * operations until the stream is synchronized. Use `stream()` to get the stream
- * view and synchronize it as needed. See for more details:
- * https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY__POOLS.html#group__CUDART__MEMORY__POOLS_1g871003f518e27ec92f7b331307fa32d4
+ * view and synchronize it as needed.
+ *
+ * \sa https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY__POOLS.html#group__CUDART__MEMORY__POOLS_1g871003f518e27ec92f7b331307fa32d4
  *
  * @code{.cpp}
  * rapidsmpf::PinnedHostBuffer buffer1(1024, stream, mr);
