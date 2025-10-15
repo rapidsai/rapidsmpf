@@ -95,20 +95,34 @@ TEST(PausableThreadLoop, ChaoticOperations) {
         // thread sleeps for a [5, 10) milliseconds
         std::this_thread::sleep_for(std::chrono::milliseconds(distr(gen)));
     });
-    loop.resume();
+    EXPECT_TRUE(loop.resume());
 
     std::vector<std::future<void>> futures;
 
+    std::atomic<int> stop_count{0};
     for ([[maybe_unused]] auto i : std::views::iota(0, 10)) {
         futures.push_back(std::async(std::launch::async, [&] { loop.pause(); }));
-        futures.push_back(std::async(std::launch::async, [&] { loop.resume(); }));
+        futures.push_back(std::async(std::launch::async, [&] {
+            auto ret = loop.resume();
+            if (stop_count > 0) {
+                EXPECT_FALSE(ret);
+            }
+        }));
         futures.push_back(std::async(std::launch::async, [&] { loop.pause_nb(); }));
-        futures.push_back(std::async(std::launch::async, [&] { loop.resume(); }));
+        futures.push_back(std::async(std::launch::async, [&] {
+            auto ret = loop.resume();
+            if (stop_count > 0) {
+                EXPECT_FALSE(ret);
+            }
+        }));
+        // after this stop call, every other opertion should do nothing
+        futures.push_back(std::async(std::launch::async, [&] {
+            stop_count += loop.stop();
+        }));
     }
-    futures.push_back(std::async(std::launch::deferred, [&] { loop.stop(); }));
-    futures.push_back(std::async(std::launch::deferred, [&] { loop.stop(); }));
 
     std::ranges::for_each(futures, [](auto& f) { f.get(); });
 
     EXPECT_FALSE(loop.is_running());
+    EXPECT_EQ(1, stop_count);  // loop should be stopped by one of the stop calls
 }

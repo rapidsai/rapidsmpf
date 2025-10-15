@@ -55,7 +55,7 @@ PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration slee
     });
 }
 
-PausableThreadLoop::~PausableThreadLoop() {
+PausableThreadLoop::~PausableThreadLoop() noexcept {
     stop();
 }
 
@@ -64,7 +64,7 @@ bool PausableThreadLoop::is_running() const noexcept {
     return state != State::Paused && state != State::Stopped;
 }
 
-void PausableThreadLoop::pause_nb() {
+void PausableThreadLoop::pause_nb() noexcept {
     State expected = State::Running;
     if (state_.compare_exchange_strong(
             expected, State::Pausing, std::memory_order_acq_rel, std::memory_order_relaxed
@@ -74,32 +74,31 @@ void PausableThreadLoop::pause_nb() {
     }
 }
 
-void PausableThreadLoop::pause() {
+void PausableThreadLoop::pause() noexcept {
     pause_nb();
     state_.wait(State::Pausing, std::memory_order_acquire);
 }
 
-void PausableThreadLoop::resume() {
+bool PausableThreadLoop::resume() noexcept {
     State curr = state_.load(std::memory_order_relaxed);
-    while (curr != State::Stopping && curr != State::Stopped && curr != State::Running) {
+    while (curr == State::Paused || curr == State::Pausing) {
         // if state_ is still the value we saw, toggle it to Running
-        // (possible values for curr: Paused, Pausing)
         if (state_.compare_exchange_weak(
                 curr, State::Running, std::memory_order_acq_rel, std::memory_order_relaxed
             ))
         // using CAS weak because we can tolerate a spurious failure on retry
         {
             state_.notify_all();
-            return;
+            return true;
         }
     }
+    return false;
 }
 
-void PausableThreadLoop::stop() {
+bool PausableThreadLoop::stop() noexcept {
     State curr = state_.load(std::memory_order_relaxed);
-    while (curr != State::Stopping && curr != State::Stopped) {
+    while (curr == State::Running || curr == State::Pausing || curr == State::Paused) {
         // if state_ is still the value we saw, toggle it to Stopping
-        // (possible values for curr: Paused, Pausing, Running)
         if (state_.compare_exchange_weak(
                 curr,
                 State::Stopping,
@@ -110,16 +109,15 @@ void PausableThreadLoop::stop() {
         {
             state_.notify_all();
 
-            // wait for state_ Stopping -> Stopped
-            state_.wait(State::Stopping, std::memory_order_acquire);
-
+            // wait for state_ Stopping -> Stopped by the event loop thread
             if (thread_.joinable()) {
                 thread_.join();
             }
-            return;
+            return true;
         }
         // else (someone other thread has changed state_) curr has the new value. retry.
     }
+    return false;
 }
 
 }  // namespace rapidsmpf::detail

@@ -40,7 +40,7 @@ class PausableThreadLoop {
     PausableThreadLoop(
         std::function<void()> func, Duration sleep = std::chrono::seconds{0}
     );
-    ~PausableThreadLoop();
+    ~PausableThreadLoop() noexcept;
 
     /**
      * @brief Checks if the thread is currently running (not paused or stopped).
@@ -65,7 +65,7 @@ class PausableThreadLoop {
      * notifying a thread that is waiting on `is_running` will not
      * necessarily wake it.
      */
-    void pause_nb();
+    void pause_nb() noexcept;
 
     /**
      * @brief Pauses the execution of the thread.
@@ -75,14 +75,16 @@ class PausableThreadLoop {
      *
      * @note Pausing the thread does not interrupt the current iteration.
      */
-    void pause();
+    void pause() noexcept;
 
     /**
      * @brief Resumes execution of the thread after being paused.
      *
      * Calling resume on an already running loop is a no-op and is allowed.
+     *
+     * @return True if the state is changed to Running, false otherwise.
      */
-    void resume();
+    bool resume() noexcept;
 
     /**
      * @brief Stops the execution of the thread and joins it.
@@ -91,8 +93,11 @@ class PausableThreadLoop {
      *
      * @note This function is blocking and will wait on the loop function
      * to finish its current execution.
+     *
+     * @return True if the thread is stopped by this call, false otherwise (if it was
+     * already stopping/stopped).
      */
-    void stop();
+    bool stop() noexcept;
 
   private:
     /**
@@ -106,7 +111,7 @@ class PausableThreadLoop {
         Running,  ///< Thread is running
     };
 
-    // State transitions:
+    // State transition matrix:
     // | cur_state |         |          | nxt_state |          |         || Ops     |
     // |           |---------|----------|-----------|----------|---------||         |
     // |           | STOPPED | STOPPING | PAUSED    | PAUSING  | RUNNING ||---------|
@@ -116,6 +121,16 @@ class PausableThreadLoop {
     // | PAUSED    | X       | stop     | no_op     | X        | resume  || stop    |
     // | PAUSING   | e_loop  | stop     | e_loop    | no_op    | resume  || no_op   |
     // | RUNNING   | X       | stop     | X         | pause    | no_op   || X       |
+    //
+    // pause():
+    //  RUNNING -> PAUSING
+    // stop():
+    //  RUNNING -> STOPPING | PAUSING -> STOPPING | PAUSED -> STOPPING
+    // resume():
+    //  PAUSING -> RUNNING | PAUSED -> RUNNING
+    // automatic transition via event loop:
+    //  PAUSING -> PAUSED
+    //  STOPPING -> STOPPED
 
     std::thread thread_;
     std::atomic<State> state_{State::Paused};
