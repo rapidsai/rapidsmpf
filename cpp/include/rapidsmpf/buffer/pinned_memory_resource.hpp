@@ -61,8 +61,9 @@ struct PinnedPoolProperties {};
 
 /**
  * @brief A pinned host memory pool for stream-ordered allocations/deallocations. This
- * internally uses `cuda::experimental::pinned_memory_pool`. See for more details:
- * https://nvidia.github.io/cccl/cudax/api/classcuda_1_1experimental_1_1pinned__memory__pool.html
+ * internally uses `cuda::experimental::pinned_memory_pool`.
+ *
+ * @sa https://nvidia.github.io/cccl/cudax/api/classcuda_1_1experimental_1_1pinned__memory__pool.html
  */
 class PinnedMemoryPool {
     friend class PinnedMemoryResource;
