@@ -245,9 +245,9 @@ dependencies:
         packages:
           - cuda-cudart-dev
           - cuda-cupti-dev
+          - cuda-nvml-dev
           - cuda-nvrtc-dev
           - cuda-nvtx-dev
-          - cuda-nvml-dev
   py_version:
     specific:
       - output_types: conda
