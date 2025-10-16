@@ -100,7 +100,7 @@ TEST(PausableThreadLoop, ChaoticOperations) {
     std::vector<std::future<void>> futures;
 
     std::atomic<int> stop_count{0};
-    for ([[maybe_unused]] auto i : std::views::iota(0, 10)) {
+    for (auto i : std::views::iota(0, 10)) {
         futures.push_back(std::async(std::launch::async, [&] { loop.pause(); }));
         futures.push_back(std::async(std::launch::async, [&] {
             auto ret = loop.resume();
@@ -115,10 +115,13 @@ TEST(PausableThreadLoop, ChaoticOperations) {
                 EXPECT_FALSE(ret);
             }
         }));
-        // after this stop call, every other opertion should do nothing
-        futures.push_back(std::async(std::launch::async, [&] {
-            stop_count += loop.stop();
-        }));
+        // call stop in last 2 iterations. After this stop call, every other operation
+        // should do nothing.
+        if (i >= 8) {
+            futures.push_back(std::async(std::launch::async, [&] {
+                stop_count += loop.stop();
+            }));
+        }
     }
 
     std::ranges::for_each(futures, [](auto& f) { f.get(); });
