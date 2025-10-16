@@ -205,7 +205,8 @@ class ProgressThread {
     Communicator::Logger& logger_;
     std::shared_ptr<Statistics> statistics_;
     bool is_thread_initialized_{false};
-    std::mutex mutex_;
+    bool active_{false};
+    mutable std::mutex mutex_;
     std::condition_variable cv_;
     FunctionIndex next_function_id_{0};
     std::unordered_map<FunctionIndex, FunctionState> functions_;
