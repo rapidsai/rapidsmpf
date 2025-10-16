@@ -8,6 +8,11 @@
 
 #include <rapidsmpf/utils.hpp>
 
+#if RAPIDSMPF_HAVE_NUMA
+#include <numa.h>
+#endif
+
+#include <iostream>
 
 using namespace rapidsmpf;
 
@@ -49,5 +54,9 @@ TEST(ParseStringTest, ThrowsOnInvalidBoolean) {
 }
 
 TEST(GetCurrentNumaNodeIdTest, ReturnsValidNumaNodeId) {
-    EXPECT_EQ(0, get_current_numa_node_id());  // default NUMA node ID is 0
+    int numa_node_id = get_current_numa_node_id();
+    EXPECT_GE(numa_node_id, 0);
+#if RAPIDSMPF_HAVE_NUMA
+    EXPECT_LE(numa_node_id, numa_max_node());
+#endif
 }

@@ -34,6 +34,10 @@ struct PinnedMemoryPool::PinnedMemoryPoolImpl {
     PinnedMemoryPoolImpl(int numa_id, PinnedPoolProperties const& properties)
         : p_pool{numa_id, get_memory_pool_properties(properties)} {}
 
+    // TODO: from CUDA 13+ pinned_memory_pool has a constructor that does not accept
+    // numa_id, that uses CU_MEM_LOCATION_TYPE_HOST instead of
+    // CU_MEM_LOCATION_TYPE_HOST_NUMA
+
     cuda::experimental::pinned_memory_pool p_pool;
 };
 
@@ -105,18 +109,18 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
 };
 #endif
 
-PinnedMemoryPool::PinnedMemoryPool(
-    std::optional<int> numa_id, PinnedPoolProperties properties
-)
-    : numa_id_(numa_id ? *numa_id : get_current_numa_node_id()),
-      properties_(std::move(properties)),
-      impl_(std::make_unique<PinnedMemoryPoolImpl>(numa_id_, properties_)) {
+PinnedMemoryPool::PinnedMemoryPool(int numa_id, PinnedPoolProperties properties)
+    : properties_(std::move(properties)),
+      impl_(std::make_unique<PinnedMemoryPoolImpl>(numa_id, properties_)) {
     RAPIDSMPF_EXPECTS(
         is_pinned_memory_resources_supported(),
         "PinnedMemoryPool is not supported for CUDA versions "
         "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
     );
 }
+
+PinnedMemoryPool::PinnedMemoryPool(PinnedPoolProperties properties)
+    : PinnedMemoryPool(get_current_numa_node_id(), std::move(properties)) {}
 
 PinnedMemoryPool::~PinnedMemoryPool() = default;
 

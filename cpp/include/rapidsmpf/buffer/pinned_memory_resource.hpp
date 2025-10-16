@@ -78,15 +78,23 @@ class PinnedMemoryPool {
     /**
      * @brief Constructs a new pinned memory pool.
      *
-     * @param numa_id The NUMA node ID to associate with this pool. Default is 0.
      * @param properties Configuration properties for the memory pool.
      *
      * @throws rapidsmpf::cuda_error If the pinned memory pool is not supported for the
      * current CUDA version.
      */
-    PinnedMemoryPool(
-        std::optional<int> numa_id = std::nullopt, PinnedPoolProperties properties = {}
-    );
+    PinnedMemoryPool(PinnedPoolProperties properties = {});
+
+    /**
+     * @brief Constructs a new pinned memory pool.
+     *
+     * @param numa_id The optional NUMA node ID to associate with this pool.
+     * @param properties Configuration properties for the memory pool.
+     *
+     * @throws rapidsmpf::cuda_error If the pinned memory pool is not supported for the
+     * current CUDA version.
+     */
+    PinnedMemoryPool(int numa_id, PinnedPoolProperties properties = {});
 
     /**
      * @brief Destroys the pinned memory pool.
@@ -94,15 +102,6 @@ class PinnedMemoryPool {
      * Releases all memory associated with this pool.
      */
     ~PinnedMemoryPool();
-
-    /**
-     * @brief Gets the NUMA node ID associated with this pool.
-     *
-     * @return The NUMA node ID.
-     */
-    [[nodiscard]] constexpr int numa_id() const noexcept {
-        return numa_id_;
-    }
 
     /**
      * @brief Gets the properties used to configure this pool.
@@ -114,7 +113,6 @@ class PinnedMemoryPool {
     }
 
   private:
-    int numa_id_;  ///< The NUMA node ID associated with this pool.
     PinnedPoolProperties properties_;  ///< Configuration properties for this pool.
 
     // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will

@@ -389,6 +389,9 @@ struct overloaded : Ts... {
 /**
  * @brief Gets the NUMA node ID of the current CPU process.
  *
+ * @note This function is only available if built with NUMA support. (See
+ * `RAPIDSMPF_NUMA_SUPPORT` CMake option.)
+ *
  * @return The NUMA node ID of the current CPU process.
  *
  * @throws std::runtime_error If NUMA is not available or if the NUMA node ID cannot be

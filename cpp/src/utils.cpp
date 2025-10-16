@@ -5,8 +5,10 @@
 
 #include <algorithm>
 
+#if RAPIDSMPF_HAVE_NUMA
 #include <numa.h>
-#include <numaif.h>
+#include <sched.h>
+#endif
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -74,6 +76,7 @@ bool parse_string(std::string const& value) {
 }
 
 int get_current_numa_node_id() {
+#if RAPIDSMPF_HAVE_NUMA
     static const int numa_node_id = [] {
         RAPIDSMPF_EXPECTS(
             numa_available() >= 0, "NUMA is not available", std::runtime_error
@@ -86,6 +89,9 @@ int get_current_numa_node_id() {
         return numa_node;
     }();
     return numa_node_id;
+#else
+    return 0;
+#endif
 }
 
 }  // namespace rapidsmpf
