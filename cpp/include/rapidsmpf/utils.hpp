@@ -385,4 +385,14 @@ struct overloaded : Ts... {
 /// MAJOR*1000 + MINOR*10.
 #define RAPIDSMPF_CUDA_VERSION_AT_LEAST(version) (CUDART_VERSION >= version)
 
+
+/**
+ * @brief Gets the current NUMA node ID.
+ *
+ * @note This util assumes that the running process only operates on a single GPU.
+ *
+ * @return The current NUMA node ID.
+ */
+int get_current_numa_node_id();
+
 }  // namespace rapidsmpf

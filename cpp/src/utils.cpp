@@ -5,6 +5,8 @@
 
 #include <algorithm>
 
+#include <nvml.h>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -70,5 +72,23 @@ bool parse_string(std::string const& value) {
     throw std::invalid_argument("cannot parse \"" + std::string{value} + "\"");
 }
 
+int get_current_numa_node_id() {
+    static const int numa_node_id = [] {
+        RAPIDSMPF_EXPECTS(nvmlInit() == NVML_SUCCESS, "failed to initialize NVML");
+        nvmlDevice_t device;
+        RAPIDSMPF_EXPECTS(
+            nvmlDeviceGetHandleByIndex(0, &device) == NVML_SUCCESS,
+            "failed to get device handle"
+        );
+        uint32_t numa_node_id = 0;
+        RAPIDSMPF_EXPECTS(
+            nvmlDeviceGetNumaNodeId(device, &numa_node_id) == NVML_SUCCESS,
+            "failed to get NUMA node ID"
+        );
+        RAPIDSMPF_EXPECTS(nvmlShutdown() == NVML_SUCCESS, "failed to shutdown NVML");
+        return static_cast<int>(numa_node_id);
+    }();
+    return numa_node_id;
+}
 
 }  // namespace rapidsmpf

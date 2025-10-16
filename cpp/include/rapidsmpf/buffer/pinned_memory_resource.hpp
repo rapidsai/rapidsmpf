@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 #include <cuda.h>
 #include <cuda_runtime_api.h>
@@ -31,14 +32,17 @@ namespace rapidsmpf {
  * @brief Checks if the PinnedMemoryResource is supported for the current CUDA version.
  *
  * Requires rapidsmpf to be build with cuda>=12.6.
+ *
+ * @note The driver version check is cached and only performed once.
  */
-static constexpr bool is_pinned_memory_resources_supported() {
+inline bool is_pinned_memory_resources_supported() {
 #if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
-    return [] {
+    static const bool supported = [] {
         int driver_version = 0;
         RAPIDSMPF_CUDA_TRY(cudaDriverGetVersion(&driver_version));
         return driver_version >= RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION;
     }();
+    return supported;
 #else
     return false;
 #endif
@@ -80,7 +84,9 @@ class PinnedMemoryPool {
      * @throws rapidsmpf::cuda_error If the pinned memory pool is not supported for the
      * current CUDA version.
      */
-    PinnedMemoryPool(int numa_id = 0, PinnedPoolProperties properties = {});
+    PinnedMemoryPool(
+        std::optional<int> numa_id = std::nullopt, PinnedPoolProperties properties = {}
+    );
 
     /**
      * @brief Destroys the pinned memory pool.
@@ -95,7 +101,7 @@ class PinnedMemoryPool {
      * @return The NUMA node ID.
      */
     [[nodiscard]] constexpr int numa_id() const noexcept {
-        return numa_id_;
+        return numa_id_.value();
     }
 
     /**
@@ -108,7 +114,7 @@ class PinnedMemoryPool {
     }
 
   private:
-    int numa_id_;  ///< The NUMA node ID associated with this pool.
+    std::optional<int> numa_id_;  ///< The NUMA node ID associated with this pool.
     PinnedPoolProperties properties_;  ///< Configuration properties for this pool.
 
     // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will
