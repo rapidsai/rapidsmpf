@@ -225,12 +225,8 @@ target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
          $<TARGET_NAME_IF_EXISTS:libcoro>
-  PRIVATE CUDA::nvml
-          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
-          $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
-          $<TARGET_NAME_IF_EXISTS:conda_env>
-          maybe_asan
-          $<TARGET_NAME_IF_EXISTS:CCCL::cudax>
+  PRIVATE numa $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan $<TARGET_NAME_IF_EXISTS:CCCL::cudax>
 )
 
 target_compile_definitions(

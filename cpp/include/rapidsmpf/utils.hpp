@@ -387,11 +387,12 @@ struct overloaded : Ts... {
 
 
 /**
- * @brief Gets the current NUMA node ID.
+ * @brief Gets the NUMA node ID of the current CPU process.
  *
- * @note This util assumes that the running process only operates on a single GPU.
+ * @return The NUMA node ID of the current CPU process.
  *
- * @return The current NUMA node ID.
+ * @throws std::runtime_error If NUMA is not available or if the NUMA node ID cannot be
+ * retrieved.
  */
 int get_current_numa_node_id();
 

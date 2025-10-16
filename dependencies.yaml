@@ -168,6 +168,7 @@ dependencies:
           - c-compiler
           - cuda-nvcc
           - cxx-compiler
+          - libnuma
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
     specific:
       - output_types: conda
@@ -245,7 +246,6 @@ dependencies:
         packages:
           - cuda-cudart-dev
           - cuda-cupti-dev
-          - cuda-nvml-dev
           - cuda-nvrtc-dev
           - cuda-nvtx-dev
   py_version:
@@ -280,6 +280,7 @@ dependencies:
           - cuda-sanitizer-api
           - psutil  # Used for timeout_with_stack.py
           - gdb
+          - libnuma
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - valgrind
           - gdb

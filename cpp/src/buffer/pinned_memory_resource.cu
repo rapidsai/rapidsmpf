@@ -31,13 +31,9 @@ cuda::experimental::memory_pool_properties get_memory_pool_properties(
 
 // PinnedMemoryPool implementation
 struct PinnedMemoryPool::PinnedMemoryPoolImpl {
-    PinnedMemoryPoolImpl(
-        std::optional<int> const& opt_numa_id, PinnedPoolProperties const& properties
-    )
-        : numa_id{opt_numa_id ? *opt_numa_id : get_current_numa_node_id()},
-          p_pool{numa_id, get_memory_pool_properties(properties)} {}
+    PinnedMemoryPoolImpl(int numa_id, PinnedPoolProperties const& properties)
+        : p_pool{numa_id, get_memory_pool_properties(properties)} {}
 
-    int numa_id;
     cuda::experimental::pinned_memory_pool p_pool;
 };
 
@@ -112,7 +108,7 @@ struct PinnedMemoryResource::PinnedMemoryResourceImpl {
 PinnedMemoryPool::PinnedMemoryPool(
     std::optional<int> numa_id, PinnedPoolProperties properties
 )
-    : numa_id_(std::move(numa_id)),
+    : numa_id_(numa_id ? *numa_id : get_current_numa_node_id()),
       properties_(std::move(properties)),
       impl_(std::make_unique<PinnedMemoryPoolImpl>(numa_id_, properties_)) {
     RAPIDSMPF_EXPECTS(

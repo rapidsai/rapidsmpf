@@ -101,7 +101,7 @@ class PinnedMemoryPool {
      * @return The NUMA node ID.
      */
     [[nodiscard]] constexpr int numa_id() const noexcept {
-        return numa_id_.value();
+        return numa_id_;
     }
 
     /**
@@ -114,7 +114,7 @@ class PinnedMemoryPool {
     }
 
   private:
-    std::optional<int> numa_id_;  ///< The NUMA node ID associated with this pool.
+    int numa_id_;  ///< The NUMA node ID associated with this pool.
     PinnedPoolProperties properties_;  ///< Configuration properties for this pool.
 
     // using PImpl idiom to hide cudax .cuh headers from rapidsmpf. cudax cuh headers will

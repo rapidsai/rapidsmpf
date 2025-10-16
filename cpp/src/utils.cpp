@@ -5,7 +5,8 @@
 
 #include <algorithm>
 
-#include <nvml.h>
+#include <numa.h>
+#include <numaif.h>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -74,19 +75,15 @@ bool parse_string(std::string const& value) {
 
 int get_current_numa_node_id() {
     static const int numa_node_id = [] {
-        RAPIDSMPF_EXPECTS(nvmlInit() == NVML_SUCCESS, "failed to initialize NVML");
-        nvmlDevice_t device;
         RAPIDSMPF_EXPECTS(
-            nvmlDeviceGetHandleByIndex(0, &device) == NVML_SUCCESS,
-            "failed to get device handle"
+            numa_available() >= 0, "NUMA is not available", std::runtime_error
         );
-        uint32_t numa_node_id = 0;
+        int cpu = sched_getcpu();
+        int numa_node = numa_node_of_cpu(cpu);
         RAPIDSMPF_EXPECTS(
-            nvmlDeviceGetNumaNodeId(device, &numa_node_id) == NVML_SUCCESS,
-            "failed to get NUMA node ID"
+            numa_node >= 0, "failed to get NUMA node ID", std::runtime_error
         );
-        RAPIDSMPF_EXPECTS(nvmlShutdown() == NVML_SUCCESS, "failed to shutdown NVML");
-        return static_cast<int>(numa_node_id);
+        return numa_node;
     }();
     return numa_node_id;
 }

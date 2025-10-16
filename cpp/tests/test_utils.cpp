@@ -47,3 +47,7 @@ TEST(ParseStringTest, ParsesBooleansWithCaseAndWhitespace) {
 TEST(ParseStringTest, ThrowsOnInvalidBoolean) {
     EXPECT_THROW(parse_string<bool>("not_a_bool"), std::invalid_argument);
 }
+
+TEST(GetCurrentNumaNodeIdTest, ReturnsValidNumaNodeId) {
+    EXPECT_EQ(0, get_current_numa_node_id());  // default NUMA node ID is 0
+}
