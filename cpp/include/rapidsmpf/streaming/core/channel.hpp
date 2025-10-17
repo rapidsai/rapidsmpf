@@ -323,7 +323,11 @@ class ThrottlingAdaptor {
     explicit ThrottlingAdaptor(
         std::shared_ptr<Channel> channel, std::ptrdiff_t max_tickets
     )
-        : ch_{std::move(channel)}, semaphore_(max_tickets) {}
+        : ch_{std::move(channel)}, semaphore_(max_tickets) {
+        RAPIDSMPF_EXPECTS(
+            max_tickets > 0, "ThrottlingAdaptor must have at least one ticket"
+        );
+    }
 
     /**
      * @brief Obtain a ticket to send a message.
