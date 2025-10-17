@@ -394,8 +394,8 @@ struct overloaded : Ts... {
  *
  * @return The NUMA node ID of the current CPU process.
  *
- * @throws std::runtime_error If NUMA is not available or if the NUMA node ID cannot be
- * retrieved.
+ * @throws std::runtime_error If built with NUMA support but libnuma is not available
+ * at runtime or if the NUMA node ID cannot be retrieved.
  */
 int get_current_numa_node_id();
 
