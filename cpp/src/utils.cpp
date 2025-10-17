@@ -79,7 +79,7 @@ int get_current_numa_node_id() {
 #if RAPIDSMPF_HAVE_NUMA
     static const int numa_node_id = [] {
         RAPIDSMPF_EXPECTS(
-            numa_available() >= 0, "NUMA is not available", std::runtime_error
+            numa_available() != -1, "NUMA is not available", std::runtime_error
         );
         int cpu = sched_getcpu();
         int numa_node = numa_node_of_cpu(cpu);
