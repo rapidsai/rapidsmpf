@@ -44,15 +44,16 @@ template <typename T>
     return ret.release();
 }
 
-[[nodiscard]] inline std::vector<std::int64_t> random_vector(
+template <std::integral T = std::int64_t>
+[[nodiscard]] inline std::vector<T> random_vector(
     std::int64_t seed,
     std::size_t nelem,
-    std::int64_t min = std::numeric_limits<std::int64_t>::min(),
-    std::int64_t max = std::numeric_limits<std::int64_t>::max()
+    T min = std::numeric_limits<T>::min(),
+    T max = std::numeric_limits<T>::max()
 ) {
     std::mt19937 rng(static_cast<std::mt19937::result_type>(seed));
-    std::uniform_int_distribution<std::int64_t> dist(min, max);
-    std::vector<std::int64_t> ret(nelem);
+    std::uniform_int_distribution<T> dist(min, max);
+    std::vector<T> ret(nelem);
     std::generate(ret.begin(), ret.end(), [&]() { return dist(rng); });
     return ret;
 }

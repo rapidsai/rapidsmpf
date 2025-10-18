@@ -71,32 +71,35 @@ CuptiMonitor::~CuptiMonitor() {
 }
 
 void CuptiMonitor::start_monitoring() {
-    std::lock_guard<std::mutex> lock(mutex_);
-
     if (monitoring_active_.load()) {
         return;
     }
 
-    CUptiResult cupti_err = subscribe();
-    if (cupti_err != CUPTI_SUCCESS) {
-        throw std::runtime_error(
-            "Failed to initialize CUPTI: " + std::to_string(cupti_err)
-        );
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        CUptiResult cupti_err = subscribe();
+        if (cupti_err != CUPTI_SUCCESS) {
+            throw std::runtime_error(
+                "Failed to initialize CUPTI: " + std::to_string(cupti_err)
+            );
+        }
     }
 
     monitoring_active_.store(true);
 
-    // Capture initial memory state
-    capture_memory_usage_impl();
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // Capture initial memory state
+        capture_memory_usage_impl();
 
-    if (enable_periodic_sampling_) {
-        sampling_thread_ = std::thread(&CuptiMonitor::periodic_memory_sampling, this);
+        if (enable_periodic_sampling_) {
+            sampling_thread_ = std::thread(&CuptiMonitor::periodic_memory_sampling, this);
+        }
     }
 }
 
 void CuptiMonitor::stop_monitoring() {
-    std::lock_guard<std::mutex> lock(mutex_);
-
     if (!monitoring_active_.load()) {
         return;
     }
@@ -107,8 +110,11 @@ void CuptiMonitor::stop_monitoring() {
         sampling_thread_.join();
     }
 
-    // Capture final memory state
-    capture_memory_usage_impl();
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // Capture final memory state
+        capture_memory_usage_impl();
+    }
 
     unsubscribe();
 }
