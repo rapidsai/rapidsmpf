@@ -173,20 +173,7 @@ class Channel {
      * @return A coroutine representing the completion of the shutdown drain.
      */
     Node drain(std::unique_ptr<coro::thread_pool>& executor) {
-        if (rb_.is_shutdown()) {
-            co_return;
-        }
-
-        // Ensure executor progresses until ring buffer is empty, thus ensuring a consumer
-        // that died prematurely (e.g., due to an uncatched exception) does not hang
-        // indefinitely.
-        while (!rb_.empty() && !rb_.is_shutdown()) {
-            co_await executor->yield();
-        }
-
-        if (!rb_.is_shutdown()) {
-            co_await rb_.shutdown();
-        }
+        return rb_.shutdown_drain(executor);
     }
 
     /**
