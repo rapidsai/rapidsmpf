@@ -1172,21 +1172,19 @@ std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
 std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
     progress_worker();
     auto probe = shared_resources_->get_worker()->tagProbe(
-        ::ucxx::Tag(static_cast<int>(tag)), UserTagMask
+        ::ucxx::Tag(static_cast<int>(tag)), UserTagMask, true
     );
-    auto msg_available = probe.first;
-    auto info = probe.second;
-    auto sender_rank = static_cast<Rank>(info.senderTag >> 32);
+    auto msg_available = probe->isMatched();
     if (!msg_available) {
         return {nullptr, 0};
     }
+    auto info = probe->getInfo();
+    auto sender_rank = static_cast<Rank>(info.senderTag >> 32);
     auto msg = std::make_unique<std::vector<uint8_t>>(
         info.length
     );  // TODO: choose between host and device
 
-    auto req = shared_resources_->get_worker()->tagRecv(
-        msg->data(), msg->size(), ::ucxx::Tag(static_cast<int>(tag)), UserTagMask
-    );
+    auto req = shared_resources_->get_worker()->tagRecvWithHandle(msg->data(), probe);
 
     while (!req->isCompleted()) {
         progress_worker();
@@ -1199,23 +1197,18 @@ std::pair<std::unique_ptr<std::vector<uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
 std::unique_ptr<std::vector<uint8_t>> UCXX::recv_from(Rank src, Tag tag) {
     progress_worker();
     auto probe = shared_resources_->get_worker()->tagProbe(
-        tag_with_rank(src, static_cast<int>(tag)), ::ucxx::TagMaskFull
+        tag_with_rank(src, static_cast<int>(tag)), ::ucxx::TagMaskFull, true
     );
-    auto msg_available = probe.first;
-    auto info = probe.second;
+    auto msg_available = probe->isMatched();
     if (!msg_available) {
         return nullptr;
     }
+    auto info = probe->getInfo();
     auto msg = std::make_unique<std::vector<uint8_t>>(
         info.length
     );  // TODO: choose between host and device
 
-    auto req = shared_resources_->get_worker()->tagRecv(
-        msg->data(),
-        msg->size(),
-        tag_with_rank(src, static_cast<int>(tag)),
-        ::ucxx::TagMaskFull
-    );
+    auto req = shared_resources_->get_worker()->tagRecvWithHandle(msg->data(), probe);
 
     while (!req->isCompleted()) {
         progress_worker();
