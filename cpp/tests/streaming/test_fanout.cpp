@@ -9,7 +9,7 @@
 #include <cudf_test/table_utilities.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/streaming/core/bcast_node.hpp>
+#include <rapidsmpf/streaming/core/fanout.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>
 
 #include "base_streaming_fixture.hpp"
@@ -17,7 +17,7 @@
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
 namespace node = rapidsmpf::streaming::node;
-using rapidsmpf::streaming::node::BCastPolicy;
+using rapidsmpf::streaming::node::FanoutPolicy;
 
 using StreamingBCast = BaseStreamingFixture;
 
@@ -54,9 +54,7 @@ TEST_F(StreamingBCast, BoundedReplicates) {
         auto out1 = std::make_shared<Channel>();
         auto out2 = std::make_shared<Channel>();
         auto out3 = std::make_shared<Channel>();
-        nodes.push_back(
-            node::bcast_node(ctx, in, {out1, out2, out3}, BCastPolicy::BOUNDED)
-        );
+        nodes.push_back(node::fanout(ctx, in, {out1, out2, out3}, FanoutPolicy::BOUNDED));
         nodes.push_back(node::pull_from_channel(ctx, out1, outs1));
         nodes.push_back(node::pull_from_channel(ctx, out2, outs2));
         nodes.push_back(node::pull_from_channel(ctx, out3, outs3));
@@ -116,7 +114,7 @@ TEST_F(StreamingBCast, UnboundedReplicates) {
         nodes.push_back(node::push_to_channel(ctx, in, std::move(inputs)));
 
         // UNBOUNDED policy: buffer all inputs, then broadcast after input closes.
-        nodes.push_back(node::bcast_node(ctx, in, {out1, out2}, BCastPolicy::UNBOUNDED));
+        nodes.push_back(node::fanout(ctx, in, {out1, out2}, FanoutPolicy::UNBOUNDED));
 
         nodes.push_back(node::pull_from_channel(ctx, out1, outs1));
         nodes.push_back(node::pull_from_channel(ctx, out2, outs2));

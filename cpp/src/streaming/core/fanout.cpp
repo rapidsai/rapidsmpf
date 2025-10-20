@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <rapidsmpf/streaming/core/bcast_node.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
+#include <rapidsmpf/streaming/core/fanout.hpp>
 
 #include <coro/coro.hpp>
 
@@ -29,18 +29,18 @@ Node send_to_channels(
 }
 }  // namespace
 
-Node bcast_node(
+Node fanout(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::vector<std::shared_ptr<Channel>> chs_out,
-    BCastPolicy policy
+    FanoutPolicy policy
 ) {
     ShutdownAtExit c1{ch_in};
     ShutdownAtExit c2{chs_out};
     co_await ctx->executor()->schedule();
 
     switch (policy) {
-    case BCastPolicy::BOUNDED:
+    case FanoutPolicy::BOUNDED:
         while (true) {
             auto msg = co_await ch_in->receive();
             if (msg.empty()) {
@@ -49,7 +49,7 @@ Node bcast_node(
             co_await send_to_channels(msg, chs_out);
         }
         break;
-    case BCastPolicy::UNBOUNDED:
+    case FanoutPolicy::UNBOUNDED:
         // TODO: Instead of buffering all messages before broadcasting,
         //       stream them directly by giving each output channel its own
         //       `coro::queue` and spawning a coroutine per channel that
