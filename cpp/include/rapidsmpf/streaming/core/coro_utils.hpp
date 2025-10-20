@@ -57,7 +57,7 @@ auto coro_results(Range&& task_results) {
         }
     } else {
         std::vector<val_t> ret;
-        if constexpr (requires { task_results.size(); }) {
+        if constexpr (std::ranges::sized_range<Range>) {
             ret.reserve(task_results.size());
         }
         for (auto&& r : task_results) {
