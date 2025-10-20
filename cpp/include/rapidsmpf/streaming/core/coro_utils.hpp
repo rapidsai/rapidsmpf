@@ -4,6 +4,7 @@
  */
 
 #pragma once
+#include <ranges>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -44,9 +45,9 @@ namespace rapidsmpf::streaming {
  * can cause the streaming pipeline to deadlock or hang indefinitely while waiting for
  * error propagation.
  */
-template <typename Range>
+template <std::ranges::range Range>
 auto coro_results(Range&& task_results) {
-    using first_ref_t = decltype(*std::begin(task_results));
+    using first_ref_t = std::ranges::range_value_t<Range>;
     using raw_ret_t = decltype(std::declval<first_ref_t>().return_value());
     using val_t = std::remove_cvref_t<raw_ret_t>;
 
