@@ -49,16 +49,16 @@ target_sources(
             test_chunk.cpp
             test_communicator.cpp
             test_config.cpp
-            test_cuda_stream.cpp
             test_cudf_utils.cpp
+            test_cuda_stream.cpp
             test_cupti_monitor.cpp
             test_partition.cpp
             test_pausable_thread_loop.cpp
             test_pinned_resources.cpp
             test_progress_thread.cpp
             test_rmm_resource_adaptor.cpp
-            test_shuffler_many_streams.cpp
             test_shuffler.cpp
+            test_shuffler_many_streams.cpp
             test_spill_manager.cpp
             test_statistics.cpp
             test_utils.cpp
@@ -69,8 +69,8 @@ if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     test_sources
     INTERFACE streaming/test_allgather.cpp
-              streaming/test_fanout.cpp
               streaming/test_error_handling.cpp
+              streaming/test_fanout.cpp
               streaming/test_leaf_node.cpp
               streaming/test_message.cpp
               streaming/test_partition.cpp
