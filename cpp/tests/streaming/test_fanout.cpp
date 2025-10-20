@@ -70,8 +70,12 @@ TEST_F(StreamingBCast, BoundedReplicates) {
     // Validate ordering/content and that shallow copies share the same underlying object
     for (int i = 0; i < num_msgs; ++i) {
         // Same address means same shared payload (shallow copy)
-        EXPECT_EQ(&outs1[i].get<int>(), &outs2[i].get<int>());
-        EXPECT_EQ(&outs1[i].get<int>(), &outs3[i].get<int>());
+        EXPECT_EQ(
+            std::addressof(outs1[i].get<int>()), std::addressof(outs2[i].get<int>())
+        );
+        EXPECT_EQ(
+            std::addressof(outs1[i].get<int>()), std::addressof(outs3[i].get<int>())
+        );
         EXPECT_EQ(outs1[i].get<int>(), i);
         EXPECT_EQ(outs2[i].get<int>(), i);
         EXPECT_EQ(outs3[i].get<int>(), i);
