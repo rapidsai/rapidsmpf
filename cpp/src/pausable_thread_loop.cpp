@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
 
 namespace rapidsmpf::detail {
@@ -10,28 +11,37 @@ namespace rapidsmpf::detail {
 PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration sleep) {
     thread_ = std::thread([this, f = std::move(func), sleep]() {
         while (true) {
+            // wait until the thread is not paused
+            state_.wait(State::Paused, std::memory_order_acquire);
+
+            // if the thread is pausing, set it to paused, and loop again
+            State expected = State::Pausing;
+            if (state_.compare_exchange_strong(
+                    expected,
+                    State::Paused,
+                    std::memory_order_acq_rel,
+                    std::memory_order_relaxed
+                ))
             {
-                std::unique_lock<std::mutex> lock(mutex_);
-                cv_.wait(lock, [this]() { return state_ != State::Paused; });
-                // Note: state changes here must notify any waiters.
-                switch (state_) {
-                case State::Running:
-                    break;
-                case State::Pausing:
-                    state_ = State::Paused;
-                    lock.unlock();
-                    cv_.notify_one();
-                case State::Paused:
-                    continue;
-                case State::Stopping:
-                    state_ = State::Stopped;
-                    lock.unlock();
-                    cv_.notify_one();
-                case State::Stopped:
-                    return;
-                }
+                state_.notify_all();
+                continue;
+            }  // else - We don't have to worry about Stopped state, because Stopping ->
+               // Stopped state change only performed by this thread.
+
+            expected = State::Stopping;
+            if (state_.compare_exchange_strong(
+                    expected,
+                    State::Stopped,
+                    std::memory_order_acq_rel,
+                    std::memory_order_relaxed
+                ))
+            {
+                state_.notify_all();
+                return;
             }
+
             f();
+
             if (sleep > std::chrono::seconds{0}) {
                 std::this_thread::sleep_for(sleep);
             } else {
@@ -45,53 +55,69 @@ PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration slee
     });
 }
 
-PausableThreadLoop::~PausableThreadLoop() {
+PausableThreadLoop::~PausableThreadLoop() noexcept {
     stop();
 }
 
 bool PausableThreadLoop::is_running() const noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return state_ != State::Paused;
+    auto state = state_.load(std::memory_order_acquire);
+    return state != State::Paused && state != State::Stopped;
 }
 
-void PausableThreadLoop::pause_nb() {
+void PausableThreadLoop::pause_nb() noexcept {
+    State expected = State::Running;
+    if (state_.compare_exchange_strong(
+            expected, State::Pausing, std::memory_order_acq_rel, std::memory_order_relaxed
+        ))
     {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (state_ == State::Running) {
-            state_ = State::Pausing;
-        }
+        state_.notify_all();
     }
-    cv_.notify_one();
 }
 
-void PausableThreadLoop::pause() {
+void PausableThreadLoop::pause() noexcept {
     pause_nb();
-    // And wait for the loop to flip to paused state. Behaviour is
-    // undefined if someone else called resume/stop while we're in
-    // this function.
-    std::unique_lock lock(mutex_);
-    cv_.wait(lock, [this]() { return state_ == State::Paused; });
+    state_.wait(State::Pausing, std::memory_order_acquire);
 }
 
-void PausableThreadLoop::resume() {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (state_ != State::Stopping) {
-            state_ = State::Running;
+bool PausableThreadLoop::resume() noexcept {
+    State curr = state_.load(std::memory_order_relaxed);
+    while (curr == State::Paused || curr == State::Pausing) {
+        // if state_ is still the value we saw, toggle it to Running
+        if (state_.compare_exchange_weak(
+                curr, State::Running, std::memory_order_acq_rel, std::memory_order_relaxed
+            ))
+        // using CAS weak because we can tolerate a spurious failure on retry
+        {
+            state_.notify_all();
+            return true;
         }
     }
-    cv_.notify_one();
+    return false;
 }
 
-void PausableThreadLoop::stop() {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        state_ = State::Stopping;
+bool PausableThreadLoop::stop() noexcept {
+    State curr = state_.load(std::memory_order_relaxed);
+    while (curr == State::Running || curr == State::Pausing || curr == State::Paused) {
+        // if state_ is still the value we saw, toggle it to Stopping
+        if (state_.compare_exchange_weak(
+                curr,
+                State::Stopping,
+                std::memory_order_acq_rel,
+                std::memory_order_relaxed
+            ))
+        // using CAS weak because we can tolerate a spurious failure on retry
+        {
+            state_.notify_all();
+
+            // wait for state_ Stopping -> Stopped by the event loop thread
+            if (thread_.joinable()) {
+                thread_.join();
+            }
+            return true;
+        }
+        // else (someone other thread has changed state_) curr has the new value. retry.
     }
-    cv_.notify_one();  // Wake up thread to exit
-    if (thread_.joinable()) {
-        thread_.join();
-    }
+    return false;
 }
 
 }  // namespace rapidsmpf::detail

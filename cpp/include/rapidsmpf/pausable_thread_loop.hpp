@@ -5,10 +5,9 @@
 
 #pragma once
 
-#include <condition_variable>
+#include <atomic>
 #include <cstdint>
 #include <functional>
-#include <mutex>
 #include <thread>
 
 #include <rapidsmpf/utils.hpp>
@@ -41,15 +40,15 @@ class PausableThreadLoop {
     PausableThreadLoop(
         std::function<void()> func, Duration sleep = std::chrono::seconds{0}
     );
-    ~PausableThreadLoop();
+    ~PausableThreadLoop() noexcept;
 
     /**
-     * @brief Checks if the thread is currently running (not paused).
+     * @brief Checks if the thread is currently running (not paused or stopped).
      *
      * @note If false, the loop function might still be in the middle of running its
-     * last iteration before being paused.
+     * last iteration before being paused or stopped.
      *
-     * @return True if the thread is running, false if paused.
+     * @return True if the thread is running, false if paused or stopped.
      */
     [[nodiscard]] bool is_running() const noexcept;
 
@@ -66,7 +65,7 @@ class PausableThreadLoop {
      * notifying a thread that is waiting on `is_running` will not
      * necessarily wake it.
      */
-    void pause_nb();
+    void pause_nb() noexcept;
 
     /**
      * @brief Pauses the execution of the thread.
@@ -75,19 +74,17 @@ class PausableThreadLoop {
      * `resume()` is called.
      *
      * @note Pausing the thread does not interrupt the current iteration.
-     *
-     * @note This function blocks until the thread is actually paused.
-     * Behaviour is undefined if multiple threads attempt to change
-     * the state without synchronization.
      */
-    void pause();
+    void pause() noexcept;
 
     /**
      * @brief Resumes execution of the thread after being paused.
      *
      * Calling resume on an already running loop is a no-op and is allowed.
+     *
+     * @return True if the state is changed to Running, false otherwise.
      */
-    void resume();
+    bool resume() noexcept;
 
     /**
      * @brief Stops the execution of the thread and joins it.
@@ -96,8 +93,11 @@ class PausableThreadLoop {
      *
      * @note This function is blocking and will wait on the loop function
      * to finish its current execution.
+     *
+     * @return True if the thread is stopped by this call, false otherwise (if it was
+     * already stopping/stopped).
      */
-    void stop();
+    bool stop() noexcept;
 
   private:
     /**
@@ -111,10 +111,29 @@ class PausableThreadLoop {
         Running,  ///< Thread is running
     };
 
+    // State transition matrix:
+    // | cur_state |         |          | nxt_state |          |         || Ops     |
+    // |           |---------|----------|-----------|----------|---------||         |
+    // |           | STOPPED | STOPPING | PAUSED    | PAUSING  | RUNNING ||---------|
+    // |-----------|---------|----------|-----------|----------|---------|| e_loop  |
+    // | STOPPED   | no_op   | X        | X         | X        | X       || pause   |
+    // | STOPPING  | e_loop  | no_op    | X         | X        | X       || resume  |
+    // | PAUSED    | X       | stop     | no_op     | X        | resume  || stop    |
+    // | PAUSING   | e_loop  | stop     | e_loop    | no_op    | resume  || no_op   |
+    // | RUNNING   | X       | stop     | X         | pause    | no_op   || X       |
+    //
+    // pause():
+    //  RUNNING -> PAUSING
+    // stop():
+    //  RUNNING -> STOPPING | PAUSING -> STOPPING | PAUSED -> STOPPING
+    // resume():
+    //  PAUSING -> RUNNING | PAUSED -> RUNNING
+    // automatic transition via event loop:
+    //  PAUSING -> PAUSED
+    //  STOPPING -> STOPPED
+
     std::thread thread_;
-    mutable std::mutex mutex_;
-    std::condition_variable cv_;
-    State state_{State::Paused};
+    std::atomic<State> state_{State::Paused};
 };
 
 }  // namespace rapidsmpf::detail
