@@ -120,7 +120,7 @@ class Message {
      * @throws std::invalid_argument if the message is empty or the type mismatches.
      */
     template <typename T>
-    T const& get() {
+    T const& get() const {
         auto [ret, lock] = get_ptr_and_lock<T>();
         return *ret;
     }
