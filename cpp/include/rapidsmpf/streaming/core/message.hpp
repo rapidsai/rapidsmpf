@@ -143,18 +143,17 @@ class Message {
      */
     template <typename T>
     T release() {
-        std::shared_ptr<T> ret;
-        {
+        // If this is the last reference, `reset()` deallocates `payload_` thus
+        // we have to extract the payload before resetting.
+        auto ret = [&]() -> std::shared_ptr<T> {
             auto [ptr, lock] = get_ptr_and_lock<T>();
             RAPIDSMPF_EXPECTS(
                 payload_.use_count() == 1,
                 "release() requires this to be the sole owner of the payload",
                 std::invalid_argument
             );
-            ret = std::move(ptr);
-        }
-        // If this is the last reference, `reset()` deallocates `payload_`thus
-        // we have to extract `ret` before resetting.
+            return std::move(ptr);
+        }();
         reset();
         return std::move(*ret);
     }
