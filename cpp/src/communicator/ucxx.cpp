@@ -1373,6 +1373,98 @@ std::shared_ptr<UCXX> UCXX::split() {
     return std::make_shared<UCXX>(std::move(initialized_rank), options_);
 }
 
+namespace {
+
+/// @brief Temporary data structure to hold the message and deliver it to the callback.
+struct CallbackData {
+    std::unique_ptr<Buffer> msg;
+};
+
+}  // namespace
+
+std::unique_ptr<Communicator::Future> UCXX::send_with_cb(
+    std::unique_ptr<Buffer> msg,
+    Rank rank,
+    Tag tag,
+    std::function<void(std::unique_ptr<Buffer>)> send_cb
+) {
+    if (!msg->is_ready()) {
+        logger().warn("msg is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+    auto data_ptr = msg->data();
+    auto data_size = msg->size;
+    auto req = get_endpoint(rank)->tagSend(
+        data_ptr,
+        data_size,
+        tag_with_rank(shared_resources_->rank(), tag),
+        false,
+        [cb = std::move(send_cb)](ucs_status_t status, std::shared_ptr<void> data) {
+            RAPIDSMPF_EXPECTS(status == UCS_OK, "UCXX send failed", std::runtime_error);
+            cb(std::move(static_pointer_cast<CallbackData>(data)->msg));
+        },
+        std::make_shared<CallbackData>(std::move(msg))
+    );
+    return std::make_unique<Future>(req, nullptr);
+}
+
+std::unique_ptr<Communicator::Future> UCXX::recv_with_cb(
+    Rank rank,
+    Tag tag,
+    std::unique_ptr<Buffer> recv_buffer,
+    std::function<void(std::unique_ptr<Buffer>)> recv_cb
+) {
+    if (!recv_buffer->is_ready()) {
+        logger().warn("recv_buffer is not ready. This is irrecoverable, terminating.");
+        std::terminate();
+    }
+    auto data_ptr = recv_buffer->data();
+    auto data_size = recv_buffer->size;
+    auto req = get_endpoint(rank)->tagRecv(
+        data_ptr,
+        data_size,
+        tag_with_rank(rank, tag),
+        ::ucxx::TagMaskFull,
+        false,
+        [cb = std::move(recv_cb)](ucs_status_t status, std::shared_ptr<void> data) {
+            RAPIDSMPF_EXPECTS(status == UCS_OK, "UCXX recv failed", std::runtime_error);
+            cb(std::move(static_pointer_cast<CallbackData>(data)->msg));
+        },
+        std::make_shared<CallbackData>(std::move(recv_buffer))
+    );
+    return std::make_unique<Future>(req, nullptr);
+}
+
+std::unique_ptr<Communicator::Future> UCXX::recv_any_with_cb(
+    Tag tag,
+    std::function<void(std::unique_ptr<Buffer>, Rank)> recv_cb,
+    BufferResource* br
+) {
+    auto [msg_available, info] = shared_resources_->get_worker()->tagProbe(
+        ::ucxx::Tag(static_cast<int>(tag)), UserTagMask
+    );
+
+    if (!msg_available) {
+        return nullptr;
+    }
+
+    auto sender_rank = static_cast<Rank>(info.senderTag >> 32);
+
+    // Create a buffer to receive the message
+    auto msg = std::make_unique<std::vector<uint8_t>>(info.length);
+
+    // Receive the message
+    return recv_with_cb(
+        sender_rank,
+        tag,
+        br->move(std::move(msg)),
+        [cb = std::move(recv_cb), sender_rank](std::unique_ptr<Buffer> msg) {
+            cb(std::move(msg), sender_rank);
+        }
+    );
+}
+
+
 }  // namespace ucxx
 
 }  // namespace rapidsmpf
