@@ -42,6 +42,8 @@ class Message {
          * used instead.
          */
         std::any data;
+
+        explicit Payload(std::any any_data) : data{std::move(any_data)} {}
     };
 
   public:
@@ -54,16 +56,15 @@ class Message {
      * Takes ownership of @p payload and stores it as a shared object internally.
      *
      * @tparam T Payload type.
-     * @param payload Non-null unique pointer to the payload instance.
-     * @throws std::invalid_argument if @p payload is null.
+     * @param payload Unique pointer to the payload instance. If null, an empty message
+     * is created.
      */
     template <typename T>
     Message(std::unique_ptr<T> payload) {
         RAPIDSMPF_EXPECTS(
             payload != nullptr, "payload cannot be null", std::invalid_argument
         );
-        payload_ = std::make_shared<Payload>();
-        payload_->data = std::shared_ptr<T>(std::move(payload));
+        payload_ = std::make_shared<Payload>(std::shared_ptr<T>(std::move(payload)));
     }
 
     /** @brief Move construct. @param other Source message. */
@@ -73,11 +74,12 @@ class Message {
     Message& operator=(Message&& other) noexcept = default;
 
     /**
-     * @brief Reset the message to the empty state.
+     * @brief Resets the message to an empty state.
      *
-     * Releases the stored payload (if this is the last shared owner).
+     * If this is the last shared owner, the stored payload is deallocated.
+     * Otherwise, the payload remains untouched and shared with other owners.
      *
-     * @note After this call, the message is empty.
+     * @note After this call, the message becomes empty.
      */
     void reset() noexcept {
         return payload_.reset();
@@ -144,8 +146,7 @@ class Message {
     template <typename T>
     T release() {
         // If this is the last reference, `reset()` deallocates `payload_` thus
-        // we have to extract the payload before resetting.
-         // move payload_ to a new shared_ptr if its the sole owner. 
+        // we have to move the payload to a new shared_ptr before resetting.
         auto ret = [&]() -> std::shared_ptr<T> {
             auto [ptr, lock] = get_ptr_and_lock<T>();
             RAPIDSMPF_EXPECTS(
