@@ -159,7 +159,7 @@ class Message {
                 "release() requires this to be the sole owner of the payload",
                 std::invalid_argument
             );
-            return std::move(ptr);
+            return ptr;
         }();
         reset();
         return std::move(*ret);
