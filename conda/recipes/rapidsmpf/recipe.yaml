@@ -60,6 +60,7 @@ requirements:
     - ${{ compiler("cuda") }}
     - cuda-cupti-dev
     - cuda-version =${{ cuda_version }}
+    - libnuma
     - ${{ stdlib("c") }}
   host:
     - cuda-cudart-dev
@@ -67,6 +68,7 @@ requirements:
     - cuda-version =${{ cuda_version }}
     - cython >=3.0.0
     - librapidsmpf =${{ version }}
+    - libnuma
     - mpi4py
     - openmpi >=5.0
     - pip
