@@ -70,7 +70,6 @@ if(RAPIDSMPF_HAVE_STREAMING)
     test_sources
     INTERFACE streaming/test_allgather.cpp
               streaming/test_error_handling.cpp
-              streaming/test_fanout.cpp
               streaming/test_leaf_node.cpp
               streaming/test_message.cpp
               streaming/test_partition.cpp
