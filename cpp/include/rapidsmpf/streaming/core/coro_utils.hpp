@@ -14,7 +14,7 @@
 namespace rapidsmpf::streaming {
 
 /**
- * @brief Collect the results of multiple coroutine tasks.
+ * @brief Collect the results of multiple finished coroutines.
  *
  * This helper consumes a range of coroutine result objects (e.g., from
  * `coro::when_all` or `coro::when_any`) and extracts their return values by

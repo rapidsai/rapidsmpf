@@ -183,7 +183,7 @@ class Message {
     Message& operator=(Message const&) = default;
 
     /**
-     * @brief Lock and validate the internal payload.
+     * @brief Lock the internal payload.
      *
      * @return A unique lock that guards the payload mutex.
      * @throws std::invalid_argument if the message is empty.
