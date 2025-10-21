@@ -145,9 +145,9 @@ class Message {
      * @return The payload moved out of the message.
      *
      * @throws std::invalid_argument if:
-     *         - The message is empty.
-     *         - The stored type does not match `T`.
-     *         - There are multiple shared references to the same payload.
+     *  - The message is empty.
+     *  - The stored type does not match `T`.
+     *  - There are multiple shared references to the same payload.
      *
      * @note After this call, the message is empty.
      */
