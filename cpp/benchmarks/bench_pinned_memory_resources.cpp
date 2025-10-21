@@ -55,6 +55,14 @@ void BM_AsyncPrimingImpact(
     size_t initial_pool_size,
     size_t allocation_size
 ) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage(
+            "PinnedMemoryResource is not supported for CUDA versions "
+            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+        );
+        return;
+    }
+
     constexpr int num_allocations = 100;
 
     // Create memory resource
@@ -142,6 +150,14 @@ template <typename MRFactoryFunc>
 void BM_AsyncConstructionTime(
     benchmark::State& state, MRFactoryFunc factory, size_t initial_pool_size
 ) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage(
+            "PinnedMemoryResource is not supported for CUDA versions "
+            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+        );
+        return;
+    }
+
     for (auto _ : state) {
         auto start_time = std::chrono::high_resolution_clock::now();
         auto [pool, mr] = factory(initial_pool_size);
@@ -164,6 +180,14 @@ template <typename MRFactoryFunc>
 void BM_DeviceToHostCopyComparison(
     benchmark::State& state, MRFactoryFunc factory, size_t copy_size, size_t n_copies
 ) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        state.SkipWithMessage(
+            "PinnedMemoryResource is not supported for CUDA versions "
+            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
+        );
+        return;
+    }
+
     // Create memory resource for stream-ordered pinned memory
     auto [pool, mr] = factory(0);
 
