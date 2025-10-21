@@ -14,7 +14,7 @@
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
-#include <rapidsmpf/communicator/message_interface.hpp>
+#include <rapidsmpf/communicator/message.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf::communicator {
@@ -23,7 +23,7 @@ namespace rapidsmpf::communicator {
  * @brief Type-agnostic communication interface.
  *
  * This interface provides a high-level, stateful communication management layer that
- * works with any message type implementing MessageInterface. It encapsulates the entire
+ * works with any message type implementing Message. It encapsulates the entire
  * communication protocol and state machine, providing coarse-grained operations that
  * can drive communication forward while maintaining full control over the underlying
  * communication patterns and optimizations.
@@ -41,7 +41,7 @@ class CommunicationInterface {
      * @param messages Vector of messages ready to be sent to remote ranks.
      */
     virtual void submit_outgoing_messages(
-        std::vector<std::unique_ptr<MessageInterface>>&& messages
+        std::vector<std::unique_ptr<Message>>&& messages
     ) = 0;
 
     /**
@@ -53,11 +53,12 @@ class CommunicationInterface {
      * - Handling completed data transfers
      * - Cleaning up completed operations
      *
-     * @param message_factory Factory for creating message instances from metadata.
+     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      * @return Vector of completed messages ready for local processing.
      */
-    [[nodiscard]] virtual std::vector<std::unique_ptr<MessageInterface>>
-    process_communication(MessageFactory const& message_factory) = 0;
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Message>> process_communication(
+        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
+    ) = 0;
 
     /**
      * @brief Check if all communication operations are complete.
@@ -71,7 +72,7 @@ class CommunicationInterface {
  * @brief Tag-based implementation of CommunicationInterface.
  *
  * This implementation provides the same communication protocol as
- * TagCommunicationInterface but works with the abstract MessageInterface instead of
+ * TagCommunicationInterface but works with the abstract Message instead of
  * concrete Chunk types.
  */
 class TagCommunicationInterface : public CommunicationInterface {
@@ -98,14 +99,14 @@ class TagCommunicationInterface : public CommunicationInterface {
      * message already exists.
      */
     void submit_outgoing_messages(
-        std::vector<std::unique_ptr<MessageInterface>>&& messages
+        std::vector<std::unique_ptr<Message>>&& messages
     ) override;
 
     /**
      * @copydoc CommunicationInterface::process_communication
      */
-    std::vector<std::unique_ptr<MessageInterface>> process_communication(
-        MessageFactory const& message_factory
+    std::vector<std::unique_ptr<Message>> process_communication(
+        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
     ) override;
 
     /**
@@ -123,9 +124,9 @@ class TagCommunicationInterface : public CommunicationInterface {
     // Communication state containers
     std::vector<std::unique_ptr<Communicator::Future>>
         fire_and_forget_;  ///< Ongoing "fire-and-forget" operations (non-blocking sends).
-    std::multimap<Rank, std::unique_ptr<MessageInterface>>
+    std::multimap<Rank, std::unique_ptr<Message>>
         incoming_messages_;  ///< Messages ready to be received.
-    std::unordered_map<std::uint64_t, std::unique_ptr<MessageInterface>>
+    std::unordered_map<std::uint64_t, std::unique_ptr<Message>>
         in_transit_messages_;  ///< Messages currently in transit.
     std::unordered_map<std::uint64_t, std::unique_ptr<Communicator::Future>>
         in_transit_futures_;  ///< Futures corresponding to in-transit messages.
@@ -133,22 +134,27 @@ class TagCommunicationInterface : public CommunicationInterface {
     // Statistics tracking
     std::shared_ptr<Statistics> statistics_;
 
+    // Sequential message ID generator
+    std::uint64_t next_message_id_{0};
+
     /**
      * @brief Receive metadata for incoming messages.
      *
-     * @param message_factory Factory for creating message instances from metadata.
+     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      */
-    void receive_metadata(MessageFactory const& message_factory);
+    void receive_metadata();
 
     /**
      * @brief Setup data receives for incoming messages.
      *
-     * @param message_factory Factory for creating message instances from metadata.
+     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      *
      * @throw std::runtime_error if an in-transit message or future is not found, or
      * if a data buffer is not available.
      */
-    void setup_data_receives(MessageFactory const& message_factory);
+    void setup_data_receives(
+        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
+    );
 
     /**
      * @brief Complete data transfers for in-transit messages.
@@ -158,7 +164,7 @@ class TagCommunicationInterface : public CommunicationInterface {
      * @throw std::runtime_error if an in-transit message or future is not found, or
      * if a data buffer is not available
      */
-    std::vector<std::unique_ptr<MessageInterface>> complete_data_transfers();
+    std::vector<std::unique_ptr<Message>> complete_data_transfers();
 
     /**
      * @brief Cleanup completed operations (fire-and-forget sends and receives).

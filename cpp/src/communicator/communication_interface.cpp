@@ -17,6 +17,7 @@
 
 namespace rapidsmpf::communicator {
 
+
 TagCommunicationInterface::TagCommunicationInterface(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
@@ -30,7 +31,7 @@ TagCommunicationInterface::TagCommunicationInterface(
       statistics_{std::move(statistics)} {}
 
 void TagCommunicationInterface::submit_outgoing_messages(
-    std::vector<std::unique_ptr<MessageInterface>>&& messages
+    std::vector<std::unique_ptr<Message>>&& messages
 ) {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
@@ -38,20 +39,50 @@ void TagCommunicationInterface::submit_outgoing_messages(
     // Send metadata followed immediately by data for each message
     for (auto&& message : messages) {
         auto dst = message->peer_rank();
-        log.trace("send metadata to ", dst, ": ", message->to_string());
+
+        // Assign sequential message ID (unique per rank)
+        // Format: [rank (32 bits)][sequence (32 bits)]
+        std::uint64_t message_id =
+            (static_cast<std::uint64_t>(rank_) << 32) | next_message_id_++;
+        message->set_message_id(message_id);
+
+        log.trace("send metadata to ", dst, " (message_id=", message_id, ")");
         RAPIDSMPF_EXPECTS(dst != rank_, "sending message to ourselves");
 
-        // Send metadata
-        auto metadata = message->serialize_metadata();
-        fire_and_forget_.push_back(comm_->send(
-            std::make_unique<std::vector<std::uint8_t>>(std::move(metadata)),
-            dst,
-            metadata_tag_
-        ));
+        auto const& original_metadata = message->metadata();
+        std::size_t payload_size =
+            (message->data() != nullptr) ? message->data()->size : 0;
+
+        // Pack metadata: [message_id][payload_size][original_metadata]
+        auto combined_metadata = std::make_unique<std::vector<std::uint8_t>>(
+            sizeof(std::uint64_t) + sizeof(std::size_t) + original_metadata.size()
+        );
+
+        std::size_t offset = 0;
+
+        std::memcpy(
+            combined_metadata->data() + offset, &message_id, sizeof(std::uint64_t)
+        );
+        offset += sizeof(std::uint64_t);
+
+        std::memcpy(
+            combined_metadata->data() + offset, &payload_size, sizeof(std::size_t)
+        );
+        offset += sizeof(std::size_t);
+
+        std::memcpy(
+            combined_metadata->data() + offset,
+            original_metadata.data(),
+            original_metadata.size()
+        );
+
+        fire_and_forget_.push_back(
+            comm_->send(std::move(combined_metadata), dst, metadata_tag_)
+        );
 
         // Send data immediately after metadata (if any)
-        if (message->total_data_size() > 0) {
-            auto data_buffer = message->release_data_buffer();
+        if (message->data() != nullptr && message->data()->size > 0) {
+            auto data_buffer = message->release_data();
             RAPIDSMPF_EXPECTS(data_buffer, "No data buffer available");
 
             fire_and_forget_.push_back(
@@ -65,13 +96,14 @@ void TagCommunicationInterface::submit_outgoing_messages(
     );
 }
 
-std::vector<std::unique_ptr<MessageInterface>>
-TagCommunicationInterface::process_communication(MessageFactory const& message_factory) {
+std::vector<std::unique_ptr<Message>> TagCommunicationInterface::process_communication(
+    std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
+) {
     auto const t0 = Clock::now();
 
     // Process all phases of the communication protocol
-    receive_metadata(message_factory);
-    setup_data_receives(message_factory);
+    receive_metadata();
+    setup_data_receives(allocate_buffer_fn);
     auto completed_messages = complete_data_transfers();
     cleanup_completed_operations();
 
@@ -87,7 +119,7 @@ bool TagCommunicationInterface::is_idle() const {
            && in_transit_messages_.empty() && in_transit_futures_.empty();
 }
 
-void TagCommunicationInterface::receive_metadata(MessageFactory const& message_factory) {
+void TagCommunicationInterface::receive_metadata() {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
 
@@ -96,9 +128,37 @@ void TagCommunicationInterface::receive_metadata(MessageFactory const& message_f
         if (!msg)
             break;
 
-        // The msg is already a vector<uint8_t>, so we can use it directly
-        auto message = message_factory.create_from_metadata(*msg, src);
-        log.trace("recv_any from ", src, ": ", message->to_string());
+        // Unpack metadata: [message_id][payload_size][original_metadata]
+        if (msg->size() < sizeof(std::uint64_t) + sizeof(std::size_t)) {
+            log.warn("Received metadata too small, skipping");
+            continue;
+        }
+
+        std::size_t offset = 0;
+
+        // Extract message ID
+        std::uint64_t message_id;
+        std::memcpy(&message_id, msg->data() + offset, sizeof(std::uint64_t));
+        offset += sizeof(std::uint64_t);
+
+        // Extract payload size
+        std::size_t payload_size;
+        std::memcpy(&payload_size, msg->data() + offset, sizeof(std::size_t));
+        offset += sizeof(std::size_t);
+
+        // Extract original metadata (everything after message ID and payload size)
+        std::vector<std::uint8_t> original_metadata(
+            msg->begin() + static_cast<std::ptrdiff_t>(offset), msg->end()
+        );
+
+        auto message =
+            std::make_unique<Message>(src, std::move(original_metadata), nullptr);
+
+        // Set the message ID and payload size
+        message->set_message_id(message_id);
+        message->set_expected_payload_size(payload_size);
+
+        log.trace("recv_any from ", src, " (message_id=", message_id, ")");
         incoming_messages_.emplace(src, std::move(message));
     }
 
@@ -106,7 +166,7 @@ void TagCommunicationInterface::receive_metadata(MessageFactory const& message_f
 }
 
 void TagCommunicationInterface::setup_data_receives(
-    MessageFactory const& message_factory
+    std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
 ) {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
@@ -114,30 +174,36 @@ void TagCommunicationInterface::setup_data_receives(
     for (auto it = incoming_messages_.begin(); it != incoming_messages_.end();) {
         auto& [src, message] = *it;
         log.trace(
-            "checking incoming message data from ", src, ": ", message->to_string()
+            "checking incoming message data from ",
+            src,
+            " (message_id=",
+            message->message_id(),
+            ")"
         );
 
-        if (message->total_data_size() > 0) {
-            if (!message->is_data_ready()) {
-                auto buffer = message_factory.allocate_receive_buffer(
-                    message->total_data_size(), *message
-                );
-                message->set_data_buffer(std::move(buffer));
+        // Get payload size that was extracted during metadata receive
+        std::size_t payload_size = message->expected_payload_size();
+
+        if (payload_size > 0) {
+            if (message->data() == nullptr) {
+                auto buffer = allocate_buffer_fn(payload_size);
+                message->set_data(std::move(buffer));
             }
 
-            if (!message->is_ready()) {
+            // Check if the buffer is ready for use
+            if (message->data() && !message->data()->is_latest_write_done()) {
                 ++it;
                 break;
             }
 
             // Extract the message and set up for data transfer
             auto message_ptr = std::move(it->second);
-            auto src = it->first;
+            auto src_rank = it->first;
             it = incoming_messages_.erase(it);
 
-            auto data_buffer = message_ptr->release_data_buffer();
+            auto data_buffer = message_ptr->release_data();
             RAPIDSMPF_EXPECTS(data_buffer, "No data buffer available");
-            auto future = comm_->recv(src, gpu_data_tag_, std::move(data_buffer));
+            auto future = comm_->recv(src_rank, gpu_data_tag_, std::move(data_buffer));
 
             auto message_id = message_ptr->message_id();
             RAPIDSMPF_EXPECTS(
@@ -160,11 +226,11 @@ void TagCommunicationInterface::setup_data_receives(
     );
 }
 
-std::vector<std::unique_ptr<MessageInterface>>
+std::vector<std::unique_ptr<Message>>
 TagCommunicationInterface::complete_data_transfers() {
     auto const t0 = Clock::now();
 
-    std::vector<std::unique_ptr<MessageInterface>> completed_messages;
+    std::vector<std::unique_ptr<Message>> completed_messages;
 
     // Handle completed data transfers
     if (!in_transit_futures_.empty()) {
@@ -184,7 +250,7 @@ TagCommunicationInterface::complete_data_transfers() {
             auto future = std::move(future_it->second);
             auto received_buffer = comm_->release_data(std::move(future));
 
-            message->set_data_buffer(std::move(received_buffer));
+            message->set_data(std::move(received_buffer));
 
             completed_messages.push_back(std::move(message));
 
@@ -196,7 +262,8 @@ TagCommunicationInterface::complete_data_transfers() {
     // Handle control/metadata-only messages from incoming_messages_
     for (auto it = incoming_messages_.begin(); it != incoming_messages_.end();) {
         auto& [src, message] = *it;
-        if (message->total_data_size() == 0) {
+        std::size_t payload_size = message->expected_payload_size();
+        if (payload_size == 0) {
             completed_messages.push_back(std::move(it->second));
             it = incoming_messages_.erase(it);
         } else {

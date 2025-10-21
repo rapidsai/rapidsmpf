@@ -16,9 +16,9 @@
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communication_interface.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/message.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
-#include <rapidsmpf/shuffler/chunk_message_adapter.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -198,7 +198,21 @@ class Shuffler::Progress {
                     return dst;
                 };
 
-                auto messages = chunks_to_messages(std::move(ready_chunks), peer_rank_fn);
+                // Convert chunks to simple messages manually
+                std::vector<std::unique_ptr<communicator::Message>> messages;
+                messages.reserve(ready_chunks.size());
+
+                for (auto&& chunk : ready_chunks) {
+                    auto dst = peer_rank_fn(chunk);
+                    auto metadata = *chunk.serialize();
+                    auto data = chunk.release_data_buffer();
+
+                    messages.push_back(
+                        std::make_unique<communicator::Message>(
+                            dst, std::move(metadata), std::move(data)
+                        )
+                    );
+                }
 
                 shuffler_.comm_interface_->submit_outgoing_messages(std::move(messages));
             }
@@ -219,11 +233,20 @@ class Shuffler::Progress {
                 );
             };
 
-            ChunkMessageFactory factory{allocate_buffer_fn};
             auto completed_messages =
-                shuffler_.comm_interface_->process_communication(factory);
+                shuffler_.comm_interface_->process_communication(allocate_buffer_fn);
 
-            auto final_chunks = messages_to_chunks(std::move(completed_messages));
+            // Convert simple messages back to chunks manually
+            std::vector<detail::Chunk> final_chunks;
+            final_chunks.reserve(completed_messages.size());
+
+            for (auto&& message : completed_messages) {
+                auto chunk = detail::Chunk::deserialize(message->metadata(), false);
+                if (message->data() != nullptr) {
+                    chunk.set_data_buffer(message->release_data());
+                }
+                final_chunks.push_back(std::move(chunk));
+            }
 
             // Process completed chunks and insert them into the ready postbox
             for (auto&& chunk : final_chunks) {
