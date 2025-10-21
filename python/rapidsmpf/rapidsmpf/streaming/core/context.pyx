@@ -1,15 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from rapidsmpf.buffer.resource cimport (BufferResource, cpp_BufferResource,
-                                        cpp_rmm_cuda_stream_pool)
+from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
+
+from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options
 from rapidsmpf.statistics cimport Statistics
 
 from rapidsmpf.config import get_environment_variables
 
-from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
 from libcpp.memory cimport make_shared
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
@@ -86,8 +86,7 @@ cdef class Context:
         Stream
             A stream from the stream pool.
         """
-        cdef const cpp_rmm_cuda_stream_pool* pool_ptr = \
-            &deref(self._br._handle).cpp_stream_pool()
+        cdef const cuda_stream_pool* pool_ptr = self._br.stream_pool()
         cdef cuda_stream_view stream_view
         with nogil:
             stream_view = pool_ptr.get_stream()
@@ -104,8 +103,7 @@ cdef class Context:
         int
             The size of the stream pool.
         """
-        cdef const cpp_rmm_cuda_stream_pool* pool_ptr = \
-            &deref(self._br._handle).cpp_stream_pool()
+        cdef const cuda_stream_pool* pool_ptr = self._br.stream_pool()
         cdef size_t size
         with nogil:
             size = pool_ptr.get_pool_size()

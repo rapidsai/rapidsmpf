@@ -8,7 +8,7 @@ from libcpp cimport bool
 from libcpp.memory cimport shared_ptr
 from libcpp.optional cimport optional
 from libcpp.unordered_map cimport unordered_map
-from rmm.librmm.cuda_stream_view cimport cuda_stream_view
+from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 from rmm.librmm.memory_resource cimport device_memory_resource
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
@@ -22,11 +22,6 @@ from rapidsmpf.utils.time cimport cpp_Duration
 cdef extern from "<functional>" nogil:
     cdef cppclass cpp_MemoryAvailable "std::function<std::int64_t()>":
         pass
-
-cdef extern from "<rmm/cuda_stream_pool.hpp>" nogil:
-    cdef cppclass cpp_rmm_cuda_stream_pool "rmm::cuda_stream_pool":
-        cuda_stream_view get_stream() except +
-        size_t get_pool_size() except +
 
 cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
     cdef cppclass cpp_BufferResource "rapidsmpf::BufferResource":
@@ -42,7 +37,7 @@ cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
             MemoryType mem_type
         ) except +
         cpp_SpillManager &cpp_spill_manager "spill_manager"() except +
-        const cpp_rmm_cuda_stream_pool &cpp_stream_pool "stream_pool"() except +
+        const cuda_stream_pool &cpp_stream_pool "stream_pool"() except +
 
 
 cdef class BufferResource:
@@ -51,7 +46,7 @@ cdef class BufferResource:
     cdef readonly SpillManager spill_manager
     cdef cpp_BufferResource* ptr(self)
     cdef DeviceMemoryResource _mr
-
+    cdef const cuda_stream_pool* stream_pool(self)
 
 cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
     cdef cppclass cpp_LimitAvailableMemory "rapidsmpf::LimitAvailableMemory":

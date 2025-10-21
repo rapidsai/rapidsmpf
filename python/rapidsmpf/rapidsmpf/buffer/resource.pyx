@@ -5,6 +5,7 @@ from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp.memory cimport make_shared, shared_ptr
 from libcpp.utility cimport move
+from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 
@@ -142,6 +143,9 @@ cdef class BufferResource:
         with nogil:
             ret = _call_memory_available(resource_ptr, mem_type)
         return ret
+
+    cdef const cuda_stream_pool* stream_pool(self):
+        return &deref(self._handle).cpp_stream_pool()
 
 cdef class LimitAvailableMemory:
     """
