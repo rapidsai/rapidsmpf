@@ -91,6 +91,8 @@ cdef class Context:
         cdef cuda_stream_view stream_view
         with nogil:
             stream_view = pool_ptr.get_stream()
+        # passing self as the owner of the stream so that it is kept alive for
+        # the lifetime of the Stream object
         return Stream._from_cudaStream_t(stream_view.value(), self)
 
     def stream_pool_size(self) -> int:
