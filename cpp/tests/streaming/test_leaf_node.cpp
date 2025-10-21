@@ -38,6 +38,8 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
         expects.emplace_back(random_table_with_index(i, num_rows, 0, 10));
     }
 
+    // Hi
+
     std::vector<Node> nodes;
     auto ch1 = std::make_shared<Channel>();
 
