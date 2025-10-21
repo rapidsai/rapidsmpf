@@ -143,7 +143,6 @@ cdef class BufferResource:
             ret = _call_memory_available(resource_ptr, mem_type)
         return ret
 
-
 cdef class LimitAvailableMemory:
     """
     A callback class for querying the remaining available memory within a defined
