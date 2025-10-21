@@ -30,10 +30,8 @@ namespace rapidsmpf::streaming {
  * and `coro::wait_all`
  *
  * @param task_results A range of completed coroutine results.
- *
- * @return
- * - `std::vector<T>` if the underlying tasks return a value of type `T`.
- * - `void` if the underlying tasks return `void`.
+ * @return `std::vector<T>` if the underlying tasks return a value of type `T` or
+ * `void` if the underlying tasks return `void`.
  *
  * @note All result types must be the same. If your coroutines produce heterogeneous
  * result types, this helper cannot be used; you must instead extract each result
