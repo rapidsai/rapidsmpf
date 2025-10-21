@@ -145,6 +145,7 @@ class Message {
     T release() {
         // If this is the last reference, `reset()` deallocates `payload_` thus
         // we have to extract the payload before resetting.
+         // move payload_ to a new shared_ptr if its the sole owner. 
         auto ret = [&]() -> std::shared_ptr<T> {
             auto [ptr, lock] = get_ptr_and_lock<T>();
             RAPIDSMPF_EXPECTS(
