@@ -19,7 +19,7 @@ using namespace rapidsmpf::streaming;
 namespace node = rapidsmpf::streaming::node;
 using rapidsmpf::streaming::node::FanoutPolicy;
 
-using StreamingBCast = BaseStreamingFixture;
+using StreamingFanout = BaseStreamingFixture;
 
 namespace {
 
@@ -37,7 +37,7 @@ std::vector<Message> make_int_inputs(int n) {
 
 }  // namespace
 
-TEST_F(StreamingBCast, BoundedReplicates) {
+TEST_F(StreamingFanout, Bounded) {
     int const num_msgs = 10;
 
     // Prepare inputs
@@ -102,7 +102,7 @@ TEST_F(StreamingBCast, BoundedReplicates) {
     }
 }
 
-TEST_F(StreamingBCast, UnboundedReplicates) {
+TEST_F(StreamingFanout, Unbounded) {
     int const num_msgs = 7;
 
     auto inputs = make_int_inputs(num_msgs);
