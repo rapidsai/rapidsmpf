@@ -114,7 +114,7 @@ class Message {
      * @throws std::invalid_argument if the message is empty.
      */
     template <typename T>
-    [[nodiscard]] bool holds() const {
+    [[nodiscard]] bool payload_type() const {
         auto lock = lock_payload();
         return payload_->data.type() == typeid(std::shared_ptr<T>);
     }
@@ -211,7 +211,7 @@ class Message {
     template <typename T>
     [[nodiscard]] std::pair<std::shared_ptr<T>, std::unique_lock<std::mutex>>
     get_ptr_and_lock() const {
-        RAPIDSMPF_EXPECTS(holds<T>(), "wrong message type", std::invalid_argument);
+        RAPIDSMPF_EXPECTS(payload_type<T>(), "wrong message type", std::invalid_argument);
         auto lock = lock_payload();
         return std::make_pair(
             std::any_cast<std::shared_ptr<T>>(payload_->data), std::move(lock)

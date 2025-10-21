@@ -16,7 +16,7 @@ using namespace rapidsmpf::streaming;
 TEST(StreamingMessage, ConstructAndGetInt) {
     Message m{std::make_unique<int>(42)};
     EXPECT_FALSE(m.empty());
-    EXPECT_TRUE(m.holds<int>());
+    EXPECT_TRUE(m.payload_type<int>());
     EXPECT_EQ(m.get<int>(), 42);
 }
 
@@ -26,8 +26,8 @@ TEST(StreamingMessage, ReleaseEmpties) {
     auto s = m.release<std::string>();
     EXPECT_EQ(s, "abc");
     EXPECT_TRUE(m.empty());
-    // holds<T>() on empty should throw per API
-    EXPECT_THROW(std::ignore = m.holds<std::string>(), std::invalid_argument);
+    // payload_type<T>() on empty should throw per API
+    EXPECT_THROW(std::ignore = m.payload_type<std::string>(), std::invalid_argument);
 }
 
 // Shallow copy shares payload; release is only allowed if sole owner after access
@@ -40,8 +40,8 @@ TEST(StreamingMessage, ShallowCopySharesAndReleaseRules) {
 
     // Shallow copy always allowed; both share the same payload
     auto m2 = m.shallow_copy();
-    EXPECT_TRUE(m.holds<int>());
-    EXPECT_TRUE(m2.holds<int>());
+    EXPECT_TRUE(m.payload_type<int>());
+    EXPECT_TRUE(m2.payload_type<int>());
     EXPECT_EQ(&m.get<int>(), &m2.get<int>());
 
     // Since payload was accessed and there are multiple owners, release must fail
@@ -60,7 +60,9 @@ TEST(StreamingMessage, ShallowCopySharesAndReleaseRules) {
 TEST(StreamingMessage, TypeMismatchAndReset) {
     Message m{std::make_unique<int>(5)};
     EXPECT_FALSE(m.empty());
-    EXPECT_FALSE(m.holds<std::string>());  // wrong type => false (message not empty)
+    EXPECT_FALSE(
+        m.payload_type<std::string>()
+    );  // wrong type => false (message not empty)
 
     // get with wrong type throws
     EXPECT_THROW(std::ignore = m.get<std::string>(), std::invalid_argument);
@@ -68,7 +70,7 @@ TEST(StreamingMessage, TypeMismatchAndReset) {
     // reset empties the message
     m.reset();
     EXPECT_TRUE(m.empty());
-    EXPECT_THROW(std::ignore = m.holds<int>(), std::invalid_argument);
+    EXPECT_THROW(std::ignore = m.payload_type<int>(), std::invalid_argument);
     EXPECT_THROW(std::ignore = m.get<int>(), std::invalid_argument);
 }
 
