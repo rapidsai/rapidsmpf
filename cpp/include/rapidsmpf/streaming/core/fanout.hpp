@@ -15,9 +15,30 @@ namespace rapidsmpf::streaming::node {
  * @brief Fanout policy controlling how messages are propagated.
  */
 enum class FanoutPolicy : int {
-    /// @brief Process messages as they arrive and immediately forward them.
+    /**
+     * @brief Process messages as they arrive and immediately forward them.
+     *
+     * Messages are forwarded as soon as they are received from the input channel.
+     * The next message is not processed until all output channels have completed
+     * sending the current one, ensuring backpressure and synchronized flow.
+     */
     BOUNDED,
-    /// @brief Accumulate all incoming messages before forwarding them.
+
+    /**
+     * @brief Forward messages without enforcing backpressure.
+     *
+     * In this mode, messages may be accumulated internally before being
+     * broadcast, or they may be forwarded immediately depending on the
+     * implementation and downstream consumption rate.
+     *
+     * This mode disables coordinated backpressure between outputs, allowing
+     * consumers to process at independent rates, but can lead to unbounded
+     * buffering and increased memory usage.
+     *
+     * @note Consumers might not receive any messages until *all* upstream
+     * messages have been sent, depending on the implementation and buffering
+     * strategy.
+     */
     UNBOUNDED,
 };
 
@@ -25,17 +46,8 @@ enum class FanoutPolicy : int {
  * @brief Broadcast messages from one input channel to multiple output channels.
  *
  * The node continuously receives messages from the input channel and forwards
- * them to all output channels according to the selected policy:
- *
- * - `FanoutPolicy::BOUNDED`: Messages are forwarded as they arrive.
- *   The next message is only broadcast once *all* output channels have finished
- *   sending the current one. This provides backpressure so slow consumers
- *   naturally throttle the upstream flow, but it can cause head-of-line
- *   blocking and even deadlock if downstream rates differ.
- *
- * - `FanoutPolicy::UNBOUNDED`: Messages are broadcast to all output channels
- *   with no backpressure (potentially unbounded memory usage), allowing
- *   downstream consumers to process at independent rates.
+ * them to all output channels according to the selected fanout policy, see
+ * ::FanoutPolicy.
  *
  * Each output channel receives a shallow copy of the same message; no payload
  * data is duplicated. All copies share the same underlying payload, ensuring
@@ -44,7 +56,7 @@ enum class FanoutPolicy : int {
  * @param ctx The node context to use.
  * @param ch_in Input channel from which messages are received.
  * @param chs_out Output channels to which messages are broadcast.
- * @param policy Fanout strategy (`BOUNDED` or `UNBOUNDED`).
+ * @param policy The fanout strategy to use (see ::FanoutPolicy).
  *
  * @return Streaming node representing the fanout operation.
  *

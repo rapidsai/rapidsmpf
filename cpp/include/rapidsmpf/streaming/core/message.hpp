@@ -43,6 +43,11 @@ class Message {
          */
         std::any data;
 
+        /**
+         * @brief Constructs a payload from the given type-erased data.
+         *
+         * @param any_data The type-erased object to store inside the payload.
+         */
         explicit Payload(std::any any_data) : data{std::move(any_data)} {}
     };
 
