@@ -87,7 +87,10 @@ class Message {
      * @note After this call, the message becomes empty.
      */
     void reset() noexcept {
-        return payload_.reset();
+        if (payload_) {
+            auto lock = lock_payload();
+            payload_.reset();
+        }
     }
 
     /**
