@@ -21,5 +21,5 @@ def test_get_stream_from_pool(context: Context, stream: Stream) -> None:
     for i in range(pool_size):
         for j in range(i + 1, pool_size):
             assert not is_equal_streams(streams[i], streams[j])
-            # not equal to the default stream
-            assert not is_equal_streams(streams[i], stream)
+        # not equal to the default stream
+        assert not is_equal_streams(streams[i], stream)
