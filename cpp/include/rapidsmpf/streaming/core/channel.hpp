@@ -75,8 +75,6 @@ class Message {
 
     /** @brief Move assign. @param other Source message. @return *this. */
     Message& operator=(Message&& other) noexcept = default;
-    Message(Message const&) = delete;
-    Message& operator=(Message const&) = delete;
 
     /**
      * @brief Reset the message to empty.
@@ -92,6 +90,7 @@ class Message {
      */
     [[nodiscard]] bool empty() const noexcept {
         if (payload_) {
+            std::lock_guard<std::mutex> lock(payload_->mutex);
             return !payload_->data.has_value();
         }
         return true;
@@ -105,7 +104,7 @@ class Message {
      */
     template <typename T>
     [[nodiscard]] bool holds() const {
-        RAPIDSMPF_EXPECTS(!empty(), "message is empty", std::invalid_argument);
+        auto lock = lock_payload();
         return payload_->data.type() == typeid(std::shared_ptr<T>);
     }
 
@@ -138,6 +137,26 @@ class Message {
     }
 
   private:
+    // Copying is private to force explicit sharing via shallow_copy().
+    Message(Message const&) = default;
+    Message& operator=(Message const&) = default;
+
+    /**
+     * @brief Lock the internal payload.
+     *
+     * @return A unique lock that guards the payload mutex.
+     * @throws std::invalid_argument if the message is empty.
+     */
+    [[nodiscard]] std::unique_lock<std::mutex> lock_payload() const {
+        if (payload_) {
+            std::unique_lock<std::mutex> lock(payload_->mutex);
+            if (payload_->data.has_value()) {
+                return lock;
+            }
+        }
+        RAPIDSMPF_FAIL("message is empty", std::invalid_argument);
+    }
+
     /**
      * @brief Returns a shared pointer to the payload.
      *
