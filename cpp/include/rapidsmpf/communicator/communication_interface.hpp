@@ -33,19 +33,17 @@ class CommunicationInterface {
     virtual ~CommunicationInterface() = default;
 
     /**
-     * @brief Submit outgoing messages for communication.
+     * @brief Send messages to remote ranks.
      *
      * Takes ownership of ready messages and manages their transmission, including
      * metadata sending and coordination of data transfer.
      *
      * @param messages Vector of messages ready to be sent to remote ranks.
      */
-    virtual void submit_outgoing_messages(
-        std::vector<std::unique_ptr<Message>>&& messages
-    ) = 0;
+    virtual void send_messages(std::vector<std::unique_ptr<Message>>&& messages) = 0;
 
     /**
-     * @brief Process all pending communication operations.
+     * @brief Receive messages from remote ranks.
      *
      * Advances the communication state machine by:
      * - Receiving incoming message metadata
@@ -56,7 +54,7 @@ class CommunicationInterface {
      * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      * @return Vector of completed messages ready for local processing.
      */
-    [[nodiscard]] virtual std::vector<std::unique_ptr<Message>> process_communication(
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Message>> receive_messages(
         std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
     ) = 0;
 
@@ -93,19 +91,17 @@ class TagCommunicationInterface : public CommunicationInterface {
     );
 
     /**
-     * @copydoc CommunicationInterface::submit_outgoing_messages
+     * @copydoc CommunicationInterface::send_messages
      *
      * @throw std::runtime_error if a message is sent to itself or if an outgoing
      * message already exists.
      */
-    void submit_outgoing_messages(
-        std::vector<std::unique_ptr<Message>>&& messages
-    ) override;
+    void send_messages(std::vector<std::unique_ptr<Message>>&& messages) override;
 
     /**
-     * @copydoc CommunicationInterface::process_communication
+     * @copydoc CommunicationInterface::receive_messages
      */
-    std::vector<std::unique_ptr<Message>> process_communication(
+    std::vector<std::unique_ptr<Message>> receive_messages(
         std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
     ) override;
 
@@ -139,8 +135,6 @@ class TagCommunicationInterface : public CommunicationInterface {
 
     /**
      * @brief Receive metadata for incoming messages.
-     *
-     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      */
     void receive_metadata();
 

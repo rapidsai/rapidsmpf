@@ -214,7 +214,7 @@ class Shuffler::Progress {
                     );
                 }
 
-                shuffler_.comm_interface_->submit_outgoing_messages(std::move(messages));
+                shuffler_.comm_interface_->send_messages(std::move(messages));
             }
             stats.add_duration_stat(
                 "event-loop-submit-outgoing", Clock::now() - t0_submit_outgoing
@@ -234,7 +234,7 @@ class Shuffler::Progress {
             };
 
             auto completed_messages =
-                shuffler_.comm_interface_->process_communication(allocate_buffer_fn);
+                shuffler_.comm_interface_->receive_messages(allocate_buffer_fn);
 
             // Convert simple messages back to chunks manually
             std::vector<detail::Chunk> final_chunks;

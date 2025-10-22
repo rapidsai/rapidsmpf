@@ -30,7 +30,7 @@ TagCommunicationInterface::TagCommunicationInterface(
       gpu_data_tag_{op_id, 2},
       statistics_{std::move(statistics)} {}
 
-void TagCommunicationInterface::submit_outgoing_messages(
+void TagCommunicationInterface::send_messages(
     std::vector<std::unique_ptr<Message>>&& messages
 ) {
     auto& log = comm_->logger();
@@ -40,7 +40,7 @@ void TagCommunicationInterface::submit_outgoing_messages(
     for (auto&& message : messages) {
         auto dst = message->peer_rank();
 
-        // Assign sequential message ID (unique per rank)
+        // Assign sequential message ID
         // Format: [rank (32 bits)][sequence (32 bits)]
         std::uint64_t message_id =
             (static_cast<std::uint64_t>(rank_) << 32) | next_message_id_++;
@@ -91,12 +91,10 @@ void TagCommunicationInterface::submit_outgoing_messages(
         }
     }
 
-    statistics_->add_duration_stat(
-        "comms-interface-submit-outgoing-messages", Clock::now() - t0
-    );
+    statistics_->add_duration_stat("comms-interface-send-messages", Clock::now() - t0);
 }
 
-std::vector<std::unique_ptr<Message>> TagCommunicationInterface::process_communication(
+std::vector<std::unique_ptr<Message>> TagCommunicationInterface::receive_messages(
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
 ) {
     auto const t0 = Clock::now();
@@ -107,9 +105,7 @@ std::vector<std::unique_ptr<Message>> TagCommunicationInterface::process_communi
     auto completed_messages = complete_data_transfers();
     cleanup_completed_operations();
 
-    statistics_->add_duration_stat(
-        "comms-interface-process-communication-total", Clock::now() - t0
-    );
+    statistics_->add_duration_stat("comms-interface-receive-messages", Clock::now() - t0);
 
     return completed_messages;
 }
