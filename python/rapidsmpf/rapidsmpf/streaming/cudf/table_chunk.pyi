@@ -8,7 +8,8 @@ from pylibcudf.table import Table
 from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.streaming.core.channel import Message, Payload
+from rapidsmpf.streaming.core.channel import Payload
+from rapidsmpf.streaming.core.message import Message
 
 class TableChunk:
     @staticmethod

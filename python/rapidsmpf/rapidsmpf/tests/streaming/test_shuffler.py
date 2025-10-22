@@ -11,8 +11,9 @@ import pytest
 import cudf
 
 from rapidsmpf.streaming.coll.shuffler import shuffler
-from rapidsmpf.streaming.core.channel import Channel, Message
+from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import run_streaming_pipeline
 from rapidsmpf.streaming.cudf.partition import partition_and_pack, unpack_and_concat
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk

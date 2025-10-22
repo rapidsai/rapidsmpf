@@ -17,9 +17,10 @@ from rapidsmpf.communicator.single import (
 )
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
-from rapidsmpf.streaming.core.channel import Channel, Message
+from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import (
     define_py_node,
     run_streaming_pipeline,
