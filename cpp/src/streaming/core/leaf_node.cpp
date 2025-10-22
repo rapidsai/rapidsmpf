@@ -18,7 +18,9 @@ Node push_to_channel(
 
     for (auto& msg : messages) {
         RAPIDSMPF_EXPECTS(!msg.empty(), "message cannot be empty", std::invalid_argument);
-        co_await ch_out->send(std::move(msg));
+        if (!co_await ch_out->send(std::move(msg))) {
+            break;
+        }
     }
     co_await ch_out->drain(ctx->executor());
 }
