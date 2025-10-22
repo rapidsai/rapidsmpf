@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-from typing import Generic, Protocol, TypeVar
+from typing import Generic, Protocol, Self, TypeVar
 
 from rapidsmpf.streaming.core.context import Context
 
-PayloadT = TypeVar("PayloadT", bound=Payload)
+PayloadT = TypeVar("PayloadT", bound="Payload")
 
 class Payload(Protocol):
     """
@@ -27,8 +27,8 @@ class Payload(Protocol):
     """
 
     @classmethod
-    def from_message(cls: PayloadT, message: Message[PayloadT]) -> PayloadT: ...
-    def into_message(self: PayloadT, message: Message[PayloadT]) -> None: ...
+    def from_message(cls, message: Message[Self]) -> Self: ...
+    def into_message(self, message: Message[Self]) -> None: ...
 
 class Message(Generic[PayloadT]):
     def __init__(self, payload: PayloadT): ...
