@@ -1,59 +1,101 @@
-## Shuffle Architecture
+## Communicator Background
 
-`rapidsmpf` uses a network of **nodes** to process data. Typically you'll have
-one `rapidsmpf` node per GPU. You might form a rapidsmpf network on a single
-machine with multiple GPUs, or from multiple machines, each with one or more
-GPUs.
+`rapidsmpf` uses a "process-per-GPU" execution model. It can be used both
+to run on a single GPU or multiple GPUs. These can either be physically
+located within the same multi-GPU machine or spread across multiple
+machines. The key requirement is that there exist communication links
+between the GPUs.
 
-All nodes in the network can pass messages and data to each other using an
-underlying communication transport like [UCX](https://openucx.org/) or MPI.
-Nodes work together to perform an operation like a Shuffle.
+The core abstraction that encapsulates the set of processes that are
+executing collectively is a `Communicator`. This provides unique
+identifiers (termed `rank`s) to each process along with message-passing
+routes between them. We provide communicator implementations based either
+directly on [UCX](https://openucx.org/)/[UCXX](https://github.com/rapidsai/ucxx) or
+[MPI](https://www.mpi-forum.org). Message passing handles CPU and GPU data
+uniformly, the underlying transport takes care of choosing the appropriate
+route.
 
-At a high level, a shuffle operation involves these steps:
+### "Streaming" collective operations
 
-1. Your program *inserts* **chunks** of data to the Shuffler on each node.
-2. The Shuffler on that node processes that chunk by either sending it to
-   another node or keeping it for itself.
-3. Your program *extracts* chunks of data from each node once it's ready
+`rapidsmpf` provides collectives (i.e. communication
+primitives) that operate on "streaming" data. As a consequence, a
+round of collective communication proceeds in four stages:
 
-There are more details around how chunks are assigned to nodes and how memory is
+1. Participating ranks (defined by the `Communicator`) create a
+   collective object.
+2. Each rank independently _inserts_ zero-or-more data chunks into the
+   collective object.
+3. Once a rank has inserted all data chunks, it inserts a _finish marker_.
+4. After insertion is finished, a rank can _extract_ data that is the
+   result of the collective communication. This may block until data are
+   ready.
+   
+Collectives over subsets of all ranks in the program are enabled by
+creating a `Communicator` object that only contains the desired
+participating ranks.
+
+Multiple collective operations can be live at the same time, they are each
+distinguished by a `tag`. This `tag` must be consistent across all
+participating ranks to line up the messages in the collective.
+
+Notice that we are not responsible for providing the output buffers that a
+collective writes into. This is a consequence of the streaming design: to
+allocate output buffers of the correct size we would first have to see all
+inputs. Instead `rapidsmpf` is responsible for allocation of output buffers
+and spilling data from device to host if device memory is at a premium.
+However, although `rapidsmpf` allocates outputs it never interprets your
+data: it just sends and receives bytes "as-is".
+
+### Shuffles
+
+A key collective operation in large-scale data analytics is a "shuffle"
+(a generalised all-to-all). In a shuffle, every participating rank sends
+data to every other rank. We will walk through a high-level overview of the
+steps in a shuffle using `rapidsmpf` to see how things fit together.
+
+Having created a collective shuffle operation (a `rapidsmpf::Shuffler`), at
+a high level, a shuffle operation involves these steps:
+
+1. [user code] Each rank *inserts* **chunks** of data to the Shuffler,
+   followed by a finish marker.
+2. [rapidsmpf] The Shuffler on that rank processes that chunk by either sending it to
+   another rank or keeping it for itself.
+3. [user code] Each rank *extracts* chunks of data from each once it's
+   ready.
+
+There are more details around how chunks are assigned to output ranks and how memory is
 managed. But at a high level, your program is responsible for inserting chunks
 somewhere and extracting (the now shuffled) chunks once they've been moved to
-the correct node.
-
-Nodes shuffle **chunks** of data. These are arbitrary batches of bytes that have
-somehow been assigned to be processed by a specific node. Shuffling a table on
-the hash of one or more columns is just one example use case that `rapisdmpfs`
-serves.
+the correct rank.
 
 ### Shuffle
 
-This diagram shows a network of with three nodes in the middle of a Shuffle operation.
+This diagram shows a network of with three ranks in the middle of a Shuffle operation.
 
-![A diagram showing a shuffle.](../_static/rapidsmpf-shuffler-transparent-fs8.png)
+![A diagram showing a shuffle.](_static/rapidsmpf-shuffler-transparent-fs8.png)
 
-As your program inserts chunks of data into a node (see below), it's assigned to
-a particular node. In the diagram above, this is shown by color: each node has a
-particular color (the color of its circle) and each chunk with that color will
-be sent to its matching node. So, for example, all of the green chunks will be
-extracted from the green ndoe in the top-left. Note that the number of different
-chunk types (colors in this diagram) is typically larger than the number of nodes,
-and so each node will be responsible for multiple output chunk types.
+As your program inserts chunks of data (see below), each chunk is assigned to
+a particular rank. In the diagram above, this is shown by color: each
+process (recall a process is uniquely identified by a `(rank,
+communicator)` pair) has a particular color (the color of its circle) and each chunk with that color will
+be sent to its matching rank. So, for example, all of the green chunks will be
+extracted from the green process in the top-left. Note that the number of different
+chunk types (colors in this diagram) is typically larger than the number of ranks,
+and so each process will be responsible for multiple output chunk types.
 
-The node you insert the chunk into is responsible for getting the data to the
-correct output node. It does so by placing the chunk in its **Outgoing** message
-box and then working to send it (shown by the black lines connecting the nodes).
+The process you insert the chunk on is responsible for getting the data to the
+correct output rank. It does so by placing the chunk in its **Outgoing** message
+box and then working to send it (shown by the black lines connecting the processes).
 
-Internally, the nodes involved in a shuffle continuously
+Internally, the processes involved in a shuffle continuously
 
 - receive newly inserted chunks from your program
-- move chunks to their intended nodes
-- receive chunks from other nodes
+- move chunks to their intended ranks
+- receive chunks from other ranks
 - hand off *ready* chunks when your program extracts them
 
-During a Shuffle, device memory might run low on more or more nodes in the
-network. `rapidsmpf` is able to *spill* chunks of data from device memory to a
-larger pool (e.g. host memory). In the diagram above, this is shown with the
+During a shuffle, device memory might run low on more or more processes . `rapidsmpf` is able to *spill* chunks of data from device memory to a
+larger pool (e.g. host memory). In the diagram above, this is shown by the
 hatched chunks.
 
 ### Example: Shuffle a Table on a Column
@@ -66,7 +108,7 @@ of a Shuffle Join implementation.
 This diagram shows multiple nodes working together to shuffle a large, logical
 Table.
 
-![A diagram showing how to use rapidsmpf to shuffle a table.](../_static/rapidsmpf-shuffle-table-fs8.png)
+![A diagram showing how to use rapidsmpf to shuffle a table.](_static/rapidsmpf-shuffle-table-fs8.png)
 
 Suppose you have a large logical table that's split into a number of partitions.
 In the diagram above, this is shown as the different dashed boxes on the
@@ -76,16 +118,15 @@ columns you're joining on, say), which is shown by the color of the row.
 
 Your program **inserts** data to the shuffler. In this case, it's inserting
 chunks that represent pieces of the table that have been partitioned (by hash
-key) and packed into a chunk. Each partition inserts its data into one of the
-nodes, typically the node running on the same GPU as the in-memory partition.
+key) and packed into a chunk.
 
-Each node involved in the shuffle knows which nodes are responsible for which
-hash keys. For example, Node 1 knows that it's responsible for the purple
-chunks, needs to send red chunks to Node 2, etc.
+Each rank involved in the shuffle knows which ranks are responsible for which
+hash keys. For example, rank 1 knows that it's responsible for the purple
+chunks, needs to send red chunks to rank 2, etc.
 
-Each input partition possibly includes data for each hash key. All the nodes
+Each input partition possibly includes data for each hash key. All the processes
 involved in the shuffle move data to get all the chunks with a particular hash
-key on the correct node (spilling if needed). This is shown in the middle
+key to the correct rank (spilling if needed). This is shown in the middle
 section.
 
 As chunks become "ready" (see above), your program can **extract** chunks and
