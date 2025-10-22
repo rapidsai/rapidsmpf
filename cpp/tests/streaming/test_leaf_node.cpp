@@ -16,6 +16,7 @@
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
+#include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
@@ -78,10 +79,7 @@ Node shutdown(
     std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch, std::vector<Node>&& tasks
 ) {
     ShutdownAtExit c{ch};
-    auto results = co_await coro::when_all(std::move(tasks));
-    for (auto& r : results) {
-        r.return_value();
-    }
+    coro_results(co_await coro::when_all(std::move(tasks)));
     co_await ch->drain(ctx->executor());
 }
 
