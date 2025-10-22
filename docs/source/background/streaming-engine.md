@@ -71,27 +71,42 @@ library.
 
 
 ## Definitions
-- **Network**: A graph of nodes and edges.  `Nodes` are the relational operators on data and edges are the `channels` connecting the _next_ operation in the workflow
 
-- **Context**: Context provides access to resources necessary for executing nodes:
+```{glossary}
+Network
+  A graph of nodes and edges. Nodes are the relational operators on data and edges are the channels connecting the next operation in the workflow.
+
+Context
+  Provides access to resources necessary for executing nodes:
   - Communicators (UCXX or MPI)
   - Thread pool executor
-  - CUDA Memory (RMM) 
+  - CUDA Memory (RMM)
   - rapidsmpf Buffer Resource (spillable)
 
-- **Buffer** : Raw Memory buffers typically shared pointers from tabular data provided by cuDF
-  - Buffers are created most commonly during scan (read_parquet) operations but can also be created during joins and aggregations.  When operating on mulitple buffers either a new stream is created for the new buffer or re-use of an existing stream is attached the newly created buffer
-  - Buffers have an attached CUDA Stream maintained for the lifetime of the buffer. 
+Buffer
+  Raw memory buffers typically shared pointers from tabular data provided by cuDF.
   
-- **Messages**:[Type-erased](https://en.wikipedia.org/wiki/Type_erasure) container for data payloads (shared memory pointers) including: cudf tables, buffers, and rapidsmpf internal data structures like packed data
-  - Messages also contain metadata: a sequence number
-  - Sequences _do not_ guarantee that chunks arrive in order but they do provide the order in which the data was created
+  - Buffers are created most commonly during scan (read_parquet) operations but can also be created during joins and aggregations. When operating on multiple buffers either a new stream is created for the new buffer or re-use of an existing stream is attached the newly created buffer.
+  - Buffers have an attached CUDA Stream maintained for the lifetime of the buffer.
 
-- **Nodes**: Coroutine-based asynchronous relational operator: read, filter, select, join.  
-  - Nodes read from zero-or-more channels and write to zero-or-more channels
-  - Multiple Nodes can be executed concurrently
+Message
+  [Type-erased](https://en.wikipedia.org/wiki/Type_erasure) container for data payloads (shared memory pointers) including: cudf tables, buffers, and rapidsmpf internal data structures like packed data.
+  
+  - Messages also contain metadata: a sequence number.
+  - Sequences _do not_ guarantee that chunks arrive in order but they do provide the order in which the data was created.
+
+Node
+  Coroutine-based asynchronous relational operator: read, filter, select, join.
+  
+  - Nodes read from zero-or-more channels and write to zero-or-more channels.
+  - Multiple Nodes can be executed concurrently.
   - Nodes can communicate directly using "streaming" collective operations such as shuffles and joins (see [Streaming collective operations](./shuffle-architecture.md#streaming-collective-operations)).
 
-- **Channels**: An asynchronous messaging queue used for communicating Messages between Nodes.
+Channel
+  An asynchronous messaging queue used for communicating Messages between Nodes.
+  - Provides backpressure to the network prevent over consumption of memory
   - Can be throttled to prevent over production of buffers which can useful when writing producer nodes that otherwise do not depend on an input channel.
-  - Sending suspends when channel is "full"
+  - Sending suspends when channel is "full".
+  - Does not copy (de-)serialize, (un-)spill data
+
+```

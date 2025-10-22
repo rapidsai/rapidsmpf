@@ -3,11 +3,10 @@
 
 Channels are asynchronous messaging queue used to move messages between [Nodes](./nodes.md) in the RapidsMPF streaming network.  
 
-<div style="display: flex; align-items: flex-start; gap: 24px;">
-  <img src="../_static/buffers-animated.gif" alt="Animated buffer pipeline" style="max-width: 4500px;"/>
-  <img src="../_static/animation-legend.png" alt="Animation Legend" style="width: 320px;"/>
-</div>
+<img src="../_static/animation-legend.png" alt="Animation Legend" style="width: 320px;"/>
+<img src="../_static/buffers-animated.gif" alt="Animated buffer pipeline" style="max-width: 4500px;"/>
 
+<br/>
 As buffers move through the graph, the channels (arrows) move from empty (dashed line) to full (solid line).   
 
 *Note: Nodes do not refer to number of GPUs or number of machines -- nodes and edges define a graph for RAPIDSMPF to execute in either Single or Multiple GPU*
@@ -21,7 +20,7 @@ As buffers move through the graph, the channels (arrows) move from empty (dashed
 │  │(Producer)│         │(Transform)         │(Consumer)│                 │
 │  └──────────┘         └──────────┘         └──────────┘                 │
 │       │                    │                     │                      │
-│    Message              Message               Message                    │
+│    Message              Message               Message                   │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -35,7 +34,7 @@ Components:
 In the above graph, moving data in and out of channels on a single GPU should be relatively cheap, nearly free! This stratedy of using channels to move tasks/buffers is a core methodology for RapidsMPF to overlap: scans, compute, spilling, and communication.
 
 
-Channels provide asynchronous communication with **backpressure**:
+Channels provide asynchronous communication with **backpressure**.  Backpressure is built-in by limiting the number of buffers in a channel to a single slot
 
 ```
 Producer Side:                    Consumer Side:
@@ -60,7 +59,9 @@ Key Properties:
 
 A Consumer is **"full"** when an internal ring_buffer `coro::ring_buffer<Message, 1> rb_;` has reached capacity.  
 
-Additional backpressure control can be applied by usage of a Throttline system (semaphores) controlling the number of threads/concurrent operations. 
+Additional backpressure control can be applied by usage of a Throttling 
+system (semaphores) controlling the maximum number of 
+threads/concurrent operations. 
 
 
 ```python

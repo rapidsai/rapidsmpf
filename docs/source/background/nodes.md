@@ -1,7 +1,7 @@
 ## Nodes
 
 Nodes are coroutine-based asynchronous relational operators that read from 
-zero-or-more channels and write to zero-or-more channels.  
+zero-or-more {term}`Channel`s and write to zero-or-more {term}`Channel`s within a {term}`Network`.  
 
 **C++**
 
@@ -13,7 +13,7 @@ rapidsmpf::streaming::Node accumulator(
 {
     int64_t total = 0;
     while (true) {
-        // continously read until channel is empty
+        // continuously read until channel is empty
         auto msg = co_await ch_in->recv();
         if (!msg) {
             break;
@@ -36,7 +36,7 @@ async def accumulator(ch_out, ch_in, msg):
     """Sum Column"""
 
     total = 0
-    # continuously read until channel is empy
+    # continuously read until channel is empty
     while (msg := await ch_in is not None:)
         col = ... # get column from data buffer in message
         total += sum(col)
@@ -47,12 +47,12 @@ async def accumulator(ch_out, ch_in, msg):
 
 *examples of nodes in C++ and Python*
 
-##$ Node Types
+## Node Types
 
 Nodes fall into two categories:
 - Local Nodes: These include operations like filtering, projection, or column-wise transforms. They operate exclusively on local data and preserve CSP semantics.
 
-- Collective Nodes: These include operations like shuffle, join, groupby aggregrations, etc. which require access to distributed data. 
+- Collective Nodes: These include operations like shuffle, join, groupby aggregations, etc. which require access to distributed data. 
 
 In the case of a collective nodes, remote communication is handled internally. For example, a shuffle node may need to access all partitions of a table, both local and remote, but this coordination and data exchange happens inside the CSP-process itself.  As a reminder "Channels" are an abstraction and not used to serialize and pass data between workers
 
