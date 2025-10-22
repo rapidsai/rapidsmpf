@@ -30,7 +30,7 @@ rapidsmpf::streaming::Node accumulator(
         if (!msg) {
             break;
         }
-        auto chunk = rapidsmpf::TableChunk::from_message(*msg);
+        auto chunk = msg.release<rapidsmpf::streaming::TableChunk>();
 
         total += chunk->get_column("value")->sum<int64_t>();
     }
