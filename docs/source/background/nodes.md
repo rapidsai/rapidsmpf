@@ -20,7 +20,7 @@ async def accumulator(ctx: Context, ch_out: Channel, ch_in: Channel):
 
 ```c++
 # sum a column
-rapidsmpf::task<void> accumulator(
+rapidsmpf::streaming::Node accumulator(
     std::shared_ptr<rapidsmpf::Channel> ch_out,
     std::shared_ptr<rapidsmpf::Channel> ch_in)
 {
