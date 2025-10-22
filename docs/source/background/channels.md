@@ -1,7 +1,7 @@
 ## Channels
 
 
-Channels are asynchronous messaging queue used to move messages between [Nodes](./nodes.md) in the RapidsMPF streaming network.  
+Channels are asynchronous messaging queue used to move messages between {term}`Node`s in the rapidsmpf streaming network.  
 
 <img src="../_static/animation-legend.png" alt="Animation Legend" style="width: 320px;"/>
 <img src="../_static/buffers-animated.gif" alt="Animated buffer pipeline" style="max-width: 4500px;"/>
@@ -9,7 +9,6 @@ Channels are asynchronous messaging queue used to move messages between [Nodes](
 <br/>
 As buffers move through the graph, the channels (arrows) move from empty (dashed line) to full (solid line).   
 
-*Note: Nodes do not refer to number of GPUs or number of machines -- nodes and edges define a graph for RAPIDSMPF to execute in either Single or Multiple GPU*
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -31,7 +30,7 @@ Components:
   • Channel: Async queue connecting nodes
   • Message: GPU Buffer with a CUDA Stream
 
-In the above graph, moving data in and out of channels on a single GPU should be relatively cheap, nearly free! This stratedy of using channels to move tasks/buffers is a core methodology for RapidsMPF to overlap: scans, compute, spilling, and communication.
+In the above graph, moving data in and out of channels on a single GPU should be relatively cheap, nearly free! This stratedy of using channels to move tasks/buffers is a core methodology for rapidsmpf to overlap: scans, compute, spilling, and communication.
 
 
 Channels provide asynchronous communication with **backpressure**.  Backpressure is built-in by limiting the number of buffers in a channel to a single slot
@@ -81,9 +80,9 @@ for (int i = 0; i < n_producer; i++) {
 }
 ```
 
-Internally, when using a `throttle` a task that sends into a channel must acquire tickets granting permission to send before being able to send. The send then returns a receipt that grants permission to release the ticket.  The consumer of a throttled channel accepts messsages without issue.  This means that the throttle is localised to the producer tasks.
+Internally, when using a `throttle` a Node that writes into a channel must acquire a ticket granting permission to write before being able to. The write/send then returns a receipt that grants permission to release the ticket.  The consumer of a throttled channel reads messsages without issue.  This means that the throttle is localised to the producer nodes.
 
-More simply, using a throttling adaptor limits the number tasks a producer sends into a channel.  This pattern is very useful for producer nodes where we want some amount of bounded concurrency in the tasks that might suspend before sending into a channel -- especially useful when trying to minimize the over-production of long-lived memory: reads/scans, shuffles, etc.
+More simply, using a throttling adaptor limits the number messages a producer writes into a channel.  This pattern is very useful for producer nodes where we want some amount of bounded concurrency in the tasks that might suspend before sending into a channel -- especially useful when trying to minimize the over-production of long-lived memory: reads/scans, shuffles, etc.
 
 
 
