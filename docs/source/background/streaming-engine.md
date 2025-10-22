@@ -1,8 +1,64 @@
-# Streaming Engine
+# Streaming execution
 
-## What is it ?
+In addition to communications primitives, rapidsmpf provides building
+blocks for constructing and executing task graphs such as might be used in
+a streaming data processing engine.  These communications primitives do not 
+require use of the task execution framework, nor does use of the execution 
+framework necessarily require using rapidsmpf communication primitives.
 
-RapidsMPF is a backend streaming data processing engine using a [CSP](https://en.wikipedia.org/wiki/Communicating_sequential_processes)-style streaming network written in C++ with additional hooks for Python.  RapidsMPF is designed to integrate with frontend query processing libraries (e.g., Polars) where logical plans are converted and executed by RapidsMPF.  In Multi-GPU deployments, plans are replicated to all workers, where each worker is operating on its local data partition.  RapidsMPF has also implemented out-of-core streaming shuffles for both broadcast and hash joins.  See here for more info on [streaming shuffles](./shuffle-architecture.md)
+The goal is to enable pipelined "out of core" execution for tabular data
+processing tasks where one is processing data that does not all fit in GPU
+memory at once.
+
+> The term _streaming_ is somewhat overloaded. In `rapidsmpf`, we mean
+> execution on fixed size input data that we process piece by piece because
+> it does not all fit in GPU memory at once, or we want to leverage multi-GPU
+> parallelism and task launch pipelining.
+> 
+> This contrasts with "streaming analytics" or "event stream processing"
+> where online queries are run on continously arriving data.
+
+
+## Concepts
+
+The abstract framework we use to describe task graphs is broadly that of
+Hoare's [Communicating Sequential
+Processes](https://en.wikipedia.org/wiki/Communicating_sequential_processes).
+Nodes (tasks) in the graph are long-lived that read from zero-or-more
+channels and write to zero-or-more channels. In this sense, the programming
+model is relatively close to that of
+[actors](https://en.wikipedia.org/wiki/Actor_model).
+
+The communication channels are bounded capacity, multi-producer
+multi-consumer queues. A node processing data from an input channel pulls
+data as necessary until the channel is empty, and can optionally signal
+that it needs no more data (thus shutting the producer down).
+
+Communication between tasks in the same process occurs through channels. In
+contrast communication between processes uses the lower-level rapidsmpf
+communication primitives. In this way, achieving forward progress of the
+task graph is a local property, as long as the logically collective
+semantics of individual tasks are obeyed internally.
+
+The recommended usage to target multiple GPUs is to have one process per
+GPU, tied together by a rapidsmpf communicator.
+
+
+## Building task networks from query plans
+
+The task specification is designed to be lowered to from some higher-level
+application specific intermediate representation, though one can write it
+by hand.  For example, one can convert logical plans from query engines such as 
+Polars, DuckDB, etc to a physical plan to be executed by rapidsmpf.
+
+A typical approach is to define one node in the graph for each physical
+operation in the query plan. Parallelism is obtained by using a
+multi-threaded executor to handle the concurrent tasks that thus result.
+
+For use with data processing engines, we provide a number of utility tasks
+that layer a streaming (out of core) execution model over the
+GPU-accelerated [libcudf](https://docs.rapids.ai/api/libcudf/stable/)
+library.
 
 
 ```
@@ -20,77 +76,10 @@ RapidsMPF is a backend streaming data processing engine using a [CSP](https://en
         |
       Sink
 ```
-*Execution on each worker is structured as a network of CSP-processes operating in a streaming fashion.*
-
-  As data becomes available to a CSP-process (`Node`), it begins computation and forwards results downstream in the graph.  These "nodes" execute operations as asynchronous coroutines on multipe [CUDA Streams](https://developer.nvidia.com/blog/gpu-pro-tip-cuda-7-streams-simplify-concurrency/) -- overlapping of I/O, computation, and communication.  
-
-```
-Time --->
-
-scan:     |====|====|====|====|
-                \    \    \    \
-compute:   .----|====|====|====|====|
-                \    \    \    \
-sink:      ......|====|====|====|====|
-
-Legend:
-|====| : Active period of the task
-\    : Data passed downstream as it becomes available
-.    : Waiting or not yet started
-```
-*Overlapping execution of of scan, compute, sink*
 
 
-`scan`, `compute`, and `sink` all operate in a pipelined fashion as data is pushed through the execution graph 
+*A typical rapidsmpf network of nodes*
 
-RapidsMPF also natively supports out-of-core processing where buffers can move seamlessly between device and host and be communicated as either host or device buffers when collective operations: shuffles, groupby-aggregrations, etc are used.
+ Once constructed, the network of "nodes"  and their connecting channels remains in place for the duration of the workflow. Each node continuously awaits new data, activating as soon as inputs are ready and forwarding results downstream via the channels to the next node(s) in the graph.
 
-
-## RapidsMPF Streaming Network
-
-RapidsMPF builds a network of workers where each worker starts one process/multiple threads and is pinned to one GPU.  Query plans are transformed into a list of nodes (executing coroutines) where each Node performs a single relational operation on a single data chunk at a time.  Nodes can operate and different chunks of data concurrently by operating data on independent [CUDA streams](https://developer.nvidia.com/blog/gpu-pro-tip-cuda-7-streams-simplify-concurrency/)
-
-Each process has a set of input channels it reads from and output channels it writes to. For example:
-
-- A parquet-read CSP-process has only an output channel — it generates data chunks.
-- A filtering CSP-process has both input and output — it reads data, applies a predicate, and emits filtered results.
-
-We execute a workflow in a streaming fashion, where Nodes (coroutines) starting executing as soon as input data becomes available.  Channels "pass" data between Nodes and help reduce OOM errors by limiting the amount of buffers into a channel and creating backpressure. 
-
-Buffers are maintained with a Buffer Manager so that we can move data seamlessly between device and host enabling out-of-core processing and spilling.
-
-```
-+------+     +--------+     +--------+     +------+
-| Scan | --> | Select | --> | Filter | --> | Sink |
-+------+     +--------+     +--------+     +------+
-```
-*example of a simple RapidsMPF graph*
-
-## Definitions
-- **Network**: A graph of nodes and edges.  `Nodes` are the relational operators on data and edges are the `channels` connecting the _next_ operation in the workflow
-
-- **Context**: Context provides access to resources necessary for executing nodes:
-  - UCXX communicators
-  - Thread pool executor
-  - CUDA Memory (RMM) 
-  - RapidMPF Buffer Resource (spillable)
-
-- **Buffer** : Raw Memory buffers typically shared pointers from tabular data provided by cuDF
-  - Buffers are created mostly commonly during scan (read_parquet) operations but can also be created during joins and aggregations.  When operating on mulitple buffers either a new stream is created for the new buffer or re-use of an existing stream to attach the newly created buffer
-
-  - Buffers have an attached CUDA Stream maintained for the lifetime of the buffer. 
-  - Streams are created or used from an existing stream pool
-  
-- **Messages**:[Type-erased](https://en.wikipedia.org/wiki/Type_erasure) container for data payloads (shared memory pointers) including: cudf tables, buffers, and RapidsMPF internal data structures like packed data
-  - Messages also contain metadata like a sequence number
-  - Sequences _do not_ guarantee that chunks arrive in order but they do provide the order in which the data was created
-
-- **Nodes**: Coroutine-based asynchronous relational operator: read, filter, select, join.  
-  - Multiple Nodes can be executed concurrently
-  - Nodes send/recv data on a channel, process it, and send the result to an output channel
-  - Nodes can communicate with each other directly like in the cases of: shuffles, joins, etc.
-
-- **Channels**: An asynchronous messaging queue used for forward progressing `messages`.
-  - Can be throttled to prevent over production of messages – useful when writing producer nodes that otherwise do not depend on an input channel.
-  - Throttling limits the number of concurrent tasks/nodes
-Sending suspends when channel is full
+  This design naturally provides opportunities for both parallelism and pipelining. Individual nodes operate as asynchronous coroutines, and—by leveraging multiple [CUDA Streams](https://developer.nvidia.com/blog/gpu-pro-tip-cuda-7-streams-simplify-concurrency/)—can overlap I/O, computation, and communication tasks.
