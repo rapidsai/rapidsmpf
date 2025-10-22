@@ -44,6 +44,11 @@ def read_parquet(
         Maximum number of tasks that may be suspended having read a chunk.
     options
         Reader options
+
+    Notes
+    -----
+    This is a collective operation, all ranks participating via the
+    execution context's communicator must call it with the same options.
     """
     cdef cpp_Node _ret
     with nogil:
