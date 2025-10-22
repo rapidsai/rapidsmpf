@@ -16,7 +16,6 @@
 
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
-#include <rapidsmpf/communicator/communication_interface.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/nvtx.hpp>
@@ -95,8 +94,6 @@ class Shuffler {
      * @param finished_callback Callback to notify when a partition is finished.
      * @param statistics The statistics instance to use (disabled by default).
      * @param partition_owner Function to determine partition ownership.
-     * @param comm_interface Optional custom communication interface. If not provided,
-     * uses the default implementation.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -110,8 +107,7 @@ class Shuffler {
         BufferResource* br,
         FinishedCallback&& finished_callback,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-        PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<communicator::CommunicationInterface> comm_interface = nullptr
+        PartitionOwner partition_owner = round_robin
     );
 
     /**
@@ -125,8 +121,6 @@ class Shuffler {
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param statistics The statistics instance to use (disabled by default).
      * @param partition_owner Function to determine partition ownership.
-     * @param comm_interface Optional custom communication interface. If not provided,
-     * uses the default implementation.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -139,8 +133,7 @@ class Shuffler {
         PartID total_num_partitions,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-        PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<communicator::CommunicationInterface> comm_interface = nullptr
+        PartitionOwner partition_owner = round_robin
     )
         : Shuffler(
               comm,
@@ -150,8 +143,7 @@ class Shuffler {
               br,
               nullptr,
               statistics,
-              partition_owner,
-              std::move(comm_interface)
+              partition_owner
           ) {}
 
     ~Shuffler();
@@ -356,7 +348,6 @@ class Shuffler {
                                              ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
-    std::unique_ptr<communicator::CommunicationInterface> comm_interface_;
     std::shared_ptr<ProgressThread> progress_thread_;
     ProgressThread::FunctionID progress_thread_function_id_;
     OpID const op_id_;
