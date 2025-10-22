@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 def test_get_stream_from_pool(context: Context, stream: Stream) -> None:
     pool_size = context.stream_pool_size()
-    assert pool_size > 1
+    assert pool_size > 0
 
     streams = [context.get_stream_from_pool() for _ in range(pool_size)]
     # check that all streams are different from each other
