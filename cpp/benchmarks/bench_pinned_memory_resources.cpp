@@ -73,47 +73,42 @@ void BM_AsyncPrimingImpact(
     rmm::cuda_stream stream{rmm::cuda_stream::flags::non_blocking};
 
     for (auto _ : state) {
-        auto start_time = std::chrono::high_resolution_clock::now();
+        auto t0 = std::chrono::high_resolution_clock::now();
 
         // First allocation - measure latency to this specific call
         allocations.push_back(mr->allocate(stream, allocation_size));
         stream.synchronize();
-        auto first_allocation_time = std::chrono::high_resolution_clock::now();
+        auto t1 = std::chrono::high_resolution_clock::now();
 
         for (int i = 1; i < num_allocations; ++i) {
             allocations.push_back(mr->allocate(stream, allocation_size));
         }
 
         stream.synchronize();
-        auto first_round_end = std::chrono::high_resolution_clock::now();
+        auto t2 = std::chrono::high_resolution_clock::now();
 
         for (auto* ptr : allocations) {
             mr->deallocate(stream, ptr, allocation_size);
         }
         allocations.clear();
+        stream.synchronize();
+
+        auto t3 = std::chrono::high_resolution_clock::now();
 
         for (int i = 0; i < num_allocations; ++i) {
             allocations.push_back(mr->allocate(stream, allocation_size));
         }
 
         stream.synchronize();
-        auto second_round_end = std::chrono::high_resolution_clock::now();
+        auto t4 = std::chrono::high_resolution_clock::now();
 
         // Calculate metrics
-        auto latency_to_first = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                    first_allocation_time - start_time
-        )
-                                    .count();
+        auto latency_to_first =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
         auto first_round_duration_ns =
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                first_round_end - start_time
-            )
-                .count();
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t0).count();
         auto second_round_duration_ns =
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                second_round_end - first_round_end
-            )
-                .count();
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t4 - t3).count();
 
         auto first_round_throughput =
             (static_cast<double>(num_allocations * allocation_size) * 1e9)
@@ -202,20 +197,17 @@ void BM_DeviceToHostCopyComparison(
     for (auto _ : state) {
         state.PauseTiming();
 
-        // Reset stream
         stream.synchronize();
 
         state.ResumeTiming();
 
-        auto host_copy_start = std::chrono::high_resolution_clock::now();
+        auto t0 = std::chrono::high_resolution_clock::now();
         for (size_t i = 0; i < n_copies; ++i) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpy(
                 host_bufs[i].data(), device_buf.data(), copy_size, cudaMemcpyDefault
             ));
         }
-        auto host_copy_end = std::chrono::high_resolution_clock::now();
-
-        auto pinned_copy_start = std::chrono::high_resolution_clock::now();
+        auto t1 = std::chrono::high_resolution_clock::now();
         for (size_t i = 0; i < n_copies; ++i) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 pinned_bufs[i].data(),
@@ -226,26 +218,21 @@ void BM_DeviceToHostCopyComparison(
             ));
         }
         stream.synchronize();
-        auto pinned_copy_end = std::chrono::high_resolution_clock::now();
+        auto t2 = std::chrono::high_resolution_clock::now();
 
         benchmark::DoNotOptimize(device_buf);
         benchmark::DoNotOptimize(host_bufs);
         benchmark::DoNotOptimize(pinned_bufs);
 
-        auto host_copy_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                     host_copy_end - host_copy_start
-        )
-                                     .count();
-        auto pinned_copy_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                       pinned_copy_end - pinned_copy_start
-        )
-                                       .count();
+        auto host_copy_time_ns =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+        auto pinned_copy_time_ns =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
 
 
         // Calculate bandwidth (GB/s)
         auto total_bytes = static_cast<double>(copy_size * n_copies);
-        auto host_bandwidth_gbps =
-            total_bytes / host_copy_time_ns;
+        auto host_bandwidth_gbps = total_bytes / host_copy_time_ns;
         auto pinned_bandwidth_gbps = total_bytes / pinned_copy_time_ns;
 
         state.counters["host_copy_time_ns"] = host_copy_time_ns;
