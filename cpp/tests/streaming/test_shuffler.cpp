@@ -131,7 +131,7 @@ class StreamingShuffler : public BaseStreamingShuffle,
         // Concat all output chunks to a single table.
         std::vector<cudf::table_view> output_chunks_as_views;
         for (auto& chunk : output_chunks) {
-            output_chunks_as_views.push_back(chunk.get<TableChunk>().table_view());
+            output_chunks_as_views.push_back(chunk.get<TableChunk>()->table_view());
         }
         auto result_table = cudf::concatenate(output_chunks_as_views);
 

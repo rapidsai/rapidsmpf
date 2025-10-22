@@ -117,9 +117,9 @@ class Message {
      */
     template <typename T>
     T release() {
-        auto ret = get_ptr<T>();
+        T ret = std::move(*get_ptr_to_payload<T>());
         reset();
-        return std::move(*ret);
+        return std::move(ret);
     }
 
     /**
@@ -132,8 +132,8 @@ class Message {
      * @throws std::invalid_argument if empty or type mismatch.
      */
     template <typename T>
-    T const& get() {
-        return *get_ptr<T>();
+    T const* get() {
+        return get_ptr_to_payload<T>();
     }
 
   private:
@@ -165,10 +165,10 @@ class Message {
      * @throws std::invalid_argument if empty or type mismatch.
      */
     template <typename T>
-    [[nodiscard]] std::shared_ptr<T> get_ptr() const {
+    [[nodiscard]] T* get_ptr_to_payload() const {
         RAPIDSMPF_EXPECTS(!empty(), "message is empty", std::invalid_argument);
         RAPIDSMPF_EXPECTS(holds<T>(), "wrong message type", std::invalid_argument);
-        return std::any_cast<std::shared_ptr<T>>(payload_->data);
+        return std::any_cast<std::shared_ptr<T>>(payload_->data).get();
     }
 
   private:
