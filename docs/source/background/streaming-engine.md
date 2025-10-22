@@ -82,3 +82,29 @@ library.
 
  Once constructed, the network of "nodes" and their connecting channels remains in place for the duration of the workflow. Each node continuously awaits new data, activating as soon as inputs are ready and forwarding results downstream via the channels to the next node(s) in the graph.
 
+
+## Definitions
+- **Network**: A graph of nodes and edges.  `Nodes` are the relational operators on data and edges are the `channels` connecting the _next_ operation in the workflow
+
+- **Context**: Context provides access to resources necessary for executing nodes:
+  - Communicators (UCXX or MPI)
+  - Thread pool executor
+  - CUDA Memory (RMM) 
+  - rapidsmpf Buffer Resource (spillable)
+
+- **Buffer** : Raw Memory buffers typically shared pointers from tabular data provided by cuDF
+  - Buffers are created most commonly during scan (read_parquet) operations but can also be created during joins and aggregations.  When operating on mulitple buffers either a new stream is created for the new buffer or re-use of an existing stream is attached the newly created buffer
+  - Buffers have an attached CUDA Stream maintained for the lifetime of the buffer. 
+  
+- **Messages**:[Type-erased](https://en.wikipedia.org/wiki/Type_erasure) container for data payloads (shared memory pointers) including: cudf tables, buffers, and rapidsmpf internal data structures like packed data
+  - Messages also contain metadata: a sequence number
+  - Sequences _do not_ guarantee that chunks arrive in order but they do provide the order in which the data was created
+
+- **Nodes**: Coroutine-based asynchronous relational operator: read, filter, select, join.  
+  - Nodes read from zero-or-more channels and write to zero-or-more channels
+  - Multiple Nodes can be executed concurrently
+  - Nodes can communicate directly using "streaming" collective operations such as shuffles and joins (see [Streaming collective operations](./shuffle-architecture.md#streaming-collective-operations)).
+
+- **Channels**: An asynchronous messaging queue used for communicating Messages between Nodes.
+  - Can be throttled to prevent over production of buffers which can useful when writing producer nodes that otherwise do not depend on an input channel.
+  - Sending suspends when channel is "full"
