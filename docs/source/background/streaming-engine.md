@@ -60,24 +60,11 @@ that layer a streaming (out of core) execution model over the
 GPU-accelerated [libcudf](https://docs.rapids.ai/api/libcudf/stable/)
 library.
 
-
 ```
-     Source
-        |
-        |
-     Node 1
-     /    \
-    /      \
- Node 2  node 3
-     \    /
-      \  /
-    Accumulator
-        |
-        |
-      Sink
++------+     +--------+     +--------+     +------+
+| Scan | --> | Select | --> | Filter | --> | Sink |
++------+     +--------+     +--------+     +------+
 ```
-
-
 *A typical rapidsmpf network of nodes*
 
  Once constructed, the network of "nodes" and their connecting channels remains in place for the duration of the workflow. Each node continuously awaits new data, activating as soon as inputs are ready and forwarding results downstream via the channels to the next node(s) in the graph.
