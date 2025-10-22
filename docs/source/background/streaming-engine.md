@@ -66,7 +66,6 @@ Buffers are maintained with a Buffer Manager so that we can move data seamlessly
 ```
 *example of a simple RapidsMPF graph*
 
-
 ## Definitions
 - **Network**: A graph of nodes and edges.  `Nodes` are the relational operators on data and edges are the `channels` connecting the _next_ operation in the workflow
 

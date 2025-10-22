@@ -1,7 +1,14 @@
 ## Channels
 
 
-Channels are asynchronous messaging queue used to move messages between `Nodes` in the RAPIDSMPF streaming network.  
+Channels are asynchronous messaging queue used to move messages between [Nodes](./nodes.md) in the RapidsMPF streaming network.  
+
+<div style="display: flex; align-items: flex-start; gap: 24px;">
+  <img src="../_static/buffers-animated.gif" alt="Animated buffer pipeline" style="max-width: 4500px;"/>
+  <img src="../_static/animation-legend.png" alt="Animation Legend" style="width: 320px;"/>
+</div>
+
+As buffers move through the graph, the channels (arrows) move from empty (dashed line) to full (solid line).   
 
 *Note: Nodes do not refer to number of GPUs or number of machines -- nodes and edges define a graph for RAPIDSMPF to execute in either Single or Multiple GPU*
 
