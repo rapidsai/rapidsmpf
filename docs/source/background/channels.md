@@ -21,7 +21,7 @@ As buffers move through the graph, the channels (arrows) move from empty (dashed
 │  │(Producer)│         │(Transform)         │(Consumer)│                 │
 │  └──────────┘         └──────────┘         └──────────┘                 │
 │       │                    │                     │                      │
-│    Message             Message               Message                    │
+│    Message              Message               Message                    │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
