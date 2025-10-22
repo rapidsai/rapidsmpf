@@ -115,7 +115,6 @@ void BM_AsyncPrimingImpact(
             )
                 .count();
 
-        // Calculate throughput (bytes per second)
         auto first_round_throughput =
             (static_cast<double>(num_allocations * allocation_size) * 1e9)
             / first_round_duration_ns;
@@ -123,12 +122,10 @@ void BM_AsyncPrimingImpact(
             (static_cast<double>(num_allocations * allocation_size) * 1e9)
             / second_round_duration_ns;
 
-        // Set benchmark counters
         state.counters["latency_to_first_ns"] = latency_to_first;
         state.counters["first_round_throughput"] = first_round_throughput;
         state.counters["second_round_throughput"] = second_round_throughput;
 
-        // Clean up for next iteration
         for (auto* ptr : allocations) {
             mr->deallocate(stream, ptr, allocation_size);
         }
@@ -182,23 +179,19 @@ void BM_DeviceToHostCopyComparison(
         return;
     }
 
-    // Create memory resource for stream-ordered pinned memory
     auto [pool, mr] = factory(0);
 
     rmm::cuda_stream stream{rmm::cuda_stream::flags::non_blocking};
 
-    // Allocate device memory
     rmm::device_buffer device_buf(copy_size, stream);
     stream.synchronize();
 
-    // Preallocate regular host memory buffers
     std::vector<std::vector<std::byte>> host_bufs;
     host_bufs.reserve(n_copies);
     for (size_t i = 0; i < n_copies; ++i) {
         host_bufs.emplace_back(copy_size);
     }
 
-    // Preallocate stream-ordered pinned memory buffers
     std::vector<rapidsmpf::PinnedHostBuffer> pinned_bufs;
     pinned_bufs.reserve(n_copies);
     for (size_t i = 0; i < n_copies; ++i) {
@@ -214,7 +207,6 @@ void BM_DeviceToHostCopyComparison(
 
         state.ResumeTiming();
 
-        // Time device to regular host copies (synchronous)
         auto host_copy_start = std::chrono::high_resolution_clock::now();
         for (size_t i = 0; i < n_copies; ++i) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpy(
@@ -223,7 +215,6 @@ void BM_DeviceToHostCopyComparison(
         }
         auto host_copy_end = std::chrono::high_resolution_clock::now();
 
-        // Time device to stream-ordered pinned copies (asynchronous)
         auto pinned_copy_start = std::chrono::high_resolution_clock::now();
         for (size_t i = 0; i < n_copies; ++i) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
@@ -241,7 +232,6 @@ void BM_DeviceToHostCopyComparison(
         benchmark::DoNotOptimize(host_bufs);
         benchmark::DoNotOptimize(pinned_bufs);
 
-        // Calculate times in nanoseconds
         auto host_copy_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                                      host_copy_end - host_copy_start
         )
@@ -252,14 +242,12 @@ void BM_DeviceToHostCopyComparison(
                                        .count();
 
 
-        // Calculate bandwidth (GB/s) - total data transferred
+        // Calculate bandwidth (GB/s)
         auto total_bytes = static_cast<double>(copy_size * n_copies);
         auto host_bandwidth_gbps =
-            (total_bytes / 1e9) / (host_copy_time_ns / 1e9);  // GB/s
-        auto pinned_bandwidth_gbps =
-            (total_bytes / 1e9) / (pinned_copy_time_ns / 1e9);  // GB/s
+            total_bytes / host_copy_time_ns;
+        auto pinned_bandwidth_gbps = total_bytes / pinned_copy_time_ns;
 
-        // Set benchmark counters
         state.counters["host_copy_time_ns"] = host_copy_time_ns;
         state.counters["pinned_copy_time_ns"] = pinned_copy_time_ns;
         state.counters["host_bandwidth_gbps"] = host_bandwidth_gbps;
@@ -293,7 +281,6 @@ BENCHMARK_CAPTURE(BM_AsyncConstructionTime, primed_1GB, &make_pinned_resource, 1
 BENCHMARK_CAPTURE(BM_AsyncConstructionTime, primed_4GB, &make_pinned_resource, 4 << 30)
     ->Unit(benchmark::kMicrosecond);
 
-// Device to Host Copy Comparison benchmarks - registered in a loop
 static auto register_device_to_host_copy_benchmarks = [] {
     struct BenchConfig {
         size_t copy_size_mb;
