@@ -16,18 +16,24 @@ author = 'NVIDIA Corporation'
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
-    "myst_parser",
-    "numpydoc",
-    "sphinx_copybutton",
+    "sphinx.ext.intersphinx",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
-    "sphinx.ext.autosectionlabel",
-    "sphinx.ext.intersphinx",
+    "sphinx_copybutton",
+    "sphinx_remove_toctrees",
+    # "sphinx.ext.linkcode",
+    "numpydoc",
+    "IPython.sphinxext.ipython_console_highlighting",
+    "IPython.sphinxext.ipython_directive",
+    "myst_nb",
 ]
 
 templates_path = ['_templates']
 exclude_patterns = []
 autosummary_generate = True
+
+# MyST parser configuration
+myst_heading_anchors = 3
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
@@ -41,11 +47,10 @@ html_theme_options = {
     "icon_links": [],
     "github_url": "https://github.com/rapidsai/rapidsmpf",
     "twitter_url": "https://twitter.com/rapidsai",
-    "show_toc_level": 2,
+    "show_toc_level": 1,
     "navbar_align": "right",
     "navigation_with_keys": True,
 }
-include_pandas_compat = True
 
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for

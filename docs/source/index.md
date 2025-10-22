@@ -6,12 +6,12 @@ Follow the RAPIDS [installation guide] to install `rapidsmpf` and the necessary 
 
 ```{toctree}
 ---
-maxdepth: 3
+maxdepth: 2
 caption: Contents:
 ---
 quickstart.md
-background.md
+background/index.md
 api.md
 ```
 
-[installation guide]: https://docs.rapids.ai/install/
+streaming-engine.md]: https://docs.rapids.ai/install/

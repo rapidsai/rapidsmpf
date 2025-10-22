@@ -1,8 +1,11 @@
 ## Channels
 
 
-Are asynchronous messaging queue used move messages between nodes.
+Channels are asynchronous messaging queue used to move messages between `Nodes` in the RAPIDSMPF streaming network.  
 
+*Note: Nodes do not refer to number of GPUs or number of machines -- nodes and edges define a graph for RAPIDSMPF to execute in either Single or Multiple GPU*
+
+```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                          STREAMING NETWORK                              │
 │                                                                         │
@@ -14,13 +17,15 @@ Are asynchronous messaging queue used move messages between nodes.
 │    Message             Message               Message                    │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
-
-*example streaming network with 3 Nodes and 2 Channels*
+```
+*fig: example streaming network with 3 Nodes and 2 Channels*
 
 Components:
   • Node: Coroutine that processes messages
   • Channel: Async queue connecting nodes
   • Message: GPU Buffer with a CUDA Stream
+
+In the above graph, moving data in and out of channels on a single GPU should be relatively cheap, nearly free! This stratedy of using channels to move tasks/buffers is a core methodology for RapidsMPF to overlap: scans, compute, spilling, and communication.
 
 
 Channels provide asynchronous communication with **backpressure**:
@@ -46,7 +51,7 @@ Key Properties:
   • Backpressure: Slow consumers throttle producers
   • Type-safe: Messages are type-erased but validated
 
-Consumer is **"full"** when an internal ring_buffer `coro::ring_buffer<Message, 1> rb_;` has reached capacity.  
+A Consumer is **"full"** when an internal ring_buffer `coro::ring_buffer<Message, 1> rb_;` has reached capacity.  
 
 Additional backpressure control can be applied by usage of a Throttline system (semaphores) controlling the number of threads/concurrent operations. 
 

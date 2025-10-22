@@ -1,9 +1,4 @@
-# Background
-
-This document provides some background to `rapidsmpf` and the problems
-it is designed to solve.
-
-## Architecture
+## Shuffle Architecture
 
 `rapidsmpf` uses a network of **nodes** to process data. Typically you'll have
 one `rapidsmpf` node per GPU. You might form a rapidsmpf network on a single
@@ -35,7 +30,7 @@ serves.
 
 This diagram shows a network of with three nodes in the middle of a Shuffle operation.
 
-![A diagram showing a shuffle.](_static/rapidsmpf-shuffler-transparent-fs8.png)
+![A diagram showing a shuffle.](../_static/rapidsmpf-shuffler-transparent-fs8.png)
 
 As your program inserts chunks of data into a node (see below), it's assigned to
 a particular node. In the diagram above, this is shown by color: each node has a
@@ -71,7 +66,7 @@ of a Shuffle Join implementation.
 This diagram shows multiple nodes working together to shuffle a large, logical
 Table.
 
-![A diagram showing how to use rapidsmpf to shuffle a table.](_static/rapidsmpf-shuffle-table-fs8.png)
+![A diagram showing how to use rapidsmpf to shuffle a table.](../_static/rapidsmpf-shuffle-table-fs8.png)
 
 Suppose you have a large logical table that's split into a number of partitions.
 In the diagram above, this is shown as the different dashed boxes on the
