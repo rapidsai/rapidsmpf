@@ -114,10 +114,9 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(StreamingReadParquetThrottle, NonPositiveThrottleThrows) {
-    if (GlobalEnvironment->comm_->nranks() > 1) {
-        // Test is independent of size of communicator, so don't bother if we
-        // have more than one rank.
-        GTEST_SKIP();
+    if (GlobalEnvironment->comm_->rank() != 0) {
+        // Test is independent of size of communicator.
+        GTEST_SKIP() << "Test only runs on rank zero";
     }
     int max_tickets = GetParam();
     auto source = get_source_info();
