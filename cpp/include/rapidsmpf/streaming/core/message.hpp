@@ -73,7 +73,7 @@ class Message {
      * @return true if the payload is `typeid(T)`, false otherwise.
      */
     template <typename T>
-    [[nodiscard]] bool payload_type() const noexcept {
+    [[nodiscard]] bool holds() const noexcept {
         return payload_.type() == typeid(std::shared_ptr<T>);
     }
 
@@ -116,7 +116,7 @@ class Message {
     template <typename T>
     [[nodiscard]] std::shared_ptr<T> get_ptr() const {
         RAPIDSMPF_EXPECTS(!empty(), "message is empty", std::invalid_argument);
-        RAPIDSMPF_EXPECTS(payload_type<T>(), "wrong message type", std::invalid_argument);
+        RAPIDSMPF_EXPECTS(holds<T>(), "wrong message type", std::invalid_argument);
         return std::any_cast<std::shared_ptr<T>>(payload_);
     }
 

@@ -75,7 +75,7 @@ Node unpack_and_concat(
         // partition IDs.
         std::uint64_t seq;
         std::vector<PackedData> data;
-        if (msg.payload_type<PartitionMapChunk>()) {
+        if (msg.holds<PartitionMapChunk>()) {
             auto partition_map = msg.release<PartitionMapChunk>();
             seq = partition_map.sequence_number;
             data = to_vector(std::move(partition_map.data));
