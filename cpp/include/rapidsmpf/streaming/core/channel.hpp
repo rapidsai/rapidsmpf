@@ -30,6 +30,30 @@ using Semaphore = coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()>;
  * @brief Move-only, type-erased message holding a payload as shared pointer.
  */
 class Message {
+    /**
+     * @brief Internal container for the (shared) payload.
+     */
+    struct Payload {
+        mutable std::mutex mutex;
+        /**
+         * @brief Type-erased holder for the actual payload.
+         *
+         * Stores a `std::shared_ptr<T>` for some `T`.
+         *
+         * @note Conceptually, a `std::unique_ptr` would suffice for exclusive ownership,
+         * but `std::any` requires its contents to be copyable, so a `std::shared_ptr` is
+         * used instead.
+         */
+        std::any data;
+
+        /**
+         * @brief Constructs a payload from the given type-erased data.
+         *
+         * @param any_data The type-erased object to store inside the payload.
+         */
+        explicit Payload(std::any any_data) : data{std::move(any_data)} {}
+    };
+
   public:
     Message() = default;
 
@@ -43,7 +67,7 @@ class Message {
     template <typename T>
     Message(std::unique_ptr<T> ptr) {
         RAPIDSMPF_EXPECTS(ptr != nullptr, "nullptr not allowed", std::invalid_argument);
-        data_ = std::shared_ptr<T>(std::move(ptr));
+        payload_ = std::make_shared<Payload>(std::shared_ptr<T>(std::move(ptr)));
     }
 
     /** @brief Move construct. @param other Source message. */
@@ -58,7 +82,7 @@ class Message {
      * @brief Reset the message to empty.
      */
     void reset() noexcept {
-        return data_.reset();
+        payload_.reset();
     }
 
     /**
@@ -67,7 +91,10 @@ class Message {
      * @return true if empty, false otherwise.
      */
     [[nodiscard]] bool empty() const noexcept {
-        return !data_.has_value();
+        if (payload_) {
+            return !payload_->data.has_value();
+        }
+        return true;
     }
 
     /**
@@ -77,8 +104,9 @@ class Message {
      * @return true if the payload is `typeid(T)`, false otherwise.
      */
     template <typename T>
-    [[nodiscard]] bool holds() const noexcept {
-        return data_.type() == typeid(std::shared_ptr<T>);
+    [[nodiscard]] bool holds() const {
+        RAPIDSMPF_EXPECTS(!empty(), "message is empty", std::invalid_argument);
+        return payload_->data.type() == typeid(std::shared_ptr<T>);
     }
 
     /**
@@ -121,11 +149,11 @@ class Message {
     [[nodiscard]] std::shared_ptr<T> get_ptr() const {
         RAPIDSMPF_EXPECTS(!empty(), "message is empty", std::invalid_argument);
         RAPIDSMPF_EXPECTS(holds<T>(), "wrong message type", std::invalid_argument);
-        return std::any_cast<std::shared_ptr<T>>(data_);
+        return std::any_cast<std::shared_ptr<T>>(payload_->data);
     }
 
   private:
-    std::any data_;
+    std::shared_ptr<Payload> payload_;
 };
 
 /**
