@@ -1,44 +1,51 @@
 ## Nodes
 
-Nodes are coroutine-based asynchronous relational operators that perform operations on data.  Messages (data buffer) is read in and written to via [channels](./channels.md)
-
-
-**Python**
-
-```python
-async def accumulator(ctx: Context, ch_out: Channel, ch_in: Channel):
-    """Sum Column"""
-
-    total = 0
-    while (msg := await ch_in is not None:)
-        chunk = TableChunk.from_message(msg)
-        total = SUM(chunk.column)
-    await send(total)
-```
+Nodes are coroutine-based asynchronous relational operators that read from 
+zero-or-more channels and write to zero-or-more channels.  
 
 **C++**
 
 ```c++
-# sum a column
+// sum a column
 rapidsmpf::streaming::Node accumulator(
     std::shared_ptr<rapidsmpf::Channel> ch_out,
     std::shared_ptr<rapidsmpf::Channel> ch_in)
 {
     int64_t total = 0;
     while (true) {
+        // continously read until channel is empty
         auto msg = co_await ch_in->recv();
         if (!msg) {
             break;
         }
-        auto chunk = msg.release<rapidsmpf::streaming::TableChunk>();
 
-        total += chunk->get_column("value")->sum<int64_t>();
+        auto column = ... # get column from data buffer in message 
+
+        total += column->sum<int64_t>();
     }
 
     // Send the accumulated result downstream as a message
-    co_await ch_out->send(rapidsmpf::make_message(total));
+    co_await ch_out->send(total));
 }
 ```
+
+**Python**
+
+```python
+async def accumulator(ch_out, ch_in, msg):
+    """Sum Column"""
+
+    total = 0
+    # continuously read until channel is empy
+    while (msg := await ch_in is not None:)
+        col = ... # get column from data buffer in message
+        total += sum(col)
+
+    # Send the accumulated result downstream as a message
+    send(total, ch_out)
+```
+
+*examples of nodes in C++ and Python*
 
 ##$ Node Types
 
@@ -57,4 +64,4 @@ This hybrid model, which combines a SPMD-style distribution model and a local CS
 
 - It makes inter-worker parallelism explicit through SPMD-style communication.
 
-For examples of communication nodes please read the [shuffle architecture page](./shuffle-architecture.md)
+For examples of communication nodes and collective operations please read the [shuffle architecture page](./shuffle-architecture.md)
