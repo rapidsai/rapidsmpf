@@ -65,17 +65,14 @@ void BM_AsyncPrimingImpact(
 
     constexpr int num_allocations = 100;
 
-    // Create memory resource
     auto [pool, mr] = factory(initial_pool_size);
 
-    // Storage for allocations
     std::vector<void*> allocations;
     allocations.reserve(num_allocations);
 
     rmm::cuda_stream stream{rmm::cuda_stream::flags::non_blocking};
 
     for (auto _ : state) {
-        // Measure latency to first allocation
         auto start_time = std::chrono::high_resolution_clock::now();
 
         // First allocation - measure latency to this specific call
@@ -83,7 +80,6 @@ void BM_AsyncPrimingImpact(
         stream.synchronize();
         auto first_allocation_time = std::chrono::high_resolution_clock::now();
 
-        // Continue with remaining allocations in first round
         for (int i = 1; i < num_allocations; ++i) {
             allocations.push_back(mr->allocate(stream, allocation_size));
         }
@@ -91,13 +87,11 @@ void BM_AsyncPrimingImpact(
         stream.synchronize();
         auto first_round_end = std::chrono::high_resolution_clock::now();
 
-        // Deallocate all
         for (auto* ptr : allocations) {
             mr->deallocate(stream, ptr, allocation_size);
         }
         allocations.clear();
 
-        // Second round of allocations
         for (int i = 0; i < num_allocations; ++i) {
             allocations.push_back(mr->allocate(stream, allocation_size));
         }
