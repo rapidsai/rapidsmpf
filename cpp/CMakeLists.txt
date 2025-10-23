@@ -152,13 +152,6 @@ target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize
 
 add_library(
   rapidsmpf
-  src/config.cpp
-  src/cuda_event.cpp
-  src/pausable_thread_loop.cpp
-  src/progress_thread.cpp
-  src/rmm_resource_adaptor.cpp
-  src/statistics.cpp
-  src/utils.cpp
   src/allgather/allgather.cpp
   src/buffer/buffer.cpp
   src/buffer/pinned_memory_resource.cu
@@ -166,12 +159,19 @@ add_library(
   src/buffer/spill_manager.cpp
   src/communicator/communicator.cpp
   src/communicator/single.cpp
+  src/config.cpp
+  src/cuda_event.cpp
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
+  src/pausable_thread_loop.cpp
+  src/progress_thread.cpp
+  src/rmm_resource_adaptor.cpp
   src/shuffler/chunk.cpp
   src/shuffler/finish_counter.cpp
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
+  src/statistics.cpp
+  src/utils.cpp
 )
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(

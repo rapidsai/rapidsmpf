@@ -10,7 +10,6 @@ from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.buffer cimport MemoryType
-from rapidsmpf.streaming.core.channel cimport Message
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:

@@ -5,8 +5,9 @@ from __future__ import annotations
 
 from typing import Generic
 
-from rapidsmpf.streaming.core.channel import Channel, Message, PayloadT
+from rapidsmpf.streaming.core.channel import Channel, PayloadT
 from rapidsmpf.streaming.core.context import Context
+from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import CppNode
 
 class DeferredMessages(Generic[PayloadT]):
