@@ -1,4 +1,4 @@
-## Communicator Background
+## Shuffle Architecture
 
 `rapidsmpf` uses a "process-per-GPU" execution model. It can be used both
 to run on a single GPU or multiple GPUs. These can either be physically
@@ -68,8 +68,6 @@ managed. But at a high level, your program is responsible for inserting chunks
 somewhere and extracting (the now shuffled) chunks once they've been moved to
 the correct rank.
 
-### Shuffle
-
 This diagram shows a network of with three ranks in the middle of a Shuffle operation.
 
 ![A diagram showing a shuffle.](../_static/rapidsmpf-shuffler-transparent-fs8.png)
@@ -132,7 +130,7 @@ section.
 As chunks become "ready" (see above), your program can **extract** chunks and
 process them as necessary. This is shown on the right-hand side.
 
-## Shuffle Statistics
+### Shuffle Statistics
 
 Shuffles can be configured to collect statistics, which can help you understand the performance of the system.
 This table gives an overview of the different statistics collected.
