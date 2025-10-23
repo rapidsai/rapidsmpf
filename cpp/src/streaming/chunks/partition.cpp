@@ -8,7 +8,7 @@
 namespace rapidsmpf::streaming {
 
 
-Message PartitionMapChunk::to_message() {
+Message to_message(PartitionMapChunk&& chunk) {
     Message::Callbacks cbs{
         .buffer_size = [](Message const& msg, MemoryType mem_type) -> size_t {
             auto const& self = msg.get<PartitionMapChunk>();
@@ -46,7 +46,7 @@ Message PartitionMapChunk::to_message() {
             );
         }
     };
-    return Message{std::make_unique<PartitionMapChunk>(std::move(*this)), std::move(cbs)};
+    return Message{std::make_unique<PartitionMapChunk>(std::move(chunk)), std::move(cbs)};
 }
 
 

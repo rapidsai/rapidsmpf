@@ -32,8 +32,6 @@ struct PartitionMapChunk {
      * @brief Packed data for each partition, keyed by partition ID.
      */
     std::unordered_map<shuffler::PartID, PackedData> data;
-
-    Message to_message();
 };
 
 /**
@@ -54,5 +52,6 @@ struct PartitionVectorChunk {
     std::vector<PackedData> data;
 };
 
+Message to_message(PartitionMapChunk&& chunk);
 
 }  // namespace rapidsmpf::streaming

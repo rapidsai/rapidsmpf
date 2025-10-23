@@ -87,8 +87,7 @@ TEST_F(StreamingPartition, PartitionMapChunkToMessage) {
     data.emplace(1, generate_packed_data(10, 10, stream, *br));
     PartitionMapChunk chunk{0, std::move(data)};
 
-    Message m = chunk.to_message();
-    EXPECT_TRUE(chunk.data.empty());
+    Message m = to_message(std::move(chunk));
     EXPECT_FALSE(m.empty());
     EXPECT_TRUE(m.holds<PartitionMapChunk>());
     EXPECT_EQ(m.buffer_size(MemoryType::HOST), 0);
