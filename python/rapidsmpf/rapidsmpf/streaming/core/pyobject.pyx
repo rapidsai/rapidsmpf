@@ -22,8 +22,7 @@ cdef extern from *:
     #include <memory>
     #include <rapidsmpf/streaming/cudf/owning_wrapper.hpp>
 
-    namespace rapidsmpf {
-    namespace streaming {
+    namespace rapidsmpf::streaming {
 
     struct TypeErasedChunk {
         std::uint64_t sequence_{};
@@ -55,8 +54,7 @@ cdef extern from *:
         TypeErasedChunk& operator=(const TypeErasedChunk&) = delete;
     };
 
-    }  // namespace streaming
-    }  // namespace rapidsmpf
+    }  // namespace rapidsmpf::streaming
 
     namespace {
     std::unique_ptr<rapidsmpf::streaming::TypeErasedChunk>
@@ -83,9 +81,8 @@ cdef extern from *:
 
 
 cdef void py_deleter(void *p) noexcept nogil:
-    if p != NULL:
-        with gil:
-            Py_XDECREF(<PyObject*>p)
+    with gil:
+        Py_XDECREF(<PyObject*>p)
 
 
 cdef class PyObjectPayload:
@@ -146,16 +143,15 @@ cdef class PyObjectPayload:
 
         Parameters
         ----------
-        sequence_number : int
+        sequence_number
             Sequence number for this payload.
-        obj : Any
+        obj
             Any Python object to wrap. The object's reference count is incremented
             and will be decremented when the payload is destroyed.
 
         Returns
         -------
-        PyObjectPayload
-            A new payload wrapping the given object.
+        A new payload wrapping the given object.
         """
         # Increment reference count - will be decremented by py_deleter
         Py_INCREF(obj)
@@ -175,14 +171,13 @@ cdef class PyObjectPayload:
 
         Parameters
         ----------
-        message : Message
+        message
             Message containing a PyObjectPayload. The message is released
             and is empty after this call.
 
         Returns
         -------
-        PyObjectPayload
-            A new PyObjectPayload extracted from the given message.
+        A new PyObjectPayload extracted from the given message.
         """
         return PyObjectPayload.from_handle(
             cpp_release_from_message(move(message._handle))
@@ -198,7 +193,7 @@ cdef class PyObjectPayload:
 
         Parameters
         ----------
-        message : Message
+        message
             Message object that will take ownership of this PyObjectPayload.
 
         Raises
@@ -258,8 +253,7 @@ cdef class PyObjectPayload:
 
         Returns
         -------
-        int
-            The sequence number.
+        The sequence number.
         """
         return deref(self.handle_ptr()).sequence_
 
@@ -272,8 +266,7 @@ cdef class PyObjectPayload:
 
         Returns
         -------
-        Any
-            The Python object that was wrapped by this payload.
+        The Python object that was wrapped by this payload.
 
         Raises
         ------
