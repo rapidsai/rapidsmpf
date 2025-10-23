@@ -52,7 +52,7 @@ Node partition_and_pack(
         };
 
         co_await ch_out->send(
-            std::make_unique<PartitionMapChunk>(std::move(partition_map))
+            Message{std::make_unique<PartitionMapChunk>(std::move(partition_map))}
         );
     }
     co_await ch_out->drain(ctx->executor());

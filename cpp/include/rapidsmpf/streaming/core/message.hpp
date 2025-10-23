@@ -6,20 +6,28 @@
 #pragma once
 
 #include <any>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <typeinfo>
+#include <utility>
 
+#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf::streaming {
 
 
 /**
- * @brief @brief Type-erased message wrapper around a payload.
+ * @brief Type-erased message wrapper around a payload.
  */
 class Message {
   public:
+    struct Callbacks {
+        std::function<size_t(Message const&, MemoryType)> buffer_size;
+    };
+
+    // @brief Create an empty message.
     Message() = default;
 
     /**
@@ -31,7 +39,8 @@ class Message {
      * @throws std::invalid_argument if @p payload is null.
      */
     template <typename T>
-    Message(std::unique_ptr<T> payload) {
+    Message(std::unique_ptr<T> payload, Callbacks callbacks = Callbacks{})
+        : callbacks_{std::move(callbacks)} {
         RAPIDSMPF_EXPECTS(
             payload != nullptr, "nullptr not allowed", std::invalid_argument
         );
@@ -105,6 +114,15 @@ class Message {
         return std::move(*ret);
     }
 
+    [[nodiscard]] size_t buffer_size(MemoryType mem_type) {
+        RAPIDSMPF_EXPECTS(
+            callbacks_.buffer_size,
+            "message doesn't support `buffer_size`",
+            std::invalid_argument
+        );
+        return callbacks_.buffer_size(*this, mem_type);
+    }
+
   private:
     /**
      * @brief Returns a shared pointer to the payload.
@@ -122,6 +140,7 @@ class Message {
 
   private:
     std::any payload_;
+    Callbacks callbacks_;
 };
 
 }  // namespace rapidsmpf::streaming
