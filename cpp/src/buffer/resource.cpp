@@ -5,6 +5,7 @@
 
 #include <limits>
 
+#include <rapidsmpf/buffer/pinned_memory_resource.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
@@ -42,9 +43,48 @@ BufferResource::BufferResource(
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
+BufferResource::BufferResource(
+    rmm::device_async_resource_ref device_mr,
+    std::shared_ptr<PinnedMemoryResource> pinned_host_mr,
+    std::unordered_map<MemoryType, MemoryAvailable> memory_available,
+    std::optional<Duration> periodic_spill_check,
+    std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
+    std::shared_ptr<Statistics> statistics
+)
+    : BufferResource(
+          device_mr,
+          std::move(memory_available),
+          std::move(periodic_spill_check),
+          std::move(stream_pool),
+          std::move(statistics)
+      ) {
+    RAPIDSMPF_EXPECTS(
+        is_pinned_memory_resources_supported(),
+        "PinnedMemoryResource is not supported",
+        std::runtime_error
+    );
+    pinned_host_mr_ = std::move(pinned_host_mr);
+}
+
+[[nodiscard]] rmm::host_device_async_resource_ref BufferResource::pinned_host_mr() const {
+    RAPIDSMPF_EXPECTS(
+        is_pinned_memory_resources_supported() && pinned_host_mr_,
+        "PinnedMemoryResource is not supported or not initialized",
+        std::runtime_error
+    );
+    return *pinned_host_mr_;
+}
+
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, bool allow_overbooking
 ) {
+    RAPIDSMPF_EXPECTS(
+        mem_type != MemoryType::PINNED_HOST
+            || (is_pinned_memory_resources_supported() && pinned_host_mr_),
+        "PINNED_HOST memory type is not supported or not initialized",
+        std::invalid_argument
+    );
+
     auto const& available = memory_available(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
     std::size_t& reserved = memory_reserved(mem_type);
@@ -106,6 +146,12 @@ MemoryReservation BufferResource::reserve_or_fail(
 
     // try to allocate data buffer from memory types in order [DEVICE, HOST]
     for (auto mem_type : MEMORY_TYPES) {
+        if (mem_type == MemoryType::PINNED_HOST
+            && !is_pinned_memory_resources_supported())
+        {
+            continue;
+        }
+
         auto [res, _] = reserve(mem_type, size, false);
         if (res.size() == size) {
             return std::move(res);
@@ -140,6 +186,11 @@ std::unique_ptr<Buffer> BufferResource::allocate(
             new Buffer(std::make_unique<std::vector<uint8_t>>(size), stream)
         );
         break;
+    case MemoryType::PINNED_HOST:
+        ret = std::unique_ptr<Buffer>(
+            new Buffer(std::make_unique<PinnedHostBuffer>(size, stream, pinned_host_mr_))
+        );
+        break;
     case MemoryType::DEVICE:
         ret = std::unique_ptr<Buffer>(
             new Buffer(std::make_unique<rmm::device_buffer>(size, stream, device_mr_))
@@ -158,14 +209,27 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     return allocate(reservation.size(), stream, reservation);
 }
 
-std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
-) {
+namespace {
+void join_buf_stream(auto& data, rmm::cuda_stream_view stream) {
     auto upstream = data->stream();
     if (upstream.value() != stream.value()) {
         cuda_stream_join(stream, upstream);
         data->set_stream(stream);
     }
+}
+}  // namespace
+
+std::unique_ptr<Buffer> BufferResource::move(
+    std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+) {
+    join_buf_stream(data, stream);
+    return std::unique_ptr<Buffer>(new Buffer(std::move(data)));
+}
+
+std::unique_ptr<Buffer> BufferResource::move(
+    std::unique_ptr<PinnedHostBuffer> data, rmm::cuda_stream_view stream
+) {
+    join_buf_stream(data, stream);
     return std::unique_ptr<Buffer>(new Buffer(std::move(data)));
 }
 
@@ -183,9 +247,11 @@ std::unique_ptr<Buffer> BufferResource::move(
 std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
 ) {
+    // if the buffer is already device, then we dont need a reservation
     RAPIDSMPF_EXPECTS(
-        reservation.mem_type_ == MemoryType::DEVICE,
-        "the memory type of MemoryReservation doesn't match",
+        buffer->mem_type() == MemoryType::DEVICE
+            || reservation.mem_type_ == MemoryType::DEVICE,
+        "Memory reservation is not device",
         std::invalid_argument
     );
     auto stream = buffer->stream();
@@ -198,12 +264,34 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     return ret;
 }
 
+std::unique_ptr<PinnedHostBuffer> BufferResource::move_to_pinned_host_buffer(
+    std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
+) {
+    // if the buffer is already pinned host, then we dont need a reservation
+    RAPIDSMPF_EXPECTS(
+        buffer->mem_type() == MemoryType::PINNED_HOST
+            || reservation.mem_type_ == MemoryType::PINNED_HOST,
+        "Memory reservation is not pinned host",
+        std::invalid_argument
+    );
+
+    auto stream = buffer->stream();
+    auto ret = move(std::move(buffer), reservation)->release_pinned_host();
+    RAPIDSMPF_EXPECTS(
+        ret->stream().value() == stream.value(),
+        "something went wrong, the Buffer's stream and the pinned_host_buffer's stream "
+        "don't match"
+    );
+    return ret;
+}
+
 std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
     std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
 ) {
     RAPIDSMPF_EXPECTS(
-        reservation.mem_type_ == MemoryType::HOST,
-        "the memory type of MemoryReservation doesn't match",
+        buffer->mem_type() == MemoryType::HOST
+            || reservation.mem_type_ == MemoryType::HOST,
+        "Memory reservation is not host",
         std::invalid_argument
     );
     return move(std::move(buffer), reservation)->release_host();

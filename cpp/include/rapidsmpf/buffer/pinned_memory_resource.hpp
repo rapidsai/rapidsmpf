@@ -62,7 +62,9 @@ class PinnedMemoryResource;  // forward declaration
  *
  * @sa https://github.com/rapidsai/rmm/issues/1931
  */
-struct PinnedPoolProperties {};
+struct PinnedPoolProperties {
+    size_t initial_pool_size = 0;  ///< The initial size of the pool in bytes.
+};
 
 /**
  * @brief A pinned host memory pool for stream-ordered allocations/deallocations. This
@@ -139,6 +141,13 @@ class PinnedMemoryResource {
      */
     friend constexpr void get_property(
         const PinnedMemoryResource&, cuda::mr::host_accessible
+    ) noexcept {}
+
+    /**
+     * @brief Friend function to get the host_accessible property.
+     */
+    friend constexpr void get_property(
+        const PinnedMemoryResource&, cuda::mr::device_accessible
     ) noexcept {}
 
     /**
@@ -235,6 +244,7 @@ class PinnedMemoryResource {
 };
 
 static_assert(cuda::mr::resource_with<PinnedMemoryResource, cuda::mr::host_accessible>);
+static_assert(cuda::mr::resource_with<PinnedMemoryResource, cuda::mr::device_accessible>);
 
 /**
  * @brief A buffer that manages stream-ordered pinned host memory. Only available for CUDA

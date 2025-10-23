@@ -15,6 +15,7 @@
 #include <rmm/cuda_stream_pool.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/pinned_memory_resource.hpp>
 #include <rapidsmpf/buffer/spill_manager.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
@@ -22,22 +23,6 @@
 #include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
-
-/// @brief Enum representing the type of memory.
-enum class MemoryType : int {
-    DEVICE = 0,  ///< Device memory
-    PINNED_HOST = 1,  ///< Pinned host memory
-    HOST = 2  ///< Host memory
-};
-
-/// @brief The lowest memory type that can be spilled to.
-constexpr MemoryType LowestSpillType = MemoryType::HOST;
-
-/// @brief Array of all the different memory types.
-/// @note Ensure that this array is always sorted in decreasing order of preference.
-constexpr std::array<MemoryType, 3> MEMORY_TYPES{
-    {MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST}
-};
 
 /**
  * @brief Represents a reservation for future memory allocation.
@@ -159,6 +144,37 @@ class BufferResource {
      */
     using MemoryAvailable = std::function<std::int64_t()>;
 
+
+    /**
+     * @brief Constructs a buffer resource when pinned host memory resource is available.
+     *
+     * @param device_mr Reference to the RMM device memory resource used for device
+     * allocations.
+     * @param pinned_host_mr Reference to the pinned host memory resource used for pinned
+     * host allocations.
+     * @param memory_available Optional memory availability functions mapping memory types
+     * to available memory checkers. Memory types without availability functions are
+     * assumed to have unlimited memory.
+     * @param periodic_spill_check Enable periodic spill checks. A dedicated thread
+     * continuously checks and perform spilling based on the memory availability
+     * functions. The value of `periodic_spill_check` is used as the pause between checks.
+     * If `std::nullopt`, no periodic spill check is performed.
+     * @param stream_pool Pool of CUDA streams. Used throughout RapidsMPF for operations
+     * that do not take an explicit CUDA stream.
+     * @param statistics The statistics instance to use (disabled by default).
+     *
+     * @throws std::runtime_error If pinned host memory resource is not available.
+     */
+    BufferResource(
+        rmm::device_async_resource_ref device_mr,
+        std::shared_ptr<PinnedMemoryResource> pinned_host_mr,
+        std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
+        std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
+        std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
+            rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
+        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+    );
+
     /**
      * @brief Constructs a buffer resource.
      *
@@ -194,6 +210,15 @@ class BufferResource {
     [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
         return device_mr_;
     }
+
+    /**
+     * @brief Get the pinned host memory resource.
+     *
+     * @return Reference to the memory resource used for pinned host allocations.
+     *
+     * @throws std::runtime_error If pinned host memory resource is not available.
+     */
+    [[nodiscard]] rmm::host_device_async_resource_ref pinned_host_mr() const;
 
     /**
      * @brief Retrieves the memory availability function for a given memory type.
@@ -344,6 +369,25 @@ class BufferResource {
     );
 
     /**
+     * @brief Move pinned host buffer data into a Buffer.
+     *
+     * This operation is cheap; no copy is performed. The resulting Buffer resides in
+     * pinned host memory.
+     *
+     * If @p stream differs from the pinned host buffer's current stream:
+     *   - @p stream is synchronized with the pinned host buffer's current stream, and
+     *   - the pinned host buffer's current stream is updated to @p stream.
+     *
+     * @param data Unique pointer to the pinned host buffer.
+     * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
+     * this stream when operating on the Buffer.
+     * @return Unique pointer to the resulting Buffer.
+     */
+    std::unique_ptr<Buffer> move(
+        std::unique_ptr<PinnedHostBuffer> data, rmm::cuda_stream_view stream
+    );
+
+    /**
      * @brief Move a Buffer to the memory type specified by the reservation.
      *
      * If the Buffer already resides in the target memory type, a cheap move is performed.
@@ -394,6 +438,24 @@ class BufferResource {
     );
 
     /**
+     * @brief Move a Buffer into a pinned host buffer.
+     *
+     * If the Buffer already resides in pinned host memory, a cheap move is performed.
+     * Otherwise, the Buffer is copied to pinned host memory using its own CUDA stream.
+     *
+     * @param buffer Buffer to move.
+     * @param reservation Memory reservation used if a copy is required.
+     * @return Unique pointer to the resulting pinned host buffer.
+     *
+     * @throws std::invalid_argument If the reservation's memory type isn't pinned host
+     * memory.
+     * @throws std::overflow_error If the allocation size exceeds the reservation.
+     */
+    std::unique_ptr<PinnedHostBuffer> move_to_pinned_host_buffer(
+        std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
+    );
+
+    /**
      * @brief Returns the CUDA stream pool used by this buffer resource.
      *
      * Use this pool for operations that do not take an explicit CUDA stream.
@@ -420,6 +482,9 @@ class BufferResource {
   private:
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
+
+    std::shared_ptr<PinnedMemoryResource> pinned_host_mr_{};
+
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};

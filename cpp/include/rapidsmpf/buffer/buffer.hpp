@@ -17,6 +17,7 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
+#include <rapidsmpf/buffer/pinned_memory_resource.hpp>
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -24,9 +25,10 @@
 namespace rapidsmpf {
 
 /// @brief Enum representing the type of memory.
-enum class MemoryType : int {
+enum class MemoryType : uint8_t {
     DEVICE = 0,  ///< Device memory
-    HOST = 1  ///< Host memory
+    PINNED_HOST = 1,  ///< Pinned host memory
+    HOST = 2  ///< Host memory
 };
 
 /// @brief The lowest memory type that can be spilled to.
@@ -34,7 +36,9 @@ constexpr MemoryType LowestSpillType = MemoryType::HOST;
 
 /// @brief Array of all the different memory types.
 /// @note Ensure that this array is always sorted in decreasing order of preference.
-constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
+constexpr std::array<MemoryType, 3> MEMORY_TYPES{
+    {MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST}
+};
 
 /**
  * @brief Buffer representing device or host memory.
@@ -60,10 +64,13 @@ class Buffer {
     /// @brief Storage type for the host buffer.
     using HostStorageT = std::unique_ptr<std::vector<uint8_t>>;
 
+    /// @brief Storage type for the pinned host buffer.
+    using PinnedHostStorageT = std::unique_ptr<PinnedHostBuffer>;
+
     /**
-     * @brief Storage type in Buffer, which could be either host or device memory.
+     * @brief Storage type in Buffer, which could be device, pinned host, or host memory.
      */
-    using StorageT = std::variant<DeviceStorageT, HostStorageT>;
+    using StorageT = std::variant<DeviceStorageT, PinnedHostStorageT, HostStorageT>;
 
     /**
      * @brief Access the underlying host memory buffer (const).
@@ -84,6 +91,16 @@ class Buffer {
      * @throws std::logic_error If the buffer is locked.
      */
     [[nodiscard]] DeviceStorageT const& device() const;
+
+    /**
+     * @brief Access the underlying pinned host memory buffer (const).
+     *
+     * @return A const reference to the unique pointer managing the pinned host memory.
+     *
+     * @throws std::logic_error if the buffer does not manage pinned host memory.
+     * @throws std::logic_error If the buffer is locked.
+     */
+    [[nodiscard]] PinnedHostStorageT const& pinned_host() const;
 
     /**
      * @brief Access the underlying memory buffer (host or device memory).
@@ -201,7 +218,10 @@ class Buffer {
         return std::visit(
             overloaded{
                 [](HostStorageT const&) -> MemoryType { return MemoryType::HOST; },
-                [](DeviceStorageT const&) -> MemoryType { return MemoryType::DEVICE; }
+                [](DeviceStorageT const&) -> MemoryType { return MemoryType::DEVICE; },
+                [](PinnedHostStorageT const&) -> MemoryType {
+                    return MemoryType::PINNED_HOST;
+                }
             },
             storage_
         );
@@ -298,6 +318,25 @@ class Buffer {
     Buffer(std::unique_ptr<rmm::device_buffer> device_buffer);
 
     /**
+     * @brief Construct a stream-ordered Buffer from pinned host memory.
+     *
+     * Adopts @p pinned_host_buffer as the Buffer's storage and inherits its CUDA stream.
+     * At construction, the Buffer records an initial "latest write" on that stream,
+     * so `is_latest_write_done()` will become `true` once all work enqueued on the
+     * adopted stream up to this point has completed.
+     *
+     * @note No synchronization is performed by the constructor. Any producer that
+     * initialized or modified @p pinned_host_buffer must have enqueued that work on the
+     * same stream (or established ordering with it) for correctness.
+     *
+     * @param pinned_host_buffer Unique pointer to a pinned host buffer. Must be non-null.
+     *
+     * @throws std::invalid_argument If @p pinned_host_buffer is null.
+     * @throws std::logic_error If the buffer is locked.
+     */
+    Buffer(std::unique_ptr<PinnedHostBuffer> pinned_host_buffer);
+
+    /**
      * @brief Throws if the buffer is currently locked by `exclusive_data_access()`.
      *
      * @throws std::logic_error If the buffer is locked.
@@ -325,6 +364,16 @@ class Buffer {
     [[nodiscard]] DeviceStorageT& device();
 
     /**
+     * @brief Access the underlying pinned host memory buffer.
+     *
+     * @return A reference to the unique pointer managing the pinned host memory.
+     *
+     * @throws std::logic_error if the buffer does not manage pinned host memory.
+     * @throws std::logic_error If the buffer is locked.
+     */
+    [[nodiscard]] PinnedHostStorageT& pinned_host();
+
+    /**
      * @brief Release the underlying device memory buffer.
      *
      * @return The underlying device memory buffer.
@@ -343,6 +392,16 @@ class Buffer {
      * @throws std::logic_error If the buffer is locked.
      */
     [[nodiscard]] HostStorageT release_host();
+
+    /**
+     * @brief Release the underlying pinned host memory buffer.
+     *
+     * @return The underlying pinned host memory buffer.
+     *
+     * @throws std::logic_error if the buffer does not manage pinned host memory.
+     * @throws std::logic_error If the buffer is locked.
+     */
+    [[nodiscard]] PinnedHostStorageT release_pinned_host();
 
   public:
     std::size_t const size;  ///< The size of the buffer in bytes.
