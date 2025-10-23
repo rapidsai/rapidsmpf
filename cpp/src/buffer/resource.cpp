@@ -78,12 +78,11 @@ BufferResource::BufferResource(
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, bool allow_overbooking
 ) {
-    RAPIDSMPF_EXPECTS(
-        mem_type != MemoryType::PINNED_HOST
-            || (is_pinned_memory_resources_supported() && pinned_host_mr_),
-        "PINNED_HOST memory type is not supported or not initialized",
-        std::invalid_argument
-    );
+    if (mem_type == MemoryType::PINNED_HOST
+        && (!is_pinned_memory_resources_supported() || !pinned_host_mr_))
+    {
+        return {MemoryReservation(mem_type, this, 0), 0};
+    }
 
     auto const& available = memory_available(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
@@ -146,12 +145,6 @@ MemoryReservation BufferResource::reserve_or_fail(
 
     // try to allocate data buffer from memory types in order [DEVICE, HOST]
     for (auto mem_type : MEMORY_TYPES) {
-        if (mem_type == MemoryType::PINNED_HOST
-            && !is_pinned_memory_resources_supported())
-        {
-            continue;
-        }
-
         auto [res, _] = reserve(mem_type, size, false);
         if (res.size() == size) {
             return std::move(res);
@@ -180,13 +173,16 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     std::unique_ptr<Buffer> ret;
     switch (reservation.mem_type_) {
     case MemoryType::HOST:
-        // TODO: use pinned memory, maybe use rmm::mr::pinned_memory_resource and
-        // std::pmr::vector?
         ret = std::unique_ptr<Buffer>(
             new Buffer(std::make_unique<std::vector<uint8_t>>(size), stream)
         );
         break;
     case MemoryType::PINNED_HOST:
+        RAPIDSMPF_EXPECTS(
+            is_pinned_memory_resources_supported() && pinned_host_mr_,
+            "PinnedMemoryResource is not supported or not initialized",
+            std::invalid_argument
+        );
         ret = std::unique_ptr<Buffer>(
             new Buffer(std::make_unique<PinnedHostBuffer>(size, stream, pinned_host_mr_))
         );
@@ -279,7 +275,8 @@ std::unique_ptr<PinnedHostBuffer> BufferResource::move_to_pinned_host_buffer(
     auto ret = move(std::move(buffer), reservation)->release_pinned_host();
     RAPIDSMPF_EXPECTS(
         ret->stream().value() == stream.value(),
-        "something went wrong, the Buffer's stream and the pinned_host_buffer's stream "
+        "something went wrong, the Buffer's stream and the pinned_host_buffer's "
+        "stream "
         "don't match"
     );
     return ret;
