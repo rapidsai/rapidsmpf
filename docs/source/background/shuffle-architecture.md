@@ -29,7 +29,7 @@ round of collective communication proceeds in four stages:
 4. After insertion is finished, a rank can _extract_ data that is the
    result of the collective communication. This may block until data are
    ready.
-   
+
 Collectives over subsets of all ranks in the program are enabled by
 creating a `Communicator` object that only contains the desired
 participating ranks.
@@ -72,7 +72,7 @@ the correct rank.
 
 This diagram shows a network of with three ranks in the middle of a Shuffle operation.
 
-![A diagram showing a shuffle.](_static/rapidsmpf-shuffler-transparent-fs8.png)
+![A diagram showing a shuffle.](../_static/rapidsmpf-shuffler-transparent-fs8.png)
 
 As your program inserts chunks of data (see below), each chunk is assigned to
 a particular rank. In the diagram above, this is shown by color: each
@@ -108,7 +108,7 @@ of a Shuffle Join implementation.
 This diagram shows multiple nodes working together to shuffle a large, logical
 Table.
 
-![A diagram showing how to use rapidsmpf to shuffle a table.](_static/rapidsmpf-shuffle-table-fs8.png)
+![A diagram showing how to use rapidsmpf to shuffle a table.](../_static/rapidsmpf-shuffle-table-fs8.png)
 
 Suppose you have a large logical table that's split into a number of partitions.
 In the diagram above, this is shown as the different dashed boxes on the
