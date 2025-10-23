@@ -10,6 +10,8 @@
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/single.hpp>
+#include <rapidsmpf/shuffler/chunk.hpp>
+#include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>
 #include <rapidsmpf/streaming/cudf/partition.hpp>
@@ -77,4 +79,30 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
             sort_table(output.table_view()), sort_table(expects[i].view())
         );
     }
+}
+
+TEST_F(StreamingPartition, PartitionMapChunkToMessage) {
+    std::unordered_map<shuffler::PartID, PackedData> data;
+    data.emplace(0, generate_packed_data(10, 0, stream, *br));
+    data.emplace(1, generate_packed_data(10, 10, stream, *br));
+    PartitionMapChunk chunk{0, std::move(data)};
+
+    Message m = chunk.to_message();
+    EXPECT_TRUE(chunk.data.empty());
+    EXPECT_FALSE(m.empty());
+    EXPECT_TRUE(m.holds<PartitionMapChunk>());
+    EXPECT_EQ(m.buffer_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m.buffer_size(MemoryType::DEVICE), 80);
+
+    auto res = br->reserve_or_fail(m.buffer_size(MemoryType::DEVICE), MemoryType::DEVICE);
+    Message m2 = m.copy(br.get(), res);
+    EXPECT_EQ(res.size(), 0);
+    EXPECT_FALSE(m2.empty());
+    EXPECT_TRUE(m2.holds<PartitionMapChunk>());
+    EXPECT_EQ(m2.buffer_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m2.buffer_size(MemoryType::DEVICE), 80);
+
+    auto chunk2 = m2.release<PartitionMapChunk>();
+    validate_packed_data(std::move(chunk2.data.at(0)), 10, 0, stream, *br);
+    validate_packed_data(std::move(chunk2.data.at(1)), 10, 10, stream, *br);
 }
