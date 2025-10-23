@@ -2,8 +2,8 @@
 
 In addition to communications primitives, rapidsmpf provides building
 blocks for constructing and executing task graphs such as might be used in
-a streaming data processing engine.  These communications primitives do not 
-require use of the task execution framework, nor does use of the execution 
+a streaming data processing engine.  These communications primitives do not
+require use of the task execution framework, nor does use of the execution
 framework necessarily require using rapidsmpf communication primitives.
 
 The goal is to enable pipelined "out of core" execution for tabular data
@@ -14,9 +14,9 @@ memory at once.
 > execution on fixed size input data that we process piece by piece because
 > it does not all fit in GPU memory at once, or we want to leverage multi-GPU
 > parallelism and task launch pipelining.
-> 
+>
 > This contrasts with "streaming analytics" or "event stream processing"
-> where online queries are run on continously arriving data.
+> where online queries are run on continuously arriving data.
 
 
 ## Concepts
@@ -48,7 +48,7 @@ GPU, tied together by a rapidsmpf communicator.
 
 The task specification is designed to be lowered to from some higher-level
 application specific intermediate representation, though one can write it
-by hand.  For example, one can convert logical plans from query engines such as 
+by hand.  For example, one can convert logical plans from query engines such as
 Polars, DuckDB, etc to a physical plan to be executed by rapidsmpf.
 
 A typical approach is to define one node in the graph for each physical
@@ -85,19 +85,19 @@ Context
 
 Buffer
   Raw memory buffers typically shared pointers from tabular data provided by cuDF.
-  
+
   - Buffers are created most commonly during scan (read_parquet) operations but can also be created during joins and aggregations. When operating on multiple buffers either a new stream is created for the new buffer or re-use of an existing stream is attached the newly created buffer.
   - Buffers have an attached CUDA Stream maintained for the lifetime of the buffer.
 
 Message
   [Type-erased](https://en.wikipedia.org/wiki/Type_erasure) container for data payloads (shared memory pointers) including: cudf tables, buffers, and rapidsmpf internal data structures like packed data.
-  
+
   - Messages also contain metadata: a sequence number.
   - Sequences _do not_ guarantee that chunks arrive in order but they do provide the order in which the data was created.
 
 Node
   Coroutine-based asynchronous relational operator: read, filter, select, join.
-  
+
   - Nodes read from zero-or-more channels and write to zero-or-more channels.
   - Multiple Nodes can be executed concurrently.
   - Nodes can communicate directly using "streaming" collective operations such as shuffles and joins (see [Streaming collective operations](./shuffle-architecture.md#streaming-collective-operations)).
