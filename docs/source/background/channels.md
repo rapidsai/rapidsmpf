@@ -32,6 +32,7 @@ Components:
 
 In the above graph, moving data in and out of channels on a single GPU should be relatively cheap, nearly free! This stratedy of using channels to move tasks/buffers is a core methodology for rapidsmpf to overlap: scans, compute, spilling, and communication.
 
+### Backpressure
 
 Channels provide asynchronous communication with **backpressure**.  Backpressure is built-in by limiting the number of buffers in a channel to a single slot
 
