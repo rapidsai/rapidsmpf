@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self
 
-from rapidsmpf.streaming.core.channel import Message, Payload
+from rapidsmpf.streaming.core.message import Message, Payload
 
 class PyObjectPayload:
     @staticmethod

@@ -5,7 +5,7 @@ from cpython.object cimport PyObject
 from libc.stdint cimport uint64_t
 from libcpp.memory cimport unique_ptr
 
-from rapidsmpf.streaming.core.channel cimport cpp_Message
+from rapidsmpf.streaming.core.message cimport cpp_Message
 
 
 cdef extern from *:

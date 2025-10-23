@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import weakref
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from rapidsmpf.streaming.core.channel import Channel, Message
+import pytest
+
+from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
 from rapidsmpf.streaming.core.pyobject import PyObjectPayload
 
@@ -17,25 +20,28 @@ if TYPE_CHECKING:
     from rapidsmpf.streaming.core.context import Context
 
 
-def test_from_object_basic() -> None:
+@pytest.mark.parametrize(
+    "data",
+    [
+        42,
+        4.2,
+        "hello",
+        False,
+        None,
+        {"key": "value", "number": 42},
+        [1, 2, 3, 4, 5],
+        ("a", "b", "c"),
+    ],
+)
+def test_from_object_basic(data: Any) -> None:
     """Test creating PyObjectPayload from basic Python objects."""
-    # Test with dict
-    data = {"key": "value", "number": 42}
     payload = PyObjectPayload.from_object(sequence_number=0, obj=data)
     assert payload.sequence_number == 0
     assert payload.extract_object() == data
 
-    # Test with list
-    data_list = [1, 2, 3, 4, 5]
-    payload_list = PyObjectPayload.from_object(sequence_number=1, obj=data_list)
-    assert payload_list.sequence_number == 1
-    assert payload_list.extract_object() == data_list
-
-    # Test with tuple
-    data_tuple = ("a", "b", "c")
-    payload_tuple = PyObjectPayload.from_object(sequence_number=2, obj=data_tuple)
-    assert payload_tuple.sequence_number == 2
-    assert payload_tuple.extract_object() == data_tuple
+    payload = PyObjectPayload.from_object(sequence_number=18, obj=data)
+    assert payload.sequence_number == 18
+    assert payload.extract_object() == data
 
 
 def test_message_roundtrip() -> None:

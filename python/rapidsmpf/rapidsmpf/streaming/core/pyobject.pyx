@@ -12,7 +12,7 @@ from libc.stdint cimport uint64_t
 from libcpp.memory cimport unique_ptr
 from libcpp.utility cimport move
 
-from rapidsmpf.streaming.core.channel cimport Message, cpp_Message
+from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 
 # Helper functions to release TypeErasedChunk from a message
@@ -94,7 +94,8 @@ cdef class PyObjectPayload:
 
     Examples
     --------
-    >>> from rapidsmpf.streaming.core.channel import Channel, Message
+    >>> from rapidsmpf.streaming.core.channel import Channel
+    >>> from rapidsmpf.streaming.core.message import Message
     >>> from rapidsmpf.streaming.core.pyobject import PyObjectPayload
     >>>
     >>> # Create a payload with a Python dict
