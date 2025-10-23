@@ -44,13 +44,6 @@ class CommunicationInterface {
 
     /**
      * @brief Receive messages from remote ranks.
-     *
-     * Advances the communication state machine by:
-     * - Receiving incoming message metadata
-     * - Setting up data transfers
-     * - Handling completed data transfers
-     * - Cleaning up completed operations
-     *
      * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      * @return Vector of completed messages ready for local processing.
      */
@@ -100,6 +93,12 @@ class TagCommunicationInterface : public CommunicationInterface {
 
     /**
      * @copydoc CommunicationInterface::receive_messages
+     *
+     * Advances the communication state machine by:
+     * - Receiving incoming message metadata
+     * - Setting up data transfers
+     * - Handling completed data transfers
+     * - Cleaning up completed operations
      */
     std::vector<std::unique_ptr<Message>> receive_messages(
         std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
