@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from rapidsmpf.streaming.core.channel import Message, Payload
+from rapidsmpf.streaming.core.channel import Payload
+from rapidsmpf.streaming.core.message import Message
 
 class PartitionMapChunk:
     @classmethod

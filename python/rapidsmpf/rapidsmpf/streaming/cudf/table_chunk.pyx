@@ -12,7 +12,7 @@ from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 
-from rapidsmpf.streaming.core.channel cimport Message, cpp_Message
+from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 
 # Helper function to release a table chunk from a message, which is needed
