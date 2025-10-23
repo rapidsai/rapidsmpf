@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # =================================================================================
 
-set(cython_modules channel.pyx context.pyx leaf_node.pyx node.pyx pyobject.pyx)
+set(cython_modules channel.pyx context.pyx leaf_node.pyx message.pyx node.pyx pyobject.pyx)
 
 rapids_cython_create_modules(
   CXX

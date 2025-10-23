@@ -7,6 +7,7 @@ from libcpp.utility cimport move
 from rapidsmpf._detail.exception_handling cimport (
     CppExcept, throw_py_as_cpp_exception, translate_py_to_cpp_exception)
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
+from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 import asyncio
 
@@ -38,60 +39,6 @@ cdef void cython_invoke_python_function(void* py_function) noexcept nogil:
         except BaseException as e:
             err = translate_py_to_cpp_exception(e)
     throw_py_as_cpp_exception(err)
-
-
-cdef class Message:
-    """
-    A message to be transferred between streaming nodes.
-
-    Parameters
-    ----------
-    payload
-        A payload object that implements the `Payload` protocol. The payload is
-        moved into this message.
-
-    Warnings
-    --------
-    `payload` is released by this call and must not be used afterwards.
-    """
-    def __init__(self, payload):
-        payload.into_message(self)
-
-    @staticmethod
-    cdef from_handle(cpp_Message handle):
-        """
-        Construct a Message from an existing C++ handle.
-
-        Parameters
-        ----------
-        handle
-            A C++ message handle whose ownership will be **moved** into the
-            returned `Message`.
-
-        Returns
-        -------
-        A new Python `Message` object owning `handle`.
-        """
-        cdef Message ret = Message.__new__(Message)
-        ret._handle = move(handle)
-        return ret
-
-    def __dealloc__(self):
-        with nogil:
-            self._handle.reset()
-
-    def empty(self):
-        """
-        Return whether this message is empty.
-
-        Returns
-        -------
-        True if the message is empty; otherwise, False.
-        """
-        cdef bool_t ret
-        with nogil:
-            ret = self._handle.empty()
-        return ret
 
 
 cdef extern from * nogil:

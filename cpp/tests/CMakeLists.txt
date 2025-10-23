@@ -54,6 +54,7 @@ target_sources(
             test_cupti_monitor.cpp
             test_partition.cpp
             test_pausable_thread_loop.cpp
+            test_pinned_resources.cpp
             test_progress_thread.cpp
             test_rmm_resource_adaptor.cpp
             test_shuffler_many_streams.cpp
@@ -105,6 +106,7 @@ if(RAPIDSMPF_HAVE_MPI)
             $<TARGET_NAME_IF_EXISTS:conda_env>
             maybe_asan
             test_sources
+            $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
   )
   disable_sign_conversion_warning(mpi_tests)
 
@@ -140,6 +142,7 @@ if(RAPIDSMPF_HAVE_MPI)
               $<TARGET_NAME_IF_EXISTS:conda_env>
               maybe_asan
               test_sources
+              $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
     )
     disable_sign_conversion_warning(ucxx_tests)
 
@@ -165,8 +168,16 @@ target_compile_options(
                        "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  single_tests PRIVATE rapidsmpf::rapidsmpf cudf::cudftestutil cudf::cudftestutil_impl GTest::gmock
-                       GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan test_sources
+  single_tests
+  PRIVATE rapidsmpf::rapidsmpf
+          cudf::cudftestutil
+          cudf::cudftestutil_impl
+          GTest::gmock
+          GTest::gtest
+          $<TARGET_NAME_IF_EXISTS:conda_env>
+          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+          maybe_asan
+          test_sources
 )
 disable_sign_conversion_warning(single_tests)
 add_test(NAME single_tests COMMAND "gtests/single_tests")
