@@ -13,6 +13,7 @@
 #include <utility>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf::streaming {
@@ -25,6 +26,9 @@ class Message {
   public:
     struct Callbacks {
         std::function<size_t(Message const&, MemoryType)> buffer_size;
+        std::function<
+            Message(Message const&, BufferResource* br, MemoryReservation& reservation)>
+            copy;
     };
 
     // @brief Create an empty message.
@@ -114,6 +118,10 @@ class Message {
         return std::move(*ret);
     }
 
+    [[nodiscard]] Callbacks const& callbacks() const noexcept {
+        return callbacks_;
+    }
+
     [[nodiscard]] size_t buffer_size(MemoryType mem_type) {
         RAPIDSMPF_EXPECTS(
             callbacks_.buffer_size,
@@ -121,6 +129,13 @@ class Message {
             std::invalid_argument
         );
         return callbacks_.buffer_size(*this, mem_type);
+    }
+
+    [[nodiscard]] Message copy(BufferResource* br, MemoryReservation& reservation) const {
+        RAPIDSMPF_EXPECTS(
+            callbacks_.copy, "message doesn't support `copy`", std::invalid_argument
+        );
+        return callbacks_.copy(*this, br, reservation);
     }
 
   private:

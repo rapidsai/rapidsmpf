@@ -65,18 +65,56 @@ TEST_F(StreamingMessage, BufferSizeWithCallbacks) {
             return 0;
         }
     };
-
-    // Host memory
     {
         Message m{br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cbs};
         EXPECT_EQ(m.buffer_size(MemoryType::HOST), 10);
         EXPECT_EQ(m.buffer_size(MemoryType::DEVICE), 0);
     }
-
-    // Device memory
     {
         Message m{br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cbs};
         EXPECT_EQ(m.buffer_size(MemoryType::HOST), 0);
         EXPECT_EQ(m.buffer_size(MemoryType::DEVICE), 10);
+    }
+}
+
+TEST_F(StreamingMessage, CopyWithoutCallbacks) {
+    Message m{br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST))};
+    {
+        auto res = br->reserve_or_fail(10, MemoryType::HOST);
+        EXPECT_THROW(std::ignore = m.copy(br.get(), res), std::invalid_argument);
+    }
+    {
+        auto res = br->reserve_or_fail(10, MemoryType::DEVICE);
+        EXPECT_THROW(std::ignore = m.copy(br.get(), res), std::invalid_argument);
+    }
+}
+
+TEST_F(StreamingMessage, CopyWithCallbacks) {
+    Message::Callbacks cbs{
+        .copy = [](Message const& msg,
+                   BufferResource* br,
+                   MemoryReservation& reservation) -> Message {
+            EXPECT_TRUE(msg.holds<Buffer>());
+            auto const& src = msg.get<Buffer>();
+            auto dst = br->allocate(src.size, src.stream(), reservation);
+            buffer_copy(*dst, src, src.size);
+            return Message(std::move(dst), msg.callbacks());
+        }
+    };
+    {
+        Message m1{br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cbs};
+        auto res = br->reserve_or_fail(10, MemoryType::HOST);
+        auto m2 = m1.copy(br.get(), res);
+        EXPECT_EQ(m1.get<Buffer>().mem_type(), m2.get<Buffer>().mem_type());
+        EXPECT_EQ(m1.get<Buffer>().size, m2.get<Buffer>().size);
+    }
+    {
+        Message m1{
+            br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cbs
+        };
+        auto res = br->reserve_or_fail(10, MemoryType::DEVICE);
+        auto m2 = m1.copy(br.get(), res);
+        EXPECT_EQ(m1.get<Buffer>().mem_type(), m2.get<Buffer>().mem_type());
+        EXPECT_EQ(m1.get<Buffer>().size, m2.get<Buffer>().size);
     }
 }
