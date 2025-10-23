@@ -10,7 +10,7 @@ import pytest
 import cudf
 
 from rapidsmpf.cuda_stream import is_equal_streams
-from rapidsmpf.streaming.core.channel import Message
+from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
