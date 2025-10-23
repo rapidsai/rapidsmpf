@@ -132,17 +132,15 @@ void TagCommunicationInterface::receive_metadata() {
 
         std::size_t offset = 0;
 
-        // Extract message ID
+        // Extract message ID, payload size, and original metadata
         std::uint64_t message_id;
         std::memcpy(&message_id, msg->data() + offset, sizeof(std::uint64_t));
         offset += sizeof(std::uint64_t);
 
-        // Extract payload size
         std::size_t payload_size;
         std::memcpy(&payload_size, msg->data() + offset, sizeof(std::size_t));
         offset += sizeof(std::size_t);
 
-        // Extract original metadata (everything after message ID and payload size)
         std::vector<std::uint8_t> original_metadata(
             msg->begin() + static_cast<std::ptrdiff_t>(offset), msg->end()
         );
@@ -150,7 +148,6 @@ void TagCommunicationInterface::receive_metadata() {
         auto message =
             std::make_unique<Message>(src, std::move(original_metadata), nullptr);
 
-        // Set the message ID and payload size
         message->set_message_id(message_id);
         message->set_expected_payload_size(payload_size);
 
@@ -177,7 +174,6 @@ void TagCommunicationInterface::setup_data_receives(
             ")"
         );
 
-        // Get payload size that was extracted during metadata receive
         std::size_t payload_size = message->expected_payload_size();
 
         if (payload_size > 0) {
@@ -186,7 +182,9 @@ void TagCommunicationInterface::setup_data_receives(
                 message->set_data(std::move(buffer));
             }
 
-            // Check if the buffer is ready for use
+            // Check if the buffer is ready for use, if not, break the loop
+            // and wait for the buffer to be ready. This is necessary to ensure
+            // messages are received in the order they are sent.
             if (message->data() && !message->data()->is_latest_write_done()) {
                 ++it;
                 break;

@@ -44,6 +44,7 @@ class CommunicationInterface {
 
     /**
      * @brief Receive messages from remote ranks.
+
      * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      * @return Vector of completed messages ready for local processing.
      */
@@ -63,8 +64,7 @@ class CommunicationInterface {
  * @brief Tag-based implementation of CommunicationInterface.
  *
  * This implementation provides the same communication protocol as
- * TagCommunicationInterface but works with the abstract Message instead of
- * concrete Chunk types.
+ * TagCommunicationInterface but works with the abstract Message.
  */
 class TagCommunicationInterface : public CommunicationInterface {
   public:
