@@ -11,3 +11,6 @@ compile_commands.json
 ## Doxygen
 cpp/doxygen/html
 cpp/doxygen/xml
+
+# doxygen generated html files
+docs/source/librapidsmpf/html/
