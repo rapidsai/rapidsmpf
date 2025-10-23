@@ -26,7 +26,11 @@ extensions = [
     "IPython.sphinxext.ipython_console_highlighting",
     "IPython.sphinxext.ipython_directive",
     "myst_nb",
+    "breathe",
 ]
+# Breathe Configuration
+breathe_projects = {"librapidsmpf": "../../cpp/doxygen/xml"}
+breathe_default_project = "librapidsmpf"
 
 templates_path = ['_templates']
 exclude_patterns = []

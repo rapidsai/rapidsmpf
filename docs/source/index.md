@@ -1,8 +1,10 @@
 # RapidsMPF documentation
 
-`rapidsmpf` provides a collection of multi-GPU, distributed memory algorithms.
+RapidsMPF is a library for communications primitives and building
+blocks for constructing and executing task graphs such as might be used in
+a streaming data processing engines
 
-Follow the RAPIDS [installation guide] to install `rapidsmpf` and the necessary dependencies.
+Follow the RAPIDS [installation guide](https://docs.rapids.ai/install/) to install `rapidsmpf` and the necessary dependencies.
 
 ```{toctree}
 ---
@@ -12,6 +14,5 @@ caption: Contents:
 quickstart.md
 background/index.md
 api.md
+librapidsmpf/index.md
 ```
-
-streaming-engine.md]: https://docs.rapids.ai/install/

@@ -7,3 +7,7 @@ build
 .hypothesis
 __pycache__
 compile_commands.json
+
+## Doxygen
+cpp/doxygen/html
+cpp/doxygen/xml
