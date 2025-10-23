@@ -1,13 +1,13 @@
 ## Channels
 
 
-Channels are asynchronous messaging queue used to move messages between {term}`Node`s in the rapidsmpf streaming network.  
+Channels are asynchronous messaging queue used to move messages between {term}`Node`s in the rapidsmpf streaming network.
 
 <img src="../_static/animation-legend.png" alt="Animation Legend" style="width: 320px;"/>
 <img src="../_static/buffers-animated.gif" alt="Animated buffer pipeline" style="max-width: 4500px;"/>
 
 <br/>
-As buffers move through the graph, the channels (arrows) move from empty (dashed line) to full (solid line).   
+As buffers move through the graph, the channels (arrows) move from empty (dashed line) to full (solid line).
 
 
 ```
@@ -44,8 +44,8 @@ Producer Side:                    Consumer Side:
 │   (async)    │     [buffer]    │    (async)   │
 └──────────────┘                 └──────────────┘
       │                                  │
-      │ If consumer is full,             │ 
-      │ Suspends (backpressure)          │ 
+      │ If consumer is full,             │
+      │ Suspends (backpressure)          │
       ▼                                  ▼
    Resumes when                      Operates when
    space available                   data available
@@ -56,11 +56,11 @@ Key Properties:
   • Backpressure: Slow consumers throttle producers
   • Type-safe: Messages are type-erased but validated
 
-A Consumer is **"full"** when an internal ring_buffer `coro::ring_buffer<Message, 1> rb_;` has reached capacity.  
+A Consumer is **"full"** when an internal ring_buffer `coro::ring_buffer<Message, 1> rb_;` has reached capacity.
 
-Additional backpressure control can be applied by usage of a Throttling 
-system (semaphores) controlling the maximum number of 
-threads/concurrent operations. 
+Additional backpressure control can be applied by usage of a Throttling
+system (semaphores) controlling the maximum number of
+threads/concurrent operations.
 
 
 ```python
@@ -80,9 +80,8 @@ for (int i = 0; i < n_producer; i++) {
 }
 ```
 
-Internally, when using a `throttle` a Node that writes into a channel must acquire a ticket granting permission to write before being able to. The write/send then returns a receipt that grants permission to release the ticket.  The consumer of a throttled channel reads messsages without issue.  This means that the throttle is localised to the producer nodes.
+Internally, when using a `throttle` a Node that writes into a channel must acquire a ticket granting permission to write before being able to. The write/send then returns a receipt that grants permission to release the ticket.  The consumer of a throttled channel reads messages without issue.  This means that the throttle is localised to the producer nodes.
 
 More simply, using a throttling adaptor limits the number messages a producer writes into a channel.  This pattern is very useful for producer nodes where we want some amount of bounded concurrency in the tasks that might suspend before sending into a channel -- especially useful when trying to minimize the over-production of long-lived memory: reads/scans, shuffles, etc.
 
-
-
+eg. a source node that read files. `ThrottlingAdaptor` will allow the node to delay reading files, until it has acquired a ticket to send a message to the channel. In comparison, non-throttling channels will suspend during send by which time, the files have already loaded into the memory unnecessarily
