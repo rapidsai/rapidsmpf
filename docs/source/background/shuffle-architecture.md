@@ -1,4 +1,4 @@
-## Shuffle Architecture
+# Shuffle Architecture
 
 `rapidsmpf` uses a "process-per-GPU" execution model. It can be used both
 to run on a single GPU or multiple GPUs. These can either be physically
@@ -15,7 +15,7 @@ directly on [UCX](https://openucx.org/)/[UCXX](https://github.com/rapidsai/ucxx)
 uniformly, the underlying transport takes care of choosing the appropriate
 route.
 
-### "Streaming" collective operations
+## "Streaming" collective operations
 
 `rapidsmpf` provides collectives (i.e. communication
 primitives) that operate on "streaming" data. As a consequence, a
@@ -46,7 +46,7 @@ and spilling data from device to host if device memory is at a premium.
 However, although `rapidsmpf` allocates outputs it never interprets your
 data: it just sends and receives bytes "as-is".
 
-### Shuffles
+## Shuffles
 
 A key collective operation in large-scale data analytics is a "shuffle"
 (a generalised all-to-all). In a shuffle, every participating rank sends

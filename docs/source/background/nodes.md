@@ -1,4 +1,4 @@
-## Nodes
+# Nodes
 
 Nodes are coroutine-based asynchronous relational operators that read from
 zero-or-more {term}`Channel`s and write to zero-or-more {term}`Channel`s within a {term}`Network`.
