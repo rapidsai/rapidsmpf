@@ -23,6 +23,7 @@ extensions = [
     "numpydoc",
     "IPython.sphinxext.ipython_console_highlighting",
     "IPython.sphinxext.ipython_directive",
+    "myst_nb",
     "breathe",
 ]
 # Breathe Configuration
