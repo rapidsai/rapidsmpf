@@ -142,9 +142,7 @@ static void BM_DeviceToHostCopy(benchmark::State& state) {
 
     // Allocate device memory
     auto device_buffer = rmm::device_buffer(transfer_size, stream, device_mr.get());
-    // Initialize device memoryBM_Allocate/1048576/2/real_time                  4400 us
-    // 4401 us          156 bytes_per_second=227.257M/s allocate: cccl_pinned with some
-    // data
+    // Initialize device memory
     RAPIDSMPF_CUDA_TRY(cudaMemset(device_buffer.data(), 0, transfer_size));
 
     // Allocate host memory and copy from device
