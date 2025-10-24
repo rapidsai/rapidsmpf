@@ -1,6 +1,6 @@
 # RapidsMPF
 
-Collection of multi-gpu, distributed memory algorithms.
+Collection of multi-GPU, distributed memory algorithms.
 
 ## Getting started
 

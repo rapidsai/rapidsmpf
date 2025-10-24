@@ -1,3 +1,3 @@
 # RapidsMPF
 
-RapidsMPF is a collection of multi-gpu, distributed memory algorithms.
+RapidsMPF is a collection of multi-GPU, distributed memory algorithms.

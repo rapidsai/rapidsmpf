@@ -169,7 +169,7 @@ TEST_F(StreamingTableChunk, FromPackedDataOnHost) {
     // Move the gpu_data to a Buffer (still device memory).
     auto gpu_data_on_device = br->move(std::move(packed_columns.gpu_data), stream);
 
-    // Copy the gpu data to host memory.
+    // Copy the GPU data to host memory.
     auto [res, _] = br->reserve(MemoryType::HOST, size, true);
     auto gpu_data_on_host = br->move(std::move(gpu_data_on_device), res);
 

@@ -20,15 +20,15 @@ namespace rapidsmpf {
 /**
  * @brief Bag of bytes with metadata suitable for sending over the wire.
  *
- * Contains arbitrary gpu data and host side metadata indicating how
+ * Contains arbitrary GPU data and host side metadata indicating how
  * the data should be interpreted.
  */
 struct PackedData {
     std::unique_ptr<std::vector<std::uint8_t>> metadata;  ///< The metadata
-    std::unique_ptr<Buffer> data;  ///< The gpu data
+    std::unique_ptr<Buffer> data;  ///< The GPU data
 
     /**
-     * @brief Construct from metadata and gpu data, taking ownership.
+     * @brief Construct from metadata and GPU data, taking ownership.
      *
      * @param metadata Host-side metadata describing the GPU data.
      * @param data Pointer to GPU data.
@@ -40,7 +40,7 @@ struct PackedData {
         RAPIDSMPF_EXPECTS(
             this->metadata != nullptr, "the metadata pointer cannot be null"
         );
-        RAPIDSMPF_EXPECTS(this->data != nullptr, "the gpu data pointer cannot be null");
+        RAPIDSMPF_EXPECTS(this->data != nullptr, "the GPU data pointer cannot be null");
         RAPIDSMPF_EXPECTS(
             (this->metadata->size() > 0 || this->data->size == 0),
             "Empty Metadata and non-empty GPU data is not allowed"
