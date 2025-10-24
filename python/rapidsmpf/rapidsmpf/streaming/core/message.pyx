@@ -10,6 +10,8 @@ cdef class Message:
 
     Parameters
     ----------
+    sequence_number
+        Ordering identifier for the message.
     payload
         A payload object that implements the `Payload` protocol. The payload is
         moved into this message.
@@ -18,8 +20,8 @@ cdef class Message:
     --------
     `payload` is released by this call and must not be used afterwards.
     """
-    def __init__(self, payload):
-        payload.into_message(self)
+    def __init__(self, uint64_t sequence_number, payload):
+        payload.into_message(sequence_number, self)
 
     @staticmethod
     cdef from_handle(cpp_Message handle):
@@ -55,4 +57,18 @@ cdef class Message:
         cdef bool_t ret
         with nogil:
             ret = self._handle.empty()
+        return ret
+
+    @property
+    def sequence_number(self):
+        """
+        Return the sequence number of this message.
+
+        Returns
+        -------
+        The sequence number.
+        """
+        cdef uint64_t ret
+        with nogil:
+            ret = self._handle.sequence_number()
         return ret
