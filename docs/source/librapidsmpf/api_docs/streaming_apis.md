@@ -2,12 +2,6 @@
 
 APIs for building and executing streaming task graphs.
 
-```{eval-rst}
-.. doxygennamespace:: rapidsmpf::streaming
-   :members:
-   :undoc-members:
-```
-
 ## Core Components
 
 ```{toctree}
