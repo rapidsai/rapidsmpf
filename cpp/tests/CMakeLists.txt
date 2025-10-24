@@ -47,6 +47,7 @@ target_sources(
             test_allgather.cpp
             test_buffer_resource.cpp
             test_chunk.cpp
+            test_communication_interface.cpp
             test_communicator.cpp
             test_config.cpp
             test_cuda_stream.cpp
