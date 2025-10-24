@@ -146,19 +146,13 @@ TableChunk TableChunk::spill_to_host(BufferResource* br) {
 
     // If it isn't already packed data, convert it.
     if (packed_data == nullptr) {
-        if (table_ != nullptr) {
-            // TODO: use `cudf::chunked_pack()`.
-            auto packed_columns = cudf::pack(table_->view(), stream_, br->device_mr());
-            packed_data = std::make_unique<PackedData>(
-                std::move(packed_columns.metadata),
-                br->move(std::move(packed_columns.gpu_data), stream_)
-            );
-        } else if (packed_columns_ != nullptr) {
+        if (packed_columns_ != nullptr) {
             packed_data = std::make_unique<PackedData>(
                 std::move(packed_columns_->metadata),
                 br->move(std::move(packed_columns_->gpu_data), stream_)
             );
         } else {
+            // TODO: use `cudf::chunked_pack()`.
             auto packed_columns = cudf::pack(table_view(), stream_, br->device_mr());
             packed_data = std::make_unique<PackedData>(
                 std::move(packed_columns.metadata),
