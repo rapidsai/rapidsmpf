@@ -7,7 +7,6 @@
 
 namespace rapidsmpf::streaming {
 
-
 Message to_message(PartitionMapChunk&& chunk) {
     Message::Callbacks cbs{
         .buffer_size = [](Message const& msg, MemoryType mem_type) -> size_t {
@@ -26,19 +25,7 @@ Message to_message(PartitionMapChunk&& chunk) {
             auto const& self = msg.get<PartitionMapChunk>();
             std::unordered_map<shuffler::PartID, PackedData> ret;
             for (auto const& [pid, packed_data] : self.data) {
-                auto dst = br->allocate(
-                    packed_data.data->size, packed_data.data->stream(), reservation
-                );
-                buffer_copy(*dst, *packed_data.data, packed_data.data->size);
-                ret.emplace(
-                    pid,
-                    PackedData{
-                        std::make_unique<std::vector<std::uint8_t>>(
-                            *packed_data.metadata
-                        ),
-                        std::move(dst)
-                    }
-                );
+                ret.emplace(pid, packed_data.copy(br, reservation));
             }
             return Message(
                 std::make_unique<PartitionMapChunk>(self.sequence_number, std::move(ret)),
@@ -48,6 +35,5 @@ Message to_message(PartitionMapChunk&& chunk) {
     };
     return Message{std::make_unique<PartitionMapChunk>(std::move(chunk)), std::move(cbs)};
 }
-
 
 }  // namespace rapidsmpf::streaming
