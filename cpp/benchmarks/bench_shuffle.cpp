@@ -323,16 +323,14 @@ std::vector<InputPartitionsT> generate_input_partitions(
 
         // reserve at least size_lb and spill if necessary (no overbooking)
         auto res = br->reserve_and_spill(rapidsmpf::MemoryType::DEVICE, size_lb, false);
-        cudf::table table = with_memory_reservation(std::move(res), [&] {
-            return random_table(
-                static_cast<cudf::size_type>(args.num_columns),
-                static_cast<cudf::size_type>(args.num_local_rows),
-                min_val,
-                max_val,
-                stream,
-                br->device_mr()
-            );
-        });
+        cudf::table table = random_table(
+            static_cast<cudf::size_type>(args.num_columns),
+            static_cast<cudf::size_type>(args.num_local_rows),
+            min_val,
+            max_val,
+            stream,
+            br->device_mr()
+        );
         input_partitions.emplace_back(transform_fn(std::move(table)));
     }
     stream.synchronize();
