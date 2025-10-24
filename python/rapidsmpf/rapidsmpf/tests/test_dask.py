@@ -9,6 +9,8 @@ import dask
 import dask.dataframe as dd
 import pytest
 
+import rmm.mr
+
 import rapidsmpf.integrations.single
 from rapidsmpf.communicator import COMMUNICATORS
 from rapidsmpf.config import Options
@@ -122,13 +124,21 @@ def test_dask_cudf_integration(
 @pytest.mark.parametrize("partition_count", [None, 3])
 @pytest.mark.parametrize("sort", [True, False])
 @pytest.mark.parametrize("cluster_kind", ["auto", "single"])
+@pytest.mark.parametrize("preconfigure_mr", [False, True])
 def test_dask_cudf_integration_single(
     partition_count: int,
-    sort: bool,  # noqa: FBT001
+    *,
+    sort: bool,
     cluster_kind: Literal["distributed", "single", "auto"],
+    preconfigure_mr: bool,
+    device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
     # Test single-worker cuDF integration with Dask-cuDF
     pytest.importorskip("dask_cudf")
+
+    if preconfigure_mr:
+        mr = rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor(device_mr)
+        rmm.mr.set_current_device_resource(mr)
 
     df = (
         dask.datasets.timeseries(
