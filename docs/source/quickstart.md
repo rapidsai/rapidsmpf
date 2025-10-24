@@ -1,12 +1,13 @@
 # Quickstart
 
-This page introduces the basics of a shuffle using `rapidsmpf`.
+
+## Basics of a Shuffle with rapidsmpf
 
 `rapidsmpf` is designed as a service that plugs into other libraries. This means
 it isn't typically used as a standalone library, and is expected to operate in
 some larger runtime.
 
-## Dask-cuDF Example
+### Dask-cuDF Example
 
 `rapidsmpf` can be used with [Dask-cuDF] to shuffle a Dask DataFrame. This toy
 example just loads the shuffled data into GPU memory. In practice, you would
@@ -36,3 +37,15 @@ After shuffling on `name`, all of the records with a particular name will be in
 the same partition. See [Dask Integration](#api-integration-dask) for more.
 
 [Dask-cuDF]: https://docs.rapids.ai/api/dask-cudf/stable/
+
+## Streaming Engine
+
+Basic streaming pipeline example in Python.  In this example we have 3  {term}`Nodes`s
+in the network: push_to_channel->count_num_rows->pull_from_channel.
+
+*note: push_to_channel/pull_from_channel are convenience function simulation scans/writes*
+
+```{literalinclude} ../../python/rapidsmpf/rapidsmpf/examples/streaming/basic_example.py
+:language: python
+:lines: 34-
+```
