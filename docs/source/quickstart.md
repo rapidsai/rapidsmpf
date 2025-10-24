@@ -43,7 +43,7 @@ the same partition. See [Dask Integration](#api-integration-dask) for more.
 Basic streaming pipeline example in Python.  In this example we have 3  {term}`Nodes`s
 in the network: push_to_channel->count_num_rows->pull_from_channel.
 
-*note: push_to_channel/pull_from_channel are convenience function simulation scans/writes*
+*note: push_to_channel/pull_from_channel are convenience functions which simulate scans/writes*
 
 ```{literalinclude} ../../python/rapidsmpf/rapidsmpf/examples/streaming/basic_example.py
 :language: python
