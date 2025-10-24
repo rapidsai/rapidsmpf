@@ -11,37 +11,49 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
-#include <rmm/mr/host/host_memory_resource.hpp>
-#include <rmm/mr/host/new_delete_resource.hpp>
 #include <rmm/mr/pinned_host_memory_resource.hpp>
 
 #include <rapidsmpf/error.hpp>
 
 namespace {
-class DummyPinnedHostMemoryResource final : public rmm::mr::host_memory_resource {
-  private:
-    void* do_allocate(
-        size_t bytes, size_t alignment = rmm::RMM_DEFAULT_HOST_ALIGNMENT
-    ) override {
-        return rmm::mr::pinned_host_memory_resource::allocate(bytes, alignment);
+class HostMemoryResource {
+  public:
+    virtual ~HostMemoryResource() = default;
+    virtual void* allocate(size_t bytes) = 0;
+    virtual void deallocate(void* ptr, size_t bytes) noexcept = 0;
+};
+
+class NewDeleteHostMemoryResource final : public HostMemoryResource {
+  public:
+    void* allocate(size_t bytes) override {
+        return ::operator new(bytes);
     }
 
-    void do_deallocate(
-        void* ptr, size_t bytes, size_t alignment = rmm::RMM_DEFAULT_HOST_ALIGNMENT
-    ) noexcept override {
-        rmm::mr::pinned_host_memory_resource::deallocate(ptr, bytes, alignment);
+    void deallocate(void* ptr, size_t) noexcept override {
+        ::operator delete(ptr);
+    }
+};
+
+class PinnedHostMemoryResource final : public HostMemoryResource {
+  public:
+    void* allocate(size_t bytes) override {
+        return rmm::mr::pinned_host_memory_resource::allocate(bytes);
+    }
+
+    void deallocate(void* ptr, size_t bytes) noexcept override {
+        rmm::mr::pinned_host_memory_resource::deallocate(ptr, bytes);
     }
 };
 }  // namespace
 
 // Helper function to create a memory resource based on type
-std::unique_ptr<rmm::mr::host_memory_resource> create_host_memory_resource(
+std::unique_ptr<HostMemoryResource> create_host_memory_resource(
     const std::string& resource_type
 ) {
     if (resource_type == "new_delete") {
-        return std::make_unique<rmm::mr::new_delete_resource>();
+        return std::make_unique<NewDeleteHostMemoryResource>();
     } else if (resource_type == "pinned") {
-        return std::make_unique<DummyPinnedHostMemoryResource>();
+        return std::make_unique<PinnedHostMemoryResource>();
     }
     throw std::runtime_error("Unknown memory resource type");
 }
