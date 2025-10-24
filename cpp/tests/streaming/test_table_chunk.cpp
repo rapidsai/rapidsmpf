@@ -33,12 +33,10 @@ using StreamingTableChunk = BaseStreamingFixture;
 TEST_F(StreamingTableChunk, FromTable) {
     constexpr unsigned int num_rows = 100;
     constexpr std::int64_t seed = 1337;
-    constexpr std::uint64_t seq = 42;
 
     cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
 
-    TableChunk chunk{seq, std::make_unique<cudf::table>(expect), stream};
-    EXPECT_EQ(chunk.sequence_number(), seq);
+    TableChunk chunk{std::make_unique<cudf::table>(expect), stream};
     EXPECT_EQ(chunk.stream().value(), stream.value());
     EXPECT_TRUE(chunk.is_available());
     EXPECT_TRUE(chunk.is_spillable());
@@ -61,7 +59,6 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
     };
     auto make_chunk = [&](TableChunk::ExclusiveView exclusive_view) {
         return TableChunk{
-            seq,
             expect,
             expect.alloc_size(),
             stream,
@@ -70,7 +67,6 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
         };
     };
     auto check_chunk = [&](TableChunk const& chunk, bool is_spillable) {
-        EXPECT_EQ(chunk.sequence_number(), seq);
         EXPECT_EQ(chunk.stream().value(), stream.value());
         EXPECT_TRUE(chunk.is_available());
         EXPECT_EQ(chunk.is_spillable(), is_spillable);
@@ -85,14 +81,14 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
     EXPECT_EQ(num_deletions, 1);
     {
         auto msg = Message(
-            std::make_unique<TableChunk>(make_chunk(TableChunk::ExclusiveView::NO))
+            seq, std::make_unique<TableChunk>(make_chunk(TableChunk::ExclusiveView::NO))
         );
         EXPECT_EQ(num_deletions, 1);
     }
     EXPECT_EQ(num_deletions, 2);
     {
         auto msg = Message(
-            std::make_unique<TableChunk>(make_chunk(TableChunk::ExclusiveView::YES))
+            seq, std::make_unique<TableChunk>(make_chunk(TableChunk::ExclusiveView::YES))
         );
         auto chunk = msg.release<TableChunk>();
         check_chunk(chunk, true);
@@ -115,16 +111,12 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
 TEST_F(StreamingTableChunk, FromPackedColumns) {
     constexpr unsigned int num_rows = 100;
     constexpr std::int64_t seed = 1337;
-    constexpr std::uint64_t seq = 42;
 
     cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
     auto packed = cudf::pack(expect, stream);
 
-    TableChunk chunk{
-        seq, std::make_unique<cudf::packed_columns>(std::move(packed)), stream
-    };
+    TableChunk chunk{std::make_unique<cudf::packed_columns>(std::move(packed)), stream};
 
-    EXPECT_EQ(chunk.sequence_number(), seq);
     EXPECT_EQ(chunk.stream().value(), stream.value());
     EXPECT_TRUE(chunk.is_available());
     EXPECT_TRUE(chunk.is_spillable());
@@ -135,7 +127,6 @@ TEST_F(StreamingTableChunk, FromPackedColumns) {
 TEST_F(StreamingTableChunk, FromPackedDataOnDevice) {
     constexpr unsigned int num_rows = 100;
     constexpr std::int64_t seed = 1337;
-    constexpr std::uint64_t seq = 42;
 
     cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
     auto packed_columns = cudf::pack(expect, stream);
@@ -144,9 +135,8 @@ TEST_F(StreamingTableChunk, FromPackedDataOnDevice) {
         std::move(packed_columns.metadata),
         br->move(std::move(packed_columns.gpu_data), stream)
     );
-    TableChunk chunk{seq, std::move(packed_data)};
+    TableChunk chunk{std::move(packed_data)};
 
-    EXPECT_EQ(chunk.sequence_number(), seq);
     EXPECT_EQ(chunk.stream().value(), stream.value());
     EXPECT_FALSE(chunk.is_available());
     EXPECT_TRUE(chunk.is_spillable());
@@ -160,7 +150,6 @@ TEST_F(StreamingTableChunk, FromPackedDataOnDevice) {
 TEST_F(StreamingTableChunk, FromPackedDataOnHost) {
     constexpr unsigned int num_rows = 100;
     constexpr std::int64_t seed = 1337;
-    constexpr std::uint64_t seq = 42;
 
     cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
     auto packed_columns = cudf::pack(expect, stream);
@@ -176,9 +165,8 @@ TEST_F(StreamingTableChunk, FromPackedDataOnHost) {
     auto packed_data = std::make_unique<PackedData>(
         std::move(packed_columns.metadata), std::move(gpu_data_on_host)
     );
-    TableChunk chunk{seq, std::move(packed_data)};
+    TableChunk chunk{std::move(packed_data)};
 
-    EXPECT_EQ(chunk.sequence_number(), seq);
     EXPECT_EQ(chunk.stream().value(), stream.value());
     EXPECT_FALSE(chunk.is_available());
     EXPECT_TRUE(chunk.is_spillable());
@@ -189,11 +177,10 @@ TEST_F(StreamingTableChunk, FromPackedDataOnHost) {
 TEST_F(StreamingTableChunk, SpillUnspillRoundTrip) {
     constexpr unsigned int num_rows = 100;
     constexpr std::int64_t seed = 1337;
-    constexpr std::uint64_t seq = 42;
 
     cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
 
-    TableChunk chunk_on_device{seq, std::make_unique<cudf::table>(expect), stream};
+    TableChunk chunk_on_device{std::make_unique<cudf::table>(expect), stream};
     EXPECT_TRUE(chunk_on_device.is_available());
     EXPECT_TRUE(chunk_on_device.is_spillable());
 
@@ -209,7 +196,6 @@ TEST_F(StreamingTableChunk, SpillUnspillRoundTrip) {
         br->reserve(MemoryType::DEVICE, chunk_on_host.make_available_cost(), true);
     chunk_on_device = chunk_on_host.make_available(res);
 
-    EXPECT_EQ(chunk_on_device.sequence_number(), seq);
     EXPECT_EQ(chunk_on_device.stream().value(), stream.value());
     EXPECT_TRUE(chunk_on_device.is_available());
     EXPECT_EQ(chunk_on_device.make_available_cost(), 0);

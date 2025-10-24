@@ -41,8 +41,8 @@ AllGather::~AllGather() {
     return ctx_;
 }
 
-void AllGather::insert(PackedDataChunk&& packed_data) {
-    gatherer_.insert(packed_data.sequence_number, std::move(packed_data.data));
+void AllGather::insert(std::uint64_t sequence_number, PackedDataChunk&& packed_data) {
+    gatherer_.insert(sequence_number, std::move(packed_data.data));
 }
 
 void AllGather::insert_finished() {
@@ -58,9 +58,8 @@ coro::task<std::vector<PackedDataChunk>> AllGather::extract_all(
     auto data = gatherer_.wait_and_extract(ordered);
     std::vector<PackedDataChunk> result;
     result.reserve(data.size());
-    std::uint64_t sequence{0};
-    std::ranges::transform(data, std::back_inserter(result), [&sequence](auto&& pd) {
-        return PackedDataChunk{.sequence_number = sequence++, .data = std::move(pd)};
+    std::ranges::transform(data, std::back_inserter(result), [](auto&& pd) {
+        return PackedDataChunk{.data = std::move(pd)};
     });
     co_return result;
 }
@@ -81,13 +80,15 @@ Node allgather(
         if (msg.empty()) {
             break;
         }
-        auto data = msg.release<PackedDataChunk>();
-        gatherer.insert(std::move(data));
+        gatherer.insert(msg.sequence_number(), msg.release<PackedDataChunk>());
     }
     gatherer.insert_finished();
     auto data = co_await gatherer.extract_all(ordered);
+    std::uint64_t sequence{0};
     for (auto&& chunk : data) {
-        co_await ch_out->send(std::make_unique<PackedDataChunk>(std::move(chunk)));
+        co_await ch_out->send(
+            Message{sequence++, std::make_unique<PackedDataChunk>(std::move(chunk))}
+        );
     }
     co_await ch_out->drain(ctx->executor());
 }

@@ -58,13 +58,15 @@ inline Node random_table_generator(
     for (std::uint64_t seq = 0; seq < num_blocks; ++seq) {
         auto res = ctx->br()->reserve_and_spill(MemoryType::DEVICE, nbytes, false);
         co_await ch_out->send(
-            std::make_unique<TableChunk>(
+            Message{
                 seq,
-                std::make_unique<cudf::table>(random_table(
-                    ncolumns, nrows, min_val, max_val, stream, ctx->br()->device_mr()
-                )),
-                stream
-            )
+                std::make_unique<TableChunk>(
+                    std::make_unique<cudf::table>(random_table(
+                        ncolumns, nrows, min_val, max_val, stream, ctx->br()->device_mr()
+                    )),
+                    stream
+                )
+            }
         );
     }
     co_await ch_out->drain(ctx->executor());

@@ -8,7 +8,7 @@ from typing import Protocol, TypeVar
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.message import Message
 
-PayloadT = TypeVar("PayloadT", bound=Payload)
+PayloadT = TypeVar("PayloadT", bound="Payload")
 
 class Payload(Protocol):
     """
@@ -29,7 +29,9 @@ class Payload(Protocol):
 
     @classmethod
     def from_message(cls: PayloadT, message: Message[PayloadT]) -> PayloadT: ...
-    def into_message(self: PayloadT, message: Message[PayloadT]) -> None: ...
+    def into_message(
+        self: PayloadT, sequence_number: int, message: Message[PayloadT]
+    ) -> None: ...
 
 class Channel(Message[PayloadT]):
     def __init__(self) -> None: ...

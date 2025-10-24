@@ -6,6 +6,7 @@
 #pragma once
 
 #include <any>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <typeinfo>
@@ -26,12 +27,14 @@ class Message {
      * @brief Construct a new message from an unique pointer to the payload.
      *
      * @tparam T Payload type.
+     * @param sequence_number Ordering identifier for the message.
      * @param payload Non-null unique pointer to the payload.
      *
      * @throws std::invalid_argument if @p payload is null.
      */
     template <typename T>
-    Message(std::unique_ptr<T> payload) {
+    Message(std::uint64_t sequence_number, std::unique_ptr<T> payload)
+        : sequence_number_(sequence_number) {
         RAPIDSMPF_EXPECTS(
             payload != nullptr, "nullptr not allowed", std::invalid_argument
         );
@@ -105,6 +108,15 @@ class Message {
         return std::move(*ret);
     }
 
+    /**
+     * @brief Returns the sequence number of this message.
+     *
+     * @return The sequence number.
+     */
+    [[nodiscard]] std::uint64_t sequence_number() const noexcept {
+        return sequence_number_;
+    }
+
   private:
     /**
      * @brief Returns a shared pointer to the payload.
@@ -121,6 +133,7 @@ class Message {
     }
 
   private:
+    std::uint64_t sequence_number_{0};
     std::any payload_;
 };
 
