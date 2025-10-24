@@ -121,6 +121,10 @@ class PinnedMemoryPool {
     std::unique_ptr<PinnedMemoryPoolImpl> impl_;
 };
 
+/// @brief The default alignment for pinned memory allocations.
+constexpr size_t default_pinned_memory_alignment =
+    cuda::mr::default_cuda_malloc_alignment;
+
 /**
  * @brief A memory resource that allocates/deallocates pinned host memory from a pinned
  * host memory pool. This internally uses
@@ -185,7 +189,7 @@ class PinnedMemoryResource {
      * @param alignment The alignment requirement for the allocation.
      * @return A pointer to the allocated memory, or nullptr if allocation failed.
      */
-    void* allocate_sync(size_t bytes, size_t alignment);
+    void* allocate_sync(size_t bytes, size_t alignment = default_pinned_memory_alignment);
 
     /**
      * @brief Deallocates pinned memory asynchronously.
@@ -215,7 +219,9 @@ class PinnedMemoryResource {
      * @param bytes The size of the memory to deallocate.
      * @param alignment The alignment that was used for allocation.
      */
-    void deallocate_sync(void* ptr, size_t bytes, size_t alignment);
+    void deallocate_sync(
+        void* ptr, size_t bytes, size_t alignment = default_pinned_memory_alignment
+    );
 
     /**
      * @brief equality operator
