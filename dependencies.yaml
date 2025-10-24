@@ -406,7 +406,7 @@ dependencies:
           - *doxygen
           - ipython
           - make
-           - myst-nb
+          - myst-nb
           - myst-parser
           - numpydoc
           - pydata-sphinx-theme>=0.15.4

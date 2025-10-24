@@ -31,8 +31,9 @@ dependencies:
 - libnuma
 - librmm==25.12.*,>=0.0.0a0
 - libucxx==0.47.*,>=0.0.0a0
-- make - myst-nb
+- make
 - mpi4py
+- myst-nb
 - myst-parser
 - ninja
 - numpydoc
