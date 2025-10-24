@@ -16,5 +16,4 @@ caption: Contents:
 quickstart.md
 background/index.md
 api.md
-librapidsmpf/index.md
 ```
