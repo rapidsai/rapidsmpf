@@ -8,6 +8,7 @@
 #include <cstdint>
 
 #include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/streaming/core/message.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -25,5 +26,29 @@ struct PackedDataChunk {
      */
     PackedData data;
 };
+
+Message to_message(PackedDataChunk&& chunk) {
+    Message::Callbacks cbs{
+        .buffer_size = [](Message const& msg, MemoryType mem_type) -> size_t {
+            auto const& self = msg.get<PackedDataChunk>();
+            if (self.data.data->mem_type() == mem_type) {
+                return self.data.data->size;
+            }
+            return 0;
+        },
+        .copy = [](Message const& msg,
+                   BufferResource* br,
+                   MemoryReservation& reservation) -> Message {
+            auto const& self = msg.get<PackedDataChunk>();
+            return Message(
+                std::make_unique<PackedDataChunk>(
+                    self.sequence_number, self.data.copy(br, reservation)
+                ),
+                msg.callbacks()
+            );
+        }
+    };
+    return Message{std::make_unique<PackedDataChunk>(std::move(chunk)), std::move(cbs)};
+}
 
 }  // namespace rapidsmpf::streaming
