@@ -1,7 +1,7 @@
 # Quickstart
 
 
-## Basics of a Shuffle with rapidsmpf
+## Shuffle Basics
 
 `rapidsmpf` is designed as a service that plugs into other libraries. This means
 it isn't typically used as a standalone library, and is expected to operate in
