@@ -54,4 +54,6 @@ struct PartitionVectorChunk {
 
 Message to_message(PartitionMapChunk&& chunk);
 
+Message to_message(PartitionVectorChunk&& chunk);
+
 }  // namespace rapidsmpf::streaming

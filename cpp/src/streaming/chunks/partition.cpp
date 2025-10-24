@@ -36,4 +36,37 @@ Message to_message(PartitionMapChunk&& chunk) {
     return Message{std::make_unique<PartitionMapChunk>(std::move(chunk)), std::move(cbs)};
 }
 
+Message to_message(PartitionVectorChunk&& chunk) {
+    Message::Callbacks cbs{
+        .buffer_size = [](Message const& msg, MemoryType mem_type) -> size_t {
+            auto const& self = msg.get<PartitionVectorChunk>();
+            std::size_t ret = 0;
+            for (auto const& packed_data : self.data) {
+                if (mem_type == packed_data.data->mem_type()) {
+                    ret += packed_data.data->size;
+                }
+            }
+            return ret;
+        },
+        .copy = [](Message const& msg,
+                   BufferResource* br,
+                   MemoryReservation& reservation) -> Message {
+            auto const& self = msg.get<PartitionVectorChunk>();
+            std::vector<PackedData> ret;
+            for (auto const& packed_data : self.data) {
+                ret.emplace_back(packed_data.copy(br, reservation));
+            }
+            return Message(
+                std::make_unique<PartitionVectorChunk>(
+                    self.sequence_number, std::move(ret)
+                ),
+                msg.callbacks()
+            );
+        }
+    };
+    return Message{
+        std::make_unique<PartitionVectorChunk>(std::move(chunk)), std::move(cbs)
+    };
+}
+
 }  // namespace rapidsmpf::streaming
