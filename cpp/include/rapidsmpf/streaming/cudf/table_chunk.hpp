@@ -235,6 +235,26 @@ class TableChunk {
      */
     [[nodiscard]] TableChunk spill_to_host(BufferResource* br);
 
+    /**
+     * @brief Create a deep copy of the table chunk.
+     *
+     * Allocates new memory for all buffers in the table using the specified
+     * `reservation`, which determines the target memory type (e.g., host or device).
+     * As a consequence, the `is_available()` status may differ in the new copy. For
+     * example, copying an available table chunk from device to host memory will result
+     * in an unavailable copy.
+     *
+     * @param br Buffer resource used for allocations.
+     * @param reservation Memory reservation used to track and limit allocations.
+     * @return A new `TableChunk` instance containing copies of all buffers and metadata.
+     *
+     * @throws std::overflow_error If the total allocation size exceeds the available
+     * reservation.
+     */
+    [[nodiscard]] TableChunk copy(
+        BufferResource* br, MemoryReservation& reservation
+    ) const;
+
   private:
     ///< @brief Optional owning object if the TableChunk was constructed from a
     ///< table_view.
