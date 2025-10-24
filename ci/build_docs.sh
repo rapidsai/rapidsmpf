@@ -56,7 +56,7 @@ popd
 
 rapids-logger "Build rapidsmpf Sphinx docs"
 pushd docs/
-make dirhtml
+make dirhtml O="-j 8"
 mkdir -p "${RAPIDS_DOCS_DIR}/rapidsmpf/html"
 mv build/dirhtml/* "${RAPIDS_DOCS_DIR}/rapidsmpf/html"
 popd

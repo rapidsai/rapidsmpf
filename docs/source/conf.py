@@ -20,8 +20,6 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx_copybutton",
-    "sphinx_remove_toctrees",
-    # "sphinx.ext.linkcode",
     "numpydoc",
     "IPython.sphinxext.ipython_console_highlighting",
     "IPython.sphinxext.ipython_directive",
