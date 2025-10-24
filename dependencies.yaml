@@ -404,6 +404,7 @@ dependencies:
         packages:
           - breathe>=4.35.0
           - *doxygen
+          - ipython
           - make
           - myst-parser
           - numpydoc
