@@ -25,7 +25,7 @@ namespace rapidsmpf::streaming {
 class Message {
   public:
     struct Callbacks {
-        std::function<size_t(Message const&, MemoryType)> buffer_size;
+        std::function<std::pair<size_t, bool>(Message const&, MemoryType)> buffer_size;
         std::function<
             Message(Message const&, BufferResource* br, MemoryReservation& reservation)>
             copy;
@@ -122,7 +122,7 @@ class Message {
         return callbacks_;
     }
 
-    [[nodiscard]] size_t buffer_size(MemoryType mem_type) {
+    [[nodiscard]] std::pair<size_t, bool> buffer_size(MemoryType mem_type) {
         RAPIDSMPF_EXPECTS(
             callbacks_.buffer_size,
             "message doesn't support `buffer_size`",

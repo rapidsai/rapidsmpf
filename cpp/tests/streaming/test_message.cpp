@@ -57,23 +57,24 @@ TEST_F(StreamingMessage, BufferSizeWithoutCallbacks) {
 
 TEST_F(StreamingMessage, BufferSizeWithCallbacks) {
     Message::Callbacks cbs{
-        .buffer_size = [](Message const& msg, MemoryType mem_type) -> size_t {
+        .buffer_size = [](Message const& msg,
+                          MemoryType mem_type) -> std::pair<size_t, bool> {
             EXPECT_TRUE(msg.holds<Buffer>());
             if (mem_type == msg.get<Buffer>().mem_type()) {
-                return msg.get<Buffer>().size;
+                return {msg.get<Buffer>().size, true};
             }
-            return 0;
+            return {0, false};
         }
     };
     {
         Message m{br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cbs};
-        EXPECT_EQ(m.buffer_size(MemoryType::HOST), 10);
-        EXPECT_EQ(m.buffer_size(MemoryType::DEVICE), 0);
+        EXPECT_EQ(m.buffer_size(MemoryType::HOST), std::make_pair(10, true));
+        EXPECT_EQ(m.buffer_size(MemoryType::DEVICE), std::make_pair(0, false));
     }
     {
         Message m{br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cbs};
-        EXPECT_EQ(m.buffer_size(MemoryType::HOST), 0);
-        EXPECT_EQ(m.buffer_size(MemoryType::DEVICE), 10);
+        EXPECT_EQ(m.buffer_size(MemoryType::HOST), std::make_pair(0, false));
+        EXPECT_EQ(m.buffer_size(MemoryType::DEVICE), std::make_pair(10, true));
     }
 }
 
