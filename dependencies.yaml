@@ -402,12 +402,15 @@ dependencies:
     common:
       - output_types: [conda]
         packages:
+          - breathe>=4.35.0
           - *doxygen
+          - ipython
           - make
+          - myst-nb
           - myst-parser
           - numpydoc
-          - pydata-sphinx-theme
-          - sphinx
+          - pydata-sphinx-theme>=0.15.4
+          - sphinx>=8.1.0
           - sphinx-autobuild
           - sphinx-copybutton
     specific:
