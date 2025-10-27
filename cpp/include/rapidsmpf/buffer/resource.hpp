@@ -541,28 +541,4 @@ class LimitAvailableMemory {
     RmmResourceAdaptor const* mr_;
 };
 
-/**
- * @brief Acquire a memory reservation and execute a function, which will ensure
- * the reservation is released when the function goes out of scope.
- *
- * @param reservation moved memory reservation.
- * @param f The function to execute.
- *
- * @return The result of the function.
- */
-auto with_memory_reservation(MemoryReservation&& reservation, auto&& f) {
-    using F = std::decay_t<decltype(f)>;
-
-    if constexpr (std::invocable<F, MemoryReservation&>) {
-        return std::forward<F>(f)(reservation);
-    } else if constexpr (std::invocable<F>) {
-        return std::forward<F>(f)();
-    } else {
-        static_assert(
-            std::integral_constant<F, false>(),
-            "f must be callable with no args or MemoryReservation&"
-        );
-    }
-}
-
 }  // namespace rapidsmpf

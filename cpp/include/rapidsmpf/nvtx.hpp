@@ -111,8 +111,13 @@ struct rapidsmpf_domain {
  * @brief Convenience macro for generating an NVTX scoped range in the `rapidsmpf` domain
  * to annotate a time duration.
  *
- * @param message The message to annotate.
- * @param payload (optional) The payload to annotate.
+ * Usage:
+ * - `RAPIDSMPF_NVTX_SCOPED_RANGE(message)` - Annotate with message only
+ * - `RAPIDSMPF_NVTX_SCOPED_RANGE(message, payload)` - Annotate with message and payload
+ *
+ * The first argument is the message to annotate (const char*).
+ * The second argument (optional) is the payload to annotate (integral or floating-point
+ * value).
  *
  * Example:
  * ```
