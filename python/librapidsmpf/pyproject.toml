@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
-# SPDX-License-Identifier: Apache-2.0 All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
 [build-system]
 build-backend = "rapids_build_backend.build"

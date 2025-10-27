@@ -1,6 +1,8 @@
 # =================================================================================
+# cmake-format: off
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
+# cmake-format: on
 # =================================================================================
 
 # Need to call rapids_cpm_nvtx3 to get support for an installed version of nvtx3 and to support
