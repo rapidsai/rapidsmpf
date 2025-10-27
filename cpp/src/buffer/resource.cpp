@@ -181,11 +181,8 @@ std::unique_ptr<Buffer> BufferResource::allocate(
         );
         break;
     case MemoryType::PINNED_HOST:
-        RAPIDSMPF_EXPECTS(
-            is_pinned_memory_available(),
-            "PinnedMemoryResource is not supported or not initialized",
-            std::invalid_argument
-        );
+        // Note, no need to check if pinned host memory is available, because it is
+        // checked during reservation.
         ret = std::unique_ptr<Buffer>(
             new Buffer(std::make_unique<PinnedHostBuffer>(size, stream, pinned_host_mr_))
         );
