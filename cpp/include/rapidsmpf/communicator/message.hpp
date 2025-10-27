@@ -13,7 +13,7 @@
 
 namespace rapidsmpf::communicator {
 
-class TagCommunicationInterface;
+class TagMetadataPayloadExchange;
 
 /**
  * @brief Message class for communication.
@@ -69,7 +69,7 @@ class Message {
     [[nodiscard]] std::unique_ptr<Buffer> release_data();
 
   private:
-    friend class TagCommunicationInterface;
+    friend class TagMetadataPayloadExchange;
 
     /**
      * @brief Set the data buffer for this message.

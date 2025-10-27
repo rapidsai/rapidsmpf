@@ -12,8 +12,8 @@
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
-#include <rapidsmpf/communicator/communication_interface.hpp>
 #include <rapidsmpf/communicator/message.hpp>
+#include <rapidsmpf/communicator/metadata_payload_exchange.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
@@ -22,7 +22,7 @@
 using namespace rapidsmpf;
 using namespace rapidsmpf::communicator;
 
-class CommunicationInterfaceTest : public ::testing::Test {
+class MetadataPayloadExchangeTest : public ::testing::Test {
   protected:
     void SetUp() override {
         comm = GlobalEnvironment->comm_.get();
@@ -33,7 +33,7 @@ class CommunicationInterfaceTest : public ::testing::Test {
         stream = rmm::cuda_stream_default;
         statistics = std::make_shared<Statistics>();
 
-        comm_interface = std::make_unique<TagCommunicationInterface>(
+        comm_interface = std::make_unique<TagMetadataPayloadExchange>(
             GlobalEnvironment->comm_, OpID{42}, comm->rank(), statistics
         );
 
@@ -88,15 +88,15 @@ class CommunicationInterfaceTest : public ::testing::Test {
     rmm::cuda_stream_view stream;
     std::unique_ptr<BufferResource> br;
     std::shared_ptr<Statistics> statistics;
-    std::unique_ptr<TagCommunicationInterface> comm_interface;
+    std::unique_ptr<TagMetadataPayloadExchange> comm_interface;
 };
 
-TEST_F(CommunicationInterfaceTest, InitialState) {
+TEST_F(MetadataPayloadExchangeTest, InitialState) {
     // Communication interface should start in idle state
     EXPECT_TRUE(comm_interface->is_idle());
 }
 
-TEST_F(CommunicationInterfaceTest, SendReceiveMetadataOnly) {
+TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
     if (comm->nranks() < 2) {
         GTEST_SKIP() << "Test requires at least 2 ranks";
     }
@@ -145,7 +145,7 @@ TEST_F(CommunicationInterfaceTest, SendReceiveMetadataOnly) {
     EXPECT_TRUE(comm_interface->is_idle());
 }
 
-TEST_F(CommunicationInterfaceTest, SendReceiveWithData) {
+TEST_F(MetadataPayloadExchangeTest, SendReceiveWithData) {
     if (comm->nranks() < 2) {
         GTEST_SKIP() << "Test requires at least 2 ranks";
     }
@@ -209,7 +209,7 @@ TEST_F(CommunicationInterfaceTest, SendReceiveWithData) {
     wait_for_communication_complete();
 }
 
-TEST_F(CommunicationInterfaceTest, MultipleMessages) {
+TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
     if (comm->nranks() < 2) {
         GTEST_SKIP() << "Test requires at least 2 ranks";
     }

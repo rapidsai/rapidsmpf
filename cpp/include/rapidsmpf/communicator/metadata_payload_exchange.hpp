@@ -28,9 +28,9 @@ namespace rapidsmpf::communicator {
  * can drive communication forward while maintaining full control over the underlying
  * communication patterns and optimizations.
  */
-class CommunicationInterface {
+class MetadataPayloadExchange {
   public:
-    virtual ~CommunicationInterface() = default;
+    virtual ~MetadataPayloadExchange() = default;
 
     /**
      * @brief Send messages to remote ranks.
@@ -61,22 +61,22 @@ class CommunicationInterface {
 };
 
 /**
- * @brief Tag-based implementation of CommunicationInterface.
+ * @brief Tag-based implementation of MetadataPayloadExchange.
  *
  * This implementation provides the same communication protocol as
- * TagCommunicationInterface but works with the abstract Message.
+ * TagMetadataPayloadExchange but works with the abstract Message.
  */
-class TagCommunicationInterface : public CommunicationInterface {
+class TagMetadataPayloadExchange : public MetadataPayloadExchange {
   public:
     /**
-     * @brief Constructor for TagCommunicationInterface.
+     * @brief Constructor for TagMetadataPayloadExchange.
      *
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
      * @param rank The current rank (for logging and validation).
      * @param statistics The statistics to use for tracking communication operations.
      */
-    TagCommunicationInterface(
+    TagMetadataPayloadExchange(
         std::shared_ptr<Communicator> comm,
         OpID op_id,
         Rank rank,
@@ -84,7 +84,7 @@ class TagCommunicationInterface : public CommunicationInterface {
     );
 
     /**
-     * @copydoc CommunicationInterface::send_messages
+     * @copydoc MetadataPayloadExchange::send_messages
      *
      * @throw std::runtime_error if a message is sent to itself or if an outgoing
      * message already exists.
@@ -92,7 +92,7 @@ class TagCommunicationInterface : public CommunicationInterface {
     void send_messages(std::vector<std::unique_ptr<Message>>&& messages) override;
 
     /**
-     * @copydoc CommunicationInterface::receive_messages
+     * @copydoc MetadataPayloadExchange::receive_messages
      *
      * Advances the communication state machine by:
      * - Receiving incoming message metadata
@@ -105,7 +105,7 @@ class TagCommunicationInterface : public CommunicationInterface {
     ) override;
 
     /**
-     * @copydoc CommunicationInterface::is_idle
+     * @copydoc MetadataPayloadExchange::is_idle
      */
     bool is_idle() const override;
 

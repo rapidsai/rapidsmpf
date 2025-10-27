@@ -10,7 +10,7 @@
 
 #include <cuda_runtime.h>
 
-#include <rapidsmpf/communicator/communication_interface.hpp>
+#include <rapidsmpf/communicator/metadata_payload_exchange.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -18,7 +18,7 @@
 namespace rapidsmpf::communicator {
 
 
-TagCommunicationInterface::TagCommunicationInterface(
+TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
     Rank rank,
@@ -30,7 +30,7 @@ TagCommunicationInterface::TagCommunicationInterface(
       gpu_data_tag_{op_id, 2},
       statistics_{std::move(statistics)} {}
 
-void TagCommunicationInterface::send_messages(
+void TagMetadataPayloadExchange::send_messages(
     std::vector<std::unique_ptr<Message>>&& messages
 ) {
     auto& log = comm_->logger();
@@ -94,7 +94,7 @@ void TagCommunicationInterface::send_messages(
     statistics_->add_duration_stat("comms-interface-send-messages", Clock::now() - t0);
 }
 
-std::vector<std::unique_ptr<Message>> TagCommunicationInterface::receive_messages(
+std::vector<std::unique_ptr<Message>> TagMetadataPayloadExchange::receive_messages(
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
 ) {
     auto const t0 = Clock::now();
@@ -110,12 +110,12 @@ std::vector<std::unique_ptr<Message>> TagCommunicationInterface::receive_message
     return completed_messages;
 }
 
-bool TagCommunicationInterface::is_idle() const {
+bool TagMetadataPayloadExchange::is_idle() const {
     return fire_and_forget_.empty() && incoming_messages_.empty()
            && in_transit_messages_.empty() && in_transit_futures_.empty();
 }
 
-void TagCommunicationInterface::receive_metadata() {
+void TagMetadataPayloadExchange::receive_metadata() {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
 
@@ -158,7 +158,7 @@ void TagCommunicationInterface::receive_metadata() {
     statistics_->add_duration_stat("comms-interface-receive-metadata", Clock::now() - t0);
 }
 
-void TagCommunicationInterface::setup_data_receives(
+void TagMetadataPayloadExchange::setup_data_receives(
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
 ) {
     auto& log = comm_->logger();
@@ -221,7 +221,7 @@ void TagCommunicationInterface::setup_data_receives(
 }
 
 std::vector<std::unique_ptr<Message>>
-TagCommunicationInterface::complete_data_transfers() {
+TagMetadataPayloadExchange::complete_data_transfers() {
     auto const t0 = Clock::now();
 
     std::vector<std::unique_ptr<Message>> completed_messages;
@@ -272,7 +272,7 @@ TagCommunicationInterface::complete_data_transfers() {
     return completed_messages;
 }
 
-void TagCommunicationInterface::cleanup_completed_operations() {
+void TagMetadataPayloadExchange::cleanup_completed_operations() {
     if (!fire_and_forget_.empty()) {
         std::ignore = comm_->test_some(fire_and_forget_);
     }

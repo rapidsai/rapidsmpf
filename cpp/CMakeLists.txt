@@ -157,9 +157,9 @@ add_library(
   src/buffer/pinned_memory_resource.cu
   src/buffer/resource.cpp
   src/buffer/spill_manager.cpp
-  src/communicator/communication_interface.cpp
   src/communicator/communicator.cpp
   src/communicator/message.cpp
+  src/communicator/metadata_payload_exchange.cpp
   src/communicator/single.cpp
   src/config.cpp
   src/cuda_event.cpp
