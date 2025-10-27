@@ -24,8 +24,39 @@ namespace rapidsmpf::streaming {
  */
 class Message {
   public:
+    /**
+     * @brief Callback functions associated with a message.
+     *
+     * Allows type-specific customization of memory-related operations, such as
+     * computing buffer sizes or performing deep copies to a given memory type.
+     */
     struct Callbacks {
+        /**
+         * @brief Callback for computing the total buffer size associated with a message.
+         *
+         * @param msg Reference to the message.
+         * @param mem_type  Target memory type to query.
+         * @return A pair `(size, spillable)` where:
+         *   - size: Total size (in bytes) of the payload for the given memory type.
+         *   - spillable: `true` if the message owns its buffers and destroying it will
+         *                release the associated memory; otherwise `false`.
+         */
         std::function<std::pair<size_t, bool>(Message const&, MemoryType)> buffer_size;
+
+        /**
+         * @brief Callback for performing a deep copy of a message.
+         *
+         * The copy operation allocates new memory for the payload using the provided
+         * buffer resource and memory reservation. The memory type specified in the
+         * reservation determines where the new copy will reside (e.g., device or host
+         * memory).
+         *
+         * @param msg Source message to copy.
+         * @param br Buffer resource used for allocations.
+         * @param reservation Memory reservation to consume.
+         *
+         * @return A new `Message` instance containing a deep copy of the payload.
+         */
         std::function<
             Message(Message const&, BufferResource* br, MemoryReservation& reservation)>
             copy;
@@ -118,6 +149,14 @@ class Message {
         return std::move(*ret);
     }
 
+    /**
+     * @brief Returns the callbacks associated with this message.
+     *
+     * The callbacks define custom behaviors for operations such as
+     * `buffer_size()` and `copy()`.
+     *
+     * @return Constant reference to the message's registered callbacks.
+     */
     [[nodiscard]] Callbacks const& callbacks() const noexcept {
         return callbacks_;
     }
