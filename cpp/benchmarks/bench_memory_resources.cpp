@@ -38,12 +38,14 @@ class NewDeleteHostMemoryResource final : public HostMemoryResource {
 class PinnedHostMemoryResource final : public HostMemoryResource {
   public:
     void* allocate(size_t bytes) override {
-        return rmm::mr::pinned_host_memory_resource::allocate(bytes);
+        return mr.allocate(bytes);
     }
 
     void deallocate(void* ptr, size_t bytes) noexcept override {
-        rmm::mr::pinned_host_memory_resource::deallocate(ptr, bytes);
+        mr.deallocate(ptr, bytes);
     }
+
+    rmm::mr::pinned_host_memory_resource mr{};
 };
 
 class CcclPinnedHostMemoryResource final : public HostMemoryResource {
