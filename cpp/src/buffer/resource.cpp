@@ -61,7 +61,7 @@ BufferResource::BufferResource(
     RAPIDSMPF_EXPECTS(
         is_pinned_memory_resources_supported(),
         "PinnedMemoryResource is not supported",
-        std::runtime_error
+        std::invalid_argument
     );
     pinned_host_mr_ = std::move(pinned_host_mr);
 }
@@ -70,7 +70,7 @@ BufferResource::BufferResource(
     RAPIDSMPF_EXPECTS(
         is_pinned_memory_resources_supported() && pinned_host_mr_,
         "PinnedMemoryResource is not supported or not initialized",
-        std::runtime_error
+        std::invalid_argument
     );
     return *pinned_host_mr_;
 }
@@ -78,11 +78,11 @@ BufferResource::BufferResource(
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, bool allow_overbooking
 ) {
-    if (mem_type == MemoryType::PINNED_HOST
-        && (!is_pinned_memory_resources_supported() || !pinned_host_mr_))
-    {
-        return {MemoryReservation(mem_type, this, 0), 0};
-    }
+    RAPIDSMPF_EXPECTS(
+        mem_type != MemoryType::PINNED_HOST || is_pinned_memory_available(),
+        "PinnedMemoryResource is not supported or not initialized",
+        std::invalid_argument
+    );
 
     auto const& available = memory_available(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
@@ -145,6 +145,9 @@ MemoryReservation BufferResource::reserve_or_fail(
 
     // try to allocate data buffer from memory types in order [DEVICE, HOST]
     for (auto mem_type : MEMORY_TYPES) {
+        if (mem_type == MemoryType::PINNED_HOST && !is_pinned_memory_available()) {
+            continue;
+        }
         auto [res, _] = reserve(mem_type, size, false);
         if (res.size() == size) {
             return std::move(res);
@@ -179,7 +182,7 @@ std::unique_ptr<Buffer> BufferResource::allocate(
         break;
     case MemoryType::PINNED_HOST:
         RAPIDSMPF_EXPECTS(
-            is_pinned_memory_resources_supported() && pinned_host_mr_,
+            is_pinned_memory_available(),
             "PinnedMemoryResource is not supported or not initialized",
             std::invalid_argument
         );

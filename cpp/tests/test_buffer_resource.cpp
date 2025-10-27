@@ -320,16 +320,35 @@ class BufferResourceCopySliceTest
 
 TEST_P(BufferResourceCopySliceTest, CopySlice) {
     auto [source_type, dest_type, params] = GetParam();
+
+    if ((source_type == MemoryType::PINNED_HOST || dest_type == MemoryType::PINNED_HOST)
+        && !br->is_pinned_memory_available())
+    {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported or not initialized";
+    }
+
     auto src_buf = create_and_initialize_buffer(source_type, buffer_size);
     copy_slice_and_verify(dest_type, src_buf, params.offset, params.length);
+}
+
+std::string memory_type_to_string(MemoryType mem_type) {
+    static constexpr std::array<std::string, 3> mem_type_names{
+        {"Device", "PinnedHost", "Host"}
+    };
+
+    return mem_type_names[static_cast<std::size_t>(mem_type)];
 }
 
 INSTANTIATE_TEST_SUITE_P(
     CopySliceTests,
     BufferResourceCopySliceTest,
     ::testing::Combine(
-        ::testing::Values(MemoryType::HOST, MemoryType::DEVICE),  // source type
-        ::testing::Values(MemoryType::HOST, MemoryType::DEVICE),  // dest type
+        ::testing::Values(
+            MemoryType::HOST, MemoryType::PINNED_HOST, MemoryType::DEVICE
+        ),  // source type
+        ::testing::Values(
+            MemoryType::HOST, MemoryType::PINNED_HOST, MemoryType::DEVICE
+        ),  // dest type
         ::testing::Values(
             CopySliceParams{0, 0},  // Empty slice at start
             CopySliceParams{0, 1024},  // Full buffer
@@ -340,8 +359,8 @@ INSTANTIATE_TEST_SUITE_P(
     ),
     [](const ::testing::TestParamInfo<SliceCopyTestParams>& info) {
         std::stringstream ss;
-        ss << (std::get<0>(info.param) == MemoryType::HOST ? "Host" : "Device") << "To"
-           << (std::get<1>(info.param) == MemoryType::HOST ? "Host" : "Device") << "_"
+        ss << memory_type_to_string(std::get<0>(info.param)) << "To"
+           << memory_type_to_string(std::get<1>(info.param)) << "_"
            << "off_" << std::get<2>(info.param).offset << "_"
            << "len_" << std::get<2>(info.param).length;
         return ss.str();

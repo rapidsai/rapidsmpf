@@ -254,6 +254,15 @@ class BufferResource {
     }
 
     /**
+     * @brief Check if pinned host memory resource is available.
+     *
+     * @return True if pinned host memory resource is available, false otherwise.
+     */
+    [[nodiscard]] inline bool is_pinned_memory_available() const noexcept {
+        return is_pinned_memory_resources_supported() && pinned_host_mr_;
+    }
+
+    /**
      * @brief Reserve an amount of the specified memory type.
      *
      * Creates a new reservation of the specified size and type to inform about upcoming
@@ -271,6 +280,9 @@ class BufferResource {
      * @return A pair containing the reservation and the amount of overbooking. On success
      * the size of the reservation always equals `size` and on failure the size always
      * equals zero (a zero-sized reservation never fails).
+     *
+     * @throws std::invalid_argument if the memory type is `PINNED_HOST` and pinned host
+     * memory resource is not available/ not supported.
      */
     std::pair<MemoryReservation, std::size_t> reserve(
         MemoryType mem_type, size_t size, bool allow_overbooking
@@ -301,6 +313,10 @@ class BufferResource {
      * the order they appear in `MEMORY_TYPES`.
      * @return A memory reservation.
      * @throws std::runtime_error if no memory reservation was made.
+     *
+     * @throws std::invalid_argument if the @p mem_type is `PINNED_HOST` and pinned host
+     * memory resource is not available.
+     *
      */
     [[nodiscard]] MemoryReservation reserve_or_fail(
         size_t size, std::optional<MemoryType> mem_type = std::nullopt
@@ -328,8 +344,9 @@ class BufferResource {
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the allocated Buffer.
      *
-     * @throws std::invalid_argument if the memory type does not match the reservation.
      * @throws std::overflow_error if `size` exceeds the size of the reservation.
+     * @throws std::invalid_argument if @p reservation is PINNED_HOST and pinned host
+     * memory resource is not available.
      */
     std::unique_ptr<Buffer> allocate(
         std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
