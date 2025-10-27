@@ -205,35 +205,48 @@ class TableChunk {
     [[nodiscard]] cudf::table_view table_view() const;
 
     /**
-     * @brief Indicates whether this table chunk can be spilled.
+     * @brief Indicates whether this table chunk can be spilled to device memory.
      *
-     * A table chunk is considered spillable if it was created from one of the following:
+     * A table chunk is considered spillable if it owns its underlying memory. This is
+     * true when it was created from one of the following:
      *   - A device-owning source such as a `cudf::table`, `cudf::packed_columns`, or
      *     `PackedData`.
      *   - A `cudf::table_view` constructed with `is_exclusive_view == true`, indicating
-     *     that the view is the sole representation of the underlying table and its
-     *     associated owner exclusively manages the table's memory.
+     *     that the view is the sole representation of the underlying data and that its
+     *     owner exclusively manages the table's memory.
      *
      * In contrast, chunks constructed from non-exclusive `cudf::table_view` instances are
      * non-owning views of externally managed memory and therefore not spillable.
      *
-     * @return `true` if the table chunk can be spilled; otherwise, `false`.
+     * To spill a table chunk from device to host memory, first call `copy()` to create a
+     * host-side copy, then delete or overwrite the original device chunk. If
+     * `is_spillable() == true`, destroying the original device chunk will release the
+     * associated device memory.
+     *
+     * @return `true` if the table chunk owns its memory and can be spilled; otherwise
+     * `false`.
      */
     [[nodiscard]] bool is_spillable() const;
 
     /**
-     * @brief Move this table chunk into host memory.
+     * @brief Create a deep copy of the table chunk.
      *
-     * Converts the device-resident table into a `PackedData` stored in host memory using
-     * the associated CUDA stream.
+     * Allocates new memory for all buffers in the table using the specified
+     * `reservation`, which determines the target memory type (e.g., host or device).
+     * As a consequence, the `is_available()` status may differ in the new copy. For
+     * example, copying an available table chunk from device to host memory will result
+     * in an unavailable copy.
      *
      * @param br Buffer resource used for allocations.
-     * @return A new TableChunk containing packed host data.
+     * @param reservation Memory reservation used to track and limit allocations.
+     * @return A new `TableChunk` instance containing copies of all buffers and metadata.
      *
-     * @note After this call, this object is in a has-been-moved-state and anything other
-     * than reassignment, movement, and destruction is UB.
+     * @throws std::overflow_error If the total allocation size exceeds the available
+     * reservation.
      */
-    [[nodiscard]] TableChunk spill_to_host(BufferResource* br);
+    [[nodiscard]] TableChunk copy(
+        BufferResource* br, MemoryReservation& reservation
+    ) const;
 
   private:
     ///< @brief Optional owning object if the TableChunk was constructed from a

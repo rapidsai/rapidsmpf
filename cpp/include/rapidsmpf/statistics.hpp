@@ -327,6 +327,11 @@ class Statistics {
  * This macro creates a scoped memory recorder that records memory usage statistics
  * upon entering and leaving a code block (if memory profiling is enabled).
  *
+ * Usage:
+ * - `RAPIDSMPF_MEMORY_PROFILE(stats)` - Uses __func__ as the function name
+ * - `RAPIDSMPF_MEMORY_PROFILE(stats, "custom_name")` - Uses custom_name as the function
+ * name
+ *
  * Example usage:
  * @code
  * void foo(Statistics& stats) {
@@ -335,8 +340,9 @@ class Statistics {
  * }
  * @endcode
  *
- * @param stats A reference or pointer to a Statistics object.
- * @param funcname (optional) Custom function name string to use instead of __func__.
+ * The first argument is a reference or pointer to a Statistics object.
+ * The second argument (optional) is a custom function name string to use instead of
+ * __func__.
  */
 #define RAPIDSMPF_MEMORY_PROFILE(...)                                       \
     RAPIDSMPF_OVERLOAD_BY_ARG_COUNT(                                        \
