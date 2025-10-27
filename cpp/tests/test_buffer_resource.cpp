@@ -16,6 +16,7 @@
 #include <rmm/mr/device/owning_wrapper.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/pinned_memory_resource.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
@@ -228,7 +229,16 @@ TEST(BufferResource, LimitAvailableMemory) {
 class BaseBufferResourceCopyTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        br = std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
+        if (is_pinned_memory_resources_supported()) {
+            pinned_pool = std::make_unique<rapidsmpf::PinnedMemoryPool>();
+            pinned_mr = std::make_shared<rapidsmpf::PinnedMemoryResource>(*pinned_pool);
+            br = std::make_unique<BufferResource>(
+                cudf::get_current_device_resource_ref(), pinned_mr
+            );
+        } else {
+            br =
+                std::make_unique<BufferResource>(cudf::get_current_device_resource_ref());
+        }
         stream = cudf::get_default_stream();
 
         // initialize the host pattern
@@ -256,6 +266,8 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
     static constexpr std::size_t buffer_size = 1024;  // 1 KiB
 
     std::unique_ptr<BufferResource> br;
+    std::unique_ptr<rapidsmpf::PinnedMemoryPool> pinned_pool;
+    std::shared_ptr<rapidsmpf::PinnedMemoryResource> pinned_mr;
     rmm::cuda_stream_view stream;
 
     std::vector<uint8_t> host_pattern;  // a predefined pattern for testing
@@ -329,14 +341,6 @@ TEST_P(BufferResourceCopySliceTest, CopySlice) {
 
     auto src_buf = create_and_initialize_buffer(source_type, buffer_size);
     copy_slice_and_verify(dest_type, src_buf, params.offset, params.length);
-}
-
-std::string memory_type_to_string(MemoryType mem_type) {
-    static constexpr std::array<std::string, 3> mem_type_names{
-        {"Device", "PinnedHost", "Host"}
-    };
-
-    return mem_type_names[static_cast<std::size_t>(mem_type)];
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -426,6 +430,13 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
 
 TEST_P(BufferResourceCopyToTest, CopyTo) {
     auto [source_type, dest_type, params] = BufferResourceCopyToTest::GetParam();
+
+    if ((source_type == MemoryType::PINNED_HOST || dest_type == MemoryType::PINNED_HOST)
+        && !br->is_pinned_memory_available())
+    {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported or not initialized";
+    }
+
     auto source = create_and_initialize_buffer(source_type, params.source_size);
     auto [dest_reserve, dest_overbooking] = br->reserve(dest_type, buffer_size, false);
     auto dest = br->allocate(buffer_size, stream, dest_reserve);
@@ -438,8 +449,12 @@ INSTANTIATE_TEST_SUITE_P(
     CopyToTests,
     BufferResourceCopyToTest,
     ::testing::Combine(
-        ::testing::Values(MemoryType::HOST, MemoryType::DEVICE),  // source type
-        ::testing::Values(MemoryType::HOST, MemoryType::DEVICE),  // dest type
+        ::testing::Values(
+            MemoryType::HOST, MemoryType::PINNED_HOST, MemoryType::DEVICE
+        ),  // source type
+        ::testing::Values(
+            MemoryType::HOST, MemoryType::PINNED_HOST, MemoryType::DEVICE
+        ),  // dest type
         ::testing::Values(
             // source_size, dest_offset (dest_size = 1024)
             CopyToParams{1024, 0},  // Same sized buffers
@@ -456,8 +471,8 @@ INSTANTIATE_TEST_SUITE_P(
         auto dest_type = std::get<1>(info.param);
         auto params = std::get<2>(info.param);
         std::stringstream ss;
-        ss << (source_type == MemoryType::HOST ? "Host" : "Device") << "To"
-           << (dest_type == MemoryType::HOST ? "Host" : "Device") << "_"
+        ss << memory_type_to_string(source_type) << "To"
+           << memory_type_to_string(dest_type) << "_"
            << "src_" << params.source_size << "_"
            << "dst_off_" << params.dest_offset;
         return ss.str();

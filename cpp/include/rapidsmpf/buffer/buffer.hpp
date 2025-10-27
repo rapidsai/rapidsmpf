@@ -41,6 +41,20 @@ constexpr std::array<MemoryType, 3> MEMORY_TYPES{
 };
 
 /**
+ * @brief Converts a memory type to a string.
+ *
+ * @param mem_type The memory type to convert.
+ * @return The string view of the memory type.
+ */
+constexpr std::string_view memory_type_to_string(MemoryType mem_type) {
+    constexpr std::array<const char*, std::size(MEMORY_TYPES)> mem_type_names{
+        {"Device", "PinnedHost", "Host"}
+    };
+
+    return mem_type_names[static_cast<std::size_t>(mem_type)];
+}
+
+/**
  * @brief Buffer representing device or host memory.
  *
  * @note The constructors are private, use `BufferResource` to construct buffers.
