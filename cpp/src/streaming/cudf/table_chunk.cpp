@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <memory>
+
+#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
@@ -138,39 +141,81 @@ bool TableChunk::is_spillable() const {
     return is_spillable_;
 }
 
-TableChunk TableChunk::spill_to_host(BufferResource* br) {
-    RAPIDSMPF_EXPECTS(
-        is_spillable_, "table chunk isn't spillable", std::invalid_argument
-    );
-    std::unique_ptr<PackedData> packed_data = std::move(packed_data_);
+TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) const {
+    if (is_available()) {  // If `is_available() == true`, the chunk is in device memory.
+        switch (reservation.mem_type()) {
+        case MemoryType::DEVICE:
+            {
+                // Use libcudf to copy the table_view().
+                auto table = std::make_unique<cudf::table>(
+                    table_view(), stream(), br->device_mr()
+                );
+                // And update the provided `reservation`.
+                br->release(reservation, data_alloc_size(MemoryType::DEVICE));
+                return TableChunk(sequence_number(), std::move(table), stream());
+            }
+        case MemoryType::HOST:
+            {
+                // Get the packed data either from `packed_columns_` or `table_view().
+                std::unique_ptr<PackedData> packed_data;
+                if (packed_columns_ != nullptr) {
+                    // If `packed_columns_` is available, we copy its gpu data to a
+                    // new host buffer and its metadata to a new std::vector.
 
-    // If it isn't already packed data, convert it.
-    if (packed_data == nullptr) {
-        if (table_ != nullptr) {
-            // TODO: use `cudf::chunked_pack()`.
-            auto packed_columns = cudf::pack(table_->view(), stream_, br->device_mr());
-            packed_data = std::make_unique<PackedData>(
-                std::move(packed_columns.metadata),
-                br->move(std::move(packed_columns.gpu_data), stream_)
-            );
-        } else if (packed_columns_ != nullptr) {
-            packed_data = std::make_unique<PackedData>(
-                std::move(packed_columns_->metadata),
-                br->move(std::move(packed_columns_->gpu_data), stream_)
-            );
-        } else {
-            auto packed_columns = cudf::pack(table_view(), stream_, br->device_mr());
-            packed_data = std::make_unique<PackedData>(
-                std::move(packed_columns.metadata),
-                br->move(std::move(packed_columns.gpu_data), stream_)
-            );
+                    // Copy packed_columns' metadata.
+                    auto metadata = std::make_unique<std::vector<std::uint8_t>>(
+                        *packed_columns_->metadata
+                    );
+
+                    // Copy packed columns' gpu data.
+                    auto gpu_data = br->allocate(
+                        packed_columns_->gpu_data->size(), stream(), reservation
+                    );
+                    gpu_data->write_access([&](std::byte* dst,
+                                               rmm::cuda_stream_view stream) {
+                        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                            dst,
+                            packed_columns_->gpu_data->data(),
+                            packed_columns_->gpu_data->size(),
+                            cudaMemcpyDefault,
+                            stream
+                        ));
+                    });
+                    packed_data = std::make_unique<PackedData>(
+                        std::move(metadata), std::move(gpu_data)
+                    );
+                } else {
+                    // If `packed_columns_` is not available, we use libcudf's pack() to
+                    // serialize `table_view()` into a packed_columns and then we move
+                    // the packed_columns' gpu_data to a new host buffer.
+
+                    // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
+                    // `cudf::pack()` allocates device memory we haven't reserved.
+                    auto packed_columns =
+                        cudf::pack(table_view(), stream_, br->device_mr());
+                    packed_data = std::make_unique<PackedData>(
+                        std::move(packed_columns.metadata),
+                        br->move(std::move(packed_columns.gpu_data), stream_)
+                    );
+                    packed_data->data =
+                        br->move(std::move(packed_data->data), reservation);
+                }
+                return TableChunk(sequence_number(), std::move(packed_data));
+            }
+        default:
+            RAPIDSMPF_FAIL("MemoryType: unknown");
         }
     }
+    RAPIDSMPF_EXPECTS(packed_data_ != nullptr, "something went wrong");
 
-    // Spill data to host memory.
-    auto [res, _] = br->reserve(MemoryType::HOST, packed_data->data->size, false);
-    packed_data->data = br->move(std::move(packed_data->data), res);
-
-    return TableChunk{sequence_number_, std::move(packed_data)};
+    auto metadata = std::make_unique<std::vector<std::uint8_t>>(*packed_data_->metadata);
+    auto data =
+        br->allocate(packed_data_->data->size, packed_data_->stream(), reservation);
+    buffer_copy(*data, *packed_data_->data, packed_data_->data->size);
+    return TableChunk(
+        sequence_number(),
+        std::make_unique<PackedData>(std::move(metadata), std::move(data))
+    );
 }
+
 }  // namespace rapidsmpf::streaming

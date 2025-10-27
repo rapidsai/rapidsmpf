@@ -102,13 +102,13 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
     {
         auto chunk = make_chunk(TableChunk::ExclusiveView::YES);
         check_chunk(chunk, true);
-        chunk = chunk.spill_to_host(br.get());
+        auto res = br->reserve_or_fail(
+            chunk.data_alloc_size(MemoryType::DEVICE), MemoryType::DEVICE
+        );
+        // This is like spilling since the original `chunk` is ExclusiveView::YES and
+        // overwritten.
+        chunk = chunk.copy(br.get(), res);
         EXPECT_EQ(num_deletions, 4);
-    }
-    {
-        auto chunk = make_chunk(TableChunk::ExclusiveView::NO);
-        check_chunk(chunk, false);
-        EXPECT_THROW(std::ignore = chunk.spill_to_host(br.get()), std::invalid_argument);
     }
 }
 
@@ -169,7 +169,7 @@ TEST_F(StreamingTableChunk, FromPackedDataOnHost) {
     // Move the gpu_data to a Buffer (still device memory).
     auto gpu_data_on_device = br->move(std::move(packed_columns.gpu_data), stream);
 
-    // Copy the gpu data to host memory.
+    // Copy the GPU data to host memory.
     auto [res, _] = br->reserve(MemoryType::HOST, size, true);
     auto gpu_data_on_host = br->move(std::move(gpu_data_on_device), res);
 
@@ -186,32 +186,80 @@ TEST_F(StreamingTableChunk, FromPackedDataOnHost) {
     EXPECT_EQ(chunk.make_available_cost(), size);
 }
 
-TEST_F(StreamingTableChunk, SpillUnspillRoundTrip) {
+TEST_F(StreamingTableChunk, DeviceToDeviceCopy) {
     constexpr unsigned int num_rows = 100;
     constexpr std::int64_t seed = 1337;
     constexpr std::uint64_t seq = 42;
 
-    cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
+    auto expect = random_table_with_index(seed, num_rows, 0, 10);
 
-    TableChunk chunk_on_device{seq, std::make_unique<cudf::table>(expect), stream};
-    EXPECT_TRUE(chunk_on_device.is_available());
-    EXPECT_TRUE(chunk_on_device.is_spillable());
+    rapidsmpf::streaming::TableChunk chunk{
+        seq, std::make_unique<cudf::table>(expect), stream
+    };
+    EXPECT_TRUE(chunk.is_available());
 
-    // Spill to host memory.
-    TableChunk chunk_on_host = chunk_on_device.spill_to_host(br.get());
-    EXPECT_FALSE(chunk_on_host.is_available());
-    // We are allowed to spill an already spilled chunk.
-    chunk_on_host = chunk_on_host.spill_to_host(br.get());
-    EXPECT_FALSE(chunk_on_host.is_available());
+    auto res = br->reserve_or_fail(
+        chunk.data_alloc_size(MemoryType::DEVICE), MemoryType::DEVICE
+    );
+    auto chunk2 = chunk.copy(br.get(), res);
 
-    // Unspill back to device memory.
-    auto [res, _] =
-        br->reserve(MemoryType::DEVICE, chunk_on_host.make_available_cost(), true);
-    chunk_on_device = chunk_on_host.make_available(res);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk2.table_view(), expect);
+}
 
-    EXPECT_EQ(chunk_on_device.sequence_number(), seq);
-    EXPECT_EQ(chunk_on_device.stream().value(), stream.value());
-    EXPECT_TRUE(chunk_on_device.is_available());
-    EXPECT_EQ(chunk_on_device.make_available_cost(), 0);
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk_on_device.table_view(), expect);
+TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
+    constexpr unsigned int num_rows = 64;
+    constexpr std::int64_t seed = 2025;
+    constexpr std::uint64_t seq = 7;
+
+    auto expect = random_table_with_index(seed, num_rows, 0, 5);
+
+    TableChunk dev_chunk{seq, std::make_unique<cudf::table>(expect), stream};
+    EXPECT_TRUE(dev_chunk.is_available());
+    EXPECT_TRUE(dev_chunk.is_spillable());
+    EXPECT_EQ(dev_chunk.sequence_number(), seq);
+    EXPECT_EQ(dev_chunk.stream().value(), stream.value());
+    EXPECT_EQ(dev_chunk.make_available_cost(), 0);
+
+    // Copy to host memory -> new chunk should be unavailable.
+    auto host_res = br->reserve_or_fail(
+        dev_chunk.data_alloc_size(MemoryType::DEVICE), MemoryType::HOST
+    );
+    auto host_copy = dev_chunk.copy(br.get(), host_res);
+    EXPECT_FALSE(host_copy.is_available());
+    EXPECT_TRUE(host_copy.is_spillable());
+    EXPECT_EQ(host_copy.sequence_number(), seq);
+    EXPECT_EQ(host_copy.stream().value(), stream.value());
+    EXPECT_GT(host_copy.make_available_cost(), 0);
+
+    // Host to host copy.
+    auto host_res2 = br->reserve_or_fail(
+        host_copy.data_alloc_size(MemoryType::HOST), MemoryType::HOST
+    );
+    auto host_copy2 = host_copy.copy(br.get(), host_res2);
+    EXPECT_FALSE(host_copy2.is_available());
+    EXPECT_TRUE(host_copy2.is_spillable());
+    EXPECT_EQ(host_copy2.sequence_number(), seq);
+    EXPECT_EQ(host_copy2.stream().value(), stream.value());
+    EXPECT_EQ(host_copy2.make_available_cost(), host_copy.make_available_cost());
+
+    // Bring the new host copy back to device and verify equality.
+    auto dev_res = br->reserve_or_fail(
+        host_copy2.data_alloc_size(MemoryType::HOST), MemoryType::DEVICE
+    );
+    auto dev_back = host_copy2.make_available(dev_res);
+    EXPECT_TRUE(dev_back.is_available());
+    EXPECT_TRUE(dev_back.is_spillable());
+    EXPECT_EQ(dev_back.sequence_number(), seq);
+    EXPECT_EQ(dev_back.stream().value(), stream.value());
+    EXPECT_EQ(dev_back.make_available_cost(), 0);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(dev_back.table_view(), expect);
+
+    // Sanity check: a second device copy should also remain equivalent.
+    auto dev_res2 = br->reserve_or_fail(
+        dev_back.data_alloc_size(MemoryType::DEVICE), MemoryType::DEVICE
+    );
+    auto dev_copy2 = dev_back.copy(br.get(), dev_res2);
+    EXPECT_TRUE(dev_copy2.is_available());
+    EXPECT_EQ(dev_copy2.make_available_cost(), 0);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(dev_copy2.table_view(), expect);
 }

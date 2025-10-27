@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.memory cimport shared_ptr
-from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.resource cimport BufferResource
 from rapidsmpf.communicator.communicator cimport Communicator

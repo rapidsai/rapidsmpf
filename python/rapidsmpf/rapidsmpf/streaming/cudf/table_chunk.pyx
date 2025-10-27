@@ -325,7 +325,7 @@ cdef class TableChunk:
         cdef cpp_table_view ret
         with nogil:
             ret = deref(handle).table_view()
-        return Table.from_table_view_of_arbitrary(ret, owner=self)
+        return Table.from_table_view_of_arbitrary(ret, owner=self, stream=self.stream)
 
     def is_spillable(self):
         """
