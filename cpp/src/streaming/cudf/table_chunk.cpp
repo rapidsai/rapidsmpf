@@ -209,12 +209,12 @@ TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) 
     RAPIDSMPF_EXPECTS(packed_data_ != nullptr, "something went wrong");
 
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(*packed_data_->metadata);
-    auto gpu_data =
+    auto data =
         br->allocate(packed_data_->data->size, packed_data_->stream(), reservation);
-    buffer_copy(*gpu_data, *packed_data_->data, packed_data_->data->size);
+    buffer_copy(*data, *packed_data_->data, packed_data_->data->size);
     return TableChunk(
         sequence_number(),
-        std::make_unique<PackedData>(std::move(metadata), std::move(gpu_data))
+        std::make_unique<PackedData>(std::move(metadata), std::move(data))
     );
 }
 
