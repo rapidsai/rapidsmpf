@@ -222,20 +222,6 @@ class TableChunk {
     [[nodiscard]] bool is_spillable() const;
 
     /**
-     * @brief Move this table chunk into host memory.
-     *
-     * Converts the device-resident table into a `PackedData` stored in host memory using
-     * the associated CUDA stream.
-     *
-     * @param br Buffer resource used for allocations.
-     * @return A new TableChunk containing packed host data.
-     *
-     * @note After this call, this object is in a has-been-moved-state and anything other
-     * than reassignment, movement, and destruction is UB.
-     */
-    [[nodiscard]] TableChunk spill_to_host(BufferResource* br);
-
-    /**
      * @brief Create a deep copy of the table chunk.
      *
      * Allocates new memory for all buffers in the table using the specified

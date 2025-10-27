@@ -141,36 +141,6 @@ bool TableChunk::is_spillable() const {
     return is_spillable_;
 }
 
-TableChunk TableChunk::spill_to_host(BufferResource* br) {
-    RAPIDSMPF_EXPECTS(
-        is_spillable_, "table chunk isn't spillable", std::invalid_argument
-    );
-    std::unique_ptr<PackedData> packed_data = std::move(packed_data_);
-
-    // If it isn't already packed data, convert it.
-    if (packed_data == nullptr) {
-        if (packed_columns_ != nullptr) {
-            packed_data = std::make_unique<PackedData>(
-                std::move(packed_columns_->metadata),
-                br->move(std::move(packed_columns_->gpu_data), stream_)
-            );
-        } else {
-            // TODO: use `cudf::chunked_pack()`.
-            auto packed_columns = cudf::pack(table_view(), stream_, br->device_mr());
-            packed_data = std::make_unique<PackedData>(
-                std::move(packed_columns.metadata),
-                br->move(std::move(packed_columns.gpu_data), stream_)
-            );
-        }
-    }
-
-    // Spill data to host memory.
-    auto [res, _] = br->reserve(MemoryType::HOST, packed_data->data->size, false);
-    packed_data->data = br->move(std::move(packed_data->data), res);
-
-    return TableChunk{sequence_number_, std::move(packed_data)};
-}
-
 TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) const {
     if (is_available()) {
         switch (reservation.mem_type()) {

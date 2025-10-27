@@ -102,13 +102,13 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
     {
         auto chunk = make_chunk(TableChunk::ExclusiveView::YES);
         check_chunk(chunk, true);
-        chunk = chunk.spill_to_host(br.get());
+        auto res = br->reserve_or_fail(
+            chunk.data_alloc_size(MemoryType::DEVICE), MemoryType::DEVICE
+        );
+        // This is like spilling since the original `chunk` is ExclusiveView::YES and
+        // overwritten.
+        chunk = chunk.copy(br.get(), res);
         EXPECT_EQ(num_deletions, 4);
-    }
-    {
-        auto chunk = make_chunk(TableChunk::ExclusiveView::NO);
-        check_chunk(chunk, false);
-        EXPECT_THROW(std::ignore = chunk.spill_to_host(br.get()), std::invalid_argument);
     }
 }
 
@@ -184,36 +184,6 @@ TEST_F(StreamingTableChunk, FromPackedDataOnHost) {
     EXPECT_TRUE(chunk.is_spillable());
     EXPECT_THROW((void)chunk.table_view(), std::invalid_argument);
     EXPECT_EQ(chunk.make_available_cost(), size);
-}
-
-TEST_F(StreamingTableChunk, SpillUnspillRoundTrip) {
-    constexpr unsigned int num_rows = 100;
-    constexpr std::int64_t seed = 1337;
-    constexpr std::uint64_t seq = 42;
-
-    cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
-
-    TableChunk chunk_on_device{seq, std::make_unique<cudf::table>(expect), stream};
-    EXPECT_TRUE(chunk_on_device.is_available());
-    EXPECT_TRUE(chunk_on_device.is_spillable());
-
-    // Spill to host memory.
-    TableChunk chunk_on_host = chunk_on_device.spill_to_host(br.get());
-    EXPECT_FALSE(chunk_on_host.is_available());
-    // We are allowed to spill an already spilled chunk.
-    chunk_on_host = chunk_on_host.spill_to_host(br.get());
-    EXPECT_FALSE(chunk_on_host.is_available());
-
-    // Unspill back to device memory.
-    auto [res, _] =
-        br->reserve(MemoryType::DEVICE, chunk_on_host.make_available_cost(), true);
-    chunk_on_device = chunk_on_host.make_available(res);
-
-    EXPECT_EQ(chunk_on_device.sequence_number(), seq);
-    EXPECT_EQ(chunk_on_device.stream().value(), stream.value());
-    EXPECT_TRUE(chunk_on_device.is_available());
-    EXPECT_EQ(chunk_on_device.make_available_cost(), 0);
-    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk_on_device.table_view(), expect);
 }
 
 TEST_F(StreamingTableChunk, DeviceToDeviceCopy) {
