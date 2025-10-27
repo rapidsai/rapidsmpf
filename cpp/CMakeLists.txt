@@ -158,7 +158,6 @@ add_library(
   src/buffer/resource.cpp
   src/buffer/spill_manager.cpp
   src/communicator/communicator.cpp
-  src/communicator/message.cpp
   src/communicator/metadata_payload_exchange.cpp
   src/communicator/single.cpp
   src/config.cpp

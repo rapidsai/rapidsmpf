@@ -12,7 +12,6 @@
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
-#include <rapidsmpf/communicator/message.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -44,7 +43,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         GlobalEnvironment->barrier();
     }
 
-    std::unique_ptr<Message> create_test_message(
+    std::unique_ptr<MetadataPayloadExchange::Message> create_test_message(
         Rank peer_rank, std::vector<std::uint8_t> metadata, std::size_t data_size = 0
     ) {
         std::unique_ptr<Buffer> data_buffer = nullptr;
@@ -64,7 +63,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
             data_buffer->stream().synchronize();
         }
 
-        return std::make_unique<Message>(
+        return std::make_unique<MetadataPayloadExchange::Message>(
             peer_rank, std::move(metadata), std::move(data_buffer)
         );
     }
@@ -106,7 +105,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
 
     if (comm->rank() == 0) {
         // Rank 0 sends metadata-only message
-        std::vector<std::unique_ptr<Message>> messages;
+        std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
         messages.push_back(create_test_message(peer_rank, test_metadata));
 
         EXPECT_TRUE(comm_interface->is_idle());
@@ -116,7 +115,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
 
     auto allocate_fn = [this](std::size_t size) { return allocate_receive_buffer(size); };
 
-    std::vector<std::unique_ptr<Message>> received_messages;
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     for (int iter = 0; iter < 10 && received_messages.empty(); ++iter) {
         auto messages = comm_interface->receive_messages(allocate_fn);
         received_messages.insert(
@@ -156,7 +155,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveWithData) {
 
     if (comm->rank() == 0) {
         // Rank 0 sends message with data
-        std::vector<std::unique_ptr<Message>> messages;
+        std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
         messages.push_back(create_test_message(peer_rank, test_metadata, data_size));
 
         comm_interface->send_messages(std::move(messages));
@@ -164,7 +163,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveWithData) {
 
     auto allocate_fn = [this](std::size_t size) { return allocate_receive_buffer(size); };
 
-    std::vector<std::unique_ptr<Message>> received_messages;
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     for (int iter = 0; iter < 50 && received_messages.empty(); ++iter) {
         auto messages = comm_interface->receive_messages(allocate_fn);
         received_messages.insert(
@@ -219,7 +218,7 @@ TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
 
     if (comm->rank() == 0) {
         // Rank 0 sends multiple messages
-        std::vector<std::unique_ptr<Message>> messages;
+        std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
 
         for (int i = 0; i < num_messages; ++i) {
             std::vector<std::uint8_t> metadata = {
@@ -239,7 +238,7 @@ TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
 
     auto allocate_fn = [this](std::size_t size) { return allocate_receive_buffer(size); };
 
-    std::vector<std::unique_ptr<Message>> received_messages;
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     for (int iter = 0; iter < 100; ++iter) {
         auto messages = comm_interface->receive_messages(allocate_fn);
         received_messages.insert(

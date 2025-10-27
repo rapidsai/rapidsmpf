@@ -17,6 +17,46 @@
 
 namespace rapidsmpf::communicator {
 
+MetadataPayloadExchange::Message::Message(
+    Rank peer_rank, std::vector<std::uint8_t> metadata, std::unique_ptr<Buffer> data
+)
+    : peer_rank_(peer_rank), metadata_(std::move(metadata)), data_(std::move(data)) {}
+
+Rank MetadataPayloadExchange::Message::peer_rank() const {
+    return peer_rank_;
+}
+
+std::vector<std::uint8_t> const& MetadataPayloadExchange::Message::metadata() const {
+    return metadata_;
+}
+
+Buffer const* MetadataPayloadExchange::Message::data() const {
+    return data_.get();
+}
+
+std::unique_ptr<Buffer> MetadataPayloadExchange::Message::release_data() {
+    return std::move(data_);
+}
+
+void MetadataPayloadExchange::Message::set_data(std::unique_ptr<Buffer> buffer) {
+    data_ = std::move(buffer);
+}
+
+std::uint64_t MetadataPayloadExchange::Message::message_id() const {
+    return message_id_;
+}
+
+void MetadataPayloadExchange::Message::set_message_id(std::uint64_t id) {
+    message_id_ = id;
+}
+
+std::size_t MetadataPayloadExchange::Message::expected_payload_size() const {
+    return expected_payload_size_;
+}
+
+void MetadataPayloadExchange::Message::set_expected_payload_size(std::size_t size) {
+    expected_payload_size_ = size;
+}
 
 TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::shared_ptr<Communicator> comm,
@@ -31,7 +71,7 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       statistics_{std::move(statistics)} {}
 
 void TagMetadataPayloadExchange::send_messages(
-    std::vector<std::unique_ptr<Message>>&& messages
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>&& messages
 ) {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
@@ -94,7 +134,8 @@ void TagMetadataPayloadExchange::send_messages(
     statistics_->add_duration_stat("comms-interface-send-messages", Clock::now() - t0);
 }
 
-std::vector<std::unique_ptr<Message>> TagMetadataPayloadExchange::receive_messages(
+std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
+TagMetadataPayloadExchange::receive_messages(
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
 ) {
     auto const t0 = Clock::now();
@@ -145,8 +186,9 @@ void TagMetadataPayloadExchange::receive_metadata() {
             msg->begin() + static_cast<std::ptrdiff_t>(offset), msg->end()
         );
 
-        auto message =
-            std::make_unique<Message>(src, std::move(original_metadata), nullptr);
+        auto message = std::make_unique<MetadataPayloadExchange::Message>(
+            src, std::move(original_metadata), nullptr
+        );
 
         message->set_message_id(message_id);
         message->set_expected_payload_size(payload_size);
@@ -220,11 +262,11 @@ void TagMetadataPayloadExchange::setup_data_receives(
     );
 }
 
-std::vector<std::unique_ptr<Message>>
+std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
 TagMetadataPayloadExchange::complete_data_transfers() {
     auto const t0 = Clock::now();
 
-    std::vector<std::unique_ptr<Message>> completed_messages;
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> completed_messages;
 
     // Handle completed data transfers
     if (!in_transit_futures_.empty()) {
