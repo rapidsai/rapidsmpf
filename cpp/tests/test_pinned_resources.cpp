@@ -217,3 +217,29 @@ TEST_P(PinnedHostBufferTest, stream_synchronized_copy_pinned) {
         stream_sync_copy_test<rapidsmpf::PinnedHostBuffer>(GetParam(), p_mr, p_mr)
     );
 }
+
+TEST(PinnedMemoryPoolTest, native_handle) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "PinnedMemoryPool is not supported";
+    }
+    rapidsmpf::PinnedMemoryPool pool;
+    EXPECT_NE(pool.native_handle(), nullptr);
+}
+
+TEST(PinnedMemoryPoolTest, max_pool_size) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "PinnedMemoryPool is not supported";
+    }
+    rapidsmpf::PinnedPoolProperties properties;
+    properties.max_pool_size = 1 << 20;  // 1MB
+    rapidsmpf::PinnedMemoryPool pool(properties);
+    EXPECT_NE(pool.native_handle(), nullptr);
+
+    rapidsmpf::PinnedMemoryResource mr(pool);
+
+    rmm::cuda_stream_pool stream_pool(1, rmm::cuda_stream::flags::non_blocking);
+    auto stream = stream_pool.get_stream();
+    // cuda driver currently rounds up max pool size to 32MB (this may change later).
+    // try to allocate 33MB.
+    EXPECT_THROW(std::ignore = mr.allocate(stream, 33 << 20), std::runtime_error);
+}
