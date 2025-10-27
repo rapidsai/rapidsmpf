@@ -263,3 +263,84 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     EXPECT_EQ(dev_copy2.make_available_cost(), 0);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(dev_copy2.table_view(), expect);
 }
+
+TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
+    constexpr unsigned int num_rows = 64;
+    constexpr std::int64_t seed = 2025;
+    constexpr std::uint64_t seq = 7;
+
+    auto expect = random_table_with_index(seed, num_rows, 0, 5);
+    TableChunk chunk{seq, std::make_unique<cudf::table>(expect), stream};
+
+    Message m = to_message(std::move(chunk));
+    EXPECT_FALSE(m.empty());
+    EXPECT_TRUE(m.holds<TableChunk>());
+    EXPECT_EQ(m.buffer_size(MemoryType::HOST), std::make_pair(0, true));
+    EXPECT_EQ(m.buffer_size(MemoryType::DEVICE), std::make_pair(1024, true));
+
+    // Deep-copy: device to host.
+    auto reservation =
+        br->reserve_or_fail(m.buffer_size(MemoryType::DEVICE).first, MemoryType::HOST);
+    Message m2 = m.copy(br.get(), reservation);
+    EXPECT_EQ(reservation.size(), 0);
+    EXPECT_FALSE(m2.empty());
+    EXPECT_TRUE(m2.holds<TableChunk>());
+    EXPECT_EQ(m2.buffer_size(MemoryType::HOST), std::make_pair(1024, true));
+    EXPECT_EQ(m2.buffer_size(MemoryType::DEVICE), std::make_pair(0, true));
+
+    // Deep-copy: host to host.
+    reservation =
+        br->reserve_or_fail(m2.buffer_size(MemoryType::HOST).first, MemoryType::HOST);
+    Message m3 = m.copy(br.get(), reservation);
+    EXPECT_EQ(reservation.size(), 0);
+    EXPECT_FALSE(m3.empty());
+    EXPECT_TRUE(m3.holds<TableChunk>());
+    EXPECT_EQ(m3.buffer_size(MemoryType::HOST), std::make_pair(1024, true));
+    EXPECT_EQ(m3.buffer_size(MemoryType::DEVICE), std::make_pair(0, true));
+
+    // Deep-copy: host to device.
+    reservation =
+        br->reserve_or_fail(m3.buffer_size(MemoryType::HOST).first, MemoryType::DEVICE);
+    Message m4 = m.copy(br.get(), reservation);
+    EXPECT_EQ(reservation.size(), 0);
+    EXPECT_FALSE(m4.empty());
+    EXPECT_TRUE(m4.holds<TableChunk>());
+    EXPECT_EQ(m4.buffer_size(MemoryType::HOST), std::make_pair(0, true));
+    EXPECT_EQ(m4.buffer_size(MemoryType::DEVICE), std::make_pair(1024, true));
+
+    // Deep-copy: device to device.
+    reservation =
+        br->reserve_or_fail(m4.buffer_size(MemoryType::DEVICE).first, MemoryType::DEVICE);
+    Message m5 = m.copy(br.get(), reservation);
+    EXPECT_EQ(reservation.size(), 0);
+    EXPECT_FALSE(m5.empty());
+    EXPECT_TRUE(m5.holds<TableChunk>());
+    EXPECT_EQ(m5.buffer_size(MemoryType::HOST), std::make_pair(0, true));
+    EXPECT_EQ(m5.buffer_size(MemoryType::DEVICE), std::make_pair(1024, true));
+}
+
+TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
+    constexpr unsigned int num_rows = 100;
+    constexpr std::int64_t seed = 1337;
+    constexpr std::uint64_t seq = 42;
+
+    cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
+
+    auto deleter = [](void* p) { delete static_cast<int*>(p); };
+    auto chunk = TableChunk{
+        seq,
+        expect,
+        expect.alloc_size(),
+        stream,
+        OwningWrapper(new int, deleter),
+        TableChunk::ExclusiveView::NO
+    };
+
+    Message m = to_message(std::move(chunk));
+    EXPECT_FALSE(m.empty());
+    EXPECT_TRUE(m.holds<TableChunk>());
+    EXPECT_EQ(m.buffer_size(MemoryType::HOST), std::make_pair(0, false));
+    EXPECT_EQ(
+        m.buffer_size(MemoryType::DEVICE), std::make_pair(expect.alloc_size(), false)
+    );
+}

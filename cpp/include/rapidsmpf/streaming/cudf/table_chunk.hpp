@@ -272,4 +272,6 @@ class TableChunk {
     bool is_spillable_;
 };
 
+Message to_message(TableChunk&& chunk);
+
 }  // namespace rapidsmpf::streaming
