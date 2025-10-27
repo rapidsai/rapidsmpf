@@ -217,6 +217,10 @@ class TableChunk {
      * In contrast, chunks constructed from non-exclusive `cudf::table_view` instances are
      * non-owning views of externally managed memory and therefore not spillable.
      *
+     * To spill a table chunk from device to host memory, first `copy()` it to host memory
+     * and then delete or overwrite the original chunk. If `is_spillable() == true`, this
+     * will freeup device memory.
+     *
      * @return `true` if the table chunk can be spilled; otherwise, `false`.
      */
     [[nodiscard]] bool is_spillable() const;

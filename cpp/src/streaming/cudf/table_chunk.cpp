@@ -142,27 +142,32 @@ bool TableChunk::is_spillable() const {
 }
 
 TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) const {
-    if (is_available()) {
+    if (is_available()) {  // If `is_available() == true`, the chunk is in device memory.
         switch (reservation.mem_type()) {
         case MemoryType::DEVICE:
             {
+                // Use libcudf to copy the table_view().
                 auto table = std::make_unique<cudf::table>(
                     table_view(), stream(), br->device_mr()
                 );
+                // And update the provided `reservation`.
                 br->release(reservation, data_alloc_size(MemoryType::DEVICE));
                 return TableChunk(sequence_number(), std::move(table), stream());
             }
         case MemoryType::HOST:
             {
-                // Get the packed data
+                // Get the packed data either from `packed_columns_` or `table_view().
                 std::unique_ptr<PackedData> packed_data;
                 if (packed_columns_ != nullptr) {
+                    // If `packed_columns_` is available, we copy its gpu data to a
+                    // new host buffer and its metadata to a new std::vector.
+
                     // Copy packed_columns' metadata.
                     auto metadata = std::make_unique<std::vector<std::uint8_t>>(
                         *packed_columns_->metadata
                     );
 
-                    // Copy packed columns' gpu data to a new host buffer.
+                    // Copy packed columns' gpu data.
                     auto gpu_data = br->allocate(
                         packed_columns_->gpu_data->size(), stream(), reservation
                     );
@@ -180,6 +185,10 @@ TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) 
                         std::move(metadata), std::move(gpu_data)
                     );
                 } else {
+                    // If `packed_columns_` is not available, we use libcudf's pack() to
+                    // serialize `table_view()` into a packed_columns and then we move
+                    // the packed_columns' gpu_data to a new host buffer.
+
                     // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
                     // `cudf::pack()` allocates device memory we haven't reserved.
                     auto packed_columns =
