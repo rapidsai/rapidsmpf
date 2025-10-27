@@ -205,23 +205,26 @@ class TableChunk {
     [[nodiscard]] cudf::table_view table_view() const;
 
     /**
-     * @brief Indicates whether this table chunk can be spilled.
+     * @brief Indicates whether this table chunk can be spilled to device memory.
      *
-     * A table chunk is considered spillable if it was created from one of the following:
+     * A table chunk is considered spillable if it owns its underlying memory. This is
+     * true when it was created from one of the following:
      *   - A device-owning source such as a `cudf::table`, `cudf::packed_columns`, or
      *     `PackedData`.
      *   - A `cudf::table_view` constructed with `is_exclusive_view == true`, indicating
-     *     that the view is the sole representation of the underlying table and its
-     *     associated owner exclusively manages the table's memory.
+     *     that the view is the sole representation of the underlying data and that its
+     *     owner exclusively manages the table's memory.
      *
      * In contrast, chunks constructed from non-exclusive `cudf::table_view` instances are
      * non-owning views of externally managed memory and therefore not spillable.
      *
-     * To spill a table chunk from device to host memory, first `copy()` it to host memory
-     * and then delete or overwrite the original chunk. If `is_spillable() == true`, this
-     * will freeup device memory.
+     * To spill a table chunk from device to host memory, first call `copy()` to create a
+     * host-side copy, then delete or overwrite the original device chunk. If
+     * `is_spillable() == true`, destroying the original device chunk will release the
+     * associated device memory.
      *
-     * @return `true` if the table chunk can be spilled; otherwise, `false`.
+     * @return `true` if the table chunk owns its memory and can be spilled; otherwise
+     * `false`.
      */
     [[nodiscard]] bool is_spillable() const;
 
