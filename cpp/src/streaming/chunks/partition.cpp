@@ -7,7 +7,9 @@
 
 namespace rapidsmpf::streaming {
 
-Message to_message(std::uint64_t sequence_number, PartitionMapChunk&& chunk) {
+Message to_message(
+    std::uint64_t sequence_number, std::unique_ptr<PartitionMapChunk> chunk
+) {
     Message::Callbacks cbs{
         .primary_data_size = [](Message const& msg,
                                 MemoryType mem_type) -> std::pair<size_t, bool> {
@@ -35,14 +37,12 @@ Message to_message(std::uint64_t sequence_number, PartitionMapChunk&& chunk) {
             );
         }
     };
-    return Message{
-        sequence_number,
-        std::make_unique<PartitionMapChunk>(std::move(chunk)),
-        std::move(cbs)
-    };
+    return Message{sequence_number, std::move(chunk), std::move(cbs)};
 }
 
-Message to_message(std::uint64_t sequence_number, PartitionVectorChunk&& chunk) {
+Message to_message(
+    std::uint64_t sequence_number, std::unique_ptr<PartitionVectorChunk> chunk
+) {
     Message::Callbacks cbs{
         .primary_data_size = [](Message const& msg,
                                 MemoryType mem_type) -> std::pair<size_t, bool> {
@@ -70,11 +70,7 @@ Message to_message(std::uint64_t sequence_number, PartitionVectorChunk&& chunk) 
             );
         }
     };
-    return Message{
-        sequence_number,
-        std::make_unique<PartitionVectorChunk>(std::move(chunk)),
-        std::move(cbs)
-    };
+    return Message{sequence_number, std::move(chunk), std::move(cbs)};
 }
 
 }  // namespace rapidsmpf::streaming

@@ -193,7 +193,7 @@ TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) 
     return TableChunk(std::make_unique<PackedData>(std::move(metadata), std::move(data)));
 }
 
-Message to_message(std::uint64_t sequence_number, TableChunk&& chunk) {
+Message to_message(std::uint64_t sequence_number, std::unique_ptr<TableChunk> chunk) {
     Message::Callbacks cbs{
         .primary_data_size = [](Message const& msg,
                                 MemoryType mem_type) -> std::pair<size_t, bool> {
@@ -211,9 +211,7 @@ Message to_message(std::uint64_t sequence_number, TableChunk&& chunk) {
             );
         }
     };
-    return Message{
-        sequence_number, std::make_unique<TableChunk>(std::move(chunk)), std::move(cbs)
-    };
+    return Message{sequence_number, std::move(chunk), std::move(cbs)};
 }
 
 }  // namespace rapidsmpf::streaming

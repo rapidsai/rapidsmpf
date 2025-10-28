@@ -17,7 +17,7 @@ from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
     cpp_Message cpp_to_message"rapidsmpf::streaming::to_message"\
-        (uint64_t sequence_number, cpp_TableChunk&) except +
+        (uint64_t sequence_number, unique_ptr[cpp_TableChunk]) except +
 
 
 # Helper function to release a table chunk from a message, which is needed
@@ -217,7 +217,7 @@ cdef class TableChunk:
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
         message._handle = cpp_to_message(
-            sequence_number, move(deref(self.release_handle()))
+            sequence_number, move(self.release_handle())
         )
 
     cdef const cpp_TableChunk* handle_ptr(self):

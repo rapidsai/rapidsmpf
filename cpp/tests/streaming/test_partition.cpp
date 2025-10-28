@@ -86,7 +86,7 @@ TEST_F(StreamingPartition, PartitionMapChunkToMessage) {
     std::unordered_map<shuffler::PartID, PackedData> data;
     data.emplace(0, generate_packed_data(10, 0, stream, *br));
     data.emplace(1, generate_packed_data(10, 10, stream, *br));
-    PartitionMapChunk chunk{std::move(data)};
+    auto chunk = std::make_unique<PartitionMapChunk>(std::move(data));
 
     Message m = to_message(seq, std::move(chunk));
     EXPECT_FALSE(m.empty());

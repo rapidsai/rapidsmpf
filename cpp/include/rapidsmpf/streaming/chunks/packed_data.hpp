@@ -27,7 +27,9 @@ struct PackedDataChunk {
  * @param chunk The chunk to wrap into a message.
  * @return A `Message` encapsulating the provided chunk as its payload.
  */
-Message to_message(std::uint64_t sequence_number, PackedDataChunk&& chunk) {
+Message to_message(
+    std::uint64_t sequence_number, std::unique_ptr<PackedDataChunk> chunk
+) {
     Message::Callbacks cbs{
         .primary_data_size = [](Message const& msg,
                                 MemoryType mem_type) -> std::pair<size_t, bool> {
@@ -48,11 +50,7 @@ Message to_message(std::uint64_t sequence_number, PackedDataChunk&& chunk) {
             );
         }
     };
-    return Message{
-        sequence_number,
-        std::make_unique<PackedDataChunk>(std::move(chunk)),
-        std::move(cbs)
-    };
+    return Message{sequence_number, std::move(chunk), std::move(cbs)};
 }
 
 }  // namespace rapidsmpf::streaming

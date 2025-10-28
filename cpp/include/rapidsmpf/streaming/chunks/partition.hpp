@@ -47,7 +47,9 @@ struct PartitionVectorChunk {
  * @param chunk The chunk to wrap into a message.
  * @return A `Message` encapsulating the provided chunk as its payload.
  */
-Message to_message(std::uint64_t sequence_number, PartitionMapChunk&& chunk);
+Message to_message(
+    std::uint64_t sequence_number, std::unique_ptr<PartitionMapChunk> chunk
+);
 
 /**
  * @brief Wrap a `PartitionVectorChunk` into a `Message`.
@@ -56,6 +58,8 @@ Message to_message(std::uint64_t sequence_number, PartitionMapChunk&& chunk);
  * @param chunk The chunk to wrap into a message.
  * @return A `Message` encapsulating the provided chunk as its payload.
  */
-Message to_message(std::uint64_t sequence_number, PartitionVectorChunk&& chunk);
+Message to_message(
+    std::uint64_t sequence_number, std::unique_ptr<PartitionVectorChunk> chunk
+);
 
 }  // namespace rapidsmpf::streaming

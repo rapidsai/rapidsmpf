@@ -250,7 +250,8 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     constexpr std::uint64_t seq = 7;
 
     auto expect = random_table_with_index(seed, num_rows, 0, 5);
-    TableChunk chunk{std::make_unique<cudf::table>(expect), stream};
+    auto chunk =
+        std::make_unique<TableChunk>(std::make_unique<cudf::table>(expect), stream);
 
     Message m = to_message(seq, std::move(chunk));
     EXPECT_FALSE(m.empty());
@@ -316,13 +317,13 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
     cudf::table expect = random_table_with_index(seed, num_rows, 0, 10);
 
     auto deleter = [](void* p) { delete static_cast<int*>(p); };
-    auto chunk = TableChunk{
+    auto chunk = std::make_unique<TableChunk>(
         expect,
         expect.alloc_size(),
         stream,
         OwningWrapper(new int, deleter),
         TableChunk::ExclusiveView::NO
-    };
+    );
 
     Message m = to_message(seq, std::move(chunk));
     EXPECT_FALSE(m.empty());
