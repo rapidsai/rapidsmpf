@@ -33,7 +33,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         statistics = std::make_shared<Statistics>();
 
         comm_interface = std::make_unique<TagMetadataPayloadExchange>(
-            GlobalEnvironment->comm_, OpID{42}, comm->rank(), statistics
+            GlobalEnvironment->comm_, OpID{42}, statistics
         );
 
         GlobalEnvironment->barrier();

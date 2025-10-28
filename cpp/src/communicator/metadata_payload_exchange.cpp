@@ -59,13 +59,9 @@ void MetadataPayloadExchange::Message::set_expected_payload_size(std::size_t siz
 }
 
 TagMetadataPayloadExchange::TagMetadataPayloadExchange(
-    std::shared_ptr<Communicator> comm,
-    OpID op_id,
-    Rank rank,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Communicator> comm, OpID op_id, std::shared_ptr<Statistics> statistics
 )
     : comm_(std::move(comm)),
-      rank_(rank),
       metadata_tag_{op_id, 1},
       gpu_data_tag_{op_id, 2},
       statistics_{std::move(statistics)} {}
@@ -83,11 +79,11 @@ void TagMetadataPayloadExchange::send_messages(
         // Assign sequential message ID
         // Format: [rank (32 bits)][sequence (32 bits)]
         std::uint64_t message_id =
-            (static_cast<std::uint64_t>(rank_) << 32) | next_message_id_++;
+            (static_cast<std::uint64_t>(comm_->rank()) << 32) | next_message_id_++;
         message->set_message_id(message_id);
 
         log.trace("send metadata to ", dst, " (message_id=", message_id, ")");
-        RAPIDSMPF_EXPECTS(dst != rank_, "sending message to ourselves");
+        RAPIDSMPF_EXPECTS(dst != comm_->rank(), "sending message to ourselves");
 
         auto const& original_metadata = message->metadata();
         std::size_t payload_size =

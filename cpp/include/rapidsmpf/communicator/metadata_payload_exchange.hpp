@@ -184,13 +184,11 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
-     * @param rank The current rank (for logging and validation).
      * @param statistics The statistics to use for tracking communication operations.
      */
     TagMetadataPayloadExchange(
         std::shared_ptr<Communicator> comm,
         OpID op_id,
-        Rank rank,
         std::shared_ptr<Statistics> statistics
     );
 
@@ -223,7 +221,6 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
   private:
     // Core communication infrastructure
     std::shared_ptr<Communicator> comm_;
-    Rank rank_;
     Tag metadata_tag_;
     Tag gpu_data_tag_;
 
