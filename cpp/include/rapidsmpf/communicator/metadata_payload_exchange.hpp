@@ -224,8 +224,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
 
     // Core communication infrastructure
     std::shared_ptr<Communicator> comm_;
-    Tag metadata_tag_;
-    Tag gpu_data_tag_;
+    Tag const metadata_tag_;
+    Tag const gpu_data_tag_;
 
     // Communication state containers
     std::vector<std::unique_ptr<Communicator::Future>>
