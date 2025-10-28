@@ -60,31 +60,30 @@ void TagMetadataPayloadExchange::send_messages(
         log.trace("send metadata to ", dst, " (message_id=", message_id, ")");
         RAPIDSMPF_EXPECTS(dst != comm_->rank(), "sending message to ourselves");
 
-        auto const& original_metadata = message->metadata();
         std::size_t payload_size =
             (message->data() != nullptr) ? message->data()->size : 0;
 
-        // Pack metadata: [message_id][payload_size][original_metadata]
-        auto combined_metadata = std::make_unique<std::vector<std::uint8_t>>(
-            sizeof(std::uint64_t) + sizeof(std::size_t) + original_metadata.size()
+        // Append metadata: [original_metadata][message_id][payload_size]
+        // Release the original metadata and append protocol fields to avoid copying
+        auto combined_metadata =
+            std::make_unique<std::vector<std::uint8_t>>(message->release_metadata());
+
+        // Reserve space for message_id and payload_size at the end
+        std::size_t original_size = combined_metadata->size();
+        combined_metadata->resize(
+            original_size + sizeof(std::uint64_t) + sizeof(std::size_t)
         );
 
-        std::size_t offset = 0;
-
+        // Append message_id
         std::memcpy(
-            combined_metadata->data() + offset, &message_id, sizeof(std::uint64_t)
+            combined_metadata->data() + original_size, &message_id, sizeof(std::uint64_t)
         );
-        offset += sizeof(std::uint64_t);
 
+        // Append payload_size
         std::memcpy(
-            combined_metadata->data() + offset, &payload_size, sizeof(std::size_t)
-        );
-        offset += sizeof(std::size_t);
-
-        std::memcpy(
-            combined_metadata->data() + offset,
-            original_metadata.data(),
-            original_metadata.size()
+            combined_metadata->data() + original_size + sizeof(std::uint64_t),
+            &payload_size,
+            sizeof(std::size_t)
         );
 
         fire_and_forget_.push_back(
@@ -149,25 +148,31 @@ void TagMetadataPayloadExchange::receive_metadata(
             break;
         }
 
-        // Unpack metadata: [message_id][payload_size][original_metadata]
+        // Unpack metadata: [original_metadata][message_id][payload_size]
         RAPIDSMPF_EXPECTS(
             msg->size() >= sizeof(std::uint64_t) + sizeof(std::size_t),
             "Truncated metadata"
         );
 
-        std::size_t offset = 0;
+        // Extract message ID and payload size from the end
+        std::size_t protocol_overhead = sizeof(std::uint64_t) + sizeof(std::size_t);
+        std::size_t original_metadata_size = msg->size() - protocol_overhead;
 
-        // Extract message ID, payload size, and original metadata
         std::uint64_t message_id;
-        std::memcpy(&message_id, msg->data() + offset, sizeof(std::uint64_t));
-        offset += sizeof(std::uint64_t);
+        std::memcpy(
+            &message_id, msg->data() + original_metadata_size, sizeof(std::uint64_t)
+        );
 
         std::size_t payload_size;
-        std::memcpy(&payload_size, msg->data() + offset, sizeof(std::size_t));
-        offset += sizeof(std::size_t);
+        std::memcpy(
+            &payload_size,
+            msg->data() + original_metadata_size + sizeof(std::uint64_t),
+            sizeof(std::size_t)
+        );
 
         std::vector<std::uint8_t> original_metadata(
-            msg->begin() + static_cast<std::ptrdiff_t>(offset), msg->end()
+            msg->begin(),
+            msg->begin() + static_cast<std::ptrdiff_t>(original_metadata_size)
         );
 
         // Allocate buffer before creating Message if payload is expected

@@ -78,6 +78,17 @@ class MetadataPayloadExchange {
         }
 
         /**
+         * @brief Release ownership of the metadata.
+         *
+         * This is typically called when transferring metadata to the communication layer.
+         *
+         * @return Metadata with ownership transferred.
+         */
+        [[nodiscard]] std::vector<std::uint8_t> release_metadata() {
+            return std::move(metadata_);
+        }
+
+        /**
          * @brief Get the data buffer for this message.
          *
          * @return The data buffer, or nullptr if no data.
