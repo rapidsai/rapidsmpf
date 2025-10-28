@@ -120,8 +120,8 @@ TagMetadataPayloadExchange::receive_messages(
     auto const t0 = Clock::now();
 
     // Process all phases of the communication protocol
-    receive_metadata();
-    setup_data_receives(allocate_buffer_fn);
+    receive_metadata(allocate_buffer_fn);
+    setup_data_receives();
     auto completed_messages = complete_data_transfers();
     cleanup_completed_operations();
 
@@ -135,7 +135,9 @@ bool TagMetadataPayloadExchange::is_idle() const {
            && in_transit_messages_.empty() && in_transit_futures_.empty();
 }
 
-void TagMetadataPayloadExchange::receive_metadata() {
+void TagMetadataPayloadExchange::receive_metadata(
+    std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
+) {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
 
@@ -166,8 +168,14 @@ void TagMetadataPayloadExchange::receive_metadata() {
             msg->begin() + static_cast<std::ptrdiff_t>(offset), msg->end()
         );
 
+        // Allocate buffer before creating Message if payload is expected
+        std::unique_ptr<Buffer> buffer = nullptr;
+        if (payload_size > 0) {
+            buffer = allocate_buffer_fn(payload_size);
+        }
+
         auto message = std::make_unique<MetadataPayloadExchange::Message>(
-            src, std::move(original_metadata), nullptr
+            src, std::move(original_metadata), std::move(buffer)
         );
 
         log.trace("recv_any from ", src, " (message_id=", message_id, ")");
@@ -179,9 +187,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
     statistics_->add_duration_stat("comms-interface-receive-metadata", Clock::now() - t0);
 }
 
-void TagMetadataPayloadExchange::setup_data_receives(
-    std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
-) {
+void TagMetadataPayloadExchange::setup_data_receives() {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
 
@@ -198,11 +204,6 @@ void TagMetadataPayloadExchange::setup_data_receives(
         std::size_t payload_size = tag_msg.expected_payload_size;
 
         if (payload_size > 0) {
-            if (tag_msg.message->data() == nullptr) {
-                auto buffer = allocate_buffer_fn(payload_size);
-                tag_msg.message->set_data(std::move(buffer));
-            }
-
             // Check if the buffer is ready for use, if not, break the loop
             // and wait for the buffer to be ready. This is necessary to ensure
             // messages are received in the order they are sent.

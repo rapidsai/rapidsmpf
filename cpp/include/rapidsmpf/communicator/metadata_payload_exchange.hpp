@@ -221,20 +221,20 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
 
     /**
      * @brief Receive metadata for incoming messages.
+     *
+     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      */
-    void receive_metadata();
+    void receive_metadata(
+        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
+    );
 
     /**
      * @brief Setup data receives for incoming messages.
      *
-     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
-     *
      * @throw std::runtime_error if an in-transit message or future is not found, or
      * if a data buffer is not available.
      */
-    void setup_data_receives(
-        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
-    );
+    void setup_data_receives();
 
     /**
      * @brief Complete data transfers for in-transit messages.
