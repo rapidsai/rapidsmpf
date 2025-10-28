@@ -230,7 +230,6 @@ void TagMetadataPayloadExchange::setup_data_receives() {
                 msg_it = messages.erase(msg_it);
 
                 auto data_buffer = tag_message.message->release_data();
-                RAPIDSMPF_EXPECTS(data_buffer, "No data buffer available");
                 auto future = comm_->recv(src, gpu_data_tag_, std::move(data_buffer));
 
                 auto message_id = tag_message.message_id;
