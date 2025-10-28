@@ -148,7 +148,7 @@ class MetadataPayloadExchange {
      * @return Vector of completed messages ready for local processing.
      */
     [[nodiscard]] virtual std::vector<std::unique_ptr<Message>> receive_messages(
-        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
+        std::function<std::unique_ptr<Buffer>(std::size_t)> const& allocate_buffer_fn
     ) = 0;
 
     /**
@@ -206,7 +206,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * - Cleaning up completed operations
      */
     std::vector<std::unique_ptr<Message>> receive_messages(
-        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
+        std::function<std::unique_ptr<Buffer>(std::size_t)> const& allocate_buffer_fn
     ) override;
 
     /**
@@ -260,7 +260,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      */
     void receive_metadata(
-        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
+        std::function<std::unique_ptr<Buffer>(std::size_t)> const& allocate_buffer_fn
     );
 
     /**

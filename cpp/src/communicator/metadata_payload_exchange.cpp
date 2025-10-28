@@ -111,7 +111,7 @@ void TagMetadataPayloadExchange::send_message(
 
 std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
 TagMetadataPayloadExchange::receive_messages(
-    std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
+    std::function<std::unique_ptr<Buffer>(std::size_t)> const& allocate_buffer_fn
 ) {
     auto const t0 = Clock::now();
 
@@ -137,7 +137,7 @@ bool TagMetadataPayloadExchange::is_idle() const {
 }
 
 void TagMetadataPayloadExchange::receive_metadata(
-    std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn
+    std::function<std::unique_ptr<Buffer>(std::size_t)> const& allocate_buffer_fn
 ) {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
