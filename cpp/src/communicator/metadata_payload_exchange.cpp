@@ -293,16 +293,14 @@ TagMetadataPayloadExchange::complete_data_transfers() {
     }
 
     // Handle control/metadata-only messages from incoming_messages_
-    for (auto it = incoming_messages_.begin(); it != incoming_messages_.end();) {
-        auto& [src, message] = *it;
-        std::size_t payload_size = message->expected_payload_size();
-        if (payload_size == 0) {
-            completed_messages.push_back(std::move(it->second));
-            it = incoming_messages_.erase(it);
-        } else {
-            ++it;
+    std::erase_if(incoming_messages_, [&](auto& kv) {
+        auto& [src, message] = kv;
+        if (message->expected_payload_size() == 0) {
+            completed_messages.push_back(std::move(message));
+            return true;
         }
-    }
+        return false;
+    });
 
     statistics_->add_duration_stat(
         "comms-interface-complete-data-transfers", Clock::now() - t0
