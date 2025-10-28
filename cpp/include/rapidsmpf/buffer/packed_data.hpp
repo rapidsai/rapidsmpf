@@ -80,7 +80,7 @@ struct PackedData {
     }
 
     /**
-     * @brief Create a deep copy of this packed data.
+     * @brief Create a deep copy of the packed data.
      *
      * @param br Buffer resource for memory allocation.
      * @param reservation Memory reservation used .

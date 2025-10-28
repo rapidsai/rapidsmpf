@@ -46,9 +46,9 @@ class Message {
          * @param msg Reference to the message whose data size is queried.
          * @param mem_type Target memory type to query.
          * @return A pair (size, spillable) where:
-         *   - size: total size of the primary data for the given memory type.
-         *   - spillable: `true` if the message owns its buffers and destroying it will
-         *     release the associated memory; otherwise `false`.
+         *   - size: total size (in bytes) of the primary data for the given memory type.
+         *   - spillable: `true` if the message owns its buffers and releasing it frees
+         *     memory; otherwise `false`.
          */
         std::function<std::pair<size_t, bool>(Message const&, MemoryType)>
             primary_data_size;
@@ -56,15 +56,14 @@ class Message {
         /**
          * @brief Callback for performing a deep copy of a message.
          *
-         * The copy operation allocates new memory for the payload using the provided
-         * buffer resource and memory reservation. The memory type specified in the
-         * reservation determines where the new copy will reside (e.g., device or host
-         * memory).
+         * The copy operation allocates new memory for the message's payload using the
+         * provided buffer resource and memory reservation. The memory type specified
+         * in the reservation determines where the new copy will primarily reside
+         * (e.g., device or host memory).
          *
          * @param msg Source message to copy.
-         * @param br Buffer resource used for allocations.
-         * @param reservation Memory reservation to consume.
-         *
+         * @param br Buffer resource used for memory allocations.
+         * @param reservation Memory reservation to consume during allocation.
          * @return A new `Message` instance containing a deep copy of the payload.
          */
         std::function<
@@ -76,10 +75,14 @@ class Message {
     Message() = default;
 
     /**
-     * @brief Construct a new message from an unique pointer to the payload.
+     * @brief Construct a new message from a unique pointer to its payload.
      *
-     * @tparam T Payload type.
+     * Optionally, a set of `Callbacks` can be provided to define custom behavior
+     * for size computation, copying, and other message operations.
+     *
+     * @tparam T Type of the payload to store inside the message.
      * @param payload Non-null unique pointer to the payload.
+     * @param callbacks Optional set of callbacks defining message operations.
      *
      * @throws std::invalid_argument if @p payload is null.
      */
@@ -171,6 +174,25 @@ class Message {
         return callbacks_;
     }
 
+    /**
+     * @brief Query the size of the message's primary data for a given memory type.
+     *
+     * Invokes the registered `primary_data_size` callback to compute the total size
+     * (in bytes) of the message's primary data portion stored in the specified memory
+     * space (e.g., host or device). This excludes any metadata or auxiliary information.
+     *
+     * The returned pair provides both the total size and whether the underlying buffers
+     * are spillable, i.e., whether the message owns its buffers and releasing it will
+     * free the associated memory.
+     *
+     * @param mem_type Memory type to query.
+     * @return A pair (size, spillable) where:
+     *   - size: total size (in bytes) of the primary data for the given memory type.
+     *   - spillable: `true` if the message owns its buffers and releasing it frees
+     *     memory; otherwise `false`.
+     *
+     * @throws std::invalid_argument if the message does not support `primary_data_size`.
+     */
     [[nodiscard]] std::pair<size_t, bool> primary_data_size(MemoryType mem_type) {
         RAPIDSMPF_EXPECTS(
             callbacks_.primary_data_size,
@@ -180,6 +202,23 @@ class Message {
         return callbacks_.primary_data_size(*this, mem_type);
     }
 
+    /**
+     * @brief Perform a deep copy of this message and its payload.
+     *
+     * Invokes the registered `copy` callback to create a new `Message` with freshly
+     * allocated buffers. The allocation is performed using the provided buffer
+     * resource and memory reservation, which together define the memory type
+     * (e.g., host or device).
+     *
+     * The resulting message contains a deep copy of the original payload, while
+     * preserving the same metadata and callbacks.
+     *
+     * @param br Buffer resource used for allocations.
+     * @param reservation Memory reservation to consume for the copy.
+     * @return A new `Message` instance containing a deep copy of the payload.
+     *
+     * @throws std::invalid_argument if the message does not support copying.
+     */
     [[nodiscard]] Message copy(BufferResource* br, MemoryReservation& reservation) const {
         RAPIDSMPF_EXPECTS(
             callbacks_.copy, "message doesn't support `copy`", std::invalid_argument
