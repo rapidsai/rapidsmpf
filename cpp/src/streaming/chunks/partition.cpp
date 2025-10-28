@@ -7,7 +7,7 @@
 
 namespace rapidsmpf::streaming {
 
-Message to_message(PartitionMapChunk&& chunk) {
+Message to_message(std::uint64_t sequence_number, PartitionMapChunk&& chunk) {
     Message::Callbacks cbs{
         .primary_data_size = [](Message const& msg,
                                 MemoryType mem_type) -> std::pair<size_t, bool> {
@@ -29,15 +29,20 @@ Message to_message(PartitionMapChunk&& chunk) {
                 ret.emplace(pid, packed_data.copy(br, reservation));
             }
             return Message(
-                std::make_unique<PartitionMapChunk>(self.sequence_number, std::move(ret)),
+                msg.sequence_number(),
+                std::make_unique<PartitionMapChunk>(std::move(ret)),
                 msg.callbacks()
             );
         }
     };
-    return Message{std::make_unique<PartitionMapChunk>(std::move(chunk)), std::move(cbs)};
+    return Message{
+        sequence_number,
+        std::make_unique<PartitionMapChunk>(std::move(chunk)),
+        std::move(cbs)
+    };
 }
 
-Message to_message(PartitionVectorChunk&& chunk) {
+Message to_message(std::uint64_t sequence_number, PartitionVectorChunk&& chunk) {
     Message::Callbacks cbs{
         .primary_data_size = [](Message const& msg,
                                 MemoryType mem_type) -> std::pair<size_t, bool> {
@@ -59,15 +64,16 @@ Message to_message(PartitionVectorChunk&& chunk) {
                 ret.emplace_back(packed_data.copy(br, reservation));
             }
             return Message(
-                std::make_unique<PartitionVectorChunk>(
-                    self.sequence_number, std::move(ret)
-                ),
+                msg.sequence_number(),
+                std::make_unique<PartitionVectorChunk>(std::move(ret)),
                 msg.callbacks()
             );
         }
     };
     return Message{
-        std::make_unique<PartitionVectorChunk>(std::move(chunk)), std::move(cbs)
+        sequence_number,
+        std::make_unique<PartitionVectorChunk>(std::move(chunk)),
+        std::move(cbs)
     };
 }
 

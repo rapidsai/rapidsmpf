@@ -38,7 +38,6 @@ Node partition_and_pack(
         auto tbl = table.make_available(reservation);
 
         PartitionMapChunk partition_map{
-            .sequence_number = tbl.sequence_number(),
             .data = rapidsmpf::partition_and_pack(
                 tbl.table_view(),
                 std::move(columns_to_hash),
@@ -52,7 +51,10 @@ Node partition_and_pack(
         };
 
         co_await ch_out->send(
-            Message{std::make_unique<PartitionMapChunk>(std::move(partition_map))}
+            Message{
+                msg.sequence_number(),
+                std::make_unique<PartitionMapChunk>(std::move(partition_map))
+            }
         );
     }
     co_await ch_out->drain(ctx->executor());
@@ -71,17 +73,15 @@ Node unpack_and_concat(
             break;
         }
 
-        // If receiving a partition map, we convert it to a vector and discards
+        // If receiving a partition map, we convert it to a vector and discard
         // partition IDs.
-        std::uint64_t seq;
+        std::uint64_t seq = msg.sequence_number();
         std::vector<PackedData> data;
         if (msg.holds<PartitionMapChunk>()) {
             auto partition_map = msg.release<PartitionMapChunk>();
-            seq = partition_map.sequence_number;
             data = to_vector(std::move(partition_map.data));
         } else {
             auto partition_vec = msg.release<PartitionVectorChunk>();
-            seq = partition_vec.sequence_number;
             data = std::move(partition_vec.data);
         }
         // Get a stream for the concatenated table chunk.
@@ -93,7 +93,9 @@ Node unpack_and_concat(
             ctx->br(),
             ctx->statistics()
         );
-        co_await ch_out->send(std::make_unique<TableChunk>(seq, std::move(ret), stream));
+        co_await ch_out->send(
+            Message{seq, std::make_unique<TableChunk>(std::move(ret), stream)}
+        );
     }
     co_await ch_out->drain(ctx->executor());
 }

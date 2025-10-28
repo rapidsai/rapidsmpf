@@ -27,7 +27,7 @@ class StreamingMessage : public ::testing::Test {
 };
 
 TEST_F(StreamingMessage, ConstructAndGetInt) {
-    Message m{std::make_unique<int>(42)};
+    Message m{0, std::make_unique<int>(42)};
     EXPECT_FALSE(m.empty());
     EXPECT_TRUE(m.holds<int>());
     EXPECT_FALSE(m.holds<std::string>());
@@ -36,21 +36,21 @@ TEST_F(StreamingMessage, ConstructAndGetInt) {
 }
 
 TEST_F(StreamingMessage, ReleaseEmpties) {
-    Message m{std::make_unique<std::string>("abc")};
+    Message m{0, std::make_unique<std::string>("abc")};
     auto s = m.release<std::string>();
     EXPECT_EQ(s, "abc");
     EXPECT_TRUE(m.empty());
 }
 
 TEST_F(StreamingMessage, ResetEmpties) {
-    Message m{std::make_unique<std::string>("abc")};
+    Message m{0, std::make_unique<std::string>("abc")};
     EXPECT_EQ(m.get<std::string>(), "abc");
     m.reset();
     EXPECT_TRUE(m.empty());
 }
 
 TEST_F(StreamingMessage, BufferSizeWithoutCallbacks) {
-    Message m{br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST))};
+    Message m{0, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST))};
     EXPECT_THROW(
         std::ignore = m.primary_data_size(MemoryType::HOST), std::invalid_argument
     );
@@ -71,19 +71,23 @@ TEST_F(StreamingMessage, BufferSizeWithCallbacks) {
         }
     };
     {
-        Message m{br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cbs};
+        Message m{
+            0, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cbs
+        };
         EXPECT_EQ(m.primary_data_size(MemoryType::HOST), std::make_pair(10, true));
         EXPECT_EQ(m.primary_data_size(MemoryType::DEVICE), std::make_pair(0, false));
     }
     {
-        Message m{br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cbs};
+        Message m{
+            0, br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cbs
+        };
         EXPECT_EQ(m.primary_data_size(MemoryType::HOST), std::make_pair(0, false));
         EXPECT_EQ(m.primary_data_size(MemoryType::DEVICE), std::make_pair(10, true));
     }
 }
 
 TEST_F(StreamingMessage, CopyWithoutCallbacks) {
-    Message m{br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST))};
+    Message m{0, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST))};
     {
         auto res = br->reserve_or_fail(10, MemoryType::HOST);
         EXPECT_THROW(std::ignore = m.copy(br.get(), res), std::invalid_argument);
@@ -103,23 +107,26 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
             auto const& src = msg.get<Buffer>();
             auto dst = br->allocate(src.size, src.stream(), reservation);
             buffer_copy(*dst, src, src.size);
-            return Message(std::move(dst), msg.callbacks());
+            return Message(msg.sequence_number(), std::move(dst), msg.callbacks());
         }
     };
     {
-        Message m1{br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cbs};
+        Message m1{
+            42, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cbs
+        };
         auto res = br->reserve_or_fail(10, MemoryType::HOST);
         auto m2 = m1.copy(br.get(), res);
         EXPECT_EQ(m1.get<Buffer>().mem_type(), m2.get<Buffer>().mem_type());
         EXPECT_EQ(m1.get<Buffer>().size, m2.get<Buffer>().size);
+        EXPECT_EQ(m1.sequence_number(), m2.sequence_number());
     }
     {
         Message m1{
-            br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cbs
+            42, br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cbs
         };
         auto res = br->reserve_or_fail(10, MemoryType::DEVICE);
         auto m2 = m1.copy(br.get(), res);
         EXPECT_EQ(m1.get<Buffer>().mem_type(), m2.get<Buffer>().mem_type());
-        EXPECT_EQ(m1.get<Buffer>().size, m2.get<Buffer>().size);
+        EXPECT_EQ(m1.sequence_number(), m2.sequence_number());
     }
 }

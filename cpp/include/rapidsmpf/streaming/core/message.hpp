@@ -6,6 +6,7 @@
 #pragma once
 
 #include <any>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -81,14 +82,28 @@ class Message {
      * for size computation, copying, and other message operations.
      *
      * @tparam T Type of the payload to store inside the message.
+     * @param sequence_number Ordering identifier for the message.
      * @param payload Non-null unique pointer to the payload.
      * @param callbacks Optional set of callbacks defining message operations.
+     *
+     * @note Sequence numbers are used to ensure that when multiple producers send into
+     * the same output channel, channel ordering is preserved. Specifically, the guarantee
+     * is that `Channel`s always produce elements in increasing sequence number order. To
+     * ensure this, single producers must promise to send into the channels in strictly
+     * increasing sequence number order. Behaviour is undefined if not.
+     *
+     * This promise allows consumers to ensure ordering by buffering at most
+     * `num_consumers` messages, rather than needing to buffer the entire channel input.
      *
      * @throws std::invalid_argument if @p payload is null.
      */
     template <typename T>
-    Message(std::unique_ptr<T> payload, Callbacks callbacks = Callbacks{})
-        : callbacks_{std::move(callbacks)} {
+    Message(
+        std::uint64_t sequence_number,
+        std::unique_ptr<T> payload,
+        Callbacks callbacks = Callbacks{}
+    )
+        : sequence_number_(sequence_number), callbacks_{std::move(callbacks)} {
         RAPIDSMPF_EXPECTS(
             payload != nullptr, "nullptr not allowed", std::invalid_argument
         );
@@ -121,6 +136,15 @@ class Message {
      */
     [[nodiscard]] bool empty() const noexcept {
         return !payload_.has_value();
+    }
+
+    /**
+     * @brief Returns the sequence number of this message.
+     *
+     * @return The sequence number.
+     */
+    [[nodiscard]] std::uint64_t sequence_number() const noexcept {
+        return sequence_number_;
     }
 
     /**
@@ -242,6 +266,7 @@ class Message {
     }
 
   private:
+    std::uint64_t sequence_number_{0};
     std::any payload_;
     Callbacks callbacks_;
 };

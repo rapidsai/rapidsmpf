@@ -57,12 +57,11 @@ def test_single_rank_shuffler(
         hi = (i + 1) * chunk_size
         df_chunk = df.iloc[lo:hi]
         chunk = TableChunk.from_pylibcudf_table(
-            sequence_number=i,
             table=cudf_to_pylibcudf_table(df_chunk),
             stream=stream,
             exclusive_view=False,
         )
-        input_chunks.append(Message(chunk))
+        input_chunks.append(Message(i, chunk))
 
     # Build the streaming pipeline:
     #   push -> partition/pack -> shuffle -> unpack/concat -> pull.

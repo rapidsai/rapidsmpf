@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Generic, Protocol, TypeVar
 
-PayloadT = TypeVar("PayloadT", bound=Payload)
+PayloadT = TypeVar("PayloadT", bound="Payload")
 
 class Payload(Protocol):
     """
@@ -19,15 +19,19 @@ class Payload(Protocol):
     -------
     from_message(message)
         Construct a payload instance by consuming a message.
-    into_message(message)
+    into_message(sequence_number, message)
         Insert the payload into a message. The payload instance is released
         in the process.
     """
 
     @classmethod
     def from_message(cls: PayloadT, message: Message[PayloadT]) -> PayloadT: ...
-    def into_message(self: PayloadT, message: Message[PayloadT]) -> None: ...
+    def into_message(
+        self: PayloadT, sequence_number: int, message: Message[PayloadT]
+    ) -> None: ...
 
 class Message(Generic[PayloadT]):
-    def __init__(self, payload: PayloadT): ...
+    def __init__(self, sequence_number: int, payload: PayloadT): ...
     def empty(self) -> bool: ...
+    @property
+    def sequence_number(self) -> int: ...

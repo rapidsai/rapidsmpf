@@ -41,8 +41,8 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
     std::vector<Message> inputs;
     for (int i = 0; i < num_chunks; ++i) {
         inputs.emplace_back(
+            i,
             std::make_unique<TableChunk>(
-                i,
                 std::make_unique<cudf::table>(expects[i], stream, ctx->br()->device_mr()),
                 stream
             )
@@ -73,8 +73,8 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
 
     EXPECT_EQ(expects.size(), outputs.size());
     for (std::size_t i = 0; i < expects.size(); ++i) {
+        EXPECT_EQ(outputs[i].sequence_number(), i);
         auto output = outputs[i].release<TableChunk>();
-        EXPECT_EQ(output.sequence_number(), i);
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
             sort_table(output.table_view()), sort_table(expects[i].view())
         );
@@ -82,16 +82,18 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
 }
 
 TEST_F(StreamingPartition, PartitionMapChunkToMessage) {
+    constexpr std::uint64_t seq = 42;
     std::unordered_map<shuffler::PartID, PackedData> data;
     data.emplace(0, generate_packed_data(10, 0, stream, *br));
     data.emplace(1, generate_packed_data(10, 10, stream, *br));
-    PartitionMapChunk chunk{0, std::move(data)};
+    PartitionMapChunk chunk{std::move(data)};
 
-    Message m = to_message(std::move(chunk));
+    Message m = to_message(seq, std::move(chunk));
     EXPECT_FALSE(m.empty());
     EXPECT_TRUE(m.holds<PartitionMapChunk>());
     EXPECT_EQ(m.primary_data_size(MemoryType::HOST), std::make_pair(0, true));
     EXPECT_EQ(m.primary_data_size(MemoryType::DEVICE), std::make_pair(80, true));
+    EXPECT_EQ(m.sequence_number(), seq);
 
     auto res = br->reserve_or_fail(
         m.primary_data_size(MemoryType::DEVICE).first, MemoryType::DEVICE

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
+from libc.stdint cimport uint64_t
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 
@@ -10,9 +11,9 @@ from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 cdef extern from "<rapidsmpf/streaming/chunks/partition.hpp>" nogil:
     cpp_Message cpp_to_message"rapidsmpf::streaming::to_message"\
-        (cpp_PartitionMapChunk&) except +
+        (uint64_t sequence_number, cpp_PartitionMapChunk&) except +
     cpp_Message cpp_to_message"rapidsmpf::streaming::to_message"\
-        (cpp_PartitionVectorChunk&) except +
+        (uint64_t sequence_number, cpp_PartitionVectorChunk&) except +
 
 
 cdef class PartitionMapChunk:
@@ -65,7 +66,7 @@ cdef class PartitionMapChunk:
             )
         )
 
-    def into_message(self, Message message not None):
+    def into_message(self, uint64_t sequence_number, Message message not None):
         """
         Move this PartitionMapChunk into a Message.
 
@@ -75,6 +76,8 @@ cdef class PartitionMapChunk:
 
         Parameters
         ----------
+        sequence_number
+            Ordering identifier for the message.
         message
             Message object that will take ownership of this PartitionMapChunk.
 
@@ -89,7 +92,9 @@ cdef class PartitionMapChunk:
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
-        message._handle = cpp_to_message(move(deref(self.release_handle())))
+        message._handle = cpp_to_message(
+            sequence_number, move(deref(self.release_handle()))
+        )
 
     cdef const cpp_PartitionMapChunk* handle_ptr(self):
         """
@@ -127,17 +132,6 @@ cdef class PartitionMapChunk:
         if not self._handle:
             raise ValueError("is uninitialized, has it been released?")
         return move(self._handle)
-
-    @property
-    def sequence_number(self):
-        """
-        Return the sequence number of this chunk.
-
-        Returns
-        -------
-        The sequence number.
-        """
-        return deref(self.handle_ptr()).sequence_number
 
 
 cdef class PartitionVectorChunk:
@@ -191,7 +185,7 @@ cdef class PartitionVectorChunk:
             )
         )
 
-    def into_message(self, Message message not None):
+    def into_message(self, uint64_t sequence_number, Message message not None):
         """
         Move this PartitionVectorChunk into a Message.
 
@@ -201,6 +195,8 @@ cdef class PartitionVectorChunk:
 
         Parameters
         ----------
+        sequence_number
+            Ordering identifier for the message.
         message
             Message object that will take ownership of this PartitionVectorChunk.
 
@@ -215,7 +211,9 @@ cdef class PartitionVectorChunk:
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
-        message._handle = cpp_to_message(move(deref(self.release_handle())))
+        message._handle = cpp_to_message(
+            sequence_number, move(deref(self.release_handle()))
+        )
 
     cdef const cpp_PartitionVectorChunk* handle_ptr(self):
         """
@@ -253,14 +251,3 @@ cdef class PartitionVectorChunk:
         if not self._handle:
             raise ValueError("is uninitialized, has it been released?")
         return move(self._handle)
-
-    @property
-    def sequence_number(self):
-        """
-        Return the sequence number of this chunk.
-
-        Returns
-        -------
-        The sequence number.
-        """
-        return deref(self.handle_ptr()).sequence_number

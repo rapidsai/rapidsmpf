@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <unordered_map>
 #include <vector>
 
@@ -23,11 +22,6 @@ namespace rapidsmpf::streaming {
  */
 struct PartitionMapChunk {
     /**
-     * @brief Sequence number used to preserve chunk ordering.
-     */
-    std::uint64_t sequence_number;
-
-    /**
      * @brief Packed data for each partition, keyed by partition ID.
      */
     std::unordered_map<shuffler::PartID, PackedData> data;
@@ -41,11 +35,6 @@ struct PartitionMapChunk {
  */
 struct PartitionVectorChunk {
     /**
-     * @brief Sequence number used to preserve chunk ordering.
-     */
-    std::uint64_t sequence_number;
-
-    /**
      * @brief Packed data for each partition stored in a vector.
      */
     std::vector<PackedData> data;
@@ -54,17 +43,19 @@ struct PartitionVectorChunk {
 /**
  * @brief Wrap a `PartitionMapChunk` into a `Message`.
  *
+ * @param sequence_number Ordering identifier for the message.
  * @param chunk The chunk to wrap into a message.
  * @return A `Message` encapsulating the provided chunk as its payload.
  */
-Message to_message(PartitionMapChunk&& chunk);
+Message to_message(std::uint64_t sequence_number, PartitionMapChunk&& chunk);
 
 /**
  * @brief Wrap a `PartitionVectorChunk` into a `Message`.
  *
+ * @param sequence_number Ordering identifier for the message.
  * @param chunk The chunk to wrap into a message.
  * @return A `Message` encapsulating the provided chunk as its payload.
  */
-Message to_message(PartitionVectorChunk&& chunk);
+Message to_message(std::uint64_t sequence_number, PartitionVectorChunk&& chunk);
 
 }  // namespace rapidsmpf::streaming

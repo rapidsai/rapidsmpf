@@ -10,15 +10,8 @@
 
 namespace rapidsmpf::streaming {
 
-TableChunk::TableChunk(
-    std::uint64_t sequence_number,
-    std::unique_ptr<cudf::table> table,
-    rmm::cuda_stream_view stream
-)
-    : sequence_number_{sequence_number},
-      table_{std::move(table)},
-      stream_{stream},
-      is_spillable_{true} {
+TableChunk::TableChunk(std::unique_ptr<cudf::table> table, rmm::cuda_stream_view stream)
+    : table_{std::move(table)}, stream_{stream}, is_spillable_{true} {
     RAPIDSMPF_EXPECTS(
         table_ != nullptr, "table pointer cannot be null", std::invalid_argument
     );
@@ -28,7 +21,6 @@ TableChunk::TableChunk(
 }
 
 TableChunk::TableChunk(
-    std::uint64_t sequence_number,
     cudf::table_view table_view,
     std::size_t device_alloc_size,
     rmm::cuda_stream_view stream,
@@ -36,7 +28,6 @@ TableChunk::TableChunk(
     ExclusiveView exclusive_view
 )
     : owner_{std::move(owner)},
-      sequence_number_{sequence_number},
       table_view_{table_view},
       stream_{stream},
       is_spillable_{static_cast<bool>(exclusive_view)} {
@@ -45,14 +36,9 @@ TableChunk::TableChunk(
 }
 
 TableChunk::TableChunk(
-    std::uint64_t sequence_number,
-    std::unique_ptr<cudf::packed_columns> packed_columns,
-    rmm::cuda_stream_view stream
+    std::unique_ptr<cudf::packed_columns> packed_columns, rmm::cuda_stream_view stream
 )
-    : sequence_number_{sequence_number},
-      packed_columns_{std::move(packed_columns)},
-      stream_{stream},
-      is_spillable_{true} {
+    : packed_columns_{std::move(packed_columns)}, stream_{stream}, is_spillable_{true} {
     RAPIDSMPF_EXPECTS(
         packed_columns_ != nullptr,
         "packed columns pointer cannot be null",
@@ -64,11 +50,8 @@ TableChunk::TableChunk(
     make_available_cost_ = 0;
 }
 
-TableChunk::TableChunk(
-    std::uint64_t sequence_number, std::unique_ptr<PackedData> packed_data
-)
-    : sequence_number_{sequence_number},
-      packed_data_{std::move(packed_data)},
+TableChunk::TableChunk(std::unique_ptr<PackedData> packed_data)
+    : packed_data_{std::move(packed_data)},
       stream_{packed_data_->data->stream()},
       is_spillable_{true} {
     RAPIDSMPF_EXPECTS(
@@ -86,10 +69,6 @@ TableChunk::TableChunk(
     } else {
         make_available_cost_ = 0;
     }
-}
-
-std::uint64_t TableChunk::sequence_number() const noexcept {
-    return sequence_number_;
 }
 
 rmm::cuda_stream_view TableChunk::stream() const noexcept {
@@ -116,7 +95,6 @@ TableChunk TableChunk::make_available(MemoryReservation& reservation) {
     PackedData packed_data = std::move(*packed_data_);
     auto stream = packed_data.data->stream();
     return TableChunk{
-        sequence_number_,
         std::make_unique<cudf::packed_columns>(
             std::move(packed_data.metadata),
             reservation.br()->move_to_device_buffer(
@@ -152,7 +130,7 @@ TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) 
                 );
                 // And update the provided `reservation`.
                 br->release(reservation, data_alloc_size(MemoryType::DEVICE));
-                return TableChunk(sequence_number(), std::move(table), stream());
+                return TableChunk(std::move(table), stream());
             }
         case MemoryType::HOST:
             {
@@ -192,15 +170,15 @@ TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) 
                     // TODO: use `cudf::chunked_pack()` with a bounce buffer. Currently,
                     // `cudf::pack()` allocates device memory we haven't reserved.
                     auto packed_columns =
-                        cudf::pack(table_view(), stream_, br->device_mr());
+                        cudf::pack(table_view(), stream(), br->device_mr());
                     packed_data = std::make_unique<PackedData>(
                         std::move(packed_columns.metadata),
-                        br->move(std::move(packed_columns.gpu_data), stream_)
+                        br->move(std::move(packed_columns.gpu_data), stream())
                     );
                     packed_data->data =
                         br->move(std::move(packed_data->data), reservation);
                 }
-                return TableChunk(sequence_number(), std::move(packed_data));
+                return TableChunk(std::move(packed_data));
             }
         default:
             RAPIDSMPF_FAIL("MemoryType: unknown");
@@ -212,13 +190,10 @@ TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) 
     auto data =
         br->allocate(packed_data_->data->size, packed_data_->stream(), reservation);
     buffer_copy(*data, *packed_data_->data, packed_data_->data->size);
-    return TableChunk(
-        sequence_number(),
-        std::make_unique<PackedData>(std::move(metadata), std::move(data))
-    );
+    return TableChunk(std::make_unique<PackedData>(std::move(metadata), std::move(data)));
 }
 
-Message to_message(TableChunk&& chunk) {
+Message to_message(std::uint64_t sequence_number, TableChunk&& chunk) {
     Message::Callbacks cbs{
         .primary_data_size = [](Message const& msg,
                                 MemoryType mem_type) -> std::pair<size_t, bool> {
@@ -230,11 +205,15 @@ Message to_message(TableChunk&& chunk) {
                    MemoryReservation& reservation) -> Message {
             auto const& self = msg.get<TableChunk>();
             return Message(
-                std::make_unique<TableChunk>(self.copy(br, reservation)), msg.callbacks()
+                msg.sequence_number(),
+                std::make_unique<TableChunk>(self.copy(br, reservation)),
+                msg.callbacks()
             );
         }
     };
-    return Message{std::make_unique<TableChunk>(std::move(chunk)), std::move(cbs)};
+    return Message{
+        sequence_number, std::make_unique<TableChunk>(std::move(chunk)), std::move(cbs)
+    };
 }
 
 }  // namespace rapidsmpf::streaming
