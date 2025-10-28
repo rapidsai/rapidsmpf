@@ -295,9 +295,7 @@ TagMetadataPayloadExchange::complete_data_transfers() {
 }
 
 void TagMetadataPayloadExchange::cleanup_completed_operations() {
-    if (!fire_and_forget_.empty()) {
-        std::ignore = comm_->test_some(fire_and_forget_);
-    }
+    std::ignore = comm_->test_some(fire_and_forget_);
 }
 
 
