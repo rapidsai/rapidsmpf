@@ -8,6 +8,13 @@ from libcpp.utility cimport move
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 
+cdef extern from "<rapidsmpf/streaming/chunks/partition.hpp>" nogil:
+    cpp_Message cpp_to_message"rapidsmpf::streaming::to_message"\
+        (cpp_PartitionMapChunk&) except +
+    cpp_Message cpp_to_message"rapidsmpf::streaming::to_message"\
+        (cpp_PartitionVectorChunk&) except +
+
+
 cdef class PartitionMapChunk:
     def __init__(self):
         raise ValueError("use the `from_*` factory functions")
@@ -82,7 +89,7 @@ cdef class PartitionMapChunk:
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
-        message._handle = cpp_Message(self.release_handle())
+        message._handle = cpp_to_message(move(deref(self.release_handle())))
 
     cdef const cpp_PartitionMapChunk* handle_ptr(self):
         """
@@ -208,7 +215,7 @@ cdef class PartitionVectorChunk:
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
-        message._handle = cpp_Message(self.release_handle())
+        message._handle = cpp_to_message(move(deref(self.release_handle())))
 
     cdef const cpp_PartitionVectorChunk* handle_ptr(self):
         """
