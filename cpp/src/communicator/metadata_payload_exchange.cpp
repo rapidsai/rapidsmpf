@@ -184,8 +184,8 @@ void TagMetadataPayloadExchange::receive_metadata(
         );
 
         log.trace("recv_any from ", src, " (message_id=", message_id, ")");
-        incoming_messages_.emplace(
-            src, TagMessage(std::move(message), message_id, payload_size)
+        incoming_messages_[src].emplace_back(
+            std::move(message), message_id, payload_size
         );
     }
 
@@ -196,51 +196,65 @@ void TagMetadataPayloadExchange::setup_data_receives() {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
 
-    for (auto it = incoming_messages_.begin(); it != incoming_messages_.end();) {
-        auto& [src, tag_msg] = *it;
-        log.trace(
-            "checking incoming message data from ",
-            src,
-            " (message_id=",
-            tag_msg.message_id,
-            ")"
-        );
+    // Process messages per rank, breaking only when a rank's buffer isn't ready
+    for (auto rank_it = incoming_messages_.begin(); rank_it != incoming_messages_.end();)
+    {
+        auto& [src, messages] = *rank_it;
 
-        std::size_t payload_size = tag_msg.expected_payload_size;
+        // Process messages for this rank in order
+        auto msg_it = messages.begin();
+        while (msg_it != messages.end()) {
+            auto& tag_msg = *msg_it;
+            log.trace(
+                "checking incoming message data from ",
+                src,
+                " (message_id=",
+                tag_msg.message_id,
+                ")"
+            );
 
-        if (payload_size > 0) {
-            // Check if the buffer is ready for use, if not, break the loop
-            // and wait for the buffer to be ready. This is necessary to ensure
-            // messages are received in the order they are sent.
-            if (tag_msg.message->data()
-                && !tag_msg.message->data()->is_latest_write_done())
-            {
-                ++it;
-                break;
+            std::size_t payload_size = tag_msg.expected_payload_size;
+
+            if (payload_size > 0) {
+                // Check if the buffer is ready for use, if not, break for this rank
+                // and wait for the buffer to be ready. This is necessary to ensure
+                // messages are received in the order they are sent from this rank.
+                if (tag_msg.message->data()
+                    && !tag_msg.message->data()->is_latest_write_done())
+                {
+                    break;
+                }
+
+                // Extract the message and set up for data transfer
+                auto tag_message = std::move(tag_msg);
+                msg_it = messages.erase(msg_it);
+
+                auto data_buffer = tag_message.message->release_data();
+                RAPIDSMPF_EXPECTS(data_buffer, "No data buffer available");
+                auto future = comm_->recv(src, gpu_data_tag_, std::move(data_buffer));
+
+                auto message_id = tag_message.message_id;
+                RAPIDSMPF_EXPECTS(
+                    in_transit_futures_.emplace(message_id, std::move(future)).second,
+                    "in transit future already exists"
+                );
+                RAPIDSMPF_EXPECTS(
+                    in_transit_messages_.emplace(message_id, std::move(tag_message))
+                        .second,
+                    "in transit message already exists"
+                );
+            } else {
+                // Control/metadata-only message - will be handled in
+                // complete_data_transfers()
+                ++msg_it;
             }
+        }
 
-            // Extract the internal message and set up for data transfer
-            auto src_rank = it->first;
-            auto tag_message = std::move(it->second);
-            it = incoming_messages_.erase(it);
-
-            auto data_buffer = tag_message.message->release_data();
-            RAPIDSMPF_EXPECTS(data_buffer, "No data buffer available");
-            auto future = comm_->recv(src_rank, gpu_data_tag_, std::move(data_buffer));
-
-            auto message_id = tag_message.message_id;
-            RAPIDSMPF_EXPECTS(
-                in_transit_futures_.emplace(message_id, std::move(future)).second,
-                "in transit future already exists"
-            );
-            RAPIDSMPF_EXPECTS(
-                in_transit_messages_.emplace(message_id, std::move(tag_message)).second,
-                "in transit message already exists"
-            );
+        // Remove rank entry if all messages have been processed
+        if (messages.empty()) {
+            rank_it = incoming_messages_.erase(rank_it);
         } else {
-            // Control/metadata-only message - will be handled in
-            // complete_data_transfers()
-            ++it;
+            ++rank_it;
         }
     }
 
@@ -283,13 +297,20 @@ TagMetadataPayloadExchange::complete_data_transfers() {
     }
 
     // Handle control/metadata-only messages from incoming_messages_
-    std::erase_if(incoming_messages_, [&](auto& kv) {
-        auto& [src, tag_msg] = kv;
-        if (tag_msg.expected_payload_size == 0) {
-            completed_messages.push_back(std::move(tag_msg.message));
-            return true;
-        }
-        return false;
+    std::erase_if(incoming_messages_, [&](auto& rank_entry) {
+        auto& [src, messages] = rank_entry;
+
+        // Move metadata-only messages to completed_messages and remove them
+        std::erase_if(messages, [&](auto& tag_msg) {
+            if (tag_msg.expected_payload_size == 0) {
+                completed_messages.push_back(std::move(tag_msg.message));
+                return true;
+            }
+            return false;
+        });
+
+        // Remove rank entry if all messages have been processed
+        return messages.empty();
     });
 
     statistics_->add_duration_stat(
