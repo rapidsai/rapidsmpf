@@ -131,12 +131,10 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
 
     if (comm->rank() == peer_rank) {
         EXPECT_EQ(received_messages.size(), 1);
-        if (!received_messages.empty()) {
-            auto& msg = received_messages[0];
-            EXPECT_EQ(msg->peer_rank(), 0);
-            EXPECT_EQ(msg->metadata(), test_metadata);
-            EXPECT_EQ(msg->data(), nullptr);
-        }
+        auto& msg = received_messages[0];
+        EXPECT_EQ(msg->peer_rank(), 0);
+        EXPECT_EQ(msg->metadata(), test_metadata);
+        EXPECT_EQ(msg->data(), nullptr);
     }
 
     wait_for_communication_complete();
@@ -180,28 +178,26 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveSingleMessage) {
 
     if (comm->rank() == peer_rank) {
         EXPECT_EQ(received_messages.size(), 1);
-        if (!received_messages.empty()) {
-            auto& msg = received_messages[0];
-            EXPECT_EQ(msg->peer_rank(), 0);
-            EXPECT_EQ(msg->metadata(), test_metadata);
-            EXPECT_NE(msg->data(), nullptr);
-            if (msg->data()) {
-                EXPECT_EQ(msg->data()->size, data_size);
+        auto& msg = received_messages[0];
+        EXPECT_EQ(msg->peer_rank(), 0);
+        EXPECT_EQ(msg->metadata(), test_metadata);
+        EXPECT_NE(msg->data(), nullptr);
+        if (msg->data()) {
+            EXPECT_EQ(msg->data()->size, data_size);
 
-                // Verify data
-                std::vector<std::uint8_t> received_data(data_size);
-                RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                    received_data.data(),
-                    msg->data()->data(),
-                    data_size,
-                    cudaMemcpyDeviceToHost,
-                    stream
-                ));
-                stream.synchronize();
+            // Verify data
+            std::vector<std::uint8_t> received_data(data_size);
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                received_data.data(),
+                msg->data()->data(),
+                data_size,
+                cudaMemcpyDeviceToHost,
+                stream
+            ));
+            stream.synchronize();
 
-                for (std::size_t i = 0; i < data_size; ++i) {
-                    EXPECT_EQ(received_data[i], static_cast<std::uint8_t>(i % 256));
-                }
+            for (std::size_t i = 0; i < data_size; ++i) {
+                EXPECT_EQ(received_data[i], static_cast<std::uint8_t>(i % 256));
             }
         }
     }
