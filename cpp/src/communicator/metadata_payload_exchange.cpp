@@ -162,10 +162,10 @@ void TagMetadataPayloadExchange::receive_metadata() {
             break;
 
         // Unpack metadata: [message_id][payload_size][original_metadata]
-        if (msg->size() < sizeof(std::uint64_t) + sizeof(std::size_t)) {
-            log.warn("Received metadata too small, skipping");
-            continue;
-        }
+        RAPIDSMPF_EXPECTS(
+            msg->size() >= sizeof(std::uint64_t) + sizeof(std::size_t),
+            "Truncated metadata"
+        );
 
         std::size_t offset = 0;
 
