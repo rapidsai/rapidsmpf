@@ -130,7 +130,7 @@ cdef class BufferResource:
         """
         cdef size_t ret
         with nogil:
-            ret = deref(self._handle).cpp_memory_reserved(mem_type)
+            ret = deref(self._handle).memory_reserved(mem_type)
         return ret
 
     def memory_available(self, MemoryType mem_type):
@@ -145,7 +145,7 @@ cdef class BufferResource:
         return ret
 
     cdef const cuda_stream_pool* stream_pool(self):
-        return &deref(self._handle).cpp_stream_pool()
+        return &deref(self._handle).stream_pool()
 
 cdef class LimitAvailableMemory:
     """

@@ -30,14 +30,10 @@ cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
             unordered_map[MemoryType, cpp_MemoryAvailable] memory_available,
             optional[cpp_Duration] periodic_spill_check,
         ) except +
-        size_t cpp_memory_reserved "memory_reserved"(
-            MemoryType mem_type
-        ) except +
-        cpp_MemoryAvailable cpp_memory_available "memory_available"(
-            MemoryType mem_type
-        ) except +
-        cpp_SpillManager &cpp_spill_manager "spill_manager"() except +
-        const cuda_stream_pool &cpp_stream_pool "stream_pool"() except +
+        size_t memory_reserved(MemoryType mem_type) except +
+        cpp_MemoryAvailable memory_available(MemoryType mem_type) except +
+        cpp_SpillManager &spill_manager() except +
+        const cuda_stream_pool &stream_pool() except +
 
 
 cdef class BufferResource:
