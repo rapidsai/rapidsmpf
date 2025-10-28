@@ -113,6 +113,14 @@ void TagMetadataPayloadExchange::send_messages(
     statistics_->add_duration_stat("comms-interface-send-messages", Clock::now() - t0);
 }
 
+void TagMetadataPayloadExchange::send_message(
+    std::unique_ptr<MetadataPayloadExchange::Message> message
+) {
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    messages.push_back(std::move(message));
+    send_messages(std::move(messages));
+}
+
 std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
 TagMetadataPayloadExchange::receive_messages(
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn

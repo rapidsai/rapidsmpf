@@ -115,6 +115,16 @@ class MetadataPayloadExchange {
     virtual void send_messages(std::vector<std::unique_ptr<Message>>&& messages) = 0;
 
     /**
+     * @brief Send a single message to a remote rank.
+     *
+     * Takes ownership of a ready message and manages its transmission, including
+     * metadata sending and coordination of data transfer.
+     *
+     * @param message Message ready to be sent to a remote rank.
+     */
+    virtual void send_message(std::unique_ptr<Message> message) = 0;
+
+    /**
      * @brief Receive messages from remote ranks.
 
      * @param allocate_buffer_fn Function to allocate buffers for incoming data.
@@ -160,6 +170,14 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * message already exists.
      */
     void send_messages(std::vector<std::unique_ptr<Message>>&& messages) override;
+
+    /**
+     * @copydoc MetadataPayloadExchange::send_message
+     *
+     * @throw std::runtime_error if a message is sent to itself or if an outgoing
+     * message already exists.
+     */
+    void send_message(std::unique_ptr<Message> message) override;
 
     /**
      * @copydoc MetadataPayloadExchange::receive_messages

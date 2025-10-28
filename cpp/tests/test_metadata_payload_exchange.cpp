@@ -144,6 +144,73 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
     EXPECT_TRUE(comm_interface->is_idle());
 }
 
+TEST_F(MetadataPayloadExchangeTest, SendReceiveSingleMessage) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+
+    Rank peer_rank = (comm->rank() + 1) % comm->nranks();
+    std::vector<std::uint8_t> test_metadata = {0xAA, 0xBB, 0xCC, 0xDD};
+    constexpr std::size_t data_size = 512;
+
+    if (comm->rank() == 0) {
+        // Rank 0 sends single message using send_message method
+        auto message = create_test_message(peer_rank, test_metadata, data_size);
+
+        EXPECT_TRUE(comm_interface->is_idle());
+        comm_interface->send_message(std::move(message));
+        EXPECT_FALSE(comm_interface->is_idle());
+    }
+
+    auto allocate_fn = [this](std::size_t size) { return allocate_receive_buffer(size); };
+
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
+    for (int iter = 0; iter < 50 && received_messages.empty(); ++iter) {
+        auto messages = comm_interface->receive_messages(allocate_fn);
+        received_messages.insert(
+            received_messages.end(),
+            std::make_move_iterator(messages.begin()),
+            std::make_move_iterator(messages.end())
+        );
+
+        if (!received_messages.empty())
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    if (comm->rank() == peer_rank) {
+        EXPECT_EQ(received_messages.size(), 1);
+        if (!received_messages.empty()) {
+            auto& msg = received_messages[0];
+            EXPECT_EQ(msg->peer_rank(), 0);
+            EXPECT_EQ(msg->metadata(), test_metadata);
+            EXPECT_NE(msg->data(), nullptr);
+            if (msg->data()) {
+                EXPECT_EQ(msg->data()->size, data_size);
+
+                // Verify data
+                std::vector<std::uint8_t> received_data(data_size);
+                RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                    received_data.data(),
+                    msg->data()->data(),
+                    data_size,
+                    cudaMemcpyDeviceToHost,
+                    stream
+                ));
+                stream.synchronize();
+
+                for (std::size_t i = 0; i < data_size; ++i) {
+                    EXPECT_EQ(received_data[i], static_cast<std::uint8_t>(i % 256));
+                }
+            }
+        }
+    }
+
+    wait_for_communication_complete();
+
+    EXPECT_TRUE(comm_interface->is_idle());
+}
+
 TEST_F(MetadataPayloadExchangeTest, SendReceiveWithData) {
     if (comm->nranks() < 2) {
         GTEST_SKIP() << "Test requires at least 2 ranks";
