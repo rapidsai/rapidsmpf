@@ -32,7 +32,7 @@ TEST_F(StreamingMessage, ConstructAndGetInt) {
     EXPECT_TRUE(m.holds<int>());
     EXPECT_FALSE(m.holds<std::string>());
     EXPECT_EQ(m.get<int>(), 42);
-    EXPECT_THROW(m.get<std::string>(), std::invalid_argument);
+    EXPECT_THROW(std::ignore = m.get<std::string>(), std::invalid_argument);
 }
 
 TEST_F(StreamingMessage, ReleaseEmpties) {

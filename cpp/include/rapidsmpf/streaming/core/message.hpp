@@ -168,7 +168,7 @@ class Message {
      * @throws std::invalid_argument if empty or type mismatch.
      */
     template <typename T>
-    T const& get() const {
+    [[nodiscard]] T const& get() const {
         return *get_ptr<T>();
     }
 
@@ -180,7 +180,7 @@ class Message {
      * @throws std::invalid_argument if empty or type mismatch.
      */
     template <typename T>
-    T release() {
+    [[nodiscard]] T release() {
         std::shared_ptr<T> ret = get_ptr<T>();
         reset();
         return std::move(*ret);
