@@ -27,6 +27,12 @@ struct PackedDataChunk {
     PackedData data;
 };
 
+/**
+ * @brief Wrap a `PackedDataChunk` into a `Message`.
+ *
+ * @param chunk The chunk to wrap into a message.
+ * @return A `Message` encapsulating the provided chunk as its payload.
+ */
 Message to_message(PackedDataChunk&& chunk) {
     Message::Callbacks cbs{
         .buffer_size = [](Message const& msg,

@@ -272,6 +272,12 @@ class TableChunk {
     bool is_spillable_;
 };
 
+/**
+ * @brief Wrap a `TableChunk` into a `Message`.
+ *
+ * @param chunk The chunk to wrap into a message.
+ * @return A `Message` encapsulating the provided chunk as its payload.
+ */
 Message to_message(TableChunk&& chunk);
 
 }  // namespace rapidsmpf::streaming

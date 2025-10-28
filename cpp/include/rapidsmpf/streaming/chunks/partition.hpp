@@ -51,8 +51,20 @@ struct PartitionVectorChunk {
     std::vector<PackedData> data;
 };
 
+/**
+ * @brief Wrap a `PartitionMapChunk` into a `Message`.
+ *
+ * @param chunk The chunk to wrap into a message.
+ * @return A `Message` encapsulating the provided chunk as its payload.
+ */
 Message to_message(PartitionMapChunk&& chunk);
 
+/**
+ * @brief Wrap a `PartitionVectorChunk` into a `Message`.
+ *
+ * @param chunk The chunk to wrap into a message.
+ * @return A `Message` encapsulating the provided chunk as its payload.
+ */
 Message to_message(PartitionVectorChunk&& chunk);
 
 }  // namespace rapidsmpf::streaming
