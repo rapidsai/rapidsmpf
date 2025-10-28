@@ -35,8 +35,8 @@ struct PackedDataChunk {
  */
 Message to_message(PackedDataChunk&& chunk) {
     Message::Callbacks cbs{
-        .buffer_size = [](Message const& msg,
-                          MemoryType mem_type) -> std::pair<size_t, bool> {
+        .primary_data_size = [](Message const& msg,
+                                MemoryType mem_type) -> std::pair<size_t, bool> {
             auto const& self = msg.get<PackedDataChunk>();
             if (self.data.data->mem_type() == mem_type) {
                 return {self.data.data->size, true};

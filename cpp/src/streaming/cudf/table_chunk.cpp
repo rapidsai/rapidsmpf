@@ -220,8 +220,8 @@ TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) 
 
 Message to_message(TableChunk&& chunk) {
     Message::Callbacks cbs{
-        .buffer_size = [](Message const& msg,
-                          MemoryType mem_type) -> std::pair<size_t, bool> {
+        .primary_data_size = [](Message const& msg,
+                                MemoryType mem_type) -> std::pair<size_t, bool> {
             auto const& self = msg.get<TableChunk>();
             return {self.data_alloc_size(mem_type), self.is_spillable()};
         },

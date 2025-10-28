@@ -275,48 +275,52 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     Message m = to_message(std::move(chunk));
     EXPECT_FALSE(m.empty());
     EXPECT_TRUE(m.holds<TableChunk>());
-    EXPECT_EQ(m.buffer_size(MemoryType::HOST), std::make_pair(0, true));
-    EXPECT_EQ(m.buffer_size(MemoryType::DEVICE), std::make_pair(1024, true));
+    EXPECT_EQ(m.primary_data_size(MemoryType::HOST), std::make_pair(0, true));
+    EXPECT_EQ(m.primary_data_size(MemoryType::DEVICE), std::make_pair(1024, true));
 
     // Deep-copy: device to host.
-    auto reservation =
-        br->reserve_or_fail(m.buffer_size(MemoryType::DEVICE).first, MemoryType::HOST);
+    auto reservation = br->reserve_or_fail(
+        m.primary_data_size(MemoryType::DEVICE).first, MemoryType::HOST
+    );
     Message m2 = m.copy(br.get(), reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m2.empty());
     EXPECT_TRUE(m2.holds<TableChunk>());
-    EXPECT_EQ(m2.buffer_size(MemoryType::HOST), std::make_pair(1024, true));
-    EXPECT_EQ(m2.buffer_size(MemoryType::DEVICE), std::make_pair(0, true));
+    EXPECT_EQ(m2.primary_data_size(MemoryType::HOST), std::make_pair(1024, true));
+    EXPECT_EQ(m2.primary_data_size(MemoryType::DEVICE), std::make_pair(0, true));
 
     // Deep-copy: host to host.
-    reservation =
-        br->reserve_or_fail(m2.buffer_size(MemoryType::HOST).first, MemoryType::HOST);
+    reservation = br->reserve_or_fail(
+        m2.primary_data_size(MemoryType::HOST).first, MemoryType::HOST
+    );
     Message m3 = m.copy(br.get(), reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m3.empty());
     EXPECT_TRUE(m3.holds<TableChunk>());
-    EXPECT_EQ(m3.buffer_size(MemoryType::HOST), std::make_pair(1024, true));
-    EXPECT_EQ(m3.buffer_size(MemoryType::DEVICE), std::make_pair(0, true));
+    EXPECT_EQ(m3.primary_data_size(MemoryType::HOST), std::make_pair(1024, true));
+    EXPECT_EQ(m3.primary_data_size(MemoryType::DEVICE), std::make_pair(0, true));
 
     // Deep-copy: host to device.
-    reservation =
-        br->reserve_or_fail(m3.buffer_size(MemoryType::HOST).first, MemoryType::DEVICE);
+    reservation = br->reserve_or_fail(
+        m3.primary_data_size(MemoryType::HOST).first, MemoryType::DEVICE
+    );
     Message m4 = m.copy(br.get(), reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m4.empty());
     EXPECT_TRUE(m4.holds<TableChunk>());
-    EXPECT_EQ(m4.buffer_size(MemoryType::HOST), std::make_pair(0, true));
-    EXPECT_EQ(m4.buffer_size(MemoryType::DEVICE), std::make_pair(1024, true));
+    EXPECT_EQ(m4.primary_data_size(MemoryType::HOST), std::make_pair(0, true));
+    EXPECT_EQ(m4.primary_data_size(MemoryType::DEVICE), std::make_pair(1024, true));
 
     // Deep-copy: device to device.
-    reservation =
-        br->reserve_or_fail(m4.buffer_size(MemoryType::DEVICE).first, MemoryType::DEVICE);
+    reservation = br->reserve_or_fail(
+        m4.primary_data_size(MemoryType::DEVICE).first, MemoryType::DEVICE
+    );
     Message m5 = m.copy(br.get(), reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m5.empty());
     EXPECT_TRUE(m5.holds<TableChunk>());
-    EXPECT_EQ(m5.buffer_size(MemoryType::HOST), std::make_pair(0, true));
-    EXPECT_EQ(m5.buffer_size(MemoryType::DEVICE), std::make_pair(1024, true));
+    EXPECT_EQ(m5.primary_data_size(MemoryType::HOST), std::make_pair(0, true));
+    EXPECT_EQ(m5.primary_data_size(MemoryType::DEVICE), std::make_pair(1024, true));
 }
 
 TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
@@ -339,8 +343,9 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
     Message m = to_message(std::move(chunk));
     EXPECT_FALSE(m.empty());
     EXPECT_TRUE(m.holds<TableChunk>());
-    EXPECT_EQ(m.buffer_size(MemoryType::HOST), std::make_pair(0, false));
+    EXPECT_EQ(m.primary_data_size(MemoryType::HOST), std::make_pair(0, false));
     EXPECT_EQ(
-        m.buffer_size(MemoryType::DEVICE), std::make_pair(expect.alloc_size(), false)
+        m.primary_data_size(MemoryType::DEVICE),
+        std::make_pair(expect.alloc_size(), false)
     );
 }

@@ -28,20 +28,30 @@ class Message {
      * @brief Callback functions associated with a message.
      *
      * Allows type-specific customization of memory-related operations, such as
-     * computing buffer sizes or performing deep copies to a given memory type.
+     * computing data sizes or performing deep copies.
      */
     struct Callbacks {
         /**
-         * @brief Callback for computing the total buffer size associated with a message.
+         * @brief Callback for computing the size of a message's primary data.
          *
-         * @param msg Reference to the message.
-         * @param mem_type  Target memory type to query.
-         * @return A pair `(size, spillable)` where:
-         *   - size: Total size (in bytes) of the payload for the given memory type.
+         * This callback returns the total size, in bytes, of the data portion associated
+         * with a message. It is used to determine memory requirements for the primary
+         * data only — not for metadata or any auxiliary information.
+         *
+         * Typically, this data is represented by a `Buffer` that may reside in any
+         * memory type (e.g., host or device). The size reported by this callback
+         * determines how large a memory reservation must be when performing a
+         * `Message::copy()`.
+         *
+         * @param msg Reference to the message whose data size is queried.
+         * @param mem_type Target memory type to query.
+         * @return A pair (size, spillable) where:
+         *   - size: total size of the primary data for the given memory type.
          *   - spillable: `true` if the message owns its buffers and destroying it will
-         *                release the associated memory; otherwise `false`.
+         *     release the associated memory; otherwise `false`.
          */
-        std::function<std::pair<size_t, bool>(Message const&, MemoryType)> buffer_size;
+        std::function<std::pair<size_t, bool>(Message const&, MemoryType)>
+            primary_data_size;
 
         /**
          * @brief Callback for performing a deep copy of a message.
@@ -153,7 +163,7 @@ class Message {
      * @brief Returns the callbacks associated with this message.
      *
      * The callbacks define custom behaviors for operations such as
-     * `buffer_size()` and `copy()`.
+     * `primary_data_size()` and `copy()`.
      *
      * @return Constant reference to the message's registered callbacks.
      */
@@ -161,13 +171,13 @@ class Message {
         return callbacks_;
     }
 
-    [[nodiscard]] std::pair<size_t, bool> buffer_size(MemoryType mem_type) {
+    [[nodiscard]] std::pair<size_t, bool> primary_data_size(MemoryType mem_type) {
         RAPIDSMPF_EXPECTS(
-            callbacks_.buffer_size,
-            "message doesn't support `buffer_size`",
+            callbacks_.primary_data_size,
+            "message doesn't support `primary_data_size`",
             std::invalid_argument
         );
-        return callbacks_.buffer_size(*this, mem_type);
+        return callbacks_.primary_data_size(*this, mem_type);
     }
 
     [[nodiscard]] Message copy(BufferResource* br, MemoryReservation& reservation) const {

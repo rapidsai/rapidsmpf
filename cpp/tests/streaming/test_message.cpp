@@ -51,14 +51,18 @@ TEST_F(StreamingMessage, ResetEmpties) {
 
 TEST_F(StreamingMessage, BufferSizeWithoutCallbacks) {
     Message m{br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST))};
-    EXPECT_THROW(std::ignore = m.buffer_size(MemoryType::HOST), std::invalid_argument);
-    EXPECT_THROW(std::ignore = m.buffer_size(MemoryType::DEVICE), std::invalid_argument);
+    EXPECT_THROW(
+        std::ignore = m.primary_data_size(MemoryType::HOST), std::invalid_argument
+    );
+    EXPECT_THROW(
+        std::ignore = m.primary_data_size(MemoryType::DEVICE), std::invalid_argument
+    );
 }
 
 TEST_F(StreamingMessage, BufferSizeWithCallbacks) {
     Message::Callbacks cbs{
-        .buffer_size = [](Message const& msg,
-                          MemoryType mem_type) -> std::pair<size_t, bool> {
+        .primary_data_size = [](Message const& msg,
+                                MemoryType mem_type) -> std::pair<size_t, bool> {
             EXPECT_TRUE(msg.holds<Buffer>());
             if (mem_type == msg.get<Buffer>().mem_type()) {
                 return {msg.get<Buffer>().size, true};
@@ -68,13 +72,13 @@ TEST_F(StreamingMessage, BufferSizeWithCallbacks) {
     };
     {
         Message m{br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cbs};
-        EXPECT_EQ(m.buffer_size(MemoryType::HOST), std::make_pair(10, true));
-        EXPECT_EQ(m.buffer_size(MemoryType::DEVICE), std::make_pair(0, false));
+        EXPECT_EQ(m.primary_data_size(MemoryType::HOST), std::make_pair(10, true));
+        EXPECT_EQ(m.primary_data_size(MemoryType::DEVICE), std::make_pair(0, false));
     }
     {
         Message m{br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cbs};
-        EXPECT_EQ(m.buffer_size(MemoryType::HOST), std::make_pair(0, false));
-        EXPECT_EQ(m.buffer_size(MemoryType::DEVICE), std::make_pair(10, true));
+        EXPECT_EQ(m.primary_data_size(MemoryType::HOST), std::make_pair(0, false));
+        EXPECT_EQ(m.primary_data_size(MemoryType::DEVICE), std::make_pair(10, true));
     }
 }
 
