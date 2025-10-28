@@ -19,13 +19,17 @@
 namespace rapidsmpf::communicator {
 
 /**
- * @brief Type-agnostic communication interface.
+ * @brief Interface for exchanging serialized metadata and payload between ranks.
  *
- * This interface provides a high-level, stateful communication management layer that
- * works with any message type implementing Message. It encapsulates the entire
- * communication protocol and state machine, providing coarse-grained operations that
- * can drive communication forward while maintaining full control over the underlying
- * communication patterns and optimizations.
+ * The `MetadataPayloadExchange` class defines an abstract interface for transmitting
+ * messages that contain both serialized metadata and a data payload. This abstraction
+ * simplifies scenarios where metadata and payload must be exchanged together as a
+ * single logical unit.
+ *
+ * Concrete implementations, such as `TagMetadataPayloadExchange`, use the
+ * `Communicator` to implement this interface. In the future, other implementations
+ * may leverage specialized features beyond the basic `Communicator` API to further
+ * optimize this communication pattern.
  */
 class MetadataPayloadExchange {
   public:
