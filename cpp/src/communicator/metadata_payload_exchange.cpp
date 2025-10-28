@@ -42,22 +42,6 @@ void MetadataPayloadExchange::Message::set_data(std::unique_ptr<Buffer> buffer) 
     data_ = std::move(buffer);
 }
 
-std::uint64_t MetadataPayloadExchange::Message::message_id() const {
-    return message_id_;
-}
-
-void MetadataPayloadExchange::Message::set_message_id(std::uint64_t id) {
-    message_id_ = id;
-}
-
-std::size_t MetadataPayloadExchange::Message::expected_payload_size() const {
-    return expected_payload_size_;
-}
-
-void MetadataPayloadExchange::Message::set_expected_payload_size(std::size_t size) {
-    expected_payload_size_ = size;
-}
-
 TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::shared_ptr<Communicator> comm, OpID op_id, std::shared_ptr<Statistics> statistics
 )
@@ -80,7 +64,6 @@ void TagMetadataPayloadExchange::send_messages(
         // Format: [rank (32 bits)][sequence (32 bits)]
         std::uint64_t message_id =
             (static_cast<std::uint64_t>(comm_->rank()) << 32) | next_message_id_++;
-        message->set_message_id(message_id);
 
         log.trace("send metadata to ", dst, " (message_id=", message_id, ")");
         RAPIDSMPF_EXPECTS(dst != comm_->rank(), "sending message to ourselves");
@@ -187,11 +170,10 @@ void TagMetadataPayloadExchange::receive_metadata() {
             src, std::move(original_metadata), nullptr
         );
 
-        message->set_message_id(message_id);
-        message->set_expected_payload_size(payload_size);
-
         log.trace("recv_any from ", src, " (message_id=", message_id, ")");
-        incoming_messages_.emplace(src, std::move(message));
+        incoming_messages_.emplace(
+            src, TagMessage(std::move(message), message_id, payload_size)
+        );
     }
 
     statistics_->add_duration_stat("comms-interface-receive-metadata", Clock::now() - t0);
@@ -204,47 +186,49 @@ void TagMetadataPayloadExchange::setup_data_receives(
     auto const t0 = Clock::now();
 
     for (auto it = incoming_messages_.begin(); it != incoming_messages_.end();) {
-        auto& [src, message] = *it;
+        auto& [src, tag_msg] = *it;
         log.trace(
             "checking incoming message data from ",
             src,
             " (message_id=",
-            message->message_id(),
+            tag_msg.message_id,
             ")"
         );
 
-        std::size_t payload_size = message->expected_payload_size();
+        std::size_t payload_size = tag_msg.expected_payload_size;
 
         if (payload_size > 0) {
-            if (message->data() == nullptr) {
+            if (tag_msg.message->data() == nullptr) {
                 auto buffer = allocate_buffer_fn(payload_size);
-                message->set_data(std::move(buffer));
+                tag_msg.message->set_data(std::move(buffer));
             }
 
             // Check if the buffer is ready for use, if not, break the loop
             // and wait for the buffer to be ready. This is necessary to ensure
             // messages are received in the order they are sent.
-            if (message->data() && !message->data()->is_latest_write_done()) {
+            if (tag_msg.message->data()
+                && !tag_msg.message->data()->is_latest_write_done())
+            {
                 ++it;
                 break;
             }
 
-            // Extract the message and set up for data transfer
-            auto message_ptr = std::move(it->second);
+            // Extract the internal message and set up for data transfer
             auto src_rank = it->first;
+            auto tag_message = std::move(it->second);
             it = incoming_messages_.erase(it);
 
-            auto data_buffer = message_ptr->release_data();
+            auto data_buffer = tag_message.message->release_data();
             RAPIDSMPF_EXPECTS(data_buffer, "No data buffer available");
             auto future = comm_->recv(src_rank, gpu_data_tag_, std::move(data_buffer));
 
-            auto message_id = message_ptr->message_id();
+            auto message_id = tag_message.message_id;
             RAPIDSMPF_EXPECTS(
                 in_transit_futures_.emplace(message_id, std::move(future)).second,
                 "in transit future already exists"
             );
             RAPIDSMPF_EXPECTS(
-                in_transit_messages_.emplace(message_id, std::move(message_ptr)).second,
+                in_transit_messages_.emplace(message_id, std::move(tag_message)).second,
                 "in transit message already exists"
             );
         } else {
@@ -279,13 +263,13 @@ TagMetadataPayloadExchange::complete_data_transfers() {
                 future_it != in_transit_futures_.end(), "in transit future not found"
             );
 
-            auto message = std::move(message_it->second);
+            auto tag_message = std::move(message_it->second);
             auto future = std::move(future_it->second);
             auto received_buffer = comm_->release_data(std::move(future));
 
-            message->set_data(std::move(received_buffer));
+            tag_message.message->set_data(std::move(received_buffer));
 
-            completed_messages.push_back(std::move(message));
+            completed_messages.push_back(std::move(tag_message.message));
 
             in_transit_messages_.erase(message_it);
             in_transit_futures_.erase(future_it);
@@ -294,9 +278,9 @@ TagMetadataPayloadExchange::complete_data_transfers() {
 
     // Handle control/metadata-only messages from incoming_messages_
     std::erase_if(incoming_messages_, [&](auto& kv) {
-        auto& [src, message] = kv;
-        if (message->expected_payload_size() == 0) {
-            completed_messages.push_back(std::move(message));
+        auto& [src, tag_msg] = kv;
+        if (tag_msg.expected_payload_size == 0) {
+            completed_messages.push_back(std::move(tag_msg.message));
             return true;
         }
         return false;
