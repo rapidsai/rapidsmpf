@@ -126,8 +126,13 @@ TagMetadataPayloadExchange::receive_messages(
 
     // Process all phases of the communication protocol
     receive_metadata(allocate_buffer_fn);
-    setup_data_receives();
-    auto completed_messages = complete_data_transfers();
+    auto completed_messages = setup_data_receives();
+    auto completed_data = complete_data_transfers();
+    completed_messages.insert(
+        completed_messages.end(),
+        std::make_move_iterator(completed_data.begin()),
+        std::make_move_iterator(completed_data.end())
+    );
     cleanup_completed_operations();
 
     statistics_->add_duration_stat("comms-interface-receive-messages", Clock::now() - t0);
@@ -192,9 +197,12 @@ void TagMetadataPayloadExchange::receive_metadata(
     statistics_->add_duration_stat("comms-interface-receive-metadata", Clock::now() - t0);
 }
 
-void TagMetadataPayloadExchange::setup_data_receives() {
+std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
+TagMetadataPayloadExchange::setup_data_receives() {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
+
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> completed_messages;
 
     // Process messages per rank, breaking only when a rank's buffer isn't ready
     for (auto rank_it = incoming_messages_.begin(); rank_it != incoming_messages_.end();)
@@ -243,9 +251,9 @@ void TagMetadataPayloadExchange::setup_data_receives() {
                     "in transit message already exists"
                 );
             } else {
-                // Control/metadata-only message - will be handled in
-                // complete_data_transfers()
-                ++msg_it;
+                // Control/metadata-only message - handle directly
+                completed_messages.push_back(std::move(tag_msg.message));
+                msg_it = messages.erase(msg_it);
             }
         }
 
@@ -260,6 +268,8 @@ void TagMetadataPayloadExchange::setup_data_receives() {
     statistics_->add_duration_stat(
         "comms-interface-setup-data-receives", Clock::now() - t0
     );
+
+    return completed_messages;
 }
 
 std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
@@ -294,23 +304,6 @@ TagMetadataPayloadExchange::complete_data_transfers() {
             in_transit_futures_.erase(future_it);
         }
     }
-
-    // Handle control/metadata-only messages from incoming_messages_
-    std::erase_if(incoming_messages_, [&](auto& rank_entry) {
-        auto& [src, messages] = rank_entry;
-
-        // Move metadata-only messages to completed_messages and remove them
-        std::erase_if(messages, [&](auto& tag_msg) {
-            if (tag_msg.expected_payload_size == 0) {
-                completed_messages.push_back(std::move(tag_msg.message));
-                return true;
-            }
-            return false;
-        });
-
-        // Remove rank entry if all messages have been processed
-        return messages.empty();
-    });
 
     statistics_->add_duration_stat(
         "comms-interface-complete-data-transfers", Clock::now() - t0

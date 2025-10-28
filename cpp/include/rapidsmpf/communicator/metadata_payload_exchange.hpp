@@ -251,10 +251,12 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     /**
      * @brief Setup data receives for incoming messages.
      *
+     * @return A vector of completed metadata-only messages.
+     *
      * @throw std::runtime_error if an in-transit message or future is not found, or
      * if a data buffer is not available.
      */
-    void setup_data_receives();
+    std::vector<std::unique_ptr<Message>> setup_data_receives();
 
     /**
      * @brief Complete data transfers for in-transit messages.
