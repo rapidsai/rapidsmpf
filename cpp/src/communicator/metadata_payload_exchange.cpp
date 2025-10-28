@@ -158,8 +158,9 @@ void TagMetadataPayloadExchange::receive_metadata() {
 
     while (true) {
         auto const [msg, src] = comm_->recv_any(metadata_tag_);
-        if (!msg)
+        if (!msg) {
             break;
+        }
 
         // Unpack metadata: [message_id][payload_size][original_metadata]
         RAPIDSMPF_EXPECTS(
