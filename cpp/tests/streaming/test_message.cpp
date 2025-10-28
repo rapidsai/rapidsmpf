@@ -74,15 +74,23 @@ TEST_F(StreamingMessage, BufferSizeWithCallbacks) {
         Message m{
             0, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cbs
         };
-        EXPECT_EQ(m.primary_data_size(MemoryType::HOST), std::make_pair(10, true));
-        EXPECT_EQ(m.primary_data_size(MemoryType::DEVICE), std::make_pair(0, false));
+        EXPECT_EQ(
+            m.primary_data_size(MemoryType::HOST), std::make_pair(size_t{10}, true)
+        );
+        EXPECT_EQ(
+            m.primary_data_size(MemoryType::DEVICE), std::make_pair(size_t{0}, false)
+        );
     }
     {
         Message m{
             0, br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cbs
         };
-        EXPECT_EQ(m.primary_data_size(MemoryType::HOST), std::make_pair(0, false));
-        EXPECT_EQ(m.primary_data_size(MemoryType::DEVICE), std::make_pair(10, true));
+        EXPECT_EQ(
+            m.primary_data_size(MemoryType::HOST), std::make_pair(size_t{0}, false)
+        );
+        EXPECT_EQ(
+            m.primary_data_size(MemoryType::DEVICE), std::make_pair(size_t{10}, true)
+        );
     }
 }
 
