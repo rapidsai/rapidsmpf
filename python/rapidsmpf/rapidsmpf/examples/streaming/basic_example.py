@@ -57,9 +57,10 @@ def main() -> int:
     # A TableChunk contains a pylibcudf table, a sequence number, and a CUDA stream.
     table_chunks = [
         Message(
+            seq,
             TableChunk.from_pylibcudf_table(
-                seq, expect, DEFAULT_STREAM, exclusive_view=False
-            )
+                expect, DEFAULT_STREAM, exclusive_view=False
+            ),
         )
         for seq, expect in enumerate(tables)
     ]
@@ -92,7 +93,7 @@ def main() -> int:
             assert msg.empty()
 
             # Wrap the table chunk in a new message.
-            msg = Message(table)
+            msg = Message(msg.sequence_number, table)
 
             # Forward the message to the output channel.
             await ch_out.send(ctx, msg)

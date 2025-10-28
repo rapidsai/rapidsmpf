@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <unordered_map>
 #include <vector>
 
@@ -22,11 +21,6 @@ namespace rapidsmpf::streaming {
  */
 struct PartitionMapChunk {
     /**
-     * @brief Sequence number used to preserve chunk ordering.
-     */
-    std::uint64_t sequence_number;
-
-    /**
      * @brief Packed data for each partition, keyed by partition ID.
      */
     std::unordered_map<shuffler::PartID, PackedData> data;
@@ -39,11 +33,6 @@ struct PartitionMapChunk {
  * are stored in a vector.
  */
 struct PartitionVectorChunk {
-    /**
-     * @brief Sequence number used to preserve chunk ordering.
-     */
-    std::uint64_t sequence_number;
-
     /**
      * @brief Packed data for each partition stored in a vector.
      */
