@@ -22,14 +22,6 @@ MetadataPayloadExchange::Message::Message(
 )
     : peer_rank_(peer_rank), metadata_(std::move(metadata)), data_(std::move(data)) {}
 
-Rank MetadataPayloadExchange::Message::peer_rank() const {
-    return peer_rank_;
-}
-
-std::vector<std::uint8_t> const& MetadataPayloadExchange::Message::metadata() const {
-    return metadata_;
-}
-
 Buffer const* MetadataPayloadExchange::Message::data() const {
     return data_.get();
 }

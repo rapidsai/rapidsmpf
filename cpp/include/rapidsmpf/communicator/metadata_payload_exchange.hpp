@@ -62,7 +62,9 @@ class MetadataPayloadExchange {
          *
          * @return The rank of the destination or source.
          */
-        [[nodiscard]] Rank peer_rank() const;
+        [[nodiscard]] constexpr Rank peer_rank() const {
+            return peer_rank_;
+        }
 
         /**
          * @brief Get the serialized metadata for this message.
@@ -71,7 +73,9 @@ class MetadataPayloadExchange {
          *
          * @return The serialized metadata.
          */
-        [[nodiscard]] std::vector<std::uint8_t> const& metadata() const;
+        [[nodiscard]] constexpr std::vector<std::uint8_t> const& metadata() const {
+            return metadata_;
+        }
 
         /**
          * @brief Get the data buffer for this message.
