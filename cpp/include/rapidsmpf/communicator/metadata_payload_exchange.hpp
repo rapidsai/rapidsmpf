@@ -30,6 +30,8 @@ namespace rapidsmpf::communicator {
  * `Communicator` to implement this interface. In the future, other implementations
  * may leverage specialized features beyond the basic `Communicator` API to further
  * optimize this communication pattern.
+ *
+ * @note This class is not thread-safe. All methods must be called from the same thread.
  */
 class MetadataPayloadExchange {
   public:
