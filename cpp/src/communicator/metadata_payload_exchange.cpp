@@ -100,12 +100,9 @@ void TagMetadataPayloadExchange::send_messages(
         );
 
         // Send data immediately after metadata (if any)
-        if (message->data() != nullptr && message->data()->size > 0) {
-            auto data_buffer = message->release_data();
-            RAPIDSMPF_EXPECTS(data_buffer, "No data buffer available");
-
+        if (message->data() != nullptr) {
             fire_and_forget_.push_back(
-                comm_->send(std::move(data_buffer), dst, gpu_data_tag_)
+                comm_->send(message->release_data(), dst, gpu_data_tag_)
             );
         }
     }
