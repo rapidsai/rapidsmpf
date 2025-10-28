@@ -30,6 +30,15 @@ class Message {
      * @param sequence_number Ordering identifier for the message.
      * @param payload Non-null unique pointer to the payload.
      *
+     * @note Sequence numbers are used to ensure that when multiple producers send into
+     * the same output channel, channel ordering is preserved. Specifically, the guarantee
+     * is that `Channel`s always produce elements in increasing sequence number order. To
+     * ensure this, single producers must promise to send into the channels in strictly
+     * increasing sequence number order. Behaviour is undefined if not.
+     *
+     * This promise allows consumers to ensure ordering by buffering at most
+     * `num_consumers` messages, rather than needing to buffer the entire channel input.
+     *
      * @throws std::invalid_argument if @p payload is null.
      */
     template <typename T>
