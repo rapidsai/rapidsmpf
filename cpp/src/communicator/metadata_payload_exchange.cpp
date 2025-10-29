@@ -42,7 +42,15 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       gpu_data_tag_{op_id, 2},
       statistics_{std::move(statistics)} {}
 
-void TagMetadataPayloadExchange::send_messages(
+void TagMetadataPayloadExchange::send(
+    std::unique_ptr<MetadataPayloadExchange::Message> message
+) {
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    messages.push_back(std::move(message));
+    send(std::move(messages));
+}
+
+void TagMetadataPayloadExchange::send(
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>&& messages
 ) {
     auto& log = comm_->logger();
@@ -101,16 +109,8 @@ void TagMetadataPayloadExchange::send_messages(
     statistics_->add_duration_stat("comms-interface-send-messages", Clock::now() - t0);
 }
 
-void TagMetadataPayloadExchange::send_message(
-    std::unique_ptr<MetadataPayloadExchange::Message> message
-) {
-    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
-    messages.push_back(std::move(message));
-    send_messages(std::move(messages));
-}
-
 std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
-TagMetadataPayloadExchange::receive_messages(
+TagMetadataPayloadExchange::recv(
     std::function<std::unique_ptr<Buffer>(std::size_t)> const& allocate_buffer_fn
 ) {
     auto const t0 = Clock::now();
