@@ -142,7 +142,7 @@ class Message {
      *
      * @return The sequence number.
      */
-    [[nodiscard]] std::uint64_t sequence_number() const noexcept {
+    [[nodiscard]] constexpr std::uint64_t sequence_number() const noexcept {
         return sequence_number_;
     }
 
@@ -153,7 +153,7 @@ class Message {
      * @return true if the payload is `typeid(T)`, false otherwise.
      */
     template <typename T>
-    [[nodiscard]] bool holds() const noexcept {
+    [[nodiscard]] constexpr bool holds() const noexcept {
         return payload_.type() == typeid(std::shared_ptr<T>);
     }
 
@@ -193,7 +193,7 @@ class Message {
      *
      * @return Constant reference to the message's registered callbacks.
      */
-    [[nodiscard]] Callbacks const& callbacks() const noexcept {
+    [[nodiscard]] constexpr Callbacks const& callbacks() const noexcept {
         return callbacks_;
     }
 
