@@ -126,6 +126,33 @@ install(
   EXCLUDE_FROM_ALL
 )
 
+add_executable(bench_pinned_memory_resources "bench_pinned_memory_resources.cpp")
+set_target_properties(
+  bench_pinned_memory_resources
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             CXX_EXTENSIONS ON
+             CUDA_STANDARD 20
+             CUDA_STANDARD_REQUIRED ON
+             LINK_FLAGS "-Wl,--allow-shlib-undefined"
+)
+target_compile_options(
+  bench_pinned_memory_resources PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                                        "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+)
+target_link_libraries(
+  bench_pinned_memory_resources
+  PRIVATE rapidsmpf::rapidsmpf rmm::rmm benchmark::benchmark benchmark::benchmark_main
+          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan bench_utils
+)
+install(
+  TARGETS bench_pinned_memory_resources
+  COMPONENT benchmarking
+  DESTINATION bin/benchmarks/librapidsmpf
+  EXCLUDE_FROM_ALL
+)
+
 if(RAPIDSMPF_HAVE_STREAMING)
   add_subdirectory(streaming)
 endif()

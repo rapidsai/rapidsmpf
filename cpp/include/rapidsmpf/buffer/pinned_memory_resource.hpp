@@ -62,7 +62,9 @@ class PinnedMemoryResource;  // forward declaration
  *
  * @sa https://github.com/rapidsai/rmm/issues/1931
  */
-struct PinnedPoolProperties {};
+struct PinnedPoolProperties {
+    size_t initial_pool_size = 0;  ///< The initial size of the pool in bytes.
+};
 
 /**
  * @brief A pinned host memory pool for stream-ordered allocations/deallocations. This
