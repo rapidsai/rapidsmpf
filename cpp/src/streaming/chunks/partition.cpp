@@ -11,8 +11,8 @@ Message to_message(
     std::uint64_t sequence_number, std::unique_ptr<PartitionMapChunk> chunk
 ) {
     Message::Callbacks cbs{
-        .primary_data_size = [](Message const& msg,
-                                MemoryType mem_type) -> std::pair<size_t, bool> {
+        .content_size = [](Message const& msg,
+                           MemoryType mem_type) -> std::pair<size_t, bool> {
             auto const& self = msg.get<PartitionMapChunk>();
             std::size_t ret = 0;
             for (auto const& [_, packed_data] : self.data) {
@@ -44,8 +44,8 @@ Message to_message(
     std::uint64_t sequence_number, std::unique_ptr<PartitionVectorChunk> chunk
 ) {
     Message::Callbacks cbs{
-        .primary_data_size = [](Message const& msg,
-                                MemoryType mem_type) -> std::pair<size_t, bool> {
+        .content_size = [](Message const& msg,
+                           MemoryType mem_type) -> std::pair<size_t, bool> {
             auto const& self = msg.get<PartitionVectorChunk>();
             std::size_t ret = 0;
             for (auto const& packed_data : self.data) {

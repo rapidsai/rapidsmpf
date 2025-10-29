@@ -64,21 +64,19 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(PinnedHostBufferTest, synchronized_host_data) {
-    const size_t primary_data_size = GetParam();
+    const size_t content_size = GetParam();
 
     // Create a vector with random data
-    auto source_data = random_vector<uint8_t>(0, primary_data_size);
+    auto source_data = random_vector<uint8_t>(0, content_size);
 
     // Create pinned buffer using deep copy constructor
-    rapidsmpf::PinnedHostBuffer buffer(
-        source_data.data(), primary_data_size, stream, p_mr
-    );
+    rapidsmpf::PinnedHostBuffer buffer(source_data.data(), content_size, stream, p_mr);
 
     // Synchronize on stream to ensure copy is complete
     buffer.synchronize();
 
     // Check the contents using std::equal
-    ASSERT_EQ(buffer.size(), primary_data_size);
+    ASSERT_EQ(buffer.size(), content_size);
     ASSERT_NE(buffer.data(), nullptr);
 
     const auto* data = buffer.data();
@@ -130,17 +128,17 @@ TEST_P(PinnedHostBufferTest, synchronized_host_data) {
 }
 
 TEST_P(PinnedHostBufferTest, device_data) {
-    const size_t primary_data_size = GetParam();
+    const size_t content_size = GetParam();
 
     // Create a vector with random data
-    auto host_data = random_vector<uint8_t>(0, primary_data_size);
-    rmm::device_buffer dev_data(host_data.data(), primary_data_size, stream, cuda_mr);
+    auto host_data = random_vector<uint8_t>(0, content_size);
+    rmm::device_buffer dev_data(host_data.data(), content_size, stream, cuda_mr);
 
     // Create pinned buffer by copying device data on the same stream
-    rapidsmpf::PinnedHostBuffer buffer(dev_data.data(), primary_data_size, stream, p_mr);
+    rapidsmpf::PinnedHostBuffer buffer(dev_data.data(), content_size, stream, p_mr);
 
     // Check the contents using std::equal
-    ASSERT_EQ(buffer.size(), primary_data_size);
+    ASSERT_EQ(buffer.size(), content_size);
     ASSERT_NE(buffer.data(), nullptr);
 
     buffer.synchronize();
@@ -177,15 +175,15 @@ rapidsmpf::PinnedHostBuffer stream_synchronized_copy(
 }
 
 template <typename SourceBufferT>
-void stream_sync_copy_test(size_t primary_data_size, auto& src_mr, auto& pinned_mr) {
+void stream_sync_copy_test(size_t content_size, auto& src_mr, auto& pinned_mr) {
     rmm::cuda_stream_pool stream_pool(2, rmm::cuda_stream::flags::non_blocking);
     auto stream1 = stream_pool.get_stream();
     auto stream2 = stream_pool.get_stream();
 
-    auto host_data = random_vector<uint8_t>(0, primary_data_size);
+    auto host_data = random_vector<uint8_t>(0, content_size);
 
     // create a src buffer on stream1 with host data (blocking copy)
-    SourceBufferT src_buf1(host_data.data(), primary_data_size, stream1, src_mr);
+    SourceBufferT src_buf1(host_data.data(), content_size, stream1, src_mr);
     // create a src buffer on stream1 with the same data (non-blocking copy)
     SourceBufferT src_buf2;
     if constexpr (std::is_same_v<SourceBufferT, rmm::device_buffer>) {

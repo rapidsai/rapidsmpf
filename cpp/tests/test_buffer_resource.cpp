@@ -232,7 +232,7 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
         stream = cudf::get_default_stream();
 
         // initialize the host pattern
-        host_pattern.resize(primary_data_size);
+        host_pattern.resize(content_size);
         for (std::size_t i = 0; i < host_pattern.size(); ++i) {
             host_pattern[i] = static_cast<uint8_t>(i % 256);
         }
@@ -253,7 +253,7 @@ class BaseBufferResourceCopyTest : public ::testing::Test {
         return buf;
     }
 
-    static constexpr std::size_t primary_data_size = 1024;  // 1 KiB
+    static constexpr std::size_t content_size = 1024;  // 1 KiB
 
     std::unique_ptr<BufferResource> br;
     rmm::cuda_stream_view stream;
@@ -320,7 +320,7 @@ class BufferResourceCopySliceTest
 
 TEST_P(BufferResourceCopySliceTest, CopySlice) {
     auto [source_type, dest_type, params] = GetParam();
-    auto src_buf = create_and_initialize_buffer(source_type, primary_data_size);
+    auto src_buf = create_and_initialize_buffer(source_type, content_size);
     copy_slice_and_verify(dest_type, src_buf, params.offset, params.length);
 }
 
@@ -408,9 +408,8 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
 TEST_P(BufferResourceCopyToTest, CopyTo) {
     auto [source_type, dest_type, params] = BufferResourceCopyToTest::GetParam();
     auto source = create_and_initialize_buffer(source_type, params.source_size);
-    auto [dest_reserve, dest_overbooking] =
-        br->reserve(dest_type, primary_data_size, false);
-    auto dest = br->allocate(primary_data_size, stream, dest_reserve);
+    auto [dest_reserve, dest_overbooking] = br->reserve(dest_type, content_size, false);
+    auto dest = br->allocate(content_size, stream, dest_reserve);
     EXPECT_EQ(dest->mem_type(), dest_type);
 
     copy_and_verify(source, dest, params.dest_offset);
@@ -449,11 +448,11 @@ INSTANTIATE_TEST_SUITE_P(
 class BufferResourceDifferentResourcesTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        primary_data_size = 1_KiB;
+        content_size = 1_KiB;
         stream = cudf::get_default_stream();
 
         // Host pattern for initialization and verification
-        host_pattern.resize(primary_data_size);
+        host_pattern.resize(content_size);
         for (std::size_t i = 0; i < host_pattern.size(); ++i) {
             host_pattern[i] = static_cast<uint8_t>(i % 256);
         }
@@ -470,23 +469,23 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
     }
 
     std::unique_ptr<Buffer> create_source_buffer() {
-        auto [reserv1, ob1] = br1->reserve(MemoryType::DEVICE, primary_data_size, false);
-        auto buf1 = br1->allocate(primary_data_size, stream, reserv1);
+        auto [reserv1, ob1] = br1->reserve(MemoryType::DEVICE, content_size, false);
+        auto buf1 = br1->allocate(content_size, stream, reserv1);
         EXPECT_EQ(reserv1.size(), 0);  // reservation should be consumed
-        EXPECT_EQ(buf1->size, primary_data_size);
+        EXPECT_EQ(buf1->size, content_size);
         EXPECT_EQ(buf1->mem_type(), MemoryType::DEVICE);
 
         buf1->write_access([&](std::byte* buf1_data, rmm::cuda_stream_view stream) {
             RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
                 buf1_data,
                 host_pattern.data(),
-                primary_data_size,
+                content_size,
                 cudaMemcpyHostToDevice,
                 stream
             ));
         });
         buf1->stream().synchronize();
-        EXPECT_EQ(mr1->get_main_record().total(), primary_data_size);
+        EXPECT_EQ(mr1->get_main_record().total(), content_size);
         return buf1;
     }
 
@@ -497,7 +496,7 @@ class BufferResourceDifferentResourcesTest : public ::testing::Test {
         EXPECT_EQ(mr2->get_main_record().total(), expected_br2_total);
     }
 
-    std::size_t primary_data_size;
+    std::size_t content_size;
     rmm::cuda_stream_view stream;
     std::vector<uint8_t> host_pattern;
 
@@ -533,20 +532,20 @@ TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
     buf2->stream().synchronize();
 
     // Verify memory allocation
-    verify_memory_allocation(primary_data_size, slice_length);
+    verify_memory_allocation(content_size, slice_length);
 }
 
 TEST_F(BufferResourceDifferentResourcesTest, Copy) {
     auto buf1 = create_source_buffer();
 
     // Create copy of buf1 on br2
-    auto buf2 = br2->allocate(stream, br2->reserve_or_fail(primary_data_size));
-    buffer_copy(*buf2, *buf1, primary_data_size);
-    EXPECT_EQ(buf2->size, primary_data_size);
+    auto buf2 = br2->allocate(stream, br2->reserve_or_fail(content_size));
+    buffer_copy(*buf2, *buf1, content_size);
+    EXPECT_EQ(buf2->size, content_size);
     buf2->stream().synchronize();
 
     // Verify memory allocation
-    verify_memory_allocation(primary_data_size, primary_data_size);
+    verify_memory_allocation(content_size, content_size);
 }
 
 class BufferCopyEdgeCases : public BaseBufferResourceCopyTest {};
