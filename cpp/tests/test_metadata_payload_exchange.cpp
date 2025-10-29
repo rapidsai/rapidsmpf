@@ -12,7 +12,8 @@
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
-#include <rapidsmpf/communicator/metadata_payload_exchange.hpp>
+#include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
+#include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
