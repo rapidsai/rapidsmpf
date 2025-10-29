@@ -43,6 +43,10 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     /**
      * @copydoc MetadataPayloadExchange::send
      *
+     * The messages sent from the calling process to a destination remote rank are
+     * guaranteed to be received in the same order as they were sent. No ordering is
+     * guaranteed between messages sent to different remote ranks.
+     *
      * @throw std::runtime_error if a message is sent to itself or if an outgoing
      * message already exists.
      */
@@ -52,6 +56,10 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     /**
      * @copydoc MetadataPayloadExchange::send(std::vector<std::unique_ptr<Message>>&& messages);
      *
+     * The messages sent from the calling process to a destination remote rank are
+     * guaranteed to be received in the same order as they were sent. No ordering is
+     * guaranteed between messages sent to different remote ranks.
+     *
      * @throw std::runtime_error if a message is sent to itself or if an outgoing
      * message already exists.
      */
@@ -60,6 +68,10 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
 
     /**
      * @copydoc MetadataPayloadExchange::recv
+     *
+     * The messages received by the calling process are guaranteed to be received in the
+     * same order as they were sent by the source remote rank. No ordering is guaranteed
+     * between messages received from different remote ranks.
      *
      * Advances the communication state machine by:
      * - Receiving incoming message metadata
