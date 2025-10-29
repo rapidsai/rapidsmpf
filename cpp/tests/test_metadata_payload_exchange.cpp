@@ -95,6 +95,19 @@ TEST_F(MetadataPayloadExchangeTest, InitialState) {
     EXPECT_TRUE(comm_interface->is_idle());
 }
 
+TEST_F(MetadataPayloadExchangeTest, SetDataOnAlreadySetData) {
+    // Test that set_data throws when data is already set
+    std::vector<std::uint8_t> test_metadata = {0x01};
+    constexpr std::size_t data_size = 256;
+
+    // Create a message with data already set
+    auto message = create_test_message(Rank{0}, test_metadata, data_size);
+
+    // Try to set data again - should throw
+    auto buffer = allocate_receive_buffer(128);
+    EXPECT_THROW(message->set_data(std::move(buffer)), std::logic_error);
+}
+
 TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
     if (comm->nranks() < 2) {
         GTEST_SKIP() << "Test requires at least 2 ranks";

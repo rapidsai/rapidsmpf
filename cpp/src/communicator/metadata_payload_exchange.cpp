@@ -31,6 +31,7 @@ std::unique_ptr<Buffer> MetadataPayloadExchange::Message::release_data() {
 }
 
 void MetadataPayloadExchange::Message::set_data(std::unique_ptr<Buffer> buffer) {
+    RAPIDSMPF_EXPECTS(data_ == nullptr, "data already set");
     data_ = std::move(buffer);
 }
 
