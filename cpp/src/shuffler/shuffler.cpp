@@ -232,8 +232,8 @@ class Shuffler::Progress {
             auto const t0_metadata_recv = Clock::now();
 #if RAPIDSMPF_DEBUG
             RAPIDSMPF_NVTX_SCOPED_RANGE("meta_recv");
-#endif
             int i = 0;
+#endif
             while (true) {
                 auto const [msg, src] = shuffler_.comm_->recv_any(metadata_tag);
                 if (msg) {
@@ -251,7 +251,9 @@ class Shuffler::Progress {
                 } else {
                     break;
                 }
+#if RAPIDSMPF_DEBUG
                 i++;
+#endif
             }
             stats.add_duration_stat(
                 "event-loop-metadata-recv", Clock::now() - t0_metadata_recv
