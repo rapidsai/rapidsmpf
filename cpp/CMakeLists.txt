@@ -37,6 +37,13 @@ rapids_cmake_write_version_file(include/rapidsmpf/version_config.hpp)
 # Set a default build type if none was specified
 rapids_cmake_build_type(Release)
 
+# Set RAPIDSMPF_DEBUG default based on build type
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(RAPIDSMPF_DEBUG_DEFAULT ON)
+else()
+  set(RAPIDSMPF_DEBUG_DEFAULT OFF)
+endif()
+
 # ##################################################################################################
 # * build options ---------------------------------------------------------------------------------
 
@@ -53,6 +60,7 @@ option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
+option(RAPIDSMPF_DEBUG "Enable debug mode" ${RAPIDSMPF_DEBUG_DEFAULT})
 
 message(STATUS "librapidsmpf build options:")
 message(STATUS "  BUILD_MPI_SUPPORT       : ${BUILD_MPI_SUPPORT}")
@@ -67,6 +75,7 @@ message(STATUS "  BUILD_SHARED_LIBS       : ${BUILD_SHARED_LIBS}")
 message(STATUS "  CUDA_STATIC_RUNTIME     : ${CUDA_STATIC_RUNTIME}")
 message(STATUS "  RAPIDSMPF_CLANG_TIDY    : ${RAPIDSMPF_CLANG_TIDY}")
 message(STATUS "  RAPIDSMPF_ASAN          : ${RAPIDSMPF_ASAN}")
+message(STATUS "  RAPIDSMPF_DEBUG         : ${RAPIDSMPF_DEBUG}")
 
 # Copy options to our prefix to prevent upstream projects from modifying them.
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
@@ -245,6 +254,7 @@ target_compile_definitions(
          $<$<BOOL:${RAPIDSMPF_HAVE_STREAMING}>:RAPIDSMPF_HAVE_STREAMING>
          $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:RAPIDSMPF_HAVE_CUPTI>
          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>
+         $<$<BOOL:${RAPIDSMPF_DEBUG}>:RAPIDSMPF_DEBUG>
 )
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})

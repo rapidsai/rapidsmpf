@@ -171,7 +171,9 @@ class Shuffler::Progress {
      * @return The progress state of the shuffler.
      */
     ProgressThread::ProgressState operator()() {
+#if RAPIDSMPF_DEBUG
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffler.Progress", p_iters++);
+#endif
         auto const t0_event_loop = Clock::now();
 
         // Tags for each stage of the shuffle
@@ -186,7 +188,9 @@ class Shuffler::Progress {
         {
             auto const t0_send_metadata = Clock::now();
             auto ready_chunks = shuffler_.outgoing_postbox_.extract_all_ready();
+#if RAPIDSMPF_DEBUG
             RAPIDSMPF_NVTX_SCOPED_RANGE("meta_send", ready_chunks.size());
+#endif
             for (auto&& chunk : ready_chunks) {
                 // All messages in the chunk maps to the same key (checked by the PostBox)
                 // thus we can use the partition ID of the first message in the chunk to
@@ -226,7 +230,9 @@ class Shuffler::Progress {
         // `incoming_chunks_`.
         {
             auto const t0_metadata_recv = Clock::now();
+#if RAPIDSMPF_DEBUG
             RAPIDSMPF_NVTX_SCOPED_RANGE("meta_recv");
+#endif
             int i = 0;
             while (true) {
                 auto const [msg, src] = shuffler_.comm_->recv_any(metadata_tag);
@@ -250,12 +256,16 @@ class Shuffler::Progress {
             stats.add_duration_stat(
                 "event-loop-metadata-recv", Clock::now() - t0_metadata_recv
             );
+#if RAPIDSMPF_DEBUG
             RAPIDSMPF_NVTX_MARKER("meta_recv_iters", i);
+#endif
         }
 
         // Post receives for incoming chunks
         {
+#if RAPIDSMPF_DEBUG
             RAPIDSMPF_NVTX_SCOPED_RANGE("post_chunk_recv", incoming_chunks_.size());
+#endif
             auto const t0_post_incoming_chunk_recv = Clock::now();
             for (auto it = incoming_chunks_.begin(); it != incoming_chunks_.end();) {
                 auto& [src, chunk] = *it;
@@ -342,6 +352,7 @@ class Shuffler::Progress {
         // requested data.
         {
             auto const t0_init_gpu_data_send = Clock::now();
+#if RAPIDSMPF_DEBUG
             RAPIDSMPF_NVTX_SCOPED_RANGE(
                 "init_gpu_send",
                 std::transform_reduce(
@@ -352,6 +363,7 @@ class Shuffler::Progress {
                     [](auto& kv) { return kv.second.size(); }
                 )
             );
+#endif
             // ready_ack_receives_ are separated by rank so that we
             // can guarantee that we don't match messages out of order
             // when using the UCXX communicator. See comment in
@@ -379,7 +391,9 @@ class Shuffler::Progress {
         // Check if any data in transit is finished.
         {
             auto const t0_check_future_finish = Clock::now();
+#if RAPIDSMPF_DEBUG
             RAPIDSMPF_NVTX_SCOPED_RANGE("check_fut_finish", in_transit_futures_.size());
+#endif
             if (!in_transit_futures_.empty()) {
                 std::vector<ChunkID> finished =
                     shuffler_.comm_->test_some(in_transit_futures_);
@@ -439,7 +453,9 @@ class Shuffler::Progress {
     std::unordered_map<Rank, std::vector<std::unique_ptr<Communicator::Future>>>
         ready_ack_receives_;  ///< Receives matching ready for data messages.
 
+#if RAPIDSMPF_DEBUG
     int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
+#endif
 };
 
 std::vector<PartID> Shuffler::local_partitions(
