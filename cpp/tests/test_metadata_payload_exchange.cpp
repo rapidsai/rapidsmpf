@@ -32,8 +32,12 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         stream = rmm::cuda_stream_default;
         statistics = std::make_shared<Statistics>();
 
+        auto allocate_fn = [this](std::size_t size) {
+            return allocate_receive_buffer(size);
+        };
+
         comm_interface = std::make_unique<TagMetadataPayloadExchange>(
-            GlobalEnvironment->comm_, OpID{42}, statistics
+            GlobalEnvironment->comm_, OpID{42}, allocate_fn, statistics
         );
 
         GlobalEnvironment->barrier();
@@ -73,11 +77,8 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     }
 
     void wait_for_communication_complete() {
-        auto allocate_fn = [this](std::size_t size) {
-            return allocate_receive_buffer(size);
-        };
         for (int iter = 0; iter < 100 && !comm_interface->is_idle(); ++iter) {
-            comm_interface->recv(allocate_fn);
+            comm_interface->recv();
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
@@ -126,11 +127,9 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
         EXPECT_FALSE(comm_interface->is_idle());
     }
 
-    auto allocate_fn = [this](std::size_t size) { return allocate_receive_buffer(size); };
-
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     for (int iter = 0; iter < 10 && received_messages.empty(); ++iter) {
-        auto messages = comm_interface->recv(allocate_fn);
+        auto messages = comm_interface->recv();
         received_messages.insert(
             received_messages.end(),
             std::make_move_iterator(messages.begin()),
@@ -173,11 +172,9 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveSingleMessage) {
         EXPECT_FALSE(comm_interface->is_idle());
     }
 
-    auto allocate_fn = [this](std::size_t size) { return allocate_receive_buffer(size); };
-
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     for (int iter = 0; iter < 50 && received_messages.empty(); ++iter) {
-        auto messages = comm_interface->recv(allocate_fn);
+        auto messages = comm_interface->recv();
         received_messages.insert(
             received_messages.end(),
             std::make_move_iterator(messages.begin()),
@@ -237,11 +234,9 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveWithData) {
         comm_interface->send(std::move(messages));
     }
 
-    auto allocate_fn = [this](std::size_t size) { return allocate_receive_buffer(size); };
-
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     for (int iter = 0; iter < 50 && received_messages.empty(); ++iter) {
-        auto messages = comm_interface->recv(allocate_fn);
+        auto messages = comm_interface->recv();
         received_messages.insert(
             received_messages.end(),
             std::make_move_iterator(messages.begin()),
@@ -312,11 +307,9 @@ TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
         comm_interface->send(std::move(messages));
     }
 
-    auto allocate_fn = [this](std::size_t size) { return allocate_receive_buffer(size); };
-
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     for (int iter = 0; iter < 100; ++iter) {
-        auto messages = comm_interface->recv(allocate_fn);
+        auto messages = comm_interface->recv();
         received_messages.insert(
             received_messages.end(),
             std::make_move_iterator(messages.begin()),

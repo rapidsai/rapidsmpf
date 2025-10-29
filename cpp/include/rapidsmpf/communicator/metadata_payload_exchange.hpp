@@ -144,12 +144,9 @@ class MetadataPayloadExchange {
     /**
      * @brief Receive messages from remote ranks.
 
-     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      * @return Vector of completed messages ready for local processing.
      */
-    [[nodiscard]] virtual std::vector<std::unique_ptr<Message>> recv(
-        std::function<std::unique_ptr<Buffer>(std::size_t)> const& allocate_buffer_fn
-    ) = 0;
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Message>> recv() = 0;
 
     /**
      * @brief Check if the communication layer is currently idle.
@@ -178,11 +175,13 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
+     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      * @param statistics The statistics to use for tracking communication operations.
      */
     TagMetadataPayloadExchange(
         std::shared_ptr<Communicator> comm,
         OpID op_id,
+        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
         std::shared_ptr<Statistics> statistics
     );
 
@@ -213,9 +212,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * - Handling completed data transfers
      * - Cleaning up completed operations
      */
-    std::vector<std::unique_ptr<Message>> recv(
-        std::function<std::unique_ptr<Buffer>(std::size_t)> const& allocate_buffer_fn
-    ) override;
+    std::vector<std::unique_ptr<Message>> recv() override;
 
     /**
      * @copydoc MetadataPayloadExchange::is_idle
@@ -245,6 +242,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     std::shared_ptr<Communicator> comm_;
     Tag const metadata_tag_;
     Tag const gpu_data_tag_;
+    std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn_;
 
     // Communication state containers
     std::vector<std::unique_ptr<Communicator::Future>>
@@ -264,12 +262,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
 
     /**
      * @brief Receive metadata for incoming messages.
-     *
-     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      */
-    void receive_metadata(
-        std::function<std::unique_ptr<Buffer>(std::size_t)> const& allocate_buffer_fn
-    );
+    void receive_metadata();
 
     /**
      * @brief Setup data receives for incoming messages.

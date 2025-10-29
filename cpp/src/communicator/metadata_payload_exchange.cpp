@@ -36,11 +36,15 @@ void MetadataPayloadExchange::Message::set_data(std::unique_ptr<Buffer> buffer) 
 }
 
 TagMetadataPayloadExchange::TagMetadataPayloadExchange(
-    std::shared_ptr<Communicator> comm, OpID op_id, std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Communicator> comm,
+    OpID op_id,
+    std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
+    std::shared_ptr<Statistics> statistics
 )
     : comm_(std::move(comm)),
       metadata_tag_{op_id, 1},
       gpu_data_tag_{op_id, 2},
+      allocate_buffer_fn_(std::move(allocate_buffer_fn)),
       statistics_{std::move(statistics)} {}
 
 void TagMetadataPayloadExchange::send(
@@ -111,13 +115,11 @@ void TagMetadataPayloadExchange::send(
 }
 
 std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
-TagMetadataPayloadExchange::recv(
-    std::function<std::unique_ptr<Buffer>(std::size_t)> const& allocate_buffer_fn
-) {
+TagMetadataPayloadExchange::recv() {
     auto const t0 = Clock::now();
 
     // Process all phases of the communication protocol
-    receive_metadata(allocate_buffer_fn);
+    receive_metadata();
     auto completed_messages = setup_data_receives();
     auto completed_data = complete_data_transfers();
     completed_messages.insert(
@@ -137,9 +139,7 @@ bool TagMetadataPayloadExchange::is_idle() const {
            && in_transit_messages_.empty() && in_transit_futures_.empty();
 }
 
-void TagMetadataPayloadExchange::receive_metadata(
-    std::function<std::unique_ptr<Buffer>(std::size_t)> const& allocate_buffer_fn
-) {
+void TagMetadataPayloadExchange::receive_metadata() {
     auto& log = comm_->logger();
     auto const t0 = Clock::now();
 
@@ -179,7 +179,7 @@ void TagMetadataPayloadExchange::receive_metadata(
         // Allocate buffer before creating Message if payload is expected
         std::unique_ptr<Buffer> buffer = nullptr;
         if (payload_size > 0) {
-            buffer = allocate_buffer_fn(payload_size);
+            buffer = allocate_buffer_fn_(payload_size);
         }
 
         auto message = std::make_unique<MetadataPayloadExchange::Message>(
