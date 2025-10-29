@@ -152,9 +152,15 @@ class MetadataPayloadExchange {
     ) = 0;
 
     /**
-     * @brief Check if all communication operations are complete.
+     * @brief Check if the communication layer is currently idle.
      *
-     * @return True if no pending operations remain, false otherwise.
+     * Indicates whether there are any active or pending communication operations.
+     * A return value of `true` means the exchange is idling, i.e. no operations
+     * are currently in progress. However, new send/receive requests may still be
+     * submitted in the future; this does not imply that all communication has been
+     * fully finalized or globally synchronized.
+     *
+     * @return `true` if the communication layer is idle; `false` if activity is ongoing.
      */
     [[nodiscard]] virtual bool is_idle() const = 0;
 };
