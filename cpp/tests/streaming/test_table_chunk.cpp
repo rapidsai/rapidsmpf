@@ -282,9 +282,17 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     EXPECT_EQ(m3.content_size(MemoryType::DEVICE), std::make_pair(size_t{0}, true));
     EXPECT_EQ(m3.sequence_number(), seq);
 
+    // Copy the chunk back to device and verify.
+    {
+        auto chunk = m3.release<TableChunk>();
+        auto res = br->reserve_or_fail(chunk.make_available_cost(), MemoryType::DEVICE);
+        chunk = chunk.make_available(res);
+        CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk.table_view(), expect);
+    }
+
     // Deep-copy: host to device.
     reservation =
-        br->reserve_or_fail(m3.content_size(MemoryType::HOST).first, MemoryType::DEVICE);
+        br->reserve_or_fail(m2.content_size(MemoryType::HOST).first, MemoryType::DEVICE);
     Message m4 = m.copy(br.get(), reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m4.empty());
@@ -292,6 +300,7 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     EXPECT_EQ(m4.content_size(MemoryType::HOST), std::make_pair(size_t{0}, true));
     EXPECT_EQ(m4.content_size(MemoryType::DEVICE), std::make_pair(size_t{1024}, true));
     EXPECT_EQ(m4.sequence_number(), seq);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m4.get<TableChunk>().table_view(), expect);
 
     // Deep-copy: device to device.
     reservation = br->reserve_or_fail(
@@ -304,6 +313,7 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     EXPECT_EQ(m5.content_size(MemoryType::HOST), std::make_pair(size_t{0}, true));
     EXPECT_EQ(m5.content_size(MemoryType::DEVICE), std::make_pair(size_t{1024}, true));
     EXPECT_EQ(m5.sequence_number(), seq);
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m5.get<TableChunk>().table_view(), expect);
 }
 
 TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
@@ -329,4 +339,5 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
     EXPECT_EQ(
         m.content_size(MemoryType::DEVICE), std::make_pair(expect.alloc_size(), false)
     );
+    CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m.get<TableChunk>().table_view(), expect);
 }
