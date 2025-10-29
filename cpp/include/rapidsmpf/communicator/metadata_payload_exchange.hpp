@@ -32,6 +32,17 @@ namespace rapidsmpf::communicator {
  * optimize this communication pattern.
  *
  * @note This class is not thread-safe. All methods must be called from the same thread.
+ *
+ * @note All concrete implementations are expected to provide a constructor with
+ * the following signature:
+ * @code
+ * DerivedMetadataPayloadExchange(
+ *     std::shared_ptr<Communicator> comm,
+ *     OpID op_id,
+ *     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
+ *     std::shared_ptr<Statistics> statistics
+ * );
+ * @endcode
  */
 class MetadataPayloadExchange {
   public:
