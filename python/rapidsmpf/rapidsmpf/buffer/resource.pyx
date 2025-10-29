@@ -275,7 +275,7 @@ cdef class BufferResource:
 
         Returns
         -------
-        A pair (reservation, overbooked_bytes):
+        A tuple (reservation, overbooked_bytes):
             - On success, the reservation's size equals `size`.
             - On failure, the reservation's size equals zero (a zero-sized reservation
               never fails).
