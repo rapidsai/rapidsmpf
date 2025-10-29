@@ -153,7 +153,7 @@ class Message {
      * @return true if the payload is `typeid(T)`, false otherwise.
      */
     template <typename T>
-    [[nodiscard]] constexpr bool holds() const noexcept {
+    [[nodiscard]] bool holds() const noexcept {
         return payload_.type() == typeid(std::shared_ptr<T>);
     }
 
