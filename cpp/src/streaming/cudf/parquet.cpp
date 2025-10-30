@@ -134,7 +134,7 @@ Node read_parquet(
         files.begin() + file_offset, files.begin() + file_offset + files_per_rank
     );
     cudf::io::parquet_reader_options local_options{options};
-    local_options.set_source(cudf::io::source_info(local_files));
+    local_options.set_source(cudf::io::source_info(std::move(local_files)));
     auto metadata = cudf::io::read_parquet_metadata(local_options.get_source());
     auto const local_num_rows = metadata.num_rows();
     auto skip_rows = options.get_skip_rows();
@@ -171,12 +171,12 @@ Node read_parquet(
         std::atomic<std::size_t> chunk_index{0};
         read_tasks.reserve(1 + num_producers);
         auto lineariser = std::make_shared<Lineariser>(ch_out, num_producers);
-        read_tasks.push_back(lineariser->drain(ctx));
         for (auto& ch_in : lineariser->get_inputs()) {
             read_tasks.push_back(
                 produce_chunks(ctx, ch_in, local_options, chunks, chunk_index)
             );
         }
+        read_tasks.push_back(lineariser->drain(ctx));
         coro_results(co_await coro::when_all(std::move(read_tasks)));
     }
     co_await ch_out->drain(ctx->executor());
