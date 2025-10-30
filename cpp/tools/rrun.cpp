@@ -449,6 +449,10 @@ pid_t launch_rank_local(Config const& cfg, int rank) {
     } else if (pid == 0) {
         // Child process
 
+        // Disable output buffering to ensure real-time output
+        setvbuf(stdout, nullptr, _IONBF, 0);
+        setvbuf(stderr, nullptr, _IONBF, 0);
+
         // Preserve parent's LD_LIBRARY_PATH (important for development builds)
         // No need to set it explicitly as it's inherited from parent
 
@@ -540,6 +544,9 @@ pid_t launch_rank_ssh(
             int gpu_id = host_gpus[static_cast<size_t>(local_rank) % host_gpus.size()];
             remote_cmd << "CUDA_VISIBLE_DEVICES=" << gpu_id << " ";
         }
+
+        // Use stdbuf to disable output buffering for real-time output
+        remote_cmd << "stdbuf -o0 -e0 ";
 
         // Add the application binary and arguments
         remote_cmd << cfg.app_binary;
