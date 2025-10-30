@@ -171,7 +171,7 @@ class Shuffler::Progress {
      * @return The progress state of the shuffler.
      */
     ProgressThread::ProgressState operator()() {
-#if RAPIDSMPF_DEBUG
+#if RAPIDSMPF_DETAIL
         RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffler.Progress", p_iters++);
 #endif
         auto const t0_event_loop = Clock::now();
@@ -188,7 +188,7 @@ class Shuffler::Progress {
         {
             auto const t0_send_metadata = Clock::now();
             auto ready_chunks = shuffler_.outgoing_postbox_.extract_all_ready();
-#if RAPIDSMPF_DEBUG
+#if RAPIDSMPF_DETAIL
             RAPIDSMPF_NVTX_SCOPED_RANGE("meta_send", ready_chunks.size());
 #endif
             for (auto&& chunk : ready_chunks) {
@@ -230,7 +230,7 @@ class Shuffler::Progress {
         // `incoming_chunks_`.
         {
             auto const t0_metadata_recv = Clock::now();
-#if RAPIDSMPF_DEBUG
+#if RAPIDSMPF_DETAIL
             RAPIDSMPF_NVTX_SCOPED_RANGE("meta_recv");
             int i = 0;
 #endif
@@ -251,21 +251,21 @@ class Shuffler::Progress {
                 } else {
                     break;
                 }
-#if RAPIDSMPF_DEBUG
+#if RAPIDSMPF_DETAIL
                 i++;
 #endif
             }
             stats.add_duration_stat(
                 "event-loop-metadata-recv", Clock::now() - t0_metadata_recv
             );
-#if RAPIDSMPF_DEBUG
+#if RAPIDSMPF_DETAIL
             RAPIDSMPF_NVTX_MARKER("meta_recv_iters", i);
 #endif
         }
 
         // Post receives for incoming chunks
         {
-#if RAPIDSMPF_DEBUG
+#if RAPIDSMPF_DETAIL
             RAPIDSMPF_NVTX_SCOPED_RANGE("post_chunk_recv", incoming_chunks_.size());
 #endif
             auto const t0_post_incoming_chunk_recv = Clock::now();
@@ -354,7 +354,7 @@ class Shuffler::Progress {
         // requested data.
         {
             auto const t0_init_gpu_data_send = Clock::now();
-#if RAPIDSMPF_DEBUG
+#if RAPIDSMPF_DETAIL
             RAPIDSMPF_NVTX_SCOPED_RANGE(
                 "init_gpu_send",
                 std::transform_reduce(
@@ -393,7 +393,7 @@ class Shuffler::Progress {
         // Check if any data in transit is finished.
         {
             auto const t0_check_future_finish = Clock::now();
-#if RAPIDSMPF_DEBUG
+#if RAPIDSMPF_DETAIL
             RAPIDSMPF_NVTX_SCOPED_RANGE("check_fut_finish", in_transit_futures_.size());
 #endif
             if (!in_transit_futures_.empty()) {
@@ -455,7 +455,7 @@ class Shuffler::Progress {
     std::unordered_map<Rank, std::vector<std::unique_ptr<Communicator::Future>>>
         ready_ack_receives_;  ///< Receives matching ready for data messages.
 
-#if RAPIDSMPF_DEBUG
+#if RAPIDSMPF_DETAIL
     int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
 #endif
 };
