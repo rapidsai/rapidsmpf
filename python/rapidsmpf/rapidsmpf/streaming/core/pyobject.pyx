@@ -7,7 +7,6 @@ Minimal payload type for wrapping arbitrary Python objects in streaming messages
 
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_DECREF, Py_INCREF, Py_XDECREF
-from cython.operator cimport dereference as deref
 from libc.stdint cimport uint64_t
 from libcpp.memory cimport unique_ptr
 from libcpp.utility cimport move
@@ -20,38 +19,19 @@ cdef extern from *:
     """
     #include <cstdint>
     #include <memory>
+    #include <rapidsmpf/streaming/core/channel.hpp>
     #include <rapidsmpf/streaming/cudf/owning_wrapper.hpp>
 
     namespace rapidsmpf::streaming {
 
+    // Minimal wrapper around OwningWrapper for use as a Message payload
     struct TypeErasedChunk {
-        std::uint64_t sequence_{};
         OwningWrapper obj_{};
 
         TypeErasedChunk() = default;
+        explicit TypeErasedChunk(OwningWrapper&& obj) : obj_(std::move(obj)) {}
 
-        TypeErasedChunk(OwningWrapper&& obj, std::uint64_t sequence)
-            : obj_(std::move(obj)), sequence_(sequence) {}
-
-        // Move constructor
-        TypeErasedChunk(TypeErasedChunk&& other) noexcept
-            : obj_(std::move(other.obj_)), sequence_(other.sequence_) {}
-
-        // Move assignment
-        TypeErasedChunk& operator=(TypeErasedChunk&& other) noexcept {
-            if (this != &other) {
-                obj_ = std::move(other.obj_);
-                sequence_ = other.sequence_;
-            }
-            return *this;
-        }
-
-        // Release the owned PyObject
-        [[nodiscard]] void* release() { return obj_.release(); }
-
-        // Delete copy constructor and copy assignment
-        TypeErasedChunk(const TypeErasedChunk&) = delete;
-        TypeErasedChunk& operator=(const TypeErasedChunk&) = delete;
+        void* release() { return obj_.release(); }
     };
 
     }  // namespace rapidsmpf::streaming
@@ -63,21 +43,41 @@ cdef extern from *:
             msg.release<rapidsmpf::streaming::TypeErasedChunk>()
         );
     }
+
+    std::unique_ptr<rapidsmpf::streaming::TypeErasedChunk>
+    cpp_make_type_erased_chunk(void* obj, void(*deleter)(void*)) {
+        return std::make_unique<rapidsmpf::streaming::TypeErasedChunk>(
+            rapidsmpf::streaming::OwningWrapper(obj, deleter)
+        );
+    }
+
+    rapidsmpf::streaming::Message
+    cpp_pyobject_to_message(
+        std::uint64_t sequence_number,
+        std::unique_ptr<rapidsmpf::streaming::TypeErasedChunk> chunk
+    ) {
+        return rapidsmpf::streaming::Message(
+            sequence_number, std::move(chunk)
+        );
+    }
     }  // anonymous namespace
     """
     cdef cppclass cpp_TypeErasedChunk "rapidsmpf::streaming::TypeErasedChunk":
-        uint64_t sequence_
         cpp_OwningWrapper obj_  # Public member for accessing wrapped object
-        cpp_TypeErasedChunk() except +
-        cpp_TypeErasedChunk(cpp_OwningWrapper, uint64_t) except +
         void* release() except +
 
     cdef cppclass cpp_OwningWrapper "rapidsmpf::streaming::OwningWrapper":
-        cpp_OwningWrapper() except +
-        cpp_OwningWrapper(void*, void (*)(void*)) except +
-        void* release() except +
+        pass
 
-    unique_ptr[cpp_TypeErasedChunk] cpp_release_from_message(cpp_Message) except +
+    unique_ptr[cpp_TypeErasedChunk] cpp_release_from_message(
+        cpp_Message
+    ) except +
+    unique_ptr[cpp_TypeErasedChunk] cpp_make_type_erased_chunk(
+        void*, void(*)(void*)
+    ) except +
+    cpp_Message cpp_pyobject_to_message(
+        uint64_t, unique_ptr[cpp_TypeErasedChunk]
+    ) except +
 
 
 cdef void py_deleter(void *p) noexcept nogil:
@@ -100,10 +100,10 @@ cdef class PyObjectPayload:
     >>>
     >>> # Create a payload with a Python dict
     >>> data = {"key1": 100, "key2": 200}
-    >>> payload = PyObjectPayload.from_object(sequence_number=0, obj=data)
+    >>> payload = PyObjectPayload.from_object(data)
     >>>
-    >>> # Wrap in a message
-    >>> msg = Message(payload)
+    >>> # Wrap in a message with sequence number
+    >>> msg = Message(0, payload)
     >>>
     >>> # Later, extract it back
     >>> payload2 = PyObjectPayload.from_message(msg)
@@ -138,14 +138,12 @@ cdef class PyObjectPayload:
         return ret
 
     @staticmethod
-    def from_object(uint64_t sequence_number, obj):
+    def from_object(obj):
         """
         Create a PyObjectPayload from a Python object.
 
         Parameters
         ----------
-        sequence_number
-            Sequence number for this payload.
         obj
             Any Python object to wrap. The object's reference count is incremented
             and will be decremented when the payload is destroyed.
@@ -156,14 +154,9 @@ cdef class PyObjectPayload:
         """
         # Increment reference count - will be decremented by py_deleter
         Py_INCREF(obj)
-        cdef cpp_OwningWrapper wrapper = cpp_OwningWrapper(
-            <void*><PyObject*>obj,
-            py_deleter
+        return PyObjectPayload.from_handle(
+            cpp_make_type_erased_chunk(<void*><PyObject*>obj, py_deleter)
         )
-        cdef unique_ptr[cpp_TypeErasedChunk] chunk_ptr = unique_ptr[
-            cpp_TypeErasedChunk
-        ](new cpp_TypeErasedChunk(move(wrapper), sequence_number))
-        return PyObjectPayload.from_handle(move(chunk_ptr))
 
     @staticmethod
     def from_message(Message message not None):
@@ -184,7 +177,7 @@ cdef class PyObjectPayload:
             cpp_release_from_message(move(message._handle))
         )
 
-    def into_message(self, Message message not None):
+    def into_message(self, uint64_t sequence_number, Message message not None):
         """
         Move this PyObjectPayload into a Message.
 
@@ -194,6 +187,8 @@ cdef class PyObjectPayload:
 
         Parameters
         ----------
+        sequence_number
+            Ordering identifier for the message.
         message
             Message object that will take ownership of this PyObjectPayload.
 
@@ -208,7 +203,9 @@ cdef class PyObjectPayload:
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
-        message._handle = cpp_Message(self.release_handle())
+        message._handle = cpp_pyobject_to_message(
+            sequence_number, move(self.release_handle())
+        )
 
     cdef const cpp_TypeErasedChunk* handle_ptr(self):
         """
@@ -246,17 +243,6 @@ cdef class PyObjectPayload:
         if not self._handle:
             raise ValueError("is uninitialized, has it been released?")
         return move(self._handle)
-
-    @property
-    def sequence_number(self):
-        """
-        Return the sequence number of this payload.
-
-        Returns
-        -------
-        The sequence number.
-        """
-        return deref(self.handle_ptr()).sequence_
 
     def extract_object(self):
         """

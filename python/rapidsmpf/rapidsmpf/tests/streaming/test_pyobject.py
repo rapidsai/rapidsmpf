@@ -35,30 +35,32 @@ if TYPE_CHECKING:
 )
 def test_from_object_basic(data: Any) -> None:
     """Test creating PyObjectPayload from basic Python objects."""
-    payload = PyObjectPayload.from_object(sequence_number=0, obj=data)
-    assert payload.sequence_number == 0
+    payload = PyObjectPayload.from_object(data)
     assert payload.extract_object() == data
 
-    payload = PyObjectPayload.from_object(sequence_number=18, obj=data)
-    assert payload.sequence_number == 18
-    assert payload.extract_object() == data
+    # Test with message to verify roundtrip and sequence number handling
+    payload2 = PyObjectPayload.from_object(data)
+    msg = Message(18, payload2)
+    assert msg.sequence_number == 18
+    payload3 = PyObjectPayload.from_message(msg)
+    assert payload3.extract_object() == data
 
 
 def test_message_roundtrip() -> None:
     """Test that PyObjectPayload can be wrapped in a message and extracted."""
     original_data = {"user": "alice", "score": 100, "active": True}
-    payload1 = PyObjectPayload.from_object(sequence_number=42, obj=original_data)
+    payload1 = PyObjectPayload.from_object(original_data)
 
     # Wrap in message
-    msg = Message(payload1)
+    msg = Message(42, payload1)
     assert msg.empty() is False
+    assert msg.sequence_number == 42
 
     # Extract from message
     payload2 = PyObjectPayload.from_message(msg)
     assert msg.empty() is True  # Message should be empty after extraction
 
     # Verify data
-    assert payload2.sequence_number == 42
     assert payload2.extract_object() == original_data
 
 
@@ -73,7 +75,7 @@ def test_streaming_pipeline(context: Context, py_executor: ThreadPoolExecutor) -
 
     # Wrap in messages
     messages = [
-        Message(PyObjectPayload.from_object(seq, obj))
+        Message(seq, PyObjectPayload.from_object(obj))
         for seq, obj in enumerate(test_objects)
     ]
 
@@ -88,14 +90,13 @@ def test_streaming_pipeline(context: Context, py_executor: ThreadPoolExecutor) -
     @define_py_node()
     async def multiply_values(ctx: Context, ch_in: Channel, ch_out: Channel) -> None:
         while (msg := await ch_in.recv(ctx)) is not None:
+            seq_num = msg.sequence_number
             payload = PyObjectPayload.from_message(msg)
             data = payload.extract_object()
             # Transform data
             data["value"] *= 10
             # Forward transformed data
-            new_msg = Message(
-                PyObjectPayload.from_object(payload.sequence_number, data)
-            )
+            new_msg = Message(seq_num, PyObjectPayload.from_object(data))
             await ch_out.send(ctx, new_msg)
         await ch_out.drain(ctx)
 
@@ -136,14 +137,14 @@ def test_pyobject_garbage_collection() -> None:
     weakref.finalize(obj, lambda: finalized.append(True))
 
     # Wrap in payload
-    payload1 = PyObjectPayload.from_object(sequence_number=0, obj=obj)
+    payload1 = PyObjectPayload.from_object(obj)
 
     # Delete original reference - object should still be alive in payload
     del obj
     assert len(finalized) == 0, "Object should not be collected yet"
 
     # Wrap in message
-    msg = Message(payload1)
+    msg = Message(0, payload1)
     del payload1
     assert len(finalized) == 0, "Object should still be alive in message"
 
