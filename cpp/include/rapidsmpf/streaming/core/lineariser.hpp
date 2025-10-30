@@ -30,6 +30,26 @@ namespace rapidsmpf::streaming {
  * increasing sequence number order. This bounds the buffering required in the
  * `Lineariser` to the number of distinct producers. If this precondition is not met,
  * behaviour is undefined.
+ *
+ * Example usage:
+ * @code{.cpp}
+ * auto ctx = std::make_shared<Context>(...);
+ * auto ch_out = std::make_shared<Channel>();
+ * auto linearise = std::make_shared<Lineariser>(ch_out, 8);
+ * std::vector<Node> tasks;
+ * // Draining the lineariser will pull from all the input channels until they are
+ * // shutdown and send to the output channel until it is consumed.
+ * tasks.push_back(linearise->drain(ctx));
+ * for (auto& ch_in: lineariser->get_inputs()) {
+ *   // Each producer promises to send an increasing stream of sequence ids.
+ *   // For best performance they should attempt to take "interleaved" ids from a shared
+ *   // task list. That is, don't have producer-0 produce the first K ids, producer-1 the
+ *   // next K, and so forth.
+ *   tasks.push_back(producer(ctx, ch_in, ...));
+ * }
+ * coro_results(co_await coro::when_all(std::move(tasks)));
+ * // ch_out will see inputs in global total order of sequence id.
+ * @endcode
  */
 class Lineariser {
   public:
@@ -73,26 +93,20 @@ class Lineariser {
         co_await ctx->executor()->schedule();
         // Invariant: the heap always contains exactly zero-or-one messages from each
         // producer. We always extract the minimum element, and then repoll the producer
-        // that made that element. First poll all producers
+        // that made that element. First poll all producers.
         for (std::size_t p = 0; p < inputs_.size(); p++) {
             auto msg = co_await inputs_[p]->receive();
             if (!msg.empty()) {
                 min_heap_.emplace(p, std::move(msg));
             }
         }
-        while (true) {
-            co_await ctx->executor()->schedule();
-            if (min_heap_.empty()) {
-                // All producers have shut down.
-                co_return;
-            } else {
-                auto item = min_heap_.pop_top();
-                co_await ch_out_->send(std::move(item.value));
-                // And refill from the producer we just consumed from.
-                auto msg = co_await inputs_[item.producer]->receive();
-                if (!msg.empty()) {
-                    min_heap_.emplace(item.producer, std::move(msg));
-                }
+        while (!min_heap_.empty()) {
+            auto item = min_heap_.pop_top();
+            co_await ch_out_->send(std::move(item.value));
+            // And refill from the producer we just consumed from.
+            auto msg = co_await inputs_[item.producer]->receive();
+            if (!msg.empty()) {
+                min_heap_.emplace(item.producer, std::move(msg));
             }
         }
         co_await ch_out_->drain(ctx->executor());
@@ -118,6 +132,9 @@ class Lineariser {
         }
     };
 
+    /**
+     * @brief A min-heap container that supports popping elements by move.
+     */
     struct min_heap : std::priority_queue<Item, std::vector<Item>, Comparator> {
       public:
         Item pop_top() {
