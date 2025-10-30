@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <thread>
 
+#include <dirent.h>
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/stat.h>
@@ -186,6 +187,16 @@ bool FileBackend::wait_for_file(
     auto start = std::chrono::steady_clock::now();
     auto poll_interval = std::chrono::milliseconds{10};
 
+    // NFS visibility aid: derive parent directory to refresh its metadata
+    std::string parent_dir;
+    {
+        auto pos = path.find_last_of('/');
+        if (pos != std::string::npos && pos > 0) {
+            parent_dir = path.substr(0, pos);
+        }
+    }
+    auto last_dir_scan = start - std::chrono::milliseconds{1000};
+
     while (true) {
         struct stat st;
         if (stat(path.c_str(), &st) == 0) {
@@ -195,6 +206,26 @@ bool FileBackend::wait_for_file(
         auto elapsed = std::chrono::steady_clock::now() - start;
         if (elapsed >= timeout) {
             return false;  // Timeout
+        }
+
+        // Hint NFS to refresh directory cache: stat and occasionally readdir on parent.
+        // Without this remote processes may timeout to spawn because NFS never refreshes.
+        if (!parent_dir.empty()) {
+            struct stat dst;
+            (void)stat(parent_dir.c_str(), &dst);
+
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_dir_scan >= std::chrono::milliseconds{500}) {
+                DIR* dir = opendir(parent_dir.c_str());
+                if (dir) {
+                    struct dirent* entry;
+                    while ((entry = readdir(dir)) != nullptr) {
+                        // no-op; touching entries helps refresh NFS directory cache
+                    }
+                    closedir(dir);
+                }
+                last_dir_scan = now;
+            }
         }
 
         // Sleep before next poll
