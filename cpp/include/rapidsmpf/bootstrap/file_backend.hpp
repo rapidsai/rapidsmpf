@@ -25,7 +25,6 @@ namespace detail {
  * Directory structure:
  * ```
  * <coord_dir>/
- *   ├── initialized           # Created by rank 0 after setup
  *   ├── rank_<N>_alive        # Created by each rank to signal presence
  *   ├── kv/
  *   │   ├── <key1>            # Key-value pairs

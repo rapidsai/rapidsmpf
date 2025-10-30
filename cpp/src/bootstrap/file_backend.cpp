@@ -84,29 +84,8 @@ FileBackend::FileBackend(Context const& ctx) : ctx_{ctx} {
     std::string alive_path = get_rank_alive_path(ctx_.rank);
     write_file(alive_path, std::to_string(getpid()));
 
-    // Wait for all ranks to be alive (optional health check)
-    // This helps detect early failures
-    if (ctx_.rank == 0) {
-        // Rank 0 waits for all other ranks
-        for (Rank r = 1; r < ctx_.nranks; ++r) {
-            if (!wait_for_file(get_rank_alive_path(r), std::chrono::milliseconds{30000}))
-            {
-                throw std::runtime_error(
-                    "Rank " + std::to_string(r) + " did not signal alive within timeout"
-                );
-            }
-        }
-        // Signal that initialization is complete
-        write_file(coord_dir_ + "/initialized", "1");
-    } else {
-        // Other ranks wait for rank 0 to complete initialization
-        if (!wait_for_file(coord_dir_ + "/initialized", std::chrono::milliseconds{30000}))
-        {
-            throw std::runtime_error(
-                "Rank 0 did not complete initialization within timeout"
-            );
-        }
-    }
+    // Note: Do not block in the constructor. Ranks only create their alive file
+    // and continue. Synchronization occurs where needed (e.g., get/put/barrier).
 }
 
 FileBackend::~FileBackend() {
