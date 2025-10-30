@@ -584,12 +584,13 @@ pid_t launch_rank_ssh(
             }
         }
 
-        // Wrap with POSIX sh to record remote PGID then exec the app with stdbuf
+        // Wrap with POSIX sh to launch app in background, write its PID, then wait
         remote_cmd << "sh -c '";
         remote_cmd << "PGFILE=\"$RAPIDSMPF_COORD_DIR/pids/rank_" << rank << ".pgid\"; ";
         remote_cmd << "umask 022; mkdir -p \"$(dirname \"$PGFILE\")\"; ";
-        remote_cmd << "echo $$ > \"$PGFILE\"; ";
-        remote_cmd << "exec stdbuf -o0 -e0 " << app_cmd.str();
+        remote_cmd << "stdbuf -o0 -e0 " << app_cmd.str() << " & ";
+        remote_cmd << "app_pid=$!; echo \"$app_pid\" > \"$PGFILE\"; ";
+        remote_cmd << "wait \"$app_pid\"";
         remote_cmd << "'";
 
         // Wrap command with output tagging if enabled
@@ -657,10 +658,12 @@ int wait_for_ranks(
         extern bool g_remote_kill_done;
         if (g_got_signal && cfg.use_ssh && rank_to_host != nullptr && !g_remote_kill_done)
         {
-            void terminate_remote_process_groups(
+            void terminate_remote_process_groups_with_retries(
                 Config const&, std::vector<std::string> const&, int
             );
-            terminate_remote_process_groups(cfg, *rank_to_host, g_signal_num);
+            terminate_remote_process_groups_with_retries(
+                cfg, *rank_to_host, g_signal_num
+            );
             g_remote_kill_done = true;
         }
         int status;
@@ -675,10 +678,12 @@ int wait_for_ranks(
                         && !g_remote_kill_done)
                     {
                         // Forward-declared below
-                        void terminate_remote_process_groups(
+                        void terminate_remote_process_groups_with_retries(
                             Config const&, std::vector<std::string> const&, int
                         );
-                        terminate_remote_process_groups(cfg, *rank_to_host, g_signal_num);
+                        terminate_remote_process_groups_with_retries(
+                            cfg, *rank_to_host, g_signal_num
+                        );
                         g_remote_kill_done = true;
                     }
                     // Retry waitpid for the same pid
@@ -735,6 +740,8 @@ void signal_handler(int signum) {
 void terminate_remote_process_groups(
     Config const& cfg, std::vector<std::string> const& rank_to_host, int signum
 ) {
+    std::vector<pid_t> ssh_pids;
+    ssh_pids.reserve(static_cast<size_t>(cfg.nranks));
     for (int rank = 0; rank < cfg.nranks; ++rank) {
         std::string const* host = nullptr;
         if (!rank_to_host.empty() && static_cast<size_t>(rank) < rank_to_host.size()) {
@@ -749,9 +756,9 @@ void terminate_remote_process_groups(
 
         // We avoid reading the file here to keep logic simple; let remote shell read it
         std::ostringstream remote_kill;
-        remote_kill << "sh -c 'pgid=$(cat \"" << pgfile
+        remote_kill << "sh -c 'pid=$(cat \"" << pgfile
                     << "\" 2>/dev/null) || exit 0; kill -" << signum
-                    << " -\"$pgid\" >/dev/null 2>&1 || true'";
+                    << " \"$pid\" >/dev/null 2>&1 || true'";
 
         // Build SSH command
         std::vector<char*> ssh_args;
@@ -785,9 +792,34 @@ void terminate_remote_process_groups(
             execvp("ssh", ssh_args.data());
             _exit(127);
         } else if (pid > 0) {
-            // Best effort: wait for ssh to complete quickly
-            int status;
-            (void)waitpid(pid, &status, 0);
+            ssh_pids.push_back(pid);
+        }
+    }
+    // Wait for all ssh kill commands to complete
+    for (pid_t pid : ssh_pids) {
+        int status;
+        (void)waitpid(pid, &status, 0);
+    }
+}
+
+/**
+ * @brief Bounded retries with escalation to ensure reliable remote termination.
+ */
+void terminate_remote_process_groups_with_retries(
+    Config const& cfg, std::vector<std::string> const& rank_to_host, int first_signum
+) {
+    // Attempts: 6 total, ~0.5s spacing -> ~3s total; escalate INT->TERM->KILL
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        int sig = first_signum;
+        if (attempt >= 2 && attempt < 4) {
+            sig = SIGTERM;
+        } else if (attempt >= 4) {
+            sig = SIGKILL;
+        }
+        terminate_remote_process_groups(cfg, rank_to_host, sig);
+        // Sleep 500ms between attempts, except after final attempt
+        if (attempt < 5) {
+            usleep(500000);
         }
     }
 }
