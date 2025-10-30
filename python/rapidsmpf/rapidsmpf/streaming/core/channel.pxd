@@ -10,3 +10,6 @@ cdef extern from "<rapidsmpf/streaming/core/channel.hpp>" nogil:
 
 cdef class Channel:
     cdef shared_ptr[cpp_Channel] _handle
+
+    @staticmethod
+    cdef from_handle(shared_ptr[cpp_Channel] ch)

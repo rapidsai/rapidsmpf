@@ -5,7 +5,9 @@
 # cmake-format: on
 # =================================================================================
 
-set(cython_modules channel.pyx context.pyx leaf_node.pyx message.pyx node.pyx)
+set(cython_modules channel.pyx context.pyx leaf_node.pyx lineariser.pyx message.pyx node.pyx
+                   utilities.pyx
+)
 
 rapids_cython_create_modules(
   CXX

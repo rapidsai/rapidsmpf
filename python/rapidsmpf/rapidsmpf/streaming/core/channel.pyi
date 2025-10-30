@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+from typing import Generic
+
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.message import Message, PayloadT
 
-class Channel(Message[PayloadT]):
+class Channel(Generic[PayloadT]):
     def __init__(self) -> None: ...
     async def drain(self, ctx: Context) -> None: ...
     async def shutdown(self, ctx: Context) -> None: ...

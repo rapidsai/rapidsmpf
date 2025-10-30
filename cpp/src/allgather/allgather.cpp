@@ -274,13 +274,6 @@ static std::vector<std::unique_ptr<Chunk>> test_some(
 }  // namespace detail
 
 void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) {
-    if (packed_data.data->size == 0) {
-        // No point communicating zero-sized insertions.
-        // Note: this means the caller must handle the metadata
-        // aspects of the case where the extraction from an allgather
-        // is empty.
-        return;
-    }
     nlocal_insertions_.fetch_add(1, std::memory_order_relaxed);
     return insert(
         detail::Chunk::from_packed_data(
@@ -449,9 +442,6 @@ ProgressThread::ProgressState AllGather::event_loop() {
             if (chunk->is_finish()) {
                 mark_finish(chunk->sequence());
             } else {
-                RAPIDSMPF_EXPECTS(
-                    chunk->data_size() > 0, "Not expecting zero-sized data chunks"
-                );
                 for_extraction_.insert(std::move(chunk));
             }
         }
@@ -467,9 +457,6 @@ ProgressThread::ProgressState AllGather::event_loop() {
                 // of insertions from that rank.
                 mark_finish(chunk->sequence());
             } else {
-                RAPIDSMPF_EXPECTS(
-                    chunk->data_size() > 0, "Not expecting zero-sized data chunks"
-                );
                 auto buf = chunk->release_data_buffer();
                 sent_posted_.emplace_back(std::move(chunk));
                 sent_futures_.emplace_back(
@@ -493,10 +480,6 @@ ProgressThread::ProgressState AllGather::event_loop() {
                     mark_finish(chunk->sequence());
                 }
             } else {
-                RAPIDSMPF_EXPECTS(
-                    chunk->data_size() > 0, "Not expecting zero-sized data chunks"
-                );
-                RAPIDSMPF_EXPECTS(chunk->metadata_size() > 0, "Data without metadata?!");
                 // Record we're expecting a chunk.
                 to_receive_.emplace_back(std::move(chunk));
             }

@@ -121,7 +121,7 @@ TEST_P(AllGatherTest, basic_allgather) {
     std::vector<rapidsmpf::PackedData> results;
     results = allgather->wait_and_extract(ordered);
     EXPECT_TRUE(allgather->finished());
-    if (n_elements > 0 && n_inserts > 0) {
+    if (n_inserts > 0) {
         EXPECT_EQ(n_inserts * comm->nranks(), results.size());
 
         if (ordered == AllGather::Ordered::YES) {
@@ -147,6 +147,10 @@ TEST_P(AllGatherTest, basic_allgather) {
             }
 
             for (auto&& result : results) {
+                if (n_elements == 0) {
+                    EXPECT_EQ(result.metadata->size(), 0);
+                    continue;
+                }
                 int offset = *reinterpret_cast<int*>(result.metadata->data());
                 auto it = std::ranges::find(exp_offsets, offset);
                 EXPECT_NE(it, exp_offsets.end());
@@ -155,9 +159,11 @@ TEST_P(AllGatherTest, basic_allgather) {
                     std::move(result), n_elements, offset, stream, *br
                 ));
             }
-            EXPECT_TRUE(exp_offsets.empty());
+            if (n_elements != 0) {
+                EXPECT_TRUE(exp_offsets.empty());
+            }
         }
-    } else {  // n_elements == 0 or n_inserts == 0. No data is inserted.
+    } else {  // n_inserts == 0. No data is inserted.
         EXPECT_EQ(0, results.size());
     }
 
@@ -200,12 +206,11 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
         } while (!allgather->finished());
         std::ranges::move(allgather->extract_ready(), std::back_inserter(results));
     }
-    // results should be a triangular number of elements
-    EXPECT_EQ((n_ranks - 1) * n_inserts, results.size());
+    EXPECT_EQ(n_ranks * n_inserts, results.size());
 
     if (ordered == AllGather::Ordered::YES) {
         auto it = results.begin();
-        for (int r = 1; r < n_ranks; r++) {
+        for (int r = 0; r < n_ranks; r++) {
             for (int i = 0; i < n_inserts; i++) {
                 auto& result = *it;
                 EXPECT_EQ(r, static_cast<int>(result.metadata->size() / sizeof(int)));
@@ -217,8 +222,9 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
         }
     } else {  // unordered
         for (auto&& result : results) {
-            int offset = *reinterpret_cast<int*>(result.metadata->data());
             int n_elements = static_cast<int>(result.metadata->size() / sizeof(int));
+            int offset =
+                n_elements > 0 ? *reinterpret_cast<int*>(result.metadata->data()) : 0;
             EXPECT_NO_FATAL_FAILURE(
                 validate_packed_data(std::move(result), n_elements, offset, stream, *br)
             );
