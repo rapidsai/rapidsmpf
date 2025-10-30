@@ -46,7 +46,7 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
     {
         std::vector<Message> inputs;
         for (int i = 0; i < num_chunks; ++i) {
-            inputs.emplace_back(
+            inputs.emplace_back(to_message(
                 i,
                 std::make_unique<TableChunk>(
                     std::make_unique<cudf::table>(
@@ -54,7 +54,7 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
                     ),
                     stream
                 )
-            );
+            ));
         }
 
         nodes.push_back(node::push_to_channel(ctx, ch1, std::move(inputs)));

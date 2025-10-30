@@ -87,7 +87,7 @@ Node allgather(
     std::uint64_t sequence{0};
     for (auto&& chunk : data) {
         co_await ch_out->send(
-            Message{sequence++, std::make_unique<PackedDataChunk>(std::move(chunk))}
+            to_message(sequence++, std::make_unique<PackedDataChunk>(std::move(chunk)))
         );
     }
     co_await ch_out->drain(ctx->executor());
