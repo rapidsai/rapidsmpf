@@ -80,14 +80,14 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
     }
     EXPECT_EQ(num_deletions, 1);
     {
-        auto msg = Message(
+        auto msg = to_message(
             seq, std::make_unique<TableChunk>(make_chunk(TableChunk::ExclusiveView::NO))
         );
         EXPECT_EQ(num_deletions, 1);
     }
     EXPECT_EQ(num_deletions, 2);
     {
-        auto msg = Message(
+        auto msg = to_message(
             seq, std::make_unique<TableChunk>(make_chunk(TableChunk::ExclusiveView::YES))
         );
         auto chunk = msg.release<TableChunk>();
