@@ -261,8 +261,7 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     EXPECT_EQ(m.sequence_number(), seq);
 
     // Deep-copy: device to host.
-    auto reservation =
-        br->reserve_or_fail(m.content_size(MemoryType::DEVICE).first, MemoryType::HOST);
+    auto reservation = br->reserve_or_fail(m.copy_cost(), MemoryType::HOST);
     Message m2 = m.copy(br.get(), reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m2.empty());
@@ -272,8 +271,7 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     EXPECT_EQ(m2.sequence_number(), seq);
 
     // Deep-copy: host to host.
-    reservation =
-        br->reserve_or_fail(m2.content_size(MemoryType::HOST).first, MemoryType::HOST);
+    reservation = br->reserve_or_fail(m2.copy_cost(), MemoryType::HOST);
     Message m3 = m.copy(br.get(), reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m3.empty());
@@ -291,8 +289,7 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     }
 
     // Deep-copy: host to device.
-    reservation =
-        br->reserve_or_fail(m2.content_size(MemoryType::HOST).first, MemoryType::DEVICE);
+    reservation = br->reserve_or_fail(m2.copy_cost(), MemoryType::DEVICE);
     Message m4 = m.copy(br.get(), reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m4.empty());
@@ -303,9 +300,7 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m4.get<TableChunk>().table_view(), expect);
 
     // Deep-copy: device to device.
-    reservation = br->reserve_or_fail(
-        m4.content_size(MemoryType::DEVICE).first, MemoryType::DEVICE
-    );
+    reservation = br->reserve_or_fail(m4.copy_cost(), MemoryType::DEVICE);
     Message m5 = m.copy(br.get(), reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m5.empty());

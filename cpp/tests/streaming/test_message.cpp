@@ -49,13 +49,13 @@ TEST_F(StreamingMessage, ResetEmpties) {
     EXPECT_TRUE(m.empty());
 }
 
-TEST_F(StreamingMessage, BufferSizeWithoutCallbacks) {
+TEST_F(StreamingMessage, ContentSizeWithoutCallbacks) {
     Message m{0, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST))};
     EXPECT_THROW(std::ignore = m.content_size(MemoryType::HOST), std::invalid_argument);
     EXPECT_THROW(std::ignore = m.content_size(MemoryType::DEVICE), std::invalid_argument);
 }
 
-TEST_F(StreamingMessage, BufferSizeWithCallbacks) {
+TEST_F(StreamingMessage, ContentSizeWithCallbacks) {
     Message::Callbacks cbs{
         .content_size = [](Message const& msg,
                            MemoryType mem_type) -> std::pair<size_t, bool> {
@@ -84,6 +84,7 @@ TEST_F(StreamingMessage, BufferSizeWithCallbacks) {
 
 TEST_F(StreamingMessage, CopyWithoutCallbacks) {
     Message m{0, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST))};
+    EXPECT_THROW(std::ignore = m.copy_cost(), std::invalid_argument);
     {
         auto res = br->reserve_or_fail(10, MemoryType::HOST);
         EXPECT_THROW(std::ignore = m.copy(br.get(), res), std::invalid_argument);
@@ -96,6 +97,14 @@ TEST_F(StreamingMessage, CopyWithoutCallbacks) {
 
 TEST_F(StreamingMessage, CopyWithCallbacks) {
     Message::Callbacks cbs{
+        .content_size = [](Message const& msg,
+                           MemoryType mem_type) -> std::pair<size_t, bool> {
+            EXPECT_TRUE(msg.holds<Buffer>());
+            if (mem_type == msg.get<Buffer>().mem_type()) {
+                return {msg.get<Buffer>().size, true};
+            }
+            return {0, false};
+        },
         .copy = [](Message const& msg,
                    BufferResource* br,
                    MemoryReservation& reservation) -> Message {
@@ -110,7 +119,8 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
         Message m1{
             42, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cbs
         };
-        auto res = br->reserve_or_fail(10, MemoryType::HOST);
+        EXPECT_EQ(m1.copy_cost(), 10);
+        auto res = br->reserve_or_fail(m1.copy_cost(), MemoryType::HOST);
         auto m2 = m1.copy(br.get(), res);
         EXPECT_EQ(m1.get<Buffer>().mem_type(), m2.get<Buffer>().mem_type());
         EXPECT_EQ(m1.get<Buffer>().size, m2.get<Buffer>().size);
@@ -120,7 +130,8 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
         Message m1{
             42, br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cbs
         };
-        auto res = br->reserve_or_fail(10, MemoryType::DEVICE);
+        EXPECT_EQ(m1.copy_cost(), 10);
+        auto res = br->reserve_or_fail(m1.copy_cost(), MemoryType::DEVICE);
         auto m2 = m1.copy(br.get(), res);
         EXPECT_EQ(m1.get<Buffer>().mem_type(), m2.get<Buffer>().mem_type());
         EXPECT_EQ(m1.sequence_number(), m2.sequence_number());

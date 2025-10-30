@@ -226,6 +226,22 @@ class Message {
     }
 
     /**
+     * @brief Query the total content size required for a deep copy.
+     *
+     * @return Total number of bytes that must be reserved to perform a deep copy
+     * of the message's payload and content buffers.
+     *
+     * @see copy()
+     */
+    [[nodiscard]] size_t copy_cost() {
+        size_t ret = 0;
+        for (MemoryType mem_type : MEMORY_TYPES) {
+            ret += content_size(mem_type).first;
+        }
+        return ret;
+    }
+
+    /**
      * @brief Perform a deep copy of this message and its payload.
      *
      * Invokes the registered `copy` callback to create a new `Message` with freshly

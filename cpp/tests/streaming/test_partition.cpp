@@ -95,8 +95,7 @@ TEST_F(StreamingPartition, PartitionMapChunkToMessage) {
     EXPECT_EQ(m.content_size(MemoryType::DEVICE), std::make_pair(size_t{80}, true));
     EXPECT_EQ(m.sequence_number(), seq);
 
-    auto res =
-        br->reserve_or_fail(m.content_size(MemoryType::DEVICE).first, MemoryType::DEVICE);
+    auto res = br->reserve_or_fail(m.copy_cost(), MemoryType::DEVICE);
     Message m2 = m.copy(br.get(), res);
     EXPECT_EQ(res.size(), 0);
     EXPECT_FALSE(m2.empty());
