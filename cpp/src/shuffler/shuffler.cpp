@@ -98,7 +98,7 @@ std::unique_ptr<Buffer> allocate_buffer(
  * threads trying to extract a chunk that is in the process of being spilled, will fail.
  * To avoid this, the Shuffler uses `outbox_spillling_mutex_` to serialize extractions.
  *
- * @param br Buffer resource for gpu data allocations.
+ * @param br Buffer resource for GPU data allocations.
  * @param log A logger for recording events and debugging information.
  * @param statistics The statistics instance to use.
  * @param stream CUDA stream to use for memory and kernel operations.
@@ -261,7 +261,7 @@ class Shuffler::Progress {
                 auto& [src, chunk] = *it;
                 log.trace("checking incoming chunk data from ", src, ": ", chunk);
 
-                // If the chunk contains gpu data, we need to receive it. Otherwise, it
+                // If the chunk contains GPU data, we need to receive it. Otherwise, it
                 // goes directly to the ready postbox.
                 if (chunk.concat_data_size() > 0) {
                     if (!chunk.is_data_buffer_set()) {

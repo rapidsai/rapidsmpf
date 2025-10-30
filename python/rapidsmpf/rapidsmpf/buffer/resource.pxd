@@ -4,9 +4,10 @@
 from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t
-from libcpp cimport bool
-from libcpp.memory cimport shared_ptr
+from libcpp cimport bool as bool_t
+from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
+from libcpp.pair cimport pair
 from libcpp.unordered_map cimport unordered_map
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 from rmm.librmm.memory_resource cimport device_memory_resource
@@ -24,21 +25,32 @@ cdef extern from "<functional>" nogil:
         pass
 
 cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
+    cdef cppclass cpp_MemoryReservation "rapidsmpf::MemoryReservation":
+        size_t size() noexcept
+        MemoryType mem_type() noexcept
+
     cdef cppclass cpp_BufferResource "rapidsmpf::BufferResource":
         cpp_BufferResource(
             device_memory_resource *device_mr,
             unordered_map[MemoryType, cpp_MemoryAvailable] memory_available,
             optional[cpp_Duration] periodic_spill_check,
         ) except +
-        size_t cpp_memory_reserved "memory_reserved"(
-            MemoryType mem_type
-        ) except +
-        cpp_MemoryAvailable cpp_memory_available "memory_available"(
-            MemoryType mem_type
-        ) except +
-        cpp_SpillManager &cpp_spill_manager "spill_manager"() except +
-        const cuda_stream_pool &cpp_stream_pool "stream_pool"() except +
+        size_t memory_reserved(MemoryType mem_type) except +
+        cpp_MemoryAvailable memory_available(MemoryType mem_type) except +
+        cpp_SpillManager &spill_manager() except +
+        const cuda_stream_pool &stream_pool() except +
+        size_t release(cpp_MemoryReservation&, size_t) except +
 
+
+cdef class MemoryReservation:
+    cdef unique_ptr[cpp_MemoryReservation] _handle
+    cdef BufferResource _br
+
+    @staticmethod
+    cdef MemoryReservation from_handle(
+        unique_ptr[cpp_MemoryReservation] handle,
+        BufferResource br,
+    )
 
 cdef class BufferResource:
     cdef object __weakref__

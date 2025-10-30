@@ -68,7 +68,7 @@ def partition_and_pack(
     stream
         The CUDA stream used for memory operations.
     br
-        Buffer resource for gpu data allocations.
+        Buffer resource for GPU data allocations.
 
     Returns
     -------
@@ -131,7 +131,7 @@ def split_and_pack(
     stream
         The CUDA stream used for memory operations.
     br
-        Buffer resource for gpu data allocations.
+        Buffer resource for GPU data allocations.
 
     Returns
     -------
@@ -207,7 +207,7 @@ def unpack_and_concat(
     stream
         The CUDA stream used for memory operations.
     br
-        Buffer resource for gpu data allocations.
+        Buffer resource for GPU data allocations.
 
     Returns
     -------

@@ -270,9 +270,12 @@ Node shuffler(
         RAPIDSMPF_EXPECTS(finished.has_value(), "extract_any_async returned null");
 
         co_await ch_out->send(
-            std::make_unique<PartitionVectorChunk>(
-                finished->first, std::move(finished->second)
-            )
+            Message{
+                finished->first,
+                std::make_unique<PartitionVectorChunk>(
+                    PartitionVectorChunk{.data = std::move(finished->second)}
+                )
+            }
         );
     }
     co_await finish_token;

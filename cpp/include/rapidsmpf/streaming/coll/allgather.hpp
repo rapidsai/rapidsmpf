@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -57,9 +58,10 @@ class AllGather {
     /**
      * @brief Insert a chunk into the allgather.
      *
-     * @param chunk The chunk to insert holding data and a sequence number.
+     * @param sequence_number The sequence number for this chunk.
+     * @param chunk The chunk to insert.
      */
-    void insert(PackedDataChunk&& chunk);
+    void insert(std::uint64_t sequence_number, PackedDataChunk&& chunk);
 
     /// @copydoc rapidsmpf::allgather::AllGather::insert_finished()
     void insert_finished();

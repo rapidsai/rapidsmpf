@@ -30,7 +30,6 @@ cdef extern from *:
     }
 
     std::unique_ptr<rapidsmpf::streaming::TableChunk> cpp_from_table_view_with_owner(
-        std::uint64_t sequence_number,
         cudf::table_view view,
         std::size_t device_alloc_size,
         rmm::cuda_stream_view stream,
@@ -42,7 +41,6 @@ cdef extern from *:
         // Decref is done by the deleter.
         Py_XINCREF(owner);
         return std::make_unique<rapidsmpf::streaming::TableChunk>(
-            sequence_number,
             view,
             device_alloc_size,
             stream,
@@ -107,7 +105,6 @@ cdef class TableChunk:
 
     @staticmethod
     def from_pylibcudf_table(
-        uint64_t sequence_number,
         Table table not None,
         Stream stream not None,
         *,
@@ -118,8 +115,6 @@ cdef class TableChunk:
 
         Parameters
         ----------
-        sequence_number
-            Sequence number of this new chunk.
         table
             A pylibcudf Table to wrap as a TableChunk.
         stream
@@ -162,7 +157,6 @@ cdef class TableChunk:
         cdef cpp_table_view view = table.view()
         return TableChunk.from_handle(
             cpp_from_table_view_with_owner(
-                sequence_number,
                 view,
                 device_alloc_size,
                 _stream,
@@ -191,7 +185,7 @@ cdef class TableChunk:
             cpp_release_table_chunk_from_message(move(message._handle))
         )
 
-    def into_message(self, Message message not None):
+    def into_message(self, uint64_t sequence_number, Message message not None):
         """
         Move this TableChunk into an empty Message.
 
@@ -201,6 +195,8 @@ cdef class TableChunk:
 
         Parameters
         ----------
+        sequence_number
+            Ordering identifier for the message.
         message
             Message object that will take ownership of this TableChunk.
 
@@ -215,7 +211,7 @@ cdef class TableChunk:
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
-        message._handle = cpp_Message(self.release_handle())
+        message._handle = cpp_Message(sequence_number, self.release_handle())
 
     cdef const cpp_TableChunk* handle_ptr(self):
         """
@@ -253,17 +249,6 @@ cdef class TableChunk:
         if not self._handle:
             raise ValueError("TableChunk is uninitialized, has it been released?")
         return move(self._handle)
-
-    @property
-    def sequence_number(self):
-        """
-        Return the sequence number of this chunk.
-
-        Returns
-        -------
-        The sequence number.
-        """
-        return deref(self.handle_ptr()).sequence_number()
 
     @property
     def stream(self):
@@ -325,7 +310,7 @@ cdef class TableChunk:
         cdef cpp_table_view ret
         with nogil:
             ret = deref(handle).table_view()
-        return Table.from_table_view_of_arbitrary(ret, owner=self)
+        return Table.from_table_view_of_arbitrary(ret, owner=self, stream=self.stream)
 
     def is_spillable(self):
         """

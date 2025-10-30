@@ -6,7 +6,6 @@
 #pragma once
 
 #include <array>
-#include <cstdint>
 #include <memory>
 #include <optional>
 
@@ -28,7 +27,7 @@ namespace rapidsmpf::streaming {
  * @brief A unit of table data in a streaming pipeline.
  *
  * Represents either an unpacked `cudf::table`, a `cudf::packed_columns`, or a
- * `PackedData`, along with a sequence number to track chunk ordering.
+ * `PackedData`.
  *
  * TableChunks may be initially unavailable (e.g., if the data is packed or spilled),
  * and can be made available (i.e., materialized to device memory) on demand.
@@ -57,15 +56,10 @@ class TableChunk {
     /**
      * @brief Construct a TableChunk from a device table.
      *
-     * @param sequence_number Ordering identifier for the chunk.
      * @param table Device-resident table.
      * @param stream The CUDA stream on which the table was created.
      */
-    TableChunk(
-        std::uint64_t sequence_number,
-        std::unique_ptr<cudf::table> table,
-        rmm::cuda_stream_view stream
-    );
+    TableChunk(std::unique_ptr<cudf::table> table, rmm::cuda_stream_view stream);
 
     /**
      * @brief Construct a TableChunk from a device table view.
@@ -79,7 +73,6 @@ class TableChunk {
      * where @p owner is used to keep the corresponding Python object alive until
      * the TableChunk is destroyed.
      *
-     * @param sequence_number Ordering identifier for the chunk.
      * @param table_view Device-resident table view.
      * @param device_alloc_size Number of bytes allocated in device memory.
      * @param stream CUDA stream on which the table was created.
@@ -96,7 +89,6 @@ class TableChunk {
      *     is therefore not spillable.
      */
     TableChunk(
-        std::uint64_t sequence_number,
         cudf::table_view table_view,
         std::size_t device_alloc_size,
         rmm::cuda_stream_view stream,
@@ -107,14 +99,11 @@ class TableChunk {
     /**
      * @brief Construct a TableChunk from packed columns.
      *
-     * @param sequence_number Ordering identifier for the chunk.
      * @param packed_columns Serialized device table.
      * @param stream The CUDA stream on which the packed_columns was created.
      */
     TableChunk(
-        std::uint64_t sequence_number,
-        std::unique_ptr<cudf::packed_columns> packed_columns,
-        rmm::cuda_stream_view stream
+        std::unique_ptr<cudf::packed_columns> packed_columns, rmm::cuda_stream_view stream
     );
 
     /**
@@ -122,10 +111,9 @@ class TableChunk {
      *
      * The packed data's CUDA stream will be associated the new table chunk.
      *
-     * @param sequence_number Ordering identifier for the chunk.
      * @param packed_data Serialized host/device data with metadata.
      */
-    TableChunk(std::uint64_t sequence_number, std::unique_ptr<PackedData> packed_data);
+    TableChunk(std::unique_ptr<PackedData> packed_data);
 
     ~TableChunk() = default;
 
@@ -140,12 +128,6 @@ class TableChunk {
     TableChunk& operator=(TableChunk&&) = default;
     TableChunk(TableChunk const&) = delete;
     TableChunk& operator=(TableChunk const&) = delete;
-
-    /**
-     * @brief Returns the sequence number of this table chunk.
-     * @return the sequence number.
-     */
-    [[nodiscard]] std::uint64_t sequence_number() const noexcept;
 
     /**
      * @brief Returns the CUDA stream on which this table chunk was created.
@@ -205,41 +187,53 @@ class TableChunk {
     [[nodiscard]] cudf::table_view table_view() const;
 
     /**
-     * @brief Indicates whether this table chunk can be spilled.
+     * @brief Indicates whether this table chunk can be spilled to device memory.
      *
-     * A table chunk is considered spillable if it was created from one of the following:
+     * A table chunk is considered spillable if it owns its underlying memory. This is
+     * true when it was created from one of the following:
      *   - A device-owning source such as a `cudf::table`, `cudf::packed_columns`, or
      *     `PackedData`.
      *   - A `cudf::table_view` constructed with `is_exclusive_view == true`, indicating
-     *     that the view is the sole representation of the underlying table and its
-     *     associated owner exclusively manages the table's memory.
+     *     that the view is the sole representation of the underlying data and that its
+     *     owner exclusively manages the table's memory.
      *
      * In contrast, chunks constructed from non-exclusive `cudf::table_view` instances are
      * non-owning views of externally managed memory and therefore not spillable.
      *
-     * @return `true` if the table chunk can be spilled; otherwise, `false`.
+     * To spill a table chunk from device to host memory, first call `copy()` to create a
+     * host-side copy, then delete or overwrite the original device chunk. If
+     * `is_spillable() == true`, destroying the original device chunk will release the
+     * associated device memory.
+     *
+     * @return `true` if the table chunk owns its memory and can be spilled; otherwise
+     * `false`.
      */
     [[nodiscard]] bool is_spillable() const;
 
     /**
-     * @brief Move this table chunk into host memory.
+     * @brief Create a deep copy of the table chunk.
      *
-     * Converts the device-resident table into a `PackedData` stored in host memory using
-     * the associated CUDA stream.
+     * Allocates new memory for all buffers in the table using the specified
+     * `reservation`, which determines the target memory type (e.g., host or device).
+     * As a consequence, the `is_available()` status may differ in the new copy. For
+     * example, copying an available table chunk from device to host memory will result
+     * in an unavailable copy.
      *
      * @param br Buffer resource used for allocations.
-     * @return A new TableChunk containing packed host data.
+     * @param reservation Memory reservation used to track and limit allocations.
+     * @return A new `TableChunk` instance containing copies of all buffers and metadata.
      *
-     * @note After this call, this object is in a has-been-moved-state and anything other
-     * than reassignment, movement, and destruction is UB.
+     * @throws std::overflow_error If the total allocation size exceeds the available
+     * reservation.
      */
-    [[nodiscard]] TableChunk spill_to_host(BufferResource* br);
+    [[nodiscard]] TableChunk copy(
+        BufferResource* br, MemoryReservation& reservation
+    ) const;
 
   private:
     ///< @brief Optional owning object if the TableChunk was constructed from a
     ///< table_view.
     OwningWrapper owner_{};
-    std::uint64_t sequence_number_;
 
     // At most, one of the following unique pointers is non-null. If all of them are null,
     // the TableChunk is a non-owning view.

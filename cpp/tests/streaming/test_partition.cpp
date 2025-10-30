@@ -39,8 +39,8 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
     std::vector<Message> inputs;
     for (int i = 0; i < num_chunks; ++i) {
         inputs.emplace_back(
+            i,
             std::make_unique<TableChunk>(
-                i,
                 std::make_unique<cudf::table>(expects[i], stream, ctx->br()->device_mr()),
                 stream
             )
@@ -71,8 +71,8 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
 
     EXPECT_EQ(expects.size(), outputs.size());
     for (std::size_t i = 0; i < expects.size(); ++i) {
+        EXPECT_EQ(outputs[i].sequence_number(), i);
         auto output = outputs[i].release<TableChunk>();
-        EXPECT_EQ(output.sequence_number(), i);
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
             sort_table(output.table_view()), sort_table(expects[i].view())
         );
