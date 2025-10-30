@@ -45,6 +45,7 @@ struct Config {
     std::string hostfile;  // Path to hostfile
     std::string coord_dir;  // Coordination directory
     std::string ssh_opts;  // Additional SSH options
+    std::map<std::string, std::string> env_vars;  // Environment variables to pass
     bool verbose{false};  // Verbose output
     bool cleanup{true};  // Cleanup coordination directory on exit
     bool use_ssh{false};  // Multi-node mode via SSH
@@ -233,16 +234,23 @@ void print_usage(char const* prog_name) {
         << "  -d <coord_dir>     Coordination directory (default: "
            "/tmp/rrun_<random>)\n"
         << "                     Must be on shared filesystem for multi-node\n"
+        << "  -x, --set-env <VAR=val>\n"
+        << "                     Set environment variable for all ranks\n"
+        << "                     Can be specified multiple times\n"
         << "  -v                 Verbose output\n"
         << "  --no-cleanup       Don't cleanup coordination directory on exit\n"
         << "  -h, --help         Display this help message\n\n"
         << "Environment Variables:\n"
-        << "  CUDA_VISIBLE_DEVICES is set for each rank based on GPU assignment\n\n"
+        << "  CUDA_VISIBLE_DEVICES is set for each rank based on GPU assignment\n"
+        << "  Additional environment variables can be passed with -x/--set-env\n\n"
         << "Single-Node Examples:\n"
         << "  # Launch 2 ranks with auto-detected GPUs:\n"
         << "  rrun -n 2 ./bench_comm -C ucxx-bootstrap -O all-to-all\n\n"
         << "  # Launch 4 ranks on specific GPUs:\n"
         << "  rrun -n 4 -g 0,1,2,3 ./bench_comm -C ucxx-bootstrap\n\n"
+        << "  # Launch with custom environment variables:\n"
+        << "  rrun -n 2 -x UCX_TLS=cuda_copy,cuda_ipc,rc,tcp -x MY_VAR=value "
+           "./bench_comm\n\n"
         << "Multi-Node Examples:\n"
         << "  # Launch using hostfile:\n"
         << "  rrun --hostfile hosts.txt ./bench_comm -C ucxx-bootstrap\n\n"
@@ -328,6 +336,24 @@ Config parse_args(int argc, char* argv[]) {
                 throw std::runtime_error("Missing argument for -d");
             }
             cfg.coord_dir = argv[++i];
+        } else if (arg == "-x" || arg == "--set-env") {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing argument for -x/--set-env");
+            }
+            std::string env_spec = argv[++i];
+            auto eq_pos = env_spec.find('=');
+            if (eq_pos == std::string::npos) {
+                throw std::runtime_error(
+                    "Invalid environment variable format: " + env_spec
+                    + ". Expected VAR=value"
+                );
+            }
+            std::string var_name = env_spec.substr(0, eq_pos);
+            std::string var_value = env_spec.substr(eq_pos + 1);
+            if (var_name.empty()) {
+                throw std::runtime_error("Empty environment variable name");
+            }
+            cfg.env_vars[var_name] = var_value;
         } else if (arg == "-v") {
             cfg.verbose = true;
         } else if (arg == "--no-cleanup") {
@@ -426,6 +452,11 @@ pid_t launch_rank_local(Config const& cfg, int rank) {
         // Preserve parent's LD_LIBRARY_PATH (important for development builds)
         // No need to set it explicitly as it's inherited from parent
 
+        // Set custom environment variables first (can be overridden by specific vars)
+        for (auto const& env_pair : cfg.env_vars) {
+            setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
+        }
+
         // Set environment variables
         setenv("RAPIDSMPF_RANK", std::to_string(rank).c_str(), 1);
         setenv("RAPIDSMPF_NRANKS", std::to_string(cfg.nranks).c_str(), 1);
@@ -477,6 +508,27 @@ pid_t launch_rank_ssh(
 
         // Build the remote command
         std::ostringstream remote_cmd;
+
+        // Set custom environment variables first
+        for (auto const& env_pair : cfg.env_vars) {
+            remote_cmd << env_pair.first << "=";
+            // Quote value if it contains spaces or special characters
+            if (env_pair.second.find(' ') != std::string::npos
+                || env_pair.second.find('"') != std::string::npos
+                || env_pair.second.find('\'') != std::string::npos)
+            {
+                // Escape double quotes and wrap in double quotes
+                std::string escaped_value = env_pair.second;
+                size_t pos = 0;
+                while ((pos = escaped_value.find('"', pos)) != std::string::npos) {
+                    escaped_value.insert(pos, "\\");
+                    pos += 2;
+                }
+                remote_cmd << "\"" << escaped_value << "\" ";
+            } else {
+                remote_cmd << env_pair.second << " ";
+            }
+        }
 
         // Set environment variables
         remote_cmd << "RAPIDSMPF_RANK=" << rank << " ";
@@ -634,8 +686,18 @@ int main(int argc, char* argv[]) {
             std::cout << "  Ranks:         " << cfg.nranks << "\n"
                       << "  Application:   " << cfg.app_binary << "\n"
                       << "  Coord Dir:     " << cfg.coord_dir << "\n"
-                      << "  Cleanup:       " << (cfg.cleanup ? "yes" : "no") << "\n"
-                      << std::endl;
+                      << "  Cleanup:       " << (cfg.cleanup ? "yes" : "no") << "\n";
+            if (!cfg.env_vars.empty()) {
+                std::cout << "  Env Vars:      ";
+                bool first = true;
+                for (auto const& env_pair : cfg.env_vars) {
+                    if (!first)
+                        std::cout << "                 ";
+                    std::cout << env_pair.first << "=" << env_pair.second << "\n";
+                    first = false;
+                }
+            }
+            std::cout << std::endl;
         }
 
         create_coord_dir(cfg.coord_dir);
