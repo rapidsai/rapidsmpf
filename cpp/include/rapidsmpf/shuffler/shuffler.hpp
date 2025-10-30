@@ -326,7 +326,7 @@ class Shuffler {
     [[nodiscard]] detail::ChunkID get_new_cid();
 
     /**
-     * @brief Create a new chunk from metadata and gpu data.
+     * @brief Create a new chunk from metadata and GPU data.
      *
      * The chunk is assigned a new unique ID using `get_new_cid()`.
      *

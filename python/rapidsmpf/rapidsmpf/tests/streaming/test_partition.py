@@ -35,7 +35,7 @@ def test_partition_and_pack_unpack(
     ]
     table_chunks = [
         Message(
-            TableChunk.from_pylibcudf_table(seq, expect, stream, exclusive_view=False)
+            seq, TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=False)
         )
         for seq, expect in enumerate(expects)
     ]
@@ -63,6 +63,6 @@ def test_partition_and_pack_unpack(
 
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
+        assert result.sequence_number == seq
         tbl = TableChunk.from_message(result)
-        assert tbl.sequence_number == seq
         assert_eq(tbl.table_view(), expect, sort_rows="0")

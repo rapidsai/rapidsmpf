@@ -46,15 +46,15 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
     {
         std::vector<Message> inputs;
         for (int i = 0; i < num_chunks; ++i) {
-            inputs.emplace_back(
+            inputs.emplace_back(to_message(
+                i,
                 std::make_unique<TableChunk>(
-                    i,
                     std::make_unique<cudf::table>(
                         expects[i], stream, ctx->br()->device_mr()
                     ),
                     stream
                 )
-            );
+            ));
         }
 
         nodes.push_back(node::push_to_channel(ctx, ch1, std::move(inputs)));
@@ -67,7 +67,7 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
 
     EXPECT_EQ(expects.size(), outputs.size());
     for (std::size_t i = 0; i < expects.size(); ++i) {
-        EXPECT_EQ(outputs[i].get<TableChunk>().sequence_number(), i);
+        EXPECT_EQ(outputs[i].sequence_number(), i);
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
             outputs[i].get<TableChunk>().table_view(), expects[i].view()
         );
@@ -91,12 +91,12 @@ Node producer(
 ) {
     co_await ctx->executor()->schedule();
     auto ticket = co_await ch->acquire();
-    auto [_, receipt] = co_await ticket.send(Message(std::make_unique<int>(val)));
+    auto [_, receipt] = co_await ticket.send(Message{0, std::make_unique<int>(val)});
     if (should_throw) {
         throw std::runtime_error("Producer throws");
     }
     EXPECT_THROW(
-        co_await ticket.send(Message(std::make_unique<int>(val))), std::logic_error
+        co_await ticket.send(Message{0, std::make_unique<int>(val)}), std::logic_error
     );
     co_await receipt;
     EXPECT_TRUE(receipt.is_ready());
