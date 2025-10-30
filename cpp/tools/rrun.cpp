@@ -3,6 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/**
+ * @brief Process launcher for multi-GPU applications.
+ *
+ * rrun is a lightweight alternative to mpirun that:
+ * - Launches multiple processes without requiring MPI
+ * - Automatically assigns GPUs to ranks
+ * - Provides file-based coordination for inter-process synchronization
+ * - Supports both single-node and multi-node (SSH) deployments
+ * - Tags process output with rank numbers (--tag-output feature)
+ */
+
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -49,6 +60,7 @@ struct Config {
     bool verbose{false};  // Verbose output
     bool cleanup{true};  // Cleanup coordination directory on exit
     bool use_ssh{false};  // Multi-node mode via SSH
+    bool tag_output{false};  // Tag output with rank number
 };
 
 /**
@@ -229,7 +241,8 @@ void print_usage(char const* prog_name) {
         << "Multi-Node Options:\n"
         << "  --hostfile <file>  Path to hostfile (enables SSH mode)\n"
         << "  --ppn <num>        Processes per node (default: from hostfile slots)\n"
-        << "  --ssh-opts <opts>  Additional SSH options (e.g., '-i ~/.ssh/key')\n\n"
+        << "  --ssh-opts <opts>  Additional SSH options (e.g., '-i ~/.ssh/key')\n"
+        << "  --tag-output      Tag stdout and stderr with rank number\n\n"
         << "Common Options:\n"
         << "  -d <coord_dir>     Coordination directory (default: "
            "/tmp/rrun_<random>)\n"
@@ -331,6 +344,8 @@ Config parse_args(int argc, char* argv[]) {
                 throw std::runtime_error("Missing argument for --ssh-opts");
             }
             cfg.ssh_opts = argv[++i];
+        } else if (arg == "--tag-output") {
+            cfg.tag_output = true;
         } else if (arg == "-d") {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing argument for -d");
@@ -439,6 +454,13 @@ Config parse_args(int argc, char* argv[]) {
 }
 
 /**
+ * @brief Redirect and tag a file descriptor with a rank prefix.
+ * Launches a process to read from the original fd, prepend rank tag, and write to target.
+ * (Forward declaration - implementation below)
+ */
+void setup_tagged_output(int original_fd, int rank, bool is_stderr);
+
+/**
  * @brief Launch a single rank locally (fork-based).
  */
 pid_t launch_rank_local(Config const& cfg, int rank) {
@@ -448,6 +470,12 @@ pid_t launch_rank_local(Config const& cfg, int rank) {
         throw std::runtime_error("Failed to fork: " + std::string{std::strerror(errno)});
     } else if (pid == 0) {
         // Child process
+
+        // Set up output tagging if enabled (must be done before execvp)
+        if (cfg.tag_output) {
+            setup_tagged_output(STDOUT_FILENO, rank, false);
+            setup_tagged_output(STDERR_FILENO, rank, true);
+        }
 
         // Disable output buffering to ensure real-time output
         setvbuf(stdout, nullptr, _IONBF, 0);
@@ -559,6 +587,18 @@ pid_t launch_rank_ssh(
             }
         }
 
+        // Wrap command with output tagging if enabled
+        static std::string remote_cmd_storage;
+        if (cfg.tag_output) {
+            // Build a wrapper that tags both stdout and stderr
+            std::ostringstream tagged_cmd;
+            tagged_cmd << "(" << remote_cmd.str() << ") 2>&1 | sed 's/^/[" << rank
+                       << "] /'";
+            remote_cmd_storage = tagged_cmd.str();
+        } else {
+            remote_cmd_storage = remote_cmd.str();
+        }
+
         // Build SSH command
         std::vector<char*> ssh_args;
         ssh_args.push_back(const_cast<char*>("ssh"));
@@ -579,7 +619,6 @@ pid_t launch_rank_ssh(
 
         // Add hostname and remote command
         static std::string hostname_storage = hostname;
-        static std::string remote_cmd_storage = remote_cmd.str();
         ssh_args.push_back(const_cast<char*>(hostname_storage.c_str()));
         ssh_args.push_back(const_cast<char*>(remote_cmd_storage.c_str()));
         ssh_args.push_back(nullptr);
@@ -645,6 +684,61 @@ void signal_handler(int signum) {
     }
 }
 
+/**
+ * @brief Redirect and tag a file descriptor with a rank prefix.
+ * Launches a process to read from the original fd, prepend rank tag, and write to target.
+ */
+void setup_tagged_output(int original_fd, int rank, bool is_stderr) {
+    // Create a pipe for the original output
+    int pipe_fd[2];
+    if (pipe(pipe_fd) < 0) {
+        std::cerr << "Failed to create pipe for output tagging: " << std::strerror(errno)
+                  << std::endl;
+        return;
+    }
+
+    pid_t tag_pid = fork();
+    if (tag_pid < 0) {
+        std::cerr << "Failed to fork for output tagging: " << std::strerror(errno)
+                  << std::endl;
+        close(pipe_fd[0]);
+        close(pipe_fd[1]);
+        return;
+    } else if (tag_pid == 0) {
+        // Child process - reads from pipe and writes tagged output
+        close(pipe_fd[1]);  // Close write end
+
+        FILE* input_stream = fdopen(pipe_fd[0], "r");
+        if (!input_stream) {
+            std::cerr << "Failed to open pipe for reading" << std::endl;
+            exit(1);
+        }
+
+        FILE* output_stream = is_stderr ? stderr : stdout;
+        std::string tag = "[" + std::to_string(rank) + "] ";
+
+        char buffer[4096];
+        while (fgets(buffer, sizeof(buffer), input_stream) != nullptr) {
+            fputs(tag.c_str(), output_stream);
+            fputs(buffer, output_stream);
+            fflush(output_stream);
+        }
+
+        fclose(input_stream);
+        exit(0);
+    } else {
+        // Parent process - redirect original_fd to the write end of pipe
+        close(pipe_fd[0]);  // Close read end
+        if (dup2(pipe_fd[1], original_fd) < 0) {
+            std::cerr << "Failed to redirect fd " << original_fd
+                      << " for tagging: " << std::strerror(errno) << std::endl;
+            close(pipe_fd[1]);
+            return;
+        }
+        close(pipe_fd[1]);  // Close original after dup2
+    }
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -675,6 +769,9 @@ int main(int argc, char* argv[]) {
                 }
                 if (!cfg.ssh_opts.empty()) {
                     std::cout << "  SSH Options:   " << cfg.ssh_opts << "\n";
+                }
+                if (cfg.tag_output) {
+                    std::cout << "  Tag Output:    Yes\n";
                 }
             } else {
                 std::cout << "  Mode:          Single-node\n"
