@@ -573,27 +573,32 @@ pid_t launch_rank_ssh(
             remote_cmd << "CUDA_VISIBLE_DEVICES=" << gpu_id << " ";
         }
 
-        // Use stdbuf to disable output buffering for real-time output
-        remote_cmd << "stdbuf -o0 -e0 ";
-
-        // Add the application binary and arguments
-        remote_cmd << cfg.app_binary;
+        // Build inner application command with args
+        std::ostringstream app_cmd;
+        app_cmd << cfg.app_binary;
         for (auto const& arg : cfg.app_args) {
-            // Escape arguments that might contain spaces or special characters
             if (arg.find(' ') != std::string::npos) {
-                remote_cmd << " \"" << arg << "\"";
+                app_cmd << " \"" << arg << "\"";
             } else {
-                remote_cmd << " " << arg;
+                app_cmd << " " << arg;
             }
         }
+
+        // Wrap with POSIX sh to record remote PGID then exec the app with stdbuf
+        remote_cmd << "sh -c '";
+        remote_cmd << "PGFILE=\"$RAPIDSMPF_COORD_DIR/pids/rank_" << rank << ".pgid\"; ";
+        remote_cmd << "umask 022; mkdir -p \"$(dirname \"$PGFILE\")\"; ";
+        remote_cmd << "echo $$ > \"$PGFILE\"; ";
+        remote_cmd << "exec stdbuf -o0 -e0 " << app_cmd.str();
+        remote_cmd << "'";
 
         // Wrap command with output tagging if enabled
         static std::string remote_cmd_storage;
         if (cfg.tag_output) {
-            // Build a wrapper that tags both stdout and stderr
+            // Build a wrapper that tags both stdout and stderr; force unbuffered sed
             std::ostringstream tagged_cmd;
-            tagged_cmd << "(" << remote_cmd.str() << ") 2>&1 | sed 's/^/[" << rank
-                       << "] /'";
+            tagged_cmd << "(" << remote_cmd.str() << ") 2>&1 | stdbuf -o0 sed 's/^/["
+                       << rank << "] /'";
             remote_cmd_storage = tagged_cmd.str();
         } else {
             remote_cmd_storage = remote_cmd.str();
@@ -638,32 +643,67 @@ pid_t launch_rank_ssh(
 /**
  * @brief Wait for all child processes and check their exit status.
  */
-int wait_for_ranks(std::vector<pid_t> const& pids) {
+int wait_for_ranks(
+    std::vector<pid_t> const& pids,
+    Config const& cfg,
+    std::vector<std::string> const* rank_to_host
+) {
     int overall_status = 0;
 
     for (size_t i = 0; i < pids.size(); ++i) {
-        int status;
-        pid_t result = waitpid(pids[i], &status, 0);
-
-        if (result < 0) {
-            std::cerr << "Error waiting for rank " << i << ": " << std::strerror(errno)
-                      << std::endl;
-            overall_status = 1;
-            continue;
+        // If a signal was received, ensure we trigger remote termination once
+        extern volatile sig_atomic_t g_got_signal;
+        extern int g_signal_num;
+        extern bool g_remote_kill_done;
+        if (g_got_signal && cfg.use_ssh && rank_to_host != nullptr && !g_remote_kill_done)
+        {
+            void terminate_remote_process_groups(
+                Config const&, std::vector<std::string> const&, int
+            );
+            terminate_remote_process_groups(cfg, *rank_to_host, g_signal_num);
+            g_remote_kill_done = true;
         }
+        int status;
+        while (true) {
+            pid_t result = waitpid(pids[i], &status, 0);
 
-        if (WIFEXITED(status)) {
-            int exit_code = WEXITSTATUS(status);
-            if (exit_code != 0) {
-                std::cerr << "Rank " << i << " (PID " << pids[i] << ") exited with code "
-                          << exit_code << std::endl;
-                overall_status = exit_code;
+            if (result < 0) {
+                if (errno == EINTR) {
+                    // If interrupted by signal, attempt remote termination once in SSH
+                    // mode
+                    if (g_got_signal && cfg.use_ssh && rank_to_host != nullptr
+                        && !g_remote_kill_done)
+                    {
+                        // Forward-declared below
+                        void terminate_remote_process_groups(
+                            Config const&, std::vector<std::string> const&, int
+                        );
+                        terminate_remote_process_groups(cfg, *rank_to_host, g_signal_num);
+                        g_remote_kill_done = true;
+                    }
+                    // Retry waitpid for the same pid
+                    continue;
+                }
+                std::cerr << "Error waiting for rank " << i << ": "
+                          << std::strerror(errno) << std::endl;
+                overall_status = 1;
+                break;
             }
-        } else if (WIFSIGNALED(status)) {
-            int signal = WTERMSIG(status);
-            std::cerr << "Rank " << i << " (PID " << pids[i] << ") terminated by signal "
-                      << signal << std::endl;
-            overall_status = 128 + signal;
+
+            if (WIFEXITED(status)) {
+                int exit_code = WEXITSTATUS(status);
+                if (exit_code != 0) {
+                    std::cerr << "Rank " << i << " (PID " << pids[i]
+                              << ") exited with code " << exit_code << std::endl;
+                    overall_status = exit_code;
+                }
+            } else if (WIFSIGNALED(status)) {
+                int signal = WTERMSIG(status);
+                std::cerr << "Rank " << i << " (PID " << pids[i]
+                          << ") terminated by signal " << signal << std::endl;
+                overall_status = 128 + signal;
+            }
+            break;
         }
     }
 
@@ -674,12 +714,80 @@ int wait_for_ranks(std::vector<pid_t> const& pids) {
  * @brief Signal handler to cleanup on interrupt.
  */
 std::vector<pid_t>* g_child_pids = nullptr;
+volatile sig_atomic_t g_got_signal = 0;
+int g_signal_num = 0;
+bool g_remote_kill_done = false;
 
 void signal_handler(int signum) {
     if (g_child_pids != nullptr) {
         // Forward signal to all children
         for (pid_t pid : *g_child_pids) {
             kill(pid, signum);
+        }
+    }
+    g_got_signal = 1;
+    g_signal_num = signum;
+}
+
+/**
+ * @brief Issue remote kills to process groups read from pidfiles.
+ */
+void terminate_remote_process_groups(
+    Config const& cfg, std::vector<std::string> const& rank_to_host, int signum
+) {
+    for (int rank = 0; rank < cfg.nranks; ++rank) {
+        std::string const* host = nullptr;
+        if (!rank_to_host.empty() && static_cast<size_t>(rank) < rank_to_host.size()) {
+            host = &rank_to_host[static_cast<size_t>(rank)];
+        }
+        if (host == nullptr || host->empty()) {
+            continue;
+        }
+
+        std::string pgfile =
+            cfg.coord_dir + "/pids/rank_" + std::to_string(rank) + ".pgid";
+
+        // We avoid reading the file here to keep logic simple; let remote shell read it
+        std::ostringstream remote_kill;
+        remote_kill << "sh -c 'pgid=$(cat \"" << pgfile
+                    << "\" 2>/dev/null) || exit 0; kill -" << signum
+                    << " -\"$pgid\" || true'";
+
+        // Build SSH command
+        std::vector<char*> ssh_args;
+        ssh_args.push_back(const_cast<char*>("ssh"));
+
+        // Add SSH options if provided
+        std::istringstream iss(cfg.ssh_opts);
+        static std::vector<std::string> opts_storage_kill;
+        opts_storage_kill.clear();
+        if (!cfg.ssh_opts.empty()) {
+            std::string opt;
+            while (iss >> opt) {
+                opts_storage_kill.push_back(opt);
+            }
+            for (auto const& opt_str : opts_storage_kill) {
+                ssh_args.push_back(const_cast<char*>(opt_str.c_str()));
+            }
+        }
+
+        static std::string host_storage;  // ensure lifetime across execvp call
+        static std::string cmd_storage;
+        host_storage = *host;
+        cmd_storage = remote_kill.str();
+
+        ssh_args.push_back(const_cast<char*>(host_storage.c_str()));
+        ssh_args.push_back(const_cast<char*>(cmd_storage.c_str()));
+        ssh_args.push_back(nullptr);
+
+        pid_t pid = fork();
+        if (pid == 0) {
+            execvp("ssh", ssh_args.data());
+            _exit(127);
+        } else if (pid > 0) {
+            // Best effort: wait for ssh to complete quickly
+            int status;
+            (void)waitpid(pid, &status, 0);
         }
     }
 }
@@ -805,9 +913,17 @@ int main(int argc, char* argv[]) {
         }
 
         create_coord_dir(cfg.coord_dir);
+        // Ensure pids subdirectory exists for remote PGID files
+        create_coord_dir(cfg.coord_dir + "/pids");
 
         std::vector<pid_t> pids;
         pids.reserve(static_cast<size_t>(cfg.nranks));
+
+        // Track rank to host mapping for remote termination handling
+        std::vector<std::string> rank_to_host;
+        if (cfg.use_ssh) {
+            rank_to_host.resize(static_cast<size_t>(cfg.nranks));
+        }
 
         // Setup signal handler to cleanup children on interrupt
         g_child_pids = &pids;
@@ -827,6 +943,9 @@ int main(int argc, char* argv[]) {
                     pid_t pid =
                         launch_rank_ssh(cfg, rank, host.hostname, local_rank, host.gpus);
                     pids.push_back(pid);
+                    if (static_cast<size_t>(rank) < rank_to_host.size()) {
+                        rank_to_host[static_cast<size_t>(rank)] = host.hostname;
+                    }
 
                     if (cfg.verbose) {
                         std::cout << "Launched rank " << rank << " (PID " << pid
@@ -865,7 +984,8 @@ int main(int argc, char* argv[]) {
         }
 
         // Wait for all ranks to complete
-        int exit_status = wait_for_ranks(pids);
+        int exit_status =
+            wait_for_ranks(pids, cfg, cfg.use_ssh ? &rank_to_host : nullptr);
 
         if (cfg.cleanup) {
             if (cfg.verbose) {
