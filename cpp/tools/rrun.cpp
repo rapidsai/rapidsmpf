@@ -751,7 +751,7 @@ void terminate_remote_process_groups(
         std::ostringstream remote_kill;
         remote_kill << "sh -c 'pgid=$(cat \"" << pgfile
                     << "\" 2>/dev/null) || exit 0; kill -" << signum
-                    << " -\"$pgid\" || true'";
+                    << " -\"$pgid\" >/dev/null 2>&1 || true'";
 
         // Build SSH command
         std::vector<char*> ssh_args;
