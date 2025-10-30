@@ -193,4 +193,25 @@ TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) 
     return TableChunk(std::make_unique<PackedData>(std::move(metadata), std::move(data)));
 }
 
+Message to_message(std::uint64_t sequence_number, std::unique_ptr<TableChunk> chunk) {
+    Message::Callbacks cbs{
+        .content_size = [](Message const& msg,
+                           MemoryType mem_type) -> std::pair<size_t, bool> {
+            auto const& self = msg.get<TableChunk>();
+            return {self.data_alloc_size(mem_type), self.is_spillable()};
+        },
+        .copy = [](Message const& msg,
+                   BufferResource* br,
+                   MemoryReservation& reservation) -> Message {
+            auto const& self = msg.get<TableChunk>();
+            return Message(
+                msg.sequence_number(),
+                std::make_unique<TableChunk>(self.copy(br, reservation)),
+                msg.callbacks()
+            );
+        }
+    };
+    return Message{sequence_number, std::move(chunk), std::move(cbs)};
+}
+
 }  // namespace rapidsmpf::streaming

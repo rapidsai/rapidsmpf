@@ -78,6 +78,23 @@ struct PackedData {
     [[nodiscard]] rmm::cuda_stream_view stream() const {
         return data->stream();
     }
+
+    /**
+     * @brief Create a deep copy of the packed data.
+     *
+     * @param br Buffer resource for memory allocation.
+     * @param reservation Memory reservation used .
+     *
+     * @return A new `PackedData` instance containing a deep copy of both
+     * the data buffer and metadata.
+     */
+    PackedData copy(BufferResource* br, MemoryReservation& reservation) const {
+        auto dst = br->allocate(data->size, data->stream(), reservation);
+        buffer_copy(*dst, *data, data->size);
+        return PackedData{
+            std::make_unique<std::vector<std::uint8_t>>(*metadata), std::move(dst)
+        };
+    }
 };
 
 }  // namespace rapidsmpf
