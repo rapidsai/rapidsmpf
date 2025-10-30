@@ -84,6 +84,8 @@ mpirun -np 2 cpp/build/gtests/ucxx_tests
 
 RapidsMPF includes `rrun`, a lightweight launcher that eliminates the MPI dependency for multi-GPU workloads. This is particularly useful for development, testing, and environments where MPI is not available.
 
+#### Single-Node Usage
+
 ```bash
 # Build rrun
 cd cpp/build
@@ -94,6 +96,26 @@ cmake --build . --target rrun
 
 # With verbose output and specific GPUs
 ./tools/rrun -v -n 4 -g 0,1,2,3 ./benchmarks/bench_comm -C ucxx-bootstrap
+```
+
+#### Multi-Node Usage (SSH)
+
+```bash
+# Create hostfile
+cat > hosts.txt << EOF
+node1 slots=8 gpus=0,1,2,3,4,5,6,7
+node2 slots=8 gpus=0,1,2,3,4,5,6,7
+EOF
+
+# Launch across multiple nodes
+./tools/rrun --hostfile hosts.txt \
+             -d /shared/nfs/coord \
+             ./benchmarks/bench_comm -C ucxx-bootstrap
+
+# With processes per node override
+./tools/rrun --hostfile hosts.txt --ppn 4 \
+             -d /shared/nfs/coord \
+             ./benchmarks/bench_comm -C ucxx-bootstrap
 ```
 
 ## Algorithms
