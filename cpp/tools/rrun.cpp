@@ -656,8 +656,16 @@ int wait_for_ranks(
         extern volatile sig_atomic_t g_got_signal;
         extern int g_signal_num;
         extern bool g_remote_kill_done;
+        extern bool g_ack_printed;
         if (g_got_signal && cfg.use_ssh && rank_to_host != nullptr && !g_remote_kill_done)
         {
+            if (!g_ack_printed) {
+                std::cerr << "Termination requested (signal " << g_signal_num
+                          << ") - terminating remote ranks, please wait, this may take a "
+                             "while..."
+                          << std::endl;
+                g_ack_printed = true;
+            }
             void terminate_remote_process_groups_with_retries(
                 Config const&, std::vector<std::string> const&, int
             );
@@ -677,6 +685,13 @@ int wait_for_ranks(
                     if (g_got_signal && cfg.use_ssh && rank_to_host != nullptr
                         && !g_remote_kill_done)
                     {
+                        if (!g_ack_printed) {
+                            std::cerr << "Termination requested (signal " << g_signal_num
+                                      << ") - terminating remote ranks, please wait, "
+                                         "this may take a while..."
+                                      << std::endl;
+                            g_ack_printed = true;
+                        }
                         // Forward-declared below
                         void terminate_remote_process_groups_with_retries(
                             Config const&, std::vector<std::string> const&, int
@@ -722,6 +737,7 @@ std::vector<pid_t>* g_child_pids = nullptr;
 volatile sig_atomic_t g_got_signal = 0;
 int g_signal_num = 0;
 bool g_remote_kill_done = false;
+bool g_ack_printed = false;
 
 void signal_handler(int signum) {
     if (g_child_pids != nullptr) {
