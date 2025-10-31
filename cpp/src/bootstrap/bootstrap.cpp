@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <chrono>
 #include <cstdlib>
 #include <sstream>
 #include <stdexcept>
@@ -143,7 +144,8 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options op
         put(ctx, "ucxx_root_address", root_worker_address_str);
     } else {
         // Worker ranks retrieve the root address and connect
-        auto root_worker_address_str = get(ctx, "ucxx_root_address", 30000);
+        auto root_worker_address_str =
+            get(ctx, "ucxx_root_address", std::chrono::milliseconds{30000});
         auto root_worker_address =
             ::ucxx::createAddressFromString(root_worker_address_str);
 
@@ -196,12 +198,14 @@ void put(Context const& ctx, std::string const& key, std::string const& value) {
     }
 }
 
-std::string get(Context const& ctx, std::string const& key, int timeout_ms) {
+std::string get(
+    Context const& ctx, std::string const& key, std::chrono::milliseconds timeout
+) {
     switch (ctx.backend) {
     case Backend::FILE:
         {
             detail::FileBackend backend{ctx};
-            return backend.get(key, timeout_ms);
+            return backend.get(key, timeout);
         }
     default:
         RAPIDSMPF_FAIL("get not implemented for this backend", std::runtime_error);

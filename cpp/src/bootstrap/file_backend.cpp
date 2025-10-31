@@ -110,12 +110,12 @@ void FileBackend::put(std::string const& key, std::string const& value) {
     write_file(path, value);
 }
 
-std::string FileBackend::get(std::string const& key, int timeout_ms) {
+std::string FileBackend::get(std::string const& key, std::chrono::milliseconds timeout) {
     std::string path = get_kv_path(key);
 
-    if (!wait_for_file(path, std::chrono::milliseconds{timeout_ms})) {
+    if (!wait_for_file(path, timeout)) {
         throw std::runtime_error(
-            "Key '" + key + "' not available within " + std::to_string(timeout_ms)
+            "Key '" + key + "' not available within " + std::to_string(timeout.count())
             + "ms timeout"
         );
     }
@@ -156,7 +156,8 @@ void FileBackend::broadcast(void* data, std::size_t size, Rank root) {
         put("broadcast_" + std::to_string(root), bcast_data);
     } else {
         // Non-root reads data
-        std::string bcast_data = get("broadcast_" + std::to_string(root), 30000);
+        std::string bcast_data =
+            get("broadcast_" + std::to_string(root), std::chrono::milliseconds{30000});
         if (bcast_data.size() != size) {
             throw std::runtime_error(
                 "Broadcast size mismatch: expected " + std::to_string(size) + ", got "

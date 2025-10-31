@@ -56,10 +56,10 @@ class FileBackend {
      * @brief Retrieve a value, blocking until available or timeout occurs.
      *
      * @param key Key name.
-     * @param timeout_ms Timeout in milliseconds.
+     * @param timeout Timeout duration.
      * @return Value associated with key.
      */
-    std::string get(std::string const& key, int timeout_ms);
+    std::string get(std::string const& key, std::chrono::milliseconds timeout);
 
     /**
      * @brief Perform a barrier synchronization.

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -153,11 +154,15 @@ void put(Context const& ctx, std::string const& key, std::string const& value);
  *
  * @param ctx Bootstrap context.
  * @param key Key name to retrieve.
- * @param timeout_ms Timeout in milliseconds (0 = wait forever).
+ * @param timeout Timeout duration.
  * @return Value associated with the key.
  * @throws std::runtime_error if key not found within timeout.
  */
-std::string get(Context const& ctx, std::string const& key, int timeout_ms = 30000);
+std::string get(
+    Context const& ctx,
+    std::string const& key,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds{30000}
+);
 
 }  // namespace bootstrap
 
