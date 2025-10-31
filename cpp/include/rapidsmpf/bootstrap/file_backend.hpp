@@ -40,7 +40,7 @@ class FileBackend {
      *
      * @param ctx Bootstrap context containing rank and coordination directory.
      */
-    explicit FileBackend(Context const& ctx);
+    explicit FileBackend(Context ctx);
 
     ~FileBackend();
 
