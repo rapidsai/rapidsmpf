@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <unordered_set>
 #include <utility>
 
 #include <cuda_runtime.h>
@@ -243,15 +244,24 @@ TagMetadataPayloadExchange::setup_data_receives() {
                     in_transit_futures_.emplace(message_id, std::move(future)).second,
                     "in transit future already exists"
                 );
-                RAPIDSMPF_EXPECTS(
-                    in_transit_messages_.emplace(message_id, std::move(tag_message))
-                        .second,
-                    "in transit message already exists"
-                );
+                // Store in per-rank vector to maintain order
+                in_transit_messages_[src].push_back(std::move(tag_message));
+                // Break to ensure we don't return later messages before this one
+                // completes
+                break;
             } else {
-                // Control/metadata-only message - handle directly
-                completed_messages.push_back(std::move(tag_msg.message));
-                msg_it = messages.erase(msg_it);
+                // Control/metadata-only message
+                // Only return if there are no earlier in-transit messages from this rank
+                if (in_transit_messages_.count(src) == 0
+                    || in_transit_messages_[src].empty())
+                {
+                    completed_messages.push_back(std::move(tag_msg.message));
+                    msg_it = messages.erase(msg_it);
+                } else {
+                    // There are earlier messages still in transit, stop processing this
+                    // rank
+                    break;
+                }
             }
         }
 
@@ -278,28 +288,49 @@ TagMetadataPayloadExchange::complete_data_transfers() {
 
     // Handle completed data transfers
     if (!in_transit_futures_.empty()) {
+        // Get all completed message IDs
         std::vector<std::uint64_t> finished = comm_->test_some(in_transit_futures_);
-        for (auto message_id : finished) {
-            auto message_it = in_transit_messages_.find(message_id);
-            auto future_it = in_transit_futures_.find(message_id);
+        std::unordered_set<std::uint64_t> finished_set(finished.begin(), finished.end());
 
-            RAPIDSMPF_EXPECTS(
-                message_it != in_transit_messages_.end(), "in transit message not found"
-            );
-            RAPIDSMPF_EXPECTS(
-                future_it != in_transit_futures_.end(), "in transit future not found"
-            );
+        // Process each rank's in-transit messages in order
+        for (auto rank_it = in_transit_messages_.begin();
+             rank_it != in_transit_messages_.end();)
+        {
+            auto& [src, messages] = *rank_it;
 
-            auto tag_message = std::move(message_it->second);
-            auto future = std::move(future_it->second);
-            auto received_buffer = comm_->release_data(std::move(future));
+            // Return messages in order, stopping at the first incomplete one
+            while (!messages.empty()) {
+                auto& tag_msg = messages.front();
 
-            tag_message.message->set_data(std::move(received_buffer));
+                if (finished_set.count(tag_msg.message_id)) {
+                    // This message is complete
+                    auto future_it = in_transit_futures_.find(tag_msg.message_id);
+                    RAPIDSMPF_EXPECTS(
+                        future_it != in_transit_futures_.end(),
+                        "in transit future not found"
+                    );
 
-            completed_messages.push_back(std::move(tag_message.message));
+                    auto future = std::move(future_it->second);
+                    auto received_buffer = comm_->release_data(std::move(future));
 
-            in_transit_messages_.erase(message_it);
-            in_transit_futures_.erase(future_it);
+                    tag_msg.message->set_data(std::move(received_buffer));
+                    completed_messages.push_back(std::move(tag_msg.message));
+
+                    in_transit_futures_.erase(future_it);
+                    messages.erase(messages.begin());
+                } else {
+                    // First message not complete yet, stop processing this rank
+                    // to maintain order
+                    break;
+                }
+            }
+
+            // Remove rank entry if all messages have been completed
+            if (messages.empty()) {
+                rank_it = in_transit_messages_.erase(rank_it);
+            } else {
+                ++rank_it;
+            }
         }
     }
 

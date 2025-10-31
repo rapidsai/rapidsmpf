@@ -109,8 +109,9 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         fire_and_forget_;  ///< Ongoing "fire-and-forget" operations (non-blocking sends).
     std::unordered_map<Rank, std::vector<TagMessage>>
         incoming_messages_;  ///< Messages ready to be received, grouped by rank.
-    std::unordered_map<std::uint64_t, TagMessage>
-        in_transit_messages_;  ///< Messages currently in transit.
+    std::unordered_map<Rank, std::vector<TagMessage>>
+        in_transit_messages_;  ///< Messages currently in transit, grouped by rank in
+                               ///< order.
     std::unordered_map<std::uint64_t, std::unique_ptr<Communicator::Future>>
         in_transit_futures_;  ///< Futures corresponding to in-transit messages.
     std::vector<std::unique_ptr<Message>>
