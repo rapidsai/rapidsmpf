@@ -25,6 +25,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <random>
 #include <sstream>
 #include <string>
@@ -38,6 +39,8 @@
 #include <unistd.h>
 
 namespace {
+
+static std::mutex output_mutex;
 
 /**
  * @brief Host information for multi-node deployment.
@@ -910,10 +913,13 @@ int main(int argc, char* argv[]) {
                         continue;
                     }
                     FILE* out = to_stderr ? stderr : stdout;
-                    if (!tag.empty())
-                        fputs(tag.c_str(), out);
-                    fputs(buffer, out);
-                    fflush(out);
+                    {
+                        std::lock_guard<std::mutex> lock(output_mutex);
+                        if (!tag.empty())
+                            fputs(tag.c_str(), out);
+                        fputs(buffer, out);
+                        fflush(out);
+                    }
                 }
                 fclose(stream);
             });
