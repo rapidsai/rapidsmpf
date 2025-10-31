@@ -9,13 +9,11 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <system_error>
 #include <thread>
 
 #include <dirent.h>
-#include <fcntl.h>
-#include <sys/file.h>
 #include <sys/stat.h>
-#include <unistd.h>
 
 #include <rapidsmpf/bootstrap/file_backend.hpp>
 #include <rapidsmpf/error.hpp>
@@ -59,7 +57,8 @@ FileBackend::FileBackend(Context const& ctx) : ctx_{ctx} {
 FileBackend::~FileBackend() {
     // Clean up rank alive file
     try {
-        unlink(get_rank_alive_path(ctx_.rank).c_str());
+        std::error_code ec;
+        std::filesystem::remove(get_rank_alive_path(ctx_.rank), ec);
     } catch (...) {
         // Ignore cleanup errors
     }
@@ -113,7 +112,10 @@ void FileBackend::barrier() {
     }
 
     // Clean up our barrier file
-    unlink(my_barrier_file.c_str());
+    {
+        std::error_code ec;
+        std::filesystem::remove(my_barrier_file, ec);
+    }
 }
 
 void FileBackend::broadcast(void* data, std::size_t size, Rank root) {
@@ -218,11 +220,16 @@ void FileBackend::write_file(std::string const& path, std::string const& content
     ofs.close();
 
     // Atomic rename
-    if (rename(tmp_path.c_str(), path.c_str()) != 0) {
-        unlink(tmp_path.c_str());  // Clean up temp file
-        throw std::runtime_error(
-            "Failed to rename " + tmp_path + " to " + path + ": " + std::strerror(errno)
-        );
+    {
+        std::error_code ec;
+        std::filesystem::rename(tmp_path, path, ec);
+        if (ec) {
+            std::error_code rm_ec;
+            std::filesystem::remove(tmp_path, rm_ec);  // Clean up temp file
+            throw std::runtime_error(
+                "Failed to rename " + tmp_path + " to " + path + ": " + ec.message()
+            );
+        }
     }
 }
 
