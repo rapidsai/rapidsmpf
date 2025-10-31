@@ -115,19 +115,19 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
         GTEST_SKIP() << "Test requires at least 2 ranks";
     }
 
-    Rank peer_rank = (comm->rank() + 1) % comm->nranks();
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    Rank prev_rank = (comm->rank() - 1 + comm->nranks()) % comm->nranks();
     std::vector<std::uint8_t> test_metadata = {0x01, 0x02, 0x03, 0x04};
 
-    if (comm->rank() == 0) {
-        // Rank 0 sends metadata-only message
-        std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
-        messages.push_back(create_test_message(peer_rank, test_metadata));
+    // All ranks send metadata-only message to next rank
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    messages.push_back(create_test_message(next_rank, test_metadata));
 
-        EXPECT_TRUE(comm_interface->is_idle());
-        comm_interface->send(std::move(messages));
-        EXPECT_FALSE(comm_interface->is_idle());
-    }
+    EXPECT_TRUE(comm_interface->is_idle());
+    comm_interface->send(std::move(messages));
+    EXPECT_FALSE(comm_interface->is_idle());
 
+    // All ranks receive from previous rank
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     while (received_messages.empty()) {
         comm_interface->progress();
@@ -138,13 +138,11 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
             std::this_thread::yield();
     }
 
-    if (comm->rank() == peer_rank) {
-        EXPECT_EQ(received_messages.size(), 1);
-        auto& msg = received_messages[0];
-        EXPECT_EQ(msg->peer_rank(), 0);
-        EXPECT_EQ(msg->metadata(), test_metadata);
-        EXPECT_EQ(msg->data(), nullptr);
-    }
+    EXPECT_EQ(received_messages.size(), 1);
+    auto& msg = received_messages[0];
+    EXPECT_EQ(msg->peer_rank(), prev_rank);
+    EXPECT_EQ(msg->metadata(), test_metadata);
+    EXPECT_EQ(msg->data(), nullptr);
 
     wait_for_communication_complete();
 
@@ -156,19 +154,19 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveSingleMessage) {
         GTEST_SKIP() << "Test requires at least 2 ranks";
     }
 
-    Rank peer_rank = (comm->rank() + 1) % comm->nranks();
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    Rank prev_rank = (comm->rank() - 1 + comm->nranks()) % comm->nranks();
     std::vector<std::uint8_t> test_metadata = {0xAA, 0xBB, 0xCC, 0xDD};
     constexpr std::size_t data_size = 512;
 
-    if (comm->rank() == 0) {
-        // Rank 0 sends single message using send method
-        auto message = create_test_message(peer_rank, test_metadata, data_size);
+    // All ranks send single message to next rank using send method
+    auto message = create_test_message(next_rank, test_metadata, data_size);
 
-        EXPECT_TRUE(comm_interface->is_idle());
-        comm_interface->send(std::move(message));
-        EXPECT_FALSE(comm_interface->is_idle());
-    }
+    EXPECT_TRUE(comm_interface->is_idle());
+    comm_interface->send(std::move(message));
+    EXPECT_FALSE(comm_interface->is_idle());
 
+    // All ranks receive from previous rank
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     while (received_messages.empty()) {
         comm_interface->progress();
@@ -179,10 +177,66 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveSingleMessage) {
             std::this_thread::yield();
     }
 
-    if (comm->rank() == peer_rank) {
-        EXPECT_EQ(received_messages.size(), 1);
+    EXPECT_EQ(received_messages.size(), 1);
+    auto& msg = received_messages[0];
+    EXPECT_EQ(msg->peer_rank(), prev_rank);
+    EXPECT_EQ(msg->metadata(), test_metadata);
+    EXPECT_NE(msg->data(), nullptr);
+    if (msg->data()) {
+        EXPECT_EQ(msg->data()->size, data_size);
+
+        // Verify data
+        std::vector<std::uint8_t> received_data(data_size);
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            received_data.data(),
+            msg->data()->data(),
+            data_size,
+            cudaMemcpyDeviceToHost,
+            stream
+        ));
+        stream.synchronize();
+
+        for (std::size_t i = 0; i < data_size; ++i) {
+            EXPECT_EQ(received_data[i], static_cast<std::uint8_t>(i % 256));
+        }
+    }
+
+    wait_for_communication_complete();
+
+    EXPECT_TRUE(comm_interface->is_idle());
+}
+
+TEST_F(MetadataPayloadExchangeTest, SendReceiveWithData) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    Rank prev_rank = (comm->rank() - 1 + comm->nranks()) % comm->nranks();
+    std::vector<std::uint8_t> test_metadata = {0x10, 0x20, 0x30, 0x40};
+    constexpr std::size_t data_size = 1024;
+
+    // All ranks send message with data to next rank
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    messages.push_back(create_test_message(next_rank, test_metadata, data_size));
+
+    comm_interface->send(std::move(messages));
+
+    // All ranks receive from previous rank
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
+    while (received_messages.empty()) {
+        comm_interface->progress();
+        auto messages = comm_interface->recv();
+        std::ranges::move(messages, std::back_inserter(received_messages));
+
+        if (received_messages.empty())
+            std::this_thread::yield();
+    }
+
+    EXPECT_EQ(received_messages.size(), 1);
+    if (!received_messages.empty()) {
         auto& msg = received_messages[0];
-        EXPECT_EQ(msg->peer_rank(), 0);
+        EXPECT_EQ(msg->peer_rank(), prev_rank);
         EXPECT_EQ(msg->metadata(), test_metadata);
         EXPECT_NE(msg->data(), nullptr);
         if (msg->data()) {
@@ -206,66 +260,6 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveSingleMessage) {
     }
 
     wait_for_communication_complete();
-
-    EXPECT_TRUE(comm_interface->is_idle());
-}
-
-TEST_F(MetadataPayloadExchangeTest, SendReceiveWithData) {
-    if (comm->nranks() < 2) {
-        GTEST_SKIP() << "Test requires at least 2 ranks";
-    }
-
-    Rank peer_rank = (comm->rank() + 1) % comm->nranks();
-    std::vector<std::uint8_t> test_metadata = {0x10, 0x20, 0x30, 0x40};
-    constexpr std::size_t data_size = 1024;
-
-    if (comm->rank() == 0) {
-        // Rank 0 sends message with data
-        std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
-        messages.push_back(create_test_message(peer_rank, test_metadata, data_size));
-
-        comm_interface->send(std::move(messages));
-    }
-
-    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
-    while (received_messages.empty()) {
-        comm_interface->progress();
-        auto messages = comm_interface->recv();
-        std::ranges::move(messages, std::back_inserter(received_messages));
-
-        if (received_messages.empty())
-            std::this_thread::yield();
-    }
-
-    if (comm->rank() == peer_rank) {
-        EXPECT_EQ(received_messages.size(), 1);
-        if (!received_messages.empty()) {
-            auto& msg = received_messages[0];
-            EXPECT_EQ(msg->peer_rank(), 0);
-            EXPECT_EQ(msg->metadata(), test_metadata);
-            EXPECT_NE(msg->data(), nullptr);
-            if (msg->data()) {
-                EXPECT_EQ(msg->data()->size, data_size);
-
-                // Verify data
-                std::vector<std::uint8_t> received_data(data_size);
-                RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                    received_data.data(),
-                    msg->data()->data(),
-                    data_size,
-                    cudaMemcpyDeviceToHost,
-                    stream
-                ));
-                stream.synchronize();
-
-                for (std::size_t i = 0; i < data_size; ++i) {
-                    EXPECT_EQ(received_data[i], static_cast<std::uint8_t>(i % 256));
-                }
-            }
-        }
-    }
-
-    wait_for_communication_complete();
 }
 
 TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
@@ -273,29 +267,29 @@ TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
         GTEST_SKIP() << "Test requires at least 2 ranks";
     }
 
-    Rank peer_rank = (comm->rank() + 1) % comm->nranks();
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    Rank prev_rank = (comm->rank() - 1 + comm->nranks()) % comm->nranks();
     constexpr int num_messages = 5;
 
-    if (comm->rank() == 0) {
-        // Rank 0 sends multiple messages
-        std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    // All ranks send multiple messages to next rank
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
 
-        for (int i = 0; i < num_messages; ++i) {
-            std::vector<std::uint8_t> metadata = {
-                static_cast<std::uint8_t>(i),
-                static_cast<std::uint8_t>(i + 1),
-                static_cast<std::uint8_t>(i + 2)
-            };
-            std::size_t data_size =
-                (i % 2 == 0)
-                    ? 0
-                    : (i + 1) * 100;  // Alternate between metadata-only and with-data
-            messages.push_back(create_test_message(peer_rank, metadata, data_size));
-        }
-
-        comm_interface->send(std::move(messages));
+    for (int i = 0; i < num_messages; ++i) {
+        std::vector<std::uint8_t> metadata = {
+            static_cast<std::uint8_t>(i),
+            static_cast<std::uint8_t>(i + 1),
+            static_cast<std::uint8_t>(i + 2)
+        };
+        std::size_t data_size =
+            (i % 2 == 0)
+                ? 0
+                : (i + 1) * 100;  // Alternate between metadata-only and with-data
+        messages.push_back(create_test_message(next_rank, metadata, data_size));
     }
 
+    comm_interface->send(std::move(messages));
+
+    // All ranks receive from previous rank
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     while (received_messages.size() < num_messages) {
         comm_interface->progress();
@@ -306,45 +300,43 @@ TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
             std::this_thread::yield();
     }
 
-    if (comm->rank() == peer_rank) {
-        // Receiving rank should get all messages
-        EXPECT_EQ(received_messages.size(), num_messages);
+    // All ranks should get all messages from previous rank
+    EXPECT_EQ(received_messages.size(), num_messages);
 
-        for (int i = 0; i < static_cast<int>(received_messages.size()); ++i) {
-            auto& msg = received_messages[i];
-            EXPECT_EQ(msg->peer_rank(), 0);
+    for (int i = 0; i < static_cast<int>(received_messages.size()); ++i) {
+        auto& msg = received_messages[i];
+        EXPECT_EQ(msg->peer_rank(), prev_rank);
 
-            // Check metadata
-            std::vector<std::uint8_t> expected_metadata = {
-                static_cast<std::uint8_t>(i),
-                static_cast<std::uint8_t>(i + 1),
-                static_cast<std::uint8_t>(i + 2)
-            };
-            EXPECT_EQ(msg->metadata(), expected_metadata);
+        // Check metadata
+        std::vector<std::uint8_t> expected_metadata = {
+            static_cast<std::uint8_t>(i),
+            static_cast<std::uint8_t>(i + 1),
+            static_cast<std::uint8_t>(i + 2)
+        };
+        EXPECT_EQ(msg->metadata(), expected_metadata);
 
-            // Check data presence and content
-            if (i % 2 == 0) {
-                EXPECT_EQ(msg->data(), nullptr);  // Even indices are metadata-only
-            } else {
-                EXPECT_NE(msg->data(), nullptr);  // Odd indices have data
-                if (msg->data()) {
-                    std::size_t expected_size = (i + 1) * 100;
-                    EXPECT_EQ(msg->data()->size, expected_size);
+        // Check data presence and content
+        if (i % 2 == 0) {
+            EXPECT_EQ(msg->data(), nullptr);  // Even indices are metadata-only
+        } else {
+            EXPECT_NE(msg->data(), nullptr);  // Odd indices have data
+            if (msg->data()) {
+                std::size_t expected_size = (i + 1) * 100;
+                EXPECT_EQ(msg->data()->size, expected_size);
 
-                    // Verify data content
-                    std::vector<std::uint8_t> received_data(expected_size);
-                    RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                        received_data.data(),
-                        msg->data()->data(),
-                        expected_size,
-                        cudaMemcpyDeviceToHost,
-                        stream
-                    ));
-                    stream.synchronize();
+                // Verify data content
+                std::vector<std::uint8_t> received_data(expected_size);
+                RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                    received_data.data(),
+                    msg->data()->data(),
+                    expected_size,
+                    cudaMemcpyDeviceToHost,
+                    stream
+                ));
+                stream.synchronize();
 
-                    for (std::size_t j = 0; j < expected_size; ++j) {
-                        EXPECT_EQ(received_data[j], static_cast<std::uint8_t>(j % 256));
-                    }
+                for (std::size_t j = 0; j < expected_size; ++j) {
+                    EXPECT_EQ(received_data[j], static_cast<std::uint8_t>(j % 256));
                 }
             }
         }
