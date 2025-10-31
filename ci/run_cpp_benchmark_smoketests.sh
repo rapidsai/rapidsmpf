@@ -49,6 +49,6 @@ unset OMPI_ALLOW_RUN_AS_ROOT_CONFIRM
 unset OMPI_MCA_opal_cuda_support
 
 python "${TIMEOUT_TOOL_PATH}" 30 \
-    rrun -n 3 -g 0,0,0 ./bench_comm -m cuda -C ucxx-bootstrap
+    rrun -n 3 -g 0,0,0 ./bench_comm -m cuda -C ucxx
 python "${TIMEOUT_TOOL_PATH}" 30 \
-    rrun --tag-output -n 3 -g 0,0,0 ./bench_comm -m cuda -C ucxx-bootstrap
+    rrun --tag-output -n 3 -g 0,0,0 ./bench_comm -m cuda -C ucxx

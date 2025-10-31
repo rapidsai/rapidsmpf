@@ -92,10 +92,10 @@ cd cpp/build
 cmake --build . --target rrun
 
 # Launch 2 ranks in the local node
-./tools/rrun -n 2 ./benchmarks/bench_comm -C ucxx-bootstrap -O all-to-all
+./tools/rrun -n 2 ./benchmarks/bench_comm -C ucxx -O all-to-all
 
 # With verbose output and specific GPUs
-./tools/rrun -v -n 4 -g 0,1,2,3 ./benchmarks/bench_comm -C ucxx-bootstrap
+./tools/rrun -v -n 4 -g 0,1,2,3 ./benchmarks/bench_comm -C ucxx
 ```
 
 ## Algorithms

@@ -48,10 +48,9 @@ class ArgumentParser {
                         std::stringstream ss;
                         ss << "Usage: " << argv[0] << " [options]\n"
                            << "Options:\n"
-                           << "  -C <comm>  Communicator {mpi, ucxx, ucxx-bootstrap} "
-                              "(default: mpi)\n"
-                           << "             ucxx-bootstrap uses native bootstrap (no "
-                              "MPI)\n"
+                           << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
+                           << "             ucxx automatically detects launcher (mpirun "
+                              "or rrun)\n"
                            << "  -O <op>    Operation {all-to-all} (default: "
                               "all-to-all)\n"
                            << "  -n <num>   Message size in bytes (default: 1M)\n"
@@ -80,12 +79,9 @@ class ArgumentParser {
                     break;
                 case 'C':
                     comm_type = std::string{optarg};
-                    if (!(comm_type == "mpi" || comm_type == "ucxx"
-                          || comm_type == "ucxx-bootstrap"))
-                    {
+                    if (!(comm_type == "mpi" || comm_type == "ucxx")) {
                         if (rank == 0) {
-                            std::cerr << "-C (Communicator) must be one of {mpi, ucxx, "
-                                         "ucxx-bootstrap}"
+                            std::cerr << "-C (Communicator) must be one of {mpi, ucxx}"
                                       << std::endl;
                         }
                         if (use_mpi) {
@@ -288,24 +284,14 @@ int main(int argc, char** argv) {
         comm = std::make_shared<MPI>(MPI_COMM_WORLD, options);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
-            std::cerr
-                << "Error: 'ucxx' communicator type requires MPI for bootstrapping. "
-                << "Use '-C ucxx-bootstrap' with rrun instead." << std::endl;
-            return 1;
+            // Launched with rrun - use bootstrap backend
+            comm = rapidsmpf::bootstrap::create_ucxx_comm(
+                rapidsmpf::bootstrap::Backend::AUTO, options
+            );
+        } else {
+            // Launched with mpirun - use MPI bootstrap
+            comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
         }
-        comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
-    } else if (args.comm_type == "ucxx-bootstrap") {
-        if (!use_bootstrap) {
-            std::cerr << "Error: 'ucxx-bootstrap' requires bootstrap environment. "
-                      << "Launch with 'rrun' or set "
-                         "RAPIDSMPF_RANK/RAPIDSMPF_NRANKS/RAPIDSMPF_COORD_DIR."
-                      << std::endl;
-            return 1;
-        }
-        // Use the bootstrap backend to create UCXX communicator
-        comm = rapidsmpf::bootstrap::create_ucxx_comm(
-            rapidsmpf::bootstrap::Backend::AUTO, options
-        );
     } else {
         std::cerr << "Error: Unknown communicator type: " << args.comm_type << std::endl;
         return 1;
