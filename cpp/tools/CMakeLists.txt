@@ -9,7 +9,7 @@
 add_executable(rrun "rrun.cpp")
 set_target_properties(
   rrun
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/tools>"
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/tools"
              CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
 )
