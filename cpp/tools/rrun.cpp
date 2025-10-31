@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -24,12 +25,10 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
-#include <fcntl.h>
 #include <signal.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -203,29 +202,6 @@ std::vector<HostInfo> parse_hostfile(std::string const& path) {
     }
 
     return hosts;
-}
-
-/**
- * @brief Create coordination directory.
- */
-void create_coord_dir(std::string const& path) {
-    if (mkdir(path.c_str(), 0755) != 0 && errno != EEXIST) {
-        throw std::runtime_error(
-            "Failed to create coordination directory: " + path + ": "
-            + std::strerror(errno)
-        );
-    }
-}
-
-/**
- * @brief Recursively remove directory.
- */
-void remove_dir_recursive(std::string const& path) {
-    // Use system command for simplicity (rm -rf)
-    std::string cmd = "rm -rf " + path;
-    if (system(cmd.c_str()) != 0) {
-        std::cerr << "Warning: Failed to cleanup directory: " << path << std::endl;
-    }
 }
 
 /**
@@ -961,9 +937,9 @@ int main(int argc, char* argv[]) {
             std::cout << std::endl;
         }
 
-        create_coord_dir(cfg.coord_dir);
+        std::filesystem::create_directories(cfg.coord_dir);
         // Ensure pids subdirectory exists for remote PGID files
-        create_coord_dir(cfg.coord_dir + "/pids");
+        std::filesystem::create_directories(cfg.coord_dir + "/pids");
 
         std::vector<pid_t> pids;
         pids.reserve(static_cast<size_t>(cfg.nranks));
@@ -1041,7 +1017,14 @@ int main(int argc, char* argv[]) {
                 std::cout << "Cleaning up coordination directory: " << cfg.coord_dir
                           << std::endl;
             }
-            remove_dir_recursive(cfg.coord_dir);
+            {
+                std::error_code ec;
+                std::filesystem::remove_all(cfg.coord_dir, ec);
+                if (ec) {
+                    std::cerr << "Warning: Failed to cleanup directory: " << cfg.coord_dir
+                              << ": " << ec.message() << std::endl;
+                }
+            }
         } else if (cfg.verbose) {
             std::cout << "Coordination directory preserved: " << cfg.coord_dir
                       << std::endl;
