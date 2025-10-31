@@ -80,6 +80,24 @@ The UCX test suite uses, for convenience, MPI to bootstrap, therefore we need to
 mpirun -np 2 cpp/build/gtests/ucxx_tests
 ```
 
+### rrun - Distributed Launcher
+
+RapidsMPF includes `rrun`, a lightweight launcher that eliminates the MPI dependency for multi-GPU workloads. This is particularly useful for development, testing, and environments where MPI is not available.
+
+#### Single-Node Usage
+
+```bash
+# Build rrun
+cd cpp/build
+cmake --build . --target rrun
+
+# Launch 2 ranks in the local node
+./tools/rrun -n 2 ./benchmarks/bench_comm -C ucxx -O all-to-all
+
+# With verbose output and specific GPUs
+./tools/rrun -v -n 4 -g 0,1,2,3 ./benchmarks/bench_comm -C ucxx
+```
+
 ## Algorithms
 ### Table Shuffle Service
 Example of a MPI program that uses the shuffler:

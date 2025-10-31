@@ -8,6 +8,8 @@
 
 #include <mpi.h>
 
+#include <rapidsmpf/bootstrap/bootstrap.hpp>
+#include <rapidsmpf/bootstrap/ucxx.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
@@ -27,12 +29,15 @@ using namespace rapidsmpf;
 
 class ArgumentParser {
   public:
-    ArgumentParser(int argc, char* const* argv) {
-        RAPIDSMPF_EXPECTS(mpi::is_initialized() == true, "MPI is not initialized");
+    ArgumentParser(int argc, char* const* argv, bool use_mpi = true) {
+        int rank = 0;
+        int nranks = 1;
 
-        int rank, nranks;
-        RAPIDSMPF_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-        RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
+        if (use_mpi) {
+            RAPIDSMPF_EXPECTS(mpi::is_initialized() == true, "MPI is not initialized");
+            RAPIDSMPF_MPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+            RAPIDSMPF_MPI(MPI_Comm_size(MPI_COMM_WORLD, &nranks));
+        }
 
         try {
             int option;
@@ -44,6 +49,8 @@ class ArgumentParser {
                         ss << "Usage: " << argv[0] << " [options]\n"
                            << "Options:\n"
                            << "  -C <comm>  Communicator {mpi, ucxx} (default: mpi)\n"
+                           << "             ucxx automatically detects launcher (mpirun "
+                              "or rrun)\n"
                            << "  -O <op>    Operation {all-to-all} (default: "
                               "all-to-all)\n"
                            << "  -n <num>   Message size in bytes (default: 1M)\n"
@@ -63,7 +70,11 @@ class ArgumentParser {
                         if (rank == 0) {
                             std::cerr << ss.str();
                         }
-                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
+                        if (use_mpi) {
+                            RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, 0));
+                        } else {
+                            std::exit(0);
+                        }
                     }
                     break;
                 case 'C':
@@ -73,7 +84,11 @@ class ArgumentParser {
                             std::cerr << "-C (Communicator) must be one of {mpi, ucxx}"
                                       << std::endl;
                         }
-                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                        if (use_mpi) {
+                            RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                        } else {
+                            std::exit(-1);
+                        }
                     }
                     break;
                 case 'O':
@@ -114,7 +129,11 @@ class ArgumentParser {
                     break;
 #endif
                 case '?':
-                    RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    if (use_mpi) {
+                        RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+                    } else {
+                        std::exit(-1);
+                    }
                     break;
                 default:
                     RAPIDSMPF_FAIL("unknown option", std::invalid_argument);
@@ -127,7 +146,11 @@ class ArgumentParser {
             if (rank == 0) {
                 std::cerr << "Error parsing arguments: " << e.what() << std::endl;
             }
-            RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+            if (use_mpi) {
+                RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
+            } else {
+                std::exit(-1);
+            }
         }
 
         if (rmm_mr == "cuda") {
@@ -229,27 +252,49 @@ Duration run(
 }
 
 int main(int argc, char** argv) {
-    // Explicitly initialize MPI with thread support, as this is needed for both mpi and
-    // ucxx communicators.
-    int provided;
-    RAPIDSMPF_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
+    // Check if we should use bootstrap mode with rrun
+    // This is determined by checking for RAPIDSMPF_RANK environment variable
+    bool use_bootstrap = std::getenv("RAPIDSMPF_RANK") != nullptr;
 
-    RAPIDSMPF_EXPECTS(
-        provided == MPI_THREAD_MULTIPLE,
-        "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
-    );
+    int provided = 0;
+    if (!use_bootstrap) {
+        // Explicitly initialize MPI with thread support, as this is needed for both mpi
+        // and ucxx communicators.
+        RAPIDSMPF_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
 
-    ArgumentParser args{argc, argv};
+        RAPIDSMPF_EXPECTS(
+            provided == MPI_THREAD_MULTIPLE,
+            "didn't get the requested thread level support: MPI_THREAD_MULTIPLE"
+        );
+    }
+
+    ArgumentParser args{argc, argv, !use_bootstrap};
 
     // Initialize configuration options from environment variables.
     rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables()};
 
     std::shared_ptr<Communicator> comm;
     if (args.comm_type == "mpi") {
+        if (use_bootstrap) {
+            std::cerr << "Error: MPI communicator requires MPI initialization. "
+                      << "Don't use with rrun or unset RAPIDSMPF_RANK." << std::endl;
+            return 1;
+        }
         mpi::init(&argc, &argv);
         comm = std::make_shared<MPI>(MPI_COMM_WORLD, options);
-    } else {  // ucxx
-        comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
+    } else if (args.comm_type == "ucxx") {
+        if (use_bootstrap) {
+            // Launched with rrun - use bootstrap backend
+            comm = rapidsmpf::bootstrap::create_ucxx_comm(
+                rapidsmpf::bootstrap::Backend::AUTO, options
+            );
+        } else {
+            // Launched with mpirun - use MPI bootstrap
+            comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
+        }
+    } else {
+        std::cerr << "Error: Unknown communicator type: " << args.comm_type << std::endl;
+        return 1;
     }
 
     auto& log = comm->logger();
@@ -350,6 +395,8 @@ int main(int argc, char** argv) {
     }
 #endif
 
-    RAPIDSMPF_MPI(MPI_Finalize());
+    if (!use_bootstrap) {
+        RAPIDSMPF_MPI(MPI_Finalize());
+    }
     return 0;
 }
