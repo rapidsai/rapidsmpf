@@ -99,7 +99,17 @@ struct ContentDescription {
      * @param mem_type The memory type entry to access.
      * @return Reference to the size (in bytes) for the given memory type.
      */
-    std::size_t& content_size(MemoryType mem_type) noexcept {
+    [[nodiscard]] std::size_t& content_size(MemoryType mem_type) noexcept {
+        return content_sizes[static_cast<std::size_t>(mem_type)];
+    }
+
+    /**
+     * @brief Get the size for a specific memory type.
+     *
+     * @param mem_type The memory type entry to access.
+     * @return Reference to the size (in bytes) for the given memory type.
+     */
+    [[nodiscard]] std::size_t content_size(MemoryType mem_type) const noexcept {
         return content_sizes[static_cast<std::size_t>(mem_type)];
     }
 
