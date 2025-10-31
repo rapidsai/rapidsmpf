@@ -42,28 +42,6 @@ struct PartitionVectorChunk {
 };
 
 /**
- * @brief Wrap a `PartitionMapChunk` into a `Message`.
- *
- * @param sequence_number Ordering identifier for the message.
- * @param chunk The chunk to wrap into a message.
- * @return A `Message` encapsulating the provided chunk as its payload.
- */
-Message to_message(
-    std::uint64_t sequence_number, std::unique_ptr<PartitionMapChunk> chunk
-);
-
-/**
- * @brief Wrap a `PartitionVectorChunk` into a `Message`.
- *
- * @param sequence_number Ordering identifier for the message.
- * @param chunk The chunk to wrap into a message.
- * @return A `Message` encapsulating the provided chunk as its payload.
- */
-Message to_message(
-    std::uint64_t sequence_number, std::unique_ptr<PartitionVectorChunk> chunk
-);
-
-/**
  * @brief Generate a content description for a `PartitionMapChunk`.
  *
  * @param obj The object's content to describe.
@@ -90,5 +68,27 @@ inline ContentDescription get_content_description(PartitionVectorChunk const& ob
     }
     return ret;
 }
+
+/**
+ * @brief Wrap a `PartitionMapChunk` into a `Message`.
+ *
+ * @param sequence_number Ordering identifier for the message.
+ * @param chunk The chunk to wrap into a message.
+ * @return A `Message` encapsulating the provided chunk as its payload.
+ */
+Message to_message(
+    std::uint64_t sequence_number, std::unique_ptr<PartitionMapChunk> chunk
+);
+
+/**
+ * @brief Wrap a `PartitionVectorChunk` into a `Message`.
+ *
+ * @param sequence_number Ordering identifier for the message.
+ * @param chunk The chunk to wrap into a message.
+ * @return A `Message` encapsulating the provided chunk as its payload.
+ */
+Message to_message(
+    std::uint64_t sequence_number, std::unique_ptr<PartitionVectorChunk> chunk
+);
 
 }  // namespace rapidsmpf::streaming

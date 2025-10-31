@@ -255,6 +255,14 @@ class TableChunk {
 };
 
 /**
+ * @brief Generate a content description for a `TableChunk`.
+ *
+ * @param obj The object's content to describe.
+ * @return A new content description.
+ */
+ContentDescription get_content_description(TableChunk const& obj);
+
+/**
  * @brief Wrap a `TableChunk` into a `Message`.
  *
  * @param sequence_number Ordering identifier for the message.
@@ -262,13 +270,5 @@ class TableChunk {
  * @return A `Message` encapsulating the provided chunk as its payload.
  */
 Message to_message(std::uint64_t sequence_number, std::unique_ptr<TableChunk> chunk);
-
-/**
- * @brief Generate a content description for a `TableChunk`.
- *
- * @param obj The object's content to describe.
- * @return A new content description.
- */
-ContentDescription get_content_description(TableChunk const& obj);
 
 }  // namespace rapidsmpf::streaming

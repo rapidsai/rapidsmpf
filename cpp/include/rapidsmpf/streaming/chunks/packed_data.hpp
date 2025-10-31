@@ -22,6 +22,16 @@ struct PackedDataChunk {
 };
 
 /**
+ * @brief Generate a content description for a `PackedDataChunk`.
+ *
+ * @param obj The object's content to describe.
+ * @return A new content description.
+ */
+inline ContentDescription get_content_description(PackedDataChunk const& obj) {
+    return {{{obj.data.data->mem_type(), obj.data.data->size}}, true};
+}
+
+/**
  * @brief Wrap a `PackedDataChunk` into a `Message`.
  *
  * @param sequence_number Ordering identifier for the message.
@@ -52,16 +62,6 @@ Message to_message(
         }
     };
     return Message{sequence_number, std::move(chunk), std::move(cbs)};
-}
-
-/**
- * @brief Generate a content description for a `PackedDataChunk`.
- *
- * @param obj The object's content to describe.
- * @return A new content description.
- */
-inline ContentDescription get_content_description(PackedDataChunk const& obj) {
-    return {{{obj.data.data->mem_type(), obj.data.data->size}}, true};
 }
 
 }  // namespace rapidsmpf::streaming
