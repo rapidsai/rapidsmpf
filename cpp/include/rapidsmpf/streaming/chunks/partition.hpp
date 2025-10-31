@@ -47,13 +47,7 @@ struct PartitionVectorChunk {
  * @param obj The object's content to describe.
  * @return A new content description.
  */
-inline ContentDescription get_content_description(PartitionMapChunk const& obj) {
-    ContentDescription ret{/* spillable = */ true};
-    for (auto const& [_, packed_data] : obj.data) {
-        ret.content_size(packed_data.data->mem_type()) += packed_data.data->size;
-    }
-    return ret;
-}
+ContentDescription get_content_description(PartitionMapChunk const& obj);
 
 /**
  * @brief Generate a content description for a `PartitionVectorChunk`.
@@ -61,13 +55,7 @@ inline ContentDescription get_content_description(PartitionMapChunk const& obj) 
  * @param obj The object's content to describe.
  * @return A new content description.
  */
-inline ContentDescription get_content_description(PartitionVectorChunk const& obj) {
-    ContentDescription ret{/* spillable = */ true};
-    for (auto const& packed_data : obj.data) {
-        ret.content_size(packed_data.data->mem_type()) += packed_data.data->size;
-    }
-    return ret;
-}
+ContentDescription get_content_description(PartitionVectorChunk const& obj);
 
 /**
  * @brief Wrap a `PartitionMapChunk` into a `Message`.
