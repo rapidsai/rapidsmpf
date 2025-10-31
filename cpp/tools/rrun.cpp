@@ -15,6 +15,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -22,6 +23,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <random>
 #include <sstream>
 #include <string>
@@ -622,63 +624,16 @@ pid_t launch_rank_ssh(
 /**
  * @brief Wait for all child processes and check their exit status.
  */
-int wait_for_ranks(
-    std::vector<pid_t> const& pids,
-    Config const& cfg,
-    std::vector<std::string> const* rank_to_host
-) {
+int wait_for_ranks(std::vector<pid_t> const& pids) {
     int overall_status = 0;
 
     for (size_t i = 0; i < pids.size(); ++i) {
-        // If a signal was received, ensure we trigger remote termination once
-        extern volatile sig_atomic_t g_got_signal;
-        extern int g_signal_num;
-        extern bool g_remote_kill_done;
-        extern bool g_ack_printed;
-        if (g_got_signal && cfg.use_ssh && rank_to_host != nullptr && !g_remote_kill_done)
-        {
-            if (!g_ack_printed) {
-                std::cerr << "Termination requested (signal " << g_signal_num
-                          << ") - terminating remote ranks, please wait, this may take a "
-                             "while..."
-                          << std::endl;
-                g_ack_printed = true;
-            }
-            void terminate_remote_process_groups_with_retries(
-                Config const&, std::vector<std::string> const&, int
-            );
-            terminate_remote_process_groups_with_retries(
-                cfg, *rank_to_host, g_signal_num
-            );
-            g_remote_kill_done = true;
-        }
         int status;
         while (true) {
             pid_t result = waitpid(pids[i], &status, 0);
 
             if (result < 0) {
                 if (errno == EINTR) {
-                    // If interrupted by signal, attempt remote termination once in SSH
-                    // mode
-                    if (g_got_signal && cfg.use_ssh && rank_to_host != nullptr
-                        && !g_remote_kill_done)
-                    {
-                        if (!g_ack_printed) {
-                            std::cerr << "Termination requested (signal " << g_signal_num
-                                      << ") - terminating remote ranks, please wait, "
-                                         "this may take a while..."
-                                      << std::endl;
-                            g_ack_printed = true;
-                        }
-                        // Forward-declared below
-                        void terminate_remote_process_groups_with_retries(
-                            Config const&, std::vector<std::string> const&, int
-                        );
-                        terminate_remote_process_groups_with_retries(
-                            cfg, *rank_to_host, g_signal_num
-                        );
-                        g_remote_kill_done = true;
-                    }
                     // Retry waitpid for the same pid
                     continue;
                 }
@@ -706,26 +661,6 @@ int wait_for_ranks(
     }
 
     return overall_status;
-}
-
-/**
- * @brief Signal handler to cleanup on interrupt.
- */
-std::vector<pid_t>* g_child_pids = nullptr;
-volatile sig_atomic_t g_got_signal = 0;
-int g_signal_num = 0;
-bool g_remote_kill_done = false;
-bool g_ack_printed = false;
-
-void signal_handler(int signum) {
-    if (g_child_pids != nullptr) {
-        // Forward signal to all children
-        for (pid_t pid : *g_child_pids) {
-            kill(pid, signum);
-        }
-    }
-    g_got_signal = 1;
-    g_signal_num = signum;
 }
 
 /**
@@ -950,10 +885,12 @@ int main(int argc, char* argv[]) {
             rank_to_host.resize(static_cast<size_t>(cfg.nranks));
         }
 
-        // Setup signal handler to cleanup children on interrupt
-        g_child_pids = &pids;
-        signal(SIGINT, signal_handler);
-        signal(SIGTERM, signal_handler);
+        // Block SIGINT/SIGTERM in this thread; a dedicated thread will handle them.
+        sigset_t signal_set;
+        sigemptyset(&signal_set);
+        sigaddset(&signal_set, SIGINT);
+        sigaddset(&signal_set, SIGTERM);
+        sigprocmask(SIG_BLOCK, &signal_set, nullptr);
 
         if (cfg.use_ssh) {
             // Multi-node SSH mode
@@ -1004,13 +941,44 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // Start a signal-waiting thread to forward signals and handle remote termination.
+        auto remote_kill_done = std::make_shared<std::atomic<bool>>(false);
+        auto ack_printed = std::make_shared<std::atomic<bool>>(false);
+        std::thread([signal_set,
+                     &pids,
+                     &cfg,
+                     &rank_to_host,
+                     remote_kill_done,
+                     ack_printed]() mutable {
+            for (;;) {
+                int sig = 0;
+                int rc = sigwait(&signal_set, &sig);
+                if (rc != 0) {
+                    return;
+                }
+                // Forward signal to all local children
+                for (pid_t pid : pids) {
+                    (void)kill(pid, sig);
+                }
+                // In SSH mode, terminate remote process groups once with retries
+                if (cfg.use_ssh && !remote_kill_done->exchange(true)) {
+                    if (!ack_printed->exchange(true)) {
+                        std::cerr << "Termination requested (signal " << sig
+                                  << ") - terminating remote ranks, please wait, this "
+                                     "may take a while..."
+                                  << std::endl;
+                    }
+                    terminate_remote_process_groups_with_retries(cfg, rank_to_host, sig);
+                }
+            }
+        }).detach();
+
         if (cfg.verbose) {
             std::cout << "\nAll ranks launched. Waiting for completion...\n" << std::endl;
         }
 
         // Wait for all ranks to complete
-        int exit_status =
-            wait_for_ranks(pids, cfg, cfg.use_ssh ? &rank_to_host : nullptr);
+        int exit_status = wait_for_ranks(pids);
 
         if (cfg.cleanup) {
             if (cfg.verbose) {
