@@ -21,6 +21,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -34,6 +35,7 @@
 
 #include <signal.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 namespace {
 
@@ -434,71 +436,128 @@ Config parse_args(int argc, char* argv[]) {
 }
 
 /**
- * @brief Redirect and tag a file descriptor with a rank prefix.
- * Launches a process to read from the original fd, prepend rank tag, and write to target.
- * (Forward declaration - implementation below)
+ * @brief Helper to fork a child with stdout/stderr redirected to pipes.
+ *
+ * @param out_fd_stdout The file descriptor for stdout.
+ * @param out_fd_stderr The file descriptor for stderr.
+ * @param combine_stderr If true, stderr is redirected to stdout pipe.
+ * @param child_body The function to execute in the child process. Must not throw, must
+ * not return. Must only call exit() or _exit() if an error occurs.
+ * @returns Child pid.
  */
-void setup_tagged_output(int original_fd, int rank, bool is_stderr);
+pid_t fork_with_piped_stdio(
+    int* out_fd_stdout,
+    int* out_fd_stderr,
+    bool combine_stderr,
+    std::function<void()> child_body
+) {
+    if (out_fd_stdout)
+        *out_fd_stdout = -1;
+    if (out_fd_stderr)
+        *out_fd_stderr = -1;
+
+    int pipe_out[2] = {-1, -1};
+    int pipe_err[2] = {-1, -1};
+    if (pipe(pipe_out) < 0)
+        throw std::runtime_error(
+            "Failed to create stdout pipe: " + std::string{std::strerror(errno)}
+        );
+    if (!combine_stderr) {
+        if (pipe(pipe_err) < 0) {
+            close(pipe_out[0]);
+            close(pipe_out[1]);
+            throw std::runtime_error(
+                "Failed to create stderr pipe: " + std::string{std::strerror(errno)}
+            );
+        }
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipe_out[0]);
+        close(pipe_out[1]);
+        if (!combine_stderr) {
+            close(pipe_err[0]);
+            close(pipe_err[1]);
+        }
+        throw std::runtime_error("Failed to fork: " + std::string{std::strerror(errno)});
+    } else if (pid == 0) {
+        // Child: redirect stdout/stderr
+        (void)dup2(pipe_out[1], STDOUT_FILENO);
+        (void)dup2(combine_stderr ? pipe_out[1] : pipe_err[1], STDERR_FILENO);
+        close(pipe_out[0]);
+        close(pipe_out[1]);
+        if (!combine_stderr) {
+            close(pipe_err[0]);
+            close(pipe_err[1]);
+        }
+
+        // Unbuffered output
+        setvbuf(stdout, nullptr, _IONBF, 0);
+        setvbuf(stderr, nullptr, _IONBF, 0);
+
+        // Execute child body (should not return)
+        child_body();
+        _exit(127);
+    }
+
+    // Parent: return read fds
+    close(pipe_out[1]);
+    if (out_fd_stdout)
+        *out_fd_stdout = pipe_out[0];
+    else
+        close(pipe_out[0]);
+    if (!combine_stderr) {
+        close(pipe_err[1]);
+        if (out_fd_stderr)
+            *out_fd_stderr = pipe_err[0];
+        else
+            close(pipe_err[0]);
+    }
+    return pid;
+}
 
 /**
  * @brief Launch a single rank locally (fork-based).
  */
-pid_t launch_rank_local(Config const& cfg, int rank) {
-    pid_t pid = fork();
+pid_t launch_rank_local(
+    Config const& cfg, int rank, int* out_fd_stdout, int* out_fd_stderr
+) {
+    return fork_with_piped_stdio(
+        out_fd_stdout,
+        out_fd_stderr,
+        /*combine_stderr*/ false,
+        [&cfg, rank]() {
+            // Set custom environment variables first (can be overridden by specific vars)
+            for (auto const& env_pair : cfg.env_vars) {
+                setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
+            }
 
-    if (pid < 0) {
-        throw std::runtime_error("Failed to fork: " + std::string{std::strerror(errno)});
-    } else if (pid == 0) {
-        // Child process
+            // Set environment variables
+            setenv("RAPIDSMPF_RANK", std::to_string(rank).c_str(), 1);
+            setenv("RAPIDSMPF_NRANKS", std::to_string(cfg.nranks).c_str(), 1);
+            setenv("RAPIDSMPF_COORD_DIR", cfg.coord_dir.c_str(), 1);
 
-        // Set up output tagging if enabled (must be done before execvp)
-        if (cfg.tag_output) {
-            setup_tagged_output(STDOUT_FILENO, rank, false);
-            setup_tagged_output(STDERR_FILENO, rank, true);
+            // Set CUDA_VISIBLE_DEVICES if GPUs are available
+            if (!cfg.gpus.empty()) {
+                int gpu_id = cfg.gpus[static_cast<size_t>(rank) % cfg.gpus.size()];
+                setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
+            }
+
+            // Prepare arguments for execvp
+            std::vector<char*> exec_args;
+            exec_args.push_back(const_cast<char*>(cfg.app_binary.c_str()));
+            for (auto const& arg : cfg.app_args) {
+                exec_args.push_back(const_cast<char*>(arg.c_str()));
+            }
+            exec_args.push_back(nullptr);
+
+            execvp(cfg.app_binary.c_str(), exec_args.data());
+            std::cerr << "Failed to execute " << cfg.app_binary << ": "
+                      << std::strerror(errno) << std::endl;
+            _exit(1);
         }
-
-        // Disable output buffering to ensure real-time output
-        setvbuf(stdout, nullptr, _IONBF, 0);
-        setvbuf(stderr, nullptr, _IONBF, 0);
-
-        // Preserve parent's LD_LIBRARY_PATH (important for development builds)
-        // No need to set it explicitly as it's inherited from parent
-
-        // Set custom environment variables first (can be overridden by specific vars)
-        for (auto const& env_pair : cfg.env_vars) {
-            setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
-        }
-
-        // Set environment variables
-        setenv("RAPIDSMPF_RANK", std::to_string(rank).c_str(), 1);
-        setenv("RAPIDSMPF_NRANKS", std::to_string(cfg.nranks).c_str(), 1);
-        setenv("RAPIDSMPF_COORD_DIR", cfg.coord_dir.c_str(), 1);
-
-        // Set CUDA_VISIBLE_DEVICES if GPUs are available
-        if (!cfg.gpus.empty()) {
-            int gpu_id = cfg.gpus[static_cast<size_t>(rank) % cfg.gpus.size()];
-            setenv("CUDA_VISIBLE_DEVICES", std::to_string(gpu_id).c_str(), 1);
-        }
-
-        // Prepare arguments for execvp
-        std::vector<char*> exec_args;
-        exec_args.push_back(const_cast<char*>(cfg.app_binary.c_str()));
-        for (auto const& arg : cfg.app_args) {
-            exec_args.push_back(const_cast<char*>(arg.c_str()));
-        }
-        exec_args.push_back(nullptr);
-
-        // Execute application
-        execvp(cfg.app_binary.c_str(), exec_args.data());
-
-        // If execvp returns, it failed
-        std::cerr << "Failed to execute " << cfg.app_binary << ": "
-                  << std::strerror(errno) << std::endl;
-        exit(1);
-    }
-
-    // Parent PID
-    return pid;
+    );
 }
 
 /**
@@ -509,116 +568,105 @@ pid_t launch_rank_ssh(
     int rank,
     std::string const& hostname,
     int local_rank,
-    std::vector<int> const& host_gpus
+    std::vector<int> const& host_gpus,
+    int* out_fd_stdout,
+    int* out_fd_stderr
 ) {
-    pid_t pid = fork();
+    return fork_with_piped_stdio(
+        out_fd_stdout,
+        out_fd_stderr,
+        /*combine_stderr*/ true,
+        [&cfg, rank, &hostname, local_rank, &host_gpus]() {
+            // Build the remote command
+            std::ostringstream remote_cmd;
 
-    if (pid < 0) {
-        throw std::runtime_error("Failed to fork: " + std::string{std::strerror(errno)});
-    } else if (pid == 0) {
-        // Child process - execute SSH command
-
-        // Build the remote command
-        std::ostringstream remote_cmd;
-
-        // Set custom environment variables first
-        for (auto const& env_pair : cfg.env_vars) {
-            remote_cmd << env_pair.first << "=";
-            // Quote value if it contains spaces or special characters
-            if (env_pair.second.find(' ') != std::string::npos
-                || env_pair.second.find('"') != std::string::npos
-                || env_pair.second.find('\'') != std::string::npos)
-            {
-                // Escape double quotes and wrap in double quotes
-                std::string escaped_value = env_pair.second;
-                size_t pos = 0;
-                while ((pos = escaped_value.find('"', pos)) != std::string::npos) {
-                    escaped_value.insert(pos, "\\");
-                    pos += 2;
+            // Set custom environment variables first
+            for (auto const& env_pair : cfg.env_vars) {
+                remote_cmd << env_pair.first << "=";
+                // Quote value if it contains spaces or special characters
+                if (env_pair.second.find(' ') != std::string::npos
+                    || env_pair.second.find('"') != std::string::npos
+                    || env_pair.second.find('\'') != std::string::npos)
+                {
+                    // Escape double quotes and wrap in double quotes
+                    std::string escaped_value = env_pair.second;
+                    size_t pos = 0;
+                    while ((pos = escaped_value.find('"', pos)) != std::string::npos) {
+                        escaped_value.insert(pos, "\\");
+                        pos += 2;
+                    }
+                    remote_cmd << "\"" << escaped_value << "\" ";
+                } else {
+                    remote_cmd << env_pair.second << " ";
                 }
-                remote_cmd << "\"" << escaped_value << "\" ";
-            } else {
-                remote_cmd << env_pair.second << " ";
             }
-        }
 
-        // Set environment variables
-        remote_cmd << "RAPIDSMPF_RANK=" << rank << " ";
-        remote_cmd << "RAPIDSMPF_NRANKS=" << cfg.nranks << " ";
-        remote_cmd << "RAPIDSMPF_COORD_DIR=" << cfg.coord_dir << " ";
+            // Set environment variables
+            remote_cmd << "RAPIDSMPF_RANK=" << rank << " ";
+            remote_cmd << "RAPIDSMPF_NRANKS=" << cfg.nranks << " ";
+            remote_cmd << "RAPIDSMPF_COORD_DIR=" << cfg.coord_dir << " ";
 
-        // Set CUDA_VISIBLE_DEVICES if GPUs specified for this host
-        if (!host_gpus.empty()) {
-            int gpu_id = host_gpus[static_cast<size_t>(local_rank) % host_gpus.size()];
-            remote_cmd << "CUDA_VISIBLE_DEVICES=" << gpu_id << " ";
-        }
-
-        // Build inner application command with args
-        std::ostringstream app_cmd;
-        app_cmd << cfg.app_binary;
-        for (auto const& arg : cfg.app_args) {
-            if (arg.find(' ') != std::string::npos) {
-                app_cmd << " \"" << arg << "\"";
-            } else {
-                app_cmd << " " << arg;
+            // Set CUDA_VISIBLE_DEVICES if GPUs specified for this host
+            if (!host_gpus.empty()) {
+                int gpu_id =
+                    host_gpus[static_cast<size_t>(local_rank) % host_gpus.size()];
+                remote_cmd << "CUDA_VISIBLE_DEVICES=" << gpu_id << " ";
             }
-        }
 
-        // Wrap with POSIX sh to launch app in background, write its PID, then wait
-        remote_cmd << "sh -c '";
-        remote_cmd << "PGFILE=\"$RAPIDSMPF_COORD_DIR/pids/rank_" << rank << ".pgid\"; ";
-        remote_cmd << "umask 022; mkdir -p \"$(dirname \"$PGFILE\")\"; ";
-        remote_cmd << "stdbuf -o0 -e0 " << app_cmd.str() << " & ";
-        remote_cmd << "app_pid=$!; echo \"$app_pid\" > \"$PGFILE\"; ";
-        remote_cmd << "wait \"$app_pid\"";
-        remote_cmd << "'";
+            // Build inner application command with args
+            std::ostringstream app_cmd;
+            app_cmd << cfg.app_binary;
+            for (auto const& arg : cfg.app_args) {
+                if (arg.find(' ') != std::string::npos) {
+                    app_cmd << " \"" << arg << "\"";
+                } else {
+                    app_cmd << " " << arg;
+                }
+            }
 
-        // Wrap command with output tagging if enabled
-        static std::string remote_cmd_storage;
-        if (cfg.tag_output) {
-            // Build a wrapper that tags both stdout and stderr; force unbuffered sed
-            std::ostringstream tagged_cmd;
-            tagged_cmd << "(" << remote_cmd.str() << ") 2>&1 | stdbuf -o0 sed 's/^/["
-                       << rank << "] /'";
-            remote_cmd_storage = tagged_cmd.str();
-        } else {
+            // Wrap with POSIX sh to launch app in background, write its PID, then wait
+            remote_cmd << "sh -c '";
+            remote_cmd << "PGFILE=\"$RAPIDSMPF_COORD_DIR/pids/rank_" << rank
+                       << ".pgid\"; ";
+            remote_cmd << "umask 022; mkdir -p \"$(dirname \"$PGFILE\")\"; ";
+            remote_cmd << "stdbuf -o0 -e0 " << app_cmd.str() << " & ";
+            remote_cmd << "app_pid=$!; echo \"$app_pid\" > \"$PGFILE\"; ";
+            remote_cmd << "wait \"$app_pid\"";
+            remote_cmd << "'";
+
+            static std::string remote_cmd_storage;
             remote_cmd_storage = remote_cmd.str();
-        }
 
-        // Build SSH command
-        std::vector<char*> ssh_args;
-        ssh_args.push_back(const_cast<char*>("ssh"));
+            // Build SSH command
+            std::vector<char*> ssh_args;
+            ssh_args.push_back(const_cast<char*>("ssh"));
 
-        // Add SSH options if provided
-        if (!cfg.ssh_opts.empty()) {
-            // Simple parsing - split on spaces
-            std::istringstream iss(cfg.ssh_opts);
-            static std::vector<std::string> opts_storage;
-            std::string opt;
-            while (iss >> opt) {
-                opts_storage.push_back(opt);
+            // Add SSH options if provided
+            if (!cfg.ssh_opts.empty()) {
+                // Simple parsing - split on spaces
+                std::istringstream iss(cfg.ssh_opts);
+                static std::vector<std::string> opts_storage;
+                std::string opt;
+                while (iss >> opt) {
+                    opts_storage.push_back(opt);
+                }
+                for (auto const& opt : opts_storage) {
+                    ssh_args.push_back(const_cast<char*>(opt.c_str()));
+                }
             }
-            for (auto const& opt : opts_storage) {
-                ssh_args.push_back(const_cast<char*>(opt.c_str()));
-            }
+
+            // Add hostname and remote command
+            static std::string hostname_storage = hostname;
+            ssh_args.push_back(const_cast<char*>(hostname_storage.c_str()));
+            ssh_args.push_back(const_cast<char*>(remote_cmd_storage.c_str()));
+            ssh_args.push_back(nullptr);
+
+            // Execute SSH
+            execvp("ssh", ssh_args.data());
+            std::cerr << "Failed to execute ssh: " << std::strerror(errno) << std::endl;
+            _exit(1);
         }
-
-        // Add hostname and remote command
-        static std::string hostname_storage = hostname;
-        ssh_args.push_back(const_cast<char*>(hostname_storage.c_str()));
-        ssh_args.push_back(const_cast<char*>(remote_cmd_storage.c_str()));
-        ssh_args.push_back(nullptr);
-
-        // Execute SSH
-        execvp("ssh", ssh_args.data());
-
-        // If execvp returns, it failed
-        std::cerr << "Failed to execute ssh: " << std::strerror(errno) << std::endl;
-        exit(1);
-    }
-
-    // Parent process
-    return pid;
+    );
 }
 
 /**
@@ -752,60 +800,6 @@ void terminate_remote_process_groups_with_retries(
     }
 }
 
-/**
- * @brief Redirect and tag a file descriptor with a rank prefix.
- * Launches a process to read from the original fd, prepend rank tag, and write to target.
- */
-void setup_tagged_output(int original_fd, int rank, bool is_stderr) {
-    // Create a pipe for the original output
-    int pipe_fd[2];
-    if (pipe(pipe_fd) < 0) {
-        std::cerr << "Failed to create pipe for output tagging: " << std::strerror(errno)
-                  << std::endl;
-        return;
-    }
-
-    pid_t tag_pid = fork();
-    if (tag_pid < 0) {
-        std::cerr << "Failed to fork for output tagging: " << std::strerror(errno)
-                  << std::endl;
-        close(pipe_fd[0]);
-        close(pipe_fd[1]);
-        return;
-    } else if (tag_pid == 0) {
-        // Child process - reads from pipe and writes tagged output
-        close(pipe_fd[1]);  // Close write end
-
-        FILE* input_stream = fdopen(pipe_fd[0], "r");
-        if (!input_stream) {
-            std::cerr << "Failed to open pipe for reading" << std::endl;
-            exit(1);
-        }
-
-        FILE* output_stream = is_stderr ? stderr : stdout;
-        std::string tag = "[" + std::to_string(rank) + "] ";
-
-        char buffer[4096];
-        while (fgets(buffer, sizeof(buffer), input_stream) != nullptr) {
-            fputs(tag.c_str(), output_stream);
-            fputs(buffer, output_stream);
-            fflush(output_stream);
-        }
-
-        fclose(input_stream);
-        exit(0);
-    } else {
-        // Parent process - redirect original_fd to the write end of pipe
-        close(pipe_fd[0]);  // Close read end
-        if (dup2(pipe_fd[1], original_fd) < 0) {
-            std::cerr << "Failed to redirect fd " << original_fd
-                      << " for tagging: " << std::strerror(errno) << std::endl;
-            close(pipe_fd[1]);
-            return;
-        }
-        close(pipe_fd[1]);  // Close original after dup2
-    }
-}
 
 }  // namespace
 
@@ -892,6 +886,39 @@ int main(int argc, char* argv[]) {
         sigaddset(&signal_set, SIGTERM);
         sigprocmask(SIG_BLOCK, &signal_set, nullptr);
 
+        // Output suppression flag and forwarder threads
+        auto suppress_output = std::make_shared<std::atomic<bool>>(false);
+        std::vector<std::thread> forwarders;
+        forwarders.reserve(static_cast<size_t>(cfg.nranks) * 2);
+
+        // Helper to start a forwarder thread for a given fd
+        auto start_forwarder = [&](int fd, int rank, bool to_stderr) {
+            if (fd < 0)
+                return;
+            forwarders.emplace_back([fd, rank, to_stderr, &cfg, suppress_output]() {
+                FILE* stream = fdopen(fd, "r");
+                if (!stream) {
+                    close(fd);
+                    return;
+                }
+                std::string tag =
+                    cfg.tag_output ? ("[" + std::to_string(rank) + "] ") : std::string{};
+                char buffer[4096];
+                while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
+                    if (suppress_output->load(std::memory_order_relaxed)) {
+                        // Discard further lines after suppression
+                        continue;
+                    }
+                    FILE* out = to_stderr ? stderr : stdout;
+                    if (!tag.empty())
+                        fputs(tag.c_str(), out);
+                    fputs(buffer, out);
+                    fflush(out);
+                }
+                fclose(stream);
+            });
+        };
+
         if (cfg.use_ssh) {
             // Multi-node SSH mode
             int rank = 0;
@@ -902,8 +929,10 @@ int main(int argc, char* argv[]) {
                     if (rank >= cfg.nranks)
                         break;
 
-                    pid_t pid =
-                        launch_rank_ssh(cfg, rank, host.hostname, local_rank, host.gpus);
+                    int fd_out = -1;
+                    pid_t pid = launch_rank_ssh(
+                        cfg, rank, host.hostname, local_rank, host.gpus, &fd_out, nullptr
+                    );
                     pids.push_back(pid);
                     if (static_cast<size_t>(rank) < rank_to_host.size()) {
                         rank_to_host[static_cast<size_t>(rank)] = host.hostname;
@@ -920,13 +949,17 @@ int main(int argc, char* argv[]) {
                         }
                         std::cout << std::endl;
                     }
+                    // Parent-side forwarder for SSH combined stdout/stderr
+                    start_forwarder(fd_out, rank, false);
                     ++rank;
                 }
             }
         } else {
             // Single-node local mode
             for (int rank = 0; rank < cfg.nranks; ++rank) {
-                pid_t pid = launch_rank_local(cfg, rank);
+                int fd_out = -1;
+                int fd_err = -1;
+                pid_t pid = launch_rank_local(cfg, rank, &fd_out, &fd_err);
                 pids.push_back(pid);
 
                 if (cfg.verbose) {
@@ -938,6 +971,9 @@ int main(int argc, char* argv[]) {
                     }
                     std::cout << std::endl;
                 }
+                // Parent-side forwarders for local stdout and stderr
+                start_forwarder(fd_out, rank, false);
+                start_forwarder(fd_err, rank, true);
             }
         }
 
@@ -949,13 +985,16 @@ int main(int argc, char* argv[]) {
                      &cfg,
                      &rank_to_host,
                      remote_kill_done,
-                     ack_printed]() mutable {
+                     ack_printed,
+                     suppress_output]() mutable {
             for (;;) {
                 int sig = 0;
                 int rc = sigwait(&signal_set, &sig);
                 if (rc != 0) {
                     return;
                 }
+                // Stop printing further output immediately
+                suppress_output->store(true, std::memory_order_relaxed);
                 // Forward signal to all local children
                 for (pid_t pid : pids) {
                     (void)kill(pid, sig);
@@ -979,6 +1018,12 @@ int main(int argc, char* argv[]) {
 
         // Wait for all ranks to complete
         int exit_status = wait_for_ranks(pids);
+
+        // Join forwarders before cleanup
+        for (auto& th : forwarders) {
+            if (th.joinable())
+                th.join();
+        }
 
         if (cfg.cleanup) {
             if (cfg.verbose) {
