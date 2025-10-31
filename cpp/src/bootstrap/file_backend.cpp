@@ -23,7 +23,7 @@ namespace detail {
 
 namespace {}  // namespace
 
-FileBackend::FileBackend(Context const& ctx) : ctx_{ctx} {
+FileBackend::FileBackend(Context ctx) : ctx_{std::move(ctx)} {
     RAPIDSMPF_EXPECTS(
         ctx_.coord_dir.has_value(), "FileBackend requires coord_dir in context"
     );
