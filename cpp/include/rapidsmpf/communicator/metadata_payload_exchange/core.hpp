@@ -138,6 +138,10 @@ class MetadataPayloadExchange {
      * Takes ownership of a ready message and manages its transmission, including
      * metadata sending and coordination of data transfer.
      *
+     * The messages sent from the calling process to a destination remote rank are
+     * guaranteed to be received in the same order as they were sent. No ordering is
+     * guaranteed between messages sent to different remote ranks.
+     *
      * @param message Message ready to be sent to a remote rank.
      */
     virtual void send(std::unique_ptr<Message> message) = 0;
@@ -148,13 +152,21 @@ class MetadataPayloadExchange {
      * Takes ownership of ready messages and manages their transmission, including
      * metadata sending and coordination of data transfer.
      *
+     * The messages sent from the calling process to a destination remote rank are
+     * guaranteed to be received in the same order as they were sent. No ordering is
+     * guaranteed between messages sent to different remote ranks.
+     *
      * @param messages Vector of messages ready to be sent to remote ranks.
      */
     virtual void send(std::vector<std::unique_ptr<Message>>&& messages) = 0;
 
     /**
      * @brief Receive messages from remote ranks.
-
+     *
+     * The messages received by the calling process are guaranteed to be received in the
+     * same order as they were sent by the source remote rank. No ordering is guaranteed
+     * between messages received from different remote ranks.
+     *
      * @return Vector of completed messages ready for local processing.
      */
     [[nodiscard]] virtual std::vector<std::unique_ptr<Message>> recv() = 0;
