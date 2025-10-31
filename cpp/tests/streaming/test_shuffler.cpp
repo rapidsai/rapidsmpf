@@ -57,7 +57,7 @@ class StreamingShuffler : public BaseStreamingShuffle,
         cudf::table full_input_table = random_table_with_index(seed, num_rows, 0, 10);
         std::vector<Message> input_chunks;
         for (unsigned int i = 0; i < num_chunks; ++i) {
-            input_chunks.emplace_back(
+            input_chunks.emplace_back(to_message(
                 i,
                 std::make_unique<TableChunk>(
                     std::make_unique<cudf::table>(
@@ -73,7 +73,7 @@ class StreamingShuffler : public BaseStreamingShuffle,
                     ),
                     stream
                 )
-            );
+            ));
         }
 
         // Create and run the streaming pipeline.

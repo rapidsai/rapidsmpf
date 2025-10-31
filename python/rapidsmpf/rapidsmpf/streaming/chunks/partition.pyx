@@ -1,10 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from libc.stdint cimport uint64_t
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
+
+
+cdef extern from "<rapidsmpf/streaming/chunks/partition.hpp>" nogil:
+    cpp_Message cpp_to_message"rapidsmpf::streaming::to_message"\
+        (uint64_t sequence_number, unique_ptr[cpp_PartitionMapChunk]) except +
+    cpp_Message cpp_to_message"rapidsmpf::streaming::to_message"\
+        (uint64_t sequence_number, unique_ptr[cpp_PartitionVectorChunk]) except +
 
 
 cdef class PartitionMapChunk:
@@ -83,7 +91,9 @@ cdef class PartitionMapChunk:
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
-        message._handle = cpp_Message(sequence_number, self.release_handle())
+        message._handle = cpp_to_message(
+            sequence_number, move(self.release_handle())
+        )
 
     cdef const cpp_PartitionMapChunk* handle_ptr(self):
         """
@@ -200,7 +210,9 @@ cdef class PartitionVectorChunk:
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
-        message._handle = cpp_Message(sequence_number, self.release_handle())
+        message._handle = cpp_to_message(
+            sequence_number, move(self.release_handle())
+        )
 
     cdef const cpp_PartitionVectorChunk* handle_ptr(self):
         """

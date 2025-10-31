@@ -1,4 +1,5 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.  # noqa: D100
+# noqa: D100
+# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 from __future__ import annotations

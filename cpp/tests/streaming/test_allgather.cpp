@@ -167,9 +167,11 @@ TEST_P(AsyncAllGather, streaming_node) {
         auto meta = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
         std::memcpy(meta->data(), &size, sizeof(int));
         input_messages.emplace_back(
-            insertion_id,
-            std::make_unique<streaming::PackedDataChunk>(
-                streaming::PackedDataChunk{PackedData{std::move(meta), std::move(buf)}}
+            streaming::to_message(
+                insertion_id,
+                std::make_unique<streaming::PackedDataChunk>(streaming::PackedDataChunk{
+                    PackedData{std::move(meta), std::move(buf)}
+                })
             )
         );
     }

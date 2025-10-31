@@ -50,12 +50,10 @@ Node partition_and_pack(
             )
         };
 
-        co_await ch_out->send(
-            Message{
-                msg.sequence_number(),
-                std::make_unique<PartitionMapChunk>(std::move(partition_map))
-            }
-        );
+        co_await ch_out->send(to_message(
+            msg.sequence_number(),
+            std::make_unique<PartitionMapChunk>(std::move(partition_map))
+        ));
     }
     co_await ch_out->drain(ctx->executor());
 }
@@ -94,7 +92,7 @@ Node unpack_and_concat(
             ctx->statistics()
         );
         co_await ch_out->send(
-            Message{seq, std::make_unique<TableChunk>(std::move(ret), stream)}
+            to_message(seq, std::make_unique<TableChunk>(std::move(ret), stream))
         );
     }
     co_await ch_out->drain(ctx->executor());
