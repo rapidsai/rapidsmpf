@@ -132,11 +132,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
     while (received_messages.empty()) {
         comm_interface->progress();
         auto messages = comm_interface->recv();
-        received_messages.insert(
-            received_messages.end(),
-            std::make_move_iterator(messages.begin()),
-            std::make_move_iterator(messages.end())
-        );
+        std::ranges::move(messages, std::back_inserter(received_messages));
 
         if (received_messages.empty())
             std::this_thread::yield();
@@ -177,11 +173,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveSingleMessage) {
     while (received_messages.empty()) {
         comm_interface->progress();
         auto messages = comm_interface->recv();
-        received_messages.insert(
-            received_messages.end(),
-            std::make_move_iterator(messages.begin()),
-            std::make_move_iterator(messages.end())
-        );
+        std::ranges::move(messages, std::back_inserter(received_messages));
 
         if (received_messages.empty())
             std::this_thread::yield();
@@ -239,11 +231,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveWithData) {
     while (received_messages.empty()) {
         comm_interface->progress();
         auto messages = comm_interface->recv();
-        received_messages.insert(
-            received_messages.end(),
-            std::make_move_iterator(messages.begin()),
-            std::make_move_iterator(messages.end())
-        );
+        std::ranges::move(messages, std::back_inserter(received_messages));
 
         if (received_messages.empty())
             std::this_thread::yield();
@@ -312,11 +300,7 @@ TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
     while (received_messages.size() < num_messages) {
         comm_interface->progress();
         auto messages = comm_interface->recv();
-        received_messages.insert(
-            received_messages.end(),
-            std::make_move_iterator(messages.begin()),
-            std::make_move_iterator(messages.end())
-        );
+        std::ranges::move(messages, std::back_inserter(received_messages));
 
         if (received_messages.size() < num_messages)
             std::this_thread::yield();
