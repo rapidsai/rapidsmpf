@@ -253,4 +253,13 @@ class TableChunk {
     bool is_spillable_;
 };
 
+/**
+ * @brief Wrap a `TableChunk` into a `Message`.
+ *
+ * @param sequence_number Ordering identifier for the message.
+ * @param chunk The chunk to wrap into a message.
+ * @return A `Message` encapsulating the provided chunk as its payload.
+ */
+Message to_message(std::uint64_t sequence_number, std::unique_ptr<TableChunk> chunk);
+
 }  // namespace rapidsmpf::streaming

@@ -74,6 +74,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
     INTERFACE streaming/test_allgather.cpp
               streaming/test_error_handling.cpp
               streaming/test_leaf_node.cpp
+              streaming/test_message.cpp
               streaming/test_partition.cpp
               streaming/test_shuffler.cpp
               streaming/test_table_chunk.cpp

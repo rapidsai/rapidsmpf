@@ -8,7 +8,6 @@ from libcpp.memory cimport shared_ptr
 
 cdef extern from "<rapidsmpf/streaming/core/channel.hpp>" nogil:
     cdef cppclass cpp_Message"rapidsmpf::streaming::Message":
-        cpp_Message(...) except +
         void reset() noexcept
         bool_t empty() noexcept
         uint64_t sequence_number() noexcept
