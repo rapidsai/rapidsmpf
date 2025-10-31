@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
@@ -61,5 +62,33 @@ Message to_message(
 Message to_message(
     std::uint64_t sequence_number, std::unique_ptr<PartitionVectorChunk> chunk
 );
+
+/**
+ * @brief Generate a content description for a `PartitionMapChunk`.
+ *
+ * @param obj The object's content to describe.
+ * @return A new content description.
+ */
+inline ContentDescription get_content_description(PartitionMapChunk const& obj) {
+    ContentDescription ret{/* spillable = */ true};
+    for (auto const& [_, packed_data] : obj.data) {
+        ret.content_size(packed_data.data->mem_type()) += packed_data.data->size;
+    }
+    return ret;
+}
+
+/**
+ * @brief Generate a content description for a `PartitionVectorChunk`.
+ *
+ * @param obj The object's content to describe.
+ * @return A new content description.
+ */
+inline ContentDescription get_content_description(PartitionVectorChunk const& obj) {
+    ContentDescription ret{/* spillable = */ true};
+    for (auto const& packed_data : obj.data) {
+        ret.content_size(packed_data.data->mem_type()) += packed_data.data->size;
+    }
+    return ret;
+}
 
 }  // namespace rapidsmpf::streaming
