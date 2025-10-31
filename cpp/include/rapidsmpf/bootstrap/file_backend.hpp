@@ -118,13 +118,6 @@ class FileBackend {
     );
 
     /**
-     * @brief Recursively create directory if it doesn't exist.
-     *
-     * @param path Path to directory.
-     */
-    void ensure_directory(std::string const& path);
-
-    /**
      * @brief Write string to file atomically.
      *
      * @param path Path to file.

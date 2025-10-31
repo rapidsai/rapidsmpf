@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -26,40 +26,7 @@ namespace bootstrap {
 
 namespace detail {
 
-namespace {
-
-/**
- * @brief Create directory recursively (like mkdir -p).
- */
-void mkdir_p(std::string const& path) {
-    if (path.empty() || path == "/") {
-        return;
-    }
-
-    struct stat st;
-    if (stat(path.c_str(), &st) == 0) {
-        if (S_ISDIR(st.st_mode)) {
-            return;  // Directory already exists
-        } else {
-            throw std::runtime_error("Path exists but is not a directory: " + path);
-        }
-    }
-
-    // Create parent directory first
-    auto pos = path.find_last_of('/');
-    if (pos != std::string::npos && pos > 0) {
-        mkdir_p(path.substr(0, pos));
-    }
-
-    // Create this directory
-    if (mkdir(path.c_str(), 0755) != 0 && errno != EEXIST) {
-        throw std::runtime_error(
-            "Failed to create directory " + path + ": " + std::strerror(errno)
-        );
-    }
-}
-
-}  // namespace
+namespace {}  // namespace
 
 FileBackend::FileBackend(Context const& ctx) : ctx_{ctx} {
     RAPIDSMPF_EXPECTS(
@@ -71,9 +38,9 @@ FileBackend::FileBackend(Context const& ctx) : ctx_{ctx} {
     barrier_dir_ = coord_dir_ + "/barriers";
 
     try {
-        mkdir_p(coord_dir_);
-        mkdir_p(kv_dir_);
-        mkdir_p(barrier_dir_);
+        std::filesystem::create_directories(coord_dir_);
+        std::filesystem::create_directories(kv_dir_);
+        std::filesystem::create_directories(barrier_dir_);
     } catch (std::exception const& e) {
         throw std::runtime_error(
             "Failed to initialize coordination directory structure: "
@@ -237,10 +204,6 @@ bool FileBackend::wait_for_file(
             poll_interval = std::min(poll_interval * 2, std::chrono::milliseconds{100});
         }
     }
-}
-
-void FileBackend::ensure_directory(std::string const& path) {
-    mkdir_p(path);
 }
 
 void FileBackend::write_file(std::string const& path, std::string const& content) {
