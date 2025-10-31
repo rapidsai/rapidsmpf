@@ -59,13 +59,18 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     void send(std::vector<std::unique_ptr<Message>>&& messages) override;
 
     /**
-     * @copydoc MetadataPayloadExchange::recv
+     * @copydoc MetadataPayloadExchange::progress
      *
      * Advances the communication state machine by:
      * - Receiving incoming message metadata
      * - Setting up data transfers
      * - Handling completed data transfers
      * - Cleaning up completed operations
+     */
+    void progress() override;
+
+    /**
+     * @copydoc MetadataPayloadExchange::recv
      */
     std::vector<std::unique_ptr<Message>> recv() override;
 
@@ -108,6 +113,9 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         in_transit_messages_;  ///< Messages currently in transit.
     std::unordered_map<std::uint64_t, std::unique_ptr<Communicator::Future>>
         in_transit_futures_;  ///< Futures corresponding to in-transit messages.
+    std::vector<std::unique_ptr<Message>>
+        received_messages_;  ///< Messages that have completed and are ready to be
+                             ///< retrieved.
 
     // Statistics tracking
     std::shared_ptr<Statistics> statistics_;

@@ -79,7 +79,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
 
     void wait_for_communication_complete() {
         for (int iter = 0; iter < 100 && !comm_interface->is_idle(); ++iter) {
-            comm_interface->recv();
+            comm_interface->progress();
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
@@ -130,6 +130,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
 
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     for (int iter = 0; iter < 10 && received_messages.empty(); ++iter) {
+        comm_interface->progress();
         auto messages = comm_interface->recv();
         received_messages.insert(
             received_messages.end(),
@@ -175,6 +176,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveSingleMessage) {
 
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     for (int iter = 0; iter < 50 && received_messages.empty(); ++iter) {
+        comm_interface->progress();
         auto messages = comm_interface->recv();
         received_messages.insert(
             received_messages.end(),
@@ -237,6 +239,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveWithData) {
 
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     for (int iter = 0; iter < 50 && received_messages.empty(); ++iter) {
+        comm_interface->progress();
         auto messages = comm_interface->recv();
         received_messages.insert(
             received_messages.end(),
@@ -310,6 +313,7 @@ TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
 
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
     for (int iter = 0; iter < 100; ++iter) {
+        comm_interface->progress();
         auto messages = comm_interface->recv();
         received_messages.insert(
             received_messages.end(),

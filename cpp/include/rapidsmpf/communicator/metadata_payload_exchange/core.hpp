@@ -161,6 +161,18 @@ class MetadataPayloadExchange {
     virtual void send(std::vector<std::unique_ptr<Message>>&& messages) = 0;
 
     /**
+     * @brief Progress the communication state machine.
+     *
+     * Advances the internal state of the communication layer by processing pending
+     * operations such as receiving metadata, setting up data transfers, completing
+     * data transfers, and cleaning up completed operations. Completed messages are
+     * stored internally and can be retrieved via recv().
+     *
+     * This method should be called periodically to make progress on communication.
+     */
+    virtual void progress() = 0;
+
+    /**
      * @brief Receive messages from remote ranks.
      *
      * The messages received by the calling process are guaranteed to be received in the

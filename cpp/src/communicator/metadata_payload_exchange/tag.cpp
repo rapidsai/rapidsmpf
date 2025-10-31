@@ -96,24 +96,42 @@ void TagMetadataPayloadExchange::send(
     statistics_->add_duration_stat("comms-interface-send-messages", Clock::now() - t0);
 }
 
-std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
-TagMetadataPayloadExchange::recv() {
+void TagMetadataPayloadExchange::progress() {
     auto const t0 = Clock::now();
 
     // Process all phases of the communication protocol
     receive_metadata();
-    auto completed_messages = setup_data_receives();
+    auto completed_metadata_only = setup_data_receives();
     auto completed_data = complete_data_transfers();
-    completed_messages.insert(
-        completed_messages.end(),
+
+    // Store all completed messages
+    received_messages_.insert(
+        received_messages_.end(),
+        std::make_move_iterator(completed_metadata_only.begin()),
+        std::make_move_iterator(completed_metadata_only.end())
+    );
+    received_messages_.insert(
+        received_messages_.end(),
         std::make_move_iterator(completed_data.begin()),
         std::make_move_iterator(completed_data.end())
     );
+
     cleanup_completed_operations();
+
+    statistics_->add_duration_stat("comms-interface-progress", Clock::now() - t0);
+}
+
+std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
+TagMetadataPayloadExchange::recv() {
+    auto const t0 = Clock::now();
+
+    // Return all completed messages and clear the internal storage
+    auto messages = std::move(received_messages_);
+    received_messages_.clear();
 
     statistics_->add_duration_stat("comms-interface-receive-messages", Clock::now() - t0);
 
-    return completed_messages;
+    return messages;
 }
 
 bool TagMetadataPayloadExchange::is_idle() const {
