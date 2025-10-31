@@ -32,13 +32,41 @@ cuda::experimental::memory_pool_properties get_memory_pool_properties(
 // PinnedMemoryPool implementation
 struct PinnedMemoryPool::PinnedMemoryPoolImpl {
     PinnedMemoryPoolImpl(int numa_id, PinnedPoolProperties const& properties)
-        : p_pool{numa_id, get_memory_pool_properties(properties)} {}
+        : p_pool{
+              properties.max_pool_size > 0
+                  ? with_max_size(
+                        numa_id,
+                        properties.max_pool_size,
+                        get_memory_pool_properties(properties)
+                    )
+                  : cuda::experimental::pinned_memory_pool(
+                        numa_id, get_memory_pool_properties(properties)
+                    )
+          } {}
 
     // TODO: from CUDA 13+ pinned_memory_pool has a constructor that does not accept
     // numa_id, that uses CU_MEM_LOCATION_TYPE_HOST instead of
     // CU_MEM_LOCATION_TYPE_HOST_NUMA
 
     cuda::experimental::pinned_memory_pool p_pool;
+
+    cudaMemPool_t native_handle() const noexcept {
+        return p_pool.get();
+    }
+
+    static cuda::experimental::pinned_memory_pool with_max_size(
+        int numa_id, size_t max_pool_size, cuda::experimental::memory_pool_properties&&
+    ) {
+        cudaMemPool_t pool;
+        cudaMemPoolProps props{};
+        props.allocType = cudaMemAllocationTypePinned;
+        props.location.type = cudaMemLocationTypeHostNuma;
+        props.location.id = numa_id;
+        props.maxSize = max_pool_size;
+        RAPIDSMPF_CUDA_TRY(cudaMemPoolCreate(&pool, &props));
+        // TODO: prime the pool if initial_pool_size is provided
+        return cuda::experimental::pinned_memory_pool::from_native_handle(pool);
+    }
 };
 
 // PinnedMemoryResource implementation
@@ -81,6 +109,10 @@ struct PinnedMemoryPool::PinnedMemoryPoolImpl {
             "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
         );
     }
+
+    cudaMemPool_t native_handle() const noexcept {
+        return nullptr;
+    }
 };
 
 struct PinnedMemoryResource::PinnedMemoryResourceImpl {
@@ -117,6 +149,10 @@ PinnedMemoryPool::PinnedMemoryPool(int numa_id, PinnedPoolProperties properties)
         "PinnedMemoryPool is not supported for CUDA versions "
         "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR
     );
+}
+
+cudaMemPool_t PinnedMemoryPool::native_handle() const noexcept {
+    return impl_->native_handle();
 }
 
 PinnedMemoryPool::PinnedMemoryPool(PinnedPoolProperties properties)

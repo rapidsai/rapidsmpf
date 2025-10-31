@@ -11,6 +11,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include <cuda/std/__exception/cuda_error.h>
+
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
@@ -29,36 +31,8 @@ namespace {
 /**
  * @brief Help function to reserve and allocate a new buffer.
  *
- * First reserve the memory type and then use the reservation to allocate a new
- * buffer. Returns null if reservation failed.
- *
- * @param mem_type The target memory type.
- * @param size The size of the buffer in bytes.
- * @param stream CUDA stream to use for device allocations.
- * @param br Buffer resource used for the reservation and allocation.
- * @returns A new buffer or nullptr.
- */
-std::unique_ptr<Buffer> allocate_buffer(
-    MemoryType mem_type,
-    std::size_t size,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
-) {
-    auto [reservation, _] = br->reserve(mem_type, size, false);
-    if (reservation.size() != size) {
-        return nullptr;
-    }
-    auto ret = br->allocate(size, stream, reservation);
-    RAPIDSMPF_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
-    return ret;
-}
-
-/**
- * @brief Help function to reserve and allocate a new buffer.
- *
- * First reserve device memory and then use the reservation to allocate a new
- * buffer. If not enough device memory is available, host memory is reserved and
- * allocated instead.
+ * Allocation order is [DEVICE, PINNED_HOST, HOST]. If either the reservation or
+ * allocation fails, try the next memory type.
  *
  * @param size The size of the buffer in bytes.
  * @param stream CUDA stream to use for device allocations.
@@ -71,18 +45,25 @@ std::unique_ptr<Buffer> allocate_buffer(
 std::unique_ptr<Buffer> allocate_buffer(
     std::size_t size, rmm::cuda_stream_view stream, BufferResource* br
 ) {
-    std::unique_ptr<Buffer> ret = allocate_buffer(MemoryType::DEVICE, size, stream, br);
-    if (ret) {
-        return ret;
+    for (auto mem_type : MEMORY_TYPES) {
+        if (mem_type == MemoryType::PINNED_HOST && !br->is_pinned_memory_available()) {
+            continue;
+        }
+        auto [reservation, _] = br->reserve(mem_type, size, false);
+        if (reservation.size() == size) {
+            try {
+                return br->allocate(size, stream, reservation);
+            } catch (const rmm::out_of_memory& e) {
+                continue;  // device memory is OOM
+            } catch (const cuda::cuda_error& e) {
+                continue;  // pinned host memory is OOM
+            } catch (const std::bad_alloc& e) {
+                continue;  // host memory is OOM
+            }
+        }
     }
-    // If not enough device memory is available, we try host memory.
-    ret = allocate_buffer(MemoryType::HOST, size, stream, br);
-    RAPIDSMPF_EXPECTS(
-        ret,
-        "Cannot reserve " + format_nbytes(size) + " of device or host memory",
-        std::overflow_error
-    );
-    return ret;
+    RAPIDSMPF_FAIL("failed to reserve memory", std::overflow_error);
+    return nullptr;
 }
 
 /**
@@ -386,8 +367,7 @@ class Shuffler::Progress {
                 for (auto cid : finished) {
                     auto chunk = extract_value(in_transit_chunks_, cid);
                     auto future = extract_value(in_transit_futures_, cid);
-                    chunk.set_data_buffer(
-                        shuffler_.comm_->release_data(std::move(future))
+                    chunk.set_data_buffer(shuffler_.comm_->release_data(std::move(future))
                     );
 
                     for (size_t i = 0; i < chunk.n_messages(); ++i) {
@@ -605,8 +585,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
             auto const t0_elapsed = Clock::now();
-            chunk.set_data_buffer(
-                br_->move(chunk.release_data_buffer(), host_reservation)
+            chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), host_reservation)
             );
             statistics_->add_duration_stat(
                 "spill-time-device-to-host", Clock::now() - t0_elapsed
@@ -717,11 +696,9 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
     // if pids only contains one element, we can just insert the finished chunk
     if (pids.size() == 1) {
-        insert(
-            detail::Chunk::from_finished_partition(
-                get_new_cid(), pids[0], expected_num_chunks[0] + 1
-            )
-        );
+        insert(detail::Chunk::from_finished_partition(
+            get_new_cid(), pids[0], expected_num_chunks[0] + 1
+        ));
         return;
     }
 
@@ -738,17 +715,13 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
         Rank target_rank = partition_owner(comm_, pids[i]);
 
         if (target_rank == comm_->rank()) {  // no group for local chunks
-            insert(
-                Chunk::from_finished_partition(
-                    get_new_cid(), pids[i], expected_num_chunks[i] + 1
-                )
-            );
+            insert(Chunk::from_finished_partition(
+                get_new_cid(), pids[i], expected_num_chunks[i] + 1
+            ));
         } else {
-            chunk_groups[size_t(target_rank)].emplace_back(
-                Chunk::from_finished_partition(
-                    dummy_chunk_id, pids[i], expected_num_chunks[i] + 1
-                )
-            );
+            chunk_groups[size_t(target_rank)].emplace_back(Chunk::from_finished_partition(
+                dummy_chunk_id, pids[i], expected_num_chunks[i] + 1
+            ));
         }
     }
 

@@ -12,6 +12,7 @@
 #include <rmm/cuda_stream_view.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/pinned_memory_resource.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 
@@ -33,11 +34,21 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer)
     : size{device_buffer ? device_buffer->size() : 0},
       storage_{std::move(device_buffer)} {
     RAPIDSMPF_EXPECTS(
-        std::get<DeviceStorageT>(storage_) != nullptr,
-        "the device buffer cannot be NULL",
+        device() != nullptr, "the device buffer cannot be NULL", std::invalid_argument
+    );
+    stream_ = device()->stream();
+    latest_write_event_.record(stream_);
+}
+
+Buffer::Buffer(std::unique_ptr<PinnedHostBuffer> pinned_host_buffer)
+    : size{pinned_host_buffer ? pinned_host_buffer->size() : 0},
+      storage_{std::move(pinned_host_buffer)} {
+    RAPIDSMPF_EXPECTS(
+        pinned_host() != nullptr,
+        "the pinned host buffer cannot be NULL",
         std::invalid_argument
     );
-    stream_ = std::get<DeviceStorageT>(storage_)->stream();
+    stream_ = pinned_host()->stream();
     latest_write_event_.record(stream_);
 }
 
@@ -78,6 +89,24 @@ Buffer::DeviceStorageT const& Buffer::device() const {
         return *ref;
     } else {
         RAPIDSMPF_FAIL("Buffer is not device memory");
+    }
+}
+
+Buffer::PinnedHostStorageT const& Buffer::pinned_host() const {
+    throw_if_locked();
+    if (const auto* ref = std::get_if<PinnedHostStorageT>(&storage_)) {
+        return *ref;
+    } else {
+        RAPIDSMPF_FAIL("Buffer is not pinned host memory");
+    }
+}
+
+Buffer::PinnedHostStorageT& Buffer::pinned_host() {
+    throw_if_locked();
+    if (auto ref = std::get_if<PinnedHostStorageT>(&storage_)) {
+        return *ref;
+    } else {
+        RAPIDSMPF_FAIL("Buffer is not pinned host memory");
     }
 }
 
@@ -126,6 +155,11 @@ Buffer::DeviceStorageT Buffer::release_device() {
 Buffer::HostStorageT Buffer::release_host() {
     throw_if_locked();
     return std::move(host());
+}
+
+Buffer::PinnedHostStorageT Buffer::release_pinned_host() {
+    throw_if_locked();
+    return std::move(pinned_host());
 }
 
 void buffer_copy(
