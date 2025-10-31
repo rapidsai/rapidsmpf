@@ -89,21 +89,21 @@ class FileBackend {
      *
      * @param key Key name
      */
-    std::string get_kv_path(std::string const& key) const;
+    [[nodiscard]] std::string get_kv_path(std::string const& key) const;
 
     /**
      * @brief Get path for a barrier file.
      *
      * @param barrier_id Unique barrier identifier.
      */
-    std::string get_barrier_path(std::size_t barrier_id) const;
+    [[nodiscard]] std::string get_barrier_path(std::size_t barrier_id) const;
 
     /**
      * @brief Get path for rank alive file.
      *
      * @param rank Rank to retrieve file.
      */
-    std::string get_rank_alive_path(Rank rank) const;
+    [[nodiscard]] std::string get_rank_alive_path(Rank rank) const;
 
     /**
      * @brief Wait for a file to exist.
