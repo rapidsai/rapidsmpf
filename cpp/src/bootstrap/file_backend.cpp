@@ -12,9 +12,6 @@
 #include <system_error>
 #include <thread>
 
-#include <dirent.h>
-#include <sys/stat.h>
-
 #include <rapidsmpf/bootstrap/file_backend.hpp>
 #include <rapidsmpf/error.hpp>
 
@@ -168,8 +165,8 @@ bool FileBackend::wait_for_file(
     auto last_dir_scan = start - std::chrono::milliseconds{1000};
 
     while (true) {
-        struct stat st;
-        if (stat(path.c_str(), &st) == 0) {
+        std::error_code ec;
+        if (std::filesystem::exists(path, ec)) {
             return true;  // File exists
         }
 
@@ -178,21 +175,23 @@ bool FileBackend::wait_for_file(
             return false;  // Timeout
         }
 
-        // Hint NFS to refresh directory cache: stat and occasionally readdir on parent.
-        // Without this remote processes may timeout to spawn because NFS never refreshes.
+        // Hint NFS to refresh directory cache: status and occasionally iterate directory
+        // on parent. Without this remote processes may timeout to spawn because NFS never
+        // refreshes.
         if (!parent_dir.empty()) {
-            struct stat dst;
-            (void)stat(parent_dir.c_str(), &dst);
+            (void)std::filesystem::status(parent_dir, ec);
 
             auto now = std::chrono::steady_clock::now();
             if (now - last_dir_scan >= std::chrono::milliseconds{500}) {
-                DIR* dir = opendir(parent_dir.c_str());
-                if (dir) {
-                    struct dirent* entry;
-                    while ((entry = readdir(dir)) != nullptr) {
-                        // no-op; touching entries helps refresh NFS directory cache
+                std::filesystem::directory_iterator it(
+                    parent_dir,
+                    std::filesystem::directory_options::skip_permission_denied,
+                    ec
+                );
+                if (!ec) {
+                    for (; it != std::filesystem::directory_iterator(); ++it) {
+                        (void)it->path();  // no-op; traversal nudges directory cache
                     }
-                    closedir(dir);
                 }
                 last_dir_scan = now;
             }
