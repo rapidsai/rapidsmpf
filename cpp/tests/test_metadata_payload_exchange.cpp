@@ -78,9 +78,9 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     }
 
     void wait_for_communication_complete() {
-        for (int iter = 0; iter < 100 && !comm_interface->is_idle(); ++iter) {
+        while (!comm_interface->is_idle()) {
             comm_interface->progress();
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::yield();
         }
     }
 
@@ -129,7 +129,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
     }
 
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
-    for (int iter = 0; iter < 10 && received_messages.empty(); ++iter) {
+    while (received_messages.empty()) {
         comm_interface->progress();
         auto messages = comm_interface->recv();
         received_messages.insert(
@@ -138,9 +138,8 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
             std::make_move_iterator(messages.end())
         );
 
-        if (!received_messages.empty())
-            break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (received_messages.empty())
+            std::this_thread::yield();
     }
 
     if (comm->rank() == peer_rank) {
@@ -175,7 +174,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveSingleMessage) {
     }
 
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
-    for (int iter = 0; iter < 50 && received_messages.empty(); ++iter) {
+    while (received_messages.empty()) {
         comm_interface->progress();
         auto messages = comm_interface->recv();
         received_messages.insert(
@@ -184,9 +183,8 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveSingleMessage) {
             std::make_move_iterator(messages.end())
         );
 
-        if (!received_messages.empty())
-            break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (received_messages.empty())
+            std::this_thread::yield();
     }
 
     if (comm->rank() == peer_rank) {
@@ -238,7 +236,7 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveWithData) {
     }
 
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
-    for (int iter = 0; iter < 50 && received_messages.empty(); ++iter) {
+    while (received_messages.empty()) {
         comm_interface->progress();
         auto messages = comm_interface->recv();
         received_messages.insert(
@@ -247,9 +245,8 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveWithData) {
             std::make_move_iterator(messages.end())
         );
 
-        if (!received_messages.empty())
-            break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (received_messages.empty())
+            std::this_thread::yield();
     }
 
     if (comm->rank() == peer_rank) {
@@ -312,7 +309,7 @@ TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
     }
 
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
-    for (int iter = 0; iter < 100; ++iter) {
+    while (received_messages.size() < num_messages) {
         comm_interface->progress();
         auto messages = comm_interface->recv();
         received_messages.insert(
@@ -321,9 +318,8 @@ TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
             std::make_move_iterator(messages.end())
         );
 
-        if (received_messages.size() >= num_messages)
-            break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (received_messages.size() < num_messages)
+            std::this_thread::yield();
     }
 
     if (comm->rank() == peer_rank) {
