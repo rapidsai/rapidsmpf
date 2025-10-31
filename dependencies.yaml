@@ -37,6 +37,7 @@ files:
       - cuda_version
       - depends_on_librapidsmpf
       - depends_on_librapidsmpf_tests
+      - depends_on_rapidsmpf_tools
       - test_cpp
   test_python:
     output: none
@@ -371,6 +372,11 @@ dependencies:
       - output_types: conda
         packages:
           - librapidsmpf-tests==25.12.*,>=0.0.0a0
+  depends_on_rapidsmpf_tools:
+    common:
+      - output_types: conda
+        packages:
+          - rapidsmpf-tools==25.12.*,>=0.0.0a0
   depends_on_rapidsmpf:
     common:
       - output_types: conda

@@ -163,3 +163,32 @@ outputs:
       homepage: https://github.com/rapidsai/rapidsmpf
       license: Apache-2.0
       summary: librapidsmpf test executables
+
+  - package:
+      name: rapidsmpf-tools
+      version: ${{ version }}
+    build:
+      script:
+        content: |
+          cmake --install cpp/build --component tools
+      dynamic_linking:
+        overlinking_behavior: "error"
+      prefix_detection:
+        ignore:
+          # See https://github.com/rapidsai/build-planning/issues/160
+          - bin/rrun
+      string: cuda${{ cuda_major }}_${{ date_string }}_${{ head_rev }}
+    requirements:
+      build:
+        - cmake ${{ cmake_version }}
+        - ${{ stdlib("c") }}
+      ignore_run_exports:
+        from_package:
+          - ${{ compiler("c") }}
+          - ${{ compiler("cxx") }}
+          - ${{ compiler("cuda") }} =${{ cuda_version }}
+          - ${{ stdlib("c") }}
+    about:
+      homepage: https://github.com/rapidsai/rapidsmpf
+      license: Apache-2.0
+      summary: rapidsmpf tools

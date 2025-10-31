@@ -47,6 +47,7 @@ DEPENDENCIES=(
   librmm
   pylibcudf
   rapidsmpf
+  rapidsmpf-tools
   rmm
 )
 for DEP in "${DEPENDENCIES[@]}"; do
