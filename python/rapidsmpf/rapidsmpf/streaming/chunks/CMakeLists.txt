@@ -5,7 +5,7 @@
 # cmake-format: on
 # =================================================================================
 
-set(cython_modules partition.pyx)
+set(cython_modules arbitrary.pyx partition.pyx utils.pyx)
 
 rapids_cython_create_modules(
   CXX
