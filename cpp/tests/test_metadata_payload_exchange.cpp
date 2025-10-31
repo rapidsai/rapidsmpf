@@ -84,6 +84,25 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         }
     }
 
+    void verify_data_content(Buffer const* buffer, std::size_t expected_size) {
+        ASSERT_NE(buffer, nullptr);
+        EXPECT_EQ(buffer->size, expected_size);
+
+        std::vector<std::uint8_t> received_data(expected_size);
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            received_data.data(),
+            buffer->data(),
+            expected_size,
+            cudaMemcpyDeviceToHost,
+            stream
+        ));
+        stream.synchronize();
+
+        for (std::size_t i = 0; i < expected_size; ++i) {
+            EXPECT_EQ(received_data[i], static_cast<std::uint8_t>(i % 256));
+        }
+    }
+
     Communicator* comm;
     std::unique_ptr<rmm::mr::device_memory_resource> mr;
     rmm::cuda_stream_view stream;
@@ -134,8 +153,9 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
         auto messages = comm_interface->recv();
         std::ranges::move(messages, std::back_inserter(received_messages));
 
-        if (received_messages.empty())
+        if (received_messages.empty()) {
             std::this_thread::yield();
+        }
     }
 
     EXPECT_EQ(received_messages.size(), 1);
@@ -173,33 +193,16 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveSingleMessage) {
         auto messages = comm_interface->recv();
         std::ranges::move(messages, std::back_inserter(received_messages));
 
-        if (received_messages.empty())
+        if (received_messages.empty()) {
             std::this_thread::yield();
+        }
     }
 
     EXPECT_EQ(received_messages.size(), 1);
     auto& msg = received_messages[0];
     EXPECT_EQ(msg->peer_rank(), prev_rank);
     EXPECT_EQ(msg->metadata(), test_metadata);
-    EXPECT_NE(msg->data(), nullptr);
-    if (msg->data()) {
-        EXPECT_EQ(msg->data()->size, data_size);
-
-        // Verify data
-        std::vector<std::uint8_t> received_data(data_size);
-        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-            received_data.data(),
-            msg->data()->data(),
-            data_size,
-            cudaMemcpyDeviceToHost,
-            stream
-        ));
-        stream.synchronize();
-
-        for (std::size_t i = 0; i < data_size; ++i) {
-            EXPECT_EQ(received_data[i], static_cast<std::uint8_t>(i % 256));
-        }
-    }
+    verify_data_content(msg->data(), data_size);
 
     wait_for_communication_complete();
 
@@ -229,35 +232,16 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveWithData) {
         auto messages = comm_interface->recv();
         std::ranges::move(messages, std::back_inserter(received_messages));
 
-        if (received_messages.empty())
+        if (received_messages.empty()) {
             std::this_thread::yield();
+        }
     }
 
     EXPECT_EQ(received_messages.size(), 1);
-    if (!received_messages.empty()) {
-        auto& msg = received_messages[0];
-        EXPECT_EQ(msg->peer_rank(), prev_rank);
-        EXPECT_EQ(msg->metadata(), test_metadata);
-        EXPECT_NE(msg->data(), nullptr);
-        if (msg->data()) {
-            EXPECT_EQ(msg->data()->size, data_size);
-
-            // Verify data
-            std::vector<std::uint8_t> received_data(data_size);
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                received_data.data(),
-                msg->data()->data(),
-                data_size,
-                cudaMemcpyDeviceToHost,
-                stream
-            ));
-            stream.synchronize();
-
-            for (std::size_t i = 0; i < data_size; ++i) {
-                EXPECT_EQ(received_data[i], static_cast<std::uint8_t>(i % 256));
-            }
-        }
-    }
+    auto& msg = received_messages[0];
+    EXPECT_EQ(msg->peer_rank(), prev_rank);
+    EXPECT_EQ(msg->metadata(), test_metadata);
+    verify_data_content(msg->data(), data_size);
 
     wait_for_communication_complete();
 }
@@ -296,8 +280,9 @@ TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
         auto messages = comm_interface->recv();
         std::ranges::move(messages, std::back_inserter(received_messages));
 
-        if (received_messages.size() < num_messages)
+        if (received_messages.empty()) {
             std::this_thread::yield();
+        }
     }
 
     // All ranks should get all messages from previous rank
@@ -320,25 +305,8 @@ TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
             EXPECT_EQ(msg->data(), nullptr);  // Even indices are metadata-only
         } else {
             EXPECT_NE(msg->data(), nullptr);  // Odd indices have data
-            if (msg->data()) {
-                std::size_t expected_size = (i + 1) * 100;
-                EXPECT_EQ(msg->data()->size, expected_size);
-
-                // Verify data content
-                std::vector<std::uint8_t> received_data(expected_size);
-                RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                    received_data.data(),
-                    msg->data()->data(),
-                    expected_size,
-                    cudaMemcpyDeviceToHost,
-                    stream
-                ));
-                stream.synchronize();
-
-                for (std::size_t j = 0; j < expected_size; ++j) {
-                    EXPECT_EQ(received_data[j], static_cast<std::uint8_t>(j % 256));
-                }
-            }
+            std::size_t expected_size = (i + 1) * 100;
+            verify_data_content(msg->data(), expected_size);  // Odd indices have data
         }
     }
 
