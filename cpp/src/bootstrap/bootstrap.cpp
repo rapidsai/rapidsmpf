@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 
 #include <cuda_device_runtime_api.h>
 
@@ -23,8 +24,10 @@ namespace {
 /**
  * @brief Get environment variable as string.
  */
-std::optional<std::string> getenv_optional(char const* name) {
-    char const* value = std::getenv(name);
+std::optional<std::string> getenv_optional(std::string_view name) {
+    // std::getenv requires a null-terminated string; construct a std::string
+    // to ensure this even when called with a non-literal std::string_view.
+    char const* value = std::getenv(std::string{name}.c_str());
     if (value == nullptr) {
         return std::nullopt;
     }
@@ -34,7 +37,7 @@ std::optional<std::string> getenv_optional(char const* name) {
 /**
  * @brief Parse integer from environment variable.
  */
-std::optional<int> getenv_int(char const* name) {
+std::optional<int> getenv_int(std::string_view name) {
     auto value = getenv_optional(name);
     if (!value) {
         return std::nullopt;
@@ -43,8 +46,8 @@ std::optional<int> getenv_int(char const* name) {
         return std::stoi(*value);
     } catch (...) {
         throw std::runtime_error(
-            std::string{"Failed to parse integer from environment variable "} + name
-            + ": " + *value
+            std::string{"Failed to parse integer from environment variable "}
+            + std::string{name} + ": " + *value
         );
     }
 }

@@ -23,6 +23,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <fcntl.h>
@@ -230,7 +231,7 @@ void remove_dir_recursive(std::string const& path) {
 /**
  * @brief Print usage information.
  */
-void print_usage(char const* prog_name) {
+void print_usage(std::string_view prog_name) {
     std::cout
         << "rrun - RapidsMPF Process Launcher\n\n"
         << "Usage: " << prog_name << " [options] <application> [app_args...]\n\n"
