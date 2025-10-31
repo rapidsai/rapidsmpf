@@ -15,6 +15,7 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -26,11 +27,11 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #include <signal.h>
 #include <sys/wait.h>
-#include <unistd.h>
 
 namespace {
 
@@ -810,9 +811,8 @@ void terminate_remote_process_groups_with_retries(
             sig = SIGKILL;
         }
         terminate_remote_process_groups(cfg, rank_to_host, sig);
-        // Sleep 500ms between attempts, except after final attempt
         if (attempt < 5) {
-            usleep(500000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
     }
 }
