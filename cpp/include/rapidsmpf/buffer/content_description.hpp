@@ -115,28 +115,4 @@ class ContentDescription {
     bool spillable_;
 };
 
-/**
- * @brief Generate a host-only `ContentDescription` for numeric or string values.
- *
- * @tparam T Must be an integral type, a floating-point type, or `std::string`.
- * @param obj The object's content to describe.
- * @return A new content description.
- */
-template <typename T>
-    requires std::is_integral_v<std::remove_cvref_t<T>>
-             || std::is_floating_point_v<std::remove_cvref_t<T>>
-             || std::same_as<std::remove_cvref_t<T>, std::string>
-ContentDescription get_content_description(T const& obj) {
-    using U = std::remove_cvref_t<T>;
-    std::size_t size;
-    if constexpr (std::same_as<U, std::string>) {
-        size = obj.size();
-    } else {
-        size = sizeof(U);
-    }
-    return ContentDescription{
-        {{MemoryType::HOST, size}}, ContentDescription::Spillable::YES
-    };
-}
-
 }  // namespace rapidsmpf
