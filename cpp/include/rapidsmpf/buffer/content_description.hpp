@@ -37,14 +37,14 @@ class ContentDescription {
     };
 
     /**
-     * @brief Construct from a range of (MemoryType, size) pairs.
+     * @brief Construct a content description from a range of (MemoryType, size) pairs.
      *
-     * Unspecified memory types becomes zero.
+     * Memory types not specified in the input are initialized to zero.
      *
      * @tparam Range A range whose value type is convertible to
      * `std::pair<MemoryType, std::size_t>`.
-     * @param sizes Range of (MemoryType, size) pairs.
-     * @param spillable Whether the content are spillable.
+     * @param sizes Range of (MemoryType, size) pairs representing content sizes.
+     * @param spillable Whether the content is spillable to slower memory tiers.
      *
      * @code{.cpp}
      * ContentDescription desc{
