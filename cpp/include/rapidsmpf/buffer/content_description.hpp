@@ -52,7 +52,9 @@ struct ContentDescription {
      * };
      * @endcode
      */
-    template <std::ranges::input_range Range>
+    template <
+        std::ranges::input_range Range =
+            std::initializer_list<std::pair<MemoryType, std::size_t>>>
         requires std::convertible_to<
             std::ranges::range_value_t<Range>,
             std::pair<MemoryType, std::size_t>>
@@ -65,24 +67,6 @@ struct ContentDescription {
             }
         }
     }
-
-    /**
-     * @brief Construct from an initializer list of (MemoryType, size) pairs.
-     *
-     * Unspecified memory types becomes zero.
-     *
-     * @param pairs Initializer list of (MemoryType, size) pairs.
-     * @param spillable Whether the content are spillable.
-     */
-    ContentDescription(
-        std::initializer_list<std::pair<MemoryType, std::size_t>> pairs, bool spillable
-    )
-        : ContentDescription(
-              std::span<std::pair<MemoryType, std::size_t> const>(
-                  pairs.begin(), pairs.size()
-              ),
-              spillable
-          ) {}
 
     /**
      * @brief Construct a description with all sizes zero and a given spillability.
