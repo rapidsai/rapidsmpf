@@ -194,7 +194,10 @@ TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) 
 }
 
 ContentDescription get_content_description(TableChunk const& obj) {
-    ContentDescription ret{obj.is_spillable()};
+    ContentDescription ret{
+        obj.is_spillable() ? ContentDescription::Spillable::YES
+                           : ContentDescription::Spillable::NO
+    };
     for (auto mem_type : MEMORY_TYPES) {
         ret.content_size(mem_type) = obj.data_alloc_size(mem_type);
     }

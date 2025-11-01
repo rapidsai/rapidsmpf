@@ -121,7 +121,7 @@ TEST_F(StreamingPartition, PartitionMapChunkContentDescription) {
 
     auto chunk = std::make_unique<PartitionMapChunk>(std::move(data));
     auto cd = get_content_description(*chunk);
-    EXPECT_EQ(cd.spillable, true);
+    EXPECT_TRUE(cd.spillable());
     EXPECT_EQ(cd.content_size(MemoryType::DEVICE), pack1_size);
     EXPECT_EQ(cd.content_size(MemoryType::HOST), pack2_size);
 }
@@ -139,7 +139,7 @@ TEST_F(StreamingPartition, PartitionVectorChunkContentDescription) {
 
     auto chunk = std::make_unique<PartitionVectorChunk>(std::move(data));
     auto cd = get_content_description(*chunk);
-    EXPECT_EQ(cd.spillable, true);
+    EXPECT_TRUE(cd.spillable());
     EXPECT_EQ(cd.content_size(MemoryType::DEVICE), pack1_size);
     EXPECT_EQ(cd.content_size(MemoryType::HOST), pack2_size);
 }

@@ -8,7 +8,7 @@
 namespace rapidsmpf::streaming {
 
 ContentDescription get_content_description(PartitionMapChunk const& obj) {
-    ContentDescription ret{/* spillable = */ true};
+    ContentDescription ret{ContentDescription::Spillable::YES};
     for (auto const& [_, packed_data] : obj.data) {
         ret.content_size(packed_data.data->mem_type()) += packed_data.data->size;
     }
@@ -16,7 +16,7 @@ ContentDescription get_content_description(PartitionMapChunk const& obj) {
 }
 
 ContentDescription get_content_description(PartitionVectorChunk const& obj) {
-    ContentDescription ret{/* spillable = */ true};
+    ContentDescription ret{ContentDescription::Spillable::YES};
     for (auto const& packed_data : obj.data) {
         ret.content_size(packed_data.data->mem_type()) += packed_data.data->size;
     }

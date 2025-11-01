@@ -28,7 +28,10 @@ struct PackedDataChunk {
  * @return A new content description.
  */
 inline ContentDescription get_content_description(PackedDataChunk const& obj) {
-    return ContentDescription{{{obj.data.data->mem_type(), obj.data.data->size}}, true};
+    return ContentDescription{
+        {{obj.data.data->mem_type(), obj.data.data->size}},
+        ContentDescription::Spillable::YES
+    };
 }
 
 /**

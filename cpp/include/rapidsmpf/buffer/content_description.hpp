@@ -28,7 +28,14 @@ namespace rapidsmpf {
  * While one could imagine an object with a mix of spillable and non-spillable
  * content, this distinction is intentionally simplified in RapidsMPF.
  */
-struct ContentDescription {
+class ContentDescription {
+  public:
+    /** @brief Indicates whether the content is spillable. */
+    enum class Spillable : bool {
+        NO,
+        YES
+    };
+
     /**
      * @brief Construct from a range of (MemoryType, size) pairs.
      *
@@ -45,7 +52,7 @@ struct ContentDescription {
      *         std::pair{MemoryType::HOST,   1024UL},
      *         std::pair{MemoryType::DEVICE, 2048UL}
      *     },
-     *     true // spillable
+     *     ContentDescription::Spillable::YES
      * };
      * @endcode
      */
@@ -55,12 +62,13 @@ struct ContentDescription {
         requires std::convertible_to<
             std::ranges::range_value_t<Range>,
             std::pair<MemoryType, std::size_t>>
-    explicit ContentDescription(Range&& sizes, bool spillable) : spillable(spillable) {
-        content_sizes.fill(0);
+    explicit ContentDescription(Range&& sizes, Spillable spillable)
+        : spillable_(spillable == Spillable::YES) {
+        content_sizes_.fill(0);
         for (auto&& [mem_type, size] : sizes) {
             auto idx = static_cast<std::size_t>(mem_type);
-            if (idx < content_sizes.size()) {
-                content_sizes[idx] = size;
+            if (idx < content_sizes_.size()) {
+                content_sizes_[idx] = size;
             }
         }
     }
@@ -73,7 +81,8 @@ struct ContentDescription {
      *
      * @param spillable Whether the content are spillable.
      */
-    ContentDescription(bool spillable = false) : ContentDescription({{}}, spillable) {}
+    ContentDescription(Spillable spillable = Spillable::NO)
+        : ContentDescription({{}}, spillable) {}
 
     /**
      * @brief Access (read/write) the size for a specific memory type.
@@ -82,7 +91,7 @@ struct ContentDescription {
      * @return Reference to the size (in bytes) for the given memory type.
      */
     [[nodiscard]] std::size_t& content_size(MemoryType mem_type) noexcept {
-        return content_sizes[static_cast<std::size_t>(mem_type)];
+        return content_sizes_[static_cast<std::size_t>(mem_type)];
     }
 
     /**
@@ -92,14 +101,18 @@ struct ContentDescription {
      * @return Reference to the size (in bytes) for the given memory type.
      */
     [[nodiscard]] std::size_t content_size(MemoryType mem_type) const noexcept {
-        return content_sizes[static_cast<std::size_t>(mem_type)];
+        return content_sizes_[static_cast<std::size_t>(mem_type)];
     }
 
-    /// @brief Per memory-type content sizes, in bytes. Unspecified entries are zero.
-    std::array<std::size_t, MEMORY_TYPES.size()> content_sizes = {};
+    /// @brief @return Whether the content can be spilled.
+    [[nodiscard]] constexpr bool spillable() const noexcept {
+        return spillable_;
+    }
 
-    /// @brief Whether the content can be spilled.
-    bool spillable{false};
+  private:
+    /// @brief Per memory-type content sizes, in bytes. Unspecified entries are zero.
+    std::array<std::size_t, MEMORY_TYPES.size()> content_sizes_ = {};
+    bool spillable_;
 };
 
 /**
@@ -121,7 +134,9 @@ ContentDescription get_content_description(T const& obj) {
     } else {
         size = sizeof(U);
     }
-    return ContentDescription{{{MemoryType::HOST, size}}, true};
+    return ContentDescription{
+        {{MemoryType::HOST, size}}, ContentDescription::Spillable::YES
+    };
 }
 
 }  // namespace rapidsmpf
