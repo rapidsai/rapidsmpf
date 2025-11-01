@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
@@ -39,6 +40,22 @@ struct PartitionVectorChunk {
      */
     std::vector<PackedData> data;
 };
+
+/**
+ * @brief Generate a content description for a `PartitionMapChunk`.
+ *
+ * @param obj The object's content to describe.
+ * @return A new content description.
+ */
+ContentDescription get_content_description(PartitionMapChunk const& obj);
+
+/**
+ * @brief Generate a content description for a `PartitionVectorChunk`.
+ *
+ * @param obj The object's content to describe.
+ * @return A new content description.
+ */
+ContentDescription get_content_description(PartitionVectorChunk const& obj);
 
 /**
  * @brief Wrap a `PartitionMapChunk` into a `Message`.

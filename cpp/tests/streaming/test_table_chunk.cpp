@@ -202,6 +202,13 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     EXPECT_TRUE(dev_chunk.is_spillable());
     EXPECT_EQ(dev_chunk.stream().value(), stream.value());
     EXPECT_EQ(dev_chunk.make_available_cost(), 0);
+    {
+        auto cd = get_content_description(dev_chunk);
+        EXPECT_EQ(cd.spillable(), dev_chunk.is_spillable());
+        for (auto mem_type : MEMORY_TYPES) {
+            EXPECT_EQ(cd.content_size(mem_type), dev_chunk.data_alloc_size(mem_type));
+        }
+    }
 
     // Copy to host memory -> new chunk should be unavailable.
     auto host_res = br->reserve_or_fail(
@@ -212,6 +219,13 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     EXPECT_TRUE(host_copy.is_spillable());
     EXPECT_EQ(host_copy.stream().value(), stream.value());
     EXPECT_GT(host_copy.make_available_cost(), 0);
+    {
+        auto cd = get_content_description(host_copy);
+        EXPECT_EQ(cd.spillable(), host_copy.is_spillable());
+        for (auto mem_type : MEMORY_TYPES) {
+            EXPECT_EQ(cd.content_size(mem_type), host_copy.data_alloc_size(mem_type));
+        }
+    }
 
     // Host to host copy.
     auto host_res2 = br->reserve_or_fail(
@@ -222,6 +236,13 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     EXPECT_TRUE(host_copy2.is_spillable());
     EXPECT_EQ(host_copy2.stream().value(), stream.value());
     EXPECT_EQ(host_copy2.make_available_cost(), host_copy.make_available_cost());
+    {
+        auto cd = get_content_description(host_copy2);
+        EXPECT_EQ(cd.spillable(), host_copy2.is_spillable());
+        for (auto mem_type : MEMORY_TYPES) {
+            EXPECT_EQ(cd.content_size(mem_type), host_copy2.data_alloc_size(mem_type));
+        }
+    }
 
     // Bring the new host copy back to device and verify equality.
     auto dev_res = br->reserve_or_fail(
@@ -233,6 +254,13 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     EXPECT_EQ(dev_back.stream().value(), stream.value());
     EXPECT_EQ(dev_back.make_available_cost(), 0);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(dev_back.table_view(), expect);
+    {
+        auto cd = get_content_description(dev_back);
+        EXPECT_EQ(cd.spillable(), dev_back.is_spillable());
+        for (auto mem_type : MEMORY_TYPES) {
+            EXPECT_EQ(cd.content_size(mem_type), dev_back.data_alloc_size(mem_type));
+        }
+    }
 
     // Sanity check: a second device copy should also remain equivalent.
     auto dev_res2 = br->reserve_or_fail(
@@ -242,6 +270,13 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     EXPECT_TRUE(dev_copy2.is_available());
     EXPECT_EQ(dev_copy2.make_available_cost(), 0);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(dev_copy2.table_view(), expect);
+    {
+        auto cd = get_content_description(dev_copy2);
+        EXPECT_EQ(cd.spillable(), dev_copy2.is_spillable());
+        for (auto mem_type : MEMORY_TYPES) {
+            EXPECT_EQ(cd.content_size(mem_type), dev_copy2.data_alloc_size(mem_type));
+        }
+    }
 }
 
 TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
