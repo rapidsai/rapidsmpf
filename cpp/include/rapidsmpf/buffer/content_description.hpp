@@ -29,9 +29,6 @@ namespace rapidsmpf {
  * content, this distinction is intentionally simplified in RapidsMPF.
  */
 struct ContentDescription {
-    /** @brief Description of zero-sized content that is spillable. */
-    ContentDescription() = default;
-
     /**
      * @brief Construct from a range of (MemoryType, size) pairs.
      *
@@ -71,11 +68,12 @@ struct ContentDescription {
     /**
      * @brief Construct a description with all sizes zero and a given spillability.
      *
-     * Useful when you need to build a content description iteratively.
+     * Useful when you need a zero-sized content description or when building a content
+     * description iteratively.
      *
      * @param spillable Whether the content are spillable.
      */
-    ContentDescription(bool spillable) : ContentDescription({{}}, spillable) {}
+    ContentDescription(bool spillable = false) : ContentDescription({{}}, spillable) {}
 
     /**
      * @brief Access (read/write) the size for a specific memory type.
