@@ -46,6 +46,10 @@ cdef class Message:
         with nogil:
             self._handle.reset()
 
+    @classmethod
+    def __class_getitem__(cls, item):
+        return cls
+
     def empty(self):
         """
         Return whether this message is empty.
