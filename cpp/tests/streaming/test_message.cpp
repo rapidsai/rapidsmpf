@@ -92,26 +92,27 @@ TEST_F(StreamingMessage, CopyWithoutCallbacks) {
 }
 
 TEST_F(StreamingMessage, CopyWithCallbacks) {
-    Message::Callbacks cbs{
-        .copy = [](Message const& msg,
-                   BufferResource* br,
-                   MemoryReservation& reservation) -> Message {
-            EXPECT_TRUE(msg.holds<Buffer>());
-            auto const& src = msg.get<Buffer>();
-            auto dst = br->allocate(src.size, src.stream(), reservation);
-            buffer_copy(*dst, src, src.size);
-            ContentDescription cd{
-                {{dst->mem_type(), dst->size}}, ContentDescription::Spillable::YES
-            };
-            return Message{msg.sequence_number(), std::move(dst), cd, msg.callbacks()};
-        }
+    Message::CopyCallback copy_cb = [](Message const& msg,
+                                       BufferResource* br,
+                                       MemoryReservation& reservation) -> Message {
+        EXPECT_TRUE(msg.holds<Buffer>());
+        auto const& src = msg.get<Buffer>();
+        auto dst = br->allocate(src.size, src.stream(), reservation);
+        buffer_copy(*dst, src, src.size);
+        ContentDescription cd{
+            {{dst->mem_type(), dst->size}}, ContentDescription::Spillable::YES
+        };
+        return Message{msg.sequence_number(), std::move(dst), cd, msg.copy_cb()};
     };
     {
         ContentDescription cd{
             {{MemoryType::HOST, 10}}, ContentDescription::Spillable::YES
         };
         Message m1{
-            42, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cd, cbs
+            42,
+            br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)),
+            cd,
+            copy_cb
         };
         EXPECT_EQ(m1.copy_cost(), 10);
         auto res = br->reserve_or_fail(m1.copy_cost(), MemoryType::HOST);
@@ -125,7 +126,10 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
             {{MemoryType::DEVICE, 10}}, ContentDescription::Spillable::YES
         };
         Message m1{
-            42, br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cd, cbs
+            42,
+            br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)),
+            cd,
+            copy_cb
         };
         EXPECT_EQ(m1.copy_cost(), 10);
         auto res = br->reserve_or_fail(m1.copy_cost(), MemoryType::DEVICE);

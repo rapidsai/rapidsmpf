@@ -26,10 +26,14 @@ ContentDescription get_content_description(PartitionVectorChunk const& obj) {
 Message to_message(
     std::uint64_t sequence_number, std::unique_ptr<PartitionMapChunk> chunk
 ) {
-    Message::Callbacks cbs{
-        .copy = [](Message const& msg,
-                   BufferResource* br,
-                   MemoryReservation& reservation) -> Message {
+    auto cd = get_content_description(*chunk);
+    return Message{
+        sequence_number,
+        std::move(chunk),
+        cd,
+        [](Message const& msg,
+           BufferResource* br,
+           MemoryReservation& reservation) -> Message {
             auto const& self = msg.get<PartitionMapChunk>();
             std::unordered_map<shuffler::PartID, PackedData> pd;
             for (auto const& [pid, packed_data] : self.data) {
@@ -37,20 +41,22 @@ Message to_message(
             }
             auto chunk = std::make_unique<PartitionMapChunk>(std::move(pd));
             auto cd = get_content_description(*chunk);
-            return Message{msg.sequence_number(), std::move(chunk), cd, msg.callbacks()};
+            return Message{msg.sequence_number(), std::move(chunk), cd, msg.copy_cb()};
         }
     };
-    auto cd = get_content_description(*chunk);
-    return Message{sequence_number, std::move(chunk), cd, std::move(cbs)};
 }
 
 Message to_message(
     std::uint64_t sequence_number, std::unique_ptr<PartitionVectorChunk> chunk
 ) {
-    Message::Callbacks cbs{
-        .copy = [](Message const& msg,
-                   BufferResource* br,
-                   MemoryReservation& reservation) -> Message {
+    auto cd = get_content_description(*chunk);
+    return Message{
+        sequence_number,
+        std::move(chunk),
+        cd,
+        [](Message const& msg,
+           BufferResource* br,
+           MemoryReservation& reservation) -> Message {
             auto const& self = msg.get<PartitionVectorChunk>();
             std::vector<PackedData> pd;
             for (auto const& packed_data : self.data) {
@@ -58,11 +64,9 @@ Message to_message(
             }
             auto chunk = std::make_unique<PartitionVectorChunk>(std::move(pd));
             auto cd = get_content_description(*chunk);
-            return Message{msg.sequence_number(), std::move(chunk), cd, msg.callbacks()};
+            return Message{msg.sequence_number(), std::move(chunk), cd, msg.copy_cb()};
         }
     };
-    auto cd = get_content_description(*chunk);
-    return Message{sequence_number, std::move(chunk), cd, std::move(cbs)};
 }
 
 }  // namespace rapidsmpf::streaming

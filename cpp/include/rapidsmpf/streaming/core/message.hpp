@@ -27,44 +27,39 @@ namespace rapidsmpf::streaming {
 class Message {
   public:
     /**
-     * @brief Callback functions associated with a message.
+     * @brief Callback for performing a deep copy of a message.
      *
-     * Allows type-specific customization of memory-related operations, such as
-     * computing data sizes or performing deep copies.
+     * The copy operation allocates new memory for the message's payload using the
+     * provided buffer resource and memory reservation. The memory type specified
+     * in the reservation determines where the new copy will primarily reside
+     * (e.g., device or host memory).
+     *
+     * @param msg Source message to copy.
+     * @param br Buffer resource used for memory allocations.
+     * @param reservation Memory reservation to consume during allocation.
+     * @return A new `Message` instance containing a deep copy of the payload.
      */
-    struct Callbacks {
-        /**
-         * @brief Callback for performing a deep copy of a message.
-         *
-         * The copy operation allocates new memory for the message's payload using the
-         * provided buffer resource and memory reservation. The memory type specified
-         * in the reservation determines where the new copy will primarily reside
-         * (e.g., device or host memory).
-         *
-         * @param msg Source message to copy.
-         * @param br Buffer resource used for memory allocations.
-         * @param reservation Memory reservation to consume during allocation.
-         * @return A new `Message` instance containing a deep copy of the payload.
-         */
-        std::function<
-            Message(Message const&, BufferResource* br, MemoryReservation& reservation)>
-            copy;
-    };
+    using CopyCallback = std::function<
+        Message(Message const&, BufferResource* br, MemoryReservation& reservation)>;
 
-    // @brief Create an empty message.
+    /// @brief Create an empty message.
     Message() = default;
 
     /**
      * @brief Construct a new message from a unique pointer to its payload.
      *
-     * Optionally, a set of `Callbacks` can be provided to define custom behavior
-     * for size computation, copying, and other message operations.
+     * The message may optionally support deep-copy and spilling operations through a
+     * user-provided `CopyCallback`. If no callback is provided, copy and spill
+     * operations are disabled.
      *
      * @tparam T Type of the payload to store inside the message.
      * @param sequence_number Ordering identifier for the message.
      * @param payload Non-null unique pointer to the payload.
-     * @param content_description The payload's content description.
-     * @param callbacks Optional set of callbacks defining message operations.
+     * @param content_description Description of the payload's content. When a copy
+     * callback is provided, this description must accurately reflect the content of the
+     * payload (e.g., per-memory-type sizes and spillable status).
+     * @param copy_cb Optional callback used to perform deep copies of the message. If
+     * `nullptr`, copying and spilling are disabled.
      *
      * @note Sequence numbers are used to ensure that when multiple producers send into
      * the same output channel, channel ordering is preserved. Specifically, the guarantee
@@ -84,11 +79,11 @@ class Message {
         std::uint64_t sequence_number,
         std::unique_ptr<T> payload,
         ContentDescription content_description,
-        Callbacks callbacks = Callbacks{}
+        CopyCallback copy_cb = nullptr
     )
         : sequence_number_(sequence_number),
           content_description_{content_description},
-          callbacks_{std::move(callbacks)} {
+          copy_cb_{std::move(copy_cb)} {
         RAPIDSMPF_EXPECTS(
             payload != nullptr, "nullptr not allowed", std::invalid_argument
         );
@@ -182,15 +177,12 @@ class Message {
     }
 
     /**
-     * @brief Returns the callbacks associated with this message.
+     * @brief Returns the content description associated with the message.
      *
-     * The callbacks define custom behaviors for operations such as
-     * `content_size()` and `copy()`.
-     *
-     * @return Constant reference to the message's registered callbacks.
+     * @return The message's content description.
      */
-    [[nodiscard]] constexpr Callbacks const& callbacks() const noexcept {
-        return callbacks_;
+    [[nodiscard]] constexpr CopyCallback const& copy_cb() const noexcept {
+        return copy_cb_;
     }
 
     /**
@@ -234,9 +226,9 @@ class Message {
      */
     [[nodiscard]] Message copy(BufferResource* br, MemoryReservation& reservation) const {
         RAPIDSMPF_EXPECTS(
-            callbacks_.copy, "message doesn't support `copy`", std::invalid_argument
+            copy_cb(), "message doesn't support `copy`", std::invalid_argument
         );
-        return callbacks_.copy(*this, br, reservation);
+        return copy_cb()(*this, br, reservation);
     }
 
   private:
@@ -258,7 +250,7 @@ class Message {
     std::uint64_t sequence_number_{0};
     std::any payload_;
     ContentDescription content_description_;
-    Callbacks callbacks_;
+    CopyCallback copy_cb_;
 };
 
 }  // namespace rapidsmpf::streaming

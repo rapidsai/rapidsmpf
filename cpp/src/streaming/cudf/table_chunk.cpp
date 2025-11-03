@@ -205,18 +205,20 @@ ContentDescription get_content_description(TableChunk const& obj) {
 }
 
 Message to_message(std::uint64_t sequence_number, std::unique_ptr<TableChunk> chunk) {
-    Message::Callbacks cbs{
-        .copy = [](Message const& msg,
-                   BufferResource* br,
-                   MemoryReservation& reservation) -> Message {
+    auto cd = get_content_description(*chunk);
+    return Message{
+        sequence_number,
+        std::move(chunk),
+        cd,
+        [](Message const& msg,
+           BufferResource* br,
+           MemoryReservation& reservation) -> Message {
             auto const& self = msg.get<TableChunk>();
             auto chunk = std::make_unique<TableChunk>(self.copy(br, reservation));
             auto cd = get_content_description(*chunk);
-            return Message{msg.sequence_number(), std::move(chunk), cd, msg.callbacks()};
+            return Message{msg.sequence_number(), std::move(chunk), cd, msg.copy_cb()};
         }
     };
-    auto cd = get_content_description(*chunk);
-    return Message{sequence_number, std::move(chunk), cd, std::move(cbs)};
 }
 
 }  // namespace rapidsmpf::streaming
