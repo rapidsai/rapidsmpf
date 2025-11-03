@@ -109,7 +109,6 @@ Context init(Backend backend) {
         {
             // Should have been resolved above
             RAPIDSMPF_FAIL("Backend::AUTO should have been resolved", std::logic_error);
-            break;
         }
     }
 
