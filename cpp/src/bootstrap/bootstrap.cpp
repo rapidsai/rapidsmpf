@@ -158,9 +158,7 @@ void put(Context const& ctx, std::string const& key, std::string const& value) {
     }
 }
 
-std::string get(
-    Context const& ctx, std::string const& key, std::chrono::milliseconds timeout
-) {
+std::string get(Context const& ctx, std::string const& key, Duration timeout) {
     switch (ctx.backend) {
     case Backend::FILE:
         {

@@ -67,13 +67,14 @@ void FileBackend::put(std::string const& key, std::string const& value) {
     write_file(path, value);
 }
 
-std::string FileBackend::get(std::string const& key, std::chrono::milliseconds timeout) {
+std::string FileBackend::get(std::string const& key, Duration timeout) {
     std::string path = get_kv_path(key);
 
-    if (!wait_for_file(path, timeout)) {
+    auto timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout);
+    if (!wait_for_file(path, timeout_ms)) {
         throw std::runtime_error(
             "Key '" + key + "' not available within " + std::to_string(timeout.count())
-            + "ms timeout"
+            + "s timeout"
         );
     }
 

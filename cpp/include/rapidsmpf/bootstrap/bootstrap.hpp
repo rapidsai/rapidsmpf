@@ -12,11 +12,15 @@
 #include <string>
 
 #include <rapidsmpf/config.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf::bootstrap {
 
 /// @brief Type alias for communicator::Rank
 using Rank = std::int32_t;
+
+/// @brief Type alias for duration type
+using rapidsmpf::Duration;
 
 /**
  * @brief Backend types for process coordination and bootstrapping.
@@ -129,7 +133,7 @@ void put(Context const& ctx, std::string const& key, std::string const& value);
 std::string get(
     Context const& ctx,
     std::string const& key,
-    std::chrono::milliseconds timeout = std::chrono::milliseconds{30000}
+    Duration timeout = std::chrono::milliseconds{30000}
 );
 
 }  // namespace rapidsmpf::bootstrap

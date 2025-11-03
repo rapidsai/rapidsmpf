@@ -55,7 +55,7 @@ class FileBackend {
      * @param timeout Timeout duration.
      * @return Value associated with key.
      */
-    std::string get(std::string const& key, std::chrono::milliseconds timeout);
+    std::string get(std::string const& key, Duration timeout);
 
     /**
      * @brief Perform a barrier synchronization.
