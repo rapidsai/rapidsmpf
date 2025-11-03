@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
-from cpython.ref cimport Py_XDECREF
 from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
 from libc.stdint cimport uint64_t
@@ -12,6 +11,7 @@ from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 
+from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 
@@ -61,12 +61,6 @@ cdef extern from *:
         cpp_release_table_chunk_from_message(cpp_Message) except +
 
     unique_ptr[cpp_TableChunk] cpp_from_table_view_with_owner(...) except +
-
-
-cdef void py_deleter(void *p) noexcept nogil:
-    if p != NULL:
-        with gil:
-            Py_XDECREF(<PyObject*>p)
 
 
 cdef class TableChunk:
