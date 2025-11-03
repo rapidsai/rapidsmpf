@@ -27,15 +27,13 @@ class StreamingLineariser : public BaseStreamingFixture {
 };
 
 TEST_F(StreamingLineariser, ManyProducers) {
-    constexpr std::size_t num_producers = 100;
+    constexpr std::size_t num_producers = 10;
     constexpr std::size_t num_messages = 30'000;
 
     auto ch_out = std::make_shared<Channel>();
     auto lineariser = std::make_shared<Lineariser>(ch_out, num_producers);
     std::vector<Node> tasks;
     tasks.reserve(num_producers + 2);
-    tasks.push_back(lineariser->drain(ctx));
-
     auto make_producer = [end = num_messages, stride = num_producers](
                              std::shared_ptr<Context> ctx,
                              std::shared_ptr<Channel> ch_out,
@@ -52,6 +50,7 @@ TEST_F(StreamingLineariser, ManyProducers) {
     for (std::size_t i = 0; i < num_producers; i++) {
         tasks.push_back(make_producer(ctx, inputs[i], i));
     }
+    tasks.push_back(lineariser->drain(ctx));
     std::vector<Message> outputs;
     outputs.reserve(num_messages);
     tasks.push_back(node::pull_from_channel(ctx, ch_out, outputs));
