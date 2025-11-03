@@ -89,7 +89,9 @@ class Message {
      * the same output channel, channel ordering is preserved. Specifically, the guarantee
      * is that `Channel`s always produce elements in increasing sequence number order. To
      * ensure this, single producers must promise to send into the channels in strictly
-     * increasing sequence number order. Behaviour is undefined if not.
+     * increasing sequence number order. Behaviour is undefined if not. To ensure
+     * insertion into an output channel from multiple producers obeys this invariant, use
+     * a `Lineariser`.
      *
      * This promise allows consumers to ensure ordering by buffering at most
      * `num_consumers` messages, rather than needing to buffer the entire channel input.

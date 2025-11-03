@@ -175,3 +175,20 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInConsume) {
     }
     EXPECT_THROW(run_streaming_pipeline(std::move(consumers)), std::runtime_error);
 }
+
+class StreamingThrottledAdaptor : public StreamingLeafTasks,
+                                  public ::testing::WithParamInterface<int> {};
+
+INSTANTIATE_TEST_SUITE_P(
+    InvalidMaxTickets, StreamingThrottledAdaptor, ::testing::Values(-1, 0)
+);
+
+TEST_P(StreamingThrottledAdaptor, NonPositiveThrottleThrows) {
+    if (GlobalEnvironment->comm_->rank() != 0) {
+        // Test is independent of size of communicator.
+        GTEST_SKIP() << "Test only runs on rank zero";
+    }
+    int max_tickets = GetParam();
+    auto ch = std::make_shared<Channel>();
+    EXPECT_THROW(ThrottlingAdaptor(ch, max_tickets), std::logic_error);
+}

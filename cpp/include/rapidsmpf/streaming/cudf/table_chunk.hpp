@@ -13,6 +13,7 @@
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
 
+#include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
@@ -252,6 +253,14 @@ class TableChunk {
     rmm::cuda_stream_view stream_;
     bool is_spillable_;
 };
+
+/**
+ * @brief Generate a content description for a `TableChunk`.
+ *
+ * @param obj The object's content to describe.
+ * @return A new content description.
+ */
+ContentDescription get_content_description(TableChunk const& obj);
 
 /**
  * @brief Wrap a `TableChunk` into a `Message`.
