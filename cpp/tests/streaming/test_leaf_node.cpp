@@ -23,6 +23,7 @@
 
 #include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
+#include "rapidsmpf/buffer/content_description.hpp"
 
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
@@ -91,13 +92,16 @@ Node producer(
 ) {
     co_await ctx->executor()->schedule();
     auto ticket = co_await ch->acquire();
-    auto [_, receipt] =
-        co_await ticket.send(non_content_to_message(0, std::make_unique<int>(val)));
+    auto [_, receipt] = co_await ticket.send(
+        Message{0, std::make_unique<int>(val), ContentDescription{}}
+    );
     if (should_throw) {
         throw std::runtime_error("Producer throws");
     }
     EXPECT_THROW(
-        co_await ticket.send(non_content_to_message(0, std::make_unique<int>(val))),
+        co_await ticket.send(
+            Message{0, std::make_unique<int>(val), ContentDescription{}}
+        ),
         std::logic_error
     );
     co_await receipt;

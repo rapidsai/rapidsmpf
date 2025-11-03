@@ -12,8 +12,6 @@
 #include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 
-#include "rapidsmpf/buffer/content_description.hpp"
-
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
 

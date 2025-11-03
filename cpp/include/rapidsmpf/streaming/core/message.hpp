@@ -63,6 +63,7 @@ class Message {
      * @tparam T Type of the payload to store inside the message.
      * @param sequence_number Ordering identifier for the message.
      * @param payload Non-null unique pointer to the payload.
+     * @param content_description The payload's content description.
      * @param callbacks Optional set of callbacks defining message operations.
      *
      * @note Sequence numbers are used to ensure that when multiple producers send into
@@ -173,7 +174,7 @@ class Message {
     /**
      * @brief Returns the content description associated with the message.
      *
-     * @return A reference to the message's associated `ContentDescription`.
+     * @return The message's content description.
      */
     [[nodiscard]] constexpr ContentDescription const&
     content_description() const noexcept {
@@ -259,10 +260,5 @@ class Message {
     ContentDescription content_description_;
     Callbacks callbacks_;
 };
-
-template <typename T>
-Message non_content_to_message(std::uint64_t sequence_number, std::unique_ptr<T> chunk) {
-    return Message{sequence_number, std::move(chunk), ContentDescription{}};
-}
 
 }  // namespace rapidsmpf::streaming
