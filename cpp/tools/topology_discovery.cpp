@@ -106,6 +106,26 @@ struct NetworkDevice {
 };
 
 /**
+ * @brief PCIe topology path types.
+ */
+enum class PciePathType {
+    PIX = 0,  // Single PCIe bridge
+    PXB = 1,  // Multiple PCIe bridges
+    PHB = 2,  // PCIe Host Bridge
+    NODE = 3,  // PCIe + interconnect within NUMA node
+    SYS = 4  // Cross-NUMA connection
+};
+
+/**
+ * @brief Network device with topology information.
+ */
+struct NetworkDeviceWithTopology {
+    std::string name;
+    int numa_node;
+    std::string pci_bus_id;
+};
+
+/**
  * @brief Read a file and return its content.
  *
  * @param path File to read.
@@ -239,12 +259,93 @@ std::string get_pci_bus_id_from_device(std::string const& device_path) {
 }
 
 /**
+ * @brief Parse PCI bus number from PCI ID.
+ *
+ * The format is domain:bus:device.function, e.g., "0000:06:00.0".
+
+ * @param pci_id PCI ID string.
+ * @return PCI bus number in hexadecimal, or -1 if parsing fails.
+ */
+int get_pci_bus_number(std::string const& pci_id) {
+    size_t first_colon = pci_id.find(':');
+    if (first_colon == std::string::npos)
+        return -1;
+
+    size_t second_colon = pci_id.find(':', first_colon + 1);
+    if (second_colon == std::string::npos)
+        return -1;
+
+    std::string bus_str = pci_id.substr(first_colon + 1, second_colon - first_colon - 1);
+    try {
+        return std::stoi(bus_str, nullptr, 16);
+    } catch (...) {
+        return -1;
+    }
+}
+
+/**
+ * @brief Get PCIe path type between two devices by analyzing /sys topology.
+ *
+ * @param gpu_pci_id PCI bus ID of the GPU device.
+ * @param nic_pci_id PCI bus ID of the NIC device.
+ * @return PCIe path type indicating connection quality (PIX, PXB, PHB, NODE, or SYS).
+ */
+PciePathType get_pcie_path_type(
+    std::string const& gpu_pci_id, std::string const& nic_pci_id
+) {
+    std::string gpu_norm = normalize_pci_bus_id(gpu_pci_id);
+    std::string nic_norm = normalize_pci_bus_id(nic_pci_id);
+
+    // Read NUMA nodes
+    int gpu_numa = -1, nic_numa = -1;
+    std::string gpu_numa_str =
+        read_file_content("/sys/bus/pci/devices/" + gpu_norm + "/numa_node");
+    std::string nic_numa_str =
+        read_file_content("/sys/bus/pci/devices/" + nic_norm + "/numa_node");
+
+    if (!gpu_numa_str.empty())
+        gpu_numa = std::stoi(gpu_numa_str);
+    if (!nic_numa_str.empty())
+        nic_numa = std::stoi(nic_numa_str);
+
+    // If different NUMA nodes, it's a SYS connection
+    if (gpu_numa != nic_numa && gpu_numa >= 0 && nic_numa >= 0) {
+        return PciePathType::SYS;
+    }
+
+    // Use PCI bus number proximity as a heuristic for connection quality
+    // Devices on nearby PCI buses are typically on the same PCIe root complex
+    int gpu_bus = get_pci_bus_number(gpu_pci_id);
+    int nic_bus = get_pci_bus_number(nic_pci_id);
+
+    if (gpu_bus < 0 || nic_bus < 0) {
+        // Can't determine, assume PHB
+        return PciePathType::PHB;
+    }
+
+    int bus_distance = std::abs(gpu_bus - nic_bus);
+
+    // Heuristic based on PCI bus proximity:
+    // - Very close buses (distance <= 2): likely PIX (single bridge)
+    // - Moderate distance (3-10): likely PHB (host bridge)
+    // - Large distance (>10): likely NODE or worse
+
+    if (bus_distance <= 2) {
+        return PciePathType::PIX;
+    } else if (bus_distance <= 10) {
+        return PciePathType::PHB;
+    } else {
+        return PciePathType::NODE;
+    }
+}
+
+/**
  * @brief Discover network devices (InfiniBand/RoCE).
  *
  * @return Vector of discovered network devices.
  */
-std::vector<NetworkDevice> discover_network_devices() {
-    std::vector<NetworkDevice> devices;
+std::vector<NetworkDeviceWithTopology> discover_network_devices_with_topology() {
+    std::vector<NetworkDeviceWithTopology> devices;
     std::string ib_path = "/sys/class/infiniband";
 
     if (!fs::exists(ib_path)) {
@@ -257,7 +358,7 @@ std::vector<NetworkDevice> discover_network_devices() {
                 continue;
             }
 
-            NetworkDevice dev;
+            NetworkDeviceWithTopology dev;
             dev.name = entry.path().filename().string();
 
             // Get device's NUMA node and PCI bus ID
@@ -284,19 +385,62 @@ std::vector<NetworkDevice> discover_network_devices() {
  * @return Vector with device names closes to the NUMA node.
  */
 std::vector<std::string> map_network_devices_to_gpu(
-    int gpu_numa_node, std::vector<NetworkDevice> const& network_devices
+    std::string const& gpu_pci_id,
+    int gpu_numa_node,
+    std::vector<NetworkDeviceWithTopology> const& network_devices
 ) {
     std::vector<std::string> mapped_devices;
 
-    // First, try to find devices on the same NUMA node
+    // Structure to hold NIC with its topology path type
+    struct NicWithPath {
+        std::string name;
+        PciePathType path_type;
+    };
+
+    std::vector<NicWithPath> nics_with_paths;
+
+    // Query topology distance for each NIC
     for (auto const& dev : network_devices) {
-        if (dev.numa_node == gpu_numa_node) {
-            mapped_devices.push_back(dev.name);
+        if (dev.pci_bus_id.empty()) {
+            continue;  // Skip devices without PCI info
+        }
+
+        NicWithPath nic;
+        nic.name = dev.name;
+        nic.path_type = get_pcie_path_type(gpu_pci_id, dev.pci_bus_id);
+
+        nics_with_paths.push_back(nic);
+    }
+
+    // Find the best (lowest) path type
+    if (nics_with_paths.empty()) {
+        return mapped_devices;
+    }
+
+    PciePathType best_path_type = PciePathType::SYS;
+    for (auto const& nic : nics_with_paths) {
+        if (nic.path_type < best_path_type) {
+            best_path_type = nic.path_type;
         }
     }
 
-    // If no devices found on the same NUMA node, return all devices
-    // (this handles systems with shared network devices)
+    // Return all NICs with the best path type
+    for (auto const& nic : nics_with_paths) {
+        if (nic.path_type == best_path_type) {
+            mapped_devices.push_back(nic.name);
+        }
+    }
+
+    // If no devices found, fall back to NUMA-based mapping
+    if (mapped_devices.empty()) {
+        for (auto const& dev : network_devices) {
+            if (dev.numa_node == gpu_numa_node) {
+                mapped_devices.push_back(dev.name);
+            }
+        }
+    }
+
+    // Last resort: return all devices
     if (mapped_devices.empty() && !network_devices.empty()) {
         for (auto const& dev : network_devices) {
             mapped_devices.push_back(dev.name);
@@ -371,8 +515,9 @@ int main(int /* argc */, char** /* argv */) {
     // Get system information and discover network devices
     std::string hostname = get_hostname();
     int num_numa_nodes = count_numa_nodes();
-    int num_network_devices = static_cast<int>(network_devices.size());
-    std::vector<NetworkDevice> network_devices = discover_network_devices();
+    int num_network_devices = static_cast<int>(network_devices_with_topology.size());
+    std::vector<NetworkDeviceWithTopology> network_devices_with_topology =
+        discover_network_devices_with_topology();
 
     // Collect GPU information
     std::vector<GpuInfo> gpus;
@@ -425,8 +570,10 @@ int main(int /* argc */, char** /* argv */) {
             gpu.memory_binding.push_back(gpu.numa_node);
         }
 
-        // Map network devices to this GPU
-        gpu.network_devices = map_network_devices_to_gpu(gpu.numa_node, network_devices);
+        // Map network devices to this GPU using PCIe topology
+        gpu.network_devices = map_network_devices_to_gpu(
+            gpu.pci_bus_id, gpu.numa_node, network_devices_with_topology
+        );
 
         gpus.push_back(gpu);
     }
@@ -476,8 +623,8 @@ int main(int /* argc */, char** /* argv */) {
     std::cout << "  ],\n";
 
     std::cout << "  \"network_devices\": [\n";
-    for (size_t i = 0; i < network_devices.size(); ++i) {
-        auto const& dev = network_devices[i];
+    for (size_t i = 0; i < network_devices_with_topology.size(); ++i) {
+        auto const& dev = network_devices_with_topology[i];
         std::cout << "    {\n";
         std::cout << "      \"name\": \"" << JsonBuilder::escape_string(dev.name)
                   << "\",\n";
@@ -485,7 +632,7 @@ int main(int /* argc */, char** /* argv */) {
         std::cout << "      \"pci_bus_id\": \""
                   << JsonBuilder::escape_string(dev.pci_bus_id) << "\"\n";
         std::cout << "    }";
-        if (i < network_devices.size() - 1) {
+        if (i < network_devices_with_topology.size() - 1) {
             std::cout << ",";
         }
         std::cout << "\n";
