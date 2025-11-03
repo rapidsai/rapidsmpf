@@ -78,19 +78,19 @@ Context init(Backend backend) {
             RAPIDSMPF_EXPECTS(
                 rank_opt.has_value(),
                 "RAPIDSMPF_RANK environment variable not set. "
-                "Set it or use a launcher like 'blastoff'."
+                "Set it or use a launcher like 'rrun'."
             );
 
             RAPIDSMPF_EXPECTS(
                 nranks_opt.has_value(),
                 "RAPIDSMPF_NRANKS environment variable not set. "
-                "Set it or use a launcher like 'blastoff'."
+                "Set it or use a launcher like 'rrun'."
             );
 
             RAPIDSMPF_EXPECTS(
                 coord_dir_opt.has_value(),
                 "RAPIDSMPF_COORD_DIR environment variable not set. "
-                "Set it or use a launcher like 'blastoff'."
+                "Set it or use a launcher like 'rrun'."
             );
 
             ctx.rank = static_cast<Rank>(*rank_opt);
