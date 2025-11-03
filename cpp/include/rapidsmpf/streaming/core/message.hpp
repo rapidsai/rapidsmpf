@@ -193,31 +193,6 @@ class Message {
     }
 
     /**
-     * @brief Query the size of the message's content for a given memory type.
-     *
-     * Invokes the registered `content_size` callback to compute the total size
-     * (in bytes) of the message's content portion stored in the specified memory
-     * space (e.g., host or device). This excludes any metadata or auxiliary information.
-     *
-     * The returned pair provides both the total size and whether the underlying buffers
-     * are spillable, i.e., whether the message owns its buffers and releasing it will
-     * free the associated memory.
-     *
-     * @param mem_type Memory type to query.
-     * @return A pair (size, spillable) where:
-     *   - size: total size (in bytes) of the content for the given memory type.
-     *   - spillable: `true` if the message owns its buffers and releasing it frees
-     *     memory; otherwise `false`.
-     *
-     * @throws std::invalid_argument if the message does not support `content_size`.
-     */
-    [[nodiscard]] std::pair<size_t, bool> content_size(MemoryType mem_type) {
-        return std::make_pair(
-            content_description_.content_size(mem_type), content_description_.spillable()
-        );
-    }
-
-    /**
      * @brief Returns the total memory size required for a deep copy of the payload.
      *
      * The computed size represents the total amount of memory that must be

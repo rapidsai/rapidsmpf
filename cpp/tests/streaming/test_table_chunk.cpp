@@ -370,9 +370,10 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
     Message m = to_message(seq, std::move(chunk));
     EXPECT_FALSE(m.empty());
     EXPECT_TRUE(m.holds<TableChunk>());
-    EXPECT_EQ(m.content_size(MemoryType::HOST), std::make_pair(size_t{0}, false));
+    EXPECT_FALSE(m.content_description().spillable());
+    EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 0);
     EXPECT_EQ(
-        m.content_size(MemoryType::DEVICE), std::make_pair(expect.alloc_size(), false)
+        m.content_description().content_size(MemoryType::DEVICE), expect.alloc_size()
     );
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m.get<TableChunk>().table_view(), expect);
 }

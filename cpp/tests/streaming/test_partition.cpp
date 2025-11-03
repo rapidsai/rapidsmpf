@@ -103,7 +103,7 @@ TEST_F(StreamingPartition, PartitionMapChunkToMessage) {
     EXPECT_TRUE(m2.holds<PartitionMapChunk>());
     EXPECT_TRUE(m2.content_description().spillable());
     EXPECT_EQ(m2.content_description().content_size(MemoryType::HOST), 0);
-    EXPECT_EQ(m2.content_size(MemoryType::DEVICE), std::make_pair(size_t{80}, true));
+    EXPECT_EQ(m2.content_description().content_size(MemoryType::DEVICE), 80);
 
     auto chunk2 = m2.release<PartitionMapChunk>();
     validate_packed_data(std::move(chunk2.data.at(0)), 10, 0, stream, *br);
