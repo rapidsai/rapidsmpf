@@ -39,8 +39,7 @@ FileBackend::FileBackend(Context ctx) : ctx_{std::move(ctx)} {
     }
 
     // Create rank alive file
-    std::string alive_path = get_rank_alive_path(ctx_.rank);
-    write_file(alive_path, std::to_string(getpid()));
+    write_file(get_rank_alive_path(ctx_.rank), std::to_string(getpid()));
 
     // Note: Do not block in the constructor. Ranks only create their alive file
     // and continue. Synchronization occurs where needed (e.g., get/put/barrier).
@@ -63,7 +62,7 @@ FileBackend::~FileBackend() {
 
 void FileBackend::put(std::string const& key, std::string const& value) {
     std::string path = get_kv_path(key);
-    write_file(path, value);
+    write_file(get_kv_path(key), value);
 }
 
 std::string FileBackend::get(std::string const& key, Duration timeout) {
@@ -173,7 +172,7 @@ bool FileBackend::wait_for_file(
         // on parent. Without this remote processes may timeout to spawn because NFS never
         // refreshes.
         if (!parent_dir.empty()) {
-            (void)std::filesystem::status(parent_dir, ec);
+            std::ignore = std::filesystem::status(parent_dir, ec);
 
             auto now = std::chrono::steady_clock::now();
             if (now - last_dir_scan >= std::chrono::milliseconds{500}) {
@@ -184,7 +183,8 @@ bool FileBackend::wait_for_file(
                 );
                 if (!ec) {
                     for (; it != std::filesystem::directory_iterator(); ++it) {
-                        (void)it->path();  // no-op; traversal nudges directory cache
+                        std::ignore =
+                            it->path();  // no-op; traversal nudges directory cache
                     }
                 }
                 last_dir_scan = now;
