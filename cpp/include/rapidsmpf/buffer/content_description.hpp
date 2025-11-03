@@ -39,7 +39,7 @@ class ContentDescription {
     /**
      * @brief Construct a content description from a range of (MemoryType, size) pairs.
      *
-     * Memory types not specified in the input are initialized to zero.
+     * Memory types omitted from the input are initialized to zero.
      *
      * @tparam Range A range whose value type is convertible to
      * `std::pair<MemoryType, std::size_t>`.
@@ -110,7 +110,8 @@ class ContentDescription {
     }
 
   private:
-    /// @brief Per memory-type content sizes, in bytes. Unspecified entries are zero.
+    /// @brief Per memory-type content sizes, in bytes. Omitted memory types are
+    /// initialized to zero-size entries.
     std::array<std::size_t, MEMORY_TYPES.size()> content_sizes_ = {};
     bool spillable_;
 };
