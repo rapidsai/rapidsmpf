@@ -7,6 +7,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
@@ -49,9 +50,12 @@ FileBackend::~FileBackend() {
     // Clean up rank alive file
     try {
         std::error_code ec;
-        std::filesystem::remove(get_rank_alive_path(ctx_.rank), ec);
-    } catch (...) {
-        // Ignore cleanup errors
+        if (!std::filesystem::remove(get_rank_alive_path(ctx_.rank), ec) && ec) {
+            std::cerr << "Error removing rank alive file: " << ec.message() << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Exception during rank alive file cleanup: " << e.what()
+                  << std::endl;
     }
 
     // Rank 0 cleans up the coordination directory when all ranks are done
