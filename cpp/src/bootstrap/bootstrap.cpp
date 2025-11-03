@@ -64,13 +64,10 @@ Backend detect_backend() {
 Context init(Backend backend) {
     Context ctx;
 
-    if (backend == Backend::AUTO) {
-        backend = detect_backend();
-    }
-    ctx.backend = backend;
+    ctx.backend = (backend == Backend::AUTO) ? detect_backend() : backend;
 
     // Get rank and nranks based on backend
-    switch (backend) {
+    switch (ctx.backend) {
     case Backend::FILE:
         {
             // Require explicit RAPIDSMPF_RANK and RAPIDSMPF_NRANKS
