@@ -91,8 +91,9 @@ TEST_F(StreamingPartition, PartitionMapChunkToMessage) {
     Message m = to_message(seq, std::move(chunk));
     EXPECT_FALSE(m.empty());
     EXPECT_TRUE(m.holds<PartitionMapChunk>());
-    EXPECT_EQ(m.content_size(MemoryType::HOST), std::make_pair(size_t{0}, true));
-    EXPECT_EQ(m.content_size(MemoryType::DEVICE), std::make_pair(size_t{80}, true));
+    EXPECT_TRUE(m.content_description().spillable());
+    EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m.content_description().content_size(MemoryType::DEVICE), 80);
     EXPECT_EQ(m.sequence_number(), seq);
 
     auto res = br->reserve_or_fail(m.copy_cost(), MemoryType::DEVICE);
@@ -100,7 +101,8 @@ TEST_F(StreamingPartition, PartitionMapChunkToMessage) {
     EXPECT_EQ(res.size(), 0);
     EXPECT_FALSE(m2.empty());
     EXPECT_TRUE(m2.holds<PartitionMapChunk>());
-    EXPECT_EQ(m2.content_size(MemoryType::HOST), std::make_pair(size_t{0}, true));
+    EXPECT_TRUE(m2.content_description().spillable());
+    EXPECT_EQ(m2.content_description().content_size(MemoryType::HOST), 0);
     EXPECT_EQ(m2.content_size(MemoryType::DEVICE), std::make_pair(size_t{80}, true));
 
     auto chunk2 = m2.release<PartitionMapChunk>();

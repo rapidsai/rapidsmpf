@@ -41,7 +41,9 @@ TEST_F(StreamingLineariser, ManyProducers) {
                          ) -> Node {
         for (auto id = start; id < end; id += stride) {
             co_await ctx->executor()->schedule();
-            co_await ch_out->send(Message{id, std::make_unique<std::size_t>(id)});
+            co_await ch_out->send(
+                non_content_to_message(id, std::make_unique<std::size_t>(id))
+            );
         }
         co_await ch_out->drain(ctx->executor());
     };

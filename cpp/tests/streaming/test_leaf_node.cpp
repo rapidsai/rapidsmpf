@@ -91,12 +91,14 @@ Node producer(
 ) {
     co_await ctx->executor()->schedule();
     auto ticket = co_await ch->acquire();
-    auto [_, receipt] = co_await ticket.send(Message{0, std::make_unique<int>(val)});
+    auto [_, receipt] =
+        co_await ticket.send(non_content_to_message(0, std::make_unique<int>(val)));
     if (should_throw) {
         throw std::runtime_error("Producer throws");
     }
     EXPECT_THROW(
-        co_await ticket.send(Message{0, std::make_unique<int>(val)}), std::logic_error
+        co_await ticket.send(non_content_to_message(0, std::make_unique<int>(val))),
+        std::logic_error
     );
     co_await receipt;
     EXPECT_TRUE(receipt.is_ready());

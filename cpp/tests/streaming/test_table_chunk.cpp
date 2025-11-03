@@ -291,8 +291,9 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     Message m = to_message(seq, std::move(chunk));
     EXPECT_FALSE(m.empty());
     EXPECT_TRUE(m.holds<TableChunk>());
-    EXPECT_EQ(m.content_size(MemoryType::HOST), std::make_pair(size_t{0}, true));
-    EXPECT_EQ(m.content_size(MemoryType::DEVICE), std::make_pair(size_t{1024}, true));
+    EXPECT_TRUE(m.content_description().spillable());
+    EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m.content_description().content_size(MemoryType::DEVICE), 1024);
     EXPECT_EQ(m.sequence_number(), seq);
 
     // Deep-copy: device to host.
@@ -301,8 +302,9 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m2.empty());
     EXPECT_TRUE(m2.holds<TableChunk>());
-    EXPECT_EQ(m2.content_size(MemoryType::HOST), std::make_pair(size_t{1024}, true));
-    EXPECT_EQ(m2.content_size(MemoryType::DEVICE), std::make_pair(size_t{0}, true));
+    EXPECT_TRUE(m2.content_description().spillable());
+    EXPECT_EQ(m2.content_description().content_size(MemoryType::HOST), 1024);
+    EXPECT_EQ(m2.content_description().content_size(MemoryType::DEVICE), 0);
     EXPECT_EQ(m2.sequence_number(), seq);
 
     // Deep-copy: host to host.
@@ -311,8 +313,9 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m3.empty());
     EXPECT_TRUE(m3.holds<TableChunk>());
-    EXPECT_EQ(m3.content_size(MemoryType::HOST), std::make_pair(size_t{1024}, true));
-    EXPECT_EQ(m3.content_size(MemoryType::DEVICE), std::make_pair(size_t{0}, true));
+    EXPECT_TRUE(m3.content_description().spillable());
+    EXPECT_EQ(m3.content_description().content_size(MemoryType::HOST), 1024);
+    EXPECT_EQ(m3.content_description().content_size(MemoryType::DEVICE), 0);
     EXPECT_EQ(m3.sequence_number(), seq);
 
     // Copy the chunk back to device and verify.
@@ -329,8 +332,9 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m4.empty());
     EXPECT_TRUE(m4.holds<TableChunk>());
-    EXPECT_EQ(m4.content_size(MemoryType::HOST), std::make_pair(size_t{0}, true));
-    EXPECT_EQ(m4.content_size(MemoryType::DEVICE), std::make_pair(size_t{1024}, true));
+    EXPECT_TRUE(m4.content_description().spillable());
+    EXPECT_EQ(m4.content_description().content_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m4.content_description().content_size(MemoryType::DEVICE), 1024);
     EXPECT_EQ(m4.sequence_number(), seq);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m4.get<TableChunk>().table_view(), expect);
 
@@ -340,8 +344,9 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m5.empty());
     EXPECT_TRUE(m5.holds<TableChunk>());
-    EXPECT_EQ(m5.content_size(MemoryType::HOST), std::make_pair(size_t{0}, true));
-    EXPECT_EQ(m5.content_size(MemoryType::DEVICE), std::make_pair(size_t{1024}, true));
+    EXPECT_TRUE(m5.content_description().spillable());
+    EXPECT_EQ(m5.content_description().content_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m5.content_description().content_size(MemoryType::DEVICE), 1024);
     EXPECT_EQ(m5.sequence_number(), seq);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m5.get<TableChunk>().table_view(), expect);
 }

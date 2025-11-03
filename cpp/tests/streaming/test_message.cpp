@@ -12,6 +12,8 @@
 #include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 
+#include "rapidsmpf/buffer/content_description.hpp"
+
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
 
@@ -27,7 +29,8 @@ class StreamingMessage : public ::testing::Test {
 };
 
 TEST_F(StreamingMessage, ConstructAndGetInt) {
-    Message m{0, std::make_unique<int>(42)};
+    auto payload = std::make_unique<int>(42);
+    Message m{0, std::move(payload), ContentDescription{}};
     EXPECT_FALSE(m.empty());
     EXPECT_TRUE(m.holds<int>());
     EXPECT_FALSE(m.holds<std::string>());
@@ -36,75 +39,62 @@ TEST_F(StreamingMessage, ConstructAndGetInt) {
 }
 
 TEST_F(StreamingMessage, ReleaseEmpties) {
-    Message m{0, std::make_unique<std::string>("abc")};
+    auto payload = std::make_unique<std::string>("abc");
+    Message m{0, std::move(payload), ContentDescription{}};
     auto s = m.release<std::string>();
     EXPECT_EQ(s, "abc");
     EXPECT_TRUE(m.empty());
 }
 
 TEST_F(StreamingMessage, ResetEmpties) {
-    Message m{0, std::make_unique<std::string>("abc")};
+    auto payload = std::make_unique<std::string>("abc");
+    Message m{0, std::move(payload), ContentDescription{}};
     EXPECT_EQ(m.get<std::string>(), "abc");
     m.reset();
     EXPECT_TRUE(m.empty());
 }
 
-TEST_F(StreamingMessage, ContentSizeWithoutCallbacks) {
-    Message m{0, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST))};
-    EXPECT_THROW(std::ignore = m.content_size(MemoryType::HOST), std::invalid_argument);
-    EXPECT_THROW(std::ignore = m.content_size(MemoryType::DEVICE), std::invalid_argument);
-}
-
-TEST_F(StreamingMessage, ContentSizeWithCallbacks) {
-    Message::Callbacks cbs{
-        .content_size = [](Message const& msg,
-                           MemoryType mem_type) -> std::pair<size_t, bool> {
-            EXPECT_TRUE(msg.holds<Buffer>());
-            if (mem_type == msg.get<Buffer>().mem_type()) {
-                return {msg.get<Buffer>().size, true};
-            }
-            return {0, false};
-        }
-    };
+TEST_F(StreamingMessage, ContentSize) {
+    // Test `content_size`, ignore the payload (we use an int as a dummy).
     {
-        Message m{
-            0, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cbs
+        ContentDescription cd{
+            {{MemoryType::HOST, 10}}, ContentDescription::Spillable::YES
         };
-        EXPECT_EQ(m.content_size(MemoryType::HOST), std::make_pair(size_t{10}, true));
-        EXPECT_EQ(m.content_size(MemoryType::DEVICE), std::make_pair(size_t{0}, false));
+        Message m{0, std::make_unique<int>(42), cd};
+        EXPECT_TRUE(m.content_description().spillable());
+        EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 10);
+        EXPECT_EQ(m.content_description().content_size(MemoryType::DEVICE), 0);
     }
     {
-        Message m{
-            0, br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cbs
+        ContentDescription cd{
+            {{MemoryType::HOST, 10}, {MemoryType::DEVICE, 20}},
+            ContentDescription::Spillable::NO
         };
-        EXPECT_EQ(m.content_size(MemoryType::HOST), std::make_pair(size_t{0}, false));
-        EXPECT_EQ(m.content_size(MemoryType::DEVICE), std::make_pair(size_t{10}, true));
+        Message m{0, std::make_unique<int>(42), cd};
+        EXPECT_FALSE(m.content_description().spillable());
+        EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 10);
+        EXPECT_EQ(m.content_description().content_size(MemoryType::DEVICE), 20);
     }
 }
 
 TEST_F(StreamingMessage, CopyWithoutCallbacks) {
-    Message m{0, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST))};
-    EXPECT_THROW(std::ignore = m.copy_cost(), std::invalid_argument);
+    Message m{
+        0,
+        br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)),
+        ContentDescription{}
+    };
     {
-        auto res = br->reserve_or_fail(10, MemoryType::HOST);
+        auto res = br->reserve_or_fail(m.copy_cost(), MemoryType::HOST);
         EXPECT_THROW(std::ignore = m.copy(br.get(), res), std::invalid_argument);
     }
     {
-        auto res = br->reserve_or_fail(10, MemoryType::DEVICE);
+        auto res = br->reserve_or_fail(m.copy_cost(), MemoryType::DEVICE);
         EXPECT_THROW(std::ignore = m.copy(br.get(), res), std::invalid_argument);
     }
 }
 
 TEST_F(StreamingMessage, CopyWithCallbacks) {
     Message::Callbacks cbs{
-        .content_size = [](Message const& msg,
-                           MemoryType mem_type) -> std::pair<size_t, bool> {
-            EXPECT_TRUE(msg.holds<Buffer>());
-            if (mem_type == msg.get<Buffer>().mem_type()) {
-                return {msg.get<Buffer>().size, true};
-            }
-            return {0, false};
-        },
         .copy = [](Message const& msg,
                    BufferResource* br,
                    MemoryReservation& reservation) -> Message {
@@ -112,12 +102,18 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
             auto const& src = msg.get<Buffer>();
             auto dst = br->allocate(src.size, src.stream(), reservation);
             buffer_copy(*dst, src, src.size);
-            return Message(msg.sequence_number(), std::move(dst), msg.callbacks());
+            ContentDescription cd{
+                {{dst->mem_type(), dst->size}}, ContentDescription::Spillable::YES
+            };
+            return Message{msg.sequence_number(), std::move(dst), cd, msg.callbacks()};
         }
     };
     {
+        ContentDescription cd{
+            {{MemoryType::HOST, 10}}, ContentDescription::Spillable::YES
+        };
         Message m1{
-            42, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cbs
+            42, br->allocate(stream, br->reserve_or_fail(10, MemoryType::HOST)), cd, cbs
         };
         EXPECT_EQ(m1.copy_cost(), 10);
         auto res = br->reserve_or_fail(m1.copy_cost(), MemoryType::HOST);
@@ -127,8 +123,11 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
         EXPECT_EQ(m1.sequence_number(), m2.sequence_number());
     }
     {
+        ContentDescription cd{
+            {{MemoryType::DEVICE, 10}}, ContentDescription::Spillable::YES
+        };
         Message m1{
-            42, br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cbs
+            42, br->allocate(stream, br->reserve_or_fail(10, MemoryType::DEVICE)), cd, cbs
         };
         EXPECT_EQ(m1.copy_cost(), 10);
         auto res = br->reserve_or_fail(m1.copy_cost(), MemoryType::DEVICE);
