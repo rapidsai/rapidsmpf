@@ -5,7 +5,87 @@ from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp.memory cimport make_shared, shared_ptr
 from libcpp.utility cimport move
+from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
+
+
+cdef class MemoryReservation:
+    """
+    Represents a reservation for future memory allocation.
+
+    A reservation is created by :meth:`BufferResource.reserve` and must be used
+    when allocating buffers through the same :class:`BufferResource`.
+    """
+    def __init__(self):
+        raise ValueError("use the `from_handle` factory function")
+
+    def __dealloc__(self):
+        with nogil:
+            self._handle.reset()
+
+    @staticmethod
+    cdef MemoryReservation from_handle(
+        unique_ptr[cpp_MemoryReservation] handle,
+        BufferResource br,
+    ):
+        """
+        Construct a MemoryReservation from an existing C++ handle.
+
+        Parameters
+        ----------
+        handle
+            A unique pointer to a C++ MemoryReservation.
+        br
+            The buffer resource associated with the reservation.
+
+        Returns
+        -------
+        A new MemoryReservation wrapping the given handle.
+        """
+        if not handle:
+            raise ValueError("handle cannot be None")
+        if br is None:
+            raise ValueError("br cannot be None")
+
+        cdef MemoryReservation ret = MemoryReservation.__new__(
+            MemoryReservation
+        )
+        ret._handle = move(handle)
+        ret._br = br  # Need to keep the buffer resource alive.
+        return ret
+
+    @property
+    def size(self):
+        """
+        Get the remaining size of the reserved memory.
+
+        Returns
+        -------
+        The size of the reserved memory in bytes.
+        """
+        return deref(self._handle).size()
+
+    @property
+    def mem_type(self):
+        """
+        Get the type of memory associated with this reservation.
+
+        Returns
+        -------
+        The memory type associated with this reservation.
+        """
+        return deref(self._handle).mem_type()
+
+    @property
+    def br(self):
+        """
+        Get the buffer resource associated with this reservation.
+
+        Returns
+        -------
+        The buffer resource associated with this reservation.
+        """
+        return self._br
 
 
 # Converter from `shared_ptr[cpp_LimitAvailableMemory]` to `cpp_MemoryAvailable`
@@ -31,6 +111,29 @@ cdef extern from *:
         cpp_BufferResource* resource,
         MemoryType mem_type
     ) except + nogil
+
+
+# Bindings to MemoryReservation creating methods, which we need to
+# do in C++ because MemoryReservation doesn't have a default ctor.
+cdef extern from * nogil:
+    """
+    std::pair<std::unique_ptr<rapidsmpf::MemoryReservation>, std::size_t>
+    cpp_br_reserve(
+        std::shared_ptr<rapidsmpf::BufferResource> br,
+        rapidsmpf::MemoryType mem_type,
+        size_t size,
+        bool allow_overbooking
+    ) {
+        auto [res, ob] = br->reserve(mem_type, size, allow_overbooking);
+        return {std::make_unique<rapidsmpf::MemoryReservation>(std::move(res)), ob};
+    }
+    """
+    pair[unique_ptr[cpp_MemoryReservation], size_t] cpp_br_reserve(
+        shared_ptr[cpp_BufferResource],
+        MemoryType,
+        size_t,
+        bool_t,
+    ) except +
 
 
 cdef class BufferResource:
@@ -114,6 +217,9 @@ cdef class BufferResource:
         """
         return self._handle.get()
 
+    cdef const cuda_stream_pool* stream_pool(self):
+        return &deref(self._handle).stream_pool()
+
     def memory_reserved(self, MemoryType mem_type):
         """
         Get the current reserved memory of the specified memory type.
@@ -129,7 +235,7 @@ cdef class BufferResource:
         """
         cdef size_t ret
         with nogil:
-            ret = deref(self._handle).cpp_memory_reserved(mem_type)
+            ret = deref(self._handle).memory_reserved(mem_type)
         return ret
 
     def memory_available(self, MemoryType mem_type):
@@ -141,6 +247,69 @@ cdef class BufferResource:
         # Use inline C++ to handle the function object call
         with nogil:
             ret = _call_memory_available(resource_ptr, mem_type)
+        return ret
+
+    def reserve(self, MemoryType mem_type, size_t size, *, bool_t allow_overbooking):
+        """
+        Reserve an amount of the specified memory type.
+
+        Creates a new reservation of the specified size and memory type to inform the
+        system about upcoming buffer allocations.
+
+        If overbooking is allowed, a reservation of the requested `size` is returned
+        even if the memory is not currently available. In that case, the caller must
+        guarantee that at least the overbooked amount of memory will be freed before
+        the reservation is used.
+
+        If overbooking is not allowed, a reservation of size zero is returned on
+        failure.
+
+        Parameters
+        ----------
+        mem_type
+            The target memory type.
+        size
+            The number of bytes to reserve.
+        allow_overbooking
+            Whether overbooking is permitted.
+
+        Returns
+        -------
+        A tuple (reservation, overbooked_bytes):
+            - On success, the reservation's size equals `size`.
+            - On failure, the reservation's size equals zero (a zero-sized reservation
+              never fails).
+        """
+        cdef pair[unique_ptr[cpp_MemoryReservation], size_t] ret
+        with nogil:
+            ret = cpp_br_reserve(self._handle, mem_type, size, allow_overbooking)
+        return MemoryReservation.from_handle(move(ret.first), self), ret.second
+
+    def release(self, MemoryReservation reservation not None, size_t size):
+        """
+        Consume a portion of the reserved memory.
+
+        Reduces the remaining size of the reserved memory by the specified amount.
+
+        Parameters
+        ----------
+        reservation
+            The memory reservation to consume from.
+        size
+            The number of bytes to consume.
+
+        Returns
+        -------
+        The remaining size of the reserved memory after consumption.
+
+        Raises
+        ------
+        OverflowError
+            If the released size exceeds the total reserved size.
+        """
+        cdef size_t ret
+        with nogil:
+            ret = deref(self._handle).release(deref(reservation._handle), size)
         return ret
 
 

@@ -4,94 +4,11 @@
 from libcpp.memory cimport make_shared, shared_ptr
 from libcpp.utility cimport move
 
-from rapidsmpf._detail.exception_handling cimport (
-    CppExcept, throw_py_as_cpp_exception, translate_py_to_cpp_exception)
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
+from rapidsmpf.streaming.core.message cimport Message, cpp_Message
+from rapidsmpf.streaming.core.utilities cimport cython_invoke_python_function
 
 import asyncio
-
-
-cdef void cython_invoke_python_function(void* py_function) noexcept nogil:
-    """
-    Invokes a Python function from C++ in a Cython-safe manner.
-
-    This function calls a Python function while ensuring proper exception handling.
-    If a Python exception occurs, it is translated into a corresponding C++ exception.
-
-    Notice, we use the `noexcept` keyword to make sure Cython doesn't translate the
-    C++ function back into a Python function.
-
-    Parameters
-    ----------
-    py_function
-        A Python callable that that takes no arguments and returns None.
-
-    Raises
-    ------
-    Converts Python exceptions to C++ exceptions using `throw_py_as_cpp_exception`.
-    """
-    cdef CppExcept err
-    with gil:
-        try:
-            (<object?>py_function)()
-            return
-        except BaseException as e:
-            err = translate_py_to_cpp_exception(e)
-    throw_py_as_cpp_exception(err)
-
-
-cdef class Message:
-    """
-    A message to be transferred between streaming nodes.
-
-    Parameters
-    ----------
-    payload
-        A payload object that implements the `Payload` protocol. The payload is
-        moved into this message.
-
-    Warnings
-    --------
-    `payload` is released by this call and must not be used afterwards.
-    """
-    def __init__(self, payload):
-        payload.into_message(self)
-
-    @staticmethod
-    cdef from_handle(cpp_Message handle):
-        """
-        Construct a Message from an existing C++ handle.
-
-        Parameters
-        ----------
-        handle
-            A C++ message handle whose ownership will be **moved** into the
-            returned `Message`.
-
-        Returns
-        -------
-        A new Python `Message` object owning `handle`.
-        """
-        cdef Message ret = Message.__new__(Message)
-        ret._handle = move(handle)
-        return ret
-
-    def __dealloc__(self):
-        with nogil:
-            self._handle.reset()
-
-    def empty(self):
-        """
-        Return whether this message is empty.
-
-        Returns
-        -------
-        True if the message is empty; otherwise, False.
-        """
-        cdef bool_t ret
-        with nogil:
-            ret = self._handle.empty()
-        return ret
 
 
 cdef extern from * nogil:
@@ -256,9 +173,19 @@ cdef class Channel:
     def __cinit__(self):
         self._handle = make_shared[cpp_Channel]()
 
+    @staticmethod
+    cdef from_handle(shared_ptr[cpp_Channel] ch):
+        cdef Channel self = Channel.__new__(Channel)
+        self._handle = ch
+        return self
+
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
+
+    @classmethod
+    def __class_getitem__(cls, args):
+        return cls
 
     async def drain(self, Context ctx not None):
         """

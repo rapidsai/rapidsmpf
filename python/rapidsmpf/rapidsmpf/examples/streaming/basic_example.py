@@ -17,9 +17,10 @@ from rapidsmpf.communicator.single import (
 )
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
-from rapidsmpf.streaming.core.channel import Channel, Message
+from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import (
     define_py_node,
     run_streaming_pipeline,
@@ -56,9 +57,10 @@ def main() -> int:
     # A TableChunk contains a pylibcudf table, a sequence number, and a CUDA stream.
     table_chunks = [
         Message(
+            seq,
             TableChunk.from_pylibcudf_table(
-                seq, expect, DEFAULT_STREAM, exclusive_view=False
-            )
+                expect, DEFAULT_STREAM, exclusive_view=False
+            ),
         )
         for seq, expect in enumerate(tables)
     ]
@@ -91,7 +93,7 @@ def main() -> int:
             assert msg.empty()
 
             # Wrap the table chunk in a new message.
-            msg = Message(table)
+            msg = Message(msg.sequence_number, table)
 
             # Forward the message to the output channel.
             await ch_out.send(ctx, msg)

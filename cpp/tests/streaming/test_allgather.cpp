@@ -87,7 +87,7 @@ TEST_P(AsyncAllGather, basic) {
         auto meta = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
         std::memcpy(meta->data(), &size, sizeof(int));
         allgather.insert(
-            streaming::PackedDataChunk(sequence, {std::move(meta), std::move(buf)})
+            sequence, streaming::PackedDataChunk{{std::move(meta), std::move(buf)}}
         );
         latch.count_down();
         co_return;
@@ -167,8 +167,11 @@ TEST_P(AsyncAllGather, streaming_node) {
         auto meta = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
         std::memcpy(meta->data(), &size, sizeof(int));
         input_messages.emplace_back(
-            std::make_unique<streaming::PackedDataChunk>(
-                insertion_id, PackedData{std::move(meta), std::move(buf)}
+            streaming::to_message(
+                insertion_id,
+                std::make_unique<streaming::PackedDataChunk>(streaming::PackedDataChunk{
+                    PackedData{std::move(meta), std::move(buf)}
+                })
             )
         );
     }

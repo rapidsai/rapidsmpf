@@ -10,13 +10,11 @@ from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.buffer cimport MemoryType
-from rapidsmpf.streaming.core.channel cimport Message
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
     cdef cppclass cpp_TableChunk "rapidsmpf::streaming::TableChunk":
         cpp_table_view table_view() except +
-        uint64_t sequence_number() noexcept
         cuda_stream_view stream() noexcept
         size_t data_alloc_size(MemoryType mem_type) except +
         bool_t is_available() noexcept

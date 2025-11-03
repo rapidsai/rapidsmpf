@@ -9,8 +9,9 @@ import pytest
 
 import cudf
 
-from rapidsmpf.streaming.core.channel import Channel, Message
+from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import run_streaming_pipeline
 from rapidsmpf.streaming.cudf.partition import partition_and_pack, unpack_and_concat
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
@@ -34,7 +35,7 @@ def test_partition_and_pack_unpack(
     ]
     table_chunks = [
         Message(
-            TableChunk.from_pylibcudf_table(seq, expect, stream, exclusive_view=False)
+            seq, TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=False)
         )
         for seq, expect in enumerate(expects)
     ]
@@ -62,6 +63,6 @@ def test_partition_and_pack_unpack(
 
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
+        assert result.sequence_number == seq
         tbl = TableChunk.from_message(result)
-        assert tbl.sequence_number == seq
         assert_eq(tbl.table_view(), expect, sort_rows="0")

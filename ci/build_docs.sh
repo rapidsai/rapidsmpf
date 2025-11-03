@@ -1,5 +1,6 @@
 #!/bin/bash
-# Copyright (c) 2023-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+# SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
 
@@ -56,7 +57,7 @@ popd
 
 rapids-logger "Build rapidsmpf Sphinx docs"
 pushd docs/
-make dirhtml
+make dirhtml O="-j 8"
 mkdir -p "${RAPIDS_DOCS_DIR}/rapidsmpf/html"
 mv build/dirhtml/* "${RAPIDS_DOCS_DIR}/rapidsmpf/html"
 popd

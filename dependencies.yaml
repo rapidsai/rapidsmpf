@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # Dependency list for https://github.com/rapidsai/dependency-file-generator
 files:
   all:
@@ -168,6 +171,7 @@ dependencies:
           - c-compiler
           - cuda-nvcc
           - cxx-compiler
+          - libnuma
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
     specific:
       - output_types: conda
@@ -279,6 +283,7 @@ dependencies:
           - cuda-sanitizer-api
           - psutil  # Used for timeout_with_stack.py
           - gdb
+          - libnuma
           - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
           - valgrind
           - gdb
@@ -400,12 +405,15 @@ dependencies:
     common:
       - output_types: [conda]
         packages:
+          - breathe>=4.35.0
           - *doxygen
+          - ipython
           - make
+          - myst-nb
           - myst-parser
           - numpydoc
-          - pydata-sphinx-theme
-          - sphinx
+          - pydata-sphinx-theme>=0.15.4
+          - sphinx>=8.1.0
           - sphinx-autobuild
           - sphinx-copybutton
     specific:

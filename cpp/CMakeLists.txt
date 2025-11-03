@@ -1,6 +1,8 @@
 # =================================================================================
+# cmake-format: off
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
+# cmake-format: on
 # =================================================================================
 
 cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
@@ -42,6 +44,7 @@ option(BUILD_MPI_SUPPORT "Build RapidsMPF with MPI support" ON)
 option(BUILD_UCXX_SUPPORT "Build RapidsMPF with UCXX support" ON)
 option(BUILD_STREAMING_SUPPORT "Build RapidsMPF with streaming support" ON)
 option(BUILD_CUPTI_SUPPORT "Build RapidsMPF with CUPTI support" OFF)
+option(BUILD_NUMA_SUPPORT "Build RapidsMPF with NUMA support" ON)
 option(BUILD_TESTS "Configure CMake to build tests" ON)
 option(BUILD_BENCHMARKS "Configure CMake to build benchmarks" ON)
 option(BUILD_EXAMPLES "Configure CMake to build examples" ON)
@@ -56,6 +59,7 @@ message(STATUS "  BUILD_MPI_SUPPORT       : ${BUILD_MPI_SUPPORT}")
 message(STATUS "  BUILD_UCXX_SUPPORT      : ${BUILD_UCXX_SUPPORT}")
 message(STATUS "  BUILD_STREAMING_SUPPORT : ${BUILD_STREAMING_SUPPORT}")
 message(STATUS "  BUILD_CUPTI_SUPPORT     : ${BUILD_CUPTI_SUPPORT}")
+message(STATUS "  BUILD_NUMA_SUPPORT      : ${BUILD_NUMA_SUPPORT}")
 message(STATUS "  BUILD_TESTS             : ${BUILD_TESTS}")
 message(STATUS "  BUILD_BENCHMARKS        : ${BUILD_BENCHMARKS}")
 message(STATUS "  BUILD_EXAMPLES          : ${BUILD_EXAMPLES}")
@@ -69,6 +73,7 @@ set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
 set(RAPIDSMPF_HAVE_UCXX ${BUILD_UCXX_SUPPORT})
 set(RAPIDSMPF_HAVE_STREAMING ${BUILD_STREAMING_SUPPORT})
 set(RAPIDSMPF_HAVE_CUPTI ${BUILD_CUPTI_SUPPORT})
+set(RAPIDSMPF_HAVE_NUMA ${BUILD_NUMA_SUPPORT})
 set(RAPIDSMPF_BUILD_TESTS ${BUILD_TESTS})
 set(RAPIDSMPF_BUILD_BENCHMARKS ${BUILD_BENCHMARKS})
 set(RAPIDSMPF_BUILD_EXAMPLES ${BUILD_EXAMPLES})
@@ -110,6 +115,10 @@ rapids_find_package(
   INSTALL_EXPORT_SET rapidsmpf-exports
 )
 
+# NOTE: get_cccl_cudax.cmake needs to be included before rmm and cudf, because both require CCCL
+# (but without CUDAX). All of these will call rapids_cpm_cccl. So, if get_cccl_cudax is included
+# after, the CCCL::cudax target will not be available.
+include(../cmake/thirdparty/get_cccl_cudax.cmake)
 include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cudf.cmake)
@@ -145,36 +154,39 @@ target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize
 
 add_library(
   rapidsmpf
-  src/config.cpp
-  src/cuda_event.cpp
-  src/pausable_thread_loop.cpp
-  src/progress_thread.cpp
-  src/rmm_resource_adaptor.cpp
-  src/statistics.cpp
-  src/topology_discovery.cpp
-  src/utils.cpp
   src/allgather/allgather.cpp
   src/buffer/buffer.cpp
+  src/buffer/pinned_memory_resource.cu
   src/buffer/resource.cpp
   src/buffer/spill_manager.cpp
   src/communicator/communicator.cpp
   src/communicator/single.cpp
+  src/config.cpp
+  src/cuda_event.cpp
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
+  src/pausable_thread_loop.cpp
+  src/progress_thread.cpp
+  src/rmm_resource_adaptor.cpp
   src/shuffler/chunk.cpp
   src/shuffler/finish_counter.cpp
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
+  src/statistics.cpp
+  src/topology_discovery.cpp
+  src/utils.cpp
 )
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     rapidsmpf
-    PRIVATE src/streaming/coll/allgather.cpp
+    PRIVATE src/streaming/chunks/partition.cpp
+            src/streaming/coll/allgather.cpp
             src/streaming/coll/shuffler.cpp
             src/streaming/core/context.cpp
             src/streaming/core/leaf_node.cpp
             src/streaming/core/node.cpp
             src/streaming/cudf/partition.cpp
+            src/streaming/cudf/parquet.cpp
             src/streaming/cudf/table_chunk.cpp
   )
 endif()
@@ -219,10 +231,14 @@ target_include_directories(
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
-         CUDA::nvml
-  PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
-          $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL CUDA::nvml $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
+         $<TARGET_NAME_IF_EXISTS:libcoro>
+  PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
+          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+          $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
+          $<TARGET_NAME_IF_EXISTS:conda_env>
+          maybe_asan
+          $<TARGET_NAME_IF_EXISTS:CCCL::cudax>
 )
 
 target_compile_definitions(
@@ -231,6 +247,7 @@ target_compile_definitions(
          $<$<BOOL:${RAPIDSMPF_HAVE_UCXX}>:RAPIDSMPF_HAVE_UCXX>
          $<$<BOOL:${RAPIDSMPF_HAVE_STREAMING}>:RAPIDSMPF_HAVE_STREAMING>
          $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:RAPIDSMPF_HAVE_CUPTI>
+         $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>
 )
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})

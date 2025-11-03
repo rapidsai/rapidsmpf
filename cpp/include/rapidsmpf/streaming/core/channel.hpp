@@ -5,15 +5,13 @@
 
 #pragma once
 
-
-#include <any>
 #include <cstddef>
 #include <limits>
 #include <memory>
 #include <stdexcept>
-#include <typeinfo>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 
 #include <coro/coro.hpp>
@@ -25,108 +23,6 @@ namespace rapidsmpf::streaming {
  * @brief An awaitable semaphore to manage acquisition and release of finite resources.
  */
 using Semaphore = coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()>;
-
-/**
- * @brief Move-only, type-erased message holding a payload as shared pointer.
- */
-class Message {
-  public:
-    Message() = default;
-
-    /**
-     * @brief Construct from a unique pointer (promoted to shared_ptr).
-     *
-     * @tparam T Payload type.
-     * @param ptr Non-null unique pointer.
-     * @throws std::invalid_argument if @p ptr is null.
-     */
-    template <typename T>
-    Message(std::unique_ptr<T> ptr) {
-        RAPIDSMPF_EXPECTS(ptr != nullptr, "nullptr not allowed", std::invalid_argument);
-        data_ = std::shared_ptr<T>(std::move(ptr));
-    }
-
-    /** @brief Move construct. @param other Source message. */
-    Message(Message&& other) noexcept = default;
-
-    /** @brief Move assign. @param other Source message. @return *this. */
-    Message& operator=(Message&& other) noexcept = default;
-    Message(Message const&) = delete;
-    Message& operator=(Message const&) = delete;
-
-    /**
-     * @brief Reset the message to empty.
-     */
-    void reset() noexcept {
-        return data_.reset();
-    }
-
-    /**
-     * @brief Returns true when no payload is stored.
-     *
-     * @return true if empty, false otherwise.
-     */
-    [[nodiscard]] bool empty() const noexcept {
-        return !data_.has_value();
-    }
-
-    /**
-     * @brief Compare the payload type.
-     *
-     * @tparam T Expected payload type.
-     * @return true if the payload is `typeid(T)`, false otherwise.
-     */
-    template <typename T>
-    [[nodiscard]] bool holds() const noexcept {
-        return data_.type() == typeid(std::shared_ptr<T>);
-    }
-
-    /**
-     * @brief Extracts the payload and resets the message.
-     *
-     * @tparam T Payload type.
-     * @return The payload.
-     * @throws std::invalid_argument if empty or type mismatch.
-     */
-    template <typename T>
-    T release() {
-        auto ret = get_ptr<T>();
-        reset();
-        return std::move(*ret);
-    }
-
-    /**
-     * @brief Reference to the payload.
-     *
-     * The returned reference remains valid until the message is released or reset.
-     *
-     * @tparam T Payload type.
-     * @return Reference to the payload.
-     * @throws std::invalid_argument if empty or type mismatch.
-     */
-    template <typename T>
-    T const& get() {
-        return *get_ptr<T>();
-    }
-
-  private:
-    /**
-     * @brief Returns a shared pointer to the payload.
-     *
-     * @tparam T Payload type.
-     * @return std::shared_ptr<T> to the payload.
-     * @throws std::invalid_argument if empty or type mismatch.
-     */
-    template <typename T>
-    [[nodiscard]] std::shared_ptr<T> get_ptr() const {
-        RAPIDSMPF_EXPECTS(!empty(), "message is empty", std::invalid_argument);
-        RAPIDSMPF_EXPECTS(holds<T>(), "wrong message type", std::invalid_argument);
-        return std::any_cast<std::shared_ptr<T>>(data_);
-    }
-
-  private:
-    std::any data_;
-};
 
 /**
  * @brief A coroutine-based channel for sending and receiving messages asynchronously.
@@ -323,7 +219,11 @@ class ThrottlingAdaptor {
     explicit ThrottlingAdaptor(
         std::shared_ptr<Channel> channel, std::ptrdiff_t max_tickets
     )
-        : ch_{std::move(channel)}, semaphore_(max_tickets) {}
+        : ch_{std::move(channel)}, semaphore_(max_tickets) {
+        RAPIDSMPF_EXPECTS(
+            max_tickets > 0, "ThrottlingAdaptor must have at least one ticket"
+        );
+    }
 
     /**
      * @brief Obtain a ticket to send a message.

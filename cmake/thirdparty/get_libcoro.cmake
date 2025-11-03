@@ -1,6 +1,8 @@
 # ============================================================================
+# cmake-format: off
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
+# cmake-format: on
 # ============================================================================
 
 # This function finds libcoro and sets any additional necessary environment variables.
@@ -15,9 +17,10 @@ function(find_and_configure_libcoro)
     BUILD_EXPORT_SET rapidsmpf-exports
     CPM_ARGS
     GIT_REPOSITORY https://github.com/jbaldwin/libcoro
-    # We need a version that includes all PRs up to https://github.com/jbaldwin/libcoro/pull/399 and
-    # https://github.com/jbaldwin/libcoro/pull/400
-    GIT_TAG 7e0ce982405fb26b6ca8af97f40a8eaa2b78c4fa
+    # We need a version that includes all the following PRs:
+    # https://github.com/jbaldwin/libcoro/pull/399, https://github.com/jbaldwin/libcoro/pull/400,
+    # https://github.com/jbaldwin/libcoro/pull/402
+    GIT_TAG ae8f34ea47c1cec3a42098e6b26ad2042476d31e
     GIT_SHALLOW FALSE
     OPTIONS "LIBCORO_FEATURE_NETWORKING OFF"
             "LIBCORO_EXTERNAL_DEPENDENCIES OFF"
