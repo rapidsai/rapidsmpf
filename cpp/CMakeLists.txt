@@ -151,6 +151,7 @@ add_library(
   src/progress_thread.cpp
   src/rmm_resource_adaptor.cpp
   src/statistics.cpp
+  src/topology_discovery.cpp
   src/utils.cpp
   src/allgather/allgather.cpp
   src/buffer/buffer.cpp
@@ -219,6 +220,7 @@ target_include_directories(
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
+         CUDA::nvml
   PRIVATE $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:CUDA::cupti>
           $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
