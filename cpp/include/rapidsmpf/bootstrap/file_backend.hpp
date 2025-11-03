@@ -127,6 +127,15 @@ class FileBackend {
      * @param path Path to file.
      */
     std::string read_file(std::string const& path);
+
+    /**
+     * @brief Clean up coordination directory after all ranks are done.
+     *
+     * This method can be called by all ranks, but only rank 0 performs the actual
+     * cleanup. Rank 0 waits for all other ranks to finish before removing the
+     * coordination directory. Non-zero ranks will return immediately (no-op).
+     */
+    void cleanup_coordination_directory();
 };
 
 }  // namespace rapidsmpf::bootstrap::detail

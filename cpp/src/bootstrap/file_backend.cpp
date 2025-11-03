@@ -58,12 +58,7 @@ FileBackend::~FileBackend() {
                   << std::endl;
     }
 
-    // Rank 0 cleans up the coordination directory when all ranks are done
-    if (ctx_.rank == 0) {
-        // Note: In a more robust implementation, we might want to wait for
-        // all ranks to finish before cleanup, but for simplicity we skip that here.
-        // The OS will clean up /tmp directories anyway.
-    }
+    cleanup_coordination_directory();
 }
 
 void FileBackend::put(std::string const& key, std::string const& value) {
@@ -240,5 +235,62 @@ std::string FileBackend::read_file(std::string const& path) {
     std::stringstream buffer;
     buffer << ifs.rdbuf();
     return buffer.str();
+}
+
+void FileBackend::cleanup_coordination_directory() {
+    // Only rank 0 performs cleanup; other ranks return immediately
+    if (ctx_.rank != 0) {
+        return;
+    }
+
+    // Wait for all other ranks to clean up their alive files
+    auto cleanup_timeout = std::chrono::milliseconds{30000};  // 30 second timeout
+    auto start = std::chrono::steady_clock::now();
+    auto poll_interval = std::chrono::milliseconds{100};
+
+    bool all_ranks_done = false;
+    while (!all_ranks_done) {
+        all_ranks_done = true;
+
+        // Check if all other ranks' alive files are gone
+        for (Rank r = 0; r < ctx_.nranks; ++r) {
+            if (r == ctx_.rank)
+                continue;
+
+            std::error_code ec;
+            std::string alive_path = get_rank_alive_path(r);
+            if (std::filesystem::exists(alive_path, ec)) {
+                all_ranks_done = false;
+                break;
+            }
+        }
+
+        if (all_ranks_done)
+            break;
+
+        // Check timeout
+        auto elapsed = std::chrono::steady_clock::now() - start;
+        if (elapsed >= cleanup_timeout) {
+            std::cerr << "Warning: Timeout waiting for all ranks to finish. "
+                      << "Some alive files may still exist. Proceeding with cleanup."
+                      << std::endl;
+            break;
+        }
+
+        // Sleep before next poll
+        std::this_thread::sleep_for(poll_interval);
+    }
+
+    // Clean up the entire coordination directory
+    try {
+        std::error_code ec;
+        if (std::filesystem::remove_all(coord_dir_, ec) == 0 && ec) {
+            std::cerr << "Warning: Failed to remove coordination directory '"
+                      << coord_dir_ << "': " << ec.message() << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Exception during coordination directory cleanup: " << e.what()
+                  << std::endl;
+    }
 }
 }  // namespace rapidsmpf::bootstrap::detail
