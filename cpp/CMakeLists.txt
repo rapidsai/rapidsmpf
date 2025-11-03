@@ -182,6 +182,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/coll/allgather.cpp
             src/streaming/coll/shuffler.cpp
             src/streaming/core/context.cpp
+            src/streaming/core/fanout.cpp
             src/streaming/core/leaf_node.cpp
             src/streaming/core/node.cpp
             src/streaming/cudf/partition.cpp

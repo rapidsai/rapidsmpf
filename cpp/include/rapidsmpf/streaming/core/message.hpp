@@ -218,7 +218,7 @@ class Message {
      *
      * @throws std::invalid_argument if the message does not support `content_size`.
      */
-    [[nodiscard]] std::pair<size_t, bool> content_size(MemoryType mem_type) {
+    [[nodiscard]] std::pair<size_t, bool> content_size(MemoryType mem_type) const {
         RAPIDSMPF_EXPECTS(
             callbacks_.content_size,
             "message doesn't support `content_size`",
@@ -235,7 +235,7 @@ class Message {
      *
      * @see copy()
      */
-    [[nodiscard]] size_t copy_cost() {
+    [[nodiscard]] size_t copy_cost() const {
         size_t ret = 0;
         for (MemoryType mem_type : MEMORY_TYPES) {
             ret += content_size(mem_type).first;
