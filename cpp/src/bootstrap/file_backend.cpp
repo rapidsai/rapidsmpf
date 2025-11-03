@@ -15,13 +15,7 @@
 #include <rapidsmpf/bootstrap/file_backend.hpp>
 #include <rapidsmpf/error.hpp>
 
-namespace rapidsmpf {
-
-namespace bootstrap {
-
-namespace detail {
-
-namespace {}  // namespace
+namespace rapidsmpf::bootstrap::detail {
 
 FileBackend::FileBackend(Context ctx) : ctx_{std::move(ctx)} {
     RAPIDSMPF_EXPECTS(
@@ -242,9 +236,4 @@ std::string FileBackend::read_file(std::string const& path) {
     buffer << ifs.rdbuf();
     return buffer.str();
 }
-
-}  // namespace detail
-
-}  // namespace bootstrap
-
-}  // namespace rapidsmpf
+}  // namespace rapidsmpf::bootstrap::detail

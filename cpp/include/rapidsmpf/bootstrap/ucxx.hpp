@@ -48,7 +48,6 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(
 );
 
 }  // namespace bootstrap
-
 }  // namespace rapidsmpf
 
 #endif  // RAPIDSMPF_HAVE_UCXX

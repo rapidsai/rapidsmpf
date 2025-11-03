@@ -10,11 +10,7 @@
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 
-namespace rapidsmpf {
-
-namespace bootstrap {
-
-namespace detail {
+namespace rapidsmpf::bootstrap::detail {
 
 /**
  * @brief File-based coordination backend implementation.
@@ -133,8 +129,4 @@ class FileBackend {
     std::string read_file(std::string const& path);
 };
 
-}  // namespace detail
-
-}  // namespace bootstrap
-
-}  // namespace rapidsmpf
+}  // namespace rapidsmpf::bootstrap::detail

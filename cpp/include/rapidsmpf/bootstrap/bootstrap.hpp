@@ -13,11 +13,9 @@
 
 #include <rapidsmpf/config.hpp>
 
-namespace rapidsmpf {
+namespace rapidsmpf::bootstrap {
 
-namespace bootstrap {
-
-// Rank type (matches communicator::Rank)
+/// @brief Type alias for communicator::Rank
 using Rank = std::int32_t;
 
 /**
@@ -134,6 +132,4 @@ std::string get(
     std::chrono::milliseconds timeout = std::chrono::milliseconds{30000}
 );
 
-}  // namespace bootstrap
-
-}  // namespace rapidsmpf
+}  // namespace rapidsmpf::bootstrap

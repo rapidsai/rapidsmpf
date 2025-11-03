@@ -13,9 +13,7 @@
 #include <rapidsmpf/bootstrap/file_backend.hpp>
 #include <rapidsmpf/error.hpp>
 
-namespace rapidsmpf {
-namespace bootstrap {
-
+namespace rapidsmpf::bootstrap {
 namespace {
 
 /**
@@ -61,7 +59,6 @@ Backend detect_backend() {
     // Default to file-based
     return Backend::FILE;
 }
-
 }  // namespace
 
 Context init(Backend backend) {
@@ -175,5 +172,4 @@ std::string get(
     }
 }
 
-}  // namespace bootstrap
-}  // namespace rapidsmpf
+}  // namespace rapidsmpf::bootstrap

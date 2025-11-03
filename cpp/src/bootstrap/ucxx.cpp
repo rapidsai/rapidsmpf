@@ -16,9 +16,7 @@
 #include <rapidsmpf/bootstrap/ucxx.hpp>
 #include <rapidsmpf/communicator/ucxx.hpp>
 
-namespace rapidsmpf {
-
-namespace bootstrap {
+namespace rapidsmpf::bootstrap {
 
 std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options options) {
     auto ctx = init(backend);
@@ -56,9 +54,6 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options op
 
     return comm;
 }
-
-}  // namespace bootstrap
-
-}  // namespace rapidsmpf
+}  // namespace rapidsmpf::bootstrap
 
 #endif  // RAPIDSMPF_HAVE_UCXX
