@@ -115,4 +115,9 @@ class ContentDescription {
     bool spillable_;
 };
 
+static_assert(
+    std::is_trivially_copyable_v<ContentDescription>,
+    "ContentDescription must be trivially copyable"
+);
+
 }  // namespace rapidsmpf
