@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 
@@ -19,6 +20,19 @@ struct PackedDataChunk {
      */
     PackedData data;
 };
+
+/**
+ * @brief Generate a content description for a `PackedDataChunk`.
+ *
+ * @param obj The object's content to describe.
+ * @return A new content description.
+ */
+inline ContentDescription get_content_description(PackedDataChunk const& obj) {
+    return ContentDescription{
+        {{obj.data.data->mem_type(), obj.data.data->size}},
+        ContentDescription::Spillable::YES
+    };
+}
 
 /**
  * @brief Wrap a `PackedDataChunk` into a `Message`.

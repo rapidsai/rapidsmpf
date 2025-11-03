@@ -5,7 +5,7 @@
 # cmake-format: on
 # =================================================================================
 
-set(cython_modules partition.pyx table_chunk.pyx)
+set(cython_modules parquet.pyx partition.pyx table_chunk.pyx)
 
 rapids_cython_create_modules(
   CXX

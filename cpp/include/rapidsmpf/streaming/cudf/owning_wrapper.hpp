@@ -55,6 +55,15 @@ class OwningWrapper {
     explicit OwningWrapper(void* obj, deleter_type deleter)
         : obj_{owning_type(obj, deleter)} {}
 
+    /**
+     * @brief Release ownership of the underlying pointer
+     *
+     * @return Pointer to object.
+     */
+    void* release() noexcept {
+        return obj_.release();
+    }
+
   private:
     using owning_type = std::unique_ptr<void, deleter_type>;
     owning_type obj_{nullptr, [](void*) {}};

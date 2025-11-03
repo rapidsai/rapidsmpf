@@ -107,3 +107,39 @@ TEST_F(StreamingPartition, PartitionMapChunkToMessage) {
     validate_packed_data(std::move(chunk2.data.at(0)), 10, 0, stream, *br);
     validate_packed_data(std::move(chunk2.data.at(1)), 10, 10, stream, *br);
 }
+
+TEST_F(StreamingPartition, PartitionMapChunkContentDescription) {
+    // Create a packed data, one in device and one in host memory.
+    std::unordered_map<shuffler::PartID, PackedData> data;
+    auto pack1 = generate_packed_data(5, 0, stream, *br);
+    auto pack1_size = pack1.data->size;
+    auto pack2_size = pack1.data->size * 2;
+    auto res = br->reserve_or_fail(pack2_size, MemoryType::HOST);
+    auto pack2 = generate_packed_data(10, 0, stream, *br).copy(br.get(), res);
+    data.emplace(0, std::move(pack1));
+    data.emplace(1, std::move(pack2));
+
+    auto chunk = std::make_unique<PartitionMapChunk>(std::move(data));
+    auto cd = get_content_description(*chunk);
+    EXPECT_TRUE(cd.spillable());
+    EXPECT_EQ(cd.content_size(MemoryType::DEVICE), pack1_size);
+    EXPECT_EQ(cd.content_size(MemoryType::HOST), pack2_size);
+}
+
+TEST_F(StreamingPartition, PartitionVectorChunkContentDescription) {
+    // Create a packed data, one in device and one in host memory.
+    std::vector<PackedData> data;
+    auto pack1 = generate_packed_data(5, 0, stream, *br);
+    auto pack1_size = pack1.data->size;
+    auto pack2_size = pack1.data->size * 2;
+    auto res = br->reserve_or_fail(pack2_size, MemoryType::HOST);
+    auto pack2 = generate_packed_data(10, 0, stream, *br).copy(br.get(), res);
+    data.push_back(std::move(pack1));
+    data.push_back(std::move(pack2));
+
+    auto chunk = std::make_unique<PartitionVectorChunk>(std::move(data));
+    auto cd = get_content_description(*chunk);
+    EXPECT_TRUE(cd.spillable());
+    EXPECT_EQ(cd.content_size(MemoryType::DEVICE), pack1_size);
+    EXPECT_EQ(cd.content_size(MemoryType::HOST), pack2_size);
+}
