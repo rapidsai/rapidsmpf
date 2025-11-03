@@ -25,7 +25,7 @@ cdef extern from * nogil:
             // TODO: support content description in Python. For now, we use
             // an empty content description and provide no copy callback. This
             // means that ArbitraryChunk won't support copy or spilling.
-            rapidsmpf::streaming::ContentDescription{}
+            rapidsmpf::ContentDescription{}
         };
     }
     }
