@@ -207,17 +207,15 @@ void FileBackend::write_file(std::string const& path, std::string const& content
     ofs.close();
 
     // Atomic rename
-    {
-        std::error_code ec;
-        std::filesystem::rename(tmp_path, path, ec);
-        if (ec) {
-            std::error_code rm_ec;
-            std::filesystem::remove(tmp_path, rm_ec);  // Clean up temp file
-            RAPIDSMPF_FAIL(
-                "Failed to rename " + tmp_path + " to " + path + ": " + ec.message(),
-                std::runtime_error
-            );
-        }
+    std::error_code ec;
+    std::filesystem::rename(tmp_path, path, ec);
+    if (ec) {
+        std::error_code rm_ec;
+        std::filesystem::remove(tmp_path, rm_ec);  // Clean up temp file
+        RAPIDSMPF_FAIL(
+            "Failed to rename " + tmp_path + " to " + path + ": " + ec.message(),
+            std::runtime_error
+        );
     }
 }
 

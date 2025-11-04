@@ -149,7 +149,6 @@ std::vector<int> parse_gpu_list(std::string const& gpu_str) {
     std::vector<int> gpus;
     std::stringstream ss(gpu_str);
     std::string item;
-
     while (std::getline(ss, item, ',')) {
         try {
             gpus.push_back(std::stoi(item));
@@ -157,7 +156,6 @@ std::vector<int> parse_gpu_list(std::string const& gpu_str) {
             RAPIDSMPF_FAIL("Invalid GPU ID: " + item, std::runtime_error);
         }
     }
-
     return gpus;
 }
 
@@ -438,7 +436,6 @@ int wait_for_ranks(std::vector<pid_t> const& pids) {
 
     return overall_status;
 }
-
 
 }  // namespace
 
