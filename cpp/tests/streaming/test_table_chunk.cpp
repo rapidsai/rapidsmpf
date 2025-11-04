@@ -103,7 +103,7 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
         );
         // This is like spilling since the original `chunk` is ExclusiveView::YES and
         // overwritten.
-        chunk = chunk.copy(br.get(), res);
+        chunk = chunk.copy(res);
         EXPECT_EQ(num_deletions, 4);
     }
 }
@@ -186,7 +186,7 @@ TEST_F(StreamingTableChunk, DeviceToDeviceCopy) {
     auto res = br->reserve_or_fail(
         chunk.data_alloc_size(MemoryType::DEVICE), MemoryType::DEVICE
     );
-    auto chunk2 = chunk.copy(br.get(), res);
+    auto chunk2 = chunk.copy(res);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk2.table_view(), expect);
 }
@@ -214,7 +214,7 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     auto host_res = br->reserve_or_fail(
         dev_chunk.data_alloc_size(MemoryType::DEVICE), MemoryType::HOST
     );
-    auto host_copy = dev_chunk.copy(br.get(), host_res);
+    auto host_copy = dev_chunk.copy(host_res);
     EXPECT_FALSE(host_copy.is_available());
     EXPECT_TRUE(host_copy.is_spillable());
     EXPECT_EQ(host_copy.stream().value(), stream.value());
@@ -231,7 +231,7 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     auto host_res2 = br->reserve_or_fail(
         host_copy.data_alloc_size(MemoryType::HOST), MemoryType::HOST
     );
-    auto host_copy2 = host_copy.copy(br.get(), host_res2);
+    auto host_copy2 = host_copy.copy(host_res2);
     EXPECT_FALSE(host_copy2.is_available());
     EXPECT_TRUE(host_copy2.is_spillable());
     EXPECT_EQ(host_copy2.stream().value(), stream.value());
@@ -266,7 +266,7 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     auto dev_res2 = br->reserve_or_fail(
         dev_back.data_alloc_size(MemoryType::DEVICE), MemoryType::DEVICE
     );
-    auto dev_copy2 = dev_back.copy(br.get(), dev_res2);
+    auto dev_copy2 = dev_back.copy(dev_res2);
     EXPECT_TRUE(dev_copy2.is_available());
     EXPECT_EQ(dev_copy2.make_available_cost(), 0);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(dev_copy2.table_view(), expect);
@@ -298,7 +298,7 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
 
     // Deep-copy: device to host.
     auto reservation = br->reserve_or_fail(m.copy_cost(), MemoryType::HOST);
-    Message m2 = m.copy(br.get(), reservation);
+    Message m2 = m.copy(reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m2.empty());
     EXPECT_TRUE(m2.holds<TableChunk>());
@@ -309,7 +309,7 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
 
     // Deep-copy: host to host.
     reservation = br->reserve_or_fail(m2.copy_cost(), MemoryType::HOST);
-    Message m3 = m.copy(br.get(), reservation);
+    Message m3 = m.copy(reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m3.empty());
     EXPECT_TRUE(m3.holds<TableChunk>());
@@ -328,7 +328,7 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
 
     // Deep-copy: host to device.
     reservation = br->reserve_or_fail(m2.copy_cost(), MemoryType::DEVICE);
-    Message m4 = m.copy(br.get(), reservation);
+    Message m4 = m.copy(reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m4.empty());
     EXPECT_TRUE(m4.holds<TableChunk>());
@@ -340,7 +340,7 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
 
     // Deep-copy: device to device.
     reservation = br->reserve_or_fail(m4.copy_cost(), MemoryType::DEVICE);
-    Message m5 = m.copy(br.get(), reservation);
+    Message m5 = m.copy(reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m5.empty());
     EXPECT_TRUE(m5.holds<TableChunk>());

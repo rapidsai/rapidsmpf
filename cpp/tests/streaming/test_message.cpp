@@ -83,21 +83,20 @@ TEST_F(StreamingMessage, CopyWithoutCallbacks) {
     };
     {
         auto res = br->reserve_or_fail(m.copy_cost(), MemoryType::HOST);
-        EXPECT_THROW(std::ignore = m.copy(br.get(), res), std::invalid_argument);
+        EXPECT_THROW(std::ignore = m.copy(res), std::invalid_argument);
     }
     {
         auto res = br->reserve_or_fail(m.copy_cost(), MemoryType::DEVICE);
-        EXPECT_THROW(std::ignore = m.copy(br.get(), res), std::invalid_argument);
+        EXPECT_THROW(std::ignore = m.copy(res), std::invalid_argument);
     }
 }
 
 TEST_F(StreamingMessage, CopyWithCallbacks) {
     Message::CopyCallback copy_cb = [](Message const& msg,
-                                       BufferResource* br,
                                        MemoryReservation& reservation) -> Message {
         EXPECT_TRUE(msg.holds<Buffer>());
         auto const& src = msg.get<Buffer>();
-        auto dst = br->allocate(src.size, src.stream(), reservation);
+        auto dst = reservation.br()->allocate(src.size, src.stream(), reservation);
         buffer_copy(*dst, src, src.size);
         ContentDescription cd{
             {{dst->mem_type(), dst->size}}, ContentDescription::Spillable::YES
@@ -116,7 +115,7 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
         };
         EXPECT_EQ(m1.copy_cost(), 10);
         auto res = br->reserve_or_fail(m1.copy_cost(), MemoryType::HOST);
-        auto m2 = m1.copy(br.get(), res);
+        auto m2 = m1.copy(res);
         EXPECT_EQ(m1.get<Buffer>().mem_type(), m2.get<Buffer>().mem_type());
         EXPECT_EQ(m1.get<Buffer>().size, m2.get<Buffer>().size);
         EXPECT_EQ(m1.sequence_number(), m2.sequence_number());
@@ -133,7 +132,7 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
         };
         EXPECT_EQ(m1.copy_cost(), 10);
         auto res = br->reserve_or_fail(m1.copy_cost(), MemoryType::DEVICE);
-        auto m2 = m1.copy(br.get(), res);
+        auto m2 = m1.copy(res);
         EXPECT_EQ(m1.get<Buffer>().mem_type(), m2.get<Buffer>().mem_type());
         EXPECT_EQ(m1.sequence_number(), m2.sequence_number());
     }

@@ -119,7 +119,8 @@ bool TableChunk::is_spillable() const {
     return is_spillable_;
 }
 
-TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) const {
+TableChunk TableChunk::copy(MemoryReservation& reservation) const {
+    BufferResource* br = reservation.br();
     if (is_available()) {  // If `is_available() == true`, the chunk is in device memory.
         switch (reservation.mem_type()) {
         case MemoryType::DEVICE:
@@ -210,11 +211,9 @@ Message to_message(std::uint64_t sequence_number, std::unique_ptr<TableChunk> ch
         sequence_number,
         std::move(chunk),
         cd,
-        [](Message const& msg,
-           BufferResource* br,
-           MemoryReservation& reservation) -> Message {
+        [](Message const& msg, MemoryReservation& reservation) -> Message {
             auto const& self = msg.get<TableChunk>();
-            auto chunk = std::make_unique<TableChunk>(self.copy(br, reservation));
+            auto chunk = std::make_unique<TableChunk>(self.copy(reservation));
             auto cd = get_content_description(*chunk);
             return Message{msg.sequence_number(), std::move(chunk), cd, msg.copy_cb()};
         }

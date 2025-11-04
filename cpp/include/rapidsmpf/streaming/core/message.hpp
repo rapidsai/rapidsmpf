@@ -30,17 +30,16 @@ class Message {
      * @brief Callback for performing a deep copy of a message.
      *
      * The copy operation allocates new memory for the message's payload using the
-     * provided buffer resource and memory reservation. The memory type specified
-     * in the reservation determines where the new copy will primarily reside
-     * (e.g., device or host memory).
+     * provided memory reservation. The memory type specified in the reservation
+     * determines where the new copy will primarily reside (e.g., device or host
+     * memory).
      *
      * @param msg Source message to copy.
-     * @param br Buffer resource used for memory allocations.
      * @param reservation Memory reservation to consume during allocation.
      * @return A new `Message` instance containing a deep copy of the payload.
      */
-    using CopyCallback = std::function<
-        Message(Message const&, BufferResource* br, MemoryReservation& reservation)>;
+    using CopyCallback =
+        std::function<Message(Message const&, MemoryReservation& reservation)>;
 
     /// @brief Create an empty message.
     Message() = default;
@@ -210,24 +209,22 @@ class Message {
      * @brief Perform a deep copy of this message and its payload.
      *
      * Invokes the registered `copy` callback to create a new `Message` with freshly
-     * allocated buffers. The allocation is performed using the provided buffer
-     * resource and memory reservation, which together define the memory type
-     * (e.g., host or device).
+     * allocated buffers. The allocation is performed using the provided memory
+     * reservation, which also define the target memory type (e.g., host or device).
      *
      * The resulting message contains a deep copy of the original payload, while
      * preserving the same metadata and callbacks.
      *
-     * @param br Buffer resource used for allocations.
      * @param reservation Memory reservation to consume for the copy.
      * @return A new `Message` instance containing a deep copy of the payload.
      *
      * @throws std::invalid_argument if the message does not support copying.
      */
-    [[nodiscard]] Message copy(BufferResource* br, MemoryReservation& reservation) const {
+    [[nodiscard]] Message copy(MemoryReservation& reservation) const {
         RAPIDSMPF_EXPECTS(
             copy_cb(), "message doesn't support `copy`", std::invalid_argument
         );
-        return copy_cb()(*this, br, reservation);
+        return copy_cb()(*this, reservation);
     }
 
   private:

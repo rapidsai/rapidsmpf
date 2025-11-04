@@ -31,13 +31,11 @@ Message to_message(
         sequence_number,
         std::move(chunk),
         cd,
-        [](Message const& msg,
-           BufferResource* br,
-           MemoryReservation& reservation) -> Message {
+        [](Message const& msg, MemoryReservation& reservation) -> Message {
             auto const& self = msg.get<PartitionMapChunk>();
             std::unordered_map<shuffler::PartID, PackedData> pd;
             for (auto const& [pid, packed_data] : self.data) {
-                pd.emplace(pid, packed_data.copy(br, reservation));
+                pd.emplace(pid, packed_data.copy(reservation));
             }
             auto chunk = std::make_unique<PartitionMapChunk>(std::move(pd));
             auto cd = get_content_description(*chunk);
@@ -54,13 +52,11 @@ Message to_message(
         sequence_number,
         std::move(chunk),
         cd,
-        [](Message const& msg,
-           BufferResource* br,
-           MemoryReservation& reservation) -> Message {
+        [](Message const& msg, MemoryReservation& reservation) -> Message {
             auto const& self = msg.get<PartitionVectorChunk>();
             std::vector<PackedData> pd;
             for (auto const& packed_data : self.data) {
-                pd.emplace_back(packed_data.copy(br, reservation));
+                pd.emplace_back(packed_data.copy(reservation));
             }
             auto chunk = std::make_unique<PartitionVectorChunk>(std::move(pd));
             auto cd = get_content_description(*chunk);

@@ -97,7 +97,7 @@ TEST_F(StreamingPartition, PartitionMapChunkToMessage) {
     EXPECT_EQ(m.sequence_number(), seq);
 
     auto res = br->reserve_or_fail(m.copy_cost(), MemoryType::DEVICE);
-    Message m2 = m.copy(br.get(), res);
+    Message m2 = m.copy(res);
     EXPECT_EQ(res.size(), 0);
     EXPECT_FALSE(m2.empty());
     EXPECT_TRUE(m2.holds<PartitionMapChunk>());
@@ -117,7 +117,7 @@ TEST_F(StreamingPartition, PartitionMapChunkContentDescription) {
     auto pack1_size = pack1.data->size;
     auto pack2_size = pack1.data->size * 2;
     auto res = br->reserve_or_fail(pack2_size, MemoryType::HOST);
-    auto pack2 = generate_packed_data(10, 0, stream, *br).copy(br.get(), res);
+    auto pack2 = generate_packed_data(10, 0, stream, *br).copy(res);
     data.emplace(0, std::move(pack1));
     data.emplace(1, std::move(pack2));
 
@@ -135,7 +135,7 @@ TEST_F(StreamingPartition, PartitionVectorChunkContentDescription) {
     auto pack1_size = pack1.data->size;
     auto pack2_size = pack1.data->size * 2;
     auto res = br->reserve_or_fail(pack2_size, MemoryType::HOST);
-    auto pack2 = generate_packed_data(10, 0, stream, *br).copy(br.get(), res);
+    auto pack2 = generate_packed_data(10, 0, stream, *br).copy(res);
     data.push_back(std::move(pack1));
     data.push_back(std::move(pack2));
 

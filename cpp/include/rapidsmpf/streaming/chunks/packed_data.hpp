@@ -49,12 +49,9 @@ Message to_message(
         sequence_number,
         std::move(chunk),
         cd,
-        [](Message const& msg,
-           BufferResource* br,
-           MemoryReservation& reservation) -> Message {
+        [](Message const& msg, MemoryReservation& reservation) -> Message {
             auto const& self = msg.get<PackedDataChunk>();
-            auto chunk =
-                std::make_unique<PackedDataChunk>(self.data.copy(br, reservation));
+            auto chunk = std::make_unique<PackedDataChunk>(self.data.copy(reservation));
             auto cd = get_content_description(*chunk);
             return Message{msg.sequence_number(), std::move(chunk), cd, msg.copy_cb()};
         }
