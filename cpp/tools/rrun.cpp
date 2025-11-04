@@ -321,8 +321,8 @@ pid_t fork_with_piped_stdio(
         );
     } else if (pid == 0) {
         // Child: redirect stdout/stderr
-        (void)dup2(pipe_out[1], STDOUT_FILENO);
-        (void)dup2(combine_stderr ? pipe_out[1] : pipe_err[1], STDERR_FILENO);
+        std::ignore = dup2(pipe_out[1], STDOUT_FILENO);
+        std::ignore = dup2(combine_stderr ? pipe_out[1] : pipe_err[1], STDERR_FILENO);
         close(pipe_out[0]);
         close(pipe_out[1]);
         if (!combine_stderr) {
@@ -562,7 +562,7 @@ int main(int argc, char* argv[]) {
                 suppress_output->store(true, std::memory_order_relaxed);
                 // Forward signal to all local children
                 for (pid_t pid : pids) {
-                    (void)kill(pid, sig);
+                    std::ignore = kill(pid, sig);
                 }
             }
         }).detach();
