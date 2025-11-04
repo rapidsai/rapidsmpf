@@ -155,6 +155,8 @@ target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize
 add_library(
   rapidsmpf
   src/allgather/allgather.cpp
+  src/bootstrap/bootstrap.cpp
+  src/bootstrap/file_backend.cpp
   src/buffer/buffer.cpp
   src/buffer/pinned_memory_resource.cu
   src/buffer/resource.cpp
@@ -190,7 +192,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
   )
 endif()
 if(RAPIDSMPF_HAVE_UCXX)
-  target_sources(rapidsmpf PRIVATE src/communicator/ucxx.cpp)
+  target_sources(rapidsmpf PRIVATE src/bootstrap/ucxx.cpp src/communicator/ucxx.cpp)
 endif()
 if(RAPIDSMPF_HAVE_MPI)
   target_sources(rapidsmpf PRIVATE src/communicator/mpi.cpp)
@@ -323,6 +325,11 @@ endif()
 if(RAPIDSMPF_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()
+
+# ##################################################################################################
+# * add tools
+# -------------------------------------------------------------------------------------
+add_subdirectory(tools)
 
 # ##################################################################################################
 # * install targets -------------------------------------------------------------------------------

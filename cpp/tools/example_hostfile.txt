@@ -1,0 +1,22 @@
+# Example hostfile for rrun multi-node launches
+# Format: hostname [slots=N] [gpus=list]
+#
+# Lines starting with # are comments
+
+# Example 1: Node with 4 slots and 4 GPUs explicitly listed
+# node1 slots=4 gpus=0,1,2,3
+
+# Example 2: Node with 4 slots, GPUs will be auto-assigned
+# node2 slots=4
+
+# Example 3: Node with default 1 slot
+# node3
+
+# Localhost example for testing (works on single node)
+localhost slots=2 gpus=0,1
+
+# For actual multi-node deployment, replace with your node names:
+# dgx01 slots=8 gpus=0,1,2,3,4,5,6,7
+# dgx02 slots=8 gpus=0,1,2,3,4,5,6,7
+# dgx03 slots=8 gpus=0,1,2,3,4,5,6,7
+# dgx04 slots=8 gpus=0,1,2,3,4,5,6,7
