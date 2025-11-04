@@ -177,7 +177,7 @@ class Message {
     }
 
     /**
-     * @brief Returns the content description associated with the message.
+     * @brief Returns the copy callback associated with the message.
      *
      * @return The message's content description.
      */
