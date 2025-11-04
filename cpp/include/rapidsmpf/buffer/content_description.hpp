@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
-#include <string>
+#include <numeric>
 #include <type_traits>
 #include <utility>
 
@@ -62,7 +62,7 @@ class ContentDescription {
         requires std::convertible_to<
             std::ranges::range_value_t<Range>,
             std::pair<MemoryType, std::size_t>>
-    explicit ContentDescription(Range&& sizes, Spillable spillable)
+    constexpr explicit ContentDescription(Range&& sizes, Spillable spillable)
         : spillable_(spillable == Spillable::YES) {
         content_sizes_.fill(0);
         for (auto&& [mem_type, size] : sizes) {
@@ -81,7 +81,7 @@ class ContentDescription {
      *
      * @param spillable Whether the content are spillable.
      */
-    ContentDescription(Spillable spillable = Spillable::NO)
+    constexpr ContentDescription(Spillable spillable = Spillable::NO)
         : ContentDescription({{}}, spillable) {}
 
     /**
@@ -90,7 +90,7 @@ class ContentDescription {
      * @param mem_type The memory type entry to access.
      * @return Reference to the size (in bytes) for the given memory type.
      */
-    [[nodiscard]] std::size_t& content_size(MemoryType mem_type) noexcept {
+    [[nodiscard]] constexpr std::size_t& content_size(MemoryType mem_type) noexcept {
         return content_sizes_[static_cast<std::size_t>(mem_type)];
     }
 
@@ -100,8 +100,23 @@ class ContentDescription {
      * @param mem_type The memory type entry to access.
      * @return Size (in bytes) for the given memory type.
      */
-    [[nodiscard]] std::size_t content_size(MemoryType mem_type) const noexcept {
+    [[nodiscard]] constexpr std::size_t content_size(MemoryType mem_type) const noexcept {
         return content_sizes_[static_cast<std::size_t>(mem_type)];
+    }
+
+    /**
+     * @brief Get the total content size across all memory types.
+     *
+     * Computes the sum of all per-memory-type content sizes.
+     * This represents the total size (in bytes) of the object's content
+     * across host, device, and any other memory types.
+     *
+     * @return Total size (in bytes) across all memory types.
+     */
+    [[nodiscard]] constexpr std::size_t content_size() const noexcept {
+        return std::accumulate(
+            content_sizes_.begin(), content_sizes_.end(), std::size_t{0}
+        );
     }
 
     /// @brief @return Whether the content can be spilled.

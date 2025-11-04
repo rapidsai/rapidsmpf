@@ -197,12 +197,8 @@ class Message {
      *
      * @see copy()
      */
-    [[nodiscard]] size_t copy_cost() const noexcept {
-        size_t ret = 0;
-        for (MemoryType mem_type : MEMORY_TYPES) {
-            ret += content_description().content_size(mem_type);
-        }
-        return ret;
+    [[nodiscard]] constexpr size_t copy_cost() const noexcept {
+        return content_description().content_size();
     }
 
     /**
