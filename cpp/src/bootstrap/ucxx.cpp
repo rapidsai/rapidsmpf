@@ -49,9 +49,7 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options op
             ucxx::init(nullptr, ctx.nranks, root_worker_address, options);
         comm = std::make_shared<ucxx::UCXX>(std::move(ucxx_initialized_rank), options);
     }
-
     comm->barrier();
-
     return comm;
 }
 }  // namespace rapidsmpf::bootstrap

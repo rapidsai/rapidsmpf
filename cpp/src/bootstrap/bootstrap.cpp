@@ -63,7 +63,6 @@ Backend detect_backend() {
 
 Context init(Backend backend) {
     Context ctx;
-
     ctx.backend = (backend == Backend::AUTO) ? detect_backend() : backend;
 
     // Get rank and nranks based on backend
@@ -102,7 +101,6 @@ Context init(Backend backend) {
                 "Invalid rank: RAPIDSMPF_RANK=" + std::to_string(ctx.rank)
                     + " must be in range [0, " + std::to_string(ctx.nranks) + ")"
             );
-
             break;
         }
     case Backend::AUTO:
@@ -111,7 +109,6 @@ Context init(Backend backend) {
             RAPIDSMPF_FAIL("Backend::AUTO should have been resolved", std::logic_error);
         }
     }
-
     return ctx;
 }
 

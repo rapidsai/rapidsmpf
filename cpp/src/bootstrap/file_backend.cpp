@@ -57,7 +57,6 @@ FileBackend::~FileBackend() {
         std::cerr << "Exception during rank alive file cleanup: " << e.what()
                   << std::endl;
     }
-
     cleanup_coordination_directory();
 }
 
@@ -68,7 +67,6 @@ void FileBackend::put(std::string const& key, std::string const& value) {
 
 std::string FileBackend::get(std::string const& key, Duration timeout) {
     std::string path = get_kv_path(key);
-
     auto timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout);
     RAPIDSMPF_EXPECTS(
         wait_for_file(path, timeout_ms),
@@ -76,7 +74,6 @@ std::string FileBackend::get(std::string const& key, Duration timeout) {
             + "s timeout",
         std::runtime_error
     );
-
     return read_file(path);
 }
 
@@ -90,8 +87,9 @@ void FileBackend::barrier() {
 
     // Wait for all other ranks
     for (Rank r = 0; r < ctx_.nranks; ++r) {
-        if (r == ctx_.rank)
+        if (r == ctx_.rank) {
             continue;
+        }
 
         std::string other_barrier_file =
             get_barrier_path(barrier_id) + "." + std::to_string(r);
@@ -103,10 +101,8 @@ void FileBackend::barrier() {
     }
 
     // Clean up our barrier file
-    {
-        std::error_code ec;
-        std::filesystem::remove(my_barrier_file, ec);
-    }
+    std::error_code ec;
+    std::filesystem::remove(my_barrier_file, ec);
 }
 
 void FileBackend::broadcast(void* data, std::size_t size, Rank root) {
@@ -126,7 +122,6 @@ void FileBackend::broadcast(void* data, std::size_t size, Rank root) {
         );
         std::memcpy(data, bcast_data.data(), size);
     }
-
     barrier();
 }
 
@@ -254,8 +249,9 @@ void FileBackend::cleanup_coordination_directory() {
 
         // Check if all other ranks' alive files are gone
         for (Rank r = 0; r < ctx_.nranks; ++r) {
-            if (r == ctx_.rank)
+            if (r == ctx_.rank) {
                 continue;
+            }
 
             std::error_code ec;
             std::string alive_path = get_rank_alive_path(r);
@@ -265,8 +261,9 @@ void FileBackend::cleanup_coordination_directory() {
             }
         }
 
-        if (all_ranks_done)
-            break;
+        if (all_ranks_done) {
+            break;        
+        }
 
         // Check timeout
         auto elapsed = std::chrono::steady_clock::now() - start;

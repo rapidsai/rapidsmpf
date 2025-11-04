@@ -166,7 +166,6 @@ std::vector<int> parse_gpu_list(std::string const& gpu_str) {
  */
 Config parse_args(int argc, char* argv[]) {
     Config cfg;
-
     int i = 1;
     while (i < argc) {
         std::string arg = argv[i];
@@ -501,8 +500,9 @@ int main(int argc, char* argv[]) {
 
         // Helper to start a forwarder thread for a given fd
         auto start_forwarder = [&](int fd, int rank, bool to_stderr) {
-            if (fd < 0)
+            if (fd < 0) {
                 return;
+            }
             forwarders.emplace_back([fd, rank, to_stderr, &cfg, suppress_output]() {
                 FILE* stream = fdopen(fd, "r");
                 if (!stream) {
@@ -520,8 +520,9 @@ int main(int argc, char* argv[]) {
                     FILE* out = to_stderr ? stderr : stdout;
                     {
                         std::lock_guard<std::mutex> lock(output_mutex);
-                        if (!tag.empty())
+                        if (!tag.empty()) {
                             fputs(tag.c_str(), out);
+                        }
                         fputs(buffer, out);
                         fflush(out);
                     }
@@ -576,8 +577,9 @@ int main(int argc, char* argv[]) {
 
         // Join forwarders before cleanup
         for (auto& th : forwarders) {
-            if (th.joinable())
+            if (th.joinable()) {
                 th.join();
+            }
         }
 
         if (cfg.cleanup) {
