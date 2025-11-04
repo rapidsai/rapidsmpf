@@ -37,6 +37,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+// NOTE: Do not use RAPIDSMPF_EXPECTS or RAPIDSMPF_FAIL in this file.
+// Using these macros introduces a CUDA dependency via rapidsmpf/error.hpp.
+// Prefer throwing standard exceptions instead.
+
 namespace {
 
 static std::mutex output_mutex;
