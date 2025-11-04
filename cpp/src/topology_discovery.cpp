@@ -398,6 +398,7 @@ int count_numa_nodes() {
 }  // namespace
 
 bool TopologyDiscovery::discover() {
+    SystemTopologyInfo topology;
     nvmlReturn_t result = nvmlInit_v2();
     if (result != NVML_SUCCESS) {
         std::cerr << "Failed to initialize NVML: " << nvmlErrorString(result)
@@ -424,24 +425,23 @@ bool TopologyDiscovery::discover() {
         discover_network_devices_with_topology();
 
     // Get system information
-    topology_.hostname = get_hostname();
-    topology_.num_numa_nodes = count_numa_nodes();
-    topology_.num_gpus = device_count;
-    topology_.num_network_devices =
-        static_cast<int>(network_devices_with_topology.size());
+    topology.hostname = get_hostname();
+    topology.num_numa_nodes = count_numa_nodes();
+    topology.num_gpus = device_count;
+    topology.num_network_devices = static_cast<int>(network_devices_with_topology.size());
 
     // Convert network devices to public format
-    topology_.network_devices.clear();
+    topology.network_devices.clear();
     for (auto const& dev : network_devices_with_topology) {
         NetworkDeviceInfo info;
         info.name = dev.name;
         info.numa_node = dev.numa_node;
         info.pci_bus_id = dev.pci_bus_id;
-        topology_.network_devices.push_back(info);
+        topology.network_devices.push_back(info);
     }
 
     // Collect GPU information
-    topology_.gpus.clear();
+    topology.gpus.clear();
 
     for (unsigned int i = 0; i < device_count; ++i) {
         nvmlDevice_t device;
@@ -493,17 +493,17 @@ bool TopologyDiscovery::discover() {
 
         // Map network devices to this GPU using PCIe topology
         gpu.network_devices = map_network_devices_to_gpu(
-            gpu.pci_bus_id, gpu.numa_node, topology_.network_devices
+            gpu.pci_bus_id, gpu.numa_node, topology.network_devices
         );
 
-        topology_.gpus.push_back(gpu);
+        topology.gpus.push_back(gpu);
     }
 
     if (nvml_available) {
         nvmlShutdown();
     }
 
-    discovered_ = true;
+    topology_ = std::move(topology);
     return true;
 }
 
