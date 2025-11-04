@@ -262,7 +262,7 @@ void FileBackend::cleanup_coordination_directory() {
         }
 
         if (all_ranks_done) {
-            break;        
+            break;
         }
 
         // Check timeout
