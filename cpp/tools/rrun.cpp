@@ -85,7 +85,7 @@ std::string generate_session_id() {
  * Currently using nvidia-smi to detect GPUs. This may be replaced with NVML in the
  * future.
  *
- * @return Vector of GPU IDs.
+ * @return Vector of monotonically increasing GPU indices, as observed in nvidia-smi.
  */
 std::vector<int> detect_gpus() {
     // Use nvidia-smi to detect GPUs
