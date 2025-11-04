@@ -110,12 +110,12 @@ EOF
 # Launch across multiple nodes
 ./tools/rrun --hostfile hosts.txt \
              -d /shared/nfs/coord \
-             ./benchmarks/bench_comm -C ucxx-bootstrap
+             ./benchmarks/bench_comm -C ucxx
 
 # With processes per node override
 ./tools/rrun --hostfile hosts.txt --ppn 4 \
              -d /shared/nfs/coord \
-             ./benchmarks/bench_comm -C ucxx-bootstrap
+             ./benchmarks/bench_comm -C ucxx
 ```
 
 ## Algorithms
