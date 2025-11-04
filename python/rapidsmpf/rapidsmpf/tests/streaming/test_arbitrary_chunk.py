@@ -27,25 +27,19 @@ class Object:
 
 def test_roundtrip_chunk(context: Context) -> None:
     expect = Object(10)
-
     got = ArbitraryChunk(expect).release()
-
     assert got is expect
 
 
 def test_roundtrip_message() -> None:
     expect = Object(10)
-
     got = ArbitraryChunk.from_message(Message(1, ArbitraryChunk(expect))).release()
-
     assert got is expect
 
 
 def test_gc_in_chunk() -> None:
     obj = Object(10)
-
     finalizer = weakref.finalize(obj, lambda: None)
-
     assert finalizer.alive
 
     chunk = ArbitraryChunk(obj)
@@ -57,9 +51,7 @@ def test_gc_in_chunk() -> None:
 
 def test_gc_in_message() -> None:
     obj = Object(10)
-
     finalizer = weakref.finalize(obj, lambda: None)
-
     assert finalizer.alive
 
     chunk = ArbitraryChunk(obj)
@@ -74,9 +66,7 @@ def test_gc_in_message() -> None:
 
 def test_gc_after_message_release() -> None:
     obj = Object(10)
-
     finalizer = weakref.finalize(obj, lambda: None)
-
     assert finalizer.alive
 
     chunk = ArbitraryChunk(obj)
@@ -96,7 +86,6 @@ def test_gc_after_chunk_release() -> None:
     obj = Object(10)
     addr = id(obj)
     finalizer = weakref.finalize(obj, lambda: None)
-
     assert finalizer.alive
 
     chunk = ArbitraryChunk(obj)
