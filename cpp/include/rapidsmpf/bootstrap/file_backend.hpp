@@ -109,8 +109,7 @@ class FileBackend {
      * @return true if file exists within timeout, false otherwise.
      */
     bool wait_for_file(
-        std::string const& path,
-        std::chrono::milliseconds timeout = std::chrono::seconds{30}
+        std::string const& path, Duration timeout = std::chrono::seconds{30}
     );
 
     /**

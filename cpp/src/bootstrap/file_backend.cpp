@@ -142,9 +142,7 @@ std::string FileBackend::get_rank_alive_path(Rank rank) const {
     return coord_dir_ + "/rank_" + std::to_string(rank) + "_alive";
 }
 
-bool FileBackend::wait_for_file(
-    std::string const& path, std::chrono::milliseconds timeout
-) {
+bool FileBackend::wait_for_file(std::string const& path, Duration timeout) {
     auto start = std::chrono::steady_clock::now();
     auto poll_interval = std::chrono::milliseconds{10};
 
