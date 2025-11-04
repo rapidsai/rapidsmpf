@@ -65,7 +65,6 @@ std::vector<int> parse_cpu_list(std::string const& cpulist) {
 
     std::istringstream iss(cpulist);
     std::string token;
-
     while (std::getline(iss, token, ',')) {
         size_t dash_pos = token.find('-');
         if (dash_pos != std::string::npos) {
@@ -80,7 +79,6 @@ std::vector<int> parse_cpu_list(std::string const& cpulist) {
             cores.push_back(std::stoi(token));
         }
     }
-
     return cores;
 }
 
@@ -208,10 +206,12 @@ PciePathType get_pcie_path_type(
     std::string nic_numa_str =
         read_file_content("/sys/bus/pci/devices/" + nic_norm + "/numa_node");
 
-    if (!gpu_numa_str.empty())
+    if (!gpu_numa_str.empty()) {
         gpu_numa = std::stoi(gpu_numa_str);
-    if (!nic_numa_str.empty())
+    }
+    if (!nic_numa_str.empty()){
         nic_numa = std::stoi(nic_numa_str);
+    }
 
     // If different NUMA nodes, it's a SYS connection
     if (gpu_numa != nic_numa && gpu_numa >= 0 && nic_numa >= 0) {

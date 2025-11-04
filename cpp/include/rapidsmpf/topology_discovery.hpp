@@ -76,16 +76,6 @@ enum class PciePathType {
 class TopologyDiscovery {
   public:
     /**
-     * @brief Construct a TopologyDiscovery instance.
-     */
-    TopologyDiscovery() = default;
-
-    /**
-     * @brief Destroy the TopologyDiscovery instance.
-     */
-    ~TopologyDiscovery() = default;
-
-    /**
      * @brief Discover system topology.
      *
      * This method performs the actual discovery of GPUs, NUMA nodes, CPU affinity,
