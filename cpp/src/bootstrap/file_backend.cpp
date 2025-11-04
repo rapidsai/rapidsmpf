@@ -19,9 +19,9 @@
 namespace rapidsmpf::bootstrap::detail {
 
 FileBackend::FileBackend(Context ctx) : ctx_{std::move(ctx)} {
-    RAPIDSMPF_EXPECTS(
-        ctx_.coord_dir.has_value(), "FileBackend requires coord_dir in context"
-    );
+    if (!ctx_.coord_dir.has_value()) {
+        throw std::runtime_error("FileBackend requires coord_dir in context");
+    }
 
     coord_dir_ = *ctx_.coord_dir;
     kv_dir_ = coord_dir_ + "/kv";

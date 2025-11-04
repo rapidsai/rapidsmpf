@@ -74,39 +74,43 @@ Context init(Backend backend) {
             auto nranks_opt = getenv_int("RAPIDSMPF_NRANKS");
             auto coord_dir_opt = getenv_optional("RAPIDSMPF_COORD_DIR");
 
-            RAPIDSMPF_EXPECTS(
-                rank_opt.has_value(),
-                "RAPIDSMPF_RANK environment variable not set. "
-                "Set it or use a launcher like 'rrun'."
-            );
+            if (!rank_opt.has_value()) {
+                throw std::runtime_error(
+                    "RAPIDSMPF_RANK environment variable not set. "
+                    "Set it or use a launcher like 'rrun'."
+                );
+            }
 
-            RAPIDSMPF_EXPECTS(
-                nranks_opt.has_value(),
-                "RAPIDSMPF_NRANKS environment variable not set. "
-                "Set it or use a launcher like 'rrun'."
-            );
+            if (!nranks_opt.has_value()) {
+                throw std::runtime_error(
+                    "RAPIDSMPF_NRANKS environment variable not set. "
+                    "Set it or use a launcher like 'rrun'."
+                );
+            }
 
-            RAPIDSMPF_EXPECTS(
-                coord_dir_opt.has_value(),
-                "RAPIDSMPF_COORD_DIR environment variable not set. "
-                "Set it or use a launcher like 'rrun'."
-            );
+            if (!coord_dir_opt.has_value()) {
+                throw std::runtime_error(
+                    "RAPIDSMPF_COORD_DIR environment variable not set. "
+                    "Set it or use a launcher like 'rrun'."
+                );
+            }
 
             ctx.rank = static_cast<Rank>(*rank_opt);
             ctx.nranks = static_cast<Rank>(*nranks_opt);
             ctx.coord_dir = *coord_dir_opt;
 
-            RAPIDSMPF_EXPECTS(
-                ctx.rank >= 0 && ctx.rank < ctx.nranks,
-                "Invalid rank: RAPIDSMPF_RANK=" + std::to_string(ctx.rank)
+            if (!(ctx.rank >= 0 && ctx.rank < ctx.nranks)) {
+                throw std::runtime_error(
+                    "Invalid rank: RAPIDSMPF_RANK=" + std::to_string(ctx.rank)
                     + " must be in range [0, " + std::to_string(ctx.nranks) + ")"
-            );
+                );
+            }
             break;
         }
     case Backend::AUTO:
         {
             // Should have been resolved above
-            RAPIDSMPF_FAIL("Backend::AUTO should have been resolved", std::logic_error);
+            throw std::logic_error("Backend::AUTO should have been resolved");
         }
     }
     return ctx;
@@ -121,7 +125,7 @@ void broadcast(Context const& ctx, void* data, std::size_t size, Rank root) {
             break;
         }
     default:
-        RAPIDSMPF_FAIL("broadcast not implemented for this backend", std::runtime_error);
+        throw std::runtime_error("broadcast not implemented for this backend");
     }
 }
 
@@ -134,7 +138,7 @@ void barrier(Context const& ctx) {
             break;
         }
     default:
-        RAPIDSMPF_FAIL("barrier not implemented for this backend", std::runtime_error);
+        throw std::runtime_error("barrier not implemented for this backend");
     }
 }
 
@@ -147,7 +151,7 @@ void put(Context const& ctx, std::string const& key, std::string const& value) {
             break;
         }
     default:
-        RAPIDSMPF_FAIL("put not implemented for this backend", std::runtime_error);
+        throw std::runtime_error("put not implemented for this backend");
     }
 }
 
@@ -159,7 +163,7 @@ std::string get(Context const& ctx, std::string const& key, Duration timeout) {
             return backend.get(key, timeout);
         }
     default:
-        RAPIDSMPF_FAIL("get not implemented for this backend", std::runtime_error);
+        throw std::runtime_error("get not implemented for this backend");
     }
 }
 
