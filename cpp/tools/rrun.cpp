@@ -587,13 +587,11 @@ int main(int argc, char* argv[]) {
                 std::cout << "Cleaning up coordination directory: " << cfg.coord_dir
                           << std::endl;
             }
-            {
-                std::error_code ec;
-                std::filesystem::remove_all(cfg.coord_dir, ec);
-                if (ec) {
-                    std::cerr << "Warning: Failed to cleanup directory: " << cfg.coord_dir
-                              << ": " << ec.message() << std::endl;
-                }
+            std::error_code ec;
+            std::filesystem::remove_all(cfg.coord_dir, ec);
+            if (ec) {
+                std::cerr << "Warning: Failed to cleanup directory: " << cfg.coord_dir
+                          << ": " << ec.message() << std::endl;
             }
         } else if (cfg.verbose) {
             std::cout << "Coordination directory preserved: " << cfg.coord_dir
