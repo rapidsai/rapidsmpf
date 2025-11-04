@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -92,7 +93,7 @@ class TopologyDiscovery {
      * @note `discover()` must be called first.
      */
     SystemTopologyInfo const& get_topology() const {
-        return topology_;
+        return topology_.value();
     }
 
     /**
@@ -101,12 +102,11 @@ class TopologyDiscovery {
      * @return true if `discover()` has been called successfully.
      */
     bool is_discovered() const {
-        return discovered_;
+        return topology_.has_value();
     }
 
   private:
-    SystemTopologyInfo topology_;  ///< Discovered topology information.
-    bool discovered_{false};  ///< Flag indicating if topology has been discovered.
+    std::optional<SystemTopologyInfo> topology_;  ///< Discovered topology information.
 };
 
 }  // namespace rapidsmpf
