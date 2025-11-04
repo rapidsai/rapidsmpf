@@ -7,7 +7,6 @@ set -euo pipefail
 package_name=$1
 package_dir=$2
 
-source rapids-configure-sccache
 source rapids-date-string
 source rapids-init-pip
 
