@@ -13,6 +13,7 @@
 #include <cudf_test/table_utilities.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
@@ -23,7 +24,6 @@
 
 #include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
-#include "rapidsmpf/buffer/content_description.hpp"
 
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;

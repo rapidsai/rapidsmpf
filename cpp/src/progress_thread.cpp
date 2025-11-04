@@ -5,11 +5,10 @@
 
 #include <utility>
 
+#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/utils.hpp>
-
-#include "rapidsmpf/communicator/communicator.hpp"
 
 namespace rapidsmpf {
 
