@@ -98,7 +98,7 @@ class ContentDescription {
      * @brief Get the size for a specific memory type.
      *
      * @param mem_type The memory type entry to access.
-     * @return Reference to the size (in bytes) for the given memory type.
+     * @return Size (in bytes) for the given memory type.
      */
     [[nodiscard]] std::size_t content_size(MemoryType mem_type) const noexcept {
         return content_sizes_[static_cast<std::size_t>(mem_type)];
@@ -107,6 +107,18 @@ class ContentDescription {
     /// @brief @return Whether the content can be spilled.
     [[nodiscard]] constexpr bool spillable() const noexcept {
         return spillable_;
+    }
+
+    /**
+     * @brief Equality comparison.
+     *
+     * @param other The content description to compare against.
+     * @return `true` if both descriptions are equal; otherwise `false`.
+     */
+    [[nodiscard]] constexpr bool operator==(
+        ContentDescription const& other
+    ) const noexcept {
+        return spillable_ == other.spillable_ && content_sizes_ == other.content_sizes_;
     }
 
   private:
