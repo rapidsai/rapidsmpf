@@ -209,7 +209,7 @@ PciePathType get_pcie_path_type(
     if (!gpu_numa_str.empty()) {
         gpu_numa = std::stoi(gpu_numa_str);
     }
-    if (!nic_numa_str.empty()){
+    if (!nic_numa_str.empty()) {
         nic_numa = std::stoi(nic_numa_str);
     }
 
