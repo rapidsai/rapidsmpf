@@ -133,7 +133,7 @@ void put(Context const& ctx, std::string const& key, std::string const& value);
 std::string get(
     Context const& ctx,
     std::string const& key,
-    Duration timeout = std::chrono::milliseconds{30000}
+    Duration timeout = std::chrono::seconds{30}
 );
 
 }  // namespace rapidsmpf::bootstrap

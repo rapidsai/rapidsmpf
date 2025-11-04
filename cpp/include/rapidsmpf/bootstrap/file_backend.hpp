@@ -110,7 +110,7 @@ class FileBackend {
      */
     bool wait_for_file(
         std::string const& path,
-        std::chrono::milliseconds timeout = std::chrono::milliseconds{30000}
+        std::chrono::milliseconds timeout = std::chrono::seconds{30}
     );
 
     /**

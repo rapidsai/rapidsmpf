@@ -117,7 +117,7 @@ void FileBackend::broadcast(void* data, std::size_t size, Rank root) {
     } else {
         // Non-root reads data
         std::string bcast_data =
-            get("broadcast_" + std::to_string(root), std::chrono::milliseconds{30000});
+            get("broadcast_" + std::to_string(root), std::chrono::seconds{30});
         RAPIDSMPF_EXPECTS(
             bcast_data.size() == size,
             "Broadcast size mismatch: expected " + std::to_string(size) + ", got "
@@ -246,7 +246,7 @@ void FileBackend::cleanup_coordination_directory() {
     }
 
     // Wait for all other ranks to clean up their alive files
-    auto cleanup_timeout = std::chrono::milliseconds{30000};  // 30 second timeout
+    auto cleanup_timeout = std::chrono::seconds{30};
     auto start = std::chrono::steady_clock::now();
     auto poll_interval = std::chrono::milliseconds{100};
 

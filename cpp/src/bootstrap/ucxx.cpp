@@ -41,7 +41,7 @@ std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options op
     } else {
         // Worker ranks retrieve the root address and connect
         auto root_worker_address_str =
-            get(ctx, "ucxx_root_address", std::chrono::milliseconds{30000});
+            get(ctx, "ucxx_root_address", std::chrono::seconds{30});
         auto root_worker_address =
             ::ucxx::createAddressFromString(root_worker_address_str);
 
