@@ -14,7 +14,9 @@ set_target_properties(
              CXX_STANDARD_REQUIRED ON
 )
 target_compile_options(rrun PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>")
-target_link_libraries(rrun PRIVATE Threads::Threads $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan)
+target_link_libraries(
+  rrun PRIVATE rapidsmpf::rapidsmpf Threads::Threads $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+)
 install(
   TARGETS rrun
   COMPONENT tools
