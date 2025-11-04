@@ -34,7 +34,7 @@ class StreamingLineariser : public BaseStreamingFixture {
         pthread_attr_init(&old_attr);
         pthread_getattr_default_np(&old_attr);
 
-        // Install 100 MiB default stack for *new* threads created after this point
+        // Set a 64 MiB default stack size for new threads created after this point.
         pthread_attr_t attr;
         pthread_attr_init(&attr);
         constexpr std::size_t big = 1 << 26;
