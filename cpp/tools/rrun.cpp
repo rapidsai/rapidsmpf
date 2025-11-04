@@ -436,7 +436,6 @@ int wait_for_ranks(std::vector<pid_t> const& pids) {
 
     return overall_status;
 }
-
 }  // namespace
 
 int main(int argc, char* argv[]) {
