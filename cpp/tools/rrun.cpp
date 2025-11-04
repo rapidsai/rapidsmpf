@@ -37,8 +37,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <rapidsmpf/error.hpp>
-
 namespace {
 
 static std::mutex output_mutex;
@@ -153,7 +151,7 @@ std::vector<int> parse_gpu_list(std::string const& gpu_str) {
         try {
             gpus.push_back(std::stoi(item));
         } catch (...) {
-            RAPIDSMPF_FAIL("Invalid GPU ID: " + item, std::runtime_error);
+            throw std::runtime_error("Invalid GPU ID: " + item);
         }
     }
     return gpus;
@@ -172,51 +170,51 @@ Config parse_args(int argc, char* argv[]) {
             print_usage(argv[0]);
             exit(0);
         } else if (arg == "-n") {
-            RAPIDSMPF_EXPECTS(
-                i + 1 < argc, "Missing argument for -n", std::runtime_error
-            );
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing argument for -n");
+            }
             cfg.nranks = std::stoi(argv[++i]);
-            RAPIDSMPF_EXPECTS(
-                cfg.nranks > 0,
-                "Invalid number of ranks: " + std::to_string(cfg.nranks),
-                std::runtime_error
-            );
+            if (cfg.nranks <= 0) {
+                throw std::runtime_error(
+                    "Invalid number of ranks: " + std::to_string(cfg.nranks)
+                );
+            }
         } else if (arg == "-g") {
-            RAPIDSMPF_EXPECTS(
-                i + 1 < argc, "Missing argument for -g", std::runtime_error
-            );
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing argument for -g");
+            }
             cfg.gpus = parse_gpu_list(argv[++i]);
         } else if (arg == "--tag-output") {
             cfg.tag_output = true;
         } else if (arg == "-d") {
-            RAPIDSMPF_EXPECTS(
-                i + 1 < argc, "Missing argument for -d", std::runtime_error
-            );
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing argument for -d");
+            }
             cfg.coord_dir = argv[++i];
         } else if (arg == "-x" || arg == "--set-env") {
-            RAPIDSMPF_EXPECTS(
-                i + 1 < argc, "Missing argument for -x/--set-env", std::runtime_error
-            );
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing argument for -x/--set-env");
+            }
             std::string env_spec = argv[++i];
             auto eq_pos = env_spec.find('=');
-            RAPIDSMPF_EXPECTS(
-                eq_pos != std::string::npos,
-                "Invalid environment variable format: " + env_spec
-                    + ". Expected VAR=value",
-                std::runtime_error
-            );
+            if (eq_pos == std::string::npos) {
+                throw std::runtime_error(
+                    "Invalid environment variable format: " + env_spec
+                    + ". Expected VAR=value"
+                );
+            }
             std::string var_name = env_spec.substr(0, eq_pos);
             std::string var_value = env_spec.substr(eq_pos + 1);
-            RAPIDSMPF_EXPECTS(
-                !var_name.empty(), "Empty environment variable name", std::runtime_error
-            );
+            if (var_name.empty()) {
+                throw std::runtime_error("Empty environment variable name");
+            }
             cfg.env_vars[var_name] = var_value;
         } else if (arg == "-v") {
             cfg.verbose = true;
         } else if (arg == "--no-cleanup") {
             cfg.cleanup = false;
         } else if (arg[0] == '-') {
-            RAPIDSMPF_FAIL("Unknown option: " + arg, std::runtime_error);
+            throw std::runtime_error("Unknown option: " + arg);
         } else {
             // First non-option argument is the application binary
             cfg.app_binary = arg;
@@ -230,16 +228,14 @@ Config parse_args(int argc, char* argv[]) {
     }
 
     // Validate configuration
-    RAPIDSMPF_EXPECTS(
-        !cfg.app_binary.empty(), "Missing application binary", std::runtime_error
-    );
+    if (cfg.app_binary.empty()) {
+        throw std::runtime_error("Missing application binary");
+    }
 
     // Single-node mode validation
-    RAPIDSMPF_EXPECTS(
-        cfg.nranks > 0,
-        "Number of ranks (-n) must be specified and positive",
-        std::runtime_error
-    );
+    if (cfg.nranks <= 0) {
+        throw std::runtime_error("Number of ranks (-n) must be specified and positive");
+    }
 
     // Auto-detect GPUs if not specified
     if (cfg.gpus.empty()) {
@@ -289,18 +285,16 @@ pid_t fork_with_piped_stdio(
 
     int pipe_out[2] = {-1, -1};
     int pipe_err[2] = {-1, -1};
-    RAPIDSMPF_EXPECTS(
-        pipe(pipe_out) >= 0,
-        "Failed to create stdout pipe: " + std::string{std::strerror(errno)},
-        std::runtime_error
-    );
+    if (pipe(pipe_out) < 0)
+        throw std::runtime_error(
+            "Failed to create stdout pipe: " + std::string{std::strerror(errno)}
+        );
     if (!combine_stderr) {
         if (pipe(pipe_err) < 0) {
             close(pipe_out[0]);
             close(pipe_out[1]);
-            RAPIDSMPF_FAIL(
-                "Failed to create stderr pipe: " + std::string{std::strerror(errno)},
-                std::runtime_error
+            throw std::runtime_error(
+                "Failed to create stderr pipe: " + std::string{std::strerror(errno)}
             );
         }
     }
@@ -313,9 +307,7 @@ pid_t fork_with_piped_stdio(
             close(pipe_err[0]);
             close(pipe_err[1]);
         }
-        RAPIDSMPF_FAIL(
-            "Failed to fork: " + std::string{std::strerror(errno)}, std::runtime_error
-        );
+        throw std::runtime_error("Failed to fork: " + std::string{std::strerror(errno)});
     } else if (pid == 0) {
         // Child: redirect stdout/stderr
         std::ignore = dup2(pipe_out[1], STDOUT_FILENO);

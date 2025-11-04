@@ -32,10 +32,9 @@ FileBackend::FileBackend(Context ctx) : ctx_{std::move(ctx)} {
         std::filesystem::create_directories(kv_dir_);
         std::filesystem::create_directories(barrier_dir_);
     } catch (std::exception const& e) {
-        RAPIDSMPF_FAIL(
+        throw std::runtime_error(
             "Failed to initialize coordination directory structure: "
-                + std::string{e.what()},
-            std::runtime_error
+            + std::string{e.what()}
         );
     }
 
@@ -68,12 +67,12 @@ void FileBackend::put(std::string const& key, std::string const& value) {
 std::string FileBackend::get(std::string const& key, Duration timeout) {
     std::string path = get_kv_path(key);
     auto timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout);
-    RAPIDSMPF_EXPECTS(
-        wait_for_file(path, timeout_ms),
-        "Key '" + key + "' not available within " + std::to_string(timeout.count())
-            + "s timeout",
-        std::runtime_error
-    );
+    if (!wait_for_file(path, timeout_ms)) {
+        throw std::runtime_error(
+            "Key '" + key + "' not available within " + std::to_string(timeout.count())
+            + "s timeout"
+        );
+    }
     return read_file(path);
 }
 
@@ -93,11 +92,11 @@ void FileBackend::barrier() {
 
         std::string other_barrier_file =
             get_barrier_path(barrier_id) + "." + std::to_string(r);
-        RAPIDSMPF_EXPECTS(
-            wait_for_file(other_barrier_file, std::chrono::milliseconds{60000}),
-            "Barrier timeout: rank " + std::to_string(r) + " did not arrive",
-            std::runtime_error
-        );
+        if (!wait_for_file(other_barrier_file, std::chrono::milliseconds{60000})) {
+            throw std::runtime_error(
+                "Barrier timeout: rank " + std::to_string(r) + " did not arrive"
+            );
+        }
     }
 
     // Clean up our barrier file
@@ -114,12 +113,12 @@ void FileBackend::broadcast(void* data, std::size_t size, Rank root) {
         // Non-root reads data
         std::string bcast_data =
             get("broadcast_" + std::to_string(root), std::chrono::seconds{30});
-        RAPIDSMPF_EXPECTS(
-            bcast_data.size() == size,
-            "Broadcast size mismatch: expected " + std::to_string(size) + ", got "
-                + std::to_string(bcast_data.size()),
-            std::runtime_error
-        );
+        if (bcast_data.size() != size) {
+            throw std::runtime_error(
+                "Broadcast size mismatch: expected " + std::to_string(size) + ", got "
+                + std::to_string(bcast_data.size())
+            );
+        }
         std::memcpy(data, bcast_data.data(), size);
     }
     barrier();
@@ -200,9 +199,9 @@ void FileBackend::write_file(std::string const& path, std::string const& content
 
     // Write to temporary file
     std::ofstream ofs(tmp_path, std::ios::binary | std::ios::trunc);
-    RAPIDSMPF_EXPECTS(
-        ofs, "Failed to open temporary file: " + tmp_path, std::runtime_error
-    );
+    if (!ofs) {
+        throw std::runtime_error("Failed to open temporary file: " + tmp_path);
+    }
     ofs << content;
     ofs.close();
 
@@ -212,18 +211,17 @@ void FileBackend::write_file(std::string const& path, std::string const& content
     if (ec) {
         std::error_code rm_ec;
         std::filesystem::remove(tmp_path, rm_ec);  // Clean up temp file
-        RAPIDSMPF_FAIL(
-            "Failed to rename " + tmp_path + " to " + path + ": " + ec.message(),
-            std::runtime_error
+        throw std::runtime_error(
+            "Failed to rename " + tmp_path + " to " + path + ": " + ec.message()
         );
     }
 }
 
 std::string FileBackend::read_file(std::string const& path) {
     std::ifstream ifs(path, std::ios::binary);
-    RAPIDSMPF_EXPECTS(
-        ifs, "Failed to open file for reading: " + path, std::runtime_error
-    );
+    if (!ifs) {
+        throw std::runtime_error("Failed to open file for reading: " + path);
+    }
 
     std::stringstream buffer;
     buffer << ifs.rdbuf();
