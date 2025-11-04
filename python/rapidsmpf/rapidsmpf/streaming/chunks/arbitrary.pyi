@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Generic, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Self, TypeVar
 
 from rapidsmpf.streaming.core.message import Message, Payload
 
@@ -17,5 +17,5 @@ class ArbitraryChunk(Generic[T]):
 
 if TYPE_CHECKING:
     # Check that ArbitraryChunk implements Payload.
-    t1: ArbitraryChunk
+    t1: ArbitraryChunk[Any]
     t2: Payload = t1
