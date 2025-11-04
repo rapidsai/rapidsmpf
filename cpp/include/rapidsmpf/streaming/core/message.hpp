@@ -68,7 +68,6 @@ class Message {
      * increasing sequence number order. Behaviour is undefined if not. To ensure
      * insertion into an output channel from multiple producers obeys this invariant, use
      * a `Lineariser`.
-     *
      * This promise allows consumers to ensure ordering by buffering at most
      * `num_consumers` messages, rather than needing to buffer the entire channel input.
      *
@@ -179,7 +178,7 @@ class Message {
     /**
      * @brief Returns the copy callback associated with the message.
      *
-     * @return The message's content description.
+     * @return The message's copy callback function.
      */
     [[nodiscard]] constexpr CopyCallback const& copy_cb() const noexcept {
         return copy_cb_;
