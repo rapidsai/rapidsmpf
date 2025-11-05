@@ -532,6 +532,10 @@ async def write_parquet(
     if await ch_in.recv(ctx) is not None:
         raise RuntimeError("Only expecting a single chunk in write_parquet")
     chunk = TableChunk.from_message(msg)
+
+    # print("Write Parquet")
+    # print(chunk.table_view().to_arrow())
+
     sink = plc.io.SinkInfo([filename])
     builder = plc.io.parquet.ParquetWriterOptions.builder(sink, chunk.table_view())
     metadata = plc.io.types.TableInputMetadata(chunk.table_view())
@@ -635,7 +639,7 @@ def q(
     # with columns
     nodes.append(with_columns(ctx, customer_x_orders_x_lineitem, groupby_input))
 
-    # groupby aggregation
+    # groupby aggregation (agg (per chunk) -> concat -> agg (global))
     groupby_output = Channel[TableChunk]()
     nodes.append(chunkwise_groupby_agg(ctx, groupby_input, groupby_output))
     concat_output = Channel[TableChunk]()
