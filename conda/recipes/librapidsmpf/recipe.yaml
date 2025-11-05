@@ -76,6 +76,7 @@ outputs:
         content: |
           cmake --install cpp/build
           cmake --install cpp/build --component=benchmarking
+          cmake --install cpp/build --component=tools
       dynamic_linking:
         overlinking_behavior: "error"
       prefix_detection:

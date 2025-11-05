@@ -24,8 +24,39 @@ class Payload(Protocol):
         in the process.
     """
 
+    # Note: In the Cython implementations, these are all @staticmethod.
+    # However, you cannot have a cdef classmethod, so we lie here.
+    # We can't annotate as a staticmethod because that would give us a
+    # function type:
+    #
+    #     forall T. from_message :: Message[T] -> T
+    #
+    # i.e. every implementation must be able to unwrap an arbitrary
+    # Message[T] and produce a T.
+    #
+    # But each implementation type I can only deliver a function type:
+    #
+    #    from_message :: Message[I] -> I
+    #
+    # for some concrete I, and we've lost the universal quantifier, so we
+    # can't pass a Message[Foo] to an implementation I, even though the
+    # staticmethod protocol says that we should be able to.
+    #
+    # With a classmethod, the function type is now:
+    #
+    #    forall T. from_message :: type[T] -> Message[T] -> T
+    #
+    # i.e. every implementation must be able to unwrap a Message[T] and
+    # produce a T iff type[T] is the class type.
+    #
+    # The concrete implementation is then:
+    #
+    #    from_message :: type[I] -> Message[I] -> I
+    #
+    # and this satisfies the protocol because instead of losing the
+    # universal quantifier we've specialised onto the case where T = I.
     @classmethod
-    def from_message(cls: PayloadT, message: Message[PayloadT]) -> PayloadT: ...
+    def from_message(cls: type[PayloadT], message: Message[PayloadT]) -> PayloadT: ...
     def into_message(
         self: PayloadT, sequence_number: int, message: Message[PayloadT]
     ) -> None: ...
