@@ -92,7 +92,7 @@ class TopologyDiscovery {
      * @return SystemTopologyInfo structure containing all topology data.
      * @note `discover()` must be called first.
      */
-    SystemTopologyInfo const& get_topology() const {
+    [[nodiscard]] SystemTopologyInfo const& get_topology() const {
         return topology_.value();
     }
 
@@ -101,7 +101,7 @@ class TopologyDiscovery {
      *
      * @return true if `discover()` has been called successfully.
      */
-    bool is_discovered() const {
+    [[nodiscard]] bool is_discovered() const {
         return topology_.has_value();
     }
 

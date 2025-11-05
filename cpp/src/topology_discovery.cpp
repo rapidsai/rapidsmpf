@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -115,9 +116,7 @@ std::string normalize_pci_bus_id(std::string const& pci_bus_id) {
 
     // Convert to lowercase
     std::string normalized_id = domain + pci_bus_id.substr(colon_pos);
-    std::transform(
-        normalized_id.begin(), normalized_id.end(), normalized_id.begin(), ::tolower
-    );
+    std::ranges::transform(normalized_id, normalized_id.begin(), ::tolower);
 
     return normalized_id;
 }
@@ -403,9 +402,9 @@ std::vector<std::string> map_network_devices_to_gpu(
  * @return Hostname string, or an empty string if unavailable.
  */
 std::string get_hostname() {
-    char hostname[256];
-    if (gethostname(hostname, sizeof(hostname)) == 0) {
-        return std::string(hostname);
+    std::array<char, 256> hostname{};
+    if (gethostname(hostname.data(), hostname.size()) == 0) {
+        return std::string(hostname.data());
     }
     return "";
 }
@@ -501,10 +500,10 @@ bool TopologyDiscovery::discover() {
         gpu.id = i;
 
         // Get device name, PCI bus ID and UUID
-        char name[NVML_DEVICE_NAME_BUFFER_SIZE];
-        result = nvmlDeviceGetName(device, name, NVML_DEVICE_NAME_BUFFER_SIZE);
+        std::array<char, NVML_DEVICE_NAME_BUFFER_SIZE> name{};
+        result = nvmlDeviceGetName(device, name.data(), NVML_DEVICE_NAME_BUFFER_SIZE);
         if (result == NVML_SUCCESS) {
-            gpu.name = std::string(name);
+            gpu.name = std::string(name.data());
         } else {
             gpu.name = "Unknown";
         }
@@ -518,10 +517,10 @@ bool TopologyDiscovery::discover() {
             continue;
         }
 
-        char uuid[NVML_DEVICE_UUID_BUFFER_SIZE];
-        result = nvmlDeviceGetUUID(device, uuid, NVML_DEVICE_UUID_BUFFER_SIZE);
+        std::array<char, NVML_DEVICE_UUID_BUFFER_SIZE> uuid{};
+        result = nvmlDeviceGetUUID(device, uuid.data(), NVML_DEVICE_UUID_BUFFER_SIZE);
         if (result == NVML_SUCCESS) {
-            gpu.uuid = std::string(uuid);
+            gpu.uuid = std::string(uuid.data());
         } else {
             gpu.uuid = "Unknown";
         }
