@@ -183,6 +183,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
     PRIVATE src/streaming/chunks/partition.cpp
             src/streaming/coll/allgather.cpp
             src/streaming/coll/shuffler.cpp
+            src/streaming/core/channel.cpp
             src/streaming/core/context.cpp
             src/streaming/core/leaf_node.cpp
             src/streaming/core/node.cpp
