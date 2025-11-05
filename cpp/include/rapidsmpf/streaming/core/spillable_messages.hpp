@@ -100,6 +100,19 @@ class SpillableMessages {
 
 
   private:
+    /**
+     * @brief Thread-safe item containing a `Message`.
+     *
+     * Each item is protected by its own mutex, enabling fine-grained exclusive access
+     * to individual messages, as opposed to the `global_mutex_`, which guards insert
+     * and extract operations.
+     *
+     * Because an item can be locked by one thread while another thread extracts it,
+     * the contained `Message` is stored as an `std::optional`. If another thread has
+     * already extracted the message, this can be detected by checking `has_value()`.
+     *
+     * An item's mutex and the global mutex must never be locked at the same time.
+     */
     struct Item {
         mutable std::mutex mutex;
         std::optional<Message> message;
