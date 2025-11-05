@@ -45,10 +45,7 @@ class Channel {
      * @return A coroutine that evaluates to true if the msg was successfully sent or
      * false if the channel was shut down.
      */
-    coro::task<bool> send(Message msg) {
-        auto result = co_await rb_.produce(std::move(msg));
-        co_return result == coro::ring_buffer_result::produce::produced;
-    }
+    coro::task<bool> send(Message msg);
 
     /**
      * @brief Asynchronously receive a message from the channel.
@@ -58,14 +55,7 @@ class Channel {
      * @return A coroutine that evaluates to the message, which will be empty if the
      * channel is shut down.
      */
-    coro::task<Message> receive() {
-        auto msg = co_await rb_.consume();
-        if (msg.has_value()) {
-            co_return std::move(*msg);
-        } else {
-            co_return Message{};
-        }
-    }
+    coro::task<Message> receive();
 
     /**
      * @brief Drains all pending messages from the channel and shuts it down.
@@ -75,9 +65,7 @@ class Channel {
      * @param executor The thread pool used to process remaining messages.
      * @return A coroutine representing the completion of the shutdown drain.
      */
-    Node drain(std::unique_ptr<coro::thread_pool>& executor) {
-        return rb_.shutdown_drain(executor);
-    }
+    Node drain(std::unique_ptr<coro::thread_pool>& executor);
 
     /**
      * @brief Immediately shuts down the channel.
@@ -86,18 +74,14 @@ class Channel {
      *
      * @return A coroutine representing the completion of the shutdown.
      */
-    Node shutdown() {
-        return rb_.shutdown();
-    }
+    Node shutdown();
 
     /**
      * @brief Check whether the channel is empty.
      *
      * @return True if there are no messages in the buffer.
      */
-    [[nodiscard]] bool empty() const noexcept {
-        return rb_.empty();
-    }
+    [[nodiscard]] bool empty() const noexcept;
 
   private:
     Channel() = default;
