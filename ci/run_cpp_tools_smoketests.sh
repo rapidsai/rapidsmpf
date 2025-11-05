@@ -1,6 +1,7 @@
 #!/bin/bash
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
+
 set -xeuo pipefail
 
 CI_PATH="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
@@ -20,16 +21,4 @@ python "${TIMEOUT_TOOL_PATH}" 30 \
 python "${TIMEOUT_TOOL_PATH}" 30 \
     rrun --tag-output -n 3 -g 0,0,0 ./bench_comm -m cuda -C ucxx
 
-set +e
-
-# TODO: Remove (debug output only)
-topology_discovery
-
 topology_discovery | python "${VALIDATE_TOPOLOGY_PATH}" -
-
-ls -l /sys/bus/pci/devices/
-ls -l /sys/bus/pci/devices/0000:0a:00.0/
-ls -l /sys/bus/pci/devices/0000:0a:00.0/numa_node
-cat /sys/bus/pci/devices/0000:0a:00.0/numa_node
-
-set -e
