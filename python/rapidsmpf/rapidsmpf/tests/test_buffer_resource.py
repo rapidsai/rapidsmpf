@@ -114,16 +114,3 @@ def test_memory_reservation(mem_type: MemoryType) -> None:
         match="isn't big enough",
     ):
         br.release(res1, KiB(10))
-
-
-def test_stream_pool_size() -> None:
-    """Test that stream_pool_size parameter can be configured."""
-    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
-
-    # Test with default stream pool size (16)
-    br_default = BufferResource(mr)
-    assert br_default.stream_pool_size() == 16
-
-    # Test with custom stream pool size
-    br_custom = BufferResource(mr, stream_pool_size=32)
-    assert br_custom.stream_pool_size() == 32

@@ -26,19 +26,12 @@ BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
     std::optional<Duration> periodic_spill_check,
-    std::size_t stream_pool_size,
     std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
     std::shared_ptr<Statistics> statistics
 )
     : device_mr_{device_mr},
       memory_available_{std::move(memory_available)},
-      stream_pool_{
-          stream_pool != nullptr
-              ? std::move(stream_pool)
-              : std::make_shared<rmm::cuda_stream_pool>(
-                    stream_pool_size, rmm::cuda_stream::flags::non_blocking
-                )
-      },
+      stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
       statistics_{std::move(statistics)} {
     for (MemoryType mem_type : MEMORY_TYPES) {

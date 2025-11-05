@@ -34,8 +34,6 @@ cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
             device_memory_resource *device_mr,
             unordered_map[MemoryType, cpp_MemoryAvailable] memory_available,
             optional[cpp_Duration] periodic_spill_check,
-            size_t stream_pool_size,
-            shared_ptr[cuda_stream_pool] stream_pool,
         ) except +
         size_t memory_reserved(MemoryType mem_type) except +
         cpp_MemoryAvailable memory_available(MemoryType mem_type) except +

@@ -155,19 +155,16 @@ class BufferResource {
      * continuously checks and perform spilling based on the memory availability
      * functions. The value of `periodic_spill_check` is used as the pause between checks.
      * If `std::nullopt`, no periodic spill check is performed.
-     * @param stream_pool_size The number of streams to create in the CUDA stream pool.
-     * Only used if `stream_pool` is not provided.
      * @param stream_pool Pool of CUDA streams. Used throughout RapidsMPF for operations
-     * that do not take an explicit CUDA stream. If `nullptr`, a new pool is created
-     * with the size specified by `stream_pool_size`.
+     * that do not take an explicit CUDA stream.
      * @param statistics The statistics instance to use (disabled by default).
      */
     BufferResource(
         rmm::device_async_resource_ref device_mr,
         std::unordered_map<MemoryType, MemoryAvailable> memory_available = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
-        std::size_t stream_pool_size = 16,
-        std::shared_ptr<rmm::cuda_stream_pool> stream_pool = nullptr,
+        std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
+            rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
