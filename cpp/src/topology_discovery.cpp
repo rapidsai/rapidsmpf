@@ -102,7 +102,7 @@ struct NvmlLoader {
         }
     }
 
-    bool available() const {
+    [[nodiscard]] bool available() const {
         return handle && p_nvmlInit_v2 && p_nvmlShutdown && p_nvmlDeviceGetCount_v2
                && p_nvmlDeviceGetHandleByIndex_v2 && p_nvmlDeviceGetName
                && p_nvmlDeviceGetPciInfo_v3 && p_nvmlDeviceGetUUID && p_nvmlErrorString;
