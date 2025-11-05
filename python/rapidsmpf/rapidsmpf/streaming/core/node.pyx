@@ -127,8 +127,8 @@ def define_py_node(*, extra_channels=()):
     When it completes, ``ch1`` is shut down automatically because it is passed
     as a coroutine argument, and ``ch2`` is shut down because it is listed in
     ``extra_channels``:
-    >>> ch1: Channel[TableChunk] = Channel()
-    >>> ch2: Channel[TableChunk] = Channel()
+    >>> ch1: Channel[TableChunk] = context.create_channel()
+    >>> ch2: Channel[TableChunk] = context.create_channel()
     ...
     >>> @define_py_node(extra_channels=(ch2,))
     ... async def python_node(ctx: Context, /, ch_in: Channel) -> None:
@@ -216,7 +216,7 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
 
     Examples
     --------
-    >>> ch: Channel[TableChunk] = Channel()
+    >>> ch: Channel[TableChunk] = context.create_channel()
     >>> cpp_node, output = pull_from_channel(context, ch_in=ch)
     ...
     >>> @define_py_node()

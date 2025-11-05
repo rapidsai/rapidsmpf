@@ -155,7 +155,7 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
         options.set_num_rows(num_rows.value());
     }
 
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     std::vector<Node> nodes;
 
     nodes.push_back(node::read_parquet(ctx, ch, 4, options, 3));
