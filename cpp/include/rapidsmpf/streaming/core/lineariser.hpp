@@ -39,7 +39,7 @@ namespace rapidsmpf::streaming {
  * std::vector<Node> tasks;
  * // Draining the lineariser will pull from all the input channels until they are
  * // shutdown and send to the output channel until it is consumed.
- * tasks.push_back(linearise->drain(ctx));
+ * tasks.push_back(linearise->drain());
  * for (auto& ch_in: lineariser->get_inputs()) {
  *   // Each producer promises to send an increasing stream of sequence ids.
  *   // For best performance they should attempt to take "interleaved" ids from a shared
@@ -56,11 +56,16 @@ class Lineariser {
     /**
      * @brief Create a new `Lineariser` into an output channel.
      *
-     * @param ch_out The output channel
+     * @param ctx Streaming context.
+     * @param ch_out The output channel.
      * @param num_producers The number of producers.
      */
-    Lineariser(std::shared_ptr<Channel> ch_out, std::size_t num_producers)
-        : ch_out_{std::move(ch_out)} {
+    Lineariser(
+        std::shared_ptr<Context> ctx,
+        std::shared_ptr<Channel> ch_out,
+        std::size_t num_producers
+    )
+        : ctx_{std::move(ctx)}, ch_out_{std::move(ch_out)} {
         inputs_.reserve(num_producers);
         for (std::size_t i = 0; i < num_producers; i++) {
             inputs_.push_back(std::make_shared<Channel>());
@@ -82,15 +87,14 @@ class Lineariser {
     /**
      * @brief Process inputs and send to the output channel.
      *
-     * @param ctx The execution context to use.
      * @return Coroutine representing the linearised sends of all producers.
      *
      * @note This coroutine should be awaited in a `coro::when_all` with all of the
      * producer tasks.
      */
-    Node drain(std::shared_ptr<Context> ctx) {
+    Node drain() {
         ShutdownAtExit c{ch_out_};
-        co_await ctx->executor()->schedule();
+        co_await ctx_->executor()->schedule();
         // Invariant: the heap always contains exactly zero-or-one messages from each
         // producer. We always extract the minimum element, and then repoll the producer
         // that made that element. First poll all producers.
@@ -109,7 +113,7 @@ class Lineariser {
                 min_heap_.emplace(item.producer, std::move(msg));
             }
         }
-        co_await ch_out_->drain(ctx->executor());
+        co_await ch_out_->drain(ctx_->executor());
     }
 
   private:
@@ -149,6 +153,7 @@ class Lineariser {
         using std::priority_queue<Item, std::vector<Item>, Comparator>::comp;
     };
 
+    std::shared_ptr<Context> ctx_;
     std::shared_ptr<Channel> ch_out_;  ///< Output channel.
     std::vector<std::shared_ptr<Channel>> inputs_;  ///< Input channels.
     min_heap min_heap_{};  ///< Heap of to be sent messages.
