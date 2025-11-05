@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from libcpp.memory cimport make_shared, shared_ptr
+from libcpp.memory cimport shared_ptr
 from libcpp.utility cimport move
 
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
@@ -170,8 +170,10 @@ cdef class Channel:
     A coroutine-based, bounded channel for asynchronously sending and
     receiving `Message` objects.
     """
-    def __cinit__(self):
-        self._handle = make_shared[cpp_Channel]()
+    def __init__(self):
+        raise ValueError(
+            "Do not create a channel directly, use `Context.create_channel()`"
+        )
 
     @staticmethod
     cdef from_handle(shared_ptr[cpp_Channel] ch):

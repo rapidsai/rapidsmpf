@@ -13,6 +13,7 @@
 #include <cudf_test/table_utilities.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
@@ -40,7 +41,7 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
     }
 
     std::vector<Node> nodes;
-    auto ch1 = std::make_shared<Channel>();
+    auto ch1 = ctx->create_channel();
 
     // Note, we use a scope to check that coroutines keeps the input alive.
     {
@@ -91,12 +92,17 @@ Node producer(
 ) {
     co_await ctx->executor()->schedule();
     auto ticket = co_await ch->acquire();
-    auto [_, receipt] = co_await ticket.send(Message{0, std::make_unique<int>(val)});
+    auto [_, receipt] = co_await ticket.send(
+        Message{0, std::make_unique<int>(val), ContentDescription{}}
+    );
     if (should_throw) {
         throw std::runtime_error("Producer throws");
     }
     EXPECT_THROW(
-        co_await ticket.send(Message{0, std::make_unique<int>(val)}), std::logic_error
+        co_await ticket.send(
+            Message{0, std::make_unique<int>(val), ContentDescription{}}
+        ),
+        std::logic_error
     );
     co_await receipt;
     EXPECT_TRUE(receipt.is_ready());
@@ -125,7 +131,7 @@ Node consumer(
 }  // namespace
 
 TEST_F(StreamingLeafTasks, ThrottledAdaptor) {
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
     std::vector<Node> producers;
     std::vector<Node> consumers;
@@ -144,7 +150,7 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptor) {
 }
 
 TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInProduce) {
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
     std::vector<Node> producers;
     std::vector<Node> consumers;
@@ -159,7 +165,7 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInProduce) {
 }
 
 TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInConsume) {
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
     std::vector<Node> producers;
     std::vector<Node> consumers;
@@ -189,6 +195,6 @@ TEST_P(StreamingThrottledAdaptor, NonPositiveThrottleThrows) {
         GTEST_SKIP() << "Test only runs on rank zero";
     }
     int max_tickets = GetParam();
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     EXPECT_THROW(ThrottlingAdaptor(ch, max_tickets), std::logic_error);
 }

@@ -53,17 +53,17 @@ TEST_F(StreamingPartition, PackUnpackRoundTrip) {
     std::vector<Message> outputs;
     {
         std::vector<Node> nodes;
-        auto ch1 = std::make_shared<Channel>();
+        auto ch1 = ctx->create_channel();
         nodes.push_back(node::push_to_channel(ctx, ch1, std::move(inputs)));
 
-        auto ch2 = std::make_shared<Channel>();
+        auto ch2 = ctx->create_channel();
         nodes.push_back(
             node::partition_and_pack(
                 ctx, ch1, ch2, {1}, num_partitions, hash_function, seed
             )
         );
 
-        auto ch3 = std::make_shared<Channel>();
+        auto ch3 = ctx->create_channel();
         nodes.push_back(node::unpack_and_concat(ctx, ch2, ch3));
 
         nodes.push_back(node::pull_from_channel(ctx, ch3, outputs));
@@ -91,17 +91,19 @@ TEST_F(StreamingPartition, PartitionMapChunkToMessage) {
     Message m = to_message(seq, std::move(chunk));
     EXPECT_FALSE(m.empty());
     EXPECT_TRUE(m.holds<PartitionMapChunk>());
-    EXPECT_EQ(m.content_size(MemoryType::HOST), std::make_pair(size_t{0}, true));
-    EXPECT_EQ(m.content_size(MemoryType::DEVICE), std::make_pair(size_t{80}, true));
+    EXPECT_TRUE(m.content_description().spillable());
+    EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m.content_description().content_size(MemoryType::DEVICE), 80);
     EXPECT_EQ(m.sequence_number(), seq);
 
     auto res = br->reserve_or_fail(m.copy_cost(), MemoryType::DEVICE);
-    Message m2 = m.copy(br.get(), res);
+    Message m2 = m.copy(res);
     EXPECT_EQ(res.size(), 0);
     EXPECT_FALSE(m2.empty());
     EXPECT_TRUE(m2.holds<PartitionMapChunk>());
-    EXPECT_EQ(m2.content_size(MemoryType::HOST), std::make_pair(size_t{0}, true));
-    EXPECT_EQ(m2.content_size(MemoryType::DEVICE), std::make_pair(size_t{80}, true));
+    EXPECT_TRUE(m2.content_description().spillable());
+    EXPECT_EQ(m2.content_description().content_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m2.content_description().content_size(MemoryType::DEVICE), 80);
 
     auto chunk2 = m2.release<PartitionMapChunk>();
     validate_packed_data(std::move(chunk2.data.at(0)), 10, 0, stream, *br);
@@ -115,7 +117,7 @@ TEST_F(StreamingPartition, PartitionMapChunkContentDescription) {
     auto pack1_size = pack1.data->size;
     auto pack2_size = pack1.data->size * 2;
     auto res = br->reserve_or_fail(pack2_size, MemoryType::HOST);
-    auto pack2 = generate_packed_data(10, 0, stream, *br).copy(br.get(), res);
+    auto pack2 = generate_packed_data(10, 0, stream, *br).copy(res);
     data.emplace(0, std::move(pack1));
     data.emplace(1, std::move(pack2));
 
@@ -133,7 +135,7 @@ TEST_F(StreamingPartition, PartitionVectorChunkContentDescription) {
     auto pack1_size = pack1.data->size;
     auto pack2_size = pack1.data->size * 2;
     auto res = br->reserve_or_fail(pack2_size, MemoryType::HOST);
-    auto pack2 = generate_packed_data(10, 0, stream, *br).copy(br.get(), res);
+    auto pack2 = generate_packed_data(10, 0, stream, *br).copy(res);
     data.push_back(std::move(pack1));
     data.push_back(std::move(pack2));
 

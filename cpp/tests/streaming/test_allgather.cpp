@@ -136,8 +136,8 @@ TEST_P(AsyncAllGather, basic) {
 TEST_P(AsyncAllGather, streaming_node) {
     auto mem_type = std::get<1>(GetParam());
 
-    auto ch_in = std::make_shared<streaming::Channel>();
-    auto ch_out = std::make_shared<streaming::Channel>();
+    auto ch_in = ctx->create_channel();
+    auto ch_out = ctx->create_channel();
 
     int size = ctx->comm()->nranks();
     int rank = ctx->comm()->rank();
