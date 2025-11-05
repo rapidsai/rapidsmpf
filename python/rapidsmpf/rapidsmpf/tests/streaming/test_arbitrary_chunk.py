@@ -7,7 +7,6 @@ import weakref
 from typing import TYPE_CHECKING
 
 from rapidsmpf.streaming.chunks.arbitrary import ArbitraryChunk
-from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
@@ -16,6 +15,7 @@ if TYPE_CHECKING:
     from concurrent.futures import ThreadPoolExecutor
     from typing import Any
 
+    from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
     from rapidsmpf.streaming.core.node import CppNode, PyNode
 
@@ -107,8 +107,8 @@ def test_gc_after_chunk_release() -> None:
 
 
 def test_with_channel(context: Context, py_executor: ThreadPoolExecutor) -> None:
-    ch_in = Channel[ArbitraryChunk[int]]()
-    ch_out = Channel[ArbitraryChunk[int]]()
+    ch_in: Channel[ArbitraryChunk[int]] = context.create_channel()
+    ch_out: Channel[ArbitraryChunk[int]] = context.create_channel()
 
     inputs = [Message(seq, ArbitraryChunk(seq)) for seq in range(10)]
 

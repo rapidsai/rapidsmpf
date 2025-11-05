@@ -11,7 +11,6 @@ import pytest
 
 import pylibcudf as plc
 
-from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel
 from rapidsmpf.streaming.core.node import run_streaming_pipeline
 from rapidsmpf.streaming.cudf.parquet import read_parquet
@@ -20,6 +19,7 @@ from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 if TYPE_CHECKING:
     from typing import Literal
 
+    from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
 
@@ -56,7 +56,7 @@ def test_read_parquet(
     skip_rows: int | Literal["none"],
     num_rows: int | Literal["all"],
 ) -> None:
-    ch = Channel[TableChunk]()
+    ch: Channel[TableChunk] = context.create_channel()
 
     options = plc.io.parquet.ParquetReaderOptions.builder(source).build()
 
