@@ -19,11 +19,18 @@ cdef extern from * nogil:
         std::uint64_t sequence_number,
         std::unique_ptr<rapidsmpf::streaming::OwningWrapper> obj
     ) {
-        return rapidsmpf::streaming::Message(sequence_number, std::move(obj));
+        return rapidsmpf::streaming::Message{
+            sequence_number,
+            std::move(obj),
+            // TODO: support content description in Python. For now, we use
+            // an empty content description and provide no copy callback. This
+            // means that ArbitraryChunk won't support copy or spilling.
+            rapidsmpf::ContentDescription{}
+        };
     }
     }
     """
-    cpp_Message cpp_to_message"cpp_to_message"(
+    cpp_Message cpp_to_message(
         uint64_t, unique_ptr[cpp_OwningWrapper]
     ) except +
 

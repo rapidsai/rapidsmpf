@@ -45,7 +45,7 @@ Message read_parquet_chunk(
     auto result = std::make_unique<TableChunk>(
         cudf::io::read_parquet(options, stream, ctx->br()->device_mr()).tbl, stream
     );
-    return {sequence_number, std::move(result)};
+    return to_message(sequence_number, std::move(result));
 }
 
 struct ChunkDesc {
