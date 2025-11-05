@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 import cudf
 
-from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import run_streaming_pipeline
@@ -18,6 +17,7 @@ from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
 
+    from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
 
@@ -32,7 +32,7 @@ def test_roundtrip(context: Context, stream: Stream) -> None:
         )
         for seq, expect in enumerate(expects)
     ]
-    ch1: Channel[TableChunk] = Channel()
+    ch1: Channel[TableChunk] = context.create_channel()
     node1 = push_to_channel(context, ch_out=ch1, messages=table_chunks)
     node2, output = pull_from_channel(context, ch_in=ch1)
     run_streaming_pipeline(nodes=(node1, node2))
