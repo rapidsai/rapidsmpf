@@ -220,16 +220,13 @@ class TableChunk {
      * example, copying an available table chunk from device to host memory will result
      * in an unavailable copy.
      *
-     * @param br Buffer resource used for allocations.
      * @param reservation Memory reservation used to track and limit allocations.
      * @return A new `TableChunk` instance containing copies of all buffers and metadata.
      *
      * @throws std::overflow_error If the total allocation size exceeds the available
      * reservation.
      */
-    [[nodiscard]] TableChunk copy(
-        BufferResource* br, MemoryReservation& reservation
-    ) const;
+    [[nodiscard]] TableChunk copy(MemoryReservation& reservation) const;
 
   private:
     ///< @brief Optional owning object if the TableChunk was constructed from a
