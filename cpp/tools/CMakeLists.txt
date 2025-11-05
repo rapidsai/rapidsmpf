@@ -5,7 +5,6 @@
 # cmake-format: on
 # =================================================================================
 
-# rrun launcher tool
 add_executable(rrun "rrun.cpp")
 set_target_properties(
   rrun
@@ -23,19 +22,22 @@ install(
   EXCLUDE_FROM_ALL
 )
 
-# Topology Discovery CLI Tool
-add_executable(topology_discovery topology_discovery.cpp)
-
-set_target_properties(topology_discovery PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
-
+add_executable(topology_discovery "topology_discovery.cpp")
+set_target_properties(
+  topology_discovery
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/tools"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+)
 target_compile_options(
   topology_discovery PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
 )
-
-# Link against rapidsmpf library (which includes topology discovery)
 target_link_libraries(
-  topology_discovery PRIVATE rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:conda_env>
+  topology_discovery PRIVATE rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
-
-# Install the tool
-install(TARGETS topology_discovery DESTINATION bin)
+install(
+  TARGETS topology_discovery
+  COMPONENT tools
+  DESTINATION bin
+  EXCLUDE_FROM_ALL
+)
