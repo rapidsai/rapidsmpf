@@ -11,6 +11,7 @@
 #include <iostream>
 #include <sstream>
 
+#include <dlfcn.h>
 #include <nvml.h>
 #include <unistd.h>
 
@@ -21,6 +22,97 @@ namespace fs = std::filesystem;
 namespace rapidsmpf {
 
 namespace {
+
+// Runtime NVML loader to avoid link-time dependency on CUDA::nvml
+struct NvmlLoader {
+    void* handle = nullptr;
+
+    // Function pointers
+    nvmlReturn_t (*p_nvmlInit_v2)() = nullptr;
+    nvmlReturn_t (*p_nvmlShutdown)() = nullptr;
+    nvmlReturn_t (*p_nvmlDeviceGetCount_v2)(unsigned int*) = nullptr;
+    nvmlReturn_t (*p_nvmlDeviceGetHandleByIndex_v2)(unsigned int, nvmlDevice_t*) =
+        nullptr;
+    nvmlReturn_t (*p_nvmlDeviceGetName)(nvmlDevice_t, char*, unsigned int) = nullptr;
+    nvmlReturn_t (*p_nvmlDeviceGetPciInfo_v3)(nvmlDevice_t, nvmlPciInfo_t*) = nullptr;
+    nvmlReturn_t (*p_nvmlDeviceGetUUID)(nvmlDevice_t, char*, unsigned int) = nullptr;
+    const char* (*p_nvmlErrorString)(nvmlReturn_t) = nullptr;
+
+    NvmlLoader() {
+        load();
+    }
+
+    ~NvmlLoader() {
+        if (handle) {
+            dlclose(handle);
+        }
+    }
+
+    void load() {
+        // Try the SONAME first, then the unversioned name as a fallback
+        handle = dlopen("libnvidia-ml.so.1", RTLD_LAZY | RTLD_LOCAL);
+        if (!handle) {
+            handle = dlopen("libnvidia-ml.so", RTLD_LAZY | RTLD_LOCAL);
+        }
+        if (!handle) {
+            return;
+        }
+
+        p_nvmlInit_v2 =
+            reinterpret_cast<nvmlReturn_t (*)()>(dlsym(handle, "nvmlInit_v2"));
+        p_nvmlShutdown =
+            reinterpret_cast<nvmlReturn_t (*)()>(dlsym(handle, "nvmlShutdown"));
+        p_nvmlDeviceGetCount_v2 = reinterpret_cast<nvmlReturn_t (*)(unsigned int*)>(
+            dlsym(handle, "nvmlDeviceGetCount_v2")
+        );
+        p_nvmlDeviceGetHandleByIndex_v2 =
+            reinterpret_cast<nvmlReturn_t (*)(unsigned int, nvmlDevice_t*)>(
+                dlsym(handle, "nvmlDeviceGetHandleByIndex_v2")
+            );
+        p_nvmlDeviceGetName =
+            reinterpret_cast<nvmlReturn_t (*)(nvmlDevice_t, char*, unsigned int)>(
+                dlsym(handle, "nvmlDeviceGetName")
+            );
+        p_nvmlDeviceGetPciInfo_v3 =
+            reinterpret_cast<nvmlReturn_t (*)(nvmlDevice_t, nvmlPciInfo_t*)>(
+                dlsym(handle, "nvmlDeviceGetPciInfo_v3")
+            );
+        p_nvmlDeviceGetUUID =
+            reinterpret_cast<nvmlReturn_t (*)(nvmlDevice_t, char*, unsigned int)>(
+                dlsym(handle, "nvmlDeviceGetUUID")
+            );
+        p_nvmlErrorString = reinterpret_cast<const char* (*)(nvmlReturn_t)>(
+            dlsym(handle, "nvmlErrorString")
+        );
+        // If any required symbol is missing, treat NVML as unavailable
+        if (!p_nvmlInit_v2 || !p_nvmlShutdown || !p_nvmlDeviceGetCount_v2
+            || !p_nvmlDeviceGetHandleByIndex_v2 || !p_nvmlDeviceGetName
+            || !p_nvmlDeviceGetPciInfo_v3 || !p_nvmlDeviceGetUUID || !p_nvmlErrorString)
+        {
+            dlclose(handle);
+            handle = nullptr;
+            p_nvmlInit_v2 = nullptr;
+            p_nvmlShutdown = nullptr;
+            p_nvmlDeviceGetCount_v2 = nullptr;
+            p_nvmlDeviceGetHandleByIndex_v2 = nullptr;
+            p_nvmlDeviceGetName = nullptr;
+            p_nvmlDeviceGetPciInfo_v3 = nullptr;
+            p_nvmlDeviceGetUUID = nullptr;
+            p_nvmlErrorString = nullptr;
+        }
+    }
+
+    bool available() const {
+        return handle && p_nvmlInit_v2 && p_nvmlShutdown && p_nvmlDeviceGetCount_v2
+               && p_nvmlDeviceGetHandleByIndex_v2 && p_nvmlDeviceGetName
+               && p_nvmlDeviceGetPciInfo_v3 && p_nvmlDeviceGetUUID && p_nvmlErrorString;
+    }
+};
+
+NvmlLoader& get_nvml_loader() {
+    static NvmlLoader loader;
+    return loader;
+}
 
 /**
  * @brief Network device with topology information.
@@ -443,21 +535,28 @@ int count_numa_nodes() {
 
 bool TopologyDiscovery::discover() {
     SystemTopologyInfo topology;
-    nvmlReturn_t result = nvmlInit_v2();
-    if (result != NVML_SUCCESS) {
-        std::cerr << "Failed to initialize NVML: " << nvmlErrorString(result)
-                  << std::endl;
+    NvmlLoader& nvml = get_nvml_loader();
+    nvmlReturn_t result = NVML_SUCCESS;
+    if (!nvml.available()) {
+        std::cerr << "NVML not available: failed to load libnvidia-ml.so.1" << std::endl;
         // Continue anyway to report system info even without GPUs
+    } else {
+        result = nvml.p_nvmlInit_v2();
+        if (result != NVML_SUCCESS) {
+            std::cerr << "Failed to initialize NVML: " << nvml.p_nvmlErrorString(result)
+                      << std::endl;
+            // Continue anyway to report system info even without GPUs
+        }
     }
 
     // Get GPU count
     unsigned int device_count = 0;
     bool nvml_available = false;
-    if (result == NVML_SUCCESS) {
-        result = nvmlDeviceGetCount_v2(&device_count);
+    if (nvml.available() && result == NVML_SUCCESS) {
+        result = nvml.p_nvmlDeviceGetCount_v2(&device_count);
         if (result != NVML_SUCCESS) {
             std::cerr << "Warning: Failed to get device count: "
-                      << nvmlErrorString(result) << std::endl;
+                      << nvml.p_nvmlErrorString(result) << std::endl;
             device_count = 0;
         } else {
             nvml_available = true;
@@ -489,10 +588,10 @@ bool TopologyDiscovery::discover() {
 
     for (unsigned int i = 0; i < device_count; ++i) {
         nvmlDevice_t device;
-        result = nvmlDeviceGetHandleByIndex_v2(i, &device);
+        result = nvml.p_nvmlDeviceGetHandleByIndex_v2(i, &device);
         if (result != NVML_SUCCESS) {
             std::cerr << "Warning: Failed to get handle for GPU " << i << ": "
-                      << nvmlErrorString(result) << std::endl;
+                      << nvml.p_nvmlErrorString(result) << std::endl;
             continue;
         }
 
@@ -501,7 +600,8 @@ bool TopologyDiscovery::discover() {
 
         // Get device name, PCI bus ID and UUID
         std::array<char, NVML_DEVICE_NAME_BUFFER_SIZE> name{};
-        result = nvmlDeviceGetName(device, name.data(), NVML_DEVICE_NAME_BUFFER_SIZE);
+        result =
+            nvml.p_nvmlDeviceGetName(device, name.data(), NVML_DEVICE_NAME_BUFFER_SIZE);
         if (result == NVML_SUCCESS) {
             gpu.name = std::string(name.data());
         } else {
@@ -509,7 +609,7 @@ bool TopologyDiscovery::discover() {
         }
 
         nvmlPciInfo_t pci_info;
-        result = nvmlDeviceGetPciInfo_v3(device, &pci_info);
+        result = nvml.p_nvmlDeviceGetPciInfo_v3(device, &pci_info);
         if (result == NVML_SUCCESS) {
             gpu.pci_bus_id = std::string(pci_info.busId);
         } else {
@@ -518,7 +618,8 @@ bool TopologyDiscovery::discover() {
         }
 
         std::array<char, NVML_DEVICE_UUID_BUFFER_SIZE> uuid{};
-        result = nvmlDeviceGetUUID(device, uuid.data(), NVML_DEVICE_UUID_BUFFER_SIZE);
+        result =
+            nvml.p_nvmlDeviceGetUUID(device, uuid.data(), NVML_DEVICE_UUID_BUFFER_SIZE);
         if (result == NVML_SUCCESS) {
             gpu.uuid = std::string(uuid.data());
         } else {
@@ -544,7 +645,7 @@ bool TopologyDiscovery::discover() {
     }
 
     if (nvml_available) {
-        nvmlShutdown();
+        nvml.p_nvmlShutdown();
     }
 
     topology_ = std::move(topology);

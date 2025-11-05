@@ -233,7 +233,7 @@ target_include_directories(
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL CUDA::nvml $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
+  PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
          $<TARGET_NAME_IF_EXISTS:libcoro>
   PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
           $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
@@ -241,6 +241,7 @@ target_link_libraries(
           $<TARGET_NAME_IF_EXISTS:conda_env>
           maybe_asan
           $<TARGET_NAME_IF_EXISTS:CCCL::cudax>
+          ${CMAKE_DL_LIBS}
 )
 
 target_compile_definitions(
