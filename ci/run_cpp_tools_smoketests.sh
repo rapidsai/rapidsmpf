@@ -25,6 +25,10 @@ topology_discovery
 
 topology_discovery | python "${VALIDATE_TOPOLOGY_PATH}" -
 
+set +e
+
 ls -l /sys/bus/pci/devices
 ls -l /sys/bus/pci/devices/0000:0a:00.0
 ls -l /sys/bus/pci/devices/0000:0a:00.0/numa_node
+
+set -e
