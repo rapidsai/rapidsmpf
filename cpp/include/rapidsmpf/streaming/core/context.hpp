@@ -105,9 +105,9 @@ class Context {
 
 
     /**
-     * @brief Returns the communicator.
+     * @brief Create a new channel associated with this context.
      *
-     * @return Shared pointer to the communicator.
+     * @return A shared pointer to the newly created channel.
      */
     std::shared_ptr<Channel> create_channel();
 

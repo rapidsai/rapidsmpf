@@ -28,6 +28,9 @@ using Semaphore = coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()>;
 
 /**
  * @brief A coroutine-based channel for sending and receiving messages asynchronously.
+ *
+ * The constructor is private, use the factory method `Context::create_channel()` to
+ * create a new channel.
  */
 class Channel {
     friend Context;
