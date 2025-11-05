@@ -79,6 +79,8 @@ outputs:
           cmake --install cpp/build --component=tools
       dynamic_linking:
         overlinking_behavior: "error"
+        missing_dso_allowlist:
+          - "libnvidia-ml.so.1"
       prefix_detection:
         ignore:
           # See https://github.com/rapidsai/build-planning/issues/160
