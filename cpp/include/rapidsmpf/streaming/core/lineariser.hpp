@@ -68,7 +68,7 @@ class Lineariser {
         : ctx_{std::move(ctx)}, ch_out_{std::move(ch_out)} {
         inputs_.reserve(num_producers);
         for (std::size_t i = 0; i < num_producers; i++) {
-            inputs_.push_back(ctx->create_channel());
+            inputs_.push_back(ctx_->create_channel());
         }
     }
 
