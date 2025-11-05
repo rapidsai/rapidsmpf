@@ -61,8 +61,9 @@ std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
     item_lock.unlock();
 
     // Update the content descriptions only if `mid` still exists.
-    // This handles the case where it may have been extracted while the global lock
-    // was released.
+    // This handles the case where it may have been extracted while the item lock
+    // was released and simultaneously `extract` acquired global/item locks and
+    // released the item.
     std::scoped_lock lock(global_lock);
     if (auto it = content_descriptions_.find(mid); it != content_descriptions_.end()) {
         it->second = new_cd;

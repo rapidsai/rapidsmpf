@@ -63,7 +63,7 @@ class SpillableMessages {
      * @param mid Message identifier.
      * @return Extracted `Message` instance.
      *
-     * @throws std::out_of_range If the message ID does not exist.
+     * @throws std::out_of_range If the message ID is invalid or was already extracted.
      */
     [[nodiscard]] Message extract(MessageId mid);
 
