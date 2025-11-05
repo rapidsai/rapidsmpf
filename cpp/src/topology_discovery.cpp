@@ -171,12 +171,14 @@ std::string get_pci_bus_id_from_device(std::string const& device_path) {
  */
 int get_pci_bus_number(std::string const& pci_id) {
     size_t first_colon = pci_id.find(':');
-    if (first_colon == std::string::npos)
+    if (first_colon == std::string::npos) {
         return -1;
+    }
 
     size_t second_colon = pci_id.find(':', first_colon + 1);
-    if (second_colon == std::string::npos)
+    if (second_colon == std::string::npos) {
         return -1;
+    }
 
     std::string bus_str = pci_id.substr(first_colon + 1, second_colon - first_colon - 1);
     try {
