@@ -33,8 +33,12 @@ struct NetworkDeviceWithTopology {
 /**
  * @brief Read a file and return its content.
  *
+ * Attempts to open and read the file at @p path. If the file cannot be opened or
+ * read, returns an empty string. On success, returns the full contents with a
+ * single trailing '\n' removed if present.
+ *
  * @param path File to read.
- * @return The file content.
+ * @return File content on success; empty string on failure.
  */
 std::string read_file_content(std::string const& path) {
     std::ifstream file(path);
@@ -52,10 +56,15 @@ std::string read_file_content(std::string const& path) {
 }
 
 /**
- * @brief parse cpu list string into a vector of core ids.
+ * @brief Parse a CPU list string into a vector of core ids.
  *
- * @param cpulist cpu list string (e.g., "0-31,128-159").
- * @return vector of cpu core ids.
+ * Accepts formats like "0-31,128-159" or comma-separated single cores. If @p cpulist
+ * is empty, returns an empty vector.
+ *
+ * @param cpulist CPU list string (e.g., "0-31,128-159").
+ * @return Vector of CPU core ids; empty if @p cpulist is empty.
+ * @throw std::invalid_argument or std::out_of_range if tokens are malformed and cannot be
+ * parsed with std::stoi.
  */
 std::vector<int> parse_cpu_list(std::string const& cpulist) {
     std::vector<int> cores;
@@ -85,8 +94,12 @@ std::vector<int> parse_cpu_list(std::string const& cpulist) {
 /**
  * @brief Normalize PCI bus ID to standard format.
  *
+ * Converts the domain to 4 hex digits and lowercases the entire string. If the input
+ * does not contain a colon (unexpected format), the input is returned unchanged.
+ *
  * @param pci_bus_id PCI bus ID to normalize.
- * @return Normalized PCI bus ID in format (0000:06:00.0).
+ * @return Normalized PCI bus ID in format (0000:06:00.0); unchanged on unrecognized
+ * input.
  */
 std::string normalize_pci_bus_id(std::string const& pci_bus_id) {
     // NVML may return format like "00000000:0A:00.0" but /sys uses "0000:0a:00.0"
@@ -110,10 +123,13 @@ std::string normalize_pci_bus_id(std::string const& pci_bus_id) {
 }
 
 /**
- * @brief Get NUMA node from /sys.
+ * @brief Get NUMA node from /sys for a PCI device.
+ *
+ * Reads /sys/bus/pci/devices/<pci>/numa_node. If the file is missing, empty, or
+ * cannot be parsed as an integer, returns -1.
  *
  * @param pci_bus_id PCI bus ID of the device.
- * @return NUMA node number, or -1 if not found.
+ * @return NUMA node number on success; -1 if unavailable.
  */
 int get_numa_node_from_sys(std::string const& pci_bus_id) {
     std::string normalized_id = normalize_pci_bus_id(pci_bus_id);
@@ -130,10 +146,14 @@ int get_numa_node_from_sys(std::string const& pci_bus_id) {
 }
 
 /**
- * @brief Get CPU affinity list from /sys.
+ * @brief Get CPU affinity list from /sys for a PCI device.
+ *
+ * Reads /sys/bus/pci/devices/<pci>/local_cpulist and returns the file content as-is
+ * (with any trailing newline trimmed). If the file is missing or unreadable, returns
+ * an empty string.
  *
  * @param pci_bus_id PCI bus ID of the device.
- * @return CPU affinity list.
+ * @return CPU affinity list string; empty on failure.
  */
 std::string get_cpu_affinity_from_sys(std::string const& pci_bus_id) {
     std::string normalized_id = normalize_pci_bus_id(pci_bus_id);
@@ -142,10 +162,13 @@ std::string get_cpu_affinity_from_sys(std::string const& pci_bus_id) {
 }
 
 /**
- * @brief Get PCI bus ID from a device in /sys.
+ * @brief Get PCI bus ID from a device directory in /sys.
+ *
+ * Resolves <device_path>/device symlink and returns its basename (e.g., "0000:06:00.0").
+ * Returns an empty string if the symlink does not exist or cannot be resolved.
  *
  * @param device_path Path to the device in /sys.
- * @return PCI bus ID of the device.
+ * @return PCI bus ID of the device; empty string if not available.
  */
 std::string get_pci_bus_id_from_device(std::string const& device_path) {
     fs::path device_link = fs::path(device_path) / "device";
@@ -162,12 +185,13 @@ std::string get_pci_bus_id_from_device(std::string const& device_path) {
 }
 
 /**
- * @brief Parse PCI bus number from PCI ID.
+ * @brief Parse PCI bus number from a PCI ID string.
  *
- * The format is domain:bus:device.function, e.g., "0000:06:00.0".
-
+ * Expects format domain:bus:device.function (e.g., "0000:06:00.0"). If parsing fails
+ * or the expected separators are missing, returns -1.
+ *
  * @param pci_id PCI ID string.
- * @return PCI bus number in hexadecimal, or -1 if parsing fails.
+ * @return PCI bus number (integer) on success; -1 on failure.
  */
 int get_pci_bus_number(std::string const& pci_id) {
     size_t first_colon = pci_id.find(':');
@@ -191,9 +215,13 @@ int get_pci_bus_number(std::string const& pci_id) {
 /**
  * @brief Get PCIe path type between two devices by analyzing /sys topology.
  *
+ * Uses NUMA node comparison and PCI bus number proximity as a heuristic. If either
+ * device's bus cannot be parsed, falls back to PHB. If NUMA nodes differ (and are
+ * known), returns SYS.
+ *
  * @param gpu_pci_id PCI bus ID of the GPU device.
  * @param nic_pci_id PCI bus ID of the NIC device.
- * @return PCIe path type indicating connection quality (PIX, PXB, PHB, NODE, or SYS).
+ * @return Path type (PIX, PXB, PHB, NODE, or SYS); PHB when indeterminate.
  */
 PciePathType get_pcie_path_type(
     std::string const& gpu_pci_id, std::string const& nic_pci_id
@@ -249,7 +277,11 @@ PciePathType get_pcie_path_type(
 /**
  * @brief Discover network devices (InfiniBand/RoCE).
  *
- * @return Vector of discovered network devices.
+ * Scans /sys/class/infiniband and collects device name, NUMA node, and PCI bus ID.
+ * If the directory does not exist or an error occurs during iteration, returns an
+ * empty vector (a warning is logged for iteration errors).
+ *
+ * @return Vector of discovered network devices; empty if none or on failure.
  */
 std::vector<NetworkDeviceWithTopology> discover_network_devices_with_topology() {
     std::vector<NetworkDeviceWithTopology> devices;
@@ -285,11 +317,16 @@ std::vector<NetworkDeviceWithTopology> discover_network_devices_with_topology() 
 }
 
 /**
- * @brief Map network devices to GPUs based on NUMA proximity.
+ * @brief Map network devices to a GPU based on PCIe topology and NUMA proximity.
+ *
+ * Prefers NICs with the best (lowest) PCIe path type to the GPU. If no PCI topology
+ * information is available, falls back to matching by NUMA node. If still ambiguous,
+ * returns all devices. May return an empty vector when @p network_devices is empty
+ * or none have PCI info.
  *
  * @param gpu_numa_node NUMA node to query.
  * @param network_devices Network devices on the system.
- * @return Vector with device names closes to the NUMA node.
+ * @return Vector of device names selected for the GPU; possibly empty.
  */
 std::vector<std::string> map_network_devices_to_gpu(
     std::string const& gpu_pci_id,
@@ -360,20 +397,26 @@ std::vector<std::string> map_network_devices_to_gpu(
 /**
  * @brief Get system hostname.
  *
- * @return System hostname, empty string if hostname cannot be determined.
+ * Returns the system hostname on success; returns an empty string if the
+ * hostname cannot be determined.
+ *
+ * @return Hostname string, or an empty string if unavailable.
  */
 std::string get_hostname() {
     char hostname[256];
     if (gethostname(hostname, sizeof(hostname)) == 0) {
         return std::string(hostname);
     }
-    return "unknown";
+    return "";
 }
 
 /**
  * @brief Count NUMA nodes on the system.
  *
- * @return Number of NUMA nodes.
+ * Counts subdirectories named "node*" under /sys/devices/system/node. Returns 0 if
+ * the directory does not exist or cannot be iterated.
+ *
+ * @return Number of NUMA nodes; 0 if unavailable.
  */
 int count_numa_nodes() {
     std::string numa_path = "/sys/devices/system/node";
