@@ -20,12 +20,12 @@ python "${TIMEOUT_TOOL_PATH}" 30 \
 python "${TIMEOUT_TOOL_PATH}" 30 \
     rrun --tag-output -n 3 -g 0,0,0 ./bench_comm -m cuda -C ucxx
 
+set +e
+
 # TODO: Remove (debug output only)
 topology_discovery
 
 topology_discovery | python "${VALIDATE_TOPOLOGY_PATH}" -
-
-set +e
 
 ls -l /sys/bus/pci/devices
 ls -l /sys/bus/pci/devices/0000:0a:00.0
