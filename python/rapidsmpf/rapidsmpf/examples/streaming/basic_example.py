@@ -17,7 +17,6 @@ from rapidsmpf.communicator.single import (
 )
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
-from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
@@ -29,6 +28,7 @@ from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
+    from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.node import CppNode, PyNode
 
 
@@ -66,8 +66,8 @@ def main() -> int:
     ]
 
     # Create input and output channels for table chunks.
-    ch1: Channel[TableChunk] = Channel()
-    ch2: Channel[TableChunk] = Channel()
+    ch1: Channel[TableChunk] = ctx.create_channel()
+    ch2: Channel[TableChunk] = ctx.create_channel()
 
     # Node 1: producer that pushes messages into the pipeline.
     # This is a native C++ node that runs as a coroutine with minimal Python overhead.

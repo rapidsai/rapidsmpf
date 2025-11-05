@@ -222,7 +222,7 @@ rapidsmpf::Duration run(
     // Create streaming pipeline.
     std::vector<rapidsmpf::streaming::Node> nodes;
     {
-        auto ch1 = std::make_shared<rapidsmpf::streaming::Channel>();
+        auto ch1 = ctx->create_channel();
         nodes.push_back(
             rapidsmpf::streaming::node::random_table_generator(
                 ctx,
@@ -235,7 +235,7 @@ rapidsmpf::Duration run(
                 max_val
             )
         );
-        auto ch2 = std::make_shared<rapidsmpf::streaming::Channel>();
+        auto ch2 = ctx->create_channel();
         nodes.push_back(
             rapidsmpf::streaming::node::partition_and_pack(
                 ctx,
@@ -247,13 +247,13 @@ rapidsmpf::Duration run(
                 seed
             )
         );
-        auto ch3 = std::make_shared<rapidsmpf::streaming::Channel>();
+        auto ch3 = ctx->create_channel();
         nodes.push_back(
             rapidsmpf::streaming::node::shuffler(
                 ctx, ch2, ch3, op_id, total_num_partitions
             )
         );
-        auto ch4 = std::make_shared<rapidsmpf::streaming::Channel>();
+        auto ch4 = ctx->create_channel();
         nodes.push_back(rapidsmpf::streaming::node::unpack_and_concat(ctx, ch3, ch4));
         nodes.push_back(consumer(ctx, ch4));
     }

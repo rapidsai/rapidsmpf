@@ -9,7 +9,6 @@ import pytest
 
 import cudf
 
-from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import run_streaming_pipeline
@@ -21,6 +20,7 @@ from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream
 
+    from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
     from rapidsmpf.streaming.cudf.partition_chunk import PartitionMapChunk
 
@@ -39,10 +39,10 @@ def test_partition_and_pack_unpack(
         )
         for seq, expect in enumerate(expects)
     ]
-    ch1: Channel[TableChunk] = Channel()
+    ch1: Channel[TableChunk] = context.create_channel()
     node1 = push_to_channel(context, ch_out=ch1, messages=table_chunks)
 
-    ch2: Channel[PartitionMapChunk] = Channel()
+    ch2: Channel[PartitionMapChunk] = context.create_channel()
     node2 = partition_and_pack(
         context,
         ch_in=ch1,
@@ -51,7 +51,7 @@ def test_partition_and_pack_unpack(
         num_partitions=num_partitions,
     )
 
-    ch3: Channel[TableChunk] = Channel()
+    ch3: Channel[TableChunk] = context.create_channel()
     node3 = unpack_and_concat(
         context,
         ch_in=ch2,

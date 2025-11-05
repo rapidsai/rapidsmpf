@@ -9,7 +9,6 @@ import pytest
 
 import cudf
 
-from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
@@ -22,6 +21,7 @@ if TYPE_CHECKING:
 
     from rmm.pylibrmm.stream import Stream
 
+    from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
 
@@ -33,7 +33,7 @@ def test_send_table_chunks(
         for seq in range(10)
     ]
 
-    ch1: Channel[TableChunk] = Channel()
+    ch1: Channel[TableChunk] = context.create_channel()
 
     # The node access `ch1` both through the `ch_out` parameter and the closure.
     @define_py_node(extra_channels=(ch1,))
@@ -76,7 +76,7 @@ def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
         # Calling shutdown multiple times is allowed.
         await ch_out.shutdown(ctx)
 
-    ch1: Channel[TableChunk] = Channel()
+    ch1: Channel[TableChunk] = context.create_channel()
     node2, output = pull_from_channel(context, ch_in=ch1)
 
     run_streaming_pipeline(
@@ -95,7 +95,7 @@ def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
     async def node1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         raise RuntimeError("MyError")
 
-    ch1: Channel[TableChunk] = Channel()
+    ch1: Channel[TableChunk] = context.create_channel()
     node2, output = pull_from_channel(context, ch_in=ch1)
 
     with pytest.raises(
@@ -137,7 +137,7 @@ def test_recv_table_chunks(
                 break
             results.append(chunk)
 
-    ch1: Channel[TableChunk] = Channel()
+    ch1: Channel[TableChunk] = context.create_channel()
 
     run_streaming_pipeline(
         nodes=[
