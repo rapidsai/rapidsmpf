@@ -84,7 +84,7 @@ class TopologyDiscovery {
      *
      * @return true if discovery was successful, false otherwise.
      */
-    bool discover();
+    [[nodiscard]] bool discover();
 
     /**
      * @brief Get the discovered topology information.

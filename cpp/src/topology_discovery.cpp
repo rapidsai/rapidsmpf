@@ -520,7 +520,7 @@ int count_numa_nodes() {
     try {
         for (auto const& entry : fs::directory_iterator(numa_path)) {
             std::string name = entry.path().filename().string();
-            if (name.rfind("node", 0) == 0) {  // starts with "node"
+            if (name.starts_with("node")) {  // starts with "node"
                 count++;
             }
         }
