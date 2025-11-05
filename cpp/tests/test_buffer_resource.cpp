@@ -548,6 +548,43 @@ TEST_F(BufferResourceDifferentResourcesTest, Copy) {
     verify_memory_allocation(buffer_size, buffer_size);
 }
 
+TEST(BufferResource, StreamPoolSize) {
+    auto mr = cudf::get_current_device_resource_ref();
+
+    // Test with default stream pool size (16)
+    {
+        BufferResource br{mr};
+        EXPECT_EQ(br.stream_pool().get_pool_size(), 16);
+    }
+
+    // Test with custom stream_pool_size parameter
+    {
+        BufferResource br{mr, {}, std::nullopt, 32};
+        EXPECT_EQ(br.stream_pool().get_pool_size(), 32);
+    }
+
+    // Test with different custom size
+    {
+        BufferResource br{mr, {}, std::chrono::milliseconds{1}, 8};
+        EXPECT_EQ(br.stream_pool().get_pool_size(), 8);
+    }
+
+    // Test with explicit stream pool (should override stream_pool_size parameter)
+    {
+        auto custom_pool = std::make_shared<rmm::cuda_stream_pool>(
+            64, rmm::cuda_stream::flags::non_blocking
+        );
+        BufferResource br{mr, {}, std::nullopt, 32, custom_pool};
+        EXPECT_EQ(br.stream_pool().get_pool_size(), 64);  // Should use custom_pool's size
+    }
+
+    // Test with nullptr stream pool (should use stream_pool_size parameter)
+    {
+        BufferResource br{mr, {}, std::nullopt, 48, nullptr};
+        EXPECT_EQ(br.stream_pool().get_pool_size(), 48);
+    }
+}
+
 class BufferCopyEdgeCases : public BaseBufferResourceCopyTest {};
 
 TEST_F(BufferCopyEdgeCases, IllegalArguments) {

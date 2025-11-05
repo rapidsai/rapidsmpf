@@ -161,12 +161,15 @@ cdef class BufferResource:
         perform spilling based on the memory availability functions. The value of
         ``periodic_spill_check`` is used as the pause between checks (in seconds).
         If None, no periodic spill check is performed.
+    stream_pool_size
+        The number of streams to create in the CUDA stream pool. Default is 16.
     """
     def __cinit__(
         self,
         DeviceMemoryResource device_mr not None,
         memory_available = None,
-        periodic_spill_check = 1e-3
+        periodic_spill_check = 1e-3,
+        size_t stream_pool_size = 16
     ):
         cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
         if memory_available is not None:
@@ -193,6 +196,8 @@ cdef class BufferResource:
                 device_mr.get_mr(),
                 move(_mem_available),
                 period,
+                stream_pool_size,
+                shared_ptr[cuda_stream_pool](),  # nullptr, let C++ create the pool
             )
         self.spill_manager = SpillManager._create(self)
 
@@ -248,6 +253,17 @@ cdef class BufferResource:
         with nogil:
             ret = _call_memory_available(resource_ptr, mem_type)
         return ret
+
+    def stream_pool_size(self):
+        """
+        Get the size of the stream pool.
+
+        Returns
+        -------
+        int
+            The number of streams in the stream pool.
+        """
+        return self.stream_pool().get_pool_size()
 
     def reserve(self, MemoryType mem_type, size_t size, *, bool_t allow_overbooking):
         """
