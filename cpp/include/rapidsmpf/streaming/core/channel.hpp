@@ -19,6 +19,8 @@
 
 namespace rapidsmpf::streaming {
 
+class Context;
+
 /**
  * @brief An awaitable semaphore to manage acquisition and release of finite resources.
  */
@@ -28,6 +30,8 @@ using Semaphore = coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()>;
  * @brief A coroutine-based channel for sending and receiving messages asynchronously.
  */
 class Channel {
+    friend Context;
+
   public:
     /**
      * @brief Asynchronously send a message into the channel.
@@ -93,6 +97,7 @@ class Channel {
     }
 
   private:
+    Channel() = default;
     coro::ring_buffer<Message, 1> rb_;
 };
 
@@ -198,7 +203,7 @@ class ThrottlingAdaptor {
      *
      * Example usage:
      * @code{.cpp}
-     * auto ch = std::make_shared<Channel>();
+     * auto ch = ctx->create_channel();
      * auto throttled = ThrottlingAdaptor(ch, 4);
      * auto make_task = [&]() {
      *     auto ticket = co_await throttled.acquire();

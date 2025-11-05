@@ -87,4 +87,7 @@ std::shared_ptr<Statistics> Context::statistics() {
     return statistics_;
 }
 
+std::shared_ptr<Channel> Context::create_channel() {
+    return std::unique_ptr<Channel>(new Channel());
+}
 }  // namespace rapidsmpf::streaming

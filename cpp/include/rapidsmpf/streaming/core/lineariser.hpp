@@ -34,7 +34,7 @@ namespace rapidsmpf::streaming {
  * Example usage:
  * @code{.cpp}
  * auto ctx = std::make_shared<Context>(...);
- * auto ch_out = std::make_shared<Channel>();
+ * auto ch_out = ctx->create_channel();
  * auto linearise = std::make_shared<Lineariser>(ch_out, 8);
  * std::vector<Node> tasks;
  * // Draining the lineariser will pull from all the input channels until they are
@@ -68,7 +68,7 @@ class Lineariser {
         : ctx_{std::move(ctx)}, ch_out_{std::move(ch_out)} {
         inputs_.reserve(num_producers);
         for (std::size_t i = 0; i < num_producers; i++) {
-            inputs_.push_back(std::make_shared<Channel>());
+            inputs_.push_back(ctx->create_channel());
         }
     }
 

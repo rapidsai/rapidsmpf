@@ -71,7 +71,7 @@ TEST_F(StreamingLineariser, ManyProducers) {
     constexpr std::size_t num_producers = 100;
     constexpr std::size_t num_messages = 30'000;
 
-    auto ch_out = std::make_shared<Channel>();
+    auto ch_out = ctx->create_channel();
     auto lineariser = std::make_shared<Lineariser>(ctx, ch_out, num_producers);
     std::vector<Node> tasks;
     tasks.reserve(num_producers + 2);

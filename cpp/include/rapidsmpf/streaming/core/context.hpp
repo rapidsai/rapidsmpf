@@ -12,6 +12,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/streaming/core/channel.hpp>
 
 #include <coro/coro.hpp>
 
@@ -101,6 +102,14 @@ class Context {
      * @return Shared pointer to the statistics instance.
      */
     std::shared_ptr<Statistics> statistics();
+
+
+    /**
+     * @brief Returns the communicator.
+     *
+     * @return Shared pointer to the communicator.
+     */
+    std::shared_ptr<Channel> create_channel();
 
   private:
     config::Options options_;
