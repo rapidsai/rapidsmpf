@@ -80,6 +80,8 @@ class SpillableMessages {
      * @param mid Message identifier. If the message does not exist, zero is returned.
      * @param br Buffer resource used for allocations during the spill operation.
      * @return Number of bytes released from device memory (0 if nothing was spilled).
+     *
+     * @throws std::runtime_error If there is insufficient host memory to reserve.
      */
     [[nodiscard]] std::size_t spill(MessageId mid, BufferResource* br) const;
 
