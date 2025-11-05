@@ -170,13 +170,13 @@ Node read_parquet(
         std::vector<Node> read_tasks;
         std::atomic<std::size_t> chunk_index{0};
         read_tasks.reserve(1 + num_producers);
-        auto lineariser = std::make_shared<Lineariser>(ch_out, num_producers);
+        auto lineariser = std::make_shared<Lineariser>(ctx, ch_out, num_producers);
         for (auto& ch_in : lineariser->get_inputs()) {
             read_tasks.push_back(
                 produce_chunks(ctx, ch_in, local_options, chunks, chunk_index)
             );
         }
-        read_tasks.push_back(lineariser->drain(ctx));
+        read_tasks.push_back(lineariser->drain());
         coro_results(co_await coro::when_all(std::move(read_tasks)));
     }
     co_await ch_out->drain(ctx->executor());

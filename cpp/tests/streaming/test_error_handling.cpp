@@ -28,7 +28,7 @@ TEST_F(StreamingErrorHandling, UnhandledException) {
 }
 
 TEST_F(StreamingErrorHandling, ProducerThrows) {
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     std::vector<Node> nodes;
 
     // Producer node.
@@ -53,7 +53,7 @@ TEST_F(StreamingErrorHandling, ProducerThrows) {
 }
 
 TEST_F(StreamingErrorHandling, ConsumerThrows) {
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     std::vector<Node> nodes;
 
     // Producer node.
