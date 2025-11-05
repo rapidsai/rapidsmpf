@@ -13,6 +13,7 @@
 #include <cudf_test/table_utilities.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
@@ -91,12 +92,17 @@ Node producer(
 ) {
     co_await ctx->executor()->schedule();
     auto ticket = co_await ch->acquire();
-    auto [_, receipt] = co_await ticket.send(Message{0, std::make_unique<int>(val)});
+    auto [_, receipt] = co_await ticket.send(
+        Message{0, std::make_unique<int>(val), ContentDescription{}}
+    );
     if (should_throw) {
         throw std::runtime_error("Producer throws");
     }
     EXPECT_THROW(
-        co_await ticket.send(Message{0, std::make_unique<int>(val)}), std::logic_error
+        co_await ticket.send(
+            Message{0, std::make_unique<int>(val), ContentDescription{}}
+        ),
+        std::logic_error
     );
     co_await receipt;
     EXPECT_TRUE(receipt.is_ready());
