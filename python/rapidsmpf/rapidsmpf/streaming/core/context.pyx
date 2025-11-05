@@ -96,4 +96,4 @@ cdef class Context:
         int
             The size of the stream pool.
         """
-        return self._br.stream_pool().get_pool_size()
+        return self._br.stream_pool_size()
