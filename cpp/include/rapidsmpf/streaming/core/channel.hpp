@@ -9,10 +9,12 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <utility>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
 #include <coro/coro.hpp>
 #include <coro/semaphore.hpp>
@@ -84,8 +86,10 @@ class Channel {
     [[nodiscard]] bool empty() const noexcept;
 
   private:
-    Channel() = default;
-    coro::ring_buffer<Message, 1> rb_;
+    Channel(std::shared_ptr<Context> context) : ctx_{std::move(context)} {}
+
+    coro::ring_buffer<SpillableMessages::MessageId, 1> rb_;
+    std::shared_ptr<Context> ctx_;
 };
 
 /**

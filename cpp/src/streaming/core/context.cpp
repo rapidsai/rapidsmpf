@@ -3,12 +3,53 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <memory>
+
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf::streaming {
 
+namespace {
+
+/**
+ * @brief Spill messages until the target amount of memory has been released.
+ *
+ * Messages are spilled in the order they were inserted into `spillable_messages`.
+ * The function stops once the cumulative amount of spilled memory reaches or exceeds
+ * `amount`, or when no further spillable messages remain.
+ *
+ * @param spillable_messages Container holding messages eligible for spilling.
+ * @param br Buffer resource used for spill allocations.
+ * @param amount Target number of bytes to spill.
+ * @return The total number of bytes actually spilled.
+ *
+ * @todo Support additional spilling strategies (e.g., size-based or priority-based).
+ */
+std::size_t spill_messages(
+    SpillableMessages const& spillable_messages,
+    std::shared_ptr<BufferResource> br,
+    std::size_t amount
+) {
+    // Recall that std::map is sorted by key by default, so iteration follows the
+    // order in which messages were inserted into `spillable_messages`.
+    std::map<SpillableMessages::MessageId, ContentDescription> cds =
+        spillable_messages.get_content_descriptions();
+
+    // Iterate over each message and attempt to spill until target amount is reached
+    std::size_t total_spilled = 0;
+    for (auto const& [id, cd] : cds) {
+        if (total_spilled >= amount) {
+            break;
+        }
+        if (cd.spillable()) {
+            total_spilled += spillable_messages.spill(id, br.get());
+        }
+    }
+    return total_spilled;
+}
+}  // namespace
 
 Context::Context(
     config::Options options,
@@ -22,13 +63,22 @@ Context::Context(
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
       executor_{std::move(executor)},
-      br_{std::move(br)},
-      statistics_{std::move(statistics)} {
+      br_{br},
+      statistics_{std::move(statistics)},
+      spillable_messages_{std::make_shared<SpillableMessages>()} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "comm cannot be NULL");
     RAPIDSMPF_EXPECTS(progress_thread_ != nullptr, "progress_thread cannot be NULL");
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "statistics cannot be NULL");
+
+    // Setup a spilling function.
+    spill_function_id_ = br_->spill_manager().add_spill_function(
+        [sm = spillable_messages_, br](std::size_t amount) -> std::size_t {
+            return spill_messages(*sm, br, amount);
+        },
+        /* priority = */ 0
+    );
 }
 
 Context::Context(
@@ -63,6 +113,10 @@ Context::Context(
           statistics
       ) {}
 
+Context::~Context() noexcept {
+    br_->spill_manager().remove_spill_function(spill_function_id_);
+}
+
 config::Options Context::get_options() const noexcept {
     return options_;
 }
@@ -88,6 +142,7 @@ std::shared_ptr<Statistics> Context::statistics() const noexcept {
 }
 
 std::shared_ptr<Channel> Context::create_channel() const noexcept {
-    return std::unique_ptr<Channel>(new Channel());
+    auto self = std::const_pointer_cast<Context>(shared_from_this());
+    return std::shared_ptr<Channel>(new Channel(self));
 }
 }  // namespace rapidsmpf::streaming
