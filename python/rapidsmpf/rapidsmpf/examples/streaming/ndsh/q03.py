@@ -304,10 +304,10 @@ async def broadcast_join(
     keep_keys: bool,
 ) -> None:
     left_tables: list[TableChunk] = []
-    chunk_streams = set()
+    chunk_streams = []
     while (msg := await left_ch.recv(ctx)) is not None:
         left_tables.append(TableChunk.from_message(msg))
-        chunk_streams.add(left_tables[-1].stream)
+        chunk_streams.append(left_tables[-1].stream)
     build_stream = ctx.get_stream_from_pool()
     join_streams(list(chunk_streams), build_stream)
     if len(left_tables) == 1:
@@ -328,7 +328,7 @@ async def broadcast_join(
     chunk_streams.clear()
     while (msg := await right_ch.recv(ctx)) is not None:
         chunk = TableChunk.from_message(msg)
-        chunk_streams.add(chunk.stream)
+        chunk_streams.append(chunk.stream)
         join_streams([build_stream], chunk.stream)
         # Safe to access left_carrier on chunk.stream
         right_columns = chunk.table_view().columns()
@@ -439,11 +439,11 @@ async def concatenate(
 ) -> None:
     chunks = []
     build_stream = ctx.get_stream_from_pool()
-    chunk_streams = set()
+    chunk_streams = []
     while (msg := await ch_in.recv(ctx)) is not None:
         chunk = TableChunk.from_message(msg)
         chunks.append(chunk)
-        chunk_streams.add(chunk.stream)
+        chunk_streams.append(chunk.stream)
     join_streams(list(chunk_streams), build_stream)
     table = plc.concatenate.concatenate(
         [chunk.table_view() for chunk in chunks], build_stream
@@ -659,7 +659,7 @@ def q(
 
 @click.command()
 @click.option(
-    "--num-iterations", default=2, help="Number of iterations of the query to run"
+    "--num-iterations", default=1, help="Number of iterations of the query to run"
 )
 @click.option("--output", default="result_q03.pq", help="Output result file")
 @click.option(
@@ -687,17 +687,17 @@ def q(
 )
 @click.option(
     "--customer",
-    default="/raid/data/tpch/sf1000/customer",
+    default="/raid/rapidsmpf/data/tpch/scale-1000/customer",
     help="Name of file (with suffix appended) or name of directory containing nation files",
 )
 @click.option(
     "--lineitem",
-    default="/raid/data/tpch/sf1000/lineitem",
+    default="/raid/rapidsmpf/data/tpch/scale-1000/lineitem",
     help="Name of file (with suffix appended) or name of directory containing lineitem files",
 )
 @click.option(
     "--orders",
-    default="/raid/data/tpch/sf1000/orders",
+    default="/raid/rapidsmpf/data/tpch/scale-1000/orders",
     help="Name of file (with suffix appended) or name of directory containing orders files",
 )
 def main(
