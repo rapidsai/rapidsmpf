@@ -120,19 +120,16 @@ async def filter_customer(
         chunk = TableChunk.from_message(msg)
         stream = chunk.stream
         table = chunk.table_view()
-        
         target = plc.Scalar.from_py("BUILDING", stream=stream)
         chunk = TableChunk.from_pylibcudf_table(
             plc.stream_compaction.apply_boolean_mask(
-                plc.Table(table.columns()[1:]),
+                plc.Table(table.columns()[1:]), # no longer need c_mktsegment
                 plc.strings.find.contains(table.columns()[0], target, stream), # c_mktsegment is col 0
                 stream,
             ),
             stream,
             exclusive_view=True,
         )
-        print("Customer")
-        print(chunk.table_view().to_arrow())
         await ch_out.send(ctx, Message(msg.sequence_number, chunk))
     await ch_out.drain(ctx)
 
@@ -147,13 +144,10 @@ async def filter_orders(
         chunk = TableChunk.from_message(msg)
         stream = chunk.stream
         table = chunk.table_view()
-        # for c in table.columns():
-        #     print(f"Column {c}: {c.type().id()}")
-
         target = plc.Scalar.from_py(var2, stream=stream)
         chunk = TableChunk.from_pylibcudf_table(
             plc.stream_compaction.apply_boolean_mask(
-                plc.Table(table.columns()[:]),
+                plc.Table(table.columns()[:]), # still need all columns
                 plc.binaryop.binary_operation(
                     table.columns()[1], # o_orderdate is col 1
                     target,
@@ -165,8 +159,6 @@ async def filter_orders(
             stream,
             exclusive_view=True,
         )
-        # print("Orders")
-        # print(chunk.table_view().to_arrow())
         await ch_out.send(ctx, Message(msg.sequence_number, chunk))
     await ch_out.drain(ctx)
 
@@ -181,13 +173,9 @@ async def filter_lineitem(
         stream = chunk.stream
         table = chunk.table_view()
         target = plc.Scalar.from_py(var2, stream=stream)
-        # for c in table.columns():
-        #     print(f"Column {c}: {c.type().id()}")
-            
         chunk = TableChunk.from_pylibcudf_table(
             plc.stream_compaction.apply_boolean_mask(
-                # plc.Table(table.columns()[:]),
-                plc.Table([table.columns()[i] for i in [0, 2, 3]]),
+                plc.Table([table.columns()[i] for i in [0, 2, 3]]), # no longer need l_shipdate
                 plc.binaryop.binary_operation(
                     table.columns()[1], # l_shipdate is col 1
                     target,
@@ -199,8 +187,6 @@ async def filter_lineitem(
             stream,
             exclusive_view=True,
         )
-        # print("Lineitem")
-        # print(chunk.table_view().to_arrow())
         await ch_out.send(ctx, Message(msg.sequence_number, chunk))
     await ch_out.drain(ctx)
 
@@ -215,28 +201,19 @@ async def with_columns(
         stream = chunk.stream
         columns = chunk.table_view().columns()
 
-        # print("With Columns")
-        # for i, c in enumerate(columns):
-        #     print(f"Column {i}, {c}: {c.type().id()}")
-
-        # print("with_column")
-        # print(chunk.table_view().to_arrow())
-
         """
-        customer_x_orders_x_lineitem cols
-        "c_custkey",  # 1
-        "o_orderkey",  # 0->2
-        "o_orderdate", # 1->3
-        "o_shippriority", # 2->4
-        # "o_custkey", # 3->5 (RIGHT JOIN KEY, GONE?)
-        # "l_orderkey",  # 0->6 (RIGHT JOIN KEY, GONE?)
-        "l_shipdate",  # 1->7
-        "l_extendedprice", # 2->8
-        "l_discount", # 3->9
+        customer_x_orders_x_lineitem is the input to the with_column op
+        "c_custkey", # 0 (customers<-orders on o_custkey)
+        "o_orderkey", # 1 (orders<-lineitem on o_orderkey)
+        "o_orderdate", # 2
+        "o_shippriority", # 3
+        "l_shipdate", # 4
+        "l_extendedprice", # 5
+        "l_discount", # 6
         """
 
         c_custkey, o_orderkey, o_orderdate, o_shippriority, l_extendedprice, l_discount = columns
-        revenue_type = l_discount.type()  # float64
+        revenue_type = l_discount.type()  # float64 since not using decimal
         revenue = plc.transform.transform(
             [l_discount, l_extendedprice],
             """
@@ -256,8 +233,8 @@ async def with_columns(
             Message(
                 msg.sequence_number,
                 TableChunk.from_pylibcudf_table(
-                    # this is the input to the groupby. only need specific columns
-                    # from this point forward
+                    # this is the input to the groupby
+                    # only need four columns from this point forward
                     plc.Table([o_orderkey, o_orderdate, o_shippriority, revenue]),
                     stream,
                     exclusive_view=True,
@@ -275,15 +252,13 @@ async def select_columns(
         chunk = TableChunk.from_message(msg)
         stream = chunk.stream
         columns = chunk.table_view().columns()
-
-        # print("select_columns")
-        # print(chunk.table_view().to_arrow())
         o_orderkey, o_orderdate, o_shippriority, revenue = columns
         await ch_out.send(
             ctx,
             Message(
                 msg.sequence_number,
                 TableChunk.from_pylibcudf_table(
+                    # change the column order
                     plc.Table([o_orderkey, revenue, o_orderdate, o_shippriority]),
                     stream,
                     exclusive_view=True,
@@ -337,17 +312,9 @@ async def broadcast_join(
         right_carrier = plc.Table(
             [c for i, c in enumerate(right_columns) if i not in right_on]
         )
-        # print("left keys")
-        # for c in left_keys.columns():
-        #     print(f"Column {c}: {c.type().id()}")
-        # print("right keys")
-        # for c in right_keys.columns():
-        #     print(f"Column {c}: {c.type().id()}")
-
         left, right = plc.join.inner_join(
             left_keys, right_keys, plc.types.NullEquality.UNEQUAL, chunk.stream
         )
-        # print()
         left = plc.copying.gather(
             left_carrier,
             left,
@@ -360,19 +327,6 @@ async def broadcast_join(
             plc.copying.OutOfBoundsPolicy.DONT_CHECK,
             chunk.stream,
         )
-        # print("Inner Join")
-        # # out_table = plc.Table([*left.columns(), *right.columns()])
-        # print("left columns")
-        # for c in left.columns():
-        #     print(f"Column {c}: {c.type().id()}")
-        # print("right columns")
-        # for c in right.columns():
-        #     print(f"Column {c}: {c.type().id()}")
-
-        # print("Combined columns")
-        # for c in plc.Table([*left.columns(), *right.columns()]).columns():
-        #     print(f"Column {c}: {c.type().id()}")
-        
         await ch_out.send(
             ctx,
             Message(
@@ -398,10 +352,6 @@ async def chunkwise_groupby_agg(
     sequence = 0
     while (msg := await ch_in.recv(ctx)) is not None:
         chunk = TableChunk.from_message(msg)
-        
-        # print("Chunkwise groupby")
-        # print(chunk.table_view().to_arrow())
-
         o_orderkey, o_orderdate, o_shippriority, revenue = chunk.table_view().columns()
         stream = chunk.stream
         grouper = plc.groupby.GroupBy(
@@ -460,6 +410,7 @@ async def concatenate(
     await ch_out.drain(ctx)
 
 
+# .sort(by=["revenue", "o_orderdate"], descending=[True, False])
 @define_py_node()
 async def sort_by(
     ctx: Context, ch_in: Channel[TableChunk], ch_out: Channel[TableChunk]
@@ -470,10 +421,6 @@ async def sort_by(
     if await ch_in.recv(ctx) is not None:
         raise RuntimeError("Only expecting a single chunk")
     chunk = TableChunk.from_message(msg)
-
-    # print("sort_by")
-    # print(chunk.table_view().to_arrow())
-
     o_orderkey, revenue, o_orderdate, o_shippriority = chunk.table_view().columns()
     stream = chunk.stream
     await ch_out.send(
@@ -533,10 +480,6 @@ async def write_parquet(
     if await ch_in.recv(ctx) is not None:
         raise RuntimeError("Only expecting a single chunk in write_parquet")
     chunk = TableChunk.from_message(msg)
-
-    # print("Write Parquet")
-    # print(chunk.table_view().to_arrow())
-
     sink = plc.io.SinkInfo([filename])
     builder = plc.io.parquet.ParquetWriterOptions.builder(sink, chunk.table_view())
     metadata = plc.io.types.TableInputMetadata(chunk.table_view())
