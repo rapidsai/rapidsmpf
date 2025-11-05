@@ -38,11 +38,11 @@ class NewDeleteHostMemoryResource final : public HostMemoryResource {
 class PinnedHostMemoryResource final : public HostMemoryResource {
   public:
     void* allocate(size_t bytes) override {
-        return mr.allocate(bytes);
+        return mr.allocate_sync(bytes, rmm::RMM_DEFAULT_HOST_ALIGNMENT);
     }
 
     void deallocate(void* ptr, size_t bytes) noexcept override {
-        mr.deallocate(ptr, bytes);
+        mr.deallocate_sync(ptr, bytes, rmm::RMM_DEFAULT_HOST_ALIGNMENT);
     }
 
     rmm::mr::pinned_host_memory_resource mr{};
