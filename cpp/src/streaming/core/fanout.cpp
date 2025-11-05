@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <stop_token>
 
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/fanout.hpp>
@@ -33,119 +34,130 @@ Node send_to_channels(
     coro_results(co_await coro::when_all(std::move(tasks)));
 }
 
-struct UnboundedFanoutState {
-    UnboundedFanoutState(std::vector<std::shared_ptr<Channel>>&& chs_out_)
-        : chs_out{std::move(chs_out_)},
-          ch_next_idx{chs_out.size(), 0},
-          ch_data_avail{chs_out.size(), {}},
-          send_tasks{chs_out.size()} {}
-
-    coro::task<void> receive_done() {
-        auto lock = co_await mtx.scoped_lock();
-        n_msgs = chs_out.size();
-    }
-
-    [[nodiscard]] constexpr bool all_received() const {
-        return n_msgs != std::numeric_limits<size_t>::max();
-    }
-
-    [[nodiscard]] constexpr bool all_sent(size_t i) const {
-        return all_received() && ch_next_idx[i] == n_msgs;
-    }
-
-    // [[nodiscard]] constexpr size_t last_completed_idx() const {
-    //     return std::ranges::min(ch_next_idx);
-    // }
-
-    // thread-safe data for each send task
-    std::vector<std::shared_ptr<Channel>> chs_out;
-    std::vector<size_t> ch_next_idx;  // values are strictly increasing
-    std::vector<coro::event> ch_data_avail;
-
-    std::vector<Node> send_tasks;
-
-    std::vector<Message> recv_messages;
-
-    coro::mutex mtx;
-    coro::condition_variable cv;
-    size_t n_msgs{std::numeric_limits<size_t>::max()};
-};
-
-Node send_task(Context* ctx, UnboundedFanoutState& state, size_t i) {
-    co_await ctx->executor()->schedule();
-
-    // co_await state.data_avail;  // wait for data to be available
-
-    while (true) {
-        // wait for the data to be available
-        co_await state.ch_data_avail[i];
-
-        if (state.all_sent(i)) {
-            // all messages have been sent, nothing else to do
-            break;
-        }
-
-        auto const& msg = state.recv_messages[state.ch_next_idx[i]];
-        // copy msg
-        // msg.content_size
-
-        {
-            auto lock = state.mtx.scoped_lock();
-            state.ch_next_idx[i]++;
-        }
-        co_await state.cv.notify_one();
-
-
-        //
-        if (state.ch_next_idx[i] == state.recv_messages.size() && !state.all_received()) {
-            state.ch_data_avail[i].reset();
-        }
-    }
-}
-
-Node unbounded_fanout(
-    std::shared_ptr<Context> ctx,
-    std::shared_ptr<Channel> ch_in,
-    std::vector<std::shared_ptr<Channel>> chs_out
+Node unbounded_fo_send_task(
+    Context& ctx,
+    std::shared_ptr<Channel> const& ch_out,
+    size_t* next_idx,
+    coro::mutex& mtx,
+    coro::condition_variable& data_ready,
+    coro::condition_variable& request_data,
+    bool const& input_done,
+    std::vector<Message> const& recv_messages
 ) {
-    ShutdownAtExit c{ch_in};
-    ShutdownAtExit c2{chs_out};
-    co_await ctx->executor()->schedule();
+    ShutdownAtExit c{ch_out};
+    co_await ctx.executor()->schedule();
 
-    UnboundedFanoutState state(std::move(chs_out));
-
-    size_t purge_idx = 0;
+    size_t end_idx;
     while (true) {
         {
-            auto lock = co_await state.mtx.scoped_lock();
-            co_await state.cv.wait(lock, [&] {
-                return state.recv_messages.size() <= std::ranges::max(state.ch_next_idx);
+            auto lock = co_await mtx.scoped_lock();
+            co_await data_ready.wait(lock, [&] {
+                // irrespective of input_done, update the end_idx to the total number of
+                // messages
+                end_idx = recv_messages.size();
+                return input_done || *next_idx < end_idx;
             });
-        }
 
-        // n_msgs is only set by this task. So, reading w/o a lock is safe.
-        if (state.n_msgs == std::numeric_limits<size_t>::max()) {
-            auto msg = co_await ch_in->receive();
-            auto lock = co_await state.mtx.scoped_lock();
-            if (msg.empty()) {
-                // no more messages to receive
-                state.n_msgs = state.recv_messages.size();
-            } else {
-                state.recv_messages.push_back(std::move(msg));
-                lock.unlock();
-
-                for (auto& event : state.ch_data_avail) {
-                    event.set();
-                }
+            if (input_done && *next_idx == end_idx) {
+                break;
             }
         }
 
-        size_t last_completed_idx = std::ranges::min(state.ch_next_idx);
-        while (purge_idx <= last_completed_idx) {
-            state.ch_data_avail[purge_idx].reset();
+        // now we can copy & send messages in indices [next_idx, end_idx)
+        for (size_t i = *next_idx; i < end_idx; i++) {
+            auto const& msg = recv_messages[i];
+            auto res = ctx.br()->reserve_or_fail(msg.copy_cost());
+            co_await ch_out->send(msg.copy(ctx.br(), res));
+        }
+
+        // now next_idx can be updated to end_idx, and if !input_done, we need to request
+        // parent task for more data
+        auto lock = co_await mtx.scoped_lock();
+        *next_idx = end_idx;
+        if (input_done) {
+            break;
+        } else {
+            lock.unlock();
+            co_await request_data.notify_one();
+        }
+    }
+
+    // channels will be drained by the caller
+}
+
+Node unbounded_fanout(
+    Context& ctx,
+    std::shared_ptr<Channel> const& ch_in,
+    std::vector<std::shared_ptr<Channel>> const& chs_out
+) {
+    ShutdownAtExit c{ch_in};
+    ShutdownAtExit c2{chs_out};
+    co_await ctx.executor()->schedule();
+
+
+    coro::mutex mtx;
+    coro::condition_variable data_ready;
+    coro::condition_variable request_data;
+    bool input_done{false};
+    std::vector<Message> recv_messages;
+
+    std::vector<size_t> ch_next_idx{chs_out.size(), 0};
+    std::vector<Node> tasks;
+    tasks.reserve(chs_out.size());
+    for (size_t i = 0; i < chs_out.size(); i++) {
+        tasks.emplace_back(unbounded_fo_send_task(
+            ctx,
+            chs_out[i],
+            &ch_next_idx[i],
+            mtx,
+            data_ready,
+            request_data,
+            input_done,
+            recv_messages
+        ));
+    }
+
+    size_t purge_idx = 0;
+    // input_done is only set by this task, so reading without lock is safe here
+    while (!input_done) {
+        {
+            auto lock = co_await mtx.scoped_lock();
+            co_await request_data.wait(lock, [&] {
+                return std::ranges::any_of(ch_next_idx, [&](size_t next_idx) {
+                    return recv_messages.size() >= next_idx;
+                });
+            });
+        }
+
+        // receive a message from the input channel 
+        auto msg = co_await ch_in->receive();
+
+        {  // relock mtx to update input_done/ recv_messages
+            auto lock = co_await mtx.scoped_lock();
+            if (msg.empty()) {
+                input_done = true;
+            } else {
+                recv_messages.emplace_back(std::move(msg));
+            }
+        }
+        // notify send_tasks to copy & send messages
+        co_await data_ready.notify_all();
+
+        // purge completed send_tasks
+        // intentionally not locking the mtx here, because we only need to know a
+        // lower-bound on the last completed idx (ch_next_idx values are monotonically
+        // increasing)
+        size_t last_completed_idx = std::ranges::min(ch_next_idx) - 1;
+        while (purge_idx < last_completed_idx) {
+            recv_messages[purge_idx].reset();
             purge_idx++;
         }
     }
+
+    // Note: there will be some messages to be purged after the loop exits, but we don't
+    // need to do anything about them here
+
+    coro_results(co_await coro::when_all(std::move(tasks)));
 }
 
 
@@ -173,19 +185,7 @@ Node fanout(
         break;
     case FanoutPolicy::UNBOUNDED:
         {
-            // First we receive until the input channel is shutdown.
-            std::vector<Message> messages;
-            while (true) {
-                auto msg = co_await ch_in->receive();
-                if (msg.empty()) {
-                    break;
-                }
-                messages.push_back(std::move(msg));
-            }
-            // Then we send each input message to all output channels.
-            for (auto& msg : messages) {
-                co_await send_to_channels(ctx.get(), msg, chs_out);
-            }
+            co_await unbounded_fanout(*ctx, ch_in, chs_out);
             break;
         }
     default:
@@ -195,9 +195,10 @@ Node fanout(
     // Finally, we drain all output channels.
     std::vector<Node> tasks;
     tasks.reserve(chs_out.size());
-    for (auto& ch_out : chs_out) {
-        tasks.push_back(ch_out->drain(ctx->executor()));
-    }
+    std::ranges::transform(chs_out, std::back_inserter(tasks), [&](auto& ch_out) {
+        return ch_out->drain(ctx->executor());
+    });
+    
     coro_results(co_await coro::when_all(std::move(tasks)));
 }
 
