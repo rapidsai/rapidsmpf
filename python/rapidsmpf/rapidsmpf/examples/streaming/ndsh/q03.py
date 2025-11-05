@@ -120,18 +120,19 @@ async def filter_customer(
         chunk = TableChunk.from_message(msg)
         stream = chunk.stream
         table = chunk.table_view()
+        
         target = plc.Scalar.from_py("BUILDING", stream=stream)
         chunk = TableChunk.from_pylibcudf_table(
             plc.stream_compaction.apply_boolean_mask(
-                plc.Table(table.columns()[:]),
+                plc.Table(table.columns()[1:]),
                 plc.strings.find.contains(table.columns()[0], target, stream), # c_mktsegment is col 0
                 stream,
             ),
             stream,
             exclusive_view=True,
         )
-        # print("Customer")
-        # print(chunk.table_view().to_arrow())
+        print("Customer")
+        print(chunk.table_view().to_arrow())
         await ch_out.send(ctx, Message(msg.sequence_number, chunk))
     await ch_out.drain(ctx)
 
@@ -185,7 +186,8 @@ async def filter_lineitem(
             
         chunk = TableChunk.from_pylibcudf_table(
             plc.stream_compaction.apply_boolean_mask(
-                plc.Table(table.columns()[:]),
+                # plc.Table(table.columns()[:]),
+                plc.Table([table.columns()[i] for i in [0, 2, 3]]),
                 plc.binaryop.binary_operation(
                     table.columns()[1], # l_shipdate is col 1
                     target,
@@ -222,7 +224,6 @@ async def with_columns(
 
         """
         customer_x_orders_x_lineitem cols
-        "c_mktsegment",  # 0 ... [["BUILDING","BUILDING","BUILDING...
         "c_custkey",  # 1
         "o_orderkey",  # 0->2
         "o_orderdate", # 1->3
@@ -234,7 +235,7 @@ async def with_columns(
         "l_discount", # 3->9
         """
 
-        c_mktsegment, c_custkey, o_orderkey, o_orderdate, o_shippriority, l_shipdate, l_extendedprice, l_discount = columns
+        c_custkey, o_orderkey, o_orderdate, o_shippriority, l_extendedprice, l_discount = columns
         revenue_type = l_discount.type()  # float64
         revenue = plc.transform.transform(
             [l_discount, l_extendedprice],
@@ -618,7 +619,7 @@ def q(
             filtered_customer,
             filtered_orders,
             customer_x_orders,
-            [1], # c_custkey
+            [0], # c_custkey
             [3], # o_custkey
             keep_keys=True
         )
@@ -630,7 +631,7 @@ def q(
             customer_x_orders, # columns 0, 1 from customer, columns 2, 3, 4, 5 from orders
             filtered_lineitem,
             customer_x_orders_x_lineitem,
-            [2], # o_orderkey in customer_x_orders 
+            [1], # o_orderkey in customer_x_orders 
             [0], # l_orderkey
             keep_keys=True
         )
