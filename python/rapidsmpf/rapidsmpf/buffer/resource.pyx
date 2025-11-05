@@ -6,6 +6,7 @@ from libc.stdint cimport int64_t
 from libcpp.memory cimport make_shared, shared_ptr
 from libcpp.utility cimport move
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
+from rmm.pylibrmm.cuda_stream import CudaStreamFlags
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
@@ -205,7 +206,10 @@ cdef class BufferResource:
         # Handle stream pool parameter
         # If None, create a default pool with 16 streams
         if stream_pool is None:
-            stream_pool = CudaStreamPool(pool_size=16)
+            stream_pool = CudaStreamPool(
+                pool_size=16,
+                flags=CudaStreamFlags.NON_BLOCKING,
+            )
 
         if not isinstance(stream_pool, CudaStreamPool):
             raise TypeError(
