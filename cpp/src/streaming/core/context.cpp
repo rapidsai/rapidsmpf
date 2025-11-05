@@ -63,31 +63,31 @@ Context::Context(
           statistics
       ) {}
 
-config::Options Context::get_options() {
+config::Options Context::get_options() const noexcept {
     return options_;
 }
 
-std::shared_ptr<Communicator> Context::comm() {
+std::shared_ptr<Communicator> Context::comm() const noexcept {
     return comm_;
 }
 
-std::shared_ptr<ProgressThread> Context::progress_thread() {
+std::shared_ptr<ProgressThread> Context::progress_thread() const noexcept {
     return progress_thread_;
 }
 
-std::unique_ptr<coro::thread_pool>& Context::executor() {
+std::unique_ptr<coro::thread_pool>& Context::executor() noexcept {
     return executor_;
 }
 
-BufferResource* Context::br() {
+BufferResource* Context::br() const noexcept {
     return br_;
 }
 
-std::shared_ptr<Statistics> Context::statistics() {
+std::shared_ptr<Statistics> Context::statistics() const noexcept {
     return statistics_;
 }
 
-std::shared_ptr<Channel> Context::create_channel() {
+std::shared_ptr<Channel> Context::create_channel() const noexcept {
     return std::unique_ptr<Channel>(new Channel());
 }
 }  // namespace rapidsmpf::streaming
