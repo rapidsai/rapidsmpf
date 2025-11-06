@@ -67,8 +67,10 @@ class Lineariser {
     )
         : ctx_{std::move(ctx)}, ch_out_{std::move(ch_out)} {
         inputs_.reserve(num_producers);
+        tickets_.reserve(num_producers);
         for (std::size_t i = 0; i < num_producers; i++) {
             inputs_.push_back(ctx_->create_channel());
+            tickets_.push_back(std::make_unique<Semaphore>(1));
         }
     }
 
@@ -82,6 +84,10 @@ class Lineariser {
      */
     std::vector<std::shared_ptr<Channel>>& get_inputs() {
         return inputs_;
+    }
+
+    std::vector<std::unique_ptr<Semaphore>>& get_tickets() {
+        return tickets_;
     }
 
     /**
@@ -106,6 +112,7 @@ class Lineariser {
         }
         while (!min_heap_.empty()) {
             auto item = min_heap_.pop_top();
+            co_await tickets_[item.producer]->release();
             co_await ch_out_->send(std::move(item.value));
             // And refill from the producer we just consumed from.
             auto msg = co_await inputs_[item.producer]->receive();
@@ -156,6 +163,7 @@ class Lineariser {
     std::shared_ptr<Context> ctx_;
     std::shared_ptr<Channel> ch_out_;  ///< Output channel.
     std::vector<std::shared_ptr<Channel>> inputs_;  ///< Input channels.
+    std::vector<std::unique_ptr<Semaphore>> tickets_;
     min_heap min_heap_{};  ///< Heap of to be sent messages.
 };
 

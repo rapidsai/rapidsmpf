@@ -68,13 +68,13 @@ struct ChunkDesc {
 Node produce_chunks(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_out,
+    Semaphore& ticket,
     cudf::io::parquet_reader_options options,
     std::vector<ChunkDesc>& chunks,
     std::atomic<std::size_t>& idx
 ) {
     ShutdownAtExit c{ch_out};
     while (true) {
-        co_await ctx->executor()->schedule();
         auto i = idx.fetch_add(1, std::memory_order::relaxed);
         if (i >= chunks.size()) {
             break;
@@ -86,6 +86,8 @@ Node produce_chunks(
         auto stream = ctx->br()->stream_pool().get_stream();
         // TODO: This reads the metadata ntasks times.
         // See https://github.com/rapidsai/cudf/issues/20311
+        co_await ticket.acquire();
+        co_await ctx->executor()->schedule();
         co_await ch_out->send(
             read_parquet_chunk(ctx, stream, chunk_options, chunk.sequence_number)
         );
@@ -170,13 +172,15 @@ Node read_parquet(
         std::vector<Node> read_tasks;
         std::atomic<std::size_t> chunk_index{0};
         read_tasks.reserve(1 + num_producers);
-        auto lineariser = std::make_shared<Lineariser>(ctx, ch_out, num_producers);
-        for (auto& ch_in : lineariser->get_inputs()) {
-            read_tasks.push_back(
-                produce_chunks(ctx, ch_in, local_options, chunks, chunk_index)
-            );
+        auto lineariser = Lineariser(ctx, ch_out, num_producers);
+        auto inputs = lineariser.get_inputs();
+        auto& tickets = lineariser.get_tickets();
+        for (std::size_t i = 0; i < num_producers; i++) {
+            read_tasks.push_back(produce_chunks(
+                ctx, inputs[i], *tickets[i], local_options, chunks, chunk_index
+            ));
         }
-        read_tasks.push_back(lineariser->drain());
+        read_tasks.push_back(lineariser.drain());
         coro_results(co_await coro::when_all(std::move(read_tasks)));
     }
     co_await ch_out->drain(ctx->executor());
