@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 import pylibcudf as plc
 
-from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.lineariser import Lineariser
 from rapidsmpf.streaming.core.message import Message
@@ -20,6 +19,7 @@ if TYPE_CHECKING:
 
     from rmm.pylibrmm.stream import Stream
 
+    from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
     from rapidsmpf.streaming.core.node import CppNode, PyNode
 
@@ -40,11 +40,11 @@ def test_lineariser(
 
     @define_py_node()
     async def drain(ctx: Context, lineariser: Lineariser) -> None:
-        await lineariser.drain(ctx)
+        await lineariser.drain()
 
-    ch_out = Channel[TableChunk]()
+    ch_out: Channel[TableChunk] = context.create_channel()
     num_producers = 4
-    lineariser = Lineariser(ch_out, 4)
+    lineariser = Lineariser(context, ch_out, 4)
     out, deferred = pull_from_channel(context, ch_in=ch_out)
     nodes: list[CppNode | PyNode] = [drain(context, lineariser), out]
     nodes.extend(
