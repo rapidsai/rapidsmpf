@@ -476,7 +476,10 @@ struct PackedItem {
 struct BuffersToSend {
     // For each op, we will send these items
     std::vector<PackedItem> items;
+    // Uncompressed bytes that represent the actual payload we transmit (device data only)
     std::size_t total_uncompressed_bytes{0};
+    // Convenience: device payload bytes (same as total_uncompressed_bytes here)
+    std::size_t total_payload_bytes{0};
 };
 
 BuffersToSend make_packed_items(
@@ -489,8 +492,8 @@ BuffersToSend make_packed_items(
     if (mode == PackMode::Table) {
         auto item = PackedItem{};
         item.packed = pack_table_to_packed(table.view(), stream, br);
-        ret.total_uncompressed_bytes +=
-            item.packed->data->size + item.packed->metadata->size();
+        ret.total_uncompressed_bytes += item.packed->data->size;
+        ret.total_payload_bytes += item.packed->data->size;
         ret.items.emplace_back(std::move(item));
     } else {
         auto tv = table.view();
@@ -498,8 +501,8 @@ BuffersToSend make_packed_items(
             cudf::table_view col_tv{std::vector<cudf::column_view>{tv.column(i)}};
             auto item = PackedItem{};
             item.packed = pack_table_to_packed(col_tv, stream, br);
-            ret.total_uncompressed_bytes +=
-                item.packed->data->size + item.packed->metadata->size();
+            ret.total_uncompressed_bytes += item.packed->data->size;
+            ret.total_payload_bytes += item.packed->data->size;
             ret.items.emplace_back(std::move(item));
         }
     }
@@ -642,14 +645,23 @@ RunResult run_once(
             }
         }
     }
-    while (!send_futs.empty()) {
-        std::ignore = comm->test_some(send_futs);
+    // Drive send/recv completion concurrently and timestamp each independently
+    std::optional<Clock::time_point> send_done_tp;
+    std::optional<Clock::time_point> recv_done_tp;
+    while (!send_futs.empty() || !recv_futs.empty()) {
+        if (!send_futs.empty()) {
+            std::ignore = comm->test_some(send_futs);
+            if (!send_done_tp && send_futs.empty())
+                send_done_tp = Clock::now();
+        }
+        if (!recv_futs.empty()) {
+            std::ignore = comm->test_some(recv_futs);
+            if (!recv_done_tp && recv_futs.empty())
+                recv_done_tp = Clock::now();
+        }
     }
-    auto a1 = Clock::now();
-    while (!recv_futs.empty()) {
-        std::ignore = comm->test_some(recv_futs);
-    }
-    auto a2 = Clock::now();
+    auto a1 = send_done_tp.value_or(Clock::now());
+    auto a2 = recv_done_tp.value_or(Clock::now());
 
     // Phase B: compressed path (send size header, then compressed payload)
     auto b0 = Clock::now();
@@ -766,14 +778,14 @@ RunResult run_once(
     RunResult result{};
     result.times.compress_s = std::chrono::duration<double>(t1 - t0).count();
     result.times.send_only_s = std::chrono::duration<double>(a1 - a0).count();
-    result.times.recv_only_s = std::chrono::duration<double>(a2 - a1).count();
+    result.times.recv_only_s = std::chrono::duration<double>(a2 - a0).count();
     result.times.comp_send_s = std::chrono::duration<double>(b1 - b0).count();
     result.times.recv_decomp_s = std::chrono::duration<double>(b2 - b1).count()
                                  + std::chrono::duration<double>(c1 - c0).count();
     result.times.decompress_s = std::chrono::duration<double>(c1 - c0).count();
 
-    result.counts.logical_uncompressed_bytes =
-        data.total_uncompressed_bytes * args.num_ops;
+    // Use payload (device) bytes as the logical uncompressed size for throughput
+    result.counts.logical_uncompressed_bytes = data.total_payload_bytes * args.num_ops;
     result.counts.logical_compressed_bytes =
         std::accumulate(
             comp_output_sizes.begin(), comp_output_sizes.end(), std::size_t{0}
