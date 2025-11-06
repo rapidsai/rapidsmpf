@@ -61,6 +61,36 @@ install(
   EXCLUDE_FROM_ALL
 )
 
+# ----------------------------------------------------------------------------
+# nvCOMP compression + Communicator benchmark
+find_package(nvcomp CONFIG REQUIRED)
+add_executable(bench_comp_comm "bench_comp_comm.cpp")
+set_target_properties(
+  bench_comp_comm
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks>"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             # For std:: support of __int128_t. Can be removed once using cuda::std
+             CXX_EXTENSIONS ON
+             CUDA_STANDARD 20
+             CUDA_STANDARD_REQUIRED ON
+             LINK_FLAGS "-Wl,--allow-shlib-undefined"
+)
+target_compile_options(
+  bench_comp_comm PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+                          "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+)
+target_link_libraries(
+  bench_comp_comm PRIVATE rapidsmpf::rapidsmpf ucxx::ucxx $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+                          nvcomp::nvcomp $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan bench_utils
+)
+install(
+  TARGETS bench_comp_comm
+  COMPONENT benchmarking
+  DESTINATION bin/benchmarks/librapidsmpf
+  EXCLUDE_FROM_ALL
+)
+
 # Find or install GoogleBench
 include(${rapids-cmake-dir}/cpm/gbench.cmake)
 rapids_cpm_gbench(BUILD_STATIC)
