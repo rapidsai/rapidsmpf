@@ -635,6 +635,9 @@ RunResult run_once(
                     br->reserve_or_fail(nocomp_payloads[i]->size, MemoryType::DEVICE);
                 auto send_buf = br->allocate(nocomp_payloads[i]->size, stream, res);
                 buffer_copy(*send_buf, *nocomp_payloads[i], nocomp_payloads[i]->size);
+                if (!send_buf->is_latest_write_done()) {
+                    send_buf->stream().synchronize();
+                }
                 send_futs.push_back(comm->send(std::move(send_buf), dst, tag_nocomp));
             }
         }
@@ -677,6 +680,9 @@ RunResult run_once(
                     SizeHeader h{static_cast<std::uint64_t>(comp_output_sizes[i])};
                     std::memcpy(p, &h, sizeof(SizeHeader));
                 });
+                if (!hdr->is_latest_write_done()) {
+                    hdr->stream().synchronize();
+                }
                 send_hdr_futs.push_back(comm->send(std::move(hdr), dst, tag_size));
             }
         }
@@ -693,21 +699,29 @@ RunResult run_once(
         for (std::size_t i = 0; i < data.items.size(); ++i) {
             if (src != rank) {
                 // reuse comp_output_sizes[i] as expected size since peers are symmetric
-                auto res = br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
-                auto buf = br->allocate(comp_output_sizes[i], stream, res);
-                recv_cmp_futs.push_back(comm->recv(src, tag_payload, std::move(buf)));
+                if (comp_output_sizes[i] > 0) {
+                    auto res =
+                        br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
+                    auto buf = br->allocate(comp_output_sizes[i], stream, res);
+                    recv_cmp_futs.push_back(comm->recv(src, tag_payload, std::move(buf)));
+                }
             }
         }
         for (std::size_t i = 0; i < data.items.size(); ++i) {
             if (dst != rank) {
                 // send compressed
-                auto tmp_buf =
-                    br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
-                auto send_buf = br->allocate(comp_output_sizes[i], stream, tmp_buf);
-                buffer_copy(*send_buf, *comp_outputs[i], comp_output_sizes[i]);
-                send_cmp_futs.push_back(
-                    comm->send(std::move(send_buf), dst, tag_payload)
-                );
+                if (comp_output_sizes[i] > 0) {
+                    auto tmp_buf =
+                        br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
+                    auto send_buf = br->allocate(comp_output_sizes[i], stream, tmp_buf);
+                    buffer_copy(*send_buf, *comp_outputs[i], comp_output_sizes[i]);
+                    if (!send_buf->is_latest_write_done()) {
+                        send_buf->stream().synchronize();
+                    }
+                    send_cmp_futs.push_back(
+                        comm->send(std::move(send_buf), dst, tag_payload)
+                    );
+                }
             }
         }
     }
