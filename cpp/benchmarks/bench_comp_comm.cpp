@@ -175,7 +175,9 @@ struct PhaseThroughputs {
 class NvcompCodec {
   public:
     virtual ~NvcompCodec() = default;
-    virtual std::size_t get_max_compressed_bytes(std::size_t uncompressed_bytes) = 0;
+    virtual std::size_t get_max_compressed_bytes(
+        std::size_t uncompressed_bytes, rmm::cuda_stream_view stream
+    ) = 0;
     virtual void compress(
         void const* d_in,
         std::size_t in_bytes,
@@ -196,10 +198,12 @@ class LZ4Codec final : public NvcompCodec {
   public:
     explicit LZ4Codec(std::size_t chunk_size) : chunk_size_{chunk_size} {}
 
-    std::size_t get_max_compressed_bytes(std::size_t in_bytes) override {
+    std::size_t get_max_compressed_bytes(
+        std::size_t in_bytes, rmm::cuda_stream_view stream
+    ) override {
         nvcompBatchedLZ4CompressOpts_t copts = nvcompBatchedLZ4CompressDefaultOpts;
         nvcompBatchedLZ4DecompressOpts_t dopts = nvcompBatchedLZ4DecompressDefaultOpts;
-        nvcomp::LZ4Manager mgr{chunk_size_, copts, dopts, 0};
+        nvcomp::LZ4Manager mgr{chunk_size_, copts, dopts, stream.value()};
         auto cfg = mgr.configure_compression(in_bytes);
         return cfg.max_compressed_buffer_size;
     }
@@ -215,12 +219,19 @@ class LZ4Codec final : public NvcompCodec {
         nvcompBatchedLZ4DecompressOpts_t dopts = nvcompBatchedLZ4DecompressDefaultOpts;
         nvcomp::LZ4Manager mgr{chunk_size_, copts, dopts, stream.value()};
         auto cfg = mgr.configure_compression(in_bytes);
+        size_t* pinned_bytes = nullptr;
+        RAPIDSMPF_CUDA_TRY(cudaHostAlloc(
+            reinterpret_cast<void**>(&pinned_bytes), sizeof(size_t), cudaHostAllocDefault
+        ));
         mgr.compress(
             static_cast<uint8_t const*>(d_in),
             static_cast<uint8_t*>(d_out),
             cfg,
-            out_bytes
+            pinned_bytes
         );
+        RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.value()));
+        *out_bytes = *pinned_bytes;
+        RAPIDSMPF_CUDA_TRY(cudaFreeHost(pinned_bytes));
     }
 
     void decompress(
@@ -256,8 +267,10 @@ class CascadedCodec final : public NvcompCodec {
         dopts_ = nvcompBatchedCascadedDecompressDefaultOpts;
     }
 
-    std::size_t get_max_compressed_bytes(std::size_t in_bytes) override {
-        nvcomp::CascadedManager mgr{chunk_size_, copts_, dopts_, 0};
+    std::size_t get_max_compressed_bytes(
+        std::size_t in_bytes, rmm::cuda_stream_view stream
+    ) override {
+        nvcomp::CascadedManager mgr{chunk_size_, copts_, dopts_, stream.value()};
         auto cfg = mgr.configure_compression(in_bytes);
         return cfg.max_compressed_buffer_size;
     }
@@ -271,12 +284,19 @@ class CascadedCodec final : public NvcompCodec {
     ) override {
         nvcomp::CascadedManager mgr{chunk_size_, copts_, dopts_, stream.value()};
         auto cfg = mgr.configure_compression(in_bytes);
+        size_t* pinned_bytes = nullptr;
+        RAPIDSMPF_CUDA_TRY(cudaHostAlloc(
+            reinterpret_cast<void**>(&pinned_bytes), sizeof(size_t), cudaHostAllocDefault
+        ));
         mgr.compress(
             static_cast<uint8_t const*>(d_in),
             static_cast<uint8_t*>(d_out),
             cfg,
-            out_bytes
+            pinned_bytes
         );
+        RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.value()));
+        *out_bytes = *pinned_bytes;
+        RAPIDSMPF_CUDA_TRY(cudaFreeHost(pinned_bytes));
     }
 
     void decompress(
@@ -549,7 +569,8 @@ RunResult run_once(
     comp_outputs.reserve(data.items.size());
     for (std::size_t i = 0; i < data.items.size(); ++i) {
         auto const in_bytes = data.items[i].packed->data->size;
-        auto const max_out = codec.get_max_compressed_bytes(in_bytes);
+        std::size_t const max_out =
+            (in_bytes == 0) ? 1 : codec.get_max_compressed_bytes(in_bytes, stream);
         auto reservation = br->reserve_or_fail(max_out, MemoryType::DEVICE);
         comp_outputs.emplace_back(br->allocate(max_out, stream, reservation));
     }
@@ -558,24 +579,35 @@ RunResult run_once(
     auto t0 = Clock::now();
     // Compress all items (single batch) on stream
     for (std::size_t i = 0; i < data.items.size(); ++i) {
-        std::size_t out_bytes = 0;
-        // Use exclusive access to fetch pointers and call codec on the provided stream
-        auto* in_buf = data.items[i].packed->data.get();
-        auto* out_buf = comp_outputs[i].get();
-        in_buf->stream().synchronize();
-        out_buf->stream().synchronize();
-        auto* in_raw = data.items[i].packed->data->exclusive_data_access();
-        auto* out_raw = comp_outputs[i]->exclusive_data_access();
-        codec.compress(
-            static_cast<void const*>(in_raw),
-            data.items[i].packed->data->size,
-            static_cast<void*>(out_raw),
-            &out_bytes,
-            stream
+        auto const in_bytes = data.items[i].packed->data->size;
+        if (in_bytes == 0) {
+            comp_output_sizes[i] = 0;
+            continue;
+        }
+        // Ensure any prior writes to input are completed
+        data.items[i].packed->data->stream().synchronize();
+        // Launch compression on the output buffer's stream and record an event after
+        comp_outputs[i]->write_access(
+            [&codec, &data, i, in_bytes, &comp_output_sizes, stream](
+                std::byte* out_ptr, rmm::cuda_stream_view out_stream
+            ) {
+                (void)out_ptr;  // pointer used below
+                // Lock input for raw pointer access
+                auto* in_raw = data.items[i].packed->data->exclusive_data_access();
+                std::size_t out_bytes = 0;
+                codec.compress(
+                    static_cast<void const*>(in_raw),
+                    in_bytes,
+                    static_cast<void*>(out_ptr),
+                    &out_bytes,
+                    out_stream
+                );
+                // Ensure comp_bytes is populated before returning
+                RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(out_stream.value()));
+                data.items[i].packed->data->unlock();
+                comp_output_sizes[i] = out_bytes;
+            }
         );
-        comp_outputs[i]->unlock();
-        data.items[i].packed->data->unlock();
-        comp_output_sizes[i] = out_bytes;
     }
     RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
     auto t1 = Clock::now();
@@ -693,22 +725,26 @@ RunResult run_once(
     auto c0 = Clock::now();
     for (std::size_t i = 0; i < data.items.size(); ++i) {
         auto const out_bytes = data.items[i].packed->data->size;
+        if (out_bytes == 0) {
+            continue;
+        }
         auto res = br->reserve_or_fail(out_bytes, MemoryType::DEVICE);
         auto out = br->allocate(out_bytes, stream, res);
-        // Synchronize prior to exclusive access
+        // Ensure compressed outputs are ready before using as input
         comp_outputs[i]->stream().synchronize();
-        out->stream().synchronize();
-        auto* in_raw = comp_outputs[i]->exclusive_data_access();
-        auto* out_raw = out->exclusive_data_access();
-        codec.decompress(
-            static_cast<void const*>(in_raw),
-            comp_output_sizes[i],
-            static_cast<void*>(out_raw),
-            out_bytes,
-            stream
-        );
-        out->unlock();
-        comp_outputs[i]->unlock();
+        out->write_access([&codec, &comp_outputs, &comp_output_sizes, i, out_bytes](
+                              std::byte* out_ptr, rmm::cuda_stream_view out_stream
+                          ) {
+            auto* in_raw = comp_outputs[i]->exclusive_data_access();
+            codec.decompress(
+                static_cast<void const*>(in_raw),
+                comp_output_sizes[i],
+                static_cast<void*>(out_ptr),
+                out_bytes,
+                out_stream
+            );
+            comp_outputs[i]->unlock();
+        });
     }
     RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
     auto c1 = Clock::now();
