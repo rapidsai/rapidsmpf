@@ -197,7 +197,9 @@ class LZ4Codec final : public NvcompCodec {
     explicit LZ4Codec(std::size_t chunk_size) : chunk_size_{chunk_size} {}
 
     std::size_t get_max_compressed_bytes(std::size_t in_bytes) override {
-        nvcomp::LZ4Manager mgr{static_cast<int>(chunk_size_), 0};
+        nvcompBatchedLZ4CompressOpts_t copts = nvcompBatchedLZ4CompressDefaultOpts;
+        nvcompBatchedLZ4DecompressOpts_t dopts = nvcompBatchedLZ4DecompressDefaultOpts;
+        nvcomp::LZ4Manager mgr{chunk_size_, copts, dopts, 0};
         auto cfg = mgr.configure_compression(in_bytes);
         return cfg.max_compressed_buffer_size;
     }
@@ -209,12 +211,16 @@ class LZ4Codec final : public NvcompCodec {
         std::size_t* out_bytes,
         rmm::cuda_stream_view stream
     ) override {
-        nvcomp::LZ4Manager mgr{static_cast<int>(chunk_size_), 0, stream.value()};
+        nvcompBatchedLZ4CompressOpts_t copts = nvcompBatchedLZ4CompressDefaultOpts;
+        nvcompBatchedLZ4DecompressOpts_t dopts = nvcompBatchedLZ4DecompressDefaultOpts;
+        nvcomp::LZ4Manager mgr{chunk_size_, copts, dopts, stream.value()};
         auto cfg = mgr.configure_compression(in_bytes);
-        mgr.compress(d_out, d_in, cfg);
-        // Compressed size is stored at the beginning of output; ask manager
-        auto info = mgr.get_compress_result(d_out);
-        *out_bytes = info.compressed_bytes;
+        mgr.compress(
+            static_cast<uint8_t const*>(d_in),
+            static_cast<uint8_t*>(d_out),
+            cfg,
+            out_bytes
+        );
     }
 
     void decompress(
@@ -224,10 +230,15 @@ class LZ4Codec final : public NvcompCodec {
         std::size_t out_bytes,
         rmm::cuda_stream_view stream
     ) override {
-        nvcomp::LZ4Manager mgr{static_cast<int>(chunk_size_), 0, stream.value()};
-        auto cfg = mgr.configure_decompression(d_in, in_bytes);
-        (void)out_bytes;  // decomp size implied by cfg
-        mgr.decompress(d_out, d_in, cfg);
+        (void)out_bytes;
+        nvcompBatchedLZ4CompressOpts_t copts = nvcompBatchedLZ4CompressDefaultOpts;
+        nvcompBatchedLZ4DecompressOpts_t dopts = nvcompBatchedLZ4DecompressDefaultOpts;
+        nvcomp::LZ4Manager mgr{chunk_size_, copts, dopts, stream.value()};
+        const uint8_t* in_ptrs[1] = {static_cast<uint8_t const*>(d_in)};
+        size_t in_sizes[1] = {in_bytes};
+        auto cfgs = mgr.configure_decompression(in_ptrs, 1, in_sizes);
+        uint8_t* out_ptrs[1] = {static_cast<uint8_t*>(d_out)};
+        mgr.decompress(out_ptrs, in_ptrs, cfgs, nullptr);
     }
 
   private:
@@ -237,10 +248,16 @@ class LZ4Codec final : public NvcompCodec {
 class CascadedCodec final : public NvcompCodec {
   public:
     CascadedCodec(std::size_t chunk_size, int rle, int delta, int bitpack)
-        : opts_{rle != 0, delta != 0, bitpack != 0, static_cast<int>(chunk_size)} {}
+        : chunk_size_{chunk_size} {
+        copts_ = nvcompBatchedCascadedCompressDefaultOpts;
+        copts_.num_RLEs = rle ? 1 : 0;
+        copts_.num_deltas = delta ? 1 : 0;
+        copts_.use_bp = bitpack ? 1 : 0;
+        dopts_ = nvcompBatchedCascadedDecompressDefaultOpts;
+    }
 
     std::size_t get_max_compressed_bytes(std::size_t in_bytes) override {
-        nvcomp::CascadedManager mgr{opts_};
+        nvcomp::CascadedManager mgr{chunk_size_, copts_, dopts_, 0};
         auto cfg = mgr.configure_compression(in_bytes);
         return cfg.max_compressed_buffer_size;
     }
@@ -252,11 +269,14 @@ class CascadedCodec final : public NvcompCodec {
         std::size_t* out_bytes,
         rmm::cuda_stream_view stream
     ) override {
-        nvcomp::CascadedManager mgr{opts_, stream.value()};
+        nvcomp::CascadedManager mgr{chunk_size_, copts_, dopts_, stream.value()};
         auto cfg = mgr.configure_compression(in_bytes);
-        mgr.compress(d_out, d_in, cfg);
-        auto info = mgr.get_compress_result(d_out);
-        *out_bytes = info.compressed_bytes;
+        mgr.compress(
+            static_cast<uint8_t const*>(d_in),
+            static_cast<uint8_t*>(d_out),
+            cfg,
+            out_bytes
+        );
     }
 
     void decompress(
@@ -266,14 +286,19 @@ class CascadedCodec final : public NvcompCodec {
         std::size_t out_bytes,
         rmm::cuda_stream_view stream
     ) override {
-        nvcomp::CascadedManager mgr{opts_, stream.value()};
-        auto cfg = mgr.configure_decompression(d_in, in_bytes);
         (void)out_bytes;
-        mgr.decompress(d_out, d_in, cfg);
+        nvcomp::CascadedManager mgr{chunk_size_, copts_, dopts_, stream.value()};
+        const uint8_t* in_ptrs[1] = {static_cast<uint8_t const*>(d_in)};
+        size_t in_sizes[1] = {in_bytes};
+        auto cfgs = mgr.configure_decompression(in_ptrs, 1, in_sizes);
+        uint8_t* out_ptrs[1] = {static_cast<uint8_t*>(d_out)};
+        mgr.decompress(out_ptrs, in_ptrs, cfgs, nullptr);
     }
 
   private:
-    nvcomp::CascadedOptions opts_{};
+    std::size_t chunk_size_{};
+    nvcompBatchedCascadedCompressOpts_t copts_{};
+    nvcompBatchedCascadedDecompressOpts_t dopts_{};
 };
 
 std::unique_ptr<NvcompCodec> make_codec(Algo algo, KvParams const& p) {
@@ -293,12 +318,9 @@ static std::unique_ptr<PackedData> pack_table_to_packed(
     cudf::table_view tv, rmm::cuda_stream_view stream, BufferResource* br
 ) {
     auto packed = cudf::pack(tv, stream, br->device_mr());
-    auto metadata =
-        std::make_unique<std::vector<std::uint8_t>>(std::move(packed.metadata));
-    auto buf = br->move(
-        std::make_unique<rmm::device_buffer>(std::move(packed.gpu_data)), stream
+    return std::make_unique<PackedData>(
+        std::move(packed.metadata), br->move(std::move(packed.gpu_data), stream)
     );
-    return std::make_unique<PackedData>(std::move(metadata), std::move(buf));
 }
 
 struct ArgumentParser {
@@ -498,6 +520,7 @@ RunResult run_once(
     BuffersToSend const& data,
     NvcompCodec& codec
 ) {
+    (void)statistics;
     auto const nranks = comm->nranks();
     auto const rank = comm->rank();
     auto const dst = static_cast<Rank>((rank + 1) % nranks);
@@ -535,10 +558,23 @@ RunResult run_once(
     auto t0 = Clock::now();
     // Compress all items (single batch) on stream
     for (std::size_t i = 0; i < data.items.size(); ++i) {
-        void const* d_in = data.items[i].packed->data->device()->get()->data();
-        void* d_out = comp_outputs[i]->device()->get()->data();
         std::size_t out_bytes = 0;
-        codec.compress(d_in, data.items[i].packed->data->size, d_out, &out_bytes, stream);
+        // Use exclusive access to fetch pointers and call codec on the provided stream
+        auto* in_buf = data.items[i].packed->data.get();
+        auto* out_buf = comp_outputs[i].get();
+        in_buf->stream().synchronize();
+        out_buf->stream().synchronize();
+        auto* in_raw = data.items[i].packed->data->exclusive_data_access();
+        auto* out_raw = comp_outputs[i]->exclusive_data_access();
+        codec.compress(
+            static_cast<void const*>(in_raw),
+            data.items[i].packed->data->size,
+            static_cast<void*>(out_raw),
+            &out_bytes,
+            stream
+        );
+        comp_outputs[i]->unlock();
+        data.items[i].packed->data->unlock();
         comp_output_sizes[i] = out_bytes;
     }
     RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
@@ -659,9 +695,20 @@ RunResult run_once(
         auto const out_bytes = data.items[i].packed->data->size;
         auto res = br->reserve_or_fail(out_bytes, MemoryType::DEVICE);
         auto out = br->allocate(out_bytes, stream, res);
-        void const* d_in = comp_outputs[i]->device()->get()->data();
-        void* d_out = out->device()->get()->data();
-        codec.decompress(d_in, comp_output_sizes[i], d_out, out_bytes, stream);
+        // Synchronize prior to exclusive access
+        comp_outputs[i]->stream().synchronize();
+        out->stream().synchronize();
+        auto* in_raw = comp_outputs[i]->exclusive_data_access();
+        auto* out_raw = out->exclusive_data_access();
+        codec.decompress(
+            static_cast<void const*>(in_raw),
+            comp_output_sizes[i],
+            static_cast<void*>(out_raw),
+            out_bytes,
+            stream
+        );
+        out->unlock();
+        comp_outputs[i]->unlock();
     }
     RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
     auto c1 = Clock::now();
