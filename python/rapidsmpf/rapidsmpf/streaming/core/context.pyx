@@ -128,7 +128,7 @@ cdef class Context:
         -------
         The size of the stream pool.
         """
-        return self._br.stream_pool().get_pool_size()
+        return self._br.stream_pool_size()
 
     def create_channel(self):
         """
