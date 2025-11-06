@@ -2,6 +2,7 @@
  * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -21,8 +22,6 @@ using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
 namespace node = rapidsmpf::streaming::node;
 using rapidsmpf::streaming::node::FanoutPolicy;
-
-using StreamingFanout = BaseStreamingFixture;
 
 namespace {
 
@@ -49,76 +48,162 @@ std::vector<Message> make_int_inputs(int n) {
     return inputs;
 }
 
+std::string policy_to_string(FanoutPolicy policy) {
+    switch (policy) {
+    case FanoutPolicy::BOUNDED:
+        return "bounded";
+    case FanoutPolicy::UNBOUNDED:
+        return "unbounded";
+    default:
+        return "unknown";
+    }
+}
+
 }  // namespace
 
-TEST_F(StreamingFanout, Bounded) {
-    int const num_msgs = 10;
+class StreamingFanout
+    : public BaseStreamingFixture,
+      public ::testing::WithParamInterface<std::tuple<FanoutPolicy, int, int, int>> {
+  public:
+    void SetUp() override {
+        std::tie(policy, num_threads, num_out_chs, num_msgs) = GetParam();
+        SetUpWithThreads(num_threads);
+    }
 
+    FanoutPolicy policy;
+    int num_threads;
+    int num_out_chs;
+    int num_msgs;
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    StreamingFanout,
+    StreamingFanout,
+    ::testing::Combine(
+        ::testing::Values(FanoutPolicy::BOUNDED, FanoutPolicy::UNBOUNDED),
+        ::testing::Values(1, 2, 4),  // number of threads
+        ::testing::Values(1, 2, 4),  // number of output channels
+        ::testing::Values(1, 10, 100)  // number of messages
+    ),
+    [](testing::TestParamInfo<StreamingFanout::ParamType> const& info) {
+        return "policy_" + policy_to_string(std::get<0>(info.param)) + "_nthreads_"
+               + std::to_string(std::get<1>(info.param)) + "_nch_out_"
+               + std::to_string(std::get<2>(info.param)) + "_nmsgs_"
+               + std::to_string(std::get<3>(info.param));
+    }
+);
+
+TEST_P(StreamingFanout, SinkPerChannel) {
     // Prepare inputs
     auto inputs = make_int_inputs(num_msgs);
 
     // Create pipeline
-    std::vector<Message> outs1, outs2, outs3;
+    std::vector<std::vector<Message>> outs(num_out_chs);
     {
         std::vector<Node> nodes;
 
         auto in = ctx->create_channel();
-        nodes.push_back(node::push_to_channel(ctx, in, std::move(inputs)));
+        nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
 
-        auto out1 = ctx->create_channel();
-        auto out2 = ctx->create_channel();
-        auto out3 = ctx->create_channel();
-        nodes.push_back(node::fanout(ctx, in, {out1, out2, out3}, FanoutPolicy::BOUNDED));
-        nodes.push_back(node::pull_from_channel(ctx, out1, outs1));
-        nodes.push_back(node::pull_from_channel(ctx, out2, outs2));
-        nodes.push_back(node::pull_from_channel(ctx, out3, outs3));
+        std::vector<std::shared_ptr<Channel>> out_chs;
+        for (int i = 0; i < num_out_chs; ++i) {
+            out_chs.emplace_back(ctx->create_channel());
+        }
+
+        nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+
+        for (int i = 0; i < num_out_chs; ++i) {
+            nodes.emplace_back(node::pull_from_channel(ctx, out_chs[i], outs[i]));
+        }
 
         run_streaming_pipeline(std::move(nodes));
     }
 
-    // Validate sizes
-    EXPECT_EQ(outs1.size(), static_cast<size_t>(num_msgs));
-    EXPECT_EQ(outs2.size(), static_cast<size_t>(num_msgs));
-    EXPECT_EQ(outs3.size(), static_cast<size_t>(num_msgs));
+    for (int c = 0; c < num_out_chs; ++c) {
+        // Validate sizes
+        EXPECT_EQ(outs[c].size(), static_cast<size_t>(num_msgs));
 
-    // Validate ordering/content and that shallow copies share the same underlying object
-    for (int i = 0; i < num_msgs; ++i) {
-        EXPECT_EQ(outs1[i].get<int>(), i);
-        EXPECT_EQ(outs2[i].get<int>(), i);
-        EXPECT_EQ(outs3[i].get<int>(), i);
+        // Validate ordering/content and that shallow copies share the same underlying
+        // object
+        for (int i = 0; i < num_msgs; ++i) {
+            SCOPED_TRACE("channel " + std::to_string(c) + " idx " + std::to_string(i));
+            EXPECT_EQ(outs[c][i].get<int>(), i);
+        }
     }
 }
 
-TEST_F(StreamingFanout, Unbounded) {
-    int const num_msgs = 7;
+namespace {
+
+enum class ConsumePolicy : uint8_t {
+    CHANNEL_ORDER,  // consume messages in the order of the channels
+    MESSAGE_ORDER,  // consume messages in the order of the messages
+};
+
+Node many_input_sink(
+    std::shared_ptr<Context> const& ctx,
+    std::vector<std::shared_ptr<Channel>>& chs,
+    ConsumePolicy consume_policy,
+    std::vector<std::vector<Message>>& outs
+) {
+    ShutdownAtExit c{chs};
+    co_await ctx->executor()->schedule();
+
+    if (consume_policy == ConsumePolicy::CHANNEL_ORDER) {
+        for (size_t i = 0; i < chs.size(); ++i) {
+            while (true) {
+                auto msg = co_await chs[i]->receive();
+                if (msg.empty()) {
+                    break;
+                }
+                outs[i].push_back(std::move(msg));
+            }
+        }
+    } else if (consume_policy == ConsumePolicy::MESSAGE_ORDER) {
+        // while (true) {
+        //     auto msg = co_await chs[0]->receive();
+        //     outs[0].push_back(msg);
+        // }
+    }
+}
+
+}  // namespace
+
+TEST_P(StreamingFanout, ManyInputSink_ChannelOrder) {
+    if (policy == FanoutPolicy::BOUNDED) {
+        GTEST_SKIP() << "Bounded fanout does not support this consume policy";
+    }
 
     auto inputs = make_int_inputs(num_msgs);
 
-    std::vector<Message> outs1, outs2;
+    std::vector<std::vector<Message>> outs(num_out_chs);
     {
         std::vector<Node> nodes;
 
         auto in = ctx->create_channel();
-        auto out1 = ctx->create_channel();
-        auto out2 = ctx->create_channel();
-
         nodes.push_back(node::push_to_channel(ctx, in, std::move(inputs)));
 
-        // UNBOUNDED policy: buffer all inputs, then broadcast after input closes.
-        nodes.push_back(node::fanout(ctx, in, {out1, out2}, FanoutPolicy::UNBOUNDED));
+        std::vector<std::shared_ptr<Channel>> out_chs;
+        for (int i = 0; i < num_out_chs; ++i) {
+            out_chs.emplace_back(ctx->create_channel());
+        }
 
-        nodes.push_back(node::pull_from_channel(ctx, out1, outs1));
-        nodes.push_back(node::pull_from_channel(ctx, out2, outs2));
+        nodes.push_back(node::fanout(ctx, in, out_chs, policy));
+
+        nodes.push_back(many_input_sink(ctx, out_chs, ConsumePolicy::CHANNEL_ORDER, outs)
+        );
 
         run_streaming_pipeline(std::move(nodes));
     }
 
-    ASSERT_EQ(outs1.size(), static_cast<size_t>(num_msgs));
-    ASSERT_EQ(outs2.size(), static_cast<size_t>(num_msgs));
+    for (int c = 0; c < num_out_chs; ++c) {
+        // Validate sizes
+        EXPECT_EQ(outs[c].size(), static_cast<size_t>(num_msgs));
 
-    // Order and identity must be preserved
-    for (int i = 0; i < num_msgs; ++i) {
-        EXPECT_EQ(outs1[i].get<int>(), i);
-        EXPECT_EQ(outs2[i].get<int>(), i);
+        // Validate ordering/content and that shallow copies share the same underlying
+        // object
+        for (int i = 0; i < num_msgs; ++i) {
+            SCOPED_TRACE("channel " + std::to_string(c) + " idx " + std::to_string(i));
+            EXPECT_EQ(outs[c][i].get<int>(), i);
+        }
     }
 }
