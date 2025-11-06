@@ -38,7 +38,9 @@ target_include_directories(
 target_compile_options(
   topology_discovery PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
 )
-target_link_libraries(topology_discovery PRIVATE $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan)
+target_link_libraries(
+  topology_discovery PRIVATE $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan ${CMAKE_DL_LIBS}
+)
 install(
   TARGETS topology_discovery
   COMPONENT tools
