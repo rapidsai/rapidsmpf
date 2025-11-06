@@ -6,6 +6,8 @@ from libc.stdint cimport int64_t
 from libcpp.memory cimport make_shared, shared_ptr
 from libcpp.utility cimport move
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
+from rmm.pylibrmm.cuda_stream import CudaStreamFlags
+from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 
@@ -103,6 +105,16 @@ cdef extern from *:
     ) {
         return resource->memory_available(mem_type)();
     }
+
+    // Helper function to create a non-owning shared_ptr from a raw pointer
+    // The Python object retains ownership via its unique_ptr
+    std::shared_ptr<rmm::cuda_stream_pool> make_non_owning_stream_pool_ref(
+        rmm::cuda_stream_pool* ptr
+    ) {
+        return std::shared_ptr<rmm::cuda_stream_pool>(
+            ptr, [](rmm::cuda_stream_pool*){}
+        );
+    }
     """
     cpp_MemoryAvailable to_MemoryAvailable(
         shared_ptr[cpp_LimitAvailableMemory]
@@ -111,6 +123,9 @@ cdef extern from *:
         cpp_BufferResource* resource,
         MemoryType mem_type
     ) except + nogil
+    shared_ptr[cuda_stream_pool] make_non_owning_stream_pool_ref(
+        cuda_stream_pool* ptr
+    ) except +
 
 
 # Bindings to MemoryReservation creating methods, which we need to
@@ -161,12 +176,17 @@ cdef class BufferResource:
         perform spilling based on the memory availability functions. The value of
         ``periodic_spill_check`` is used as the pause between checks (in seconds).
         If None, no periodic spill check is performed.
+    stream_pool
+        Optional CUDA stream pool to use. If None, a new pool with 16 streams
+        will be created. Must be an instance of
+        ``rmm.pylibrmm.cuda_stream_pool.CudaStreamPool``.
     """
     def __cinit__(
         self,
         DeviceMemoryResource device_mr not None,
         memory_available = None,
-        periodic_spill_check = 1e-3
+        periodic_spill_check = 1e-3,
+        stream_pool = None,
     ):
         cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
         if memory_available is not None:
@@ -183,6 +203,30 @@ cdef class BufferResource:
         if periodic_spill_check is not None:
             period = cpp_Duration(periodic_spill_check)
 
+        # Handle stream pool parameter
+        # If None, create a default pool with 16 streams
+        if stream_pool is None:
+            stream_pool = CudaStreamPool(
+                pool_size=16,
+                flags=CudaStreamFlags.NON_BLOCKING,
+            )
+
+        if not isinstance(stream_pool, CudaStreamPool):
+            raise TypeError(
+                f"stream_pool must be an instance of CudaStreamPool, "
+                f"got {type(stream_pool)}"
+            )
+
+        # Keep the Python stream pool alive
+        self._stream_pool = stream_pool
+        # Get raw pointer from the unique_ptr and create a non-owning shared_ptr
+        # The Python object keeps ownership via unique_ptr, so we use a no-op deleter
+        cdef shared_ptr[cuda_stream_pool] cpp_stream_pool = (
+            make_non_owning_stream_pool_ref(
+                (<CudaStreamPool>stream_pool).c_obj.get()
+            )
+        )
+
         # Keep MR alive because the C++ BufferResource stores a raw pointer.
         # TODO: once RMM is migrating to CCCL (copyable) any_resource,
         # rather than the any_resource_ref reference type, we don't
@@ -193,6 +237,7 @@ cdef class BufferResource:
                 device_mr.get_mr(),
                 move(_mem_available),
                 period,
+                cpp_stream_pool,
             )
         self.spill_manager = SpillManager._create(self)
 
@@ -311,6 +356,17 @@ cdef class BufferResource:
         with nogil:
             ret = deref(self._handle).release(deref(reservation._handle), size)
         return ret
+
+    def stream_pool_size(self) -> int:
+        """
+        Get the size of the stream pool.
+
+        Returns
+        -------
+        int
+            The size of the stream pool.
+        """
+        return self.stream_pool().get_pool_size()
 
 
 cdef class LimitAvailableMemory:
