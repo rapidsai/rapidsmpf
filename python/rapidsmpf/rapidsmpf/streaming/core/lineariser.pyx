@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
 from cython.operator cimport dereference as deref
 from libcpp.memory cimport make_shared, shared_ptr
 
@@ -16,11 +17,10 @@ cdef extern from * nogil:
     namespace {
     coro::task<void> _lineariser_drain_task(
         std::shared_ptr<rapidsmpf::streaming::Lineariser> lineariser,
-        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         void (*py_invoker)(void*),
         void *py_function
     ) {
-        co_await lineariser->drain(ctx);
+        co_await lineariser->drain();
         py_invoker(py_function);
     }
     }  // namespace
@@ -34,7 +34,7 @@ cdef extern from * nogil:
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn(
                 _lineariser_drain_task(
-                    std::move(lineariser), ctx, py_invoker, py_function
+                    std::move(lineariser), py_invoker, py_function
                 )
             ),
             "could not spawn task on thread pool"
@@ -55,13 +55,20 @@ cdef class Lineariser:
 
     Parameters
     ----------
+    ctx
+        Streaming execution context.
     output
         Channel to linearise into.
     num_producers
         Number of producers.
     """
-    def __cinit__(self, Channel output not None, size_t num_producers):
-        self._handle = make_shared[cpp_Lineariser](output._handle, num_producers)
+    def __cinit__(
+        self, Context ctx not None, Channel output not None, size_t num_producers
+    ):
+        self._ctx = ctx
+        self._handle = make_shared[cpp_Lineariser](
+            ctx._handle, output._handle, num_producers
+        )
 
     def __dealloc__(self):
         with nogil:
@@ -77,8 +84,7 @@ cdef class Lineariser:
 
         Returns
         -------
-        list[Channel]
-            List of input channels, one per producer.
+        List of input channels, one per producer.
         """
         cdef vector[shared_ptr[cpp_Channel]]* c_inputs = (
             &deref(self._handle).get_inputs()
@@ -87,26 +93,19 @@ cdef class Lineariser:
             Channel.from_handle(c_inputs[0][i]) for i in range(c_inputs.size())
         ]
 
-    async def drain(self, Context ctx not None):
+    async def drain(self):
         """
         Drain pending messages and then shut down the lineariser.
-
-        Parameters
-        ----------
-        ctx
-            The current streaming context.
         """
         loop = asyncio.get_running_loop()
         ret = loop.create_future()
-
-        def set_result():
-            loop.call_soon_threadsafe(ret.set_result, None)
+        callback = partial(loop.call_soon_threadsafe, partial(ret.set_result, None))
 
         with nogil:
             cpp_lineariser_drain(
-                ctx._handle,
+                self._ctx._handle,
                 self._handle,
                 cython_invoke_python_function,
-                <void *>set_result
+                <void *>callback
             )
         await ret

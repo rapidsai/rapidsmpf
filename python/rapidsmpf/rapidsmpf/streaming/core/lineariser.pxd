@@ -6,6 +6,7 @@ from libcpp.memory cimport shared_ptr
 from libcpp.vector cimport vector
 
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
+from rapidsmpf.streaming.core.context cimport Context
 
 
 cdef extern from "<rapidsmpf/streaming/core/lineariser.hpp>" nogil:
@@ -14,4 +15,5 @@ cdef extern from "<rapidsmpf/streaming/core/lineariser.hpp>" nogil:
         vector[shared_ptr[cpp_Channel]]& get_inputs() except +
 
 cdef class Lineariser:
+    cdef Context _ctx
     cdef shared_ptr[cpp_Lineariser] _handle
