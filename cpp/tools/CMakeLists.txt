@@ -32,7 +32,9 @@ set_target_properties(
              CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
 )
-target_include_directories(rrun PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>")
+target_include_directories(
+  topology_discovery PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
+)
 target_compile_options(
   topology_discovery PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
 )
