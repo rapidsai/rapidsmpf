@@ -41,6 +41,47 @@ def partition_and_pack(
     object columns_to_hash not None,
     int num_partitions,
 ):
+    """
+    Asynchronously partition and pack table chunks.
+
+    This is the streaming equivalent of
+    :func:`rapidsmpf.integrations.cudf.partition.partition_and_split()`,
+    operating on incoming table chunks via channels.
+
+    Each incoming table from `ch_in` is partitioned into `num_partitions` outputs
+    based on a hash of the specified columns. Each partition is then serialized
+    (packed) and sent to the output channel `ch_out`.
+
+    Parameters
+    ----------
+    ctx
+        The streaming node context used to create and manage the asynchronous task.
+    ch_in
+        Input channel that provides ``TableChunk`` objects to partition.
+    ch_out
+        Output channel to which packed partitions (``PartitionMapChunk`` objects)
+        are sent.
+    columns_to_hash
+        Indices of input columns to hash when computing partition assignments.
+    num_partitions
+        Number of output partitions to create.
+
+    Returns
+    -------
+    A streaming node representing the asynchronous partitioning and packing operation.
+
+    Raises
+    ------
+    ValueError
+        If any index in ``columns_to_hash`` is invalid.
+
+    See Also
+    --------
+    rapidsmpf.partition_and_split
+        Non-streaming variant operating on static tables.
+    unpack_and_concat
+        The inverse operation that unpacks and concatenates packed partitions.
+    """
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
     cdef cpp_Node _ret
     with nogil:
@@ -63,6 +104,39 @@ def unpack_and_concat(
     Channel ch_in not None,
     Channel ch_out not None,
 ):
+    """
+    Asynchronously unpack and concatenate packed partitions.
+
+    This is the streaming equivalent of
+    :func:`rapidsmpf.integrations.cudf.partition.unpack_and_concat()`,
+    operating on packed partition chunks via channels.
+
+    The function receives packed partitions from `ch_in`, deserializes them,
+    concatenates the partitions belonging to the same logical table, and sends the
+    resulting tables to `ch_out`. Empty partitions are automatically ignored.
+
+    Parameters
+    ----------
+    ctx
+        The streaming node context used to manage asynchronous execution.
+    ch_in
+        Input channel providing packed partitions (``PartitionMapChunk`` or
+        ``PartitionVectorChunk``).
+    ch_out
+        Output channel receiving the unpacked and concatenated ``TableChunk`` objects.
+
+    Returns
+    -------
+    A streaming node representing the asynchronous unpacking and concatenation
+    operation.
+
+    See Also
+    --------
+    rapidsmpf.integrations.cudf.partition.unpack_and_concat
+        Non-streaming version.
+    rapidsmpf.streaming.cudf.partition.partition_and_pack
+        The inverse operation that partitions and packs tables into partitions.
+    """
     cdef cpp_Node _ret
     with nogil:
         _ret = cpp_unpack_and_concat(
