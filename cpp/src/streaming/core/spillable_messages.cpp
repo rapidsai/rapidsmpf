@@ -23,7 +23,6 @@ Message SpillableMessages::extract(MessageId mid) {
 
     // If the item is being spilled, we block here until the spilling is done.
     std::unique_lock item_lock(item->mutex);
-    RAPIDSMPF_EXPECTS(item->message.has_value(), "message not found", std::out_of_range);
     return std::exchange(item->message, std::nullopt).value();
 }
 
