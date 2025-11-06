@@ -77,9 +77,9 @@ def partition_and_pack(
 
     See Also
     --------
-    rapidsmpf.partition_and_split
+    rapidsmpf.integrations.cudf.partition.partition_and_pack
         Non-streaming variant operating on static tables.
-    unpack_and_concat
+    rapidsmpf.streaming.cudf.partition.unpack_and_concat
         The inverse operation that unpacks and concatenates packed partitions.
     """
     cdef vector[size_type] _columns_to_hash = tuple(columns_to_hash)
