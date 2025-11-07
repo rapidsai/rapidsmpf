@@ -34,8 +34,8 @@ streaming::Node concatenate(
     CudaEvent event;
     std::vector<streaming::Message> messages;
     auto concat_stream = ctx->br()->stream_pool().get_stream();
+    co_await ctx->executor()->schedule();
     while (true) {
-        co_await ctx->executor()->schedule();
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
             break;

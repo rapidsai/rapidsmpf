@@ -31,6 +31,7 @@
 #include <cudf/transform.hpp>
 #include <cudf/types.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
+#include <rmm/mr/device/pool_memory_resource.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -194,12 +195,12 @@ rapidsmpf::streaming::Node filter_part(
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     auto mr = ctx->br()->device_mr();
+    co_await ctx->executor()->schedule();
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
             break;
         }
-        co_await ctx->executor()->schedule();
         auto chunk = rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
@@ -236,12 +237,12 @@ rapidsmpf::streaming::Node filter_part(
     // Select n_name, year_part_of(o_orderdate), amount = (extendedprice * (1
     // - discount)) - (ps_supplycost * l_quantity) group by n_name year agg
     // sum(amount).round(2) sort by n_name, o_year descending = true, false
+    co_await ctx->executor()->schedule();
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
             break;
         }
-        co_await ctx->executor()->schedule();
         auto chunk = rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
@@ -306,12 +307,12 @@ static __device__ void calculate_amount(double *amount, double discount, double 
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     std::vector<cudf::table> partial_results;
     std::uint64_t sequence = 0;
+    co_await ctx->executor()->schedule();
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
             break;
         }
-        co_await ctx->executor()->schedule();
         ctx->comm()->logger().print("Chunkwise groupby");
         auto chunk = rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
@@ -664,8 +665,8 @@ int main(int argc, char** argv) {
     auto cmd_options = parse_options(argc, argv);
     auto limit_size = rmm::percent_of_free_device_memory(80);
     rmm::mr::cuda_async_memory_resource mr{};
-    // rmm::mr::cuda_memory_resource base{};
-    // rmm::mr::pool_memory_resource mr{&base, pool_size};
+    rmm::mr::cuda_memory_resource base{};
+    // rmm::mr::pool_memory_resource mr{&base, limit_size};
     auto stats_mr = rapidsmpf::RmmResourceAdaptor(&mr);
     rmm::device_async_resource_ref mr_ref(stats_mr);
     rmm::mr::set_current_device_resource(&stats_mr);
@@ -709,7 +710,7 @@ int main(int argc, char** argv) {
                 nodes.push_back(read_part(
                     ctx,
                     part,
-                    /* num_tickets */ 4,
+                    /* num_tickets */ 2,
                     cmd_options.num_rows_per_chunk,
                     cmd_options.input_directory
                 ));  // p_partkey, p_name
@@ -736,7 +737,7 @@ int main(int argc, char** argv) {
                 nodes.push_back(read_supplier(
                     ctx,
                     supplier,
-                    /* num_tickets */ 4,
+                    /* num_tickets */ 2,
                     cmd_options.num_rows_per_chunk,
                     cmd_options.input_directory
                 ));  // s_nationkey, s_suppkey
@@ -782,7 +783,7 @@ int main(int argc, char** argv) {
                     read_nation(
                         ctx,
                         nation,
-                        /* num_tickets */ 4,
+                        /* num_tickets */ 1,
                         cmd_options.num_rows_per_chunk,
                         cmd_options.input_directory
                     )  // n_name, n_nationkey
@@ -803,7 +804,7 @@ int main(int argc, char** argv) {
                     auto supplier_x_part_x_partsupp_x_lineitem_shuffled =
                         ctx->create_channel();
                     auto orders_shuffled = ctx->create_channel();
-                    std::uint32_t num_partitions = 16;
+                    std::uint32_t num_partitions = 8;
                     nodes.push_back(
                         rapidsmpf::ndsh::shuffle(
                             ctx,

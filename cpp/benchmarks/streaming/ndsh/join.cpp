@@ -255,8 +255,8 @@ streaming::Node inner_join_broadcast(
         build_carrier = build_table.table_view().select(to_keep);
     }
     std::size_t sequence = 0;
+    co_await ctx->executor()->schedule();
     while (true) {
-        co_await ctx->executor()->schedule();
         auto right_msg = co_await right->receive();
         if (right_msg.empty()) {
             break;
@@ -290,8 +290,8 @@ streaming::Node inner_join_shuffle(
     KeepKeys keep_keys
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
+    co_await ctx->executor()->schedule();
     while (true) {
-        co_await ctx->executor()->schedule();
         // Requirement: two shuffles kick out partitions in the same order
         auto left_msg = co_await left->receive();
         auto right_msg = co_await right->receive();
