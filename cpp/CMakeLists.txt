@@ -188,6 +188,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/core/fanout.cpp
             src/streaming/core/leaf_node.cpp
             src/streaming/core/node.cpp
+            src/streaming/core/spillable_messages.cpp
             src/streaming/cudf/partition.cpp
             src/streaming/cudf/parquet.cpp
             src/streaming/cudf/table_chunk.cpp

@@ -382,6 +382,7 @@ AllGather::~AllGather() {
     if (active_.load(std::memory_order_acquire)) {
         active_.store(false, std::memory_order_release);
         progress_thread_->remove_function(function_id_);
+        br_->spill_manager().remove_spill_function(spill_function_id_);
     }
 }
 
@@ -401,7 +402,7 @@ AllGather::AllGather(
       finish_counter_{comm_->nranks()},
       op_id_{op_id} {
     function_id_ = progress_thread_->add_function([this]() { return event_loop(); });
-    spill_id_ = br_->spill_manager().add_spill_function(
+    spill_function_id_ = br_->spill_manager().add_spill_function(
         [this](std::size_t amount) -> std::size_t { return spill(amount); },
         /* priority = */ 0
     );
