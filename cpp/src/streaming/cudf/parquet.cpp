@@ -70,16 +70,10 @@ Node produce_chunks(
     std::shared_ptr<Channel> ch_out,
     Semaphore& ticket,
     cudf::io::parquet_reader_options options,
-    std::vector<ChunkDesc>& chunks,
-    std::atomic<std::size_t>& idx
+    std::vector<ChunkDesc>& chunks
 ) {
     ShutdownAtExit c{ch_out};
-    while (true) {
-        auto i = idx.fetch_add(1, std::memory_order::relaxed);
-        if (i >= chunks.size()) {
-            break;
-        }
-        auto chunk = chunks[i];
+    for (auto& chunk : chunks) {
         cudf::io::parquet_reader_options chunk_options{options};
         chunk_options.set_skip_rows(chunk.skip_rows);
         chunk_options.set_num_rows(chunk.num_rows);
@@ -161,7 +155,7 @@ Node read_parquet(
         )));
     } else {
         std::uint64_t sequence_number = 0;
-        std::vector<ChunkDesc> chunks;
+        std::vector<std::vector<ChunkDesc>> chunks_per_producer(num_producers);
         while (skip_rows < local_num_rows && num_rows_to_read > 0) {
             auto chunk_num_rows = std::min(
                 {static_cast<std::int64_t>(num_rows_per_chunk),
@@ -169,18 +163,23 @@ Node read_parquet(
                  num_rows_to_read}
             );
             num_rows_to_read -= chunk_num_rows;
-            chunks.emplace_back(sequence_number++, skip_rows, chunk_num_rows);
+            chunks_per_producer[sequence_number % num_producers].emplace_back(
+                sequence_number, skip_rows, chunk_num_rows
+            );
             skip_rows += chunk_num_rows;
+            sequence_number++;
         }
         std::vector<Node> read_tasks;
-        std::atomic<std::size_t> chunk_index{0};
         read_tasks.reserve(1 + num_producers);
         auto lineariser = Lineariser(ctx, ch_out, num_producers);
-        auto inputs = lineariser.get_inputs();
-        auto& tickets = lineariser.get_tickets();
+        auto& inputs = lineariser.get_inputs();
         for (std::size_t i = 0; i < num_producers; i++) {
             read_tasks.push_back(produce_chunks(
-                ctx, inputs[i], *tickets[i], local_options, chunks, chunk_index
+                ctx,
+                inputs[i].second,
+                *inputs[i].first,
+                local_options,
+                chunks_per_producer[i]
             ));
         }
         read_tasks.push_back(lineariser.drain());

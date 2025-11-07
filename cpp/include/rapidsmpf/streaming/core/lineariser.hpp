@@ -5,10 +5,8 @@
 
 #pragma once
 
-#include <algorithm>
 #include <cstddef>
 #include <memory>
-#include <queue>
 #include <utility>
 
 #include <rapidsmpf/streaming/core/channel.hpp>
@@ -21,10 +19,8 @@ namespace rapidsmpf::streaming {
  * @brief Linearise insertion into an output channel from a fixed number of producers by
  * sequence number.
  *
- * Channels are guaranteed to deliver data in increasing sequence number order. When we
- * have multiple producers we must ensure that they queue up their productions into the
- * output channel in sequence number order. The `Lineariser` provides this interface by
- * providing a per-producer "output" channel and buffering appropriately.
+ * Producers are polled in round-robin fashion, and hence, given `P` producers and `N`
+ * ordered tasks, producer `i` _must_ deliver the strided range of tasks `tasks[i::P]`.
  *
  * @warning Individual producers promise to send messages into their channel in strictly
  * increasing sequence number order. This bounds the buffering required in the
@@ -67,10 +63,8 @@ class Lineariser {
     )
         : ctx_{std::move(ctx)}, ch_out_{std::move(ch_out)} {
         inputs_.reserve(num_producers);
-        tickets_.reserve(num_producers);
         for (std::size_t i = 0; i < num_producers; i++) {
-            inputs_.push_back(ctx_->create_channel());
-            tickets_.push_back(std::make_unique<Semaphore>(1));
+            inputs_.emplace_back(std::make_unique<Semaphore>(1), ctx_->create_channel());
         }
     }
 
@@ -82,12 +76,9 @@ class Lineariser {
      * @note Behaviour is undefined if more than one producer coroutine sends into the
      * same channel.
      */
-    std::vector<std::shared_ptr<Channel>>& get_inputs() {
+    std::vector<std::pair<std::unique_ptr<Semaphore>, std::shared_ptr<Channel>>>&
+    get_inputs() {
         return inputs_;
-    }
-
-    std::vector<std::unique_ptr<Semaphore>>& get_tickets() {
-        return tickets_;
     }
 
     /**
@@ -101,70 +92,32 @@ class Lineariser {
     Node drain() {
         ShutdownAtExit c{ch_out_};
         co_await ctx_->executor()->schedule();
-        // Invariant: the heap always contains exactly zero-or-one messages from each
-        // producer. We always extract the minimum element, and then repoll the producer
-        // that made that element. First poll all producers.
-        for (std::size_t p = 0; p < inputs_.size(); p++) {
-            auto msg = co_await inputs_[p]->receive();
-            if (!msg.empty()) {
-                min_heap_.emplace(p, std::move(msg));
+        while (!inputs_.empty()) {
+            for (auto& input : inputs_) {
+                auto& [sem, ch_in] = input;
+                auto msg = co_await ch_in->receive();
+                if (msg.empty()) {
+                    input = {nullptr, nullptr};
+                    continue;
+                }
+                co_await ch_out_->send(std::move(msg));
+                co_await sem->release();
             }
-        }
-        while (!min_heap_.empty()) {
-            auto item = min_heap_.pop_top();
-            co_await tickets_[item.producer]->release();
-            co_await ch_out_->send(std::move(item.value));
-            // And refill from the producer we just consumed from.
-            auto msg = co_await inputs_[item.producer]->receive();
-            if (!msg.empty()) {
-                min_heap_.emplace(item.producer, std::move(msg));
-            }
+            std::erase(
+                inputs_,
+                std::pair<std::unique_ptr<Semaphore>, std::shared_ptr<Channel>>{
+                    nullptr, nullptr
+                }
+            );
         }
         co_await ch_out_->drain(ctx_->executor());
     }
 
   private:
-    /**
-     * @brief Tracking struct for message plus the id of the producer.
-     */
-    struct Item {
-        std::size_t producer;  ///< Which producer this message was from.
-        Message value;  ///< The message.
-    };
-
-    /**
-     * Comparator of items for min heap such that items with the lowest sequence number
-     * come first.
-     */
-    struct Comparator {
-        bool operator()(Item& l, Item& r) {
-            // std::priority_queue is a max_heap, hence greater
-            return l.value.sequence_number() > r.value.sequence_number();
-        }
-    };
-
-    /**
-     * @brief A min-heap container that supports popping elements by move.
-     */
-    struct min_heap : std::priority_queue<Item, std::vector<Item>, Comparator> {
-      public:
-        Item pop_top() {
-            std::ranges::pop_heap(c, comp);
-            auto value = std::move(c.back());
-            c.pop_back();
-            return value;
-        }
-
-      protected:
-        using std::priority_queue<Item, std::vector<Item>, Comparator>::c;
-        using std::priority_queue<Item, std::vector<Item>, Comparator>::comp;
-    };
-
     std::shared_ptr<Context> ctx_;
     std::shared_ptr<Channel> ch_out_;  ///< Output channel.
-    std::vector<std::shared_ptr<Channel>> inputs_;  ///< Input channels.
-    std::vector<std::unique_ptr<Semaphore>> tickets_;
-    min_heap min_heap_{};  ///< Heap of to be sent messages.
+    std::vector<std::pair<std::unique_ptr<Semaphore>, std::shared_ptr<Channel>>>
+        inputs_;  ///< Input channels.
 };
 
 }  // namespace rapidsmpf::streaming
