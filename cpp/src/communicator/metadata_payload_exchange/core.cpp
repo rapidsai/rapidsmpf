@@ -17,7 +17,11 @@ Buffer const* MetadataPayloadExchange::Message::data() const {
     return data_.get();
 }
 
-std::unique_ptr<Buffer> MetadataPayloadExchange::Message::release_data() {
+std::vector<std::uint8_t> MetadataPayloadExchange::Message::release_metadata() noexcept {
+    return std::move(metadata_);
+}
+
+std::unique_ptr<Buffer> MetadataPayloadExchange::Message::release_data() noexcept {
     return std::move(data_);
 }
 

@@ -73,7 +73,7 @@ class MetadataPayloadExchange {
          *
          * @return The rank of the destination or source.
          */
-        [[nodiscard]] constexpr Rank peer_rank() const {
+        [[nodiscard]] constexpr Rank peer_rank() const noexcept {
             return peer_rank_;
         }
 
@@ -84,7 +84,8 @@ class MetadataPayloadExchange {
          *
          * @return The serialized metadata.
          */
-        [[nodiscard]] constexpr std::vector<std::uint8_t> const& metadata() const {
+        [[nodiscard]] constexpr std::vector<std::uint8_t> const&
+        metadata() const noexcept {
             return metadata_;
         }
 
@@ -95,9 +96,7 @@ class MetadataPayloadExchange {
          *
          * @return Metadata with ownership transferred.
          */
-        [[nodiscard]] std::vector<std::uint8_t> release_metadata() {
-            return std::move(metadata_);
-        }
+        [[nodiscard]] std::vector<std::uint8_t> release_metadata() noexcept;
 
         /**
          * @brief Get the data buffer for this message.
@@ -113,7 +112,7 @@ class MetadataPayloadExchange {
          *
          * @return Data buffer with ownership transferred, or nullptr if no data.
          */
-        [[nodiscard]] std::unique_ptr<Buffer> release_data();
+        [[nodiscard]] std::unique_ptr<Buffer> release_data() noexcept;
 
         /**
          * @brief Set the data buffer for this message.
