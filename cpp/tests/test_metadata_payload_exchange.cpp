@@ -116,6 +116,62 @@ TEST_F(MetadataPayloadExchangeTest, InitialState) {
     EXPECT_TRUE(comm_interface->is_idle());
 }
 
+TEST_F(MetadataPayloadExchangeTest, BroadcastData) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+
+    std::vector<std::uint8_t> test_metadata = {0xDE, 0xAD, 0xBE, 0xEF};
+    constexpr std::size_t data_size = 2048;
+
+    if (comm->rank() == 0) {
+        // Rank 0 sends to all other ranks
+        std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+        for (int r = 1; r < comm->nranks(); ++r) {
+            messages.push_back(create_test_message(Rank{r}, test_metadata, data_size));
+        }
+
+        EXPECT_TRUE(comm_interface->is_idle());
+        comm_interface->send(std::move(messages));
+        EXPECT_FALSE(comm_interface->is_idle());
+
+        // Rank 0 should not receive any messages
+        for (int i = 0; i < 5; ++i) {
+            comm_interface->progress();
+            auto recvd = comm_interface->recv();
+            EXPECT_TRUE(recvd.empty());
+            if (comm_interface->is_idle())
+                break;
+            std::this_thread::yield();
+        }
+
+        wait_for_communication_complete();
+        EXPECT_TRUE(comm_interface->is_idle());
+    } else {
+        // Other ranks only receive one message from rank 0
+        std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
+        while (received_messages.empty()) {
+            comm_interface->progress();
+            auto messages = comm_interface->recv();
+            std::ranges::move(messages, std::back_inserter(received_messages));
+
+            if (received_messages.empty()) {
+                std::this_thread::yield();
+            }
+        }
+
+        EXPECT_EQ(received_messages.size(), 1);
+        auto& msg = received_messages[0];
+        EXPECT_EQ(msg->peer_rank(), Rank{0});
+        EXPECT_EQ(msg->metadata(), test_metadata);
+        ASSERT_NE(msg->data(), nullptr);
+        verify_data_content(msg->data(), data_size);
+
+        wait_for_communication_complete();
+        EXPECT_TRUE(comm_interface->is_idle());
+    }
+}
+
 TEST_F(MetadataPayloadExchangeTest, SetDataOnAlreadySetData) {
     // Test that set_data throws when data is already set
     std::vector<std::uint8_t> test_metadata = {0x01};
