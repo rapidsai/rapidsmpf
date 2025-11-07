@@ -25,8 +25,6 @@ using namespace rapidsmpf::streaming;
 namespace node = rapidsmpf::streaming::node;
 using rapidsmpf::streaming::node::FanoutPolicy;
 
-namespace {
-
 /**
  * @brief Helper to make a sequence of Message<int> with values [0, n).
  */
@@ -59,8 +57,6 @@ std::string policy_to_string(FanoutPolicy policy) {
         return "unknown";
     }
 }
-
-}  // namespace
 
 class StreamingFanout
     : public BaseStreamingFixture,
@@ -104,13 +100,11 @@ TEST_P(StreamingFanout, SinkPerChannel) {
         std::vector<Node> nodes;
 
         auto in = ctx->create_channel();
-        std::cout << "Created input channel " << in.get() << std::endl;
         nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
 
         std::vector<std::shared_ptr<Channel>> out_chs;
         for (int i = 0; i < num_out_chs; ++i) {
             out_chs.emplace_back(ctx->create_channel());
-            std::cout << "Created output channel " << out_chs.back().get() << std::endl;
         }
 
         nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
@@ -134,8 +128,6 @@ TEST_P(StreamingFanout, SinkPerChannel) {
         }
     }
 }
-
-namespace {
 
 enum class ConsumePolicy : uint8_t {
     CHANNEL_ORDER,  // consume all messages from a single channel before moving to the
@@ -181,81 +173,70 @@ Node many_input_sink(
     }
 }
 
-}  // namespace
+struct ManyInputSinkStreamingFanout : public StreamingFanout {
+    void run(ConsumePolicy consume_policy) {
+        auto inputs = make_int_inputs(num_msgs);
 
-TEST_P(StreamingFanout, ManyInputSink_ChannelOrder) {
+        std::vector<std::vector<Message>> outs(num_out_chs);
+        {
+            std::vector<Node> nodes;
+
+            auto in = ctx->create_channel();
+            nodes.push_back(node::push_to_channel(ctx, in, std::move(inputs)));
+
+            std::vector<std::shared_ptr<Channel>> out_chs;
+            for (int i = 0; i < num_out_chs; ++i) {
+                out_chs.emplace_back(ctx->create_channel());
+            }
+
+            nodes.push_back(node::fanout(ctx, in, out_chs, policy));
+
+            nodes.push_back(many_input_sink(ctx, out_chs, consume_policy, outs));
+
+            run_streaming_pipeline(std::move(nodes));
+        }
+
+        std::vector<int> expected(num_msgs);
+        std::iota(expected.begin(), expected.end(), 0);
+        for (int c = 0; c < num_out_chs; ++c) {
+            SCOPED_TRACE("channel " + std::to_string(c));
+            std::vector<int> actual;
+            actual.reserve(outs[c].size());
+            std::ranges::transform(
+                outs[c], std::back_inserter(actual), [](const Message& m) {
+                    return m.get<int>();
+                }
+            );
+            EXPECT_EQ(expected, actual);
+        }
+    }
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    ManyInputSinkStreamingFanout,
+    ManyInputSinkStreamingFanout,
+    ::testing::Combine(
+        ::testing::Values(FanoutPolicy::BOUNDED, FanoutPolicy::UNBOUNDED),
+        ::testing::Values(1, 2, 4),  // number of threads
+        ::testing::Values(1, 2, 4),  // number of output channels
+        ::testing::Values(1, 10, 100)  // number of messages
+    ),
+    [](testing::TestParamInfo<StreamingFanout::ParamType> const& info) {
+        return "policy_" + policy_to_string(std::get<0>(info.param)) + "_nthreads_"
+               + std::to_string(std::get<1>(info.param)) + "_nch_out_"
+               + std::to_string(std::get<2>(info.param)) + "_nmsgs_"
+               + std::to_string(std::get<3>(info.param));
+    }
+);
+
+TEST_P(ManyInputSinkStreamingFanout, ChannelOrder) {
     if (policy == FanoutPolicy::BOUNDED) {
         GTEST_SKIP() << "Bounded fanout does not support channel order";
     }
 
-    auto inputs = make_int_inputs(num_msgs);
-
-    std::vector<std::vector<Message>> outs(num_out_chs);
-    {
-        std::vector<Node> nodes;
-
-        auto in = ctx->create_channel();
-        nodes.push_back(node::push_to_channel(ctx, in, std::move(inputs)));
-
-        std::vector<std::shared_ptr<Channel>> out_chs;
-        for (int i = 0; i < num_out_chs; ++i) {
-            out_chs.emplace_back(ctx->create_channel());
-        }
-
-        nodes.push_back(node::fanout(ctx, in, out_chs, policy));
-
-        nodes.push_back(many_input_sink(ctx, out_chs, ConsumePolicy::CHANNEL_ORDER, outs)
-        );
-
-        run_streaming_pipeline(std::move(nodes));
-    }
-
-    std::vector<int> expected(num_msgs);
-    std::iota(expected.begin(), expected.end(), 0);
-    for (int c = 0; c < num_out_chs; ++c) {
-        SCOPED_TRACE("channel " + std::to_string(c));
-        std::vector<int> actual;
-        actual.reserve(outs[c].size());
-        std::ranges::transform(outs[c], std::back_inserter(actual), [](const Message& m) {
-            return m.get<int>();
-        });
-        EXPECT_EQ(expected, actual);
-    }
+    EXPECT_NO_FATAL_FAILURE(run(ConsumePolicy::CHANNEL_ORDER));
 }
 
-TEST_P(StreamingFanout, ManyInputSink_MessageOrder) {
-    auto inputs = make_int_inputs(num_msgs);
-
-    std::vector<std::vector<Message>> outs(num_out_chs);
-    {
-        std::vector<Node> nodes;
-
-        auto in = ctx->create_channel();
-        nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
-
-        std::vector<std::shared_ptr<Channel>> out_chs;
-        for (int i = 0; i < num_out_chs; ++i) {
-            out_chs.emplace_back(ctx->create_channel());
-        }
-
-        nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
-
-        nodes.emplace_back(
-            many_input_sink(ctx, out_chs, ConsumePolicy::MESSAGE_ORDER, outs)
-        );
-
-        run_streaming_pipeline(std::move(nodes));
-    }
-
-    std::vector<int> expected(num_msgs);
-    std::iota(expected.begin(), expected.end(), 0);
-    for (int c = 0; c < num_out_chs; ++c) {
-        SCOPED_TRACE("channel " + std::to_string(c));
-        std::vector<int> actual;
-        actual.reserve(outs[c].size());
-        std::ranges::transform(outs[c], std::back_inserter(actual), [](const Message& m) {
-            return m.get<int>();
-        });
-        EXPECT_EQ(expected, actual);
-    }
+TEST_P(ManyInputSinkStreamingFanout, MessageOrder) {
+    EXPECT_NO_FATAL_FAILURE(run(ConsumePolicy::MESSAGE_ORDER));
 }
