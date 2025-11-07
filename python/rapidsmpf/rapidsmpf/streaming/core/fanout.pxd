@@ -10,8 +10,10 @@ from rapidsmpf.streaming.core.context cimport cpp_Context
 from rapidsmpf.streaming.core.node cimport cpp_Node
 
 
-cdef extern from "<rapidsmpf/streaming/core/fanout.hpp>" namespace "rapidsmpf::streaming::node" nogil:
-    cdef enum class cpp_FanoutPolicy "rapidsmpf::streaming::node::FanoutPolicy" (uint8_t):
+cdef extern from "<rapidsmpf/streaming/core/fanout.hpp>" \
+        namespace "rapidsmpf::streaming::node" nogil:
+    cdef enum class cpp_FanoutPolicy \
+            "rapidsmpf::streaming::node::FanoutPolicy" (uint8_t):
         BOUNDED "rapidsmpf::streaming::node::FanoutPolicy::BOUNDED"
         UNBOUNDED "rapidsmpf::streaming::node::FanoutPolicy::UNBOUNDED"
 
@@ -22,4 +24,3 @@ cdef extern from "<rapidsmpf/streaming/core/fanout.hpp>" namespace "rapidsmpf::s
             vector[shared_ptr[cpp_Channel]] chs_out,
             cpp_FanoutPolicy policy
         ) except +
-

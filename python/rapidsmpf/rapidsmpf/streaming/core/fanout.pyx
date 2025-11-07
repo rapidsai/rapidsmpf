@@ -7,8 +7,8 @@ from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
-from rapidsmpf.streaming.core.channel cimport Channel, cpp_Channel
-from rapidsmpf.streaming.core.context cimport Context, cpp_Context
+from rapidsmpf.streaming.core.channel cimport Channel
+from rapidsmpf.streaming.core.context cimport Context
 from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
 
 
@@ -92,7 +92,7 @@ def fanout(Context ctx, Channel ch_in, list chs_out, policy):
     # Validate policy
     if not isinstance(policy, (FanoutPolicy, int)):
         raise TypeError(f"policy must be a FanoutPolicy enum value, got {type(policy)}")
-    
+
     cdef vector[shared_ptr[cpp_Channel]] _chs_out
     owner = []
     for ch_out in chs_out:
@@ -108,4 +108,3 @@ def fanout(Context ctx, Channel ch_in, list chs_out, policy):
             ctx._handle, ch_in._handle, move(_chs_out), _policy
         )
     return CppNode.from_handle(make_unique[cpp_Node](move(_ret)), owner)
-
