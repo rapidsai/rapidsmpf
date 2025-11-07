@@ -519,19 +519,19 @@ def q(
 
     nodes: list[CppNode | PyNode] = []
 
-    customer_ch = Channel[TableChunk]()
-    lineitem_ch = Channel[TableChunk]()
-    orders_ch = Channel[TableChunk]()
+    customer_ch = ctx.create_channel()
+    lineitem_ch = ctx.create_channel()
+    orders_ch = ctx.create_channel()
     
-    filtered_customer = Channel[TableChunk]()
-    filtered_orders = Channel[TableChunk]()
-    filtered_lineitem = Channel[TableChunk]()
+    filtered_customer = ctx.create_channel()
+    filtered_orders = ctx.create_channel()
+    filtered_lineitem = ctx.create_channel()
 
-    customer_x_orders = Channel[TableChunk]()
-    customer_x_orders_x_lineitem = Channel[TableChunk]()
-    all_joined = Channel[TableChunk]()
+    customer_x_orders = ctx.create_channel()
+    customer_x_orders_x_lineitem = ctx.create_channel()
+    all_joined = ctx.create_channel()
 
-    groupby_input = Channel[TableChunk]()
+    groupby_input = ctx.create_channel()
 
     # Read data
     nodes.append(
@@ -584,21 +584,21 @@ def q(
     nodes.append(with_columns(ctx, customer_x_orders_x_lineitem, groupby_input))
 
     # groupby aggregation (agg (per chunk) -> concat -> agg (global))
-    groupby_output = Channel[TableChunk]()
+    groupby_output = ctx.create_channel()
     nodes.append(chunkwise_groupby_agg(ctx, groupby_input, groupby_output))
-    concat_output = Channel[TableChunk]()
+    concat_output = ctx.create_channel()
     nodes.append(concatenate(ctx, groupby_output, concat_output))
-    final_grouped = Channel[TableChunk]()
+    final_grouped = ctx.create_channel()
     nodes.append(chunkwise_groupby_agg(ctx, concat_output, final_grouped))
 
     # select columns
-    select_ch = Channel[TableChunk]()
+    select_ch = ctx.create_channel()
     nodes.append(select_columns(ctx, final_grouped, select_ch))
 
-    sorted_ch = Channel[TableChunk]()
+    sorted_ch = ctx.create_channel()
     nodes.append(sort_by(ctx, select_ch, sorted_ch))
 
-    head_ch = Channel[TableChunk]()
+    head_ch = ctx.create_channel()
     nodes.append(head(ctx, sorted_ch, head_ch))
 
     nodes.append(write_parquet(ctx, head_ch, Path(output)))
