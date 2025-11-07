@@ -169,6 +169,47 @@ TEST_F(MetadataPayloadExchangeTest, SendReceiveMetadataOnly) {
     EXPECT_TRUE(comm_interface->is_idle());
 }
 
+TEST_F(MetadataPayloadExchangeTest, SendReceiveZeroSizedMetadataOnly) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    Rank prev_rank = (comm->rank() - 1 + comm->nranks()) % comm->nranks();
+    std::vector<std::uint8_t> test_metadata = {};
+
+    // All ranks send metadata-only message with empty metadata to next rank
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    messages.push_back(create_test_message(next_rank, test_metadata));
+
+    EXPECT_TRUE(comm_interface->is_idle());
+    comm_interface->send(std::move(messages));
+    EXPECT_FALSE(comm_interface->is_idle());
+
+    // All ranks receive from previous rank
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
+    while (received_messages.empty()) {
+        comm_interface->progress();
+        auto messages = comm_interface->recv();
+        std::ranges::move(messages, std::back_inserter(received_messages));
+
+        if (received_messages.empty()) {
+            std::this_thread::yield();
+        }
+    }
+
+    EXPECT_EQ(received_messages.size(), 1);
+    auto& msg = received_messages[0];
+    EXPECT_EQ(msg->peer_rank(), prev_rank);
+    EXPECT_TRUE(msg->metadata().empty());
+    EXPECT_EQ(msg->metadata(), test_metadata);
+    EXPECT_EQ(msg->data(), nullptr);
+
+    wait_for_communication_complete();
+
+    EXPECT_TRUE(comm_interface->is_idle());
+}
+
 TEST_F(MetadataPayloadExchangeTest, SendReceiveSingleMessage) {
     if (comm->nranks() < 2) {
         GTEST_SKIP() << "Test requires at least 2 ranks";
