@@ -114,12 +114,16 @@ class ShufflerAsync {
     /**
      * @copydoc rapidsmpf::shuffler::Shuffler::insert_finished(std::vector<PartID>&&)
      *
-     * @note This coroutine must be awaited on, but need not be before extraction begins.
-     * This is required to ensure that all asynchronous notifications from the underlying
-     * shuffler have completed before the shuffle destructs. Any pending extractions will
-     * wake up and extract any remaining pids (or wake up empty if no pids are remaining).
+     * @note This function itself is not a coroutine. Instead, it returns a coroutine that
+     * must be awaited to ensure the shuffler has fully completed its asynchronous
+     * operations. Awaiting this coroutine guarantees that all notifications and
+     * background tasks in the underlying shuffler have finished before destruction. The
+     * coroutine does not need to be awaited before extraction begins, but it must
+     * eventually be awaited before the shuffle object is destroyed. Any pending
+     * extractions will wake up and either extract remaining partitions or return empty
+     * results if none remain.
      *
-     * @return Coroutine that represents completion of the shuffle.
+     * @return A coroutine that, when awaited, indicates the shuffle has completed.
      */
     [[nodiscard]] Node insert_finished(std::vector<shuffler::PartID>&& pids);
 
