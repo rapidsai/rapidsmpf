@@ -68,7 +68,7 @@ def partition_and_pack(
     stream
         The CUDA stream used for memory operations.
     br
-        Buffer resource for GPU data allocations.
+        Buffer resource for memory allocations.
 
     Returns
     -------
@@ -77,7 +77,7 @@ def partition_and_pack(
     Raises
     ------
     IndexError
-        If an index in ``columns_to_hash`` is invalid.
+        If any index in ``columns_to_hash`` is invalid.
 
     See Also
     --------
@@ -118,24 +118,24 @@ def split_and_pack(
     BufferResource br not None,
 ):
     """
-    Splits rows from the input table into multiple packed (serialized) tables.
+    Split rows from the input table into multiple packed (serialized) tables.
 
     Parameters
     ----------
     table
-        The input table to split and pack.  The table cannot be empty (the
+        The input table to split and pack. The table cannot be empty (the
         split points would not be valid).
     splits
-        The split points, equivalent to cudf::split(), i.e. one less than
+        The split points, equivalent to :func:`cudf::split`, i.e., one less than
         the number of result partitions.
     stream
         The CUDA stream used for memory operations.
     br
-        Buffer resource for GPU data allocations.
+        Buffer resource for memory allocations.
 
     Returns
     -------
-    A dictionary where the keys are partition IDs and the values are packed tables.
+    A map of partition IDs and their packed tables.
 
     Raises
     ------
@@ -196,22 +196,37 @@ def unpack_and_concat(
     BufferResource br not None,
 ):
     """
-    Unpack (deserialize) input tables and concatenate them.
+    Unpack (deserialize) input partitions and concatenate them into a single table.
 
-    The input partitions are released and are left empty on return.
+    Empty partitions are ignored.
+
+    The unpacking of each partition is stream-ordered on that partition's own CUDA
+    stream. The returned table is stream-ordered on the provided ``stream`` and
+    synchronized with the unpacking.
+
+    Notes
+    -----
+    The input partitions are released and left empty on return.
 
     Parameters
     ----------
     partitions
-        The packed input tables to unpack and concatenate.
+        Packed input tables (partitions).
     stream
-        The CUDA stream used for memory operations.
+        CUDA stream on which concatenation occurs and on which the resulting
+        table is ordered.
     br
-        Buffer resource for GPU data allocations.
+        Buffer resource used for memory allocations.
 
     Returns
     -------
-    The unpacked and concatenated result as a single table.
+    The concatenated table resulting from unpacking the input partitions.
+
+    Raises
+    ------
+    OverflowError
+        If the buffer resource cannot reserve enough memory to concatenate all
+        partitions.
 
     See Also
     --------
@@ -247,35 +262,34 @@ def spill_partitions(
     """
     Spill partitions from device memory to host memory.
 
-    Partitions already in host memory are returned unchanged. For partitions
-    in device memory, this function allocates host memory and moves the buffer
-    using the provided buffer resource and the buffer's CUDA stream.
+    Moves the buffer of each ``PackedData`` from device memory to host memory using
+    the provided buffer resource and the buffer's CUDA stream. Partitions already
+    in host memory are returned unchanged.
 
-    For device-resident partitions, a host memory reservation is made before
-    moving the buffer. If the reservation fails due to insufficient host memory,
-    an exception is raised. Overbooking is not allowed.
+    For device-resident partitions, a host memory reservation is made before moving
+    the buffer. If the reservation fails due to insufficient host memory, an
+    exception is raised. Overbooking is not allowed.
 
     The input partitions are released and are left empty on return.
 
     Parameters
     ----------
     partitions
-        The input partitions, each containing GPU or host buffers.
+        The partitions to spill.
     br
-        The buffer resource that manages memory allocation and movement.
+        Buffer resource used to reserve host memory and perform the move.
     statistics
         The statistics instance to use. If None, statistics is disabled.
 
     Returns
     -------
-    A list of partitions where all buffers reside in host memory.
+    A list of partitions whose buffers reside in host memory.
 
     Raises
     ------
-    MemoryError
-        If host memory allocation fails. Overbooking is not allowed.
+    OverflowError
+        If host memory reservation fails.
     """
-
     cdef cpp_BufferResource* _br = br.ptr()
     cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)
     cdef vector[cpp_PackedData] _ret
@@ -309,15 +323,14 @@ def unspill_partitions(
     """
     Move spilled partitions (i.e., packed tables in host memory) back to device memory.
 
-    Each partition is inspected to determine whether its buffer already resides in
-    device memory. Buffers already in device memory are returned unchanged. Host-
-    resident buffers are moved to device memory using the provided buffer resource
-    and the buffer's CUDA stream.
+    Each partition is inspected to determine whether its buffer resides in device
+    memory. Buffers already in device memory are left untouched. Host-resident buffers
+    are moved to device memory using the provided buffer resource and the buffer's CUDA
+    stream.
 
     If insufficient device memory is available, the buffer resource's spill manager is
-    invoked to attempt to free up space. If overbooking occurs and the spill manager
-    fails to reclaim enough memory, the behavior depends on the `allow_overbooking`
-    flag.
+    invoked to free memory. If overbooking occurs and spilling fails to reclaim enough
+    memory, behavior depends on ``allow_overbooking``.
 
     The input partitions are released and are left empty on return.
 
@@ -326,22 +339,21 @@ def unspill_partitions(
     partitions
         The partitions to unspill, potentially containing host-resident data.
     br
-        Buffer resource responsible for memory reservation, spills, and transfers.
+        Buffer resource responsible for memory reservation and spills.
     allow_overbooking
-        Whether to allow overbooking if not enough device memory can be reclaimed by
-        spilling. If False, an error is raised if the reservation cannot be fulfilled.
+        If False, ensures enough memory is freed to satisfy the reservation;
+        otherwise, allows overbooking even if spilling was insufficient.
     statistics
         The statistics instance to use. If None, statistics is disabled.
 
     Returns
     -------
-    A list of partitions where each buffer resides in device memory.
+    A list of partitions whose buffers reside in device memory.
 
     Raises
     ------
     OverflowError
-        If overbooking is required but `allow_overbooking` is False and insufficient
-        memory could be spilled to satisfy the reservation.
+        If overbooking exceeds the amount spilled and ``allow_overbooking is False``.
     """
     cdef cpp_BufferResource* _br = br.ptr()
     cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)

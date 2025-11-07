@@ -165,7 +165,7 @@ def test_basic_allgather(
     assert allgather.finished()
 
     # Check results
-    if n_elements > 0 and n_inserts > 0:
+    if n_inserts > 0:
         expected_total = n_inserts * n_ranks
         assert len(results) == expected_total
 
@@ -197,7 +197,3 @@ def test_basic_allgather(
                 plc_table = unpack_and_concat([result], stream, br)
                 result_df = pylibcudf_to_cudf_dataframe(plc_table)
                 assert len(result_df) == n_elements
-
-    else:
-        # No data should be received if n_elements == 0 or n_inserts == 0
-        assert len(results) == 0

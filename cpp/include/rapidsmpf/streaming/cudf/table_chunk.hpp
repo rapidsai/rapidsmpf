@@ -13,6 +13,7 @@
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
 
+#include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
@@ -219,16 +220,13 @@ class TableChunk {
      * example, copying an available table chunk from device to host memory will result
      * in an unavailable copy.
      *
-     * @param br Buffer resource used for allocations.
      * @param reservation Memory reservation used to track and limit allocations.
      * @return A new `TableChunk` instance containing copies of all buffers and metadata.
      *
      * @throws std::overflow_error If the total allocation size exceeds the available
      * reservation.
      */
-    [[nodiscard]] TableChunk copy(
-        BufferResource* br, MemoryReservation& reservation
-    ) const;
+    [[nodiscard]] TableChunk copy(MemoryReservation& reservation) const;
 
   private:
     ///< @brief Optional owning object if the TableChunk was constructed from a
@@ -252,6 +250,14 @@ class TableChunk {
     rmm::cuda_stream_view stream_;
     bool is_spillable_;
 };
+
+/**
+ * @brief Generate a content description for a `TableChunk`.
+ *
+ * @param obj The object's content to describe.
+ * @return A new content description.
+ */
+ContentDescription get_content_description(TableChunk const& obj);
 
 /**
  * @brief Wrap a `TableChunk` into a `Message`.

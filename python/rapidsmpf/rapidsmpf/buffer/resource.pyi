@@ -3,6 +3,7 @@
 
 from collections.abc import Callable, Mapping
 
+from rmm.pylibrmm.cuda_stream_pool import CudaStreamPool
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
 
 from rapidsmpf.buffer.buffer import MemoryType
@@ -23,6 +24,7 @@ class BufferResource:
         device_mr: DeviceMemoryResource,
         memory_available: Mapping[MemoryType, Callable[[], int]] | None = None,
         periodic_spill_check: float | None = 1e-3,
+        stream_pool: CudaStreamPool | None = None,
     ) -> None: ...
     def memory_available(self, mem_type: MemoryType) -> int: ...
     def memory_reserved(self, mem_type: MemoryType) -> int: ...
@@ -32,6 +34,7 @@ class BufferResource:
         self, mem_type: MemoryType, size: int, *, allow_overbooking: bool
     ) -> tuple[MemoryReservation, int]: ...
     def release(self, reservation: MemoryReservation, size: int) -> int: ...
+    def stream_pool_size(self) -> int: ...
 
 class LimitAvailableMemory:
     def __init__(
