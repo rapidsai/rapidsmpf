@@ -31,7 +31,7 @@ inline constexpr std::size_t MAX_TOTAL_SIZE = 64 * 1024 * 1024;
 inline constexpr std::array<std::uint8_t, 4> MAGIC{{'R', 'M', 'P', 'F'}};
 inline constexpr std::uint8_t FORMAT_VERSION = 1;
 inline constexpr std::uint8_t FLAG_CRC_PRESENT = 0x01;
-inline constexpr std::size_t PRELUDE_SIZE_BYTES =
+inline constexpr std::size_t PRELUDE_SIZE =
     8;  // MAGIC(4) + version(1) + flags(1) + reserved(2)
 
 // Simple CRC32 (IEEE 802.3) without table for compactness
@@ -149,8 +149,6 @@ std::vector<std::uint8_t> Options::serialize() const {
     // Header format:
     // - prelude: [4-byte MAGIC "RMPF"][1-byte version][1-byte flags][2-byte (reserved)]
     // - data header: [uint64_t (count)][count * 2 * uint64_t (offset pairs)]
-    // Use PRELUDE_SIZE_BYTES constant for positions
-    std::size_t const prelude_size = PRELUDE_SIZE_BYTES;
     // Compute header size with checked arithmetic
     std::uint64_t pairs_u64 = 0;
     std::uint64_t offs_bytes_u64 = 0;
@@ -159,12 +157,12 @@ std::vector<std::uint8_t> Options::serialize() const {
               && checked_mul_u64(pairs_u64, sizeof(uint64_t), &offs_bytes_u64)
               && checked_add_u64(sizeof(uint64_t), offs_bytes_u64, &data_header_u64);
     RAPIDSMPF_EXPECTS(
-        ok && data_header_u64 <= std::numeric_limits<std::size_t>::max() - prelude_size,
+        ok && data_header_u64 <= std::numeric_limits<std::size_t>::max() - PRELUDE_SIZE,
         "header size overflow",
         std::invalid_argument
     );
     std::size_t const data_header_size = static_cast<std::size_t>(data_header_u64);
-    std::size_t const header_size = prelude_size + data_header_size;
+    std::size_t const header_size = PRELUDE_SIZE + data_header_size;
 
     std::size_t data_size = 0;
     for (auto const& [key, option] : shared.options) {
@@ -182,7 +180,7 @@ std::vector<std::uint8_t> Options::serialize() const {
         data_size += key.size() + val.size();
     }
     RAPIDSMPF_EXPECTS(
-        prelude_size + data_header_size + data_size + 4 <= MAX_TOTAL_SIZE,
+        PRELUDE_SIZE + data_header_size + data_size + 4 <= MAX_TOTAL_SIZE,
         "serialized buffer exceeds maximum allowed size",
         std::invalid_argument
     );
@@ -202,7 +200,7 @@ std::vector<std::uint8_t> Options::serialize() const {
     // Write count (number of key-value pairs) after prelude.
     {
         auto const count_ = static_cast<uint64_t>(count);
-        std::memcpy(base + prelude_size, &count_, sizeof(uint64_t));
+        std::memcpy(base + PRELUDE_SIZE, &count_, sizeof(uint64_t));
     }
 
     for (auto const& [key, option] : shared.options) {
@@ -235,12 +233,12 @@ std::vector<std::uint8_t> Options::serialize() const {
 
         // Write offsets (placed after prelude + count)
         std::memcpy(
-            base + prelude_size + offset_index * sizeof(uint64_t),
+            base + PRELUDE_SIZE + offset_index * sizeof(uint64_t),
             &key_offset,
             sizeof(uint64_t)
         );
         std::memcpy(
-            base + prelude_size + (offset_index + 1) * sizeof(uint64_t),
+            base + PRELUDE_SIZE + (offset_index + 1) * sizeof(uint64_t),
             &value_offset,
             sizeof(uint64_t)
         );
@@ -272,19 +270,23 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
 
     // Require MAGIC/version prelude
     RAPIDSMPF_EXPECTS(
-        total_size >= PRELUDE_SIZE_BYTES + sizeof(uint64_t)
+        total_size >= PRELUDE_SIZE + sizeof(uint64_t)
             && std::memcmp(base, MAGIC.data(), MAGIC.size()) == 0,
         "buffer is too small to contain prelude and count",
         std::invalid_argument
     );
+    RAPIDSMPF_EXPECTS(
+        total_size <= MAX_TOTAL_SIZE,
+        "serialized buffer exceeds maximum allowed size",
+        std::invalid_argument
+    );
     uint64_t count = 0;
-    std::size_t prelude_size = PRELUDE_SIZE_BYTES;  // MAGIC + version + flags/reserved
     std::uint8_t version = base[4];
     std::uint8_t flags = base[5];
     RAPIDSMPF_EXPECTS(
         version == 1, "unsupported Options serialization version", std::invalid_argument
     );
-    std::memcpy(&count, base + prelude_size, sizeof(uint64_t));
+    std::memcpy(&count, base + PRELUDE_SIZE, sizeof(uint64_t));
 
     // Compute header size with checked arithmetic and enforce limits
     std::uint64_t pairs_u64 = 0;
@@ -294,12 +296,12 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
               && checked_mul_u64(pairs_u64, sizeof(uint64_t), &offs_bytes_u64)
               && checked_add_u64(sizeof(uint64_t), offs_bytes_u64, &data_header_u64);
     RAPIDSMPF_EXPECTS(
-        ok && data_header_u64 <= std::numeric_limits<std::size_t>::max() - prelude_size,
+        ok && data_header_u64 <= std::numeric_limits<std::size_t>::max() - PRELUDE_SIZE,
         "header size overflow",
         std::invalid_argument
     );
     std::size_t const data_header_size = static_cast<std::size_t>(data_header_u64);
-    std::size_t const header_size = prelude_size + data_header_size;
+    std::size_t const header_size = PRELUDE_SIZE + data_header_size;
     RAPIDSMPF_EXPECTS(
         header_size <= total_size,
         "buffer is too small for header with declared count",
@@ -308,11 +310,6 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
     RAPIDSMPF_EXPECTS(
         static_cast<std::size_t>(count) <= MAX_OPTIONS,
         "too many options in serialized buffer",
-        std::invalid_argument
-    );
-    RAPIDSMPF_EXPECTS(
-        total_size <= MAX_TOTAL_SIZE,
-        "serialized buffer exceeds maximum allowed size",
         std::invalid_argument
     );
 
@@ -346,12 +343,12 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
     for (uint64_t i = 0; i < count; ++i) {
         std::memcpy(
             &key_offsets[i],
-            base + prelude_size + (1 + 2 * i) * sizeof(uint64_t),
+            base + PRELUDE_SIZE + (1 + 2 * i) * sizeof(uint64_t),
             sizeof(uint64_t)
         );
         std::memcpy(
             &value_offsets[i],
-            base + prelude_size + (1 + 2 * i + 1) * sizeof(uint64_t),
+            base + PRELUDE_SIZE + (1 + 2 * i + 1) * sizeof(uint64_t),
             sizeof(uint64_t)
         );
     }
