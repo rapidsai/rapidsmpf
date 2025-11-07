@@ -5,31 +5,30 @@
 
 #pragma once
 
-#include <algorithm>
 #include <cstddef>
 #include <memory>
-#include <queue>
 #include <utility>
 
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
+#include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/core/queue.hpp>
+
+#include <coro/queue.hpp>
+#include <coro/sync_wait.hpp>
 
 namespace rapidsmpf::streaming {
 
 /**
- * @brief Linearise insertion into an output channel from a fixed number of producers by
- * sequence number.
+ * @brief Linearise insertion into an output channel from a fixed number of producers
+ * by sequence number.
  *
- * Channels are guaranteed to deliver data in increasing sequence number order. When we
- * have multiple producers we must ensure that they queue up their productions into the
- * output channel in sequence number order. The `Lineariser` provides this interface by
- * providing a per-producer "output" channel and buffering appropriately.
+ * Producers are polled in round-robin fashion, and therefore must deliver messages in
+ * round-robin increasing sequence number order. If this guarantee is upheld, then the
+ * output of the `Lineariser` is guaranteed to be in total order of the sequence
+ * numbers.
  *
- * @warning Individual producers promise to send messages into their channel in strictly
- * increasing sequence number order. This bounds the buffering required in the
- * `Lineariser` to the number of distinct producers. If this precondition is not met,
- * behaviour is undefined.
  *
  * Example usage:
  * @code{.cpp}
@@ -41,10 +40,10 @@ namespace rapidsmpf::streaming {
  * // shutdown and send to the output channel until it is consumed.
  * tasks.push_back(linearise->drain());
  * for (auto& ch_in: lineariser->get_inputs()) {
- *   // Each producer promises to send an increasing stream of sequence ids.
- *   // For best performance they should attempt to take "interleaved" ids from a shared
- *   // task list. That is, don't have producer-0 produce the first K ids, producer-1 the
- *   // next K, and so forth.
+ *   // Each producer promises to send an increasing stream of sequence ids in
+ *   // round-robin fashion. That is, if there are P producers, producer 0 sends
+ *   // [0, P, 2P, ...], producer 1 sends [1, P+1, 2P + 1, ...] and producer i
+ *   // sends [i, P + i, 2P + i, ...].
  *   tasks.push_back(producer(ctx, ch_in, ...));
  * }
  * coro_results(co_await coro::when_all(std::move(tasks)));
@@ -59,29 +58,32 @@ class Lineariser {
      * @param ctx Streaming context.
      * @param ch_out The output channel.
      * @param num_producers The number of producers.
+     * @param buffer_size The number of messages that are buffered in the lineariser
+     * from each producer.
      */
     Lineariser(
         std::shared_ptr<Context> ctx,
         std::shared_ptr<Channel> ch_out,
-        std::size_t num_producers
+        std::size_t num_producers,
+        std::size_t buffer_size = 1
     )
         : ctx_{std::move(ctx)}, ch_out_{std::move(ch_out)} {
-        inputs_.reserve(num_producers);
+        queues_.reserve(num_producers);
         for (std::size_t i = 0; i < num_producers; i++) {
-            inputs_.push_back(ctx_->create_channel());
+            queues_.push_back(std::make_shared<BoundedQueue>(buffer_size));
         }
     }
 
     /**
-     * @brief Get a reference to the input channels.
+     * @brief Get a reference to the input queues.
      *
-     * @return Reference to the `Channel`s to send into.
+     * @return Reference to the `BoundedQueue`s to send into.
      *
      * @note Behaviour is undefined if more than one producer coroutine sends into the
-     * same channel.
+     * same queue.
      */
-    std::vector<std::shared_ptr<Channel>>& get_inputs() {
-        return inputs_;
+    std::vector<std::shared_ptr<BoundedQueue>>& get_queues() {
+        return queues_;
     }
 
     /**
@@ -95,68 +97,53 @@ class Lineariser {
     Node drain() {
         ShutdownAtExit c{ch_out_};
         co_await ctx_->executor()->schedule();
-        // Invariant: the heap always contains exactly zero-or-one messages from each
-        // producer. We always extract the minimum element, and then repoll the producer
-        // that made that element. First poll all producers.
-        for (std::size_t p = 0; p < inputs_.size(); p++) {
-            auto msg = co_await inputs_[p]->receive();
-            if (!msg.empty()) {
-                min_heap_.emplace(p, std::move(msg));
+        while (!queues_.empty()) {
+            for (auto& q : queues_) {
+                auto [receipt, msg] = co_await q->receive();
+                if (msg.empty()) {
+                    q = nullptr;
+                    continue;
+                }
+                if (!co_await ch_out_->send(std::move(msg))) {
+                    // Output channel is shut down, tell the producers to shutdown.
+                    break;
+                }
+                co_await receipt;
             }
+            std::erase(queues_, nullptr);
         }
-        while (!min_heap_.empty()) {
-            auto item = min_heap_.pop_top();
-            co_await ch_out_->send(std::move(item.value));
-            // And refill from the producer we just consumed from.
-            auto msg = co_await inputs_[item.producer]->receive();
-            if (!msg.empty()) {
-                min_heap_.emplace(item.producer, std::move(msg));
-            }
+        // We either exited the loop because all the queues are gone, or the output
+        // channel is shutdown (in which case we want no more inputs), so either way, just
+        // shut down the remaining queues.
+        std::vector<coro::task<void>> tasks;
+        tasks.reserve(1 + queues_.size());
+        for (auto& q : queues_) {
+            tasks.push_back(q->shutdown());
         }
-        co_await ch_out_->drain(ctx_->executor());
+        tasks.push_back(ch_out_->drain(ctx_->executor()));
+        coro_results(co_await coro::when_all(std::move(tasks)));
+    }
+
+    /**
+     * @brief Shut down the lineariser, informing both producers and consumer/
+     *
+     * @return Coroutine representing the shutdown of all input queues and the output
+     * channel.
+     */
+    coro::task<void> shutdown() {
+        std::vector<coro::task<void>> tasks;
+        tasks.reserve(1 + queues_.size());
+        for (auto& q : queues_) {
+            tasks.push_back(q->shutdown());
+        }
+        tasks.push_back(ch_out_->shutdown());
+        coro_results(co_await coro::when_all(std::move(tasks)));
     }
 
   private:
-    /**
-     * @brief Tracking struct for message plus the id of the producer.
-     */
-    struct Item {
-        std::size_t producer;  ///< Which producer this message was from.
-        Message value;  ///< The message.
-    };
-
-    /**
-     * Comparator of items for min heap such that items with the lowest sequence number
-     * come first.
-     */
-    struct Comparator {
-        bool operator()(Item& l, Item& r) {
-            // std::priority_queue is a max_heap, hence greater
-            return l.value.sequence_number() > r.value.sequence_number();
-        }
-    };
-
-    /**
-     * @brief A min-heap container that supports popping elements by move.
-     */
-    struct min_heap : std::priority_queue<Item, std::vector<Item>, Comparator> {
-      public:
-        Item pop_top() {
-            std::ranges::pop_heap(c, comp);
-            auto value = std::move(c.back());
-            c.pop_back();
-            return value;
-        }
-
-      protected:
-        using std::priority_queue<Item, std::vector<Item>, Comparator>::c;
-        using std::priority_queue<Item, std::vector<Item>, Comparator>::comp;
-    };
-
     std::shared_ptr<Context> ctx_;
+    std::vector<std::shared_ptr<BoundedQueue>> queues_;
     std::shared_ptr<Channel> ch_out_;  ///< Output channel.
-    std::vector<std::shared_ptr<Channel>> inputs_;  ///< Input channels.
-    min_heap min_heap_{};  ///< Heap of to be sent messages.
 };
 
 }  // namespace rapidsmpf::streaming

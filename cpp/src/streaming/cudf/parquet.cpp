@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <ranges>
 
 #include <cudf/ast/expressions.hpp>
 #include <cudf/io/datasource.hpp>
@@ -67,28 +68,33 @@ struct ChunkDesc {
  */
 Node produce_chunks(
     std::shared_ptr<Context> ctx,
-    std::shared_ptr<Channel> ch_out,
-    cudf::io::parquet_reader_options options,
+    std::shared_ptr<BoundedQueue> ch_out,
     std::vector<ChunkDesc>& chunks,
-    std::atomic<std::size_t>& idx
+    cudf::io::parquet_reader_options options
 ) {
-    ShutdownAtExit c{ch_out};
-    while (true) {
-        co_await ctx->executor()->schedule();
-        auto i = idx.fetch_add(1, std::memory_order::relaxed);
-        if (i >= chunks.size()) {
-            break;
-        }
-        auto chunk = chunks[i];
+    // ShutdownAtExit c{ch_out};
+    co_await ctx->executor()->schedule();
+    for (auto& chunk : chunks) {
         cudf::io::parquet_reader_options chunk_options{options};
         chunk_options.set_skip_rows(chunk.skip_rows);
         chunk_options.set_num_rows(chunk.num_rows);
         auto stream = ctx->br()->stream_pool().get_stream();
+        auto ticket = co_await ch_out->acquire();
+        if (!ticket.has_value()) {
+            // Semaphore (and hence output channel) shutdown
+            break;
+        }
+        // Having acquire a ticket, let's move to a new thread.
+        co_await ctx->executor()->schedule();
         // TODO: This reads the metadata ntasks times.
         // See https://github.com/rapidsai/cudf/issues/20311
-        co_await ch_out->send(
+        auto sent = co_await ticket->send(
             read_parquet_chunk(ctx, stream, chunk_options, chunk.sequence_number)
         );
+        if (!sent) {
+            // Output channel is shutdown, no need for more reads.
+            break;
+        }
     }
     co_await ch_out->drain(ctx->executor());
 }
@@ -99,7 +105,8 @@ Node read_parquet(
     std::shared_ptr<Channel> ch_out,
     std::size_t num_producers,
     cudf::io::parquet_reader_options options,
-    cudf::size_type num_rows_per_chunk
+    cudf::size_type num_rows_per_chunk,
+    std::unique_ptr<Filter> filter
 ) {
     ShutdownAtExit c{ch_out};
     co_await ctx->executor()->schedule();
@@ -126,6 +133,24 @@ Node read_parquet(
     RAPIDSMPF_EXPECTS(
         files.size() < std::numeric_limits<int>::max(), "Trying to read too many files"
     );
+    RAPIDSMPF_EXPECTS(
+        !options.get_filter().has_value(),
+        "Do not set filter on options, use the filter argument"
+    );
+    if (filter != nullptr) {
+        options.set_filter(filter->filter);
+        // Let's just join all the possible streams here rather than inducing cross-stream
+        // deps in the tasks
+        cuda_stream_join(
+            std::ranges::transform_view(
+                std::ranges::iota_view(
+                    std::size_t{0}, ctx->br()->stream_pool().get_pool_size()
+                ),
+                [&](auto i) { return ctx->br()->stream_pool().get_stream(i); }
+            ),
+            std::ranges::single_view(filter->stream)
+        );
+    }
     // TODO: Handle case where multiple ranks are reading from a single file.
     int files_per_rank =
         static_cast<int>(files.size() / size + (rank < (files.size() % size)));
@@ -156,29 +181,61 @@ Node read_parquet(
         )));
     } else {
         std::uint64_t sequence_number = 0;
-        std::vector<ChunkDesc> chunks;
-        while (skip_rows < local_num_rows && num_rows_to_read > 0) {
-            auto chunk_num_rows = std::min(
-                {static_cast<std::int64_t>(num_rows_per_chunk),
-                 local_num_rows - skip_rows,
-                 num_rows_to_read}
+        std::vector<std::vector<ChunkDesc>> chunks_per_producer(num_producers);
+        auto const num_files = local_options.get_source().num_sources();
+        auto const& local_files = local_options.get_source().filepaths();
+        auto const files_per_chunk =
+            std::max(static_cast<std::size_t>(local_num_rows) / num_files, 1ul);
+        for (std::size_t file_offset = 0; file_offset < num_files;
+             file_offset += files_per_chunk)
+        {
+            std::vector<std::string> chunk_files;
+            auto const nchunk_files = std::min(num_files - file_offset, files_per_chunk);
+            std::ranges::copy_n(
+                local_files.begin() + static_cast<std::int64_t>(file_offset),
+                static_cast<std::int64_t>(nchunk_files),
+                std::back_inserter(chunk_files)
             );
-            num_rows_to_read -= chunk_num_rows;
-            chunks.emplace_back(sequence_number++, skip_rows, chunk_num_rows);
-            skip_rows += chunk_num_rows;
+
+            while (skip_rows < local_num_rows && num_rows_to_read > 0) {
+                auto chunk_num_rows = std::min(
+                    {static_cast<std::int64_t>(num_rows_per_chunk),
+                     local_num_rows - skip_rows,
+                     num_rows_to_read}
+                );
+                num_rows_to_read -= chunk_num_rows;
+                chunks_per_producer[sequence_number % num_producers].emplace_back(
+                    sequence_number, skip_rows, chunk_num_rows
+                );
+                sequence_number++;
+                skip_rows += chunk_num_rows;
+            }
+            std::vector<Node> read_tasks;
+            read_tasks.reserve(1 + num_producers);
+            auto lineariser = Lineariser(ctx, ch_out, num_producers);
+            auto queues = lineariser.get_queues();
+            for (std::size_t i = 0; i < num_producers; i++) {
+                read_tasks.push_back(
+                    produce_chunks(ctx, queues[i], chunks_per_producer[i], local_options)
+                );
+            }
+            read_tasks.push_back(lineariser.drain());
+            coro_results(co_await coro::when_all(std::move(read_tasks)));
         }
-        std::vector<Node> read_tasks;
-        std::atomic<std::size_t> chunk_index{0};
-        read_tasks.reserve(1 + num_producers);
-        auto lineariser = std::make_shared<Lineariser>(ctx, ch_out, num_producers);
-        for (auto& ch_in : lineariser->get_inputs()) {
-            read_tasks.push_back(
-                produce_chunks(ctx, ch_in, local_options, chunks, chunk_index)
-            );
-        }
-        read_tasks.push_back(lineariser->drain());
-        coro_results(co_await coro::when_all(std::move(read_tasks)));
     }
     co_await ch_out->drain(ctx->executor());
+    if (filter != nullptr) {
+        // Let's just join all the possible streams here rather than inducing cross-stream
+        // deps in the tasks
+        cuda_stream_join(
+            std::ranges::single_view(filter->stream),
+            std::ranges::transform_view(
+                std::ranges::iota_view(
+                    std::size_t{0}, ctx->br()->stream_pool().get_pool_size()
+                ),
+                [&](auto i) { return ctx->br()->stream_pool().get_stream(i); }
+            )
+        );
+    }
 }
 }  // namespace rapidsmpf::streaming::node

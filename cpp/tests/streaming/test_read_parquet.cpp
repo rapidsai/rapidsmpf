@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <any>
 #include <cstdint>
 #include <filesystem>
 #include <iomanip>
@@ -16,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cudf/ast/expressions.hpp>
 #include <cudf/concatenate.hpp>
 #include <cudf/contiguous_split.hpp>
 #include <cudf/io/parquet.hpp>
@@ -106,7 +108,8 @@ class StreamingReadParquet : public BaseStreamingFixture {
     std::vector<std::string> source_files;
 };
 
-using ReadParquetParams = std::tuple<std::optional<int64_t>, std::optional<int64_t>>;
+using ReadParquetParams =
+    std::tuple<std::optional<int64_t>, std::optional<int64_t>, bool>;
 
 class StreamingReadParquetParams
     : public StreamingReadParquet,
@@ -130,21 +133,29 @@ INSTANTIATE_TEST_SUITE_P(
             std::optional<int64_t>{3},
             std::optional<int64_t>{31},
             std::optional<int64_t>{83}
-        )
+        ),
+        // use_filter
+        ::testing::Values(false, true)
     ),
     [](const ::testing::TestParamInfo<ReadParquetParams>& info) {
         const auto& skip_rows = std::get<0>(info.param);
         const auto& num_rows = std::get<1>(info.param);
+        const auto& use_filter = std::get<2>(info.param);
         std::string result = "skip_rows_";
         result += skip_rows.has_value() ? std::to_string(skip_rows.value()) : "none";
         result += "_num_rows_";
         result += num_rows.has_value() ? std::to_string(num_rows.value()) : "all";
+        if (use_filter) {
+            result += "_with_filter";
+        } else {
+            result += "_no_filter";
+        }
         return result;
     }
 );
 
 TEST_P(StreamingReadParquetParams, ReadParquet) {
-    auto [skip_rows, num_rows] = GetParam();
+    auto [skip_rows, num_rows, use_filter] = GetParam();
     auto source = get_source_info();
 
     auto options = cudf::io::parquet_reader_options::builder(source).build();
@@ -154,11 +165,56 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
     if (num_rows.has_value()) {
         options.set_num_rows(num_rows.value());
     }
-
+    auto filter_expr = [&]() -> std::unique_ptr<Filter> {
+        if (!use_filter) {
+            return nullptr;
+        }
+        auto stream = ctx->br()->stream_pool().get_stream();
+        auto owner = new std::vector<std::any>;
+        owner->push_back(
+            std::make_shared<cudf::numeric_scalar<int32_t>>(15, true, stream)
+        );
+        owner->push_back(
+            std::make_shared<cudf::ast::literal>(
+                *std::any_cast<std::shared_ptr<cudf::numeric_scalar<int32_t>>>(
+                    owner->at(0)
+                )
+            )
+        );
+        owner->push_back(std::make_shared<cudf::ast::column_reference>(0));
+        owner->push_back(
+            std::make_shared<cudf::ast::operation>(
+                cudf::ast::ast_operator::LESS,
+                *std::any_cast<std::shared_ptr<cudf::ast::column_reference>>(
+                    owner->at(2)
+                ),
+                *std::any_cast<std::shared_ptr<cudf::ast::literal>>(owner->at(1))
+            )
+        );
+        return std::make_unique<Filter>(
+            stream,
+            *std::any_cast<std::shared_ptr<cudf::ast::operation>>(owner->back()),
+            OwningWrapper(static_cast<void*>(owner), [](void* p) {
+                delete static_cast<std::vector<std::any>*>(p);
+            })
+        );
+    }();
+    auto expected = [&]() {
+        if (filter_expr != nullptr) {
+            auto expected_options = options;
+            expected_options.set_filter(filter_expr->filter);
+            filter_expr->stream.synchronize();
+            auto expected = cudf::io::read_parquet(expected_options).tbl;
+            filter_expr->stream.synchronize();
+            return expected;
+        } else {
+            return cudf::io::read_parquet(options).tbl;
+        }
+    }();
     auto ch = ctx->create_channel();
     std::vector<Node> nodes;
 
-    nodes.push_back(node::read_parquet(ctx, ch, 4, options, 3));
+    nodes.push_back(node::read_parquet(ctx, ch, 4, options, 3, std::move(filter_expr)));
 
     std::vector<Message> messages;
     nodes.push_back(node::pull_from_channel(ctx, ch, messages));
@@ -201,10 +257,8 @@ TEST_P(StreamingReadParquetParams, ReadParquet) {
     auto gathered_packed_data =
         allgather.wait_and_extract(allgather::AllGather::Ordered::YES);
     auto result = unpack_and_concat(
-        std::move(gathered_packed_data), br->stream_pool().get_stream(), br.get()
+        std::move(gathered_packed_data), rmm::cuda_stream_default, br.get()
     );
-    auto expected = cudf::io::read_parquet(options).tbl;
-
     EXPECT_EQ(result->num_rows(), expected->num_rows());
     EXPECT_EQ(result->num_columns(), expected->num_columns());
     EXPECT_EQ(result->num_columns(), 1);
