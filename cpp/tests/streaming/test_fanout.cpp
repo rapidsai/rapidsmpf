@@ -2,6 +2,7 @@
  * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <iostream>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -13,6 +14,7 @@
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/fanout.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>
+#include <rapidsmpf/streaming/core/node.hpp>
 
 #include "base_streaming_fixture.hpp"
 
@@ -31,19 +33,18 @@ namespace {
 std::vector<Message> make_int_inputs(int n) {
     std::vector<Message> inputs;
     inputs.reserve(n);
-    for (int i = 0; i < n; ++i) {
-        inputs.emplace_back(
-            i,
-            std::make_unique<int>(i),
+
+    Message::CopyCallback copy_cb = [](Message const& msg, MemoryReservation&) {
+        return Message{
+            msg.sequence_number(),
+            std::make_unique<int>(msg.get<int>()),
             ContentDescription{},
-            [](Message const& msg, MemoryReservation&) {
-                return Message{
-                    msg.sequence_number(),
-                    std::make_unique<int>(msg.get<int>()),
-                    ContentDescription{}
-                };
-            }
-        );
+            msg.copy_cb()
+        };
+    };
+
+    for (int i = 0; i < n; ++i) {
+        inputs.emplace_back(i, std::make_unique<int>(i), ContentDescription{}, copy_cb);
     }
     return inputs;
 }
@@ -103,11 +104,13 @@ TEST_P(StreamingFanout, SinkPerChannel) {
         std::vector<Node> nodes;
 
         auto in = ctx->create_channel();
+        std::cout << "Created input channel " << in.get() << std::endl;
         nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
 
         std::vector<std::shared_ptr<Channel>> out_chs;
         for (int i = 0; i < num_out_chs; ++i) {
             out_chs.emplace_back(ctx->create_channel());
+            std::cout << "Created output channel " << out_chs.back().get() << std::endl;
         }
 
         nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
@@ -135,13 +138,15 @@ TEST_P(StreamingFanout, SinkPerChannel) {
 namespace {
 
 enum class ConsumePolicy : uint8_t {
-    CHANNEL_ORDER,  // consume messages in the order of the channels
-    MESSAGE_ORDER,  // consume messages in the order of the messages
+    CHANNEL_ORDER,  // consume all messages from a single channel before moving to the
+                    // next
+    MESSAGE_ORDER,  // consume messages from all channels before moving to the next
+                    // message
 };
 
 Node many_input_sink(
-    std::shared_ptr<Context> const& ctx,
-    std::vector<std::shared_ptr<Channel>>& chs,
+    std::shared_ptr<Context> ctx,
+    std::vector<std::shared_ptr<Channel>> chs,
     ConsumePolicy consume_policy,
     std::vector<std::vector<Message>>& outs
 ) {
@@ -159,10 +164,20 @@ Node many_input_sink(
             }
         }
     } else if (consume_policy == ConsumePolicy::MESSAGE_ORDER) {
-        // while (true) {
-        //     auto msg = co_await chs[0]->receive();
-        //     outs[0].push_back(msg);
-        // }
+        std::unordered_set<size_t> finished_chs{};
+        while (finished_chs.size() < chs.size()) {
+            for (size_t i = 0; i < chs.size(); ++i) {
+                if (finished_chs.contains(i)) {
+                    continue;
+                }
+                auto msg = co_await chs[i]->receive();
+                if (msg.empty()) {
+                    finished_chs.insert(i);
+                } else {
+                    outs[i].emplace_back(std::move(msg));
+                }
+            }
+        }
     }
 }
 
@@ -170,7 +185,7 @@ Node many_input_sink(
 
 TEST_P(StreamingFanout, ManyInputSink_ChannelOrder) {
     if (policy == FanoutPolicy::BOUNDED) {
-        GTEST_SKIP() << "Bounded fanout does not support this consume policy";
+        GTEST_SKIP() << "Bounded fanout does not support channel order";
     }
 
     auto inputs = make_int_inputs(num_msgs);
@@ -195,15 +210,52 @@ TEST_P(StreamingFanout, ManyInputSink_ChannelOrder) {
         run_streaming_pipeline(std::move(nodes));
     }
 
+    std::vector<int> expected(num_msgs);
+    std::iota(expected.begin(), expected.end(), 0);
     for (int c = 0; c < num_out_chs; ++c) {
-        // Validate sizes
-        EXPECT_EQ(outs[c].size(), static_cast<size_t>(num_msgs));
+        SCOPED_TRACE("channel " + std::to_string(c));
+        std::vector<int> actual;
+        actual.reserve(outs[c].size());
+        std::ranges::transform(outs[c], std::back_inserter(actual), [](const Message& m) {
+            return m.get<int>();
+        });
+        EXPECT_EQ(expected, actual);
+    }
+}
 
-        // Validate ordering/content and that shallow copies share the same underlying
-        // object
-        for (int i = 0; i < num_msgs; ++i) {
-            SCOPED_TRACE("channel " + std::to_string(c) + " idx " + std::to_string(i));
-            EXPECT_EQ(outs[c][i].get<int>(), i);
+TEST_P(StreamingFanout, ManyInputSink_MessageOrder) {
+    auto inputs = make_int_inputs(num_msgs);
+
+    std::vector<std::vector<Message>> outs(num_out_chs);
+    {
+        std::vector<Node> nodes;
+
+        auto in = ctx->create_channel();
+        nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
+
+        std::vector<std::shared_ptr<Channel>> out_chs;
+        for (int i = 0; i < num_out_chs; ++i) {
+            out_chs.emplace_back(ctx->create_channel());
         }
+
+        nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+
+        nodes.emplace_back(
+            many_input_sink(ctx, out_chs, ConsumePolicy::MESSAGE_ORDER, outs)
+        );
+
+        run_streaming_pipeline(std::move(nodes));
+    }
+
+    std::vector<int> expected(num_msgs);
+    std::iota(expected.begin(), expected.end(), 0);
+    for (int c = 0; c < num_out_chs; ++c) {
+        SCOPED_TRACE("channel " + std::to_string(c));
+        std::vector<int> actual;
+        actual.reserve(outs[c].size());
+        std::ranges::transform(outs[c], std::back_inserter(actual), [](const Message& m) {
+            return m.get<int>();
+        });
+        EXPECT_EQ(expected, actual);
     }
 }

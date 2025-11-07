@@ -76,6 +76,13 @@ class Context {
     [[nodiscard]] std::shared_ptr<Communicator> comm() const noexcept;
 
     /**
+     * @brief Returns the logger.
+     *
+     * @return Reference to the logger.
+     */
+    [[nodiscard]] Communicator::Logger& logger() const noexcept;
+
+    /**
      * @brief Returns the progress thread.
      *
      * @return Shared pointer to the progress thread.

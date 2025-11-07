@@ -71,6 +71,10 @@ std::shared_ptr<Communicator> Context::comm() const noexcept {
     return comm_;
 }
 
+Communicator::Logger& Context::logger() const noexcept {
+    return comm_->logger();
+}
+
 std::shared_ptr<ProgressThread> Context::progress_thread() const noexcept {
     return progress_thread_;
 }
@@ -88,6 +92,6 @@ std::shared_ptr<Statistics> Context::statistics() const noexcept {
 }
 
 std::shared_ptr<Channel> Context::create_channel() const noexcept {
-    return std::unique_ptr<Channel>(new Channel());
+    return std::shared_ptr<Channel>(new Channel());
 }
 }  // namespace rapidsmpf::streaming

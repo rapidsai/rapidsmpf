@@ -83,6 +83,13 @@ class Channel {
      */
     [[nodiscard]] bool empty() const noexcept;
 
+    /**
+     * @brief Check whether the channel is shut down.
+     *
+     * @return True if the channel is shut down.
+     */
+    [[nodiscard]] bool is_shutdown() const noexcept;
+
   private:
     Channel() = default;
     coro::ring_buffer<Message, 1> rb_;
