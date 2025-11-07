@@ -50,8 +50,7 @@ Message read_parquet_chunk(
 
 struct ChunkDesc {
     std::uint64_t sequence_number;
-    std::int64_t skip_rows;
-    std::int64_t num_rows;
+    std::vector<std::string> files;
 };
 
 /**
@@ -75,8 +74,9 @@ Node produce_chunks(
     ShutdownAtExit c{ch_out};
     for (auto& chunk : chunks) {
         cudf::io::parquet_reader_options chunk_options{options};
-        chunk_options.set_skip_rows(chunk.skip_rows);
-        chunk_options.set_num_rows(chunk.num_rows);
+        // chunk_options.set_skip_rows(chunk.skip_rows);
+        // chunk_options.set_num_rows(chunk.num_rows);
+        chunk_options.set_source(cudf::io::source_info(std::move(chunk.files)));
         auto stream = ctx->br()->stream_pool().get_stream();
         // TODO: This reads the metadata ntasks times.
         // See https://github.com/rapidsai/cudf/issues/20311
@@ -156,19 +156,34 @@ Node read_parquet(
     } else {
         std::uint64_t sequence_number = 0;
         std::vector<std::vector<ChunkDesc>> chunks_per_producer(num_producers);
-        while (skip_rows < local_num_rows && num_rows_to_read > 0) {
-            auto chunk_num_rows = std::min(
-                {static_cast<std::int64_t>(num_rows_per_chunk),
-                 local_num_rows - skip_rows,
-                 num_rows_to_read}
+        std::size_t nfiles_done = 0;
+        while (nfiles_done < local_files.size()) {
+            // TODO: this is a total hack.
+            std::vector<std::string> chunk_files;
+            auto to_do = std::min(local_files.size() - nfiles_done, std::size_t{6});
+            std::ranges::copy_n(
+                local_files.begin() + static_cast<std::ptrdiff_t>(nfiles_done),
+                static_cast<std::ptrdiff_t>(to_do),
+                std::back_inserter(chunk_files)
             );
-            num_rows_to_read -= chunk_num_rows;
             chunks_per_producer[sequence_number % num_producers].emplace_back(
-                sequence_number, skip_rows, chunk_num_rows
+                sequence_number, std::move(chunk_files)
             );
-            skip_rows += chunk_num_rows;
             sequence_number++;
         }
+        // while (skip_rows < local_num_rows && num_rows_to_read > 0) {
+        //     auto chunk_num_rows = std::min(
+        //         {static_cast<std::int64_t>(num_rows_per_chunk),
+        //          local_num_rows - skip_rows,
+        //          num_rows_to_read}
+        //     );
+        //     num_rows_to_read -= chunk_num_rows;
+        //     chunks_per_producer[sequence_number % num_producers].emplace_back(
+        //         sequence_number, skip_rows, chunk_num_rows
+        //     );
+        //     skip_rows += chunk_num_rows;
+        //     sequence_number++;
+        // }
         std::vector<Node> read_tasks;
         read_tasks.reserve(1 + num_producers);
         auto lineariser = Lineariser(ctx, ch_out, num_producers);
