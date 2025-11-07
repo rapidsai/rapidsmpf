@@ -212,7 +212,7 @@ void get_environment_variables(
         std::smatch match;
         if (std::regex_match(entry, match, pattern)) {
             if (match.size() == 3) {  // match[1]: captured key, match[2]: value
-                output.insert({match[1].str(), match[2].str()});
+                output.insert({rapidsmpf::to_lower(match[1].str()), match[2].str()});
             }
         }
     }
