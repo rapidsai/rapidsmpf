@@ -116,10 +116,8 @@ void TagMetadataPayloadExchange::progress() {
 
 std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
 TagMetadataPayloadExchange::recv() {
-    // Return all completed messages and clear the internal storage
-    auto messages = std::move(received_messages_);
-    received_messages_.clear();
-    return messages;
+    // Move all completed messages to the caller
+    return std::move(received_messages_);
 }
 
 bool TagMetadataPayloadExchange::is_idle() const {
