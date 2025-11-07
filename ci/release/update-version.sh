@@ -134,7 +134,7 @@ sed_runner 's/'"set(rapids-cmake-version.*"'/'"set(rapids-cmake-version ${NEXT_S
 
 # CI files - context-aware branch references
 for FILE in .github/workflows/*.yaml; do
-  sed_runner "/shared-workflows/ s/@.*/@${RAPIDS_BRANCH_NAME}/g" "${FILE}"
+  sed_runner "/shared-workflows/ s|@.*|@${RAPIDS_BRANCH_NAME}|g" "${FILE}"
   sed_runner "s/:[0-9]*\\.[0-9]*-/:${NEXT_SHORT_TAG}-/g" "${FILE}"
 done
 
