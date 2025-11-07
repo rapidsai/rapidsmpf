@@ -57,7 +57,7 @@ namespace {
 
 enum class PackMode {
     Table,
-    Columns
+    Column
 };
 enum class Algo {
     Cascaded,
@@ -376,12 +376,11 @@ struct ArgumentParser {
                         std::string v{optarg};
                         if (v == "table")
                             args_.pack_mode = PackMode::Table;
-                        else if (v == "columns")
-                            args_.pack_mode = PackMode::Columns;
+                        else if (v == "column")
+                            args_.pack_mode = PackMode::Column;
                         else
                             RAPIDSMPF_FAIL(
-                                "-P must be one of {table, columns}",
-                                std::invalid_argument
+                                "-P must be one of {table, column}", std::invalid_argument
                             );
                         break;
                     }
@@ -420,7 +419,7 @@ struct ArgumentParser {
                            << "  -m <mr>      RMM MR {cuda, pool, async, managed} "
                               "(default: pool)\n"
                            << "  -F <pattern> Parquet file glob/pattern (required)\n"
-                           << "  -P <mode>    Packing mode {table, columns} (default: "
+                           << "  -P <mode>    Packing mode {table, column} (default: "
                               "table)\n"
                            << "  -A <algo>    {cascaded, lz4} (default: cascaded)\n"
                            << "  -K <kv>      Algo params, e.g. "
@@ -641,6 +640,8 @@ RunResult run_once(
                 if (!send_buf->is_latest_write_done()) {
                     send_buf->stream().synchronize();
                 }
+                // std::cout << "Sending payload of size " << nocomp_payloads[i]->size <<
+                // " to rank " << dst << std::endl;
                 send_futs.push_back(comm->send(std::move(send_buf), dst, tag_nocomp));
             }
         }
