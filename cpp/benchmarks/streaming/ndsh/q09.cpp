@@ -31,8 +31,8 @@
 #include <cudf/transform.hpp>
 #include <cudf/types.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
-#include <rmm/mr/device/pool_memory_resource.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
+#include <rmm/mr/device/pool_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
@@ -693,6 +693,7 @@ int main(int argc, char** argv) {
         comm->logger().print("Executor has ", ctx->comm()->nranks(), " ranks");
 
         std::string output_path = cmd_options.output_file;
+        std::vector<double> timings;
         for (int i = 0; i < 2; i++) {
             rapidsmpf::OpID op_id{0};
             std::vector<rapidsmpf::streaming::Node> nodes;
@@ -913,10 +914,26 @@ int main(int argc, char** argv) {
                 "Iteration ", i, " pipeline construction time [s]: ", pipeline.count()
             );
             comm->logger().print("Iteration ", i, " compute time [s]: ", compute.count());
+            timings.push_back(pipeline.count());
+            timings.push_back(compute.count());
             ctx->comm()->logger().print(stats->report());
             RAPIDSMPF_MPI(MPI_Barrier(mpi_comm));
         }
+        if (comm->rank() == 0) {
+            for (int i = 0; i < 2; i++) {
+                comm->logger().print(
+                    "Iteration ",
+                    i,
+                    " pipeline construction time [s]: ",
+                    timings[size_t(2 * i)]
+                );
+                comm->logger().print(
+                    "Iteration ", i, " compute time [s]: ", timings[size_t(2 * i + 1)]
+                );
+            }
+        }
     }
+
     RAPIDSMPF_MPI(MPI_Comm_free(&mpi_comm));
     RAPIDSMPF_MPI(MPI_Finalize());
     return 0;
