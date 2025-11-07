@@ -156,17 +156,18 @@ Node many_input_sink(
             }
         }
     } else if (consume_policy == ConsumePolicy::MESSAGE_ORDER) {
-        std::unordered_set<size_t> finished_chs{};
-        while (finished_chs.size() < chs.size()) {
-            for (size_t i = 0; i < chs.size(); ++i) {
-                if (finished_chs.contains(i)) {
-                    continue;
-                }
-                auto msg = co_await chs[i]->receive();
+        std::unordered_set<size_t> active_chs{};
+        for (size_t i = 0; i < chs.size(); ++i) {
+            active_chs.insert(i);
+        }
+        while (!active_chs.empty()) {
+            for (auto it = active_chs.begin(); it != active_chs.end();){
+                auto msg = co_await chs[*it]->receive();
                 if (msg.empty()) {
-                    finished_chs.insert(i);
+                    it = active_chs.erase(it);
                 } else {
-                    outs[i].emplace_back(std::move(msg));
+                    outs[*it].emplace_back(std::move(msg));
+                    it++;
                 }
             }
         }
