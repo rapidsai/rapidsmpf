@@ -161,7 +161,7 @@ Node many_input_sink(
             active_chs.insert(i);
         }
         while (!active_chs.empty()) {
-            for (auto it = active_chs.begin(); it != active_chs.end();){
+            for (auto it = active_chs.begin(); it != active_chs.end();) {
                 auto msg = co_await chs[*it]->receive();
                 if (msg.empty()) {
                     it = active_chs.erase(it);
