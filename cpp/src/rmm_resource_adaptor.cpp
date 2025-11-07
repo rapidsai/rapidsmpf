@@ -143,11 +143,11 @@ void* RmmResourceAdaptor::do_allocate(std::size_t nbytes, rmm::cuda_stream_view 
     void* ret{};
     auto alloc_type = PRIMARY;
     try {
-        ret = primary_mr_.allocate_async(nbytes, stream);
+        ret = primary_mr_.allocate(stream, nbytes);
     } catch (rmm::out_of_memory const& e) {
         if (fallback_mr_.has_value()) {
             alloc_type = FALLBACK;
-            ret = fallback_mr_->allocate_async(nbytes, stream);
+            ret = fallback_mr_->allocate(stream, nbytes);
             std::lock_guard<std::mutex> lock(mutex_);
             fallback_allocations_.insert(ret);
         } else {
@@ -203,9 +203,9 @@ void RmmResourceAdaptor::do_deallocate(
         }
     }
     if (alloc_type == PRIMARY) {
-        primary_mr_.deallocate_async(ptr, nbytes, stream);
+        primary_mr_.deallocate(stream, ptr, nbytes);
     } else {
-        fallback_mr_->deallocate_async(ptr, nbytes, stream);
+        fallback_mr_->deallocate(stream, ptr, nbytes);
     }
 }
 

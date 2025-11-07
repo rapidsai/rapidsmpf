@@ -61,21 +61,21 @@ TEST(RmmResourceAdaptor, TracksAllocationsAcrossResources) {
 
     EXPECT_EQ(mr.current_allocated(), 0);
 
-    void* p1 = mr.allocate(1_MiB);
+    void* p1 = mr.allocate_sync(1_MiB);
     EXPECT_EQ(primary_mr.allocs, std::unordered_set<void*>{p1});
     EXPECT_TRUE(fallback_mr.allocs.empty());
     EXPECT_EQ(mr.current_allocated(), 1_MiB);
 
-    mr.deallocate(p1, 1_MiB);
+    mr.deallocate_sync(p1, 1_MiB);
     EXPECT_TRUE(primary_mr.allocs.empty());
     EXPECT_EQ(mr.current_allocated(), 0);
 
-    void* p2 = mr.allocate(2_MiB);
+    void* p2 = mr.allocate_sync(2_MiB);
     EXPECT_TRUE(primary_mr.allocs.empty());
     EXPECT_EQ(fallback_mr.allocs, std::unordered_set<void*>{p2});
     EXPECT_EQ(mr.current_allocated(), 2_MiB);
 
-    mr.deallocate(p2, 2_MiB);
+    mr.deallocate_sync(p2, 2_MiB);
     EXPECT_TRUE(fallback_mr.allocs.empty());
     EXPECT_EQ(mr.current_allocated(), 0);
 }
@@ -85,18 +85,18 @@ TEST(RmmResourceAdaptor, NoFallbackUsedIfNotNecessary) {
     throw_at_limit_resource<rmm::out_of_memory> fallback_mr{8_MiB};
     RmmResourceAdaptor mr{primary_mr, fallback_mr};
 
-    void* ptr = mr.allocate(1_MiB);
+    void* ptr = mr.allocate_sync(1_MiB);
     EXPECT_EQ(primary_mr.allocs.count(ptr), 1);
     EXPECT_TRUE(fallback_mr.allocs.empty());
 
-    mr.deallocate(ptr, 1_MiB);
+    mr.deallocate_sync(ptr, 1_MiB);
 }
 
 TEST(RmmResourceAdaptor, NoFallbackProvidedThrowsOnOOM) {
     throw_at_limit_resource<rmm::out_of_memory> primary_mr{1_MiB};
     RmmResourceAdaptor mr{primary_mr};
 
-    EXPECT_THROW(mr.allocate(8_MiB), rmm::out_of_memory);
+    EXPECT_THROW(mr.allocate_sync(8_MiB), rmm::out_of_memory);
 }
 
 TEST(RmmResourceAdaptor, RejectsNonOutOfMemoryExceptions) {
@@ -104,7 +104,7 @@ TEST(RmmResourceAdaptor, RejectsNonOutOfMemoryExceptions) {
     throw_at_limit_resource<rmm::out_of_memory> fallback_mr{8_MiB};
     RmmResourceAdaptor mr{primary_mr, fallback_mr};
 
-    EXPECT_THROW(mr.allocate(2_MiB), std::logic_error);
+    EXPECT_THROW(mr.allocate_sync(2_MiB), std::logic_error);
     EXPECT_TRUE(fallback_mr.allocs.empty());
 }
 
@@ -120,7 +120,7 @@ TEST(RmmResourceAdaptor, RecordReflectsCorrectStatistics) {
     EXPECT_EQ(main_record_before.peak(), 0);
 
     // Allocate from primary
-    void* p1 = mr.allocate(1_MiB);
+    void* p1 = mr.allocate_sync(1_MiB);
     auto main_record_after_p1 = mr.get_main_record();
 
     EXPECT_EQ(
@@ -136,14 +136,14 @@ TEST(RmmResourceAdaptor, RecordReflectsCorrectStatistics) {
     EXPECT_EQ(main_record_after_p1.peak(ScopedMemoryRecord::AllocType::PRIMARY), 1_MiB);
     EXPECT_EQ(main_record_after_p1.peak(), 1_MiB);
 
-    mr.deallocate(p1, 1_MiB);
+    mr.deallocate_sync(p1, 1_MiB);
     auto main_record_after_d1 = mr.get_main_record();
     EXPECT_EQ(main_record_after_d1.current(ScopedMemoryRecord::AllocType::PRIMARY), 0);
     EXPECT_EQ(main_record_after_d1.current(), 0);
     EXPECT_EQ(main_record_after_d1.peak(), 1_MiB);  // Peak remains
 
     // Allocate from fallback
-    void* p2 = mr.allocate(2_MiB);
+    void* p2 = mr.allocate_sync(2_MiB);
     auto main_record_after_p2 = mr.get_main_record();
 
     EXPECT_EQ(
@@ -159,7 +159,7 @@ TEST(RmmResourceAdaptor, RecordReflectsCorrectStatistics) {
     EXPECT_EQ(main_record_after_p2.peak(ScopedMemoryRecord::AllocType::FALLBACK), 2_MiB);
     EXPECT_EQ(main_record_after_p2.peak(), 2_MiB);
 
-    mr.deallocate(p2, 2_MiB);
+    mr.deallocate_sync(p2, 2_MiB);
     auto main_record_final = mr.get_main_record();
     EXPECT_EQ(main_record_final.current(ScopedMemoryRecord::AllocType::FALLBACK), 0);
     EXPECT_EQ(main_record_final.current(), 0);
@@ -277,7 +277,7 @@ TEST(RmmResourceAdaptorScopedMemory, SingleScopedAllocationTracksCorrectly) {
     rapidsmpf::RmmResourceAdaptor mr{cudf::get_current_device_resource_ref()};
 
     mr.begin_scoped_memory_record();
-    void* p = mr.allocate(1_MiB);
+    void* p = mr.allocate_sync(1_MiB);
     auto scope = mr.end_scoped_memory_record();
 
     EXPECT_EQ(scope.current(), 1_MiB);
@@ -285,7 +285,7 @@ TEST(RmmResourceAdaptorScopedMemory, SingleScopedAllocationTracksCorrectly) {
     EXPECT_EQ(scope.peak(), 1_MiB);
     EXPECT_EQ(scope.num_total_allocs(), 1);
 
-    mr.deallocate(p, 1_MiB);
+    mr.deallocate_sync(p, 1_MiB);
 }
 
 TEST(RmmResourceAdaptorScopedMemory, NestedScopedAllocationsMerged) {
@@ -293,10 +293,10 @@ TEST(RmmResourceAdaptorScopedMemory, NestedScopedAllocationsMerged) {
 
     mr.begin_scoped_memory_record();  // Outer
 
-    void* p1 = mr.allocate(1_MiB);  // Alloc in outer
+    void* p1 = mr.allocate_sync(1_MiB);  // Alloc in outer
 
     mr.begin_scoped_memory_record();  // Inner
-    void* p2 = mr.allocate(2_MiB);  // Alloc in inner
+    void* p2 = mr.allocate_sync(2_MiB);  // Alloc in inner
     auto inner = mr.end_scoped_memory_record();
 
     auto outer = mr.end_scoped_memory_record();  // Merge inner into outer
@@ -310,8 +310,8 @@ TEST(RmmResourceAdaptorScopedMemory, NestedScopedAllocationsMerged) {
     EXPECT_EQ(outer.total(), 3_MiB);
     EXPECT_EQ(outer.peak(), 3_MiB);
 
-    mr.deallocate(p2, 2_MiB);
-    mr.deallocate(p1, 1_MiB);
+    mr.deallocate_sync(p2, 2_MiB);
+    mr.deallocate_sync(p1, 1_MiB);
 }
 
 TEST(RmmResourceAdaptorScopedMemory, NestedScopedTracksAllocsAndDeallocs) {
@@ -319,13 +319,13 @@ TEST(RmmResourceAdaptorScopedMemory, NestedScopedTracksAllocsAndDeallocs) {
 
     mr.begin_scoped_memory_record();  // Outer
 
-    void* p1 = mr.allocate(1_MiB);
-    void* p2 = mr.allocate(2_MiB);
-    mr.deallocate(p2, 2_MiB);
+    void* p1 = mr.allocate_sync(1_MiB);
+    void* p2 = mr.allocate_sync(2_MiB);
+    mr.deallocate_sync(p2, 2_MiB);
 
     mr.begin_scoped_memory_record();  // Inner
-    void* p3 = mr.allocate(3_MiB);
-    mr.deallocate(p3, 3_MiB);
+    void* p3 = mr.allocate_sync(3_MiB);
+    mr.deallocate_sync(p3, 3_MiB);
     auto inner = mr.end_scoped_memory_record();
 
     auto outer = mr.end_scoped_memory_record();
@@ -338,7 +338,7 @@ TEST(RmmResourceAdaptorScopedMemory, NestedScopedTracksAllocsAndDeallocs) {
     EXPECT_EQ(outer.total(), 1_MiB + 2_MiB + 3_MiB);
     EXPECT_EQ(outer.current(), 1_MiB);  // Only p1 is left
 
-    mr.deallocate(p1, 1_MiB);
+    mr.deallocate_sync(p1, 1_MiB);
 }
 
 TEST(RmmResourceAdaptorScopedMemory, NestedDeallocationYieldsNegativeStats) {
@@ -346,11 +346,11 @@ TEST(RmmResourceAdaptorScopedMemory, NestedDeallocationYieldsNegativeStats) {
 
     // Allocate in outer scope
     mr.begin_scoped_memory_record();  // Outer
-    void* p = mr.allocate(1_MiB);
+    void* p = mr.allocate_sync(1_MiB);
 
     // Begin nested scope
     mr.begin_scoped_memory_record();  // Inner
-    mr.deallocate(p, 1_MiB);  // Dealloc done in inner scope
+    mr.deallocate_sync(p, 1_MiB);  // Dealloc done in inner scope
     auto inner = mr.end_scoped_memory_record();
 
     auto outer = mr.end_scoped_memory_record();
@@ -385,13 +385,13 @@ TEST(RmmResourceAdaptorScopedMemory, MultiThreadedScopedAllocations) {
 
             // Perform multiple allocations
             for (int j = 0; j < num_allocs_per_thread; ++j) {
-                void* ptr = mr.allocate(alloc_size);
+                void* ptr = mr.allocate_sync(alloc_size);
                 allocations[i].push_back(ptr);
             }
 
             // Deallocate some (but not all) to test `current()` accounting
             for (int j = 0; j < num_allocs_per_thread / 2; ++j) {
-                mr.deallocate(allocations[i][j], alloc_size);
+                mr.deallocate_sync(allocations[i][j], alloc_size);
             }
 
             records[i] = mr.end_scoped_memory_record();
@@ -415,7 +415,7 @@ TEST(RmmResourceAdaptorScopedMemory, MultiThreadedScopedAllocations) {
 
         // Now deallocate the remaining allocations
         for (int j = num_allocs_per_thread / 2; j < num_allocs_per_thread; ++j) {
-            mr.deallocate(allocations[i][j], alloc_size);
+            mr.deallocate_sync(allocations[i][j], alloc_size);
         }
     }
     EXPECT_EQ(mr.current_allocated(), 0);  // All allocations have been released
@@ -432,11 +432,11 @@ TEST(RmmResourceAdaptorScopedMemory, CrossThreadNestedScopesNotMerged) {
 
     mr.begin_scoped_memory_record();  // Outer scope in main thread
 
-    outer_alloc = mr.allocate(outer_alloc_size);
+    outer_alloc = mr.allocate_sync(outer_alloc_size);
 
     std::thread t([&]() {
         mr.begin_scoped_memory_record();  // Inner scope in different thread
-        inner_alloc = mr.allocate(inner_alloc_size);
+        inner_alloc = mr.allocate_sync(inner_alloc_size);
         inner_record = mr.end_scoped_memory_record();
     });
 
@@ -457,6 +457,6 @@ TEST(RmmResourceAdaptorScopedMemory, CrossThreadNestedScopesNotMerged) {
     EXPECT_EQ(inner_record.peak(), inner_alloc_size);
 
     // Clean up
-    mr.deallocate(inner_alloc, inner_alloc_size);
-    mr.deallocate(outer_alloc, outer_alloc_size);
+    mr.deallocate_sync(inner_alloc, inner_alloc_size);
+    mr.deallocate_sync(outer_alloc, outer_alloc_size);
 }

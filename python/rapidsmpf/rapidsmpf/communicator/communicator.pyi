@@ -2,15 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import IntEnum
-from typing import cast
 
 class LOG_LEVEL(IntEnum):
-    NONE = cast(int, ...)
-    PRINT = cast(int, ...)
-    WARN = cast(int, ...)
-    INFO = cast(int, ...)
-    DEBUG = cast(int, ...)
-    TRACE = cast(int, ...)
+    NONE = ...
+    PRINT = ...
+    WARN = ...
+    INFO = ...
+    DEBUG = ...
+    TRACE = ...
 
 class Logger:
     @property
