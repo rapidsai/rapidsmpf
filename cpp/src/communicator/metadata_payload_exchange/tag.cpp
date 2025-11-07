@@ -116,14 +116,9 @@ void TagMetadataPayloadExchange::progress() {
 
 std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
 TagMetadataPayloadExchange::recv() {
-    auto const t0 = Clock::now();
-
     // Return all completed messages and clear the internal storage
     auto messages = std::move(received_messages_);
     received_messages_.clear();
-
-    statistics_->add_duration_stat("comms-interface-receive-messages", Clock::now() - t0);
-
     return messages;
 }
 
