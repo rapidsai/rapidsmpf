@@ -22,10 +22,10 @@
 
 namespace {
 // Serialization limits and format configuration (implementation details)
-inline constexpr std::size_t MAX_OPTIONS = 65536;
-inline constexpr std::size_t MAX_KEY_LEN = 4 * 1024;
-inline constexpr std::size_t MAX_VALUE_LEN = 1 * 1024 * 1024;
-inline constexpr std::size_t MAX_TOTAL_SIZE = 64 * 1024 * 1024;
+inline constexpr std::size_t MAX_OPTIONS = 64 * (1ull << 10);
+inline constexpr std::size_t MAX_KEY_LEN = 4 * (1ull << 10);
+inline constexpr std::size_t MAX_VALUE_LEN = 1 * (1ull << 20);
+inline constexpr std::size_t MAX_TOTAL_SIZE = 64 * (1ull << 20);
 
 // Format constants
 inline constexpr std::array<std::uint8_t, 4> MAGIC{{'R', 'M', 'P', 'F'}};
@@ -33,8 +33,8 @@ inline constexpr std::uint8_t FORMAT_VERSION = 1;
 inline constexpr std::uint8_t FLAG_CRC_PRESENT = 0x01;
 inline constexpr std::size_t PRELUDE_SIZE =
     8;  // MAGIC(4) + version(1) + flags(1) + reserved(2)
+inline constexpr std::size_t CRC32_SIZE = 4;
 
-// Simple CRC32 (IEEE 802.3) without table for compactness
 inline std::uint32_t crc32_compute(const std::uint8_t* data, std::size_t length) {
     std::uint32_t crc = 0xFFFFFFFFu;
     for (std::size_t i = 0; i < length; ++i) {
@@ -180,13 +180,12 @@ std::vector<std::uint8_t> Options::serialize() const {
         data_size += key.size() + val.size();
     }
     RAPIDSMPF_EXPECTS(
-        PRELUDE_SIZE + data_header_size + data_size + 4 <= MAX_TOTAL_SIZE,
+        PRELUDE_SIZE + data_header_size + data_size + CRC32_SIZE <= MAX_TOTAL_SIZE,
         "serialized buffer exceeds maximum allowed size",
         std::invalid_argument
     );
 
-    // Allocate extra 4 bytes for CRC32 over the data region
-    std::vector<std::uint8_t> buffer(header_size + data_size + 4);
+    std::vector<std::uint8_t> buffer(header_size + data_size + CRC32_SIZE);
     std::uint8_t* base = buffer.data();
 
     // Write MAGIC and version prelude
@@ -317,11 +316,11 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
     std::size_t data_limit = total_size;
     if ((flags & 0x01u) != 0u) {
         RAPIDSMPF_EXPECTS(
-            total_size >= header_size + 4,
+            total_size >= header_size + CRC32_SIZE,
             "buffer too small for CRC32 trailer",
             std::invalid_argument
         );
-        std::size_t crc_pos = total_size - 4;
+        std::size_t crc_pos = total_size - CRC32_SIZE;
         std::uint32_t expected_crc =
             static_cast<std::uint32_t>(base[crc_pos])
             | (static_cast<std::uint32_t>(base[crc_pos + 1]) << 8)
