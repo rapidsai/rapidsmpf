@@ -161,7 +161,7 @@ std::vector<std::uint8_t> Options::serialize() const {
         "header size overflow",
         std::invalid_argument
     );
-    std::size_t const data_header_size = static_cast<std::size_t>(data_header_u64);
+    auto const data_header_size = static_cast<std::size_t>(data_header_u64);
     std::size_t const header_size = PRELUDE_SIZE + data_header_size;
 
     std::size_t data_size = 0;
@@ -216,7 +216,7 @@ std::vector<std::uint8_t> Options::serialize() const {
     for (auto const& kv : shared.options) {
         entries.emplace_back(kv.first, kv.second.get_value_as_string());
     }
-    std::sort(entries.begin(), entries.end(), [](auto const& a, auto const& b) {
+    std::ranges::sort(entries, [](auto const& a, auto const& b) {
         return a.first < b.first;
     });
 
@@ -299,7 +299,7 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
         "header size overflow",
         std::invalid_argument
     );
-    std::size_t const data_header_size = static_cast<std::size_t>(data_header_u64);
+    auto const data_header_size = static_cast<std::size_t>(data_header_u64);
     std::size_t const header_size = PRELUDE_SIZE + data_header_size;
     RAPIDSMPF_EXPECTS(
         header_size <= total_size,
@@ -383,9 +383,8 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
             std::out_of_range
         );
 
-        std::size_t const key_len = static_cast<std::size_t>(value_offset - key_offset);
-        std::size_t const value_len =
-            static_cast<std::size_t>(next_key_offset - value_offset);
+        auto const key_len = static_cast<std::size_t>(value_offset - key_offset);
+        auto const value_len = static_cast<std::size_t>(next_key_offset - value_offset);
         RAPIDSMPF_EXPECTS(
             key_len <= MAX_KEY_LEN,
             "key length exceeds maximum allowed size",
