@@ -5,10 +5,14 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <iostream>
 #include <memory>
 #include <optional>
 
 #include <cuda_runtime_api.h>
+#include <getopt.h>
 #include <mpi.h>
 
 #include <cudf/aggregation.hpp>
@@ -55,15 +59,28 @@
 
 namespace {
 
+std::string get_table_path(
+    std::string const& input_directory, std::string const& table_name
+) {
+    auto dir = input_directory.empty() ? "." : input_directory;
+    auto file_path = dir + "/" + table_name + ".parquet";
+
+    if (std::filesystem::exists(file_path)) {
+        return file_path;
+    }
+
+    return dir + "/" + table_name + "/";
+}
+
 rapidsmpf::streaming::Node read_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
-    bool is_dir
+    std::string const& input_directory
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
-        is_dir ? "lineitem" : "lineitem.parquet"
+        get_table_path(input_directory, "lineitem")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns(
@@ -85,10 +102,11 @@ rapidsmpf::streaming::Node read_nation(
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
-    bool is_dir
+    std::string const& input_directory
 ) {
-    auto files =
-        rapidsmpf::ndsh::detail::list_parquet_files(is_dir ? "nation" : "nation.parquet");
+    auto files = rapidsmpf::ndsh::detail::list_parquet_files(
+        get_table_path(input_directory, "nation")
+    );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({"n_name", "n_nationkey"})
                        .build();
@@ -102,10 +120,11 @@ rapidsmpf::streaming::Node read_orders(
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
-    bool is_dir
+    std::string const& input_directory
 ) {
-    auto files =
-        rapidsmpf::ndsh::detail::list_parquet_files(is_dir ? "orders" : "orders.parquet");
+    auto files = rapidsmpf::ndsh::detail::list_parquet_files(
+        get_table_path(input_directory, "orders")
+    );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({"o_orderdate", "o_orderkey"})
                        .build();
@@ -119,10 +138,11 @@ rapidsmpf::streaming::Node read_part(
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
-    bool is_dir
+    std::string const& input_directory
 ) {
-    auto files =
-        rapidsmpf::ndsh::detail::list_parquet_files(is_dir ? "part" : "part.parquet");
+    auto files = rapidsmpf::ndsh::detail::list_parquet_files(
+        get_table_path(input_directory, "part")
+    );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({"p_partkey", "p_name"})
                        .build();
@@ -136,10 +156,10 @@ rapidsmpf::streaming::Node read_partsupp(
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
-    bool is_dir
+    std::string const& input_directory
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
-        is_dir ? "partsupp" : "partsupp.parquet"
+        get_table_path(input_directory, "partsupp")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({"ps_partkey", "ps_suppkey", "ps_supplycost"})
@@ -154,10 +174,10 @@ rapidsmpf::streaming::Node read_supplier(
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     std::size_t num_producers,
     cudf::size_type num_rows_per_chunk,
-    bool is_dir
+    std::string const& input_directory
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
-        is_dir ? "supplier" : "supplier.parquet"
+        get_table_path(input_directory, "supplier")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({"s_nationkey", "s_suppkey"})
@@ -549,14 +569,104 @@ static __device__ void calculate_amount(double *amount, double discount, double 
 }
 }  // namespace
 
+struct ProgramOptions {
+    int num_streaming_threads = 1;
+    cudf::size_type num_rows_per_chunk = 100'000'000;
+    bool use_shuffle_join = false;
+    std::string output_file;
+    std::string input_directory;
+};
+
+ProgramOptions parse_options(int argc, char** argv) {
+    ProgramOptions options;
+
+    auto print_usage = [&argv]() {
+        std::cerr
+            << "Usage: " << argv[0] << " [options]\n"
+            << "Options:\n"
+            << "  --num-streaming-threads <n>  Number of streaming threads (default: 1)\n"
+            << "  --num-rows-per-chunk <n>     Number of rows per chunk (default: "
+               "100000000)\n"
+            << "  --use-shuffle-join           Use shuffle join (default: false)\n"
+            << "  --output-file <path>         Output file path (required)\n"
+            << "  --input-directory <path>     Input directory path (required)\n"
+            << "  --help                       Show this help message\n";
+    };
+
+    static struct option long_options[] = {
+        {"num-streaming-threads", required_argument, nullptr, 1},
+        {"num-rows-per-chunk", required_argument, nullptr, 2},
+        {"use-shuffle-join", no_argument, nullptr, 3},
+        {"output-file", required_argument, nullptr, 4},
+        {"input-directory", required_argument, nullptr, 5},
+        {"help", no_argument, nullptr, 6},
+        {nullptr, 0, nullptr, 0}
+    };
+
+    int opt;
+    int option_index = 0;
+
+    bool saw_output_file = false;
+    bool saw_input_directory = false;
+
+    while ((opt = getopt_long(argc, argv, "", long_options, &option_index)) != -1) {
+        switch (opt) {
+        case 1:
+            options.num_streaming_threads = std::atoi(optarg);
+            break;
+        case 2:
+            options.num_rows_per_chunk = std::atoi(optarg);
+            break;
+        case 3:
+            options.use_shuffle_join = true;
+            break;
+        case 4:
+            options.output_file = optarg;
+            saw_output_file = true;
+            break;
+        case 5:
+            options.input_directory = optarg;
+            saw_input_directory = true;
+            break;
+        case 6:
+            print_usage();
+            std::exit(0);
+        case '?':
+            if (optopt == 0 && optind > 1) {
+                std::cerr << "Error: Unknown option '" << argv[optind - 1] << "'\n\n";
+            }
+            print_usage();
+            std::exit(1);
+        default:
+            print_usage();
+            std::exit(1);
+        }
+    }
+
+    // Check if required options were provided
+    if (!saw_output_file || !saw_input_directory) {
+        if (!saw_output_file) {
+            std::cerr << "Error: --output-file is required\n";
+        }
+        if (!saw_input_directory) {
+            std::cerr << "Error: --input-directory is required\n";
+        }
+        std::cerr << std::endl;
+        print_usage();
+        std::exit(1);
+    }
+
+    return options;
+}
+
 int main(int argc, char** argv) {
     cudaFree(nullptr);
     rapidsmpf::mpi::init(&argc, &argv);
     MPI_Comm mpi_comm;
     RAPIDSMPF_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm));
-    auto pool_size = rmm::percent_of_free_device_memory(80);
+    auto cmd_options = parse_options(argc, argv);
     auto limit_size = rmm::percent_of_free_device_memory(80);
-    rmm::mr::cuda_async_memory_resource mr{pool_size};
+    rmm::mr::cuda_async_memory_resource mr{};
     // rmm::mr::cuda_memory_resource base{};
     // rmm::mr::pool_memory_resource mr{&base, pool_size};
     auto stats_mr = rapidsmpf::RmmResourceAdaptor(&mr);
@@ -568,13 +678,12 @@ int main(int argc, char** argv) {
     memory_available[rapidsmpf::MemoryType::DEVICE] =
         rapidsmpf::LimitAvailableMemory{&stats_mr, static_cast<std::int64_t>(limit_size)};
     rapidsmpf::BufferResource br(stats_mr);  // , std::move(memory_available));
-    auto options =
-        rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
-    options.insert_if_absent("num_streaming_threads", "1");
-    constexpr cudf::size_type num_rows_per_chunk = 50'000'000;
+    auto envvars = rapidsmpf::config::get_environment_variables();
+    envvars["num_streaming_threads"] = std::to_string(cmd_options.num_streaming_threads);
+    auto options = rapidsmpf::config::Options(envvars);
     auto stats = std::make_shared<rapidsmpf::Statistics>(&stats_mr);
     {
-        auto comm = std::make_shared<rapidsmpf::MPI>(mpi_comm, options);
+        auto comm = rapidsmpf::ucxx::init_using_mpi(mpi_comm, options);
         auto progress =
             std::make_shared<rapidsmpf::ProgressThread>(comm->logger(), stats);
         auto ctx =
@@ -588,7 +697,6 @@ int main(int argc, char** argv) {
         if (argc > 1) {
             output_path = argv[1];
         }
-        bool is_dir = argc > 2;
         for (int i = 0; i < 2; i++) {
             rapidsmpf::OpID op_id{0};
             std::vector<rapidsmpf::streaming::Node> nodes;
@@ -607,16 +715,16 @@ int main(int argc, char** argv) {
                     ctx,
                     part,
                     /* num_tickets */ 4,
-                    num_rows_per_chunk,
-                    is_dir
+                    cmd_options.num_rows_per_chunk,
+                    cmd_options.input_directory
                 ));  // p_partkey, p_name
                 nodes.push_back(filter_part(ctx, part, filtered_part));  // p_partkey
                 nodes.push_back(read_partsupp(
                     ctx,
                     partsupp,
                     /* num_tickets */ 4,
-                    num_rows_per_chunk,
-                    is_dir
+                    cmd_options.num_rows_per_chunk,
+                    cmd_options.input_directory
                 ));  // ps_partkey, ps_suppkey, ps_supplycost
                 nodes.push_back(
                     // p_partkey x ps_partkey
@@ -634,8 +742,8 @@ int main(int argc, char** argv) {
                     ctx,
                     supplier,
                     /* num_tickets */ 4,
-                    num_rows_per_chunk,
-                    is_dir
+                    cmd_options.num_rows_per_chunk,
+                    cmd_options.input_directory
                 ));  // s_nationkey, s_suppkey
                 nodes.push_back(
                     // s_suppkey x ps_suppkey
@@ -655,8 +763,8 @@ int main(int argc, char** argv) {
                     ctx,
                     lineitem,
                     /* num_tickets */ 4,
-                    num_rows_per_chunk,
-                    is_dir
+                    cmd_options.num_rows_per_chunk,
+                    cmd_options.input_directory
                 ));  // l_discount, l_extendedprice, l_orderkey, l_partkey, l_quantity,
                 // l_suppkey
                 nodes.push_back(
@@ -680,8 +788,8 @@ int main(int argc, char** argv) {
                         ctx,
                         nation,
                         /* num_tickets */ 4,
-                        num_rows_per_chunk,
-                        is_dir
+                        cmd_options.num_rows_per_chunk,
+                        cmd_options.input_directory
                     )  // n_name, n_nationkey
                 );
                 nodes.push_back(
@@ -689,15 +797,14 @@ int main(int argc, char** argv) {
                         ctx,
                         orders,
                         /* num_tickets */ 4,
-                        num_rows_per_chunk,
-                        is_dir
+                        cmd_options.num_rows_per_chunk,
+                        cmd_options.input_directory
                     )  // o_orderdate, o_orderkey
                 );
                 auto all_joined = ctx->create_channel();
                 auto supplier_x_part_x_partsupp_x_lineitem_x_orders =
                     ctx->create_channel();
-                bool shuffle_join = false;
-                if (shuffle_join) {
+                if (cmd_options.use_shuffle_join) {
                     auto supplier_x_part_x_partsupp_x_lineitem_shuffled =
                         ctx->create_channel();
                     auto orders_shuffled = ctx->create_channel();
