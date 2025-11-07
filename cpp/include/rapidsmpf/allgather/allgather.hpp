@@ -544,7 +544,7 @@ class AllGather {
     detail::PostBox inserted_{};  ///< Postbox for chunks inserted by user/event loop
     detail::PostBox for_extraction_{};  ///< Postbox for chunks ready for user extraction
     ProgressThread::FunctionID function_id_{};  ///< Function ID in progress thread
-    SpillManager::SpillFunctionID spill_id_{};  ///< Function ID for spilling
+    SpillManager::SpillFunctionID spill_function_id_{};  ///< Function ID for spilling
     /// @brief Chunks being received from left neighbor
     std::vector<std::unique_ptr<detail::Chunk>> to_receive_{};
     /// @brief Fire-and-forget communication futures
