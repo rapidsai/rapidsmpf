@@ -140,8 +140,8 @@ done
 
 # Update CMake and CI dependencies based on context
 if [[ "${RUN_CONTEXT}" == "main" ]]; then
-  # In main context, update CI script URLs to use NEW release/ paradigm
-  sed_runner "s|/rapidsai/rapids-cmake/main/|/rapidsai/rapids-cmake/release/${NEXT_SHORT_TAG}/|g" ci/check_style.sh
+  # In main context, keep dependencies on main (no changes needed)
+  :
 elif [[ "${RUN_CONTEXT}" == "release" ]]; then
   # In release context, use release branch for external dependencies
   sed_runner "s|\"main\"|\"release/${NEXT_SHORT_TAG}\"|g" cmake/thirdparty/get_cudf.cmake
