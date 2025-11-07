@@ -17,13 +17,6 @@
 
 namespace rapidsmpf::config {
 
-// Serialization limits and format configuration
-inline constexpr std::size_t kMaxOptions = 65536;  // Max number of key-value pairs
-inline constexpr std::size_t kMaxKeyLen = 4 * 1024;  // Max key size in bytes
-inline constexpr std::size_t kMaxValueLen = 1 * 1024 * 1024;  // Max value size in bytes
-inline constexpr std::size_t kMaxTotalSize =
-    64 * 1024 * 1024;  // Max buffer size in bytes
-
 /**
  * @brief Type alias for a factory function that constructs options from strings.
  *
@@ -240,6 +233,12 @@ class Options {
      * - [raw bytes] — all key and value strings, contiguous and null-free.
      *
      * Offsets are absolute byte positions into the buffer.
+     *
+     * Serialization limits:
+     * - Maximum options: 65,536 entries
+     * - Maximum key size: 4 KiB
+     * - Maximum value size: 1 MiB
+     * - Maximum total buffer size: 64 MiB
      *
      * @return A byte vector representing the serialized options.
      *

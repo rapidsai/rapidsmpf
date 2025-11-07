@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -20,6 +21,19 @@
 #include <rapidsmpf/utils.hpp>
 
 namespace {
+// Serialization limits and format configuration (implementation details)
+inline constexpr std::size_t MAX_OPTIONS = 65536;
+inline constexpr std::size_t MAX_KEY_LEN = 4 * 1024;
+inline constexpr std::size_t MAX_VALUE_LEN = 1 * 1024 * 1024;
+inline constexpr std::size_t MAX_TOTAL_SIZE = 64 * 1024 * 1024;
+
+// Format constants
+inline constexpr std::array<std::uint8_t, 4> MAGIC{{'R', 'M', 'P', 'F'}};
+inline constexpr std::uint8_t FORMAT_VERSION = 1;
+inline constexpr std::uint8_t FLAG_CRC_PRESENT = 0x01;
+inline constexpr std::size_t PRELUDE_SIZE_BYTES =
+    8;  // MAGIC(4) + version(1) + flags(1) + reserved(2)
+
 // Simple CRC32 (IEEE 802.3) without table for compactness
 inline std::uint32_t crc32_compute(const std::uint8_t* data, std::size_t length) {
     std::uint32_t crc = 0xFFFFFFFFu;
@@ -130,45 +144,45 @@ std::vector<std::uint8_t> Options::serialize() const {
 
     std::size_t const count = shared.options.size();
     RAPIDSMPF_EXPECTS(
-        count <= kMaxOptions, "too many options to serialize", std::invalid_argument
+        count <= MAX_OPTIONS, "too many options to serialize", std::invalid_argument
     );
-    // New format header: [4-byte MAGIC "RMPF"][1-byte version][3-byte reserved]
-    // Followed by legacy header fields: [uint64_t count][count * 2 * uint64_t offsets]
-    static constexpr unsigned char MAGIC[4] = {'R', 'M', 'P', 'F'};
-    static constexpr std::uint8_t VERSION = 1;
-    std::size_t const prelude_size = 8;  // MAGIC(4) + version(1) + reserved(3)
+    // Header format:
+    // - prelude: [4-byte MAGIC "RMPF"][1-byte version][1-byte flags][2-byte (reserved)]
+    // - data header: [uint64_t (count)][count * 2 * uint64_t (offset pairs)]
+    // Use PRELUDE_SIZE_BYTES constant for positions
+    std::size_t const prelude_size = PRELUDE_SIZE_BYTES;
     // Compute header size with checked arithmetic
     std::uint64_t pairs_u64 = 0;
     std::uint64_t offs_bytes_u64 = 0;
-    std::uint64_t legacy_header_u64 = 0;
+    std::uint64_t data_header_u64 = 0;
     bool ok = checked_mul_u64(static_cast<std::uint64_t>(count), 2ULL, &pairs_u64)
               && checked_mul_u64(pairs_u64, sizeof(uint64_t), &offs_bytes_u64)
-              && checked_add_u64(sizeof(uint64_t), offs_bytes_u64, &legacy_header_u64);
+              && checked_add_u64(sizeof(uint64_t), offs_bytes_u64, &data_header_u64);
     RAPIDSMPF_EXPECTS(
-        ok && legacy_header_u64 <= std::numeric_limits<std::size_t>::max() - prelude_size,
+        ok && data_header_u64 <= std::numeric_limits<std::size_t>::max() - prelude_size,
         "header size overflow",
         std::invalid_argument
     );
-    std::size_t const legacy_header_size = static_cast<std::size_t>(legacy_header_u64);
-    std::size_t const header_size = prelude_size + legacy_header_size;
+    std::size_t const data_header_size = static_cast<std::size_t>(data_header_u64);
+    std::size_t const header_size = prelude_size + data_header_size;
 
     std::size_t data_size = 0;
     for (auto const& [key, option] : shared.options) {
         RAPIDSMPF_EXPECTS(
-            key.size() <= kMaxKeyLen,
+            key.size() <= MAX_KEY_LEN,
             "key length exceeds maximum allowed size",
             std::invalid_argument
         );
         auto const& val = option.get_value_as_string();
         RAPIDSMPF_EXPECTS(
-            val.size() <= kMaxValueLen,
+            val.size() <= MAX_VALUE_LEN,
             "value length exceeds maximum allowed size",
             std::invalid_argument
         );
         data_size += key.size() + val.size();
     }
     RAPIDSMPF_EXPECTS(
-        prelude_size + legacy_header_size + data_size + 4 <= kMaxTotalSize,
+        prelude_size + data_header_size + data_size + 4 <= MAX_TOTAL_SIZE,
         "serialized buffer exceeds maximum allowed size",
         std::invalid_argument
     );
@@ -178,10 +192,10 @@ std::vector<std::uint8_t> Options::serialize() const {
     std::uint8_t* base = buffer.data();
 
     // Write MAGIC and version prelude
-    std::memcpy(base, MAGIC, sizeof(MAGIC));
-    base[4] = VERSION;
+    std::memcpy(base, MAGIC.data(), MAGIC.size());
+    base[4] = FORMAT_VERSION;
     // flags: bit0 => CRC32 present
-    base[5] = 0x01;
+    base[5] = FLAG_CRC_PRESENT;
     base[6] = 0;
     base[7] = 0;
 
@@ -257,14 +271,14 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
     std::size_t total_size = buffer.size();
 
     // Require MAGIC/version prelude
-    static constexpr unsigned char MAGIC[4] = {'R', 'M', 'P', 'F'};
     RAPIDSMPF_EXPECTS(
-        total_size >= prelude_size + sizeof(uint64_t) && std::memcmp(base, MAGIC, 4) == 0,
+        total_size >= PRELUDE_SIZE_BYTES + sizeof(uint64_t)
+            && std::memcmp(base, MAGIC.data(), MAGIC.size()) == 0,
         "buffer is too small to contain prelude and count",
         std::invalid_argument
     );
     uint64_t count = 0;
-    std::size_t prelude_size = 8;  // MAGIC + version + flags/reserved
+    std::size_t prelude_size = PRELUDE_SIZE_BYTES;  // MAGIC + version + flags/reserved
     std::uint8_t version = base[4];
     std::uint8_t flags = base[5];
     RAPIDSMPF_EXPECTS(
@@ -275,29 +289,29 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
     // Compute header size with checked arithmetic and enforce limits
     std::uint64_t pairs_u64 = 0;
     std::uint64_t offs_bytes_u64 = 0;
-    std::uint64_t legacy_header_u64 = 0;
+    std::uint64_t data_header_u64 = 0;
     bool ok = checked_mul_u64(static_cast<std::uint64_t>(count), 2ULL, &pairs_u64)
               && checked_mul_u64(pairs_u64, sizeof(uint64_t), &offs_bytes_u64)
-              && checked_add_u64(sizeof(uint64_t), offs_bytes_u64, &legacy_header_u64);
+              && checked_add_u64(sizeof(uint64_t), offs_bytes_u64, &data_header_u64);
     RAPIDSMPF_EXPECTS(
-        ok && legacy_header_u64 <= std::numeric_limits<std::size_t>::max() - prelude_size,
+        ok && data_header_u64 <= std::numeric_limits<std::size_t>::max() - prelude_size,
         "header size overflow",
         std::invalid_argument
     );
-    std::size_t const legacy_header_size = static_cast<std::size_t>(legacy_header_u64);
-    std::size_t const header_size = prelude_size + legacy_header_size;
+    std::size_t const data_header_size = static_cast<std::size_t>(data_header_u64);
+    std::size_t const header_size = prelude_size + data_header_size;
     RAPIDSMPF_EXPECTS(
         header_size <= total_size,
         "buffer is too small for header with declared count",
         std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(
-        static_cast<std::size_t>(count) <= kMaxOptions,
+        static_cast<std::size_t>(count) <= MAX_OPTIONS,
         "too many options in serialized buffer",
         std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(
-        total_size <= kMaxTotalSize,
+        total_size <= MAX_TOTAL_SIZE,
         "serialized buffer exceeds maximum allowed size",
         std::invalid_argument
     );
@@ -377,12 +391,12 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
         std::size_t const value_len =
             static_cast<std::size_t>(next_key_offset - value_offset);
         RAPIDSMPF_EXPECTS(
-            key_len <= kMaxKeyLen,
+            key_len <= MAX_KEY_LEN,
             "key length exceeds maximum allowed size",
             std::invalid_argument
         );
         RAPIDSMPF_EXPECTS(
-            value_len <= kMaxValueLen,
+            value_len <= MAX_VALUE_LEN,
             "value length exceeds maximum allowed size",
             std::invalid_argument
         );
