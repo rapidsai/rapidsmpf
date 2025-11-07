@@ -106,16 +106,8 @@ void TagMetadataPayloadExchange::progress() {
     auto completed_data = complete_data_transfers();
 
     // Store all completed messages
-    received_messages_.insert(
-        received_messages_.end(),
-        std::make_move_iterator(completed_metadata_only.begin()),
-        std::make_move_iterator(completed_metadata_only.end())
-    );
-    received_messages_.insert(
-        received_messages_.end(),
-        std::make_move_iterator(completed_data.begin()),
-        std::make_move_iterator(completed_data.end())
-    );
+    std::ranges::move(completed_metadata_only, std::back_inserter(received_messages_));
+    std::ranges::move(completed_data, std::back_inserter(received_messages_));
 
     cleanup_completed_operations();
 
