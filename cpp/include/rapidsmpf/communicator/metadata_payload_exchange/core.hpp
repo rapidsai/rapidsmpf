@@ -63,7 +63,7 @@ class MetadataPayloadExchange {
          */
         Message(
             Rank peer_rank,
-            std::vector<std::uint8_t> metadata,
+            std::vector<std::uint8_t>&& metadata,
             std::unique_ptr<Buffer> data = nullptr
         );
 

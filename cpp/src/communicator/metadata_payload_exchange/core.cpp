@@ -9,7 +9,7 @@
 namespace rapidsmpf::communicator {
 
 MetadataPayloadExchange::Message::Message(
-    Rank peer_rank, std::vector<std::uint8_t> metadata, std::unique_ptr<Buffer> data
+    Rank peer_rank, std::vector<std::uint8_t>&& metadata, std::unique_ptr<Buffer> data
 )
     : peer_rank_(peer_rank), metadata_(std::move(metadata)), data_(std::move(data)) {}
 
