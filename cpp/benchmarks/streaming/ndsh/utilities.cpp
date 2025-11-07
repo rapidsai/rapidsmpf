@@ -9,12 +9,12 @@
 #include <filesystem>
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
-
 namespace rapidsmpf::ndsh {
 namespace detail {
 std::vector<std::string> list_parquet_files(std::string const& root_path) {
@@ -40,7 +40,7 @@ std::vector<std::string> list_parquet_files(std::string const& root_path) {
         if (entry.is_regular_file()) {
             std::string filename = entry.path().filename().string();
             if (filename.ends_with(".parquet")) {
-                result.push_back(filename);
+                result.push_back(entry.path().string());
             }
         }
     }

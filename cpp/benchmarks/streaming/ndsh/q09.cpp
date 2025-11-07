@@ -196,7 +196,6 @@ rapidsmpf::streaming::Node filter_part(
     auto mr = ctx->br()->device_mr();
     while (true) {
         auto msg = co_await ch_in->receive();
-        ctx->comm()->logger().print("Filter chunk");
         if (msg.empty()) {
             break;
         }
@@ -242,7 +241,6 @@ rapidsmpf::streaming::Node filter_part(
         if (msg.empty()) {
             break;
         }
-        ctx->comm()->logger().print("Select chunk");
         co_await ctx->executor()->schedule();
         auto chunk = rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
@@ -478,7 +476,6 @@ static __device__ void calculate_amount(double *amount, double discount, double 
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
     auto msg = co_await ch_in->receive();
-    ctx->comm()->logger().print("Sortby");
     // We know we only have a single chunk from the groupby
     if (msg.empty()) {
         co_return;
@@ -523,7 +520,6 @@ static __device__ void calculate_amount(double *amount, double discount, double 
     if (msg.empty()) {
         co_return;
     }
-    ctx->comm()->logger().print("write parquet");
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
     auto sink = cudf::io::sink_info(output_path);
@@ -540,7 +536,8 @@ static __device__ void calculate_amount(double *amount, double discount, double 
         chunk.table_view().num_rows(),
         " rows and ",
         chunk.table_view().num_columns(),
-        " columns to result.parquet"
+        " columns to ",
+        output_path
     );
 }
 
@@ -684,6 +681,7 @@ int main(int argc, char** argv) {
     auto stats = std::make_shared<rapidsmpf::Statistics>(&stats_mr);
     {
         auto comm = rapidsmpf::ucxx::init_using_mpi(mpi_comm, options);
+        // auto comm = std::make_shared<rapidsmpf::MPI>(mpi_comm, options);
         auto progress =
             std::make_shared<rapidsmpf::ProgressThread>(comm->logger(), stats);
         auto ctx =
@@ -693,10 +691,7 @@ int main(int argc, char** argv) {
         );
         comm->logger().print("Executor has ", ctx->comm()->nranks(), " ranks");
 
-        std::string output_path = "q9-result.parquet";
-        if (argc > 1) {
-            output_path = argv[1];
-        }
+        std::string output_path = cmd_options.output_file;
         for (int i = 0; i < 2; i++) {
             rapidsmpf::OpID op_id{0};
             std::vector<rapidsmpf::streaming::Node> nodes;

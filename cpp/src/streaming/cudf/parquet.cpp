@@ -95,7 +95,7 @@ Node read_parquet(
     std::shared_ptr<Channel> ch_out,
     std::size_t num_producers,
     cudf::io::parquet_reader_options options,
-    cudf::size_type num_rows_per_chunk
+    [[maybe_unused]] cudf::size_type num_rows_per_chunk
 ) {
     ShutdownAtExit c{ch_out};
     co_await ctx->executor()->schedule();
@@ -132,8 +132,9 @@ Node read_parquet(
     if (local_files.empty()) {
         co_return;
     }
+
     cudf::io::parquet_reader_options local_options{options};
-    local_options.set_source(cudf::io::source_info(std::move(local_files)));
+    local_options.set_source(cudf::io::source_info(local_files));
     auto metadata = cudf::io::read_parquet_metadata(local_options.get_source());
     auto const local_num_rows = metadata.num_rows();
     auto skip_rows = options.get_skip_rows();
@@ -169,6 +170,7 @@ Node read_parquet(
             chunks_per_producer[sequence_number % num_producers].emplace_back(
                 sequence_number, std::move(chunk_files)
             );
+            nfiles_done += to_do;
             sequence_number++;
         }
         // while (skip_rows < local_num_rows && num_rows_to_read > 0) {
