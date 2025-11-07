@@ -8,7 +8,6 @@ package_name="rapidsmpf"
 package_dir="python/rapidsmpf"
 source rapids-configure-sccache
 export SCCACHE_NO_CACHE=1
-sccache --stop-server
 source rapids-init-pip
 
 RAPIDS_PY_CUDA_SUFFIX="$(rapids-wheel-ctk-name-gen "${RAPIDS_CUDA_VERSION}")"
