@@ -135,6 +135,9 @@ Node read_parquet(
     auto local_files = std::vector(
         files.begin() + file_offset, files.begin() + file_offset + files_per_rank
     );
+    if (local_files.empty()) {
+        co_return;
+    }
     cudf::io::parquet_reader_options local_options{options};
     local_options.set_source(cudf::io::source_info(std::move(local_files)));
     auto metadata = cudf::io::read_parquet_metadata(local_options.get_source());
