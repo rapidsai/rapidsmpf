@@ -10,8 +10,7 @@ from rapidsmpf.buffer.buffer cimport MemoryType as cpp_MemoryType
 cdef extern from "<rapidsmpf/buffer/content_description.hpp>" nogil:
     cdef cppclass cpp_ContentDescription"rapidsmpf::ContentDescription":
         bool_t spillable() noexcept
-        size_t &content_size(cpp_MemoryType mem_type) noexcept
+        size_t content_size(cpp_MemoryType mem_type) noexcept
 
 
-cdef cpp_ContentDescription content_description_to_cpp(object cd)
 cdef content_description_from_cpp(cpp_ContentDescription cd)
