@@ -38,7 +38,8 @@ constexpr std::array<std::byte, 4> MAGIC{
 constexpr std::byte FORMAT_VERSION = static_cast<std::byte>(1);
 constexpr std::byte FLAG_CRC_PRESENT = static_cast<std::byte>(0x01);
 // MAGIC(4) + version(1) + flags(1) + reserved(2)
-constexpr std::size_t PRELUDE_SIZE = 8;
+constexpr std::size_t PRELUDE_SIZE =
+    sizeof(MAGIC) + sizeof(FORMAT_VERSION) + sizeof(FLAG_CRC_PRESENT) + 2;
 constexpr std::size_t CRC32_SIZE = 4;
 
 std::uint32_t crc32_compute(std::byte const* data, std::size_t length) {
