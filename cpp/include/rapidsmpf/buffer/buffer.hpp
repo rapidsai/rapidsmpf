@@ -24,7 +24,7 @@
 namespace rapidsmpf {
 
 /// @brief Enum representing the type of memory.
-enum class MemoryType : int {
+enum class MemoryType : uint8_t {
     DEVICE = 0,  ///< Device memory
     HOST = 1  ///< Host memory
 };
@@ -35,6 +35,20 @@ constexpr MemoryType LowestSpillType = MemoryType::HOST;
 /// @brief Array of all the different memory types.
 /// @note Ensure that this array is always sorted in decreasing order of preference.
 constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
+
+/**
+ * @brief Get the lower memory types inclusive of the given memory type.
+ *
+ * @param mem_type The memory type to get the lower memory types for.
+ * @return A span of the lower memory types inclusive of the given memory type.
+ */
+constexpr std::span<const MemoryType> LowerMemoryTypesInclusive(
+    MemoryType mem_type
+) noexcept {
+    return std::span<const MemoryType>{
+        MEMORY_TYPES.begin() + static_cast<std::size_t>(mem_type), MEMORY_TYPES.end()
+    };
+}
 
 /**
  * @brief Buffer representing device or host memory.
