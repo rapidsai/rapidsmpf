@@ -32,6 +32,7 @@
  #include <cudf/table/table_view.hpp>
  #include <cudf/transform.hpp>
  #include <cudf/types.hpp>
+ #include <cudf/unary.hpp>
 #include <cudf/wrappers/timestamps.hpp>
  #include <rmm/mr/device/cuda_async_memory_resource.hpp>
  #include <rmm/mr/device/per_device_resource.hpp>
@@ -87,7 +88,10 @@
         get_table_path(input_directory, "customer")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                       .columns({"c_mktsegment", "c_custkey"})
+                       .columns({
+                        "c_mktsegment", // 0
+                        "c_custkey" // 1
+                    })
                        .build();
     return rapidsmpf::streaming::node::read_parquet(
         ctx, ch_out, num_producers, options, num_rows_per_chunk
@@ -106,12 +110,12 @@
      );
      auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                         .columns(
-                            {"l_discount",
-                             "l_extendedprice",
-                             "l_orderkey",
-                             "l_partkey",
-                             "l_quantity",
-                             "l_suppkey"}
+                            {
+                                "l_orderkey", // 0
+                                "l_shipdate", // 1
+                                "l_extendedprice", // 2
+                                "l_discount", // 3
+                                }
                         )
                         .build();
      return rapidsmpf::streaming::node::read_parquet(
@@ -131,7 +135,12 @@
          get_table_path(input_directory, "orders")
      );
      auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
-                        .columns({"o_orderdate", "o_orderkey"})
+                        .columns({
+                            "o_orderkey", // 0
+                            "o_orderdate", // 1
+                            "o_shippriority", // 2
+                            "o_custkey" // 3
+                        })
                         .build();
      return rapidsmpf::streaming::node::read_parquet(
          ctx, ch_out, num_producers, options, num_rows_per_chunk
@@ -157,11 +166,16 @@
          );
          auto chunk_stream = chunk.stream();
          auto table = chunk.table_view();
-         auto p_name = table.column(0);
-         auto target = cudf::make_string_scalar("green", chunk_stream, mr);
-         auto mask = cudf::strings::contains(
-             p_name, *static_cast<cudf::string_scalar*>(target.get()), chunk_stream, mr
-         );
+         auto c_mktsegment = table.column(0);
+         auto var1 = cudf::make_string_scalar("BUILDING", chunk_stream, mr);
+         auto mask = cudf::binary_operation(
+            table.column(0), // c_mktsegment is col 0
+            *var1.get(),
+            cudf::binary_operator::EQUAL,
+            cudf::data_type(cudf::type_id::BOOL8),
+            chunk_stream,
+            mr
+        );
          co_await ch_out->send(
              rapidsmpf::streaming::to_message(
                  msg.sequence_number(),
@@ -176,6 +190,25 @@
      }
      co_await ch_out->drain(ctx->executor());
  }
+
+//  std::tm make_tm(int year, int month, int day)
+// {
+//   std::tm tm{};
+//   tm.tm_year = year - 1900;
+//   tm.tm_mon  = month - 1;
+//   tm.tm_mday = day;
+//   return tm;
+// }
+
+//  int32_t days_since_epoch(int year, int month, int day)
+// {
+//   std::tm tm             = make_tm(year, month, day);
+//   std::tm epoch          = make_tm(1970, 1, 1);
+//   std::time_t time       = std::mktime(&tm);
+//   std::time_t epoch_time = std::mktime(&epoch);
+//   double diff            = std::difftime(time, epoch_time) / (60 * 60 * 24);
+//   return static_cast<int32_t>(diff);
+// }
 
 
 //  # .filter(pl.col("o_orderdate") < var2) ## var2 = date(1995, 3, 15)
@@ -197,24 +230,43 @@
         );
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
-        auto p_name = table.column(0);
         
 
-        std::tm timeinfo = {};
-        timeinfo.tm_year = 1993 - 1900; // years since 1900
-        timeinfo.tm_mon  = 3 - 1;       // months since January
-        timeinfo.tm_mday = 15;
-        time_t epoch_secs = std::mktime(&timeinfo);
-        int64_t epoch_ms = static_cast<int64_t>(epoch_secs) * 1000;
-        auto var2 = cudf::make_fixed_width_scalar<int64_t>(
-            epoch_ms,
-            chunk_stream,
-            mr
-        );
+        // std::tm timeinfo = {};
+        // timeinfo.tm_year = 1993 - 1900; // years since 1900
+        // timeinfo.tm_mon  = 3 - 1;       // months since January
+        // timeinfo.tm_mday = 15;
+        // time_t epoch_secs = std::mktime(&timeinfo);
+        // int64_t epoch_ms = static_cast<int64_t>(epoch_secs) * 1000;
+        // auto var2 = cudf::make_fixed_width_scalar<int64_t>(
+        //     epoch_ms,
+        //     chunk_stream,
+        //     mr
+        // );
+
+        // auto o_orderdate_int64 = cudf::cast(
+        //     table.column(1),
+        //     cudf::data_type{cudf::type_id::INT64}
+        // );
+
+        cudf::data_type dtype = table.column(1).type();
+        cudf::type_id type_id = dtype.id();
+        std::cout << "Column type_id: " << static_cast<int>(type_id) << std::endl;
+
+        auto days_since_epoch = cudf::timestamp_D{cudf::duration_D{8440}};
+        auto var2 = cudf::timestamp_scalar<cudf::timestamp_D>{days_since_epoch};
+    // auto cv = table->get_column(6).view();
+
+    // auto mask =
+    //     cudf::binary_operation(cv, date, cudf::binary_operator::LESS_EQUAL,
+    //                            cudf::data_type{cudf::type_id::BOOL8});
+
+        // auto var2 = cudf::timestamp_scalar<cudf::timestamp_ms>(days_since_epoch(1993, 3, 15), true);
 
         auto mask = cudf::binary_operation(
             table.column(1), // o_orderdate is col 1
-            *var2.get(),
+            // *o_orderdate_int64,
+            var2,
             cudf::binary_operator::LESS,
             cudf::data_type(cudf::type_id::BOOL8),
             chunk_stream,
@@ -225,7 +277,10 @@
                 msg.sequence_number(),
                 std::make_unique<rapidsmpf::streaming::TableChunk>(
                     cudf::apply_boolean_mask(
-                        table.select({1}), mask->view(), chunk_stream, mr
+                        table, // still need all columns
+                        mask->view(), 
+                        chunk_stream, 
+                        mr
                     ),
                     chunk_stream
                 )
@@ -256,24 +311,27 @@ rapidsmpf::streaming::Node filter_lineitem(
         );
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
-        auto p_name = table.column(0);
         
 
-        std::tm timeinfo = {};
-        timeinfo.tm_year = 1993 - 1900; // years since 1900
-        timeinfo.tm_mon  = 3 - 1;       // months since January
-        timeinfo.tm_mday = 15;
-        time_t epoch_secs = std::mktime(&timeinfo);
-        int64_t epoch_ms = static_cast<int64_t>(epoch_secs) * 1000;
-        auto var2 = cudf::make_fixed_width_scalar<int64_t>(
-            epoch_ms,
-            chunk_stream,
-            mr
-        );
+        // std::tm timeinfo = {};
+        // timeinfo.tm_year = 1993 - 1900; // years since 1900
+        // timeinfo.tm_mon  = 3 - 1;       // months since January
+        // timeinfo.tm_mday = 15;
+        // time_t epoch_secs = std::mktime(&timeinfo);
+        // int64_t epoch_ms = static_cast<int64_t>(epoch_secs) * 1000;
+        // auto var2 = cudf::make_fixed_width_scalar<int64_t>(
+        //     epoch_ms,
+        //     chunk_stream,
+        //     mr
+        // );
+
+        auto days_since_epoch = cudf::timestamp_D{cudf::duration_D{8440}};
+        auto var2 = cudf::timestamp_scalar<cudf::timestamp_D>{days_since_epoch};
 
         auto mask = cudf::binary_operation(
             table.column(1), // l_shipdate is col 1
-            *var2.get(),
+            // *var2.get(),
+            var2,
             cudf::binary_operator::GREATER,
             cudf::data_type(cudf::type_id::BOOL8),
             chunk_stream,
@@ -871,213 +929,151 @@ rapidsmpf::streaming::Node filter_lineitem(
              std::vector<rapidsmpf::streaming::Node> nodes;
              auto start = std::chrono::steady_clock::now();
              {
-                 RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing Q9 pipeline");
-                 auto part = ctx->create_channel();
-                 auto filtered_part = ctx->create_channel();
-                 auto partsupp = ctx->create_channel();
-                 auto part_x_partsupp = ctx->create_channel();
-                 auto supplier = ctx->create_channel();
+                 RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing Q3 pipeline");
+
+                 // Input data channels
+                 auto customer = ctx->create_channel();
                  auto lineitem = ctx->create_channel();
-                 auto supplier_x_part_x_partsupp = ctx->create_channel();
-                 auto supplier_x_part_x_partsupp_x_lineitem = ctx->create_channel();
-                 nodes.push_back(read_part(
-                     ctx,
-                     part,
-                     /* num_tickets */ 2,
-                     cmd_options.num_rows_per_chunk,
-                     cmd_options.input_directory
-                 ));  // p_partkey, p_name
-                 nodes.push_back(filter_part(ctx, part, filtered_part));  // p_partkey
-                 nodes.push_back(read_partsupp(
-                     ctx,
-                     partsupp,
-                     /* num_tickets */ 4,
-                     cmd_options.num_rows_per_chunk,
-                     cmd_options.input_directory
-                 ));  // ps_partkey, ps_suppkey, ps_supplycost
-                 nodes.push_back(
-                     // p_partkey x ps_partkey
-                     rapidsmpf::ndsh::inner_join_broadcast(
-                         ctx,
-                         filtered_part,
-                         partsupp,
-                         part_x_partsupp,
-                         {0},
-                         {0},
-                         rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
-                     )  // p_partkey/ps_partkey, ps_suppkey, ps_supplycost
-                 );
-                 nodes.push_back(read_supplier(
-                     ctx,
-                     supplier,
-                     /* num_tickets */ 2,
-                     cmd_options.num_rows_per_chunk,
-                     cmd_options.input_directory
-                 ));  // s_nationkey, s_suppkey
-                 nodes.push_back(
-                     // s_suppkey x ps_suppkey
-                     rapidsmpf::ndsh::inner_join_broadcast(
-                         ctx,
-                         supplier,
-                         part_x_partsupp,
-                         supplier_x_part_x_partsupp,
-                         {1},
-                         {1},
-                         rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
- 
-                     )  // s_nationkey, s_suppkey/ps_suppkey, p_partkey/ps_partkey,
-                        // ps_supplycost
-                 );
-                 nodes.push_back(read_lineitem(
-                     ctx,
-                     lineitem,
-                     /* num_tickets */ 4,
-                     cmd_options.num_rows_per_chunk,
-                     cmd_options.input_directory
-                 ));  // l_discount, l_extendedprice, l_orderkey, l_partkey, l_quantity,
-                 // l_suppkey
-                 nodes.push_back(
-                     // [p_partkey, ps_suppkey] x [l_partkey, l_suppkey]
-                     rapidsmpf::ndsh::inner_join_broadcast(
-                         ctx,
-                         supplier_x_part_x_partsupp,
-                         lineitem,
-                         supplier_x_part_x_partsupp_x_lineitem,
-                         {2, 1},
-                         {3, 5},
-                         rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
-                         rapidsmpf::ndsh::KeepKeys::NO
-                     )  // s_nationkey, ps_supplycost,
-                        // l_discount, l_extendedprice, l_orderkey, l_quantity
-                 );
-                 auto nation = ctx->create_channel();
                  auto orders = ctx->create_channel();
-                 nodes.push_back(
-                     read_nation(
-                         ctx,
-                         nation,
-                         /* num_tickets */ 1,
-                         cmd_options.num_rows_per_chunk,
-                         cmd_options.input_directory
-                     )  // n_name, n_nationkey
-                 );
-                 nodes.push_back(
-                     read_orders(
-                         ctx,
-                         orders,
-                         /* num_tickets */ 4,
-                         cmd_options.num_rows_per_chunk,
-                         cmd_options.input_directory
-                     )  // o_orderdate, o_orderkey
-                 );
+
+                 // filtered channels
+                 auto filtered_customer = ctx->create_channel();
+                 auto filtered_orders = ctx->create_channel();
+                 auto filtered_lineitem = ctx->create_channel();
+
+                 // join channels
+                 auto customer_x_orders = ctx->create_channel();
+                 auto customer_x_orders_x_lineitem = ctx->create_channel();
                  auto all_joined = ctx->create_channel();
-                 auto supplier_x_part_x_partsupp_x_lineitem_x_orders =
-                     ctx->create_channel();
-                 if (cmd_options.use_shuffle_join) {
-                     auto supplier_x_part_x_partsupp_x_lineitem_shuffled =
-                         ctx->create_channel();
-                     auto orders_shuffled = ctx->create_channel();
-                     std::uint32_t num_partitions = 8;
-                     nodes.push_back(
-                         rapidsmpf::ndsh::shuffle(
-                             ctx,
-                             supplier_x_part_x_partsupp_x_lineitem,
-                             supplier_x_part_x_partsupp_x_lineitem_shuffled,
-                             {4},
-                             num_partitions,
-                             rapidsmpf::OpID{
-                                 static_cast<rapidsmpf::OpID>(10 * i + op_id++)
-                             }
-                         )
-                     );
-                     nodes.push_back(
-                         rapidsmpf::ndsh::shuffle(
-                             ctx,
-                             orders,
-                             orders_shuffled,
-                             {1},
-                             num_partitions,
-                             rapidsmpf::OpID{
-                                 static_cast<rapidsmpf::OpID>(10 * i + op_id++)
-                             }
-                         )
-                     );
-                     nodes.push_back(
-                         // l_orderkey x o_orderkey
-                         rapidsmpf::ndsh::inner_join_shuffle(
-                             ctx,
-                             supplier_x_part_x_partsupp_x_lineitem_shuffled,
-                             orders_shuffled,
-                             supplier_x_part_x_partsupp_x_lineitem_x_orders,
-                             {4},
-                             {1},
-                             rapidsmpf::ndsh::KeepKeys::NO
-                         )  // s_nationkey, ps_supplycost, l_discount, l_extendedprice,
-                            // l_quantity, o_orderdate
-                     );
-                 } else {
-                     nodes.push_back(
-                         // l_orderkey x o_orderkey
-                         rapidsmpf::ndsh::inner_join_broadcast(
-                             ctx,
-                             supplier_x_part_x_partsupp_x_lineitem,
-                             orders,
-                             supplier_x_part_x_partsupp_x_lineitem_x_orders,
-                             {4},
-                             {1},
-                             rapidsmpf::OpID{
-                                 static_cast<rapidsmpf::OpID>(10 * i + op_id++)
-                             },
-                             rapidsmpf::ndsh::KeepKeys::NO
-                         )  // s_nationkey, ps_supplycost, l_discount, l_extendedprice,
-                            // l_quantity, o_orderdate
-                     );
-                 }
+
+                 
+                 // read and filter customer
+                 nodes.push_back(read_customer(
+                     ctx,
+                     customer,
+                     /* num_tickets */ 2,
+                     cmd_options.num_rows_per_chunk,
+                     cmd_options.input_directory
+                 ));
+                 nodes.push_back(filter_customer(ctx, customer, filtered_customer));
+
+                 // read and filter orders
+                 nodes.push_back(read_orders(
+                     ctx,
+                     orders,
+                     /* num_tickets */ 4,
+                     cmd_options.num_rows_per_chunk,
+                     cmd_options.input_directory
+                 ));
+                 nodes.push_back(filter_orders(ctx, orders, filtered_orders));
+
+                 // read and filter lineitem
+                 nodes.push_back(read_lineitem(
+                    ctx,
+                    lineitem,
+                    /* num_tickets */ 4,
+                    cmd_options.num_rows_per_chunk,
+                    cmd_options.input_directory
+                ));
+                nodes.push_back(filter_lineitem(ctx, lineitem, filtered_lineitem));
+
+                // join orders into customer
                  nodes.push_back(
-                     // n_nationkey x s_nationkey
+                     // c_custkey x o_orderkey
                      rapidsmpf::ndsh::inner_join_broadcast(
                          ctx,
-                         nation,
-                         supplier_x_part_x_partsupp_x_lineitem_x_orders,
-                         all_joined,
-                         {1},
+                         filtered_customer,
+                         filtered_orders,
+                         customer_x_orders,
                          {0},
+                         {3},
                          rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
-                         rapidsmpf::ndsh::KeepKeys::NO
-                     )  // n_name, ps_supplycost, l_discount, l_extendedprice,
-                     // l_quantity, o_orderdate
-                 );
-                 auto groupby_input = ctx->create_channel();
-                 nodes.push_back(select_columns(ctx, all_joined, groupby_input));
-                 auto chunkwise_groupby_output = ctx->create_channel();
-                 nodes.push_back(
-                     chunkwise_groupby_agg(ctx, groupby_input, chunkwise_groupby_output)
-                 );
-                 auto concatenated_groupby_output = ctx->create_channel();
-                 nodes.push_back(
-                     rapidsmpf::ndsh::concatenate(
-                         ctx,
-                         chunkwise_groupby_output,
-                         concatenated_groupby_output,
-                         rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+                         rapidsmpf::ndsh::KeepKeys::YES
                      )
                  );
-                 auto groupby_output = ctx->create_channel();
-                 nodes.push_back(final_groupby_agg(
-                     ctx,
-                     concatenated_groupby_output,
-                     groupby_output,
-                     rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
-                 ));
+
+                 // join lineitem into customer_x_orders
+                 nodes.push_back(
+                    // o_orderkey x l_orderkey
+                    rapidsmpf::ndsh::inner_join_broadcast(
+                        ctx,
+                        customer_x_orders,
+                        filtered_lineitem,
+                        customer_x_orders_x_lineitem,
+                        {1},
+                        {0},
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
+                        rapidsmpf::ndsh::KeepKeys::YES
+                    )
+                );
+
+                // with columns
+                auto groupby_input = ctx->create_channel();
+
+                nodes.push_back(with_columns(
+                    ctx,
+                    customer_x_orders_x_lineitem,
+                    groupby_input
+                    ));
+
+                // groupby aggregation (agg (per chunk) -> concat -> agg (global))
+                auto chunkwise_groupby_output = ctx->create_channel();
+                nodes.push_back(chunkwise_groupby_agg(
+                    ctx, 
+                    groupby_input, 
+                    chunkwise_groupby_output
+                ));
+                auto concatenated_groupby_output = ctx->create_channel();
+                nodes.push_back(rapidsmpf::ndsh::concatenate(
+                    ctx,
+                    chunkwise_groupby_output,
+                    concatenated_groupby_output,
+                    rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+                ));
+                auto groupby_output = ctx->create_channel();
+                nodes.push_back(final_groupby_agg(
+                    ctx,
+                    concatenated_groupby_output,
+                    groupby_output,
+                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+                ));
+
+                // select columns
+                auto select_output = ctx->create_channel();
+                nodes.push_back(select_columns(
+                    ctx, 
+                    groupby_output, 
+                    select_output
+                ));
+
+                // sort by                
                  auto sorted_output = ctx->create_channel();
-                 nodes.push_back(sort_by(ctx, groupby_output, sorted_output));
-                 nodes.push_back(write_parquet(ctx, sorted_output, output_path));
+                 nodes.push_back(sort_by(
+                    ctx, 
+                    select_output, 
+                    sorted_output
+                ));
+
+                // head
+                auto head_output = ctx->create_channel();
+                nodes.push_back(head(
+                    ctx, 
+                    sorted_output, 
+                    head_output
+                ));
+
+                // write parquet
+                 nodes.push_back(write_parquet(
+                    ctx,
+                    head_output, 
+                    output_path
+                ));
              }
              auto end = std::chrono::steady_clock::now();
              std::chrono::duration<double> pipeline = end - start;
              start = std::chrono::steady_clock::now();
              {
-                 RAPIDSMPF_NVTX_SCOPED_RANGE("Q9 Iteration");
+                 RAPIDSMPF_NVTX_SCOPED_RANGE("Q3 Iteration");
                  rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
              }
              end = std::chrono::steady_clock::now();
