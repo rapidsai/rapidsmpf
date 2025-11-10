@@ -195,7 +195,7 @@ std::vector<std::uint8_t> Options::serialize() const {
     );
 
     std::vector<std::uint8_t> buffer(header_size + data_size + CRC32_SIZE);
-    std::byte* base = reinterpret_cast<std::byte*>(buffer.data());
+    auto base = reinterpret_cast<std::byte*>(buffer.data());
 
     // Write MAGIC and version prelude
     std::memcpy(base, MAGIC.data(), MAGIC.size());
@@ -265,7 +265,7 @@ std::vector<std::uint8_t> Options::serialize() const {
 }
 
 Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
-    std::byte const* base = reinterpret_cast<std::byte const*>(buffer.data());
+    auto const base = reinterpret_cast<std::byte const*>(buffer.data());
     std::size_t total_size = buffer.size();
 
     // Require MAGIC/version prelude
