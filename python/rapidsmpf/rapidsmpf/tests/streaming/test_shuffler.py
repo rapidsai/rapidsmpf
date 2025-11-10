@@ -11,8 +11,8 @@ import pytest
 import cudf
 
 from rapidsmpf.streaming.coll.shuffler import shuffler
-from rapidsmpf.streaming.core.channel import Channel, Message
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import run_streaming_pipeline
 from rapidsmpf.streaming.cudf.partition import partition_and_pack, unpack_and_concat
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         PartitionMapChunk,
         PartitionVectorChunk,
     )
+    from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
 
@@ -56,21 +57,20 @@ def test_single_rank_shuffler(
         hi = (i + 1) * chunk_size
         df_chunk = df.iloc[lo:hi]
         chunk = TableChunk.from_pylibcudf_table(
-            sequence_number=i,
             table=cudf_to_pylibcudf_table(df_chunk),
             stream=stream,
             exclusive_view=False,
         )
-        input_chunks.append(Message(chunk))
+        input_chunks.append(Message(i, chunk))
 
     # Build the streaming pipeline:
     #   push -> partition/pack -> shuffle -> unpack/concat -> pull.
     nodes = []
 
-    ch1: Channel[TableChunk] = Channel()
+    ch1: Channel[TableChunk] = context.create_channel()
     nodes.append(push_to_channel(context, ch1, input_chunks))
 
-    ch2: Channel[PartitionMapChunk] = Channel()
+    ch2: Channel[PartitionMapChunk] = context.create_channel()
     nodes.append(
         partition_and_pack(
             context,
@@ -81,7 +81,7 @@ def test_single_rank_shuffler(
         )
     )
 
-    ch3: Channel[PartitionVectorChunk] = Channel()
+    ch3: Channel[PartitionVectorChunk] = context.create_channel()
     nodes.append(
         shuffler(
             context,
@@ -92,7 +92,7 @@ def test_single_rank_shuffler(
         )
     )
 
-    ch4: Channel[TableChunk] = Channel()
+    ch4: Channel[TableChunk] = context.create_channel()
     nodes.append(unpack_and_concat(context, ch_in=ch3, ch_out=ch4))
 
     pull_node, out_messages = pull_from_channel(context, ch_in=ch4)

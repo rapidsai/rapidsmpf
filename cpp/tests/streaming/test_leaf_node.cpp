@@ -13,9 +13,11 @@
 #include <cudf_test/table_utilities.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
+#include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
@@ -39,21 +41,21 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
     }
 
     std::vector<Node> nodes;
-    auto ch1 = std::make_shared<Channel>();
+    auto ch1 = ctx->create_channel();
 
     // Note, we use a scope to check that coroutines keeps the input alive.
     {
         std::vector<Message> inputs;
         for (int i = 0; i < num_chunks; ++i) {
-            inputs.emplace_back(
+            inputs.emplace_back(to_message(
+                i,
                 std::make_unique<TableChunk>(
-                    i,
                     std::make_unique<cudf::table>(
                         expects[i], stream, ctx->br()->device_mr()
                     ),
                     stream
                 )
-            );
+            ));
         }
 
         nodes.push_back(node::push_to_channel(ctx, ch1, std::move(inputs)));
@@ -66,7 +68,7 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
 
     EXPECT_EQ(expects.size(), outputs.size());
     for (std::size_t i = 0; i < expects.size(); ++i) {
-        EXPECT_EQ(outputs[i].get<TableChunk>().sequence_number(), i);
+        EXPECT_EQ(outputs[i].sequence_number(), i);
         CUDF_TEST_EXPECT_TABLES_EQUIVALENT(
             outputs[i].get<TableChunk>().table_view(), expects[i].view()
         );
@@ -78,10 +80,7 @@ Node shutdown(
     std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch, std::vector<Node>&& tasks
 ) {
     ShutdownAtExit c{ch};
-    auto results = co_await coro::when_all(std::move(tasks));
-    for (auto& r : results) {
-        r.return_value();
-    }
+    coro_results(co_await coro::when_all(std::move(tasks)));
     co_await ch->drain(ctx->executor());
 }
 
@@ -93,12 +92,17 @@ Node producer(
 ) {
     co_await ctx->executor()->schedule();
     auto ticket = co_await ch->acquire();
-    auto [_, receipt] = co_await ticket.send(Message(std::make_unique<int>(val)));
+    auto [_, receipt] = co_await ticket.send(
+        Message{0, std::make_unique<int>(val), ContentDescription{}}
+    );
     if (should_throw) {
         throw std::runtime_error("Producer throws");
     }
     EXPECT_THROW(
-        co_await ticket.send(Message(std::make_unique<int>(val))), std::logic_error
+        co_await ticket.send(
+            Message{0, std::make_unique<int>(val), ContentDescription{}}
+        ),
+        std::logic_error
     );
     co_await receipt;
     EXPECT_TRUE(receipt.is_ready());
@@ -127,7 +131,7 @@ Node consumer(
 }  // namespace
 
 TEST_F(StreamingLeafTasks, ThrottledAdaptor) {
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
     std::vector<Node> producers;
     std::vector<Node> consumers;
@@ -146,7 +150,7 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptor) {
 }
 
 TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInProduce) {
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
     std::vector<Node> producers;
     std::vector<Node> consumers;
@@ -161,7 +165,7 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInProduce) {
 }
 
 TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInConsume) {
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
     std::vector<Node> producers;
     std::vector<Node> consumers;
@@ -176,4 +180,21 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInConsume) {
         consumers.push_back(consumer(ctx, ch, result, i == 1));
     }
     EXPECT_THROW(run_streaming_pipeline(std::move(consumers)), std::runtime_error);
+}
+
+class StreamingThrottledAdaptor : public StreamingLeafTasks,
+                                  public ::testing::WithParamInterface<int> {};
+
+INSTANTIATE_TEST_SUITE_P(
+    InvalidMaxTickets, StreamingThrottledAdaptor, ::testing::Values(-1, 0)
+);
+
+TEST_P(StreamingThrottledAdaptor, NonPositiveThrottleThrows) {
+    if (GlobalEnvironment->comm_->rank() != 0) {
+        // Test is independent of size of communicator.
+        GTEST_SKIP() << "Test only runs on rank zero";
+    }
+    int max_tickets = GetParam();
+    auto ch = ctx->create_channel();
+    EXPECT_THROW(ThrottlingAdaptor(ch, max_tickets), std::logic_error);
 }

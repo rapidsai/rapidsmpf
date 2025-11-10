@@ -9,8 +9,8 @@ import pytest
 
 import cudf
 
-from rapidsmpf.streaming.core.channel import Channel, Message
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
+from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from rmm.pylibrmm.stream import Stream
 
+    from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
 
 
@@ -32,7 +33,7 @@ def test_send_table_chunks(
         for seq in range(10)
     ]
 
-    ch1: Channel[TableChunk] = Channel()
+    ch1: Channel[TableChunk] = context.create_channel()
 
     # The node access `ch1` both through the `ch_out` parameter and the closure.
     @define_py_node(extra_channels=(ch1,))
@@ -41,12 +42,12 @@ def test_send_table_chunks(
             await ch1.send(
                 context,
                 Message(
+                    seq,
                     TableChunk.from_pylibcudf_table(
-                        sequence_number=seq,
                         table=chunk,
                         stream=stream,
                         exclusive_view=False,
-                    )
+                    ),
                 ),
             )
         await ch_out.drain(context)
@@ -63,8 +64,8 @@ def test_send_table_chunks(
 
     results = output.release()
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
+        assert result.sequence_number == seq
         tbl = TableChunk.from_message(result)
-        assert tbl.sequence_number == seq
         assert_eq(tbl.table_view(), expect)
 
 
@@ -75,7 +76,7 @@ def test_shutdown(context: Context, py_executor: ThreadPoolExecutor) -> None:
         # Calling shutdown multiple times is allowed.
         await ch_out.shutdown(ctx)
 
-    ch1: Channel[TableChunk] = Channel()
+    ch1: Channel[TableChunk] = context.create_channel()
     node2, output = pull_from_channel(context, ch_in=ch1)
 
     run_streaming_pipeline(
@@ -94,7 +95,7 @@ def test_send_error(context: Context, py_executor: ThreadPoolExecutor) -> None:
     async def node1(ctx: Context, ch_out: Channel[TableChunk]) -> None:
         raise RuntimeError("MyError")
 
-    ch1: Channel[TableChunk] = Channel()
+    ch1: Channel[TableChunk] = context.create_channel()
     node2, output = pull_from_channel(context, ch_in=ch1)
 
     with pytest.raises(
@@ -121,7 +122,7 @@ def test_recv_table_chunks(
     ]
     table_chunks = [
         Message(
-            TableChunk.from_pylibcudf_table(seq, expect, stream, exclusive_view=False)
+            seq, TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=False)
         )
         for seq, expect in enumerate(expects)
     ]
@@ -136,7 +137,7 @@ def test_recv_table_chunks(
                 break
             results.append(chunk)
 
-    ch1: Channel[TableChunk] = Channel()
+    ch1: Channel[TableChunk] = context.create_channel()
 
     run_streaming_pipeline(
         nodes=[
@@ -147,6 +148,6 @@ def test_recv_table_chunks(
     )
 
     for seq, (result, expect) in enumerate(zip(results, expects, strict=True)):
+        assert result.sequence_number == seq
         tbl = TableChunk.from_message(result)
-        assert tbl.sequence_number == seq
         assert_eq(tbl.table_view(), expect)

@@ -1,6 +1,8 @@
 # =================================================================================
+# cmake-format: off
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
+# cmake-format: on
 # =================================================================================
 
 # ##################################################################################################
@@ -71,8 +73,12 @@ if(RAPIDSMPF_HAVE_STREAMING)
     INTERFACE streaming/test_allgather.cpp
               streaming/test_error_handling.cpp
               streaming/test_leaf_node.cpp
+              streaming/test_lineariser.cpp
+              streaming/test_message.cpp
               streaming/test_partition.cpp
+              streaming/test_read_parquet.cpp
               streaming/test_shuffler.cpp
+              streaming/test_spillable_messages.cpp
               streaming/test_table_chunk.cpp
   )
 endif()

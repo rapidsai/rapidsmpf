@@ -1,6 +1,8 @@
 # =================================================================================
+# cmake-format: off
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
+# cmake-format: on
 # =================================================================================
 
 cmake_minimum_required(VERSION 3.30.4 FATAL_ERROR)
@@ -152,41 +154,47 @@ target_link_options(maybe_asan INTERFACE "$<$<BOOL:${RAPIDSMPF_ASAN}>:-fsanitize
 
 add_library(
   rapidsmpf
-  src/config.cpp
-  src/cuda_event.cpp
-  src/pausable_thread_loop.cpp
-  src/progress_thread.cpp
-  src/rmm_resource_adaptor.cpp
-  src/statistics.cpp
-  src/utils.cpp
   src/allgather/allgather.cpp
+  src/bootstrap/bootstrap.cpp
+  src/bootstrap/file_backend.cpp
   src/buffer/buffer.cpp
   src/buffer/pinned_memory_resource.cu
   src/buffer/resource.cpp
   src/buffer/spill_manager.cpp
   src/communicator/communicator.cpp
   src/communicator/single.cpp
+  src/config.cpp
+  src/cuda_event.cpp
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
+  src/pausable_thread_loop.cpp
+  src/progress_thread.cpp
+  src/rmm_resource_adaptor.cpp
   src/shuffler/chunk.cpp
   src/shuffler/finish_counter.cpp
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
+  src/statistics.cpp
+  src/utils.cpp
 )
 if(RAPIDSMPF_HAVE_STREAMING)
   target_sources(
     rapidsmpf
-    PRIVATE src/streaming/coll/allgather.cpp
+    PRIVATE src/streaming/chunks/partition.cpp
+            src/streaming/coll/allgather.cpp
             src/streaming/coll/shuffler.cpp
+            src/streaming/core/channel.cpp
             src/streaming/core/context.cpp
             src/streaming/core/leaf_node.cpp
             src/streaming/core/node.cpp
+            src/streaming/core/spillable_messages.cpp
             src/streaming/cudf/partition.cpp
+            src/streaming/cudf/parquet.cpp
             src/streaming/cudf/table_chunk.cpp
   )
 endif()
 if(RAPIDSMPF_HAVE_UCXX)
-  target_sources(rapidsmpf PRIVATE src/communicator/ucxx.cpp)
+  target_sources(rapidsmpf PRIVATE src/bootstrap/ucxx.cpp src/communicator/ucxx.cpp)
 endif()
 if(RAPIDSMPF_HAVE_MPI)
   target_sources(rapidsmpf PRIVATE src/communicator/mpi.cpp)
@@ -319,6 +327,11 @@ endif()
 if(RAPIDSMPF_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()
+
+# ##################################################################################################
+# * add tools
+# -------------------------------------------------------------------------------------
+add_subdirectory(tools)
 
 # ##################################################################################################
 # * install targets -------------------------------------------------------------------------------

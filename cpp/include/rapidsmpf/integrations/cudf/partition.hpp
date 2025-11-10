@@ -166,7 +166,6 @@ partition_and_split(
  * is thrown. Overbooking is not allowed.
  *
  * @param partitions The partitions to spill.
- * @param stream CUDA stream used for memory operations.
  * @param br Buffer resource used to reserve host memory and perform the move.
  * @param statistics The statistics instance to use (disabled by default).
  *

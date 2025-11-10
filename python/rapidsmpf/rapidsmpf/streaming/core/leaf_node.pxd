@@ -3,7 +3,7 @@
 
 from libcpp.vector cimport vector
 
-from rapidsmpf.streaming.core.channel cimport cpp_Message
+from rapidsmpf.streaming.core.message cimport cpp_Message
 
 
 cdef class DeferredMessages:

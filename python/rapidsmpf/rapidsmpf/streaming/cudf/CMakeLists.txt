@@ -1,9 +1,11 @@
 # =================================================================================
+# cmake-format: off
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
+# cmake-format: on
 # =================================================================================
 
-set(cython_modules partition.pyx table_chunk.pyx)
+set(cython_modules parquet.pyx partition.pyx table_chunk.pyx)
 
 rapids_cython_create_modules(
   CXX

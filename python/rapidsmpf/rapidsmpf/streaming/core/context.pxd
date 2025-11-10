@@ -2,17 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.memory cimport shared_ptr
-from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.buffer.resource cimport BufferResource
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options
 from rapidsmpf.statistics cimport Statistics
+from rapidsmpf.streaming.core.channel cimport cpp_Channel
 
 
 cdef extern from "<rapidsmpf/streaming/core/context.hpp>" nogil:
     cdef cppclass cpp_Context "rapidsmpf::streaming::Context":
-        pass
+        shared_ptr[cpp_Channel] create_channel() except +
 
 
 cdef class Context:
