@@ -87,7 +87,7 @@ void TagMetadataPayloadExchange::send(
         );
 
         // Send data immediately after metadata (if any)
-        if (message->data() != nullptr) {
+        if (payload_size > 0) {
             fire_and_forget_.push_back(
                 comm_->send(message->release_data(), dst, gpu_data_tag_)
             );
