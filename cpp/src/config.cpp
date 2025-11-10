@@ -52,32 +52,6 @@ std::uint32_t crc32_compute(std::byte const* data, std::size_t length) {
     }
     return ~crc;
 }
-
-bool checked_add_u64(std::uint64_t a, std::uint64_t b, std::uint64_t* out) {
-    if (out == nullptr) {
-        return false;
-    }
-    if (std::numeric_limits<std::uint64_t>::max() - a < b) {
-        return false;
-    }
-    *out = a + b;
-    return true;
-}
-
-bool checked_mul_u64(std::uint64_t a, std::uint64_t b, std::uint64_t* out) {
-    if (out == nullptr) {
-        return false;
-    }
-    if (a == 0 || b == 0) {
-        *out = 0;
-        return true;
-    }
-    if (a > std::numeric_limits<std::uint64_t>::max() / b) {
-        return false;
-    }
-    *out = a * b;
-    return true;
-}
 }  // namespace
 
 extern char** environ;
@@ -288,19 +262,14 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
     );
     std::memcpy(&count, base + PRELUDE_SIZE, sizeof(uint64_t));
 
-    // Compute header size with checked arithmetic and enforce limits
-    std::uint64_t pairs_u64 = 0;
-    std::uint64_t offs_bytes_u64 = 0;
-    std::uint64_t data_header_u64 = 0;
-    bool ok = checked_mul_u64(static_cast<std::uint64_t>(count), 2ULL, &pairs_u64)
-              && checked_mul_u64(pairs_u64, sizeof(uint64_t), &offs_bytes_u64)
-              && checked_add_u64(sizeof(uint64_t), offs_bytes_u64, &data_header_u64);
+    // Note: this condition ensures that there are no overflows for uint64_t with
+    // MAX_OPTIONS=65536, so no further checks are needed for header size. Be sure to
+    // update this condition if MAX_OPTIONS is increased.
     RAPIDSMPF_EXPECTS(
-        ok && data_header_u64 <= std::numeric_limits<std::size_t>::max() - PRELUDE_SIZE,
-        "header size overflow",
-        std::invalid_argument
+        count <= MAX_OPTIONS, "too many options to deserialize", std::invalid_argument
     );
-    auto const data_header_size = static_cast<std::size_t>(data_header_u64);
+
+    std::size_t const data_header_size = sizeof(uint64_t) + count * 2 * sizeof(uint64_t);
     std::size_t const header_size = PRELUDE_SIZE + data_header_size;
     RAPIDSMPF_EXPECTS(
         header_size <= total_size,
