@@ -353,70 +353,68 @@ static inline std::unique_ptr<Buffer> alloc_and_copy_device(
     return out;
 }
 
-static inline void send_blocking(
-    std::shared_ptr<Communicator> const& comm,
-    std::unique_ptr<Buffer> buf,
-    Rank to,
-    Tag tag
-) {
-    ensure_ready(*buf);
-    std::vector<std::unique_ptr<Communicator::Future>> futs;
-    futs.push_back(comm->send(std::move(buf), to, tag));
-    while (!futs.empty()) {
-        std::ignore = comm->test_some(futs);
-    }
-}
-
-static inline std::unique_ptr<Buffer> recv_blocking(
+// Non-blocking helpers to exchange headers and payloads concurrently.
+static inline std::uint64_t exchange_u64_header(
     std::shared_ptr<Communicator> const& comm,
     BufferResource* br,
     rmm::cuda_stream_view stream,
-    Rank from,
-    Tag tag,
-    std::size_t size
+    Rank peer,
+    Tag send_tag,
+    Tag recv_tag,
+    std::uint64_t send_value
 ) {
-    auto buf = alloc_device(br, stream, size);
-    auto fut = comm->recv(from, tag, std::move(buf));
-    return comm->wait(std::move(fut));
-}
-
-static inline void send_u64_header_blocking(
-    std::shared_ptr<Communicator> const& comm,
-    BufferResource* br,
-    rmm::cuda_stream_view stream,
-    Rank to,
-    Tag tag,
-    std::uint64_t value
-) {
-    auto res = br->reserve_or_fail(sizeof(std::uint64_t), MemoryType::HOST);
-    auto hdr = br->allocate(sizeof(std::uint64_t), stream, res);
-    hdr->write_access([&](std::byte* p, rmm::cuda_stream_view) {
-        std::memcpy(p, &value, sizeof(std::uint64_t));
+    // Post header send
+    auto send_hdr_res = br->reserve_or_fail(sizeof(std::uint64_t), MemoryType::HOST);
+    auto send_hdr = br->allocate(sizeof(std::uint64_t), stream, send_hdr_res);
+    send_hdr->write_access([&](std::byte* p, rmm::cuda_stream_view) {
+        std::memcpy(p, &send_value, sizeof(std::uint64_t));
     });
-    ensure_ready(*hdr);
-    std::vector<std::unique_ptr<Communicator::Future>> futs;
-    futs.push_back(comm->send(std::move(hdr), to, tag));
-    while (!futs.empty()) {
-        std::ignore = comm->test_some(futs);
+    ensure_ready(*send_hdr);
+    auto send_hdr_fut = comm->send(std::move(send_hdr), peer, send_tag);
+    // Post header recv
+    auto recv_hdr_res = br->reserve_or_fail(sizeof(std::uint64_t), MemoryType::HOST);
+    auto recv_hdr = br->allocate(sizeof(std::uint64_t), stream, recv_hdr_res);
+    ensure_ready(*recv_hdr);
+    auto recv_hdr_fut = comm->recv(peer, recv_tag, std::move(recv_hdr));
+    // Wait recv, read value, then ensure send completion
+    auto recv_hdr_buf = comm->wait(std::move(recv_hdr_fut));
+    std::uint64_t recv_value = 0;
+    {
+        auto* p = recv_hdr_buf->exclusive_data_access();
+        std::memcpy(&recv_value, p, sizeof(std::uint64_t));
+        recv_hdr_buf->unlock();
     }
+    std::ignore = comm->wait(std::move(send_hdr_fut));
+    return recv_value;
 }
 
-static inline std::uint64_t recv_u64_header_blocking(
+static inline void exchange_payload(
     std::shared_ptr<Communicator> const& comm,
     BufferResource* br,
     rmm::cuda_stream_view stream,
-    Rank from,
-    Tag tag
+    Rank peer,
+    Tag send_tag,
+    Tag recv_tag,
+    std::unique_ptr<Buffer> send_buf,  // may be null if no data to send
+    std::size_t recv_size  // may be zero if no data to recv
 ) {
-    auto res = br->reserve_or_fail(sizeof(std::uint64_t), MemoryType::HOST);
-    auto hdr = br->allocate(sizeof(std::uint64_t), stream, res);
-    auto fut = comm->recv(from, tag, std::move(hdr));
-    auto buf = comm->wait(std::move(fut));
-    auto* p = buf->exclusive_data_access();
-    std::uint64_t value = 0;
-    std::memcpy(&value, p, sizeof(std::uint64_t));
-    buf->unlock();
-    return value;
+    std::unique_ptr<Communicator::Future> data_send_fut;
+    std::unique_ptr<Communicator::Future> data_recv_fut;
+    if (recv_size > 0) {
+        auto recv_buf = alloc_device(br, stream, recv_size);
+        ensure_ready(*recv_buf);
+        data_recv_fut = comm->recv(peer, recv_tag, std::move(recv_buf));
+    }
+    if (send_buf && send_buf->size > 0) {
+        ensure_ready(*send_buf);
+        data_send_fut = comm->send(std::move(send_buf), peer, send_tag);
+    }
+    if (data_recv_fut) {
+        (void)comm->wait(std::move(data_recv_fut));
+    }
+    if (data_send_fut) {
+        std::ignore = comm->wait(std::move(data_send_fut));
+    }
 }
 
 // Convenience: wrap metadata + gpu_data into rapidsmpf::PackedData
@@ -708,23 +706,23 @@ RunResult run_once(
         bool initiator =
             ((static_cast<std::uint64_t>(rank) + op + run_index) % 2ull) == 0ull;
         auto rt_start = Clock::now();
-        auto run_ping_pong_nc = [&](Rank peer, Tag recv_tag, Tag send_tag) {
-            for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
-                auto recv_buf = alloc_device(br, stream, nocomp_payloads[i]->size);
-                std::vector<std::unique_ptr<Communicator::Future>> futs;
-                futs.push_back(comm->recv(peer, recv_tag, std::move(recv_buf)));
-                auto send_buf = alloc_and_copy_device(br, stream, *nocomp_payloads[i]);
-                ensure_ready(*send_buf);
-                futs.push_back(comm->send(std::move(send_buf), peer, send_tag));
-                while (!futs.empty()) {
-                    std::ignore = comm->test_some(futs);
-                }
-            }
-        };
-        if (initiator) {
-            run_ping_pong_nc(dst, tag_pong_nc, tag_ping_nc);
-        } else {
-            run_ping_pong_nc(src, tag_ping_nc, tag_pong_nc);
+        Rank peer = initiator ? dst : src;
+        Tag send_tag_nc = initiator ? tag_ping_nc : tag_pong_nc;
+        Tag recv_tag_nc = initiator ? tag_pong_nc : tag_ping_nc;
+        for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
+            std::size_t recv_size = nocomp_payloads[i]->size;
+            std::unique_ptr<Buffer> send_buf =
+                alloc_and_copy_device(br, stream, *nocomp_payloads[i]);
+            exchange_payload(
+                comm,
+                br,
+                stream,
+                peer,
+                send_tag_nc,
+                recv_tag_nc,
+                std::move(send_buf),
+                recv_size
+            );
         }
         auto rt_end = Clock::now();
         // Each rank measures its own RTT locally
@@ -737,46 +735,33 @@ RunResult run_once(
         bool initiator =
             ((static_cast<std::uint64_t>(rank) + op + run_index) % 2ull) == 0ull;
         auto rt_start = Clock::now();
-        if (initiator) {
-            for (std::size_t i = 0; i < data.items.size(); ++i) {
-                // Send header with size to dst
-                std::uint64_t sz = static_cast<std::uint64_t>(comp_output_sizes[i]);
-                send_u64_header_blocking(comm, br, stream, dst, tag_ping_c, sz);
-                // Receive pong header with size from src (blocking wait)
-                std::uint64_t pong_sz =
-                    recv_u64_header_blocking(comm, br, stream, dst, tag_pong_c);
-                // Send ping payload (if any)
-                if (sz > 0) {
-                    auto send_buf = alloc_device(br, stream, sz);
-                    if (comp_output_sizes[i] > 0)
-                        buffer_copy(*send_buf, *comp_outputs[i], comp_output_sizes[i]);
-                    send_blocking(comm, std::move(send_buf), dst, tag_ping_c);
-                }
-                // Receive pong payload of announced size
-                if (pong_sz > 0) {
-                    (void)recv_blocking(comm, br, stream, dst, tag_pong_c, pong_sz);
-                }
+        Rank peer = initiator ? dst : src;
+        Tag send_tag_c = initiator ? tag_ping_c : tag_pong_c;
+        Tag recv_tag_c = initiator ? tag_pong_c : tag_ping_c;
+        for (std::size_t i = 0; i < data.items.size(); ++i) {
+            // Header exchange: send our size, receive peer size
+            std::uint64_t local_sz = static_cast<std::uint64_t>(comp_output_sizes[i]);
+            std::uint64_t remote_sz = exchange_u64_header(
+                comm, br, stream, peer, send_tag_c, recv_tag_c, local_sz
+            );
+            // Prepare send buffer if needed
+            std::unique_ptr<Buffer> send_buf;
+            if (local_sz > 0) {
+                send_buf = alloc_device(br, stream, local_sz);
+                if (comp_output_sizes[i] > 0)
+                    buffer_copy(*send_buf, *comp_outputs[i], comp_output_sizes[i]);
             }
-        } else {
-            for (std::size_t i = 0; i < data.items.size(); ++i) {
-                // Receive ping header with size (blocking wait)
-                std::uint64_t ping_sz =
-                    recv_u64_header_blocking(comm, br, stream, src, tag_ping_c);
-                // Send pong header with our size
-                std::uint64_t sz = static_cast<std::uint64_t>(comp_output_sizes[i]);
-                send_u64_header_blocking(comm, br, stream, src, tag_pong_c, sz);
-                // Receive ping payload
-                if (ping_sz > 0) {
-                    (void)recv_blocking(comm, br, stream, src, tag_ping_c, ping_sz);
-                }
-                // Send pong payload
-                if (sz > 0) {
-                    auto send_buf = alloc_device(br, stream, sz);
-                    if (comp_output_sizes[i] > 0)
-                        buffer_copy(*send_buf, *comp_outputs[i], comp_output_sizes[i]);
-                    send_blocking(comm, std::move(send_buf), src, tag_pong_c);
-                }
-            }
+            // Payload exchange using the same tags
+            exchange_payload(
+                comm,
+                br,
+                stream,
+                peer,
+                send_tag_c,
+                recv_tag_c,
+                std::move(send_buf),
+                static_cast<std::size_t>(remote_sz)
+            );
         }
         auto rt_end = Clock::now();
         rt_c_total += (rt_end - rt_start);
