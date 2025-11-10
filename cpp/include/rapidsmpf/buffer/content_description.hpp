@@ -66,10 +66,6 @@ class ContentDescription {
             std::pair<MemoryType, std::size_t>>
     constexpr explicit ContentDescription(Range&& sizes, Spillable spillable)
         : spillable_(spillable == Spillable::YES) {
-        RAPIDSMPF_EXPECTS(
-            std::ranges::size(sizes) > 0,
-            "ContentDescription must have at least one memory type"
-        );
         content_sizes_.fill(0);
         for (auto&& [mem_type, size] : sizes) {
             auto idx = static_cast<std::size_t>(mem_type);
