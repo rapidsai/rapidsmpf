@@ -151,26 +151,16 @@ std::vector<std::uint8_t> Options::serialize() const {
     std::lock_guard<std::mutex> lock(shared.mutex);
 
     std::size_t const count = shared.options.size();
+
+    // Note: this condition ensures that there are no overflows for uint64_t with
+    // MAX_OPTIONS=65536, so no further checks are needed for header size. Be sure to
+    // update this condition if MAX_OPTIONS is increased.
     RAPIDSMPF_EXPECTS(
         count <= MAX_OPTIONS, "too many options to serialize", std::invalid_argument
     );
-    // Header format:
-    // - prelude: [4-byte MAGIC "RMPF"][1-byte version][1-byte flags][2-byte (reserved)]
-    // - data header: [uint64_t (count)][count * 2 * uint64_t (offset pairs)]
-    // Compute header size with checked arithmetic
-    std::uint64_t pairs_u64 = 0;
-    std::uint64_t offs_bytes_u64 = 0;
-    std::uint64_t data_header_u64 = 0;
-    bool ok = checked_mul_u64(static_cast<std::uint64_t>(count), 2ULL, &pairs_u64)
-              && checked_mul_u64(pairs_u64, sizeof(uint64_t), &offs_bytes_u64)
-              && checked_add_u64(sizeof(uint64_t), offs_bytes_u64, &data_header_u64);
-    RAPIDSMPF_EXPECTS(
-        ok && data_header_u64 <= std::numeric_limits<std::size_t>::max() - PRELUDE_SIZE,
-        "header size overflow",
-        std::invalid_argument
-    );
-    std::size_t const header_size =
-        PRELUDE_SIZE + static_cast<std::size_t>(data_header_u64);
+
+    std::size_t const data_header_size = sizeof(uint64_t) + count * 2 * sizeof(uint64_t);
+    std::size_t const header_size = PRELUDE_SIZE + data_header_size;
 
     std::size_t data_size = 0;
     for (auto const& [key, option] : shared.options) {
