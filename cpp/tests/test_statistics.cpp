@@ -56,16 +56,16 @@ TEST(Statistics, MemoryProfiler) {
     // Outer scope
     {
         auto outer = stats.create_memory_recorder("outer");
-        void* ptr1 = mr.allocate(1_MiB);  // +1 MiB
-        void* ptr2 = mr.allocate(1_MiB);  // +2 MiB
-        mr.deallocate(ptr1, 1_MiB);
-        mr.deallocate(ptr2, 1_MiB);
+        void* ptr1 = mr.allocate_sync(1_MiB);  // +1 MiB
+        void* ptr2 = mr.allocate_sync(1_MiB);  // +2 MiB
+        mr.deallocate_sync(ptr1, 1_MiB);
+        mr.deallocate_sync(ptr2, 1_MiB);
 
         // Nested scope
         {
             auto inner = stats.create_memory_recorder("inner");
-            void* ptr3 = mr.allocate(1_MiB);  // +1 MiB
-            mr.deallocate(ptr3, 1_MiB);
+            void* ptr3 = mr.allocate_sync(1_MiB);  // +1 MiB
+            mr.deallocate_sync(ptr3, 1_MiB);
         }
     }
     auto const& records = stats.get_memory_records();
@@ -85,7 +85,7 @@ TEST(Statistics, MemoryProfiler) {
     // We can call the same name multiple times.
     {
         auto outer = stats.create_memory_recorder("outer");
-        mr.deallocate(mr.allocate(1_MiB), 1_MiB);
+        mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
     }
     EXPECT_EQ(records.at("outer").num_calls, 2);
     EXPECT_EQ(records.at("outer").global_peak, 2_MiB);
@@ -101,16 +101,16 @@ TEST(Statistics, MemoryProfilerDisabled) {
     // Outer scope
     {
         auto outer = stats.create_memory_recorder("outer");
-        void* ptr1 = mr.allocate(1_MiB);  // +1 MiB
-        void* ptr2 = mr.allocate(1_MiB);  // +2 MiB
-        mr.deallocate(ptr1, 1_MiB);
-        mr.deallocate(ptr2, 1_MiB);
+        void* ptr1 = mr.allocate_sync(1_MiB);  // +1 MiB
+        void* ptr2 = mr.allocate_sync(1_MiB);  // +2 MiB
+        mr.deallocate_sync(ptr1, 1_MiB);
+        mr.deallocate_sync(ptr2, 1_MiB);
 
         // Nested scope
         {
             auto inner = stats.create_memory_recorder("inner");
-            void* ptr3 = mr.allocate(1_MiB);  // +1 MiB
-            mr.deallocate(ptr3, 1_MiB);
+            void* ptr3 = mr.allocate_sync(1_MiB);  // +1 MiB
+            mr.deallocate_sync(ptr3, 1_MiB);
         }
     }
     auto const& records = stats.get_memory_records();
@@ -122,7 +122,7 @@ TEST(Statistics, MemoryProfilerMacro) {
     rapidsmpf::Statistics stats(&mr);
     {
         RAPIDSMPF_MEMORY_PROFILE(stats);
-        mr.deallocate(mr.allocate(1_MiB), 1_MiB);
+        mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
     }
     auto const& records = stats.get_memory_records();
     ASSERT_EQ(records.size(), 1);
@@ -137,7 +137,7 @@ TEST(Statistics, MemoryProfilerMacroDisabled) {
     rapidsmpf::Statistics stats(false);
     {
         RAPIDSMPF_MEMORY_PROFILE(stats);
-        mr.deallocate(mr.allocate(1_MiB), 1_MiB);
+        mr.deallocate_sync(mr.allocate_sync(1_MiB), 1_MiB);
     }
     auto const& records = stats.get_memory_records();
     EXPECT_TRUE(records.empty());

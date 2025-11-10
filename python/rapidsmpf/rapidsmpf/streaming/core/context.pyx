@@ -4,7 +4,7 @@
 from cython.operator cimport dereference as deref
 from libcpp.utility cimport move
 
-from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
+from rapidsmpf.buffer.resource cimport BufferResource
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options
 from rapidsmpf.statistics cimport Statistics
@@ -42,7 +42,6 @@ cdef class Context:
     ):
         self._comm = comm
         self._br = br
-        cdef cpp_BufferResource* _br = br.ptr()
 
         self._options = options
         if self._options is None:
@@ -58,7 +57,7 @@ cdef class Context:
             self._handle = make_shared[cpp_Context](
                 self._options._handle,
                 self._comm._handle,
-                _br,
+                self._br._handle,
                 self._statistics._handle,
             )
 
