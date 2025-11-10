@@ -67,7 +67,7 @@ requirements:
     - cuda-cudart-dev
     - cuda-cupti-dev
     - cuda-version =${{ cuda_version }}
-    - cython >=3.0.0
+    - cython >=3.0.3
     - librapidsmpf =${{ version }}
     - libnuma
     - mpi4py
