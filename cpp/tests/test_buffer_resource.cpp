@@ -4,6 +4,7 @@
  */
 
 
+#include <span>
 #include <sstream>
 
 #include <gtest/gtest.h>
@@ -223,6 +224,75 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(reserve4.size(), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+}
+
+class BufferResourceReserveOrFailTest : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        // Create a buffer resource with limited device memory (10 KiB) and unlimited
+        // host memory.
+        cuda_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
+        mr = std::make_unique<RmmResourceAdaptor>(*cuda_mr);
+        br = std::make_unique<BufferResource>(
+            *mr,
+            std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{
+                {MemoryType::DEVICE, LimitAvailableMemory{mr.get(), 10_KiB}}
+            }
+        );
+    }
+
+    std::unique_ptr<rmm::mr::cuda_memory_resource> cuda_mr;
+    std::unique_ptr<RmmResourceAdaptor> mr;
+    std::unique_ptr<BufferResource> br;
+};
+
+// Static assertions to verify that various container types can be used with
+// reserve_or_fail
+static_assert(
+    std::convertible_to<std::ranges::range_value_t<decltype(MEMORY_TYPES)>, MemoryType>
+);
+static_assert(
+    std::convertible_to<std::ranges::range_value_t<std::vector<MemoryType>>, MemoryType>
+);
+static_assert(
+    std::convertible_to<std::ranges::range_value_t<std::span<MemoryType>>, MemoryType>
+);
+static_assert(std::convertible_to<
+              std::ranges::range_value_t<std::initializer_list<MemoryType>>,
+              MemoryType>);
+
+TEST_F(BufferResourceReserveOrFailTest, DeviceType) {
+    // Test reserve_or_fail with single device memory type
+    auto res = br->reserve_or_fail(5_KiB, MemoryType::DEVICE);
+    EXPECT_EQ(res.size(), 5_KiB);
+    EXPECT_EQ(res.mem_type(), MemoryType::DEVICE);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 5_KiB);
+    EXPECT_THROW(
+        std::ignore = br->reserve_or_fail(100_KiB, MemoryType::DEVICE), std::runtime_error
+    );
+}
+
+TEST_F(BufferResourceReserveOrFailTest, HostType) {
+    // Test reserve_or_fail with single host memory type
+    auto res = br->reserve_or_fail(5_KiB, MemoryType::HOST);
+    EXPECT_EQ(res.size(), 5_KiB);
+    EXPECT_EQ(res.mem_type(), MemoryType::HOST);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 5_KiB);
+}
+
+TEST_F(BufferResourceReserveOrFailTest, MultipleTypes) {
+    // just test the vector case. All other container types are tested in the static
+    // assertions above.
+    std::vector<MemoryType> types{MemoryType::DEVICE, MemoryType::HOST};
+    auto res = br->reserve_or_fail(5_KiB, types);
+    EXPECT_EQ(res.size(), 5_KiB);
+    EXPECT_EQ(res.mem_type(), MemoryType::DEVICE);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 5_KiB);
+
+    auto res1 = br->reserve_or_fail(10_KiB, types);  // this falls back to host
+    EXPECT_EQ(res1.size(), 10_KiB);
+    EXPECT_EQ(res1.mem_type(), MemoryType::HOST);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 }
 
 class BaseBufferResourceCopyTest : public ::testing::Test {

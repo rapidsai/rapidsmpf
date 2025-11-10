@@ -304,7 +304,9 @@ Chunk Chunk::concat(
     std::unique_ptr<Buffer> concat_data;
     if (total_data_size > 0) {
         concat_data = br->allocate(
-            stream, br->reserve_or_fail(total_data_size, preferred_mem_type)
+            stream,
+            preferred_mem_type ? br->reserve_or_fail(total_data_size, *preferred_mem_type)
+                               : br->reserve_or_fail(total_data_size)
         );
     } else {  // no data, allocate an empty host buffer
         concat_data = br->allocate(stream, br->reserve_or_fail(0, MemoryType::HOST));
