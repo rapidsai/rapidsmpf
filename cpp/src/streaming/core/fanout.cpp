@@ -47,7 +47,7 @@ Node send_to_channels(
  * @brief Broadcast messages from one input channel to multiple output channels.
  *
  * @note Bounded fanout requires all the output channels to consume messages before the
- * next message is sent/ consumed from the input channel.
+ * next message is sent/consumed from the input channel.
  *
  * @param ctx The context to use.
  * @param ch_in The input channel to receive messages from.
