@@ -97,7 +97,6 @@ std::vector<std::string> expand_glob(std::string const& pattern) {
         }
     }
     globfree(&glob_result);
-    std::sort(files.begin(), files.end());
     return files;
 }
 
@@ -516,10 +515,9 @@ struct SizeHeader {
 struct Timings {
     double compress_s{0.0};
     double decompress_s{0.0};
-    double comp_send_s{0.0};
-    double recv_decomp_s{0.0};
-    double send_only_s{0.0};
-    double recv_only_s{0.0};
+    // Round-trip totals measured at initiator
+    double rt_nocomp_s{0.0};
+    double rt_comp_s{0.0};
 };
 
 // Returns timings and bytes counters
@@ -540,7 +538,8 @@ RunResult run_once(
     BufferResource* br,
     std::shared_ptr<Statistics> const& statistics,
     BuffersToSend const& data,
-    NvcompCodec& codec
+    NvcompCodec& codec,
+    std::uint64_t run_index
 ) {
     (void)statistics;
     auto const nranks = comm->nranks();
@@ -548,9 +547,10 @@ RunResult run_once(
     auto const dst = static_cast<Rank>((rank + 1) % nranks);
     auto const src = static_cast<Rank>((rank - 1 + nranks) % nranks);
 
-    Tag tag_size{1, 0};
-    Tag tag_payload{1, 1};
-    Tag tag_nocomp{2, 0};
+    Tag tag_ping_nc{10, 0};
+    Tag tag_pong_nc{10, 1};
+    Tag tag_ping_c{11, 0};
+    Tag tag_pong_c{11, 1};
 
     // Clone packed items into raw device buffers for repeated ops
     std::vector<std::unique_ptr<Buffer>> nocomp_payloads;
@@ -614,138 +614,138 @@ RunResult run_once(
     RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
     auto t1 = Clock::now();
 
-    // Phase A: pure send/recv (no compression)
-    auto a0 = Clock::now();
-    std::vector<std::unique_ptr<Communicator::Future>> send_futs;
-    std::vector<std::unique_ptr<Communicator::Future>> recv_futs;
-    send_futs.reserve(args.num_ops * nocomp_payloads.size());
-    recv_futs.reserve(args.num_ops * nocomp_payloads.size());
-
+    // Phase A (RTT no compression): ping-pong per op
+    Duration rt_nc_total{0};
     for (std::uint64_t op = 0; op < args.num_ops; ++op) {
-        for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
-            // post recv first
-            if (src != rank) {
+        bool initiator =
+            ((static_cast<std::uint64_t>(rank) + op + run_index) % 2ull) == 0ull;
+        auto rt_start = Clock::now();
+        if (initiator) {
+            // Initiator: post pong recvs, then ping sends
+            std::vector<std::unique_ptr<Communicator::Future>> pong_recvs;
+            std::vector<std::unique_ptr<Communicator::Future>> ping_sends;
+            pong_recvs.reserve(nocomp_payloads.size());
+            ping_sends.reserve(nocomp_payloads.size());
+            for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
                 auto res =
                     br->reserve_or_fail(nocomp_payloads[i]->size, MemoryType::DEVICE);
                 auto recv_buf = br->allocate(nocomp_payloads[i]->size, stream, res);
-                recv_futs.push_back(comm->recv(src, tag_nocomp, std::move(recv_buf)));
+                pong_recvs.push_back(comm->recv(src, tag_pong_nc, std::move(recv_buf)));
             }
-        }
-        for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
-            if (dst != rank) {
+            for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
                 auto res =
                     br->reserve_or_fail(nocomp_payloads[i]->size, MemoryType::DEVICE);
                 auto send_buf = br->allocate(nocomp_payloads[i]->size, stream, res);
                 buffer_copy(*send_buf, *nocomp_payloads[i], nocomp_payloads[i]->size);
-                if (!send_buf->is_latest_write_done()) {
+                if (!send_buf->is_latest_write_done())
                     send_buf->stream().synchronize();
-                }
-                // std::cout << "Sending payload of size " << nocomp_payloads[i]->size <<
-                // " to rank " << dst << std::endl;
-                send_futs.push_back(comm->send(std::move(send_buf), dst, tag_nocomp));
+                ping_sends.push_back(comm->send(std::move(send_buf), dst, tag_ping_nc));
+            }
+            while (!ping_sends.empty()) {
+                std::ignore = comm->test_some(ping_sends);
+            }
+            while (!pong_recvs.empty()) {
+                std::ignore = comm->test_some(pong_recvs);
+            }
+        } else {
+            // Responder: post ping recvs, then pong sends
+            std::vector<std::unique_ptr<Communicator::Future>> ping_recvs;
+            std::vector<std::unique_ptr<Communicator::Future>> pong_sends;
+            ping_recvs.reserve(nocomp_payloads.size());
+            pong_sends.reserve(nocomp_payloads.size());
+            for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
+                auto res =
+                    br->reserve_or_fail(nocomp_payloads[i]->size, MemoryType::DEVICE);
+                auto recv_buf = br->allocate(nocomp_payloads[i]->size, stream, res);
+                ping_recvs.push_back(comm->recv(src, tag_ping_nc, std::move(recv_buf)));
+            }
+            while (!ping_recvs.empty()) {
+                std::ignore = comm->test_some(ping_recvs);
+            }
+            for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
+                auto res =
+                    br->reserve_or_fail(nocomp_payloads[i]->size, MemoryType::DEVICE);
+                auto send_buf = br->allocate(nocomp_payloads[i]->size, stream, res);
+                buffer_copy(*send_buf, *nocomp_payloads[i], nocomp_payloads[i]->size);
+                if (!send_buf->is_latest_write_done())
+                    send_buf->stream().synchronize();
+                pong_sends.push_back(comm->send(std::move(send_buf), src, tag_pong_nc));
+            }
+            while (!pong_sends.empty()) {
+                std::ignore = comm->test_some(pong_sends);
             }
         }
+        auto rt_end = Clock::now();
+        // Each rank measures its own RTT locally
+        rt_nc_total += (rt_end - rt_start);
     }
-    // Drive send/recv completion concurrently and timestamp each independently
-    std::optional<Clock::time_point> send_done_tp;
-    std::optional<Clock::time_point> recv_done_tp;
-    while (!send_futs.empty() || !recv_futs.empty()) {
-        if (!send_futs.empty()) {
-            std::ignore = comm->test_some(send_futs);
-            if (!send_done_tp && send_futs.empty())
-                send_done_tp = Clock::now();
-        }
-        if (!recv_futs.empty()) {
-            std::ignore = comm->test_some(recv_futs);
-            if (!recv_done_tp && recv_futs.empty())
-                recv_done_tp = Clock::now();
-        }
-    }
-    auto a1 = send_done_tp.value_or(Clock::now());
-    auto a2 = recv_done_tp.value_or(Clock::now());
 
-    // Phase B: compressed path (send size header, then compressed payload)
-    auto b0 = Clock::now();
-    std::vector<std::unique_ptr<Communicator::Future>> send_hdr_futs;
-    std::vector<std::unique_ptr<Communicator::Future>> send_cmp_futs;
-    std::vector<std::unique_ptr<Communicator::Future>> recv_hdr_futs;
-    std::vector<std::unique_ptr<Communicator::Future>> recv_cmp_futs;
-    send_hdr_futs.reserve(args.num_ops * data.items.size());
-    send_cmp_futs.reserve(args.num_ops * data.items.size());
-    recv_hdr_futs.reserve(args.num_ops * data.items.size());
-    recv_cmp_futs.reserve(args.num_ops * data.items.size());
-
+    // Phase B (RTT compressed payload only): ping-pong of compressed buffers (no headers)
+    Duration rt_c_total{0};
     for (std::uint64_t op = 0; op < args.num_ops; ++op) {
-        for (std::size_t i = 0; i < data.items.size(); ++i) {
-            // post recv header
-            if (src != rank) {
-                auto res_h = br->reserve_or_fail(sizeof(SizeHeader), MemoryType::HOST);
-                auto hdr = br->allocate(sizeof(SizeHeader), stream, res_h);
-                recv_hdr_futs.push_back(comm->recv(src, tag_size, std::move(hdr)));
+        bool initiator =
+            ((static_cast<std::uint64_t>(rank) + op + run_index) % 2ull) == 0ull;
+        auto rt_start = Clock::now();
+        if (initiator) {
+            std::vector<std::unique_ptr<Communicator::Future>> pong_recvs;
+            std::vector<std::unique_ptr<Communicator::Future>> ping_sends;
+            pong_recvs.reserve(data.items.size());
+            ping_sends.reserve(data.items.size());
+            for (std::size_t i = 0; i < data.items.size(); ++i) {
+                if (comp_output_sizes[i] == 0)
+                    continue;
+                auto res = br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
+                auto recv_buf = br->allocate(comp_output_sizes[i], stream, res);
+                pong_recvs.push_back(comm->recv(src, tag_pong_c, std::move(recv_buf)));
+            }
+            for (std::size_t i = 0; i < data.items.size(); ++i) {
+                if (comp_output_sizes[i] == 0)
+                    continue;
+                auto res = br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
+                auto send_buf = br->allocate(comp_output_sizes[i], stream, res);
+                buffer_copy(*send_buf, *comp_outputs[i], comp_output_sizes[i]);
+                if (!send_buf->is_latest_write_done())
+                    send_buf->stream().synchronize();
+                ping_sends.push_back(comm->send(std::move(send_buf), dst, tag_ping_c));
+            }
+            while (!ping_sends.empty()) {
+                std::ignore = comm->test_some(ping_sends);
+            }
+            while (!pong_recvs.empty()) {
+                std::ignore = comm->test_some(pong_recvs);
+            }
+        } else {
+            std::vector<std::unique_ptr<Communicator::Future>> ping_recvs;
+            std::vector<std::unique_ptr<Communicator::Future>> pong_sends;
+            ping_recvs.reserve(data.items.size());
+            pong_sends.reserve(data.items.size());
+            for (std::size_t i = 0; i < data.items.size(); ++i) {
+                if (comp_output_sizes[i] == 0)
+                    continue;
+                auto res = br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
+                auto recv_buf = br->allocate(comp_output_sizes[i], stream, res);
+                ping_recvs.push_back(comm->recv(src, tag_ping_c, std::move(recv_buf)));
+            }
+            while (!ping_recvs.empty()) {
+                std::ignore = comm->test_some(ping_recvs);
+            }
+            for (std::size_t i = 0; i < data.items.size(); ++i) {
+                if (comp_output_sizes[i] == 0)
+                    continue;
+                auto res = br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
+                auto send_buf = br->allocate(comp_output_sizes[i], stream, res);
+                buffer_copy(*send_buf, *comp_outputs[i], comp_output_sizes[i]);
+                if (!send_buf->is_latest_write_done())
+                    send_buf->stream().synchronize();
+                pong_sends.push_back(comm->send(std::move(send_buf), src, tag_pong_c));
+            }
+            while (!pong_sends.empty()) {
+                std::ignore = comm->test_some(pong_sends);
             }
         }
-        for (std::size_t i = 0; i < data.items.size(); ++i) {
-            if (dst != rank) {
-                auto res_h = br->reserve_or_fail(sizeof(SizeHeader), MemoryType::HOST);
-                auto hdr = br->allocate(sizeof(SizeHeader), stream, res_h);
-                // write header
-                hdr->write_access([&](std::byte* p, rmm::cuda_stream_view) {
-                    SizeHeader h{static_cast<std::uint64_t>(comp_output_sizes[i])};
-                    std::memcpy(p, &h, sizeof(SizeHeader));
-                });
-                if (!hdr->is_latest_write_done()) {
-                    hdr->stream().synchronize();
-                }
-                send_hdr_futs.push_back(comm->send(std::move(hdr), dst, tag_size));
-            }
-        }
+        auto rt_end = Clock::now();
+        rt_c_total += (rt_end - rt_start);
     }
-    while (!send_hdr_futs.empty()) {
-        std::ignore = comm->test_some(send_hdr_futs);
-    }
-    while (!recv_hdr_futs.empty()) {
-        std::ignore = comm->test_some(recv_hdr_futs);
-    }
-
-    // Post payload recvs now that we know sizes
-    for (std::uint64_t op = 0; op < args.num_ops; ++op) {
-        for (std::size_t i = 0; i < data.items.size(); ++i) {
-            if (src != rank) {
-                // reuse comp_output_sizes[i] as expected size since peers are symmetric
-                if (comp_output_sizes[i] > 0) {
-                    auto res =
-                        br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
-                    auto buf = br->allocate(comp_output_sizes[i], stream, res);
-                    recv_cmp_futs.push_back(comm->recv(src, tag_payload, std::move(buf)));
-                }
-            }
-        }
-        for (std::size_t i = 0; i < data.items.size(); ++i) {
-            if (dst != rank) {
-                // send compressed
-                if (comp_output_sizes[i] > 0) {
-                    auto tmp_buf =
-                        br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
-                    auto send_buf = br->allocate(comp_output_sizes[i], stream, tmp_buf);
-                    buffer_copy(*send_buf, *comp_outputs[i], comp_output_sizes[i]);
-                    if (!send_buf->is_latest_write_done()) {
-                        send_buf->stream().synchronize();
-                    }
-                    send_cmp_futs.push_back(
-                        comm->send(std::move(send_buf), dst, tag_payload)
-                    );
-                }
-            }
-        }
-    }
-    while (!send_cmp_futs.empty()) {
-        std::ignore = comm->test_some(send_cmp_futs);
-    }
-    auto b1 = Clock::now();
-    while (!recv_cmp_futs.empty()) {
-        std::ignore = comm->test_some(recv_cmp_futs);
-    }
-    auto b2 = Clock::now();
 
     // Decompress received buffers (simulate by decompressing our own produced outputs in
     // symmetric setup)
@@ -778,11 +778,8 @@ RunResult run_once(
 
     RunResult result{};
     result.times.compress_s = std::chrono::duration<double>(t1 - t0).count();
-    result.times.send_only_s = std::chrono::duration<double>(a1 - a0).count();
-    result.times.recv_only_s = std::chrono::duration<double>(a2 - a0).count();
-    result.times.comp_send_s = std::chrono::duration<double>(b1 - b0).count();
-    result.times.recv_decomp_s = std::chrono::duration<double>(b2 - b1).count()
-                                 + std::chrono::duration<double>(c1 - c0).count();
+    result.times.rt_nocomp_s = rt_nc_total.count();
+    result.times.rt_comp_s = rt_c_total.count();
     result.times.decompress_s = std::chrono::duration<double>(c1 - c0).count();
 
     // Use payload (device) bytes as the logical uncompressed size for throughput
@@ -906,14 +903,11 @@ int main(int argc, char** argv) {
     auto codec = make_codec(args.algo, args.params);
 
     // Runs
-    std::vector<double> compress_t, decompress_t, comp_send_t, recv_decomp_t, send_t,
-        recv_t;
+    std::vector<double> compress_t, decompress_t, rt_nc_t, rt_c_t;
     compress_t.reserve(args.num_runs);
     decompress_t.reserve(args.num_runs);
-    comp_send_t.reserve(args.num_runs);
-    recv_decomp_t.reserve(args.num_runs);
-    send_t.reserve(args.num_runs);
-    recv_t.reserve(args.num_runs);
+    rt_nc_t.reserve(args.num_runs);
+    rt_c_t.reserve(args.num_runs);
 
     std::size_t logical_bytes = packed.total_uncompressed_bytes * args.num_ops;
 
@@ -921,28 +915,29 @@ int main(int argc, char** argv) {
         if (i == args.num_warmups + args.num_runs - 1) {
             stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
         }
-        auto rr = run_once(comm, args, stream, &br, stats, packed, *codec);
+        auto rr = run_once(comm, args, stream, &br, stats, packed, *codec, i);
 
         double cBps = static_cast<double>(rr.counts.logical_uncompressed_bytes)
                       / rr.times.compress_s;
         double dBps = static_cast<double>(rr.counts.logical_uncompressed_bytes)
                       / rr.times.decompress_s;
-        double csBps = static_cast<double>(rr.counts.logical_uncompressed_bytes)
-                       / rr.times.comp_send_s;
-        double rdBps = static_cast<double>(rr.counts.logical_uncompressed_bytes)
-                       / rr.times.recv_decomp_s;
-        double sBps = static_cast<double>(rr.counts.logical_uncompressed_bytes)
-                      / rr.times.send_only_s;
-        double rBps = static_cast<double>(rr.counts.logical_uncompressed_bytes)
-                      / rr.times.recv_only_s;
+        // Round-trip one-way throughput: 2 * bytes_one_way / RTT
+        double rt_nc_Bps =
+            rr.times.rt_nocomp_s > 0.0
+                ? (2.0 * static_cast<double>(rr.counts.logical_uncompressed_bytes))
+                      / rr.times.rt_nocomp_s
+                : 0.0;
+        double rt_c_Bps =
+            rr.times.rt_comp_s > 0.0
+                ? (2.0 * static_cast<double>(rr.counts.logical_uncompressed_bytes))
+                      / rr.times.rt_comp_s
+                : 0.0;
 
         std::stringstream ss;
         ss << "compress: " << format_nbytes(cBps)
            << "/s | decompress: " << format_nbytes(dBps)
-           << "/s | comp+send: " << format_nbytes(csBps)
-           << "/s | recv+decomp: " << format_nbytes(rdBps)
-           << "/s | send-only: " << format_nbytes(sBps)
-           << "/s | recv-only: " << format_nbytes(rBps) << "/s";
+           << "/s | rt(nocomp): " << format_nbytes(rt_nc_Bps)
+           << "/s | rt(comp): " << format_nbytes(rt_c_Bps) << "/s";
         if (i < args.num_warmups)
             ss << " (warmup run)";
         log.print(ss.str());
@@ -954,18 +949,8 @@ int main(int argc, char** argv) {
             decompress_t.push_back(
                 static_cast<double>(rr.counts.logical_uncompressed_bytes) / dBps
             );
-            comp_send_t.push_back(
-                static_cast<double>(rr.counts.logical_uncompressed_bytes) / csBps
-            );
-            recv_decomp_t.push_back(
-                static_cast<double>(rr.counts.logical_uncompressed_bytes) / rdBps
-            );
-            send_t.push_back(
-                static_cast<double>(rr.counts.logical_uncompressed_bytes) / sBps
-            );
-            recv_t.push_back(
-                static_cast<double>(rr.counts.logical_uncompressed_bytes) / rBps
-            );
+            rt_nc_t.push_back(rr.times.rt_nocomp_s);
+            rt_c_t.push_back(rr.times.rt_comp_s);
         }
     }
 
@@ -980,18 +965,17 @@ int main(int argc, char** argv) {
     if (!compress_t.empty()) {
         double mean_elapsed_c = harmonic_mean(compress_t);
         double mean_elapsed_d = harmonic_mean(decompress_t);
-        double mean_elapsed_cs = harmonic_mean(comp_send_t);
-        double mean_elapsed_rd = harmonic_mean(recv_decomp_t);
-        double mean_elapsed_s = harmonic_mean(send_t);
-        double mean_elapsed_r = harmonic_mean(recv_t);
+        double mean_rt_nc = harmonic_mean(rt_nc_t);
+        double mean_rt_c = harmonic_mean(rt_c_t);
 
         std::stringstream ss;
         ss << "means: compress: " << format_nbytes(logical_bytes / mean_elapsed_c) << "/s"
            << " | decompress: " << format_nbytes(logical_bytes / mean_elapsed_d) << "/s"
-           << " | comp+send: " << format_nbytes(logical_bytes / mean_elapsed_cs) << "/s"
-           << " | recv+decomp: " << format_nbytes(logical_bytes / mean_elapsed_rd) << "/s"
-           << " | send-only: " << format_nbytes(logical_bytes / mean_elapsed_s) << "/s"
-           << " | recv-only: " << format_nbytes(logical_bytes / mean_elapsed_r) << "/s";
+           << " | rt(nocomp): "
+           << format_nbytes((2.0 * static_cast<double>(logical_bytes)) / mean_rt_nc)
+           << "/s | rt(comp): "
+           << format_nbytes((2.0 * static_cast<double>(logical_bytes)) / mean_rt_c)
+           << "/s";
         log.print(ss.str());
     }
 
