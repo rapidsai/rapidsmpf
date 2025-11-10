@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -28,17 +29,22 @@ constexpr std::size_t MAX_VALUE_LEN = 1 * (1ull << 20);
 constexpr std::size_t MAX_TOTAL_SIZE = 64 * (1ull << 20);
 
 // Format constants
-constexpr std::array<std::uint8_t, 4> MAGIC{{'R', 'M', 'P', 'F'}};
-constexpr std::uint8_t FORMAT_VERSION = 1;
-constexpr std::uint8_t FLAG_CRC_PRESENT = 0x01;
+constexpr std::array<std::byte, 4> MAGIC{
+    {static_cast<std::byte>('R'),
+     static_cast<std::byte>('M'),
+     static_cast<std::byte>('P'),
+     static_cast<std::byte>('F')}
+};
+constexpr std::byte FORMAT_VERSION = static_cast<std::byte>(1);
+constexpr std::byte FLAG_CRC_PRESENT = static_cast<std::byte>(0x01);
 // MAGIC(4) + version(1) + flags(1) + reserved(2)
 constexpr std::size_t PRELUDE_SIZE = 8;
 constexpr std::size_t CRC32_SIZE = 4;
 
-std::uint32_t crc32_compute(std::uint8_t const* data, std::size_t length) {
+std::uint32_t crc32_compute(std::byte const* data, std::size_t length) {
     std::uint32_t crc = 0xFFFFFFFFu;
     for (std::size_t i = 0; i < length; ++i) {
-        crc ^= static_cast<std::uint32_t>(data[i]);
+        crc ^= std::to_integer<std::uint32_t>(data[i]);
         for (int bit = 0; bit < 8; ++bit) {
             std::uint32_t mask = -(crc & 1u);
             crc = (crc >> 1) ^ (0xEDB88320u & mask);
@@ -188,15 +194,15 @@ std::vector<std::uint8_t> Options::serialize() const {
     );
 
     std::vector<std::uint8_t> buffer(header_size + data_size + CRC32_SIZE);
-    std::uint8_t* base = buffer.data();
+    std::byte* base = reinterpret_cast<std::byte*>(buffer.data());
 
     // Write MAGIC and version prelude
     std::memcpy(base, MAGIC.data(), MAGIC.size());
     base[4] = FORMAT_VERSION;
     // flags: bit0 => CRC32 present
     base[5] = FLAG_CRC_PRESENT;
-    base[6] = 0;
-    base[7] = 0;
+    base[6] = static_cast<std::byte>(0);
+    base[7] = static_cast<std::byte>(0);
 
     // Write count (number of key-value pairs) after prelude.
     {
@@ -256,17 +262,17 @@ std::vector<std::uint8_t> Options::serialize() const {
     {
         std::uint32_t crc = crc32_compute(base + header_size, data_size);
         std::size_t const crc_pos = header_size + data_size;
-        base[crc_pos + 0] = static_cast<std::uint8_t>(crc & 0xFFu);
-        base[crc_pos + 1] = static_cast<std::uint8_t>((crc >> 8) & 0xFFu);
-        base[crc_pos + 2] = static_cast<std::uint8_t>((crc >> 16) & 0xFFu);
-        base[crc_pos + 3] = static_cast<std::uint8_t>((crc >> 24) & 0xFFu);
+        base[crc_pos + 0] = static_cast<std::byte>(crc & 0xFFu);
+        base[crc_pos + 1] = static_cast<std::byte>((crc >> 8) & 0xFFu);
+        base[crc_pos + 2] = static_cast<std::byte>((crc >> 16) & 0xFFu);
+        base[crc_pos + 3] = static_cast<std::byte>((crc >> 24) & 0xFFu);
     }
 
     return buffer;
 }
 
 Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
-    const std::uint8_t* base = buffer.data();
+    std::byte const* base = reinterpret_cast<std::byte const*>(buffer.data());
     std::size_t total_size = buffer.size();
 
     // Require MAGIC/version prelude
@@ -282,10 +288,12 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
         std::invalid_argument
     );
     uint64_t count = 0;
-    std::uint8_t version = base[4];
-    std::uint8_t flags = base[5];
+    std::byte version = base[4];
+    std::byte flags = base[5];
     RAPIDSMPF_EXPECTS(
-        version == 1, "unsupported Options serialization version", std::invalid_argument
+        version == FORMAT_VERSION,
+        "unsupported Options serialization version",
+        std::invalid_argument
     );
     std::memcpy(&count, base + PRELUDE_SIZE, sizeof(uint64_t));
 
@@ -316,7 +324,7 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
 
     // If CRC32 is present (v1 flag), validate it and adjust data limit
     std::size_t data_limit = total_size;
-    if ((flags & 0x01u) != 0u) {
+    if ((flags & FLAG_CRC_PRESENT) != std::byte(0u)) {
         RAPIDSMPF_EXPECTS(
             total_size >= header_size + CRC32_SIZE,
             "buffer too small for CRC32 trailer",
@@ -324,10 +332,10 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
         );
         std::size_t crc_pos = total_size - CRC32_SIZE;
         std::uint32_t expected_crc =
-            static_cast<std::uint32_t>(base[crc_pos])
-            | (static_cast<std::uint32_t>(base[crc_pos + 1]) << 8)
-            | (static_cast<std::uint32_t>(base[crc_pos + 2]) << 16)
-            | (static_cast<std::uint32_t>(base[crc_pos + 3]) << 24);
+            std::to_integer<std::uint32_t>(base[crc_pos])
+            | (std::to_integer<std::uint32_t>(base[crc_pos + 1]) << 8)
+            | (std::to_integer<std::uint32_t>(base[crc_pos + 2]) << 16)
+            | (std::to_integer<std::uint32_t>(base[crc_pos + 3]) << 24);
         std::uint32_t computed_crc =
             crc32_compute(base + header_size, crc_pos - header_size);
         RAPIDSMPF_EXPECTS(
