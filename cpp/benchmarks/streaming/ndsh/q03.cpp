@@ -176,6 +176,7 @@
             chunk_stream,
             mr
         );
+        // std::cout << "Number of columns in filtered customer output: " << table.select({1}).num_columns() << std::endl;
          co_await ch_out->send(
              rapidsmpf::streaming::to_message(
                  msg.sequence_number(),
@@ -272,6 +273,7 @@
             chunk_stream,
             mr
         );
+        // std::cout << "Number of columns in filtered orders output: " << table.num_columns() << std::endl;
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
                 msg.sequence_number(),
@@ -292,7 +294,6 @@
  
 
 // .filter(pl.col("l_shipdate") > var2) ## var2 = date(1995, 3, 15)
-//  # .filter(pl.col("o_orderdate") < var2) ## var2 = date(1995, 3, 15)
 rapidsmpf::streaming::Node filter_lineitem(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
@@ -337,6 +338,7 @@ rapidsmpf::streaming::Node filter_lineitem(
             chunk_stream,
             mr
         );
+        // std::cout << "Number of columns in filtered lineitem output: " << table.select({0, 2, 3}).num_columns() << std::endl;
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
                 msg.sequence_number(),
@@ -366,9 +368,8 @@ rapidsmpf::streaming::Node filter_lineitem(
     //  "o_orderkey", # 1 (orders<-lineitem on o_orderkey)
     //  "o_orderdate", # 2
     //  "o_shippriority", # 3
-    //  "l_shipdate", # 4
-    //  "l_extendedprice", # 5
-    //  "l_discount", # 6
+    //  "l_extendedprice", # 4 (l_shipdate was filtered out)
+    //  "l_discount", # 5
      co_await ctx->executor()->schedule();
      while (true) {
          auto msg = co_await ch_in->receive();
@@ -402,8 +403,8 @@ rapidsmpf::streaming::Node filter_lineitem(
                 table.column(3), chunk_stream, ctx->br()->device_mr()
             )
         );
-        auto extendedprice = table.column(5);
-        auto discount = table.column(6);
+        auto extendedprice = table.column(4);
+        auto discount = table.column(5);
 
          std::string udf =
              R"***(
@@ -725,13 +726,13 @@ rapidsmpf::streaming::Node filter_lineitem(
         auto sequence_number = msg.sequence_number();
         auto table = chunk.table_view();
         std::vector<cudf::size_type> head_indices{0, 10};
-        auto sliced_table = cudf::slice(table, head_indices);
+        auto first_10_rows = cudf::slice(table, head_indices);
         
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
                 sequence_number,
                 std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    std::make_unique<cudf::table>(std::move(sliced_table)), chunk_stream
+                    std::make_unique<cudf::table>(std::move(first_10_rows[0])), chunk_stream
                 )
             )
         );
@@ -948,6 +949,8 @@ rapidsmpf::streaming::Node filter_lineitem(
 
                  
                  // read and filter customer
+                 // In: "c_mktsegment", "c_custkey"
+                 // Out: "c_custkey"
                  nodes.push_back(read_customer(
                      ctx,
                      customer,
@@ -958,6 +961,8 @@ rapidsmpf::streaming::Node filter_lineitem(
                  nodes.push_back(filter_customer(ctx, customer, filtered_customer));
 
                  // read and filter orders
+                 // In: "o_orderkey", "o_orderdate", "o_shippriority", "o_custkey"
+                 // Out: "o_orderkey", "o_orderdate", "o_shippriority", "o_custkey"
                  nodes.push_back(read_orders(
                      ctx,
                      orders,
@@ -968,6 +973,8 @@ rapidsmpf::streaming::Node filter_lineitem(
                  nodes.push_back(filter_orders(ctx, orders, filtered_orders));
 
                  // read and filter lineitem
+                 // In: "l_orderkey", "l_shipdate", "l_extendedprice", "l_discount"
+                 // Out: "l_orderkey", "l_extendedprice", "l_discount"
                  nodes.push_back(read_lineitem(
                     ctx,
                     lineitem,
