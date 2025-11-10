@@ -614,65 +614,54 @@ RunResult run_once(
     RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
     auto t1 = Clock::now();
 
-    // Phase A (RTT no compression): ping-pong per op
+    // Phase A (RTT no compression): ping-pong per op (sequential per item to avoid
+    // deadlocks)
     Duration rt_nc_total{0};
     for (std::uint64_t op = 0; op < args.num_ops; ++op) {
         bool initiator =
             ((static_cast<std::uint64_t>(rank) + op + run_index) % 2ull) == 0ull;
         auto rt_start = Clock::now();
         if (initiator) {
-            // Initiator: post pong recvs, then ping sends
-            std::vector<std::unique_ptr<Communicator::Future>> pong_recvs;
-            std::vector<std::unique_ptr<Communicator::Future>> ping_sends;
-            pong_recvs.reserve(nocomp_payloads.size());
-            ping_sends.reserve(nocomp_payloads.size());
             for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
-                auto res =
+                // post pong recv and send ping, then wait both
+                auto res_r =
                     br->reserve_or_fail(nocomp_payloads[i]->size, MemoryType::DEVICE);
-                auto recv_buf = br->allocate(nocomp_payloads[i]->size, stream, res);
-                pong_recvs.push_back(comm->recv(src, tag_pong_nc, std::move(recv_buf)));
-            }
-            for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
-                auto res =
+                auto recv_buf = br->allocate(nocomp_payloads[i]->size, stream, res_r);
+                std::vector<std::unique_ptr<Communicator::Future>> futs;
+                futs.push_back(comm->recv(dst, tag_pong_nc, std::move(recv_buf)));
+                auto res_s =
                     br->reserve_or_fail(nocomp_payloads[i]->size, MemoryType::DEVICE);
-                auto send_buf = br->allocate(nocomp_payloads[i]->size, stream, res);
+                auto send_buf = br->allocate(nocomp_payloads[i]->size, stream, res_s);
                 buffer_copy(*send_buf, *nocomp_payloads[i], nocomp_payloads[i]->size);
                 if (!send_buf->is_latest_write_done())
                     send_buf->stream().synchronize();
-                ping_sends.push_back(comm->send(std::move(send_buf), dst, tag_ping_nc));
-            }
-            while (!ping_sends.empty()) {
-                std::ignore = comm->test_some(ping_sends);
-            }
-            while (!pong_recvs.empty()) {
-                std::ignore = comm->test_some(pong_recvs);
+                futs.push_back(comm->send(std::move(send_buf), dst, tag_ping_nc));
+                while (!futs.empty()) {
+                    std::ignore = comm->test_some(futs);
+                }
             }
         } else {
-            // Responder: post ping recvs, then pong sends
-            std::vector<std::unique_ptr<Communicator::Future>> ping_recvs;
-            std::vector<std::unique_ptr<Communicator::Future>> pong_sends;
-            ping_recvs.reserve(nocomp_payloads.size());
-            pong_sends.reserve(nocomp_payloads.size());
+            // Responder: for each item, recv ping then send pong
             for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
-                auto res =
+                auto res_r =
                     br->reserve_or_fail(nocomp_payloads[i]->size, MemoryType::DEVICE);
-                auto recv_buf = br->allocate(nocomp_payloads[i]->size, stream, res);
-                ping_recvs.push_back(comm->recv(src, tag_ping_nc, std::move(recv_buf)));
-            }
-            while (!ping_recvs.empty()) {
-                std::ignore = comm->test_some(ping_recvs);
-            }
-            for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
-                auto res =
+                auto recv_buf = br->allocate(nocomp_payloads[i]->size, stream, res_r);
+                std::vector<std::unique_ptr<Communicator::Future>> rf;
+                rf.push_back(comm->recv(src, tag_ping_nc, std::move(recv_buf)));
+                while (!rf.empty()) {
+                    std::ignore = comm->test_some(rf);
+                }
+                auto res_s =
                     br->reserve_or_fail(nocomp_payloads[i]->size, MemoryType::DEVICE);
-                auto send_buf = br->allocate(nocomp_payloads[i]->size, stream, res);
+                auto send_buf = br->allocate(nocomp_payloads[i]->size, stream, res_s);
                 buffer_copy(*send_buf, *nocomp_payloads[i], nocomp_payloads[i]->size);
                 if (!send_buf->is_latest_write_done())
                     send_buf->stream().synchronize();
-                pong_sends.push_back(comm->send(std::move(send_buf), src, tag_pong_nc));
-            }
-            while (!pong_sends.empty()) {
-                std::ignore = comm->test_some(pong_sends);
+                std::vector<std::unique_ptr<Communicator::Future>> sf;
+                sf.push_back(comm->send(std::move(send_buf), src, tag_pong_nc));
+                while (!sf.empty()) {
+                    std::ignore = comm->test_some(sf);
+                }
             }
         }
         auto rt_end = Clock::now();
@@ -680,67 +669,115 @@ RunResult run_once(
         rt_nc_total += (rt_end - rt_start);
     }
 
-    // Phase B (RTT compressed payload only): ping-pong of compressed buffers (no headers)
+    // Phase B (RTT compressed payload only): ping-pong with size headers per item
     Duration rt_c_total{0};
     for (std::uint64_t op = 0; op < args.num_ops; ++op) {
         bool initiator =
             ((static_cast<std::uint64_t>(rank) + op + run_index) % 2ull) == 0ull;
         auto rt_start = Clock::now();
         if (initiator) {
-            std::vector<std::unique_ptr<Communicator::Future>> pong_recvs;
-            std::vector<std::unique_ptr<Communicator::Future>> ping_sends;
-            pong_recvs.reserve(data.items.size());
-            ping_sends.reserve(data.items.size());
             for (std::size_t i = 0; i < data.items.size(); ++i) {
-                if (comp_output_sizes[i] == 0)
-                    continue;
-                auto res = br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
-                auto recv_buf = br->allocate(comp_output_sizes[i], stream, res);
-                pong_recvs.push_back(comm->recv(src, tag_pong_c, std::move(recv_buf)));
-            }
-            for (std::size_t i = 0; i < data.items.size(); ++i) {
-                if (comp_output_sizes[i] == 0)
-                    continue;
-                auto res = br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
-                auto send_buf = br->allocate(comp_output_sizes[i], stream, res);
-                buffer_copy(*send_buf, *comp_outputs[i], comp_output_sizes[i]);
-                if (!send_buf->is_latest_write_done())
-                    send_buf->stream().synchronize();
-                ping_sends.push_back(comm->send(std::move(send_buf), dst, tag_ping_c));
-            }
-            while (!ping_sends.empty()) {
-                std::ignore = comm->test_some(ping_sends);
-            }
-            while (!pong_recvs.empty()) {
-                std::ignore = comm->test_some(pong_recvs);
+                // Send header with size to dst
+                std::uint64_t sz = static_cast<std::uint64_t>(comp_output_sizes[i]);
+                auto res_h = br->reserve_or_fail(sizeof(std::uint64_t), MemoryType::HOST);
+                auto hdr = br->allocate(sizeof(std::uint64_t), stream, res_h);
+                hdr->write_access([&](std::byte* p, rmm::cuda_stream_view) {
+                    std::memcpy(p, &sz, sizeof(std::uint64_t));
+                });
+                if (!hdr->is_latest_write_done())
+                    hdr->stream().synchronize();
+                std::vector<std::unique_ptr<Communicator::Future>> hf;
+                hf.push_back(comm->send(std::move(hdr), dst, tag_ping_c));
+                while (!hf.empty()) {
+                    std::ignore = comm->test_some(hf);
+                }
+                // Receive pong header with size from src (blocking wait)
+                auto res_hr =
+                    br->reserve_or_fail(sizeof(std::uint64_t), MemoryType::HOST);
+                auto hdr_r = br->allocate(sizeof(std::uint64_t), stream, res_hr);
+                auto fut_hdr = comm->recv(dst, tag_pong_c, std::move(hdr_r));
+                auto hdr_buf = comm->wait(std::move(fut_hdr));
+                auto* p = hdr_buf->exclusive_data_access();
+                std::uint64_t pong_sz = 0;
+                std::memcpy(&pong_sz, p, sizeof(std::uint64_t));
+                hdr_buf->unlock();
+                // Send ping payload (if any)
+                if (sz > 0) {
+                    auto res_s = br->reserve_or_fail(sz, MemoryType::DEVICE);
+                    auto send_buf = br->allocate(sz, stream, res_s);
+                    if (comp_output_sizes[i] > 0) {
+                        buffer_copy(*send_buf, *comp_outputs[i], comp_output_sizes[i]);
+                    }
+                    if (!send_buf->is_latest_write_done())
+                        send_buf->stream().synchronize();
+                    std::vector<std::unique_ptr<Communicator::Future>> sf;
+                    sf.push_back(comm->send(std::move(send_buf), dst, tag_ping_c));
+                    while (!sf.empty()) {
+                        std::ignore = comm->test_some(sf);
+                    }
+                }
+                // Receive pong payload of announced size
+                if (pong_sz > 0) {
+                    auto res_r = br->reserve_or_fail(pong_sz, MemoryType::DEVICE);
+                    auto recv_buf = br->allocate(pong_sz, stream, res_r);
+                    std::vector<std::unique_ptr<Communicator::Future>> rf;
+                    rf.push_back(comm->recv(dst, tag_pong_c, std::move(recv_buf)));
+                    while (!rf.empty()) {
+                        std::ignore = comm->test_some(rf);
+                    }
+                }
             }
         } else {
-            std::vector<std::unique_ptr<Communicator::Future>> ping_recvs;
-            std::vector<std::unique_ptr<Communicator::Future>> pong_sends;
-            ping_recvs.reserve(data.items.size());
-            pong_sends.reserve(data.items.size());
             for (std::size_t i = 0; i < data.items.size(); ++i) {
-                if (comp_output_sizes[i] == 0)
-                    continue;
-                auto res = br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
-                auto recv_buf = br->allocate(comp_output_sizes[i], stream, res);
-                ping_recvs.push_back(comm->recv(src, tag_ping_c, std::move(recv_buf)));
-            }
-            while (!ping_recvs.empty()) {
-                std::ignore = comm->test_some(ping_recvs);
-            }
-            for (std::size_t i = 0; i < data.items.size(); ++i) {
-                if (comp_output_sizes[i] == 0)
-                    continue;
-                auto res = br->reserve_or_fail(comp_output_sizes[i], MemoryType::DEVICE);
-                auto send_buf = br->allocate(comp_output_sizes[i], stream, res);
-                buffer_copy(*send_buf, *comp_outputs[i], comp_output_sizes[i]);
-                if (!send_buf->is_latest_write_done())
-                    send_buf->stream().synchronize();
-                pong_sends.push_back(comm->send(std::move(send_buf), src, tag_pong_c));
-            }
-            while (!pong_sends.empty()) {
-                std::ignore = comm->test_some(pong_sends);
+                // Receive ping header with size (blocking wait)
+                auto res_hr =
+                    br->reserve_or_fail(sizeof(std::uint64_t), MemoryType::HOST);
+                auto hdr_r = br->allocate(sizeof(std::uint64_t), stream, res_hr);
+                auto fut_hdr = comm->recv(src, tag_ping_c, std::move(hdr_r));
+                auto hdr_buf = comm->wait(std::move(fut_hdr));
+                auto* p = hdr_buf->exclusive_data_access();
+                std::uint64_t ping_sz = 0;
+                std::memcpy(&ping_sz, p, sizeof(std::uint64_t));
+                hdr_buf->unlock();
+                // Send pong header with our size
+                std::uint64_t sz = static_cast<std::uint64_t>(comp_output_sizes[i]);
+                auto res_h = br->reserve_or_fail(sizeof(std::uint64_t), MemoryType::HOST);
+                auto hdr = br->allocate(sizeof(std::uint64_t), stream, res_h);
+                hdr->write_access([&](std::byte* q, rmm::cuda_stream_view) {
+                    std::memcpy(q, &sz, sizeof(std::uint64_t));
+                });
+                if (!hdr->is_latest_write_done())
+                    hdr->stream().synchronize();
+                std::vector<std::unique_ptr<Communicator::Future>> hf;
+                hf.push_back(comm->send(std::move(hdr), src, tag_pong_c));
+                while (!hf.empty()) {
+                    std::ignore = comm->test_some(hf);
+                }
+                // Receive ping payload
+                if (ping_sz > 0) {
+                    auto res_r = br->reserve_or_fail(ping_sz, MemoryType::DEVICE);
+                    auto recv_buf = br->allocate(ping_sz, stream, res_r);
+                    std::vector<std::unique_ptr<Communicator::Future>> rf;
+                    rf.push_back(comm->recv(src, tag_ping_c, std::move(recv_buf)));
+                    while (!rf.empty()) {
+                        std::ignore = comm->test_some(rf);
+                    }
+                }
+                // Send pong payload
+                if (sz > 0) {
+                    auto res_s = br->reserve_or_fail(sz, MemoryType::DEVICE);
+                    auto send_buf = br->allocate(sz, stream, res_s);
+                    if (comp_output_sizes[i] > 0) {
+                        buffer_copy(*send_buf, *comp_outputs[i], comp_output_sizes[i]);
+                    }
+                    if (!send_buf->is_latest_write_done())
+                        send_buf->stream().synchronize();
+                    std::vector<std::unique_ptr<Communicator::Future>> sf;
+                    sf.push_back(comm->send(std::move(send_buf), src, tag_pong_c));
+                    while (!sf.empty()) {
+                        std::ignore = comm->test_some(sf);
+                    }
+                }
             }
         }
         auto rt_end = Clock::now();
