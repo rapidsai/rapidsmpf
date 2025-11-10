@@ -5,7 +5,7 @@
 
 #include <algorithm>
 #include <deque>
-#include <stop_token>
+#include <span>
 
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
@@ -17,6 +17,24 @@
 
 namespace rapidsmpf::streaming::node {
 namespace {
+
+/**
+ * @brief Try to allocate memory from the memory types that the message content uses.
+ *
+ * @param msg The message to allocate memory for.
+ * @return The memory types to try to allocate from.
+ */
+constexpr std::span<const MemoryType> try_memory_types(Message const& msg) {
+    auto const& cd = msg.content_description();
+    // if the message content uses device memory, try to allocate from device memory
+    // first, else allocate from host memory
+    return cd.content_size(MemoryType::DEVICE) > 0
+               ? MEMORY_TYPES
+               : std::span<const MemoryType>{
+                     MEMORY_TYPES.begin() + static_cast<std::size_t>(MemoryType::HOST),
+                     MEMORY_TYPES.end()
+                 };
+}
 
 /**
  * @brief Asynchronously send a message to multiple output channels.
@@ -33,7 +51,8 @@ Node send_to_channels(
     for (auto& ch_out : chs_out) {
         // do a reservation for each copy, so that it will fallback to host memory if
         // needed
-        auto res = ctx->br()->reserve_or_fail(msg.copy_cost());
+        // TODO: change this
+        auto res = ctx->br()->reserve_or_fail(msg.copy_cost(), try_memory_types(msg)[0]);
         tasks.push_back(ch_out->send(msg.copy(res)));
     }
     coro_results(co_await coro::when_all(std::move(tasks)));
@@ -140,7 +159,9 @@ Node unbounded_fo_send_task(
 
             // make reservations for each message so that it will fallback to host memory
             // if needed
-            auto res = ctx.br()->reserve_or_fail(msg.copy_cost());
+            // TODO: change this
+            auto res =
+                ctx.br()->reserve_or_fail(msg.copy_cost(), try_memory_types(msg)[0]);
             RAPIDSMPF_EXPECTS(
                 co_await ch_out->send(msg.copy(res)), "failed to send message"
             );
