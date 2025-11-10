@@ -9,7 +9,6 @@
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/memory_resource.hpp>
 
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/streaming/chunks/partition.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 
@@ -138,44 +137,3 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
         EXPECT_EQ(m1.sequence_number(), m2.sequence_number());
     }
 }
-
-namespace {
-// test context description properties
-constexpr ContentDescription cd{
-    {{MemoryType::HOST, 10}, {MemoryType::DEVICE, 20}}, ContentDescription::Spillable::NO
-};
-static_assert(cd.highest_memory_type_set() == MemoryType::DEVICE);
-static_assert(cd.lowest_memory_type_set() == MemoryType::HOST);
-static_assert(std::ranges::equal(
-    LowerMemoryTypesInclusive(cd.lowest_memory_type_set()),
-    std::span<const MemoryType>(MEMORY_TYPES).subspan(1)  // [HOST]
-));
-
-constexpr ContentDescription cd2{
-    {{MemoryType::DEVICE, 10}}, ContentDescription::Spillable::NO
-};
-static_assert(cd2.highest_memory_type_set() == MemoryType::DEVICE);
-static_assert(cd2.lowest_memory_type_set() == MemoryType::DEVICE);
-static_assert(std::ranges::equal(
-    LowerMemoryTypesInclusive(cd2.lowest_memory_type_set()),
-    std::span<const MemoryType>(MEMORY_TYPES)
-));
-
-constexpr ContentDescription cd3{
-    {{MemoryType::HOST, 10}}, ContentDescription::Spillable::NO
-};
-static_assert(cd3.highest_memory_type_set() == MemoryType::HOST);
-static_assert(cd3.lowest_memory_type_set() == MemoryType::HOST);
-static_assert(std::ranges::equal(
-    LowerMemoryTypesInclusive(cd3.lowest_memory_type_set()),
-    std::span<const MemoryType>(MEMORY_TYPES).subspan(1)  // [HOST]
-));
-
-constexpr ContentDescription cd4{};
-static_assert(cd4.highest_memory_type_set() == MemoryType::HOST);
-static_assert(cd4.lowest_memory_type_set() == MemoryType::HOST);
-static_assert(std::ranges::equal(
-    LowerMemoryTypesInclusive(cd4.lowest_memory_type_set()),
-    std::span<const MemoryType>(MEMORY_TYPES).subspan(1)  // [HOST]
-));
-}  // namespace

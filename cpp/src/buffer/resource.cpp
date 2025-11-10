@@ -105,14 +105,7 @@ MemoryReservation BufferResource::reserve_or_fail(
     }
 
     // try to allocate data buffer from memory types in order [DEVICE, HOST]
-    return reserve_or_fail(size, MEMORY_TYPES);
-}
-
-MemoryReservation BufferResource::reserve_or_fail(
-    size_t size, std::span<const MemoryType> mem_types
-) {
-    // try to allocate data buffer from memory types in order [DEVICE, HOST]
-    for (auto const& mem_type : mem_types) {
+    for (auto mem_type : MEMORY_TYPES) {
         auto [res, _] = reserve(mem_type, size, false);
         if (res.size() == size) {
             return std::move(res);

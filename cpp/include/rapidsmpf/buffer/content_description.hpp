@@ -3,9 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
-#include <algorithm>
 #include <numeric>
-#include <ranges>
 #include <type_traits>
 #include <utility>
 
@@ -66,10 +64,6 @@ class ContentDescription {
             std::pair<MemoryType, std::size_t>>
     constexpr explicit ContentDescription(Range&& sizes, Spillable spillable)
         : spillable_(spillable == Spillable::YES) {
-        RAPIDSMPF_EXPECTS(
-            std::ranges::size(sizes) > 0,
-            "ContentDescription must have at least one memory type"
-        );
         content_sizes_.fill(0);
         for (auto&& [mem_type, size] : sizes) {
             auto idx = static_cast<std::size_t>(mem_type);
@@ -108,39 +102,6 @@ class ContentDescription {
      */
     [[nodiscard]] constexpr std::size_t content_size(MemoryType mem_type) const noexcept {
         return content_sizes_[static_cast<std::size_t>(mem_type)];
-    }
-
-    /**
-     * @brief Get the highest memory type that has a non-zero size.
-     *
-     * @return The highest memory type that has a non-zero size. If no memory type has a
-     * non-zero size, returns `MemoryType::HOST`.
-     */
-    constexpr MemoryType highest_memory_type_set() const noexcept {
-        auto it = std::ranges::find_if(content_sizes_, [](auto const& size) {
-            return size > 0;
-        });
-        return it == content_sizes_.end()
-                   ? MemoryType::HOST
-                   : static_cast<MemoryType>(std::distance(content_sizes_.begin(), it));
-    }
-
-    /**
-     * @brief Get the lowest memory type that has a non-zero size.
-     *
-     * @return The lowest memory type that has a non-zero size. If no memory type has a
-     * non-zero size, returns `MemoryType::HOST`.
-     */
-    constexpr MemoryType lowest_memory_type_set() const noexcept {
-        auto it = std::ranges::find_if(
-            std::ranges::reverse_view(content_sizes_),
-            [](auto const& size) { return size > 0; }
-        );
-        return it == content_sizes_.rend()
-                   ? MemoryType::HOST
-                   : static_cast<MemoryType>(
-                         std::distance(content_sizes_.begin(), it.base()) - 1
-                     );
     }
 
     /**

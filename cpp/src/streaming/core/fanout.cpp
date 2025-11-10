@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <deque>
-#include <ranges>
 #include <stop_token>
 
 #include <rapidsmpf/streaming/core/channel.hpp>
@@ -31,13 +30,10 @@ Node send_to_channels(
 ) {
     std::vector<coro::task<bool>> tasks;
     tasks.reserve(chs_out.size());
-
-    auto try_memory_types =
-        LowerMemoryTypesInclusive(msg.content_description().lowest_memory_type_set());
     for (auto& ch_out : chs_out) {
         // do a reservation for each copy, so that it will fallback to host memory if
         // needed
-        auto res = ctx->br()->reserve_or_fail(msg.copy_cost(), try_memory_types);
+        auto res = ctx->br()->reserve_or_fail(msg.copy_cost());
         tasks.push_back(ch_out->send(msg.copy(res)));
     }
     coro_results(co_await coro::when_all(std::move(tasks)));
@@ -73,12 +69,9 @@ Node bounded_fanout(
         logger.debug("Sent message ", msg.sequence_number());
     }
 
-    std::vector<coro::task<void>> drain_tasks;
-    drain_tasks.reserve(chs_out.size());
-    std::ranges::for_each(chs_out, [&](auto& ch) {
-        drain_tasks.emplace_back(ch->drain(ctx->executor()));
-    });
-    coro_results(co_await coro::when_all(std::move(drain_tasks)));
+    for (auto& ch : chs_out) {
+        co_await ch->drain(ctx->executor());
+    }
     logger.debug("Completed bounded fanout");
 }
 
@@ -147,12 +140,7 @@ Node unbounded_fo_send_task(
 
             // make reservations for each message so that it will fallback to host memory
             // if needed
-
-            auto try_memory_types = LowerMemoryTypesInclusive(
-                msg.content_description().lowest_memory_type_set()
-            );
-
-            auto res = ctx.br()->reserve_or_fail(msg.copy_cost(), try_memory_types);
+            auto res = ctx.br()->reserve_or_fail(msg.copy_cost());
             RAPIDSMPF_EXPECTS(
                 co_await ch_out->send(msg.copy(res)), "failed to send message"
             );

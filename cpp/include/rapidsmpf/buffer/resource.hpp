@@ -9,7 +9,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <span>
 #include <unordered_map>
 #include <utility>
 
@@ -265,16 +264,6 @@ class BufferResource {
     [[nodiscard]] MemoryReservation reserve_or_fail(
         size_t size, std::optional<MemoryType> mem_type = std::nullopt
     );
-
-    /**
-     * @brief Make a memory reservation or fail.
-     *
-     * @param size The size of the buffer to allocate.
-     * @param mem_types The memory types to try to allocate the buffer from.
-     * @return A memory reservation.
-     * @throws std::runtime_error if no memory reservation was made.
-     */
-    MemoryReservation reserve_or_fail(size_t size, std::span<const MemoryType> mem_types);
 
     /**
      * @brief Consume a portion of the reserved memory.
