@@ -320,7 +320,6 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
         std::invalid_argument
     );
 
-    // Validate CRC32 (if present) and compute data limit
     std::size_t const data_limit =
         validate_crc_and_get_data_limit(base, header_size, total_size, flags);
 
