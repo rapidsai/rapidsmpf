@@ -954,10 +954,12 @@ int main(int argc, char** argv) {
                 ? (2.0 * static_cast<double>(rr.counts.logical_uncompressed_bytes))
                       / rr.times.rt_nocomp_s
                 : 0.0;
+        double const rt_comp_total_s =
+            rr.times.compress_s + rr.times.rt_comp_s + rr.times.decompress_s;
         double rt_c_Bps =
-            rr.times.rt_comp_s > 0.0
+            rt_comp_total_s > 0.0
                 ? (2.0 * static_cast<double>(rr.counts.logical_uncompressed_bytes))
-                      / rr.times.rt_comp_s
+                      / rt_comp_total_s
                 : 0.0;
 
         std::stringstream ss;
@@ -978,7 +980,7 @@ int main(int argc, char** argv) {
                 static_cast<double>(rr.counts.logical_uncompressed_bytes) / dBps
             );
             rt_nc_t.push_back(rr.times.rt_nocomp_s);
-            rt_c_t.push_back(rr.times.rt_comp_s);
+            rt_c_t.push_back(rt_comp_total_s);
         }
     }
 
