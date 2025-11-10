@@ -32,7 +32,7 @@ constexpr std::array<std::uint8_t, 4> MAGIC{{'R', 'M', 'P', 'F'}};
 constexpr std::uint8_t FORMAT_VERSION = 1;
 constexpr std::uint8_t FLAG_CRC_PRESENT = 0x01;
 // MAGIC(4) + version(1) + flags(1) + reserved(2)
-constexpr std::size_t PRELUDE_SIZE = 8;  
+constexpr std::size_t PRELUDE_SIZE = 8;
 constexpr std::size_t CRC32_SIZE = 4;
 
 std::uint32_t crc32_compute(std::uint8_t const* data, std::size_t length) {
