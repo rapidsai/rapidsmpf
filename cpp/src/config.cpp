@@ -22,20 +22,20 @@
 
 namespace {
 // Serialization limits and format configuration (implementation details)
-inline constexpr std::size_t MAX_OPTIONS = 64 * (1ull << 10);
-inline constexpr std::size_t MAX_KEY_LEN = 4 * (1ull << 10);
-inline constexpr std::size_t MAX_VALUE_LEN = 1 * (1ull << 20);
-inline constexpr std::size_t MAX_TOTAL_SIZE = 64 * (1ull << 20);
+constexpr std::size_t MAX_OPTIONS = 64 * (1ull << 10);
+constexpr std::size_t MAX_KEY_LEN = 4 * (1ull << 10);
+constexpr std::size_t MAX_VALUE_LEN = 1 * (1ull << 20);
+constexpr std::size_t MAX_TOTAL_SIZE = 64 * (1ull << 20);
 
 // Format constants
-inline constexpr std::array<std::uint8_t, 4> MAGIC{{'R', 'M', 'P', 'F'}};
-inline constexpr std::uint8_t FORMAT_VERSION = 1;
-inline constexpr std::uint8_t FLAG_CRC_PRESENT = 0x01;
-inline constexpr std::size_t PRELUDE_SIZE =
-    8;  // MAGIC(4) + version(1) + flags(1) + reserved(2)
-inline constexpr std::size_t CRC32_SIZE = 4;
+constexpr std::array<std::uint8_t, 4> MAGIC{{'R', 'M', 'P', 'F'}};
+constexpr std::uint8_t FORMAT_VERSION = 1;
+constexpr std::uint8_t FLAG_CRC_PRESENT = 0x01;
+// MAGIC(4) + version(1) + flags(1) + reserved(2)
+constexpr std::size_t PRELUDE_SIZE = 8;  
+constexpr std::size_t CRC32_SIZE = 4;
 
-inline std::uint32_t crc32_compute(const std::uint8_t* data, std::size_t length) {
+std::uint32_t crc32_compute(std::uint8_t const* data, std::size_t length) {
     std::uint32_t crc = 0xFFFFFFFFu;
     for (std::size_t i = 0; i < length; ++i) {
         crc ^= static_cast<std::uint32_t>(data[i]);
@@ -47,9 +47,10 @@ inline std::uint32_t crc32_compute(const std::uint8_t* data, std::size_t length)
     return ~crc;
 }
 
-inline bool checked_add_u64(std::uint64_t a, std::uint64_t b, std::uint64_t* out) {
-    if (out == nullptr)
+bool checked_add_u64(std::uint64_t a, std::uint64_t b, std::uint64_t* out) {
+    if (out == nullptr) {
         return false;
+    }
     if (std::numeric_limits<std::uint64_t>::max() - a < b) {
         return false;
     }
@@ -57,9 +58,10 @@ inline bool checked_add_u64(std::uint64_t a, std::uint64_t b, std::uint64_t* out
     return true;
 }
 
-inline bool checked_mul_u64(std::uint64_t a, std::uint64_t b, std::uint64_t* out) {
-    if (out == nullptr)
+bool checked_mul_u64(std::uint64_t a, std::uint64_t b, std::uint64_t* out) {
+    if (out == nullptr) {
         return false;
+    }
     if (a == 0 || b == 0) {
         *out = 0;
         return true;
