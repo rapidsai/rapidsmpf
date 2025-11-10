@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Generic, Protocol, TypeVar
 
+from rapidsmpf.buffer.content_description import ContentDescription
+
 PayloadT = TypeVar("PayloadT", bound="Payload")
 
 class Payload(Protocol):
@@ -66,3 +68,4 @@ class Message(Generic[PayloadT]):
     def empty(self) -> bool: ...
     @property
     def sequence_number(self) -> int: ...
+    def get_content_description(self) -> ContentDescription: ...

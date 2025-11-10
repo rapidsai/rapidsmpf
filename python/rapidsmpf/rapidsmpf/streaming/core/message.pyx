@@ -3,6 +3,8 @@
 
 from libcpp.utility cimport move
 
+from rapidsmpf.buffer.content_description cimport content_description_from_cpp
+
 
 cdef class Message:
     """
@@ -76,3 +78,6 @@ cdef class Message:
         with nogil:
             ret = self._handle.sequence_number()
         return ret
+
+    def get_content_description(self):
+        return content_description_from_cpp(self._handle.content_description())

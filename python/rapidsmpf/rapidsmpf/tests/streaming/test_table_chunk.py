@@ -9,6 +9,8 @@ import pytest
 
 import cudf
 
+from rapidsmpf.buffer.buffer import MemoryType
+from rapidsmpf.buffer.content_description import ContentDescription
 from rapidsmpf.cuda_stream import is_equal_streams
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
@@ -41,6 +43,10 @@ def test_from_pylibcudf_table(
     # Message roundtrip check.
     msg = Message(seq, table_chunk)
     assert msg.sequence_number == seq
+    assert msg.get_content_description() == ContentDescription(
+        content_sizes={MemoryType.DEVICE: 48, MemoryType.HOST: 0},
+        spillable=exclusive_view,
+    )
     table_chunk2 = TableChunk.from_message(msg)
     assert is_equal_streams(table_chunk2.stream, stream)
     assert table_chunk2.is_available()

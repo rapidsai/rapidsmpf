@@ -5,12 +5,15 @@ from libc.stdint cimport uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport shared_ptr
 
+from rapidsmpf.buffer.content_description cimport cpp_ContentDescription
+
 
 cdef extern from "<rapidsmpf/streaming/core/channel.hpp>" nogil:
     cdef cppclass cpp_Message"rapidsmpf::streaming::Message":
         void reset() noexcept
         bool_t empty() noexcept
         uint64_t sequence_number() noexcept
+        cpp_ContentDescription content_description() noexcept
         T release[T]() except +
         T& get[T]() except +
 
