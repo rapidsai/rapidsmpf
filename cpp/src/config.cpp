@@ -158,9 +158,12 @@ std::vector<std::uint8_t> Options::serialize() const {
 
     std::size_t const count = shared.options.size();
 
-    // Note: this condition ensures that there are no overflows for uint64_t with
-    // MAX_OPTIONS=65536, so no further checks are needed for header size. Be sure to
-    // update this condition if MAX_OPTIONS is increased.
+    static_assert(
+        MAX_OPTIONS <= std::numeric_limits<uint64_t>::max() / (2 * sizeof(uint64_t))
+                           - sizeof(uint64_t),
+        "MAX_OPTIONS too large, this will overflow header serialization"
+    );
+
     RAPIDSMPF_EXPECTS(
         count <= MAX_OPTIONS, "too many options to serialize", std::invalid_argument
     );
@@ -294,9 +297,12 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
     );
     std::memcpy(&count, base + PRELUDE_SIZE, sizeof(uint64_t));
 
-    // Note: this condition ensures that there are no overflows for uint64_t with
-    // MAX_OPTIONS=65536, so no further checks are needed for header size. Be sure to
-    // update this condition if MAX_OPTIONS is increased.
+    static_assert(
+        MAX_OPTIONS <= std::numeric_limits<uint64_t>::max() / (2 * sizeof(uint64_t))
+                           - sizeof(uint64_t),
+        "MAX_OPTIONS too large, this will overflow header deserialization"
+    );
+
     RAPIDSMPF_EXPECTS(
         count <= MAX_OPTIONS, "too many options to deserialize", std::invalid_argument
     );
