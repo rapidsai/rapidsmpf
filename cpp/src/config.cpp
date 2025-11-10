@@ -169,8 +169,8 @@ std::vector<std::uint8_t> Options::serialize() const {
         "header size overflow",
         std::invalid_argument
     );
-    auto const data_header_size = static_cast<std::size_t>(data_header_u64);
-    std::size_t const header_size = PRELUDE_SIZE + data_header_size;
+    std::size_t const header_size =
+        PRELUDE_SIZE + static_cast<std::size_t>(data_header_u64);
 
     std::size_t data_size = 0;
     for (auto const& [key, option] : shared.options) {
@@ -188,7 +188,7 @@ std::vector<std::uint8_t> Options::serialize() const {
         data_size += key.size() + val.size();
     }
     RAPIDSMPF_EXPECTS(
-        PRELUDE_SIZE + data_header_size + data_size + CRC32_SIZE <= MAX_TOTAL_SIZE,
+        header_size + data_size + CRC32_SIZE <= MAX_TOTAL_SIZE,
         "serialized buffer exceeds maximum allowed size",
         std::invalid_argument
     );
