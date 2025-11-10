@@ -40,7 +40,7 @@ class Context {
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
         std::unique_ptr<coro::thread_pool> executor,
-        BufferResource* br,
+        std::shared_ptr<BufferResource> br,
         std::shared_ptr<Statistics> statistics
     );
 
@@ -57,7 +57,7 @@ class Context {
     Context(
         config::Options options,
         std::shared_ptr<Communicator> comm,
-        BufferResource* br,
+        std::shared_ptr<BufferResource> br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
@@ -122,7 +122,7 @@ class Context {
     std::shared_ptr<Communicator> comm_;
     std::shared_ptr<ProgressThread> progress_thread_;
     std::unique_ptr<coro::thread_pool> executor_;
-    BufferResource* br_;
+    std::shared_ptr<BufferResource> br_;
     std::shared_ptr<Statistics> statistics_;
 };
 
