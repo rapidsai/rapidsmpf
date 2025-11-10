@@ -17,6 +17,7 @@
  
  #include <cudf/aggregation.hpp>
  #include <cudf/binaryop.hpp>
+ #include <cudf/copying.hpp>
  #include <cudf/datetime.hpp>
  #include <cudf/groupby.hpp>
  #include <cudf/io/parquet.hpp>
@@ -458,13 +459,14 @@ rapidsmpf::streaming::Node filter_lineitem(
          auto chunk_stream = chunk.stream();
          auto table = chunk.table_view();
          auto grouper = cudf::groupby::groupby(
-             table.select({0, 1}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
+            // grup by [o_orderkey, o_orderdate, o_shippriority]
+             table.select({0, 1, 2}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
          );
          auto requests = std::vector<cudf::groupby::aggregation_request>();
          std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
          aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
          requests.push_back(
-             cudf::groupby::aggregation_request(table.column(2), std::move(aggs))
+             cudf::groupby::aggregation_request(table.column(3), std::move(aggs))
          );
          auto [keys, results] =
              grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
@@ -506,13 +508,13 @@ rapidsmpf::streaming::Node filter_lineitem(
      std::unique_ptr<cudf::table> local_result{nullptr};
      if (!table.is_empty()) {
          auto grouper = cudf::groupby::groupby(
-             table.select({0, 1}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
+             table.select({0, 1, 2}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
          );
          auto requests = std::vector<cudf::groupby::aggregation_request>();
          std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
          aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
          requests.push_back(
-             cudf::groupby::aggregation_request(table.column(2), std::move(aggs))
+             cudf::groupby::aggregation_request(table.column(3), std::move(aggs))
          );
          auto [keys, results] =
              grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
@@ -563,7 +565,7 @@ rapidsmpf::streaming::Node filter_lineitem(
                  // We will only actually bother to do this on rank zero.
                  auto result_view = global_result->view();
                  auto grouper = cudf::groupby::groupby(
-                     result_view.select({0, 1}),
+                     result_view.select({0, 1, 2}),
                      cudf::null_policy::EXCLUDE,
                      cudf::sorted::NO
                  );
@@ -572,7 +574,7 @@ rapidsmpf::streaming::Node filter_lineitem(
                  aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
                  requests.push_back(
                      cudf::groupby::aggregation_request(
-                         result_view.column(2), std::move(aggs)
+                         result_view.column(3), std::move(aggs)
                      )
                  );
                  auto [keys, results] =
@@ -622,21 +624,14 @@ rapidsmpf::streaming::Node filter_lineitem(
      auto chunk =
          rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
      auto table = chunk.table_view();
-     auto rounded = cudf::round(
-         table.column(2),
-         2,
-         cudf::rounding_method::HALF_EVEN,
-         chunk.stream(),
-         ctx->br()->device_mr()
-     );
      co_await ch_out->send(
          rapidsmpf::streaming::to_message(
              0,
              std::make_unique<rapidsmpf::streaming::TableChunk>(
                  cudf::sort_by_key(
-                     cudf::table_view({table.column(0), table.column(1), rounded->view()}),
-                     table.select({0, 1}),
-                     {cudf::order::ASCENDING, cudf::order::DESCENDING},
+                    table,
+                     table.select({1, 2}),
+                     {cudf::order::DESCENDING, cudf::order::ASCENDING},
                      {cudf::null_order::BEFORE, cudf::null_order::BEFORE},
                      chunk.stream(),
                      ctx->br()->device_mr()
@@ -647,6 +642,44 @@ rapidsmpf::streaming::Node filter_lineitem(
      );
      co_await ch_out->drain(ctx->executor());
  }
+
+
+
+
+// take first 10 rows
+[[maybe_unused]] rapidsmpf::streaming::Node head(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+
+    co_await ctx->executor()->schedule();
+    while (true) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            break;
+        }
+        auto chunk = rapidsmpf::ndsh::to_device(
+            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+        );
+        auto chunk_stream = chunk.stream();
+        auto sequence_number = msg.sequence_number();
+        auto table = chunk.table_view();
+        std::vector<cudf::size_type> head_indices{0, 10};
+        auto sliced_table = cudf::slice(table, head_indices);
+        
+        co_await ch_out->send(
+            rapidsmpf::streaming::to_message(
+                sequence_number,
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::make_unique<cudf::table>(std::move(sliced_table)), chunk_stream
+                )
+            )
+        );
+    }
+    co_await ch_out->drain(ctx->executor());
+}
  
  [[maybe_unused]] rapidsmpf::streaming::Node write_parquet(
      std::shared_ptr<rapidsmpf::streaming::Context> ctx,
@@ -664,9 +697,10 @@ rapidsmpf::streaming::Node filter_lineitem(
      auto sink = cudf::io::sink_info(output_path);
      auto builder = cudf::io::parquet_writer_options::builder(sink, chunk.table_view());
      auto metadata = cudf::io::table_input_metadata(chunk.table_view());
-     metadata.column_metadata[0].set_name("nation");
-     metadata.column_metadata[1].set_name("o_year");
-     metadata.column_metadata[2].set_name("sum_profit");
+     metadata.column_metadata[0].set_name("l_orderkey");
+    metadata.column_metadata[1].set_name("revenue");
+    metadata.column_metadata[2].set_name("o_orderdate");
+    metadata.column_metadata[3].set_name("o_shippriority");
      builder = builder.metadata(metadata);
      auto options = builder.build();
      cudf::io::write_parquet(options, chunk.stream());
