@@ -23,11 +23,6 @@
     "ghcr.io/rapidsai/devcontainers/features/rapids-build-utils"
   ],
   "initializeCommand": ["/bin/bash", "-c", "mkdir -m 0755 -p ${localWorkspaceFolder}/../.{aws,cache,config/pip,local/share/${localWorkspaceFolderBasename}-cuda13.0-venvs}"],
-  "postCreateCommand": [
-    "/bin/bash",
-    "-c",
-    "VENV_DIR=\"/home/coder/.local/share/venvs/${DEFAULT_VIRTUAL_ENV:-rapids}\" && ( [ -x \"$VENV_DIR/bin/python\" ] || python -m venv \"$VENV_DIR\" ) && \"$VENV_DIR/bin/python\" -m pip install --upgrade pip && \"$VENV_DIR/bin/python\" -m pip install nvidia-nvml-dev && SITE_PACKAGES=\"$(\"$VENV_DIR/bin/python\" -c 'import site; print(site.getsitepackages()[0])')\" && sed -i '/^export SITE_PACKAGES=/d' /home/coder/.bashrc && printf 'export SITE_PACKAGES=\"%s\"\\n' \"$SITE_PACKAGES\" >> /home/coder/.bashrc"
-  ],
   "postAttachCommand": ["/bin/bash", "-c", "if [ ${CODESPACES:-false} = 'true' ]; then . devcontainer-utils-post-attach-command; . rapids-post-attach-command; fi"],
   "workspaceFolder": "/home/coder",
   "workspaceMount": "source=${localWorkspaceFolder},target=/home/coder/rapidsmpf,type=bind,consistency=consistent",
