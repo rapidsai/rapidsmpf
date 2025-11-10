@@ -15,7 +15,7 @@ Context::Context(
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<ProgressThread> progress_thread,
     std::unique_ptr<coro::thread_pool> executor,
-    BufferResource* br,
+    std::shared_ptr<BufferResource> br,
     std::shared_ptr<Statistics> statistics
 )
     : options_{std::move(options)},
@@ -34,7 +34,7 @@ Context::Context(
 Context::Context(
     config::Options options,
     std::shared_ptr<Communicator> comm,
-    BufferResource* br,
+    std::shared_ptr<BufferResource> br,
     std::shared_ptr<Statistics> statistics
 )
     : Context(
@@ -80,7 +80,7 @@ std::unique_ptr<coro::thread_pool>& Context::executor() noexcept {
 }
 
 BufferResource* Context::br() const noexcept {
-    return br_;
+    return br_.get();
 }
 
 std::shared_ptr<Statistics> Context::statistics() const noexcept {

@@ -304,7 +304,8 @@ int main(int argc, char** argv) {
     }
 
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
-    rapidsmpf::BufferResource br(mr, std::move(memory_available));
+    auto br =
+        std::make_shared<rapidsmpf::BufferResource>(mr, std::move(memory_available));
 
     auto& log = comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
@@ -332,7 +333,7 @@ int main(int argc, char** argv) {
     // We start with disabled statistics.
     auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
 
-    auto ctx = std::make_shared<rapidsmpf::streaming::Context>(options, comm, &br, stats);
+    auto ctx = std::make_shared<rapidsmpf::streaming::Context>(options, comm, br, stats);
 
     std::vector<double> elapsed_vec;
     std::uint64_t const total_num_runs = args.num_warmups + args.num_runs;
