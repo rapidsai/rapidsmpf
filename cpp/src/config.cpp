@@ -264,14 +264,18 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
 
     // Require MAGIC/version prelude
     RAPIDSMPF_EXPECTS(
-        total_size >= PRELUDE_SIZE + sizeof(uint64_t)
-            && std::memcmp(base, MAGIC.data(), MAGIC.size()) == 0,
+        total_size >= PRELUDE_SIZE + sizeof(uint64_t),
         "buffer is too small to contain prelude and count",
         std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(
         total_size <= MAX_TOTAL_SIZE,
         "serialized buffer exceeds maximum allowed size",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        std::memcmp(base, MAGIC.data(), MAGIC.size()) == 0,
+        "buffer does not contain valid MAGIC",
         std::invalid_argument
     );
     uint64_t count = 0;
