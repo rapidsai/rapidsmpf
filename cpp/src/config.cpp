@@ -169,6 +169,11 @@ std::vector<std::uint8_t> Options::serialize() const {
             "key length exceeds maximum allowed size",
             std::invalid_argument
         );
+        RAPIDSMPF_EXPECTS(
+            !option.get_value().has_value(),
+            "cannot serialize already parsed (accessed) option values",
+            std::invalid_argument
+        );
         auto const& val = option.get_value_as_string();
         RAPIDSMPF_EXPECTS(
             val.size() <= MAX_VALUE_LEN,
@@ -198,14 +203,6 @@ std::vector<std::uint8_t> Options::serialize() const {
     {
         auto const count_ = static_cast<uint64_t>(count);
         std::memcpy(base + PRELUDE_SIZE, &count_, sizeof(uint64_t));
-    }
-
-    for (auto const& [key, option] : shared.options) {
-        RAPIDSMPF_EXPECTS(
-            !option.get_value().has_value(),
-            "cannot serialize already parsed (accessed) option values",
-            std::invalid_argument
-        );
     }
 
     // Prepare sorted entries by key for deterministic serialization
