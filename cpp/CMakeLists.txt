@@ -238,6 +238,7 @@ set(NVML_INCLUDE_DIR "")
 find_path(
   NVML_INCLUDE_DIR
   NAMES nvml.h
+  HINTS ${CUDAToolkit_INCLUDE_DIRS}
   PATH_SUFFIXES include
 )
 
