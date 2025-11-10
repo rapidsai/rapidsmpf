@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <iomanip>
 #include <numeric>
 #include <optional>
 #include <sstream>
@@ -930,6 +931,7 @@ int main(int argc, char** argv) {
     rt_c_t.reserve(args.num_runs);
 
     std::size_t logical_bytes = packed.total_uncompressed_bytes * args.num_ops;
+    std::size_t logical_compressed_bytes_last = 0;
 
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         if (i == args.num_warmups + args.num_runs - 1) {
@@ -941,6 +943,11 @@ int main(int argc, char** argv) {
                       / rr.times.compress_s;
         double dBps = static_cast<double>(rr.counts.logical_uncompressed_bytes)
                       / rr.times.decompress_s;
+        logical_compressed_bytes_last = rr.counts.logical_compressed_bytes;
+        double ratio = (rr.counts.logical_compressed_bytes > 0)
+                           ? static_cast<double>(rr.counts.logical_uncompressed_bytes)
+                                 / static_cast<double>(rr.counts.logical_compressed_bytes)
+                           : 0.0;
         // Round-trip one-way throughput: 2 * bytes_one_way / RTT
         double rt_nc_Bps =
             rr.times.rt_nocomp_s > 0.0
@@ -957,7 +964,8 @@ int main(int argc, char** argv) {
         ss << "compress: " << format_nbytes(cBps)
            << "/s | decompress: " << format_nbytes(dBps)
            << "/s | rt(nocomp): " << format_nbytes(rt_nc_Bps)
-           << "/s | rt(comp): " << format_nbytes(rt_c_Bps) << "/s";
+           << "/s | rt(comp): " << format_nbytes(rt_c_Bps) << "/s"
+           << " | comp ratio: " << std::fixed << std::setprecision(2) << ratio << "x";
         if (i < args.num_warmups)
             ss << " (warmup run)";
         log.print(ss.str());
@@ -996,6 +1004,14 @@ int main(int argc, char** argv) {
            << "/s | rt(comp): "
            << format_nbytes((2.0 * static_cast<double>(logical_bytes)) / mean_rt_c)
            << "/s";
+        if (logical_compressed_bytes_last > 0) {
+            double mean_ratio = static_cast<double>(logical_bytes)
+                                / static_cast<double>(logical_compressed_bytes_last);
+            ss << " | comp ratio: " << std::fixed << std::setprecision(2) << mean_ratio
+               << "x";
+        } else {
+            ss << " | comp ratio: n/a";
+        }
         log.print(ss.str());
     }
 
