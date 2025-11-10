@@ -52,6 +52,37 @@ std::uint32_t crc32_compute(std::byte const* data, std::size_t length) {
     }
     return ~crc;
 }
+
+std::size_t validate_crc_and_get_data_limit(
+    std::byte const* base,
+    std::size_t header_size,
+    std::size_t total_size,
+    std::byte flags
+) {
+    std::size_t data_limit = total_size;
+    if ((flags & FLAG_CRC_PRESENT) != std::byte(0u)) {
+        RAPIDSMPF_EXPECTS(
+            total_size >= header_size + CRC32_SIZE,
+            "buffer too small for CRC32 trailer",
+            std::invalid_argument
+        );
+        std::size_t crc_pos = total_size - CRC32_SIZE;
+        std::uint32_t expected_crc =
+            std::to_integer<std::uint32_t>(base[crc_pos])
+            | (std::to_integer<std::uint32_t>(base[crc_pos + 1]) << 8)
+            | (std::to_integer<std::uint32_t>(base[crc_pos + 2]) << 16)
+            | (std::to_integer<std::uint32_t>(base[crc_pos + 3]) << 24);
+        std::uint32_t computed_crc =
+            crc32_compute(base + header_size, crc_pos - header_size);
+        RAPIDSMPF_EXPECTS(
+            expected_crc == computed_crc,
+            "CRC32 mismatch in serialized buffer",
+            std::invalid_argument
+        );
+        data_limit = crc_pos;
+    }
+    return data_limit;
+}
 }  // namespace
 
 extern char** environ;
@@ -282,29 +313,9 @@ Options Options::deserialize(std::vector<std::uint8_t> const& buffer) {
         std::invalid_argument
     );
 
-    // If CRC32 is present (v1 flag), validate it and adjust data limit
-    std::size_t data_limit = total_size;
-    if ((flags & FLAG_CRC_PRESENT) != std::byte(0u)) {
-        RAPIDSMPF_EXPECTS(
-            total_size >= header_size + CRC32_SIZE,
-            "buffer too small for CRC32 trailer",
-            std::invalid_argument
-        );
-        std::size_t crc_pos = total_size - CRC32_SIZE;
-        std::uint32_t expected_crc =
-            std::to_integer<std::uint32_t>(base[crc_pos])
-            | (std::to_integer<std::uint32_t>(base[crc_pos + 1]) << 8)
-            | (std::to_integer<std::uint32_t>(base[crc_pos + 2]) << 16)
-            | (std::to_integer<std::uint32_t>(base[crc_pos + 3]) << 24);
-        std::uint32_t computed_crc =
-            crc32_compute(base + header_size, crc_pos - header_size);
-        RAPIDSMPF_EXPECTS(
-            expected_crc == computed_crc,
-            "CRC32 mismatch in serialized buffer",
-            std::invalid_argument
-        );
-        data_limit = crc_pos;
-    }
+    // Validate CRC32 (if present) and compute data limit
+    std::size_t const data_limit =
+        validate_crc_and_get_data_limit(base, header_size, total_size, flags);
 
     // Read offsets
     std::vector<uint64_t> key_offsets(count);
