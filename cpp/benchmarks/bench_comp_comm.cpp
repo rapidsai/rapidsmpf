@@ -708,36 +708,23 @@ RunResult run_once(
         bool initiator =
             ((static_cast<std::uint64_t>(rank) + op + run_index) % 2ull) == 0ull;
         auto rt_start = Clock::now();
-        if (initiator) {
+        auto run_ping_pong_nc = [&](Rank peer, Tag recv_tag, Tag send_tag) {
             for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
-                // post pong recv and send ping, then wait both
                 auto recv_buf = alloc_device(br, stream, nocomp_payloads[i]->size);
                 std::vector<std::unique_ptr<Communicator::Future>> futs;
-                futs.push_back(comm->recv(dst, tag_pong_nc, std::move(recv_buf)));
+                futs.push_back(comm->recv(peer, recv_tag, std::move(recv_buf)));
                 auto send_buf = alloc_and_copy_device(br, stream, *nocomp_payloads[i]);
                 ensure_ready(*send_buf);
-                futs.push_back(comm->send(std::move(send_buf), dst, tag_ping_nc));
+                futs.push_back(comm->send(std::move(send_buf), peer, send_tag));
                 while (!futs.empty()) {
                     std::ignore = comm->test_some(futs);
                 }
             }
+        };
+        if (initiator) {
+            run_ping_pong_nc(dst, tag_pong_nc, tag_ping_nc);
         } else {
-            // Responder: for each item, recv ping then send pong
-            for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
-                auto recv_buf = alloc_device(br, stream, nocomp_payloads[i]->size);
-                std::vector<std::unique_ptr<Communicator::Future>> rf;
-                rf.push_back(comm->recv(src, tag_ping_nc, std::move(recv_buf)));
-                while (!rf.empty()) {
-                    std::ignore = comm->test_some(rf);
-                }
-                auto send_buf = alloc_and_copy_device(br, stream, *nocomp_payloads[i]);
-                ensure_ready(*send_buf);
-                std::vector<std::unique_ptr<Communicator::Future>> sf;
-                sf.push_back(comm->send(std::move(send_buf), src, tag_pong_nc));
-                while (!sf.empty()) {
-                    std::ignore = comm->test_some(sf);
-                }
-            }
+            run_ping_pong_nc(src, tag_ping_nc, tag_pong_nc);
         }
         auto rt_end = Clock::now();
         // Each rank measures its own RTT locally
