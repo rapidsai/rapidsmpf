@@ -234,7 +234,6 @@ target_include_directories(
 
 # Try to locate NVML headers when building wheels (installed in site-packages) Prefer any existing
 # include path resolution first; fall back to scanning Python site-packages
-set(NVML_INCLUDE_DIR "")
 find_path(
   NVML_INCLUDE_DIR
   NAMES nvml.h
