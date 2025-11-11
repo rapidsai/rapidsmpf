@@ -162,6 +162,8 @@ add_library(
   src/buffer/resource.cpp
   src/buffer/spill_manager.cpp
   src/communicator/communicator.cpp
+  src/communicator/metadata_payload_exchange/core.cpp
+  src/communicator/metadata_payload_exchange/tag.cpp
   src/communicator/single.cpp
   src/config.cpp
   src/cuda_event.cpp
