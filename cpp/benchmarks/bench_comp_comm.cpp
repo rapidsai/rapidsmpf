@@ -491,38 +491,42 @@ RunResult run_once(
     RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
     auto t0 = Clock::now();
     // Compress all items (single batch) on stream
+    std::vector<rmm::cuda_stream_view> comp_streams(data.items.size());
     for (std::size_t i = 0; i < data.items.size(); ++i) {
         auto const in_bytes = data.items[i].packed->data->size;
         if (in_bytes == 0) {
             comp_output_sizes[i] = 0;
             continue;
         }
-        // Ensure any prior writes to input are completed
-        // data.items[i].packed->data->stream().synchronize();
         // Launch compression on the output buffer's stream and record an event after
         comp_outputs[i]->write_access(
-            [&codec, &data, i, in_bytes, &comp_output_sizes, stream](
+            [&codec, &data, i, in_bytes, &comp_output_sizes, &comp_streams](
                 std::byte* out_ptr, rmm::cuda_stream_view out_stream
             ) {
                 (void)out_ptr;  // pointer used below
                 // Lock input for raw pointer access
                 auto* in_raw = data.items[i].packed->data->exclusive_data_access();
-                std::size_t out_bytes = 0;
                 codec.compress(
                     static_cast<void const*>(in_raw),
                     in_bytes,
                     static_cast<void*>(out_ptr),
-                    &out_bytes,
+                    &comp_output_sizes[i],
                     out_stream
                 );
-                // Ensure comp_bytes is populated before returning
-                RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(out_stream.value()));
-                data.items[i].packed->data->unlock();
-                comp_output_sizes[i] = out_bytes;
+                // Defer synchronization and unlock; record stream for later sync
+                comp_streams[i] = out_stream;
             }
         );
     }
-    RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
+    // Synchronize streams and unlock inputs
+    for (std::size_t i = 0; i < data.items.size(); ++i) {
+        auto const in_bytes = data.items[i].packed->data->size;
+        if (in_bytes == 0) {
+            continue;
+        }
+        RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(comp_streams[i].value()));
+        data.items[i].packed->data->unlock();
+    }
     auto t1 = Clock::now();
 
     // Phase A (RTT no compression): ping-pong per op (sequential per item to avoid
