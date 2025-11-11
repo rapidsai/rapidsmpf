@@ -14,7 +14,7 @@ from rapidsmpf.buffer.resource cimport BufferResource
 
 cdef class SpillableMessages:
     def __init__(self):
-        SpillableMessages.from_handle(make_unique[cpp_SpillableMessages]())
+        self._handle = make_unique[cpp_SpillableMessages]()
 
     def __dealloc__(self):
         with nogil:
@@ -32,13 +32,13 @@ cdef class SpillableMessages:
             ret = deref(self._handle).insert(move(message._handle))
         return ret
 
-    def extract(self, uint64_t mid):
+    def extract(self, *, uint64_t mid):
         cdef cpp_Message ret
         with nogil:
             ret = deref(self._handle).extract(mid)
         return Message.from_handle(move(ret))
 
-    def spill(self, uint64_t mid, BufferResource br not None):
+    def spill(self, *, uint64_t mid, BufferResource br not None):
         cdef cpp_BufferResource* _br = br.ptr()
         cdef size_t ret
         with nogil:

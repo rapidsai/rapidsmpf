@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import cupy
 import pytest
 
 import cudf
@@ -18,9 +19,21 @@ from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
 if TYPE_CHECKING:
+    import pylibcudf
     from rmm.pylibrmm.stream import Stream
 
     from rapidsmpf.streaming.core.context import Context
+
+
+def random_table(nbytes: int) -> pylibcudf.Table:
+    assert nbytes % 4 == 0
+    return cudf_to_pylibcudf_table(
+        cudf.DataFrame(
+            {
+                "data": cupy.random.random(nbytes // 4, dtype=cupy.float32),
+            }
+        )
+    )
 
 
 @pytest.mark.parametrize(
@@ -31,7 +44,7 @@ def test_from_pylibcudf_table(
     context: Context, stream: Stream, *, exclusive_view: bool
 ) -> None:
     seq = 42
-    expect = cudf_to_pylibcudf_table(cudf.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}))
+    expect = random_table(1024)
     table_chunk = TableChunk.from_pylibcudf_table(
         expect, stream, exclusive_view=exclusive_view
     )
@@ -44,7 +57,7 @@ def test_from_pylibcudf_table(
     msg = Message(seq, table_chunk)
     assert msg.sequence_number == seq
     assert msg.get_content_description() == ContentDescription(
-        content_sizes={MemoryType.DEVICE: 48, MemoryType.HOST: 0},
+        content_sizes={MemoryType.DEVICE: 1024, MemoryType.HOST: 0},
         spillable=exclusive_view,
     )
     table_chunk2 = TableChunk.from_message(msg)
