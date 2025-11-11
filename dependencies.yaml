@@ -201,7 +201,7 @@ dependencies:
 
   build-nvml:
     specific:
-      - output_types: [requirements]
+      - output_types: [pyproject, requirements]
         matrices:
           - matrix:
               cuda: "12.*"
