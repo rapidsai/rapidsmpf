@@ -246,9 +246,11 @@ static std::unique_ptr<PackedData> pack_table_to_packed(
     cudf::table_view tv, rmm::cuda_stream_view stream, BufferResource* br
 ) {
     auto packed = cudf::pack(tv, stream, br->device_mr());
-    return std::make_unique<PackedData>(
+    auto ret = std::make_unique<PackedData>(
         std::move(packed.metadata), br->move(std::move(packed.gpu_data), stream)
     );
+    ret->data->stream().synchronize();
+    return ret;
 }
 
 struct ArgumentParser {
@@ -496,7 +498,7 @@ RunResult run_once(
             continue;
         }
         // Ensure any prior writes to input are completed
-        data.items[i].packed->data->stream().synchronize();
+        // data.items[i].packed->data->stream().synchronize();
         // Launch compression on the output buffer's stream and record an event after
         comp_outputs[i]->write_access(
             [&codec, &data, i, in_bytes, &comp_output_sizes, stream](
