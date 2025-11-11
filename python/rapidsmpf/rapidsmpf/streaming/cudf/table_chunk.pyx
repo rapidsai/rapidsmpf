@@ -11,8 +11,7 @@ from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 
-from rapidsmpf.buffer.resource cimport (BufferResource, MemoryReservation,
-                                        cpp_MemoryReservation)
+from rapidsmpf.buffer.resource cimport MemoryReservation, cpp_MemoryReservation
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
@@ -383,35 +382,67 @@ cdef class TableChunk:
         return deref(self.handle_ptr()).is_spillable()
 
 
-def get_table_chunk(
-    Message msg not None, BufferResource br not None, *, bool_t allow_overbooking
-):
-    """
-    Helper function that returns an available table chunk from a message.
+from functools import singledispatch
 
-    The message is first converted into a table chunk. A memory reservation is then
-    acquired from the provided buffer resource to ensure enough space for making
-    the table data available. If necessary, spilling may occur during this process.
+
+@singledispatch
+def get_table_chunk(obj, br, *, allow_overbooking):
+    """
+    Helper that returns a table chunk with data made available on device.
+
+    The input can be either a message containing serialized table data or an
+    existing chunk. If a message is provided, it is first converted into a
+    chunk. A memory reservation is then acquired to ensure sufficient space
+    for making the data available. Spilling may occur during this process.
 
     Parameters
     ----------
-    msg
-        The input message containing the serialized or packed table data.
+    obj
+        The input object, either a message or an existing chunk.
     br
         Buffer resource used to perform allocations and manage spilling.
     allow_overbooking
-        Whether memory reservations are allowed to exceed the current limit.
+        Whether reservations may exceed the current limit.
 
     Returns
     -------
-    A new table chunk with its data made available on device.
+    A chunk with its data made available on device.
+
+    Raises
+    ------
+    TypeError
+        If the input object type is unsupported.
+
+    Warnings
+    --------
+    The input object is released and must not be used after this call.
 
     Examples
     --------
-    >>> chunk = get_table_chunk(msg, br, allow_overbooking=False)
-    >>> print(chunk.table_view())
+    >>> # From a message
+    >>> chunk1 = get_table_chunk(msg, br, allow_overbooking=False)
+    >>> print(chunk1.table_view())
+    ...
+    >>> # From an existing chunk
+    >>> chunk2 = get_table_chunk(chunk1, br, allow_overbooking=True)
     """
-    cdef TableChunk ret = TableChunk.from_message(msg)
+    raise TypeError(f"{type(obj)} is unsupported")
+
+
+@get_table_chunk.register(Message)
+def _(obj, br, *, allow_overbooking):
+    cdef TableChunk ret = TableChunk.from_message(<Message> obj)
+    res = br.reserve_and_spill(
+        MemoryType.DEVICE,
+        ret.make_available_cost(),
+        allow_overbooking=allow_overbooking
+    )
+    return ret.make_available(res)
+
+
+@get_table_chunk.register(TableChunk)
+def _(obj, br, *, allow_overbooking):
+    cdef TableChunk ret = <TableChunk> obj
     res = br.reserve_and_spill(
         MemoryType.DEVICE,
         ret.make_available_cost(),

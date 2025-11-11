@@ -63,7 +63,7 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
 
     # Make a copy of msg1 in host memory.
     assert msg1.copy_cost() == 1024
-    [res, _] = context.br().reserve(MemoryType.HOST, 1024, allow_overbooking=True)
+    res, _ = context.br().reserve(MemoryType.HOST, 1024, allow_overbooking=True)
     msg2 = msg1.copy(res)
     assert res.size == 0
 
@@ -76,7 +76,7 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
 
     # Make a copy of msg2 back to device memory.
     assert msg2.copy_cost() == 1024
-    [res, _] = context.br().reserve(MemoryType.DEVICE, 1024, allow_overbooking=True)
+    res, _ = context.br().reserve(MemoryType.DEVICE, 1024, allow_overbooking=True)
     msg3 = msg2.copy(res)
     assert res.size == 0
 
@@ -86,7 +86,7 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     assert not table_chunk3.is_available()
     assert table_chunk3.make_available_cost() == 1024
     # but we can make its table available using `make_available()`.
-    [res, _] = context.br().reserve(MemoryType.DEVICE, 1024, allow_overbooking=True)
+    res, _ = context.br().reserve(MemoryType.DEVICE, 1024, allow_overbooking=True)
     table_chunk4 = table_chunk3.make_available(res)
     assert is_equal_streams(table_chunk4.stream, stream)
     assert table_chunk4.is_available()
@@ -99,11 +99,30 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     assert not table_chunk5.is_available()
     # but it cost no device memory to make available.
     assert table_chunk5.make_available_cost() == 0
-    [res, _] = context.br().reserve(MemoryType.DEVICE, 0, allow_overbooking=True)
+    res, _ = context.br().reserve(MemoryType.DEVICE, 0, allow_overbooking=True)
     table_chunk6 = table_chunk5.make_available(res)
     assert table_chunk6.is_available()
     assert table_chunk6.make_available_cost() == 0
     assert_eq(expect, table_chunk6.table_view())
+
+
+def test_get_table_chunk(context: Context, stream: Stream) -> None:
+    seq = 42
+    expect = random_table(1024)
+    msg = Message(
+        seq, TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+    )
+
+    # Simulate spilling.
+    res, _ = context.br().reserve(
+        MemoryType.HOST, msg.copy_cost(), allow_overbooking=True
+    )
+    msg = msg.copy(res)
+
+    table = get_table_chunk(msg, context.br(), allow_overbooking=True)
+    assert_eq(expect, table.table_view())
+    table = get_table_chunk(table, context.br(), allow_overbooking=True)
+    assert_eq(expect, table.table_view())
 
 
 def test_spillable_messages(context: Context, stream: Stream) -> None:
@@ -159,7 +178,7 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
 
     # Extract, make available, and check table chunk 1.
     df1_got = TableChunk.from_message(sm.extract(mid=0))
-    [res, _] = context.br().reserve(
+    res, _ = context.br().reserve(
         MemoryType.DEVICE, df1_got.make_available_cost(), allow_overbooking=True
     )
     df1_got = df1_got.make_available(res)
