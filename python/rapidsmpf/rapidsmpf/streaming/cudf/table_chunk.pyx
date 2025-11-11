@@ -15,6 +15,8 @@ from rapidsmpf.buffer.resource cimport MemoryReservation, cpp_MemoryReservation
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
+from functools import singledispatch
+
 
 cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
     cpp_Message cpp_to_message"rapidsmpf::streaming::to_message"\
@@ -380,9 +382,6 @@ cdef class TableChunk:
         True if the table chunk can be spilled, otherwise, False.
         """
         return deref(self.handle_ptr()).is_spillable()
-
-
-from functools import singledispatch
 
 
 @singledispatch
