@@ -14,6 +14,7 @@ from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.content_description import ContentDescription
 from rapidsmpf.cuda_stream import is_equal_streams
 from rapidsmpf.streaming.core.message import Message
+from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
@@ -103,3 +104,75 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     assert table_chunk6.is_available()
     assert table_chunk6.make_available_cost() == 0
     assert_eq(expect, table_chunk6.table_view())
+
+
+def test_spillable_messages(context: Context, stream: Stream) -> None:
+    seq = 42
+    df1 = random_table(1024)
+    df2 = random_table(2048)
+
+    sm = SpillableMessages()
+    sm.insert(
+        Message(seq, TableChunk.from_pylibcudf_table(df1, stream, exclusive_view=True))
+    )
+    assert sm.get_content_descriptions() == {
+        0: ContentDescription(
+            content_sizes={MemoryType.DEVICE: 1024, MemoryType.HOST: 0},
+            spillable=True,
+        )
+    }
+    sm.insert(
+        Message(seq, TableChunk.from_pylibcudf_table(df2, stream, exclusive_view=False))
+    )
+    assert sm.get_content_descriptions() == {
+        0: ContentDescription(
+            content_sizes={MemoryType.DEVICE: 1024, MemoryType.HOST: 0},
+            spillable=True,
+        ),
+        1: ContentDescription(
+            content_sizes={MemoryType.DEVICE: 2048, MemoryType.HOST: 0},
+            spillable=False,
+        ),
+    }
+    assert sm.spill(mid=0, br=context.br()) == 1024
+    assert sm.get_content_descriptions() == {
+        0: ContentDescription(
+            content_sizes={MemoryType.DEVICE: 0, MemoryType.HOST: 1024},
+            spillable=True,
+        ),
+        1: ContentDescription(
+            content_sizes={MemoryType.DEVICE: 2048, MemoryType.HOST: 0},
+            spillable=False,
+        ),
+    }
+    assert sm.spill(mid=1, br=context.br()) == 0
+    assert sm.get_content_descriptions() == {
+        0: ContentDescription(
+            content_sizes={MemoryType.DEVICE: 0, MemoryType.HOST: 1024},
+            spillable=True,
+        ),
+        1: ContentDescription(
+            content_sizes={MemoryType.DEVICE: 2048, MemoryType.HOST: 0},
+            spillable=False,
+        ),
+    }
+
+    # Extract, make available, and check table chunk 1.
+    df1_got = TableChunk.from_message(sm.extract(mid=0))
+    [res, _] = context.br().reserve(
+        MemoryType.DEVICE, df1_got.make_available_cost(), allow_overbooking=True
+    )
+    df1_got = df1_got.make_available(res)
+    assert_eq(df1, df1_got.table_view())
+
+    with pytest.raises(IndexError, match="Invalid key"):
+        sm.extract(mid=0)
+
+    # Extract, make available, and check table chunk 2.
+    df2_got = TableChunk.from_message(sm.extract(mid=1))
+    [res, _] = context.br().reserve(
+        MemoryType.DEVICE, df2_got.make_available_cost(), allow_overbooking=True
+    )
+    df2_got = df2_got.make_available(res)
+    assert_eq(df2, df2_got.table_view())
+    assert sm.get_content_descriptions() == {}
