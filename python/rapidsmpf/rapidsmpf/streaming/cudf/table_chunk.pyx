@@ -133,8 +133,7 @@ cdef class TableChunk:
 
         Returns
         -------
-        TableChunk
-            A new TableChunk wrapping the given pylibcudf Table.
+        A new TableChunk wrapping the given pylibcudf Table.
 
         Notes
         -----
