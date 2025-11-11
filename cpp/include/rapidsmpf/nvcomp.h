@@ -13,6 +13,8 @@
 
 namespace rapidsmpf {
 
+class BufferResource;  // forward declaration
+
 enum class Algo {
     Cascaded,
     LZ4,
@@ -72,13 +74,16 @@ class NvcompCodec {
      * @param out_bytes Pointer to output variable that will be set to actual compressed
      * size
      * @param stream CUDA stream for operations
+     * @param br Optional buffer resource used for temporary allocations (e.g., to capture
+     * compressed size on device and copy back to host).
      */
     virtual void compress(
         void const* d_in,
         std::size_t in_bytes,
         void* d_out,
         std::size_t* out_bytes,
-        rmm::cuda_stream_view stream
+        rmm::cuda_stream_view stream,
+        BufferResource* br = nullptr
     ) = 0;
 
     /**

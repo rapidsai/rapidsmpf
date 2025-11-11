@@ -506,7 +506,7 @@ RunResult run_once(
         }
         // Launch compression on the output buffer's stream and record an event after
         comp_outputs[i]->write_access(
-            [&codec, &data, i, in_bytes, &comp_output_sizes, &comp_streams](
+            [&codec, &data, i, in_bytes, &comp_output_sizes, &comp_streams, br](
                 std::byte* out_ptr, rmm::cuda_stream_view out_stream
             ) {
                 (void)out_ptr;  // pointer used below
@@ -517,7 +517,8 @@ RunResult run_once(
                     in_bytes,
                     static_cast<void*>(out_ptr),
                     &comp_output_sizes[i],
-                    out_stream
+                    out_stream,
+                    br
                 );
                 // Defer synchronization and unlock; record stream for later sync
                 comp_streams[i] = out_stream;
