@@ -88,6 +88,41 @@ std::unique_ptr<Buffer> allocate_buffer(
 }
 
 /**
+ * @brief Convert chunks into messages for communication.
+ *
+ * This function converts a vector of chunks into messages suitable for sending
+ * through the metadata payload exchange. Each chunk is serialized and its data
+ * buffer is released to create the message.
+ *
+ * @param chunks Vector of chunks to convert (will be moved from).
+ * @param peer_rank_fn Function to determine the destination rank for each chunk.
+ *
+ * @return A vector of message unique pointers ready to be sent.
+ */
+template <typename PeerRankFn>
+std::vector<std::unique_ptr<communicator::MetadataPayloadExchange::Message>>
+convert_chunks_to_messages(
+    std::vector<detail::Chunk>&& chunks, PeerRankFn&& peer_rank_fn
+) {
+    std::vector<std::unique_ptr<communicator::MetadataPayloadExchange::Message>> messages;
+    messages.reserve(chunks.size());
+
+    for (auto&& chunk : chunks) {
+        auto dst = peer_rank_fn(chunk);
+        auto metadata = *chunk.serialize();
+        auto data = chunk.release_data_buffer();
+
+        messages.push_back(
+            std::make_unique<communicator::MetadataPayloadExchange::Message>(
+                dst, std::move(metadata), std::move(data)
+            )
+        );
+    }
+
+    return messages;
+}
+
+/**
  * @brief Spills memory buffers within a postbox, e.g., from device to host memory.
  *
  * This function moves a specified amount of memory from device to host storage
@@ -198,23 +233,9 @@ class Shuffler::Progress {
                     return dst;
                 };
 
-                // Convert chunks to simple messages manually
-                std::vector<
-                    std::unique_ptr<communicator::MetadataPayloadExchange::Message>>
-                    messages;
-                messages.reserve(ready_chunks.size());
-
-                for (auto&& chunk : ready_chunks) {
-                    auto dst = peer_rank_fn(chunk);
-                    auto metadata = *chunk.serialize();
-                    auto data = chunk.release_data_buffer();
-
-                    messages.push_back(
-                        std::make_unique<communicator::MetadataPayloadExchange::Message>(
-                            dst, std::move(metadata), std::move(data)
-                        )
-                    );
-                }
+                // Convert chunks to messages using the helper function
+                auto messages =
+                    convert_chunks_to_messages(std::move(ready_chunks), peer_rank_fn);
 
                 shuffler_.mpe_->send(std::move(messages));
             }
