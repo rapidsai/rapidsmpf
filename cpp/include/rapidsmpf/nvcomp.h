@@ -15,7 +15,9 @@ namespace rapidsmpf {
 
 enum class Algo {
     Cascaded,
-    LZ4
+    LZ4,
+    Zstd,
+    Snappy
 };
 
 /**

@@ -301,9 +301,14 @@ struct ArgumentParser {
                             args_.algo = Algo::Cascaded;
                         else if (v == "lz4")
                             args_.algo = Algo::LZ4;
+                        else if (v == "zstd")
+                            args_.algo = Algo::Zstd;
+                        else if (v == "snappy")
+                            args_.algo = Algo::Snappy;
                         else
                             RAPIDSMPF_FAIL(
-                                "-A must be one of {cascaded, lz4}", std::invalid_argument
+                                "-A must be one of {cascaded, lz4, zstd, snappy}",
+                                std::invalid_argument
                             );
                         break;
                     }
@@ -331,7 +336,8 @@ struct ArgumentParser {
                            << "  -F <pattern> Parquet file glob/pattern (required)\n"
                            << "  -P <mode>    Packing mode {table, column} (default: "
                               "table)\n"
-                           << "  -A <algo>    {cascaded, lz4} (default: cascaded)\n"
+                           << "  -A <algo>    {cascaded, lz4, zstd, snappy} (default: "
+                              "cascaded)\n"
                            << "  -K <kv>      Algo params, e.g. "
                               "chunk_size=1MiB,delta=1,rle=1,bitpack=1\n"
                            << "  -p <num>     Number of concurrent ops (default: 1)\n"
