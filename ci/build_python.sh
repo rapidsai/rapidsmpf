@@ -26,7 +26,7 @@ RAPIDS_PREPENDED_CONDA_CHANNELS=("$CPP_CHANNEL")
 # populates `RATTLER_CHANNELS` array and `RATTLER_ARGS` array
 source rapids-rattler-channel-string
 
-sccache --zero-stats
+sccache --stop-server >/dev/null 2>&1 || true
 
 rapids-logger "Building rapidsmpf"
 
