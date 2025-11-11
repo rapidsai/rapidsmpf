@@ -54,13 +54,26 @@ def test_from_pylibcudf_table(
     assert_eq(expect, table_chunk.table_view())
 
     # Message roundtrip check.
-    msg = Message(seq, table_chunk)
-    assert msg.sequence_number == seq
-    assert msg.get_content_description() == ContentDescription(
+    msg1 = Message(seq, table_chunk)
+    assert msg1.sequence_number == seq
+    assert msg1.get_content_description() == ContentDescription(
         content_sizes={MemoryType.DEVICE: 1024, MemoryType.HOST: 0},
         spillable=exclusive_view,
     )
-    table_chunk2 = TableChunk.from_message(msg)
+
+    # Make a copy of msg1 in host memory.
+    assert msg1.copy_cost() == 1024
+    [res, _] = context.br().reserve(MemoryType.HOST, 1024, allow_overbooking=True)
+    msg2 = msg1.copy(res)
+    assert res.size == 0
+
+    # msg1 is availabe
+    table_chunk2 = TableChunk.from_message(msg1)
     assert is_equal_streams(table_chunk2.stream, stream)
     assert table_chunk2.is_available()
     assert_eq(expect, table_chunk2.table_view())
+
+    # msg2 is unavailabe
+    table_chunk3 = TableChunk.from_message(msg2)
+    assert is_equal_streams(table_chunk3.stream, stream)
+    assert not table_chunk3.is_available()

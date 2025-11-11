@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
-from typing import Generic, Protocol, TypeVar
+from typing import Generic, Protocol, Self, TypeVar
 
 from rapidsmpf.buffer.content_description import ContentDescription
+from rapidsmpf.buffer.resource import MemoryReservation
 
 PayloadT = TypeVar("PayloadT", bound="Payload")
 
@@ -69,3 +70,5 @@ class Message(Generic[PayloadT]):
     @property
     def sequence_number(self) -> int: ...
     def get_content_description(self) -> ContentDescription: ...
+    def copy_cost(self) -> int: ...
+    def copy(self, reservation: MemoryReservation) -> Self: ...

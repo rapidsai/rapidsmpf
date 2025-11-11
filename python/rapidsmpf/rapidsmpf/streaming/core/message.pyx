@@ -1,9 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cython.operator cimport dereference as deref
 from libcpp.utility cimport move
 
 from rapidsmpf.buffer.content_description cimport content_description_from_cpp
+from rapidsmpf.buffer.resource cimport MemoryReservation
 
 
 cdef class Message:
@@ -81,3 +83,16 @@ cdef class Message:
 
     def get_content_description(self):
         return content_description_from_cpp(self._handle.content_description())
+
+    def copy_cost(self):
+        cdef uint64_t ret
+        with nogil:
+            ret = self._handle.copy_cost()
+        return ret
+
+    def copy(self, MemoryReservation reservation not None):
+        cdef cpp_Message ret
+        cdef cpp_MemoryReservation* res = reservation._handle.get()
+        with nogil:
+            ret = self._handle.copy(deref(res))
+        return Message.from_handle(move(ret))
