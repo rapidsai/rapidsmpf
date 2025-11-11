@@ -606,6 +606,7 @@ RunResult run_once(
     // Decompress received buffers (simulate by decompressing our own produced outputs in
     // symmetric setup)
     auto c0 = Clock::now();
+    std::vector<rmm::cuda_stream_view> decomp_streams(data.items.size());
     for (std::size_t i = 0; i < data.items.size(); ++i) {
         auto const out_bytes = data.items[i].packed->data->size;
         if (out_bytes == 0) {
@@ -613,23 +614,32 @@ RunResult run_once(
         }
         auto res = br->reserve_or_fail(out_bytes, MemoryType::DEVICE);
         auto out = br->allocate(out_bytes, stream, res);
-        // Ensure compressed outputs are ready before using as input
-        comp_outputs[i]->stream().synchronize();
-        out->write_access([&codec, &comp_outputs, &comp_output_sizes, i, out_bytes](
-                              std::byte* out_ptr, rmm::cuda_stream_view out_stream
-                          ) {
-            auto* in_raw = comp_outputs[i]->exclusive_data_access();
-            codec.decompress(
-                static_cast<void const*>(in_raw),
-                comp_output_sizes[i],
-                static_cast<void*>(out_ptr),
-                out_bytes,
-                out_stream
-            );
-            comp_outputs[i]->unlock();
-        });
+        out->write_access(
+            [&codec, &comp_outputs, &comp_output_sizes, &decomp_streams, i, out_bytes](
+                std::byte* out_ptr, rmm::cuda_stream_view out_stream
+            ) {
+                auto* in_raw = comp_outputs[i]->exclusive_data_access();
+                codec.decompress(
+                    static_cast<void const*>(in_raw),
+                    comp_output_sizes[i],
+                    static_cast<void*>(out_ptr),
+                    out_bytes,
+                    out_stream
+                );
+                // Defer unlock until after per-stream synchronization
+                decomp_streams[i] = out_stream;
+            }
+        );
     }
-    RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
+    // Synchronize each decomp stream and then unlock the corresponding input
+    for (std::size_t i = 0; i < data.items.size(); ++i) {
+        auto const out_bytes = data.items[i].packed->data->size;
+        if (out_bytes == 0) {
+            continue;
+        }
+        RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(decomp_streams[i].value()));
+        comp_outputs[i]->unlock();
+    }
     auto c1 = Clock::now();
 
     RunResult result{};
