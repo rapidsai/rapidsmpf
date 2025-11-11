@@ -112,7 +112,7 @@
                         .columns(
                             {
                                 "l_orderkey", // 0
-                                "l_shipdate", // 1
+                                "l_shipdate", // 1 -- Timestamp[ms]
                                 "l_extendedprice", // 2
                                 "l_discount", // 3
                                 }
@@ -137,7 +137,7 @@
      auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                         .columns({
                             "o_orderkey", // 0
-                            "o_orderdate", // 1
+                            "o_orderdate", // 1 -- Timestamp[ms]
                             "o_shippriority", // 2
                             "o_custkey" // 3
                         })
@@ -166,11 +166,10 @@
          );
          auto chunk_stream = chunk.stream();
          auto table = chunk.table_view();
-         auto c_mktsegment = table.column(0);
          auto var1 = cudf::make_string_scalar("BUILDING", chunk_stream, mr);
          auto mask = cudf::binary_operation(
             table.column(0), // c_mktsegment is col 0
-            *var1.get(),
+            *static_cast<cudf::scalar*>(var1.get()),
             cudf::binary_operator::EQUAL,
             cudf::data_type(cudf::type_id::BOOL8),
             chunk_stream,
@@ -192,26 +191,6 @@
      co_await ch_out->drain(ctx->executor());
  }
 
-//  std::tm make_tm(int year, int month, int day)
-// {
-//   std::tm tm{};
-//   tm.tm_year = year - 1900;
-//   tm.tm_mon  = month - 1;
-//   tm.tm_mday = day;
-//   return tm;
-// }
-
-//  int32_t days_since_epoch(int year, int month, int day)
-// {
-//   std::tm tm             = make_tm(year, month, day);
-//   std::tm epoch          = make_tm(1970, 1, 1);
-//   std::time_t time       = std::mktime(&tm);
-//   std::time_t epoch_time = std::mktime(&epoch);
-//   double diff            = std::difftime(time, epoch_time) / (60 * 60 * 24);
-//   return static_cast<int32_t>(diff);
-// }
-
-
 //  # .filter(pl.col("o_orderdate") < var2) ## var2 = date(1995, 3, 15)
  rapidsmpf::streaming::Node filter_orders(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
@@ -231,42 +210,11 @@
         );
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
-        
 
-        // std::tm timeinfo = {};
-        // timeinfo.tm_year = 1993 - 1900; // years since 1900
-        // timeinfo.tm_mon  = 3 - 1;       // months since January
-        // timeinfo.tm_mday = 15;
-        // time_t epoch_secs = std::mktime(&timeinfo);
-        // int64_t epoch_ms = static_cast<int64_t>(epoch_secs) * 1000;
-        // auto var2 = cudf::make_fixed_width_scalar<int64_t>(
-        //     epoch_ms,
-        //     chunk_stream,
-        //     mr
-        // );
-
-        // auto o_orderdate_int64 = cudf::cast(
-        //     table.column(1),
-        //     cudf::data_type{cudf::type_id::INT64}
-        // );
-
-        cudf::data_type dtype = table.column(1).type();
-        cudf::type_id type_id = dtype.id();
-        std::cout << "Column type_id: " << static_cast<int>(type_id) << std::endl;
-
-        auto days_since_epoch = cudf::timestamp_D{cudf::duration_D{8440}};
-        auto var2 = cudf::timestamp_scalar<cudf::timestamp_D>{days_since_epoch};
-    // auto cv = table->get_column(6).view();
-
-    // auto mask =
-    //     cudf::binary_operation(cv, date, cudf::binary_operator::LESS_EQUAL,
-    //                            cudf::data_type{cudf::type_id::BOOL8});
-
-        // auto var2 = cudf::timestamp_scalar<cudf::timestamp_ms>(days_since_epoch(1993, 3, 15), true);
-
+        auto ms_since_epoch = cudf::timestamp_ms{cudf::duration_ms{795225600000}};
+        auto var2 = cudf::timestamp_scalar<cudf::timestamp_ms>{ms_since_epoch};
         auto mask = cudf::binary_operation(
             table.column(1), // o_orderdate is col 1
-            // *o_orderdate_int64,
             var2,
             cudf::binary_operator::LESS,
             cudf::data_type(cudf::type_id::BOOL8),
@@ -312,26 +260,12 @@ rapidsmpf::streaming::Node filter_lineitem(
         );
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
-        
 
-        // std::tm timeinfo = {};
-        // timeinfo.tm_year = 1993 - 1900; // years since 1900
-        // timeinfo.tm_mon  = 3 - 1;       // months since January
-        // timeinfo.tm_mday = 15;
-        // time_t epoch_secs = std::mktime(&timeinfo);
-        // int64_t epoch_ms = static_cast<int64_t>(epoch_secs) * 1000;
-        // auto var2 = cudf::make_fixed_width_scalar<int64_t>(
-        //     epoch_ms,
-        //     chunk_stream,
-        //     mr
-        // );
-
-        auto days_since_epoch = cudf::timestamp_D{cudf::duration_D{8440}};
-        auto var2 = cudf::timestamp_scalar<cudf::timestamp_D>{days_since_epoch};
+        auto ms_since_epoch = cudf::timestamp_ms{cudf::duration_ms{795225600000}};
+        auto var2 = cudf::timestamp_scalar<cudf::timestamp_ms>{ms_since_epoch};
 
         auto mask = cudf::binary_operation(
             table.column(1), // l_shipdate is col 1
-            // *var2.get(),
             var2,
             cudf::binary_operator::GREATER,
             cudf::data_type(cudf::type_id::BOOL8),
@@ -382,6 +316,15 @@ rapidsmpf::streaming::Node filter_lineitem(
          auto chunk_stream = chunk.stream();
          auto sequence_number = msg.sequence_number();
          auto table = chunk.table_view();
+
+        //  std::cout << "Number of columns in with columns output: " << table.num_columns() << std::endl;
+
+        //  for (int i = 0; i < table.num_columns(); ++i) {
+        //     cudf::data_type dtype = table.column(i).type();
+        //     cudf::type_id tid = dtype.id();
+        //     std::cout << "Column " << i << " type_id: " << static_cast<int>(tid) << std::endl;
+        //  }
+
          std::vector<std::unique_ptr<cudf::column>> result;
          result.reserve(4);
          
@@ -945,8 +888,6 @@ rapidsmpf::streaming::Node filter_lineitem(
                  // join channels
                  auto customer_x_orders = ctx->create_channel();
                  auto customer_x_orders_x_lineitem = ctx->create_channel();
-                 auto all_joined = ctx->create_channel();
-
                  
                  // read and filter customer
                  // In: "c_mktsegment", "c_custkey"
@@ -984,7 +925,7 @@ rapidsmpf::streaming::Node filter_lineitem(
                 ));
                 nodes.push_back(filter_lineitem(ctx, lineitem, filtered_lineitem));
 
-                // join orders into customer
+                // join customers and orders
                  nodes.push_back(
                      // c_custkey x o_orderkey
                      rapidsmpf::ndsh::inner_join_broadcast(
@@ -999,7 +940,7 @@ rapidsmpf::streaming::Node filter_lineitem(
                      )
                  );
 
-                 // join lineitem into customer_x_orders
+                 // join customer_x_orders and lineitem
                  nodes.push_back(
                     // o_orderkey x l_orderkey
                     rapidsmpf::ndsh::inner_join_broadcast(
@@ -1007,7 +948,7 @@ rapidsmpf::streaming::Node filter_lineitem(
                         customer_x_orders,
                         filtered_lineitem,
                         customer_x_orders_x_lineitem,
-                        {1},
+                        {0},
                         {0},
                         rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
                         rapidsmpf::ndsh::KeepKeys::YES
