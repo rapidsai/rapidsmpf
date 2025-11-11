@@ -162,6 +162,8 @@ add_library(
   src/buffer/resource.cpp
   src/buffer/spill_manager.cpp
   src/communicator/communicator.cpp
+  src/communicator/metadata_payload_exchange/core.cpp
+  src/communicator/metadata_payload_exchange/tag.cpp
   src/communicator/single.cpp
   src/config.cpp
   src/cuda_event.cpp
@@ -188,6 +190,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/core/context.cpp
             src/streaming/core/leaf_node.cpp
             src/streaming/core/node.cpp
+            src/streaming/core/spillable_messages.cpp
             src/streaming/cudf/partition.cpp
             src/streaming/cudf/parquet.cpp
             src/streaming/cudf/table_chunk.cpp
