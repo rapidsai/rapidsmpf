@@ -11,6 +11,7 @@ from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 
+from rapidsmpf.buffer.resource cimport MemoryReservation, cpp_MemoryReservation
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
@@ -20,9 +21,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
         (uint64_t sequence_number, unique_ptr[cpp_TableChunk]) except +
 
 
-# Helper function to release a table chunk from a message, which is needed
-# because TableChunk doesn't have a default ctor.
-cdef extern from *:
+cdef extern from * nogil:
     """
     namespace {
     std::unique_ptr<rapidsmpf::streaming::TableChunk>
@@ -55,13 +54,24 @@ cdef extern from *:
                 : rapidsmpf::streaming::TableChunk::ExclusiveView::NO
         );
     }
+
+    std::unique_ptr<rapidsmpf::streaming::TableChunk> cpp_table_make_available(
+        std::unique_ptr<rapidsmpf::streaming::TableChunk> &&table,
+        rapidsmpf::MemoryReservation* reservation
+    ) {
+        return std::make_unique<rapidsmpf::streaming::TableChunk>(
+            table->make_available(*reservation)
+        );
+    }
     }
     """
-    unique_ptr[cpp_TableChunk] \
-        cpp_release_table_chunk_from_message(cpp_Message) except +
-
+    unique_ptr[cpp_TableChunk] cpp_release_table_chunk_from_message(
+        cpp_Message
+    ) except +
     unique_ptr[cpp_TableChunk] cpp_from_table_view_with_owner(...) except +
-
+    unique_ptr[cpp_TableChunk] cpp_table_make_available(
+        unique_ptr[cpp_TableChunk], cpp_MemoryReservation*
+    ) except +
 
 cdef class TableChunk:
     """
@@ -289,6 +299,17 @@ cdef class TableChunk:
         True if the table is already available; otherwise, False.
         """
         return deref(self.handle_ptr()).is_available()
+
+    def make_available_cost(self):
+        return deref(self.handle_ptr()).make_available_cost()
+
+    def make_available(self, MemoryReservation reservation not None):
+        cdef cpp_MemoryReservation* res = reservation._handle.get()
+        cdef unique_ptr[cpp_TableChunk] handle = self.release_handle()
+        cdef unique_ptr[cpp_TableChunk] ret
+        with nogil:
+            ret = cpp_table_make_available(move(handle), res)
+        return TableChunk.from_handle(move(ret))
 
     def table_view(self):
         """

@@ -40,9 +40,7 @@ def random_table(nbytes: int) -> pylibcudf.Table:
     "exclusive_view",
     [True, False],
 )
-def test_from_pylibcudf_table(
-    context: Context, stream: Stream, *, exclusive_view: bool
-) -> None:
+def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) -> None:
     seq = 42
     expect = random_table(1024)
     table_chunk = TableChunk.from_pylibcudf_table(
@@ -50,6 +48,7 @@ def test_from_pylibcudf_table(
     )
     assert is_equal_streams(table_chunk.stream, stream)
     assert table_chunk.is_available()
+    assert table_chunk.make_available_cost() == 0
     assert table_chunk.is_spillable() == exclusive_view
     assert_eq(expect, table_chunk.table_view())
 
@@ -71,9 +70,36 @@ def test_from_pylibcudf_table(
     table_chunk2 = TableChunk.from_message(msg1)
     assert is_equal_streams(table_chunk2.stream, stream)
     assert table_chunk2.is_available()
+    assert table_chunk2.make_available_cost() == 0
     assert_eq(expect, table_chunk2.table_view())
 
-    # msg2 is unavailabe
+    # Make a copy of msg2 back to device memory.
+    assert msg2.copy_cost() == 1024
+    [res, _] = context.br().reserve(MemoryType.DEVICE, 1024, allow_overbooking=True)
+    msg3 = msg2.copy(res)
+    assert res.size == 0
+
+    # msg2 is on host and is not availabe
     table_chunk3 = TableChunk.from_message(msg2)
     assert is_equal_streams(table_chunk3.stream, stream)
     assert not table_chunk3.is_available()
+    assert table_chunk3.make_available_cost() == 1024
+    # but we can make its table available using `make_available()`.
+    [res, _] = context.br().reserve(MemoryType.DEVICE, 1024, allow_overbooking=True)
+    table_chunk4 = table_chunk3.make_available(res)
+    assert is_equal_streams(table_chunk4.stream, stream)
+    assert table_chunk4.is_available()
+    assert table_chunk4.make_available_cost() == 0
+    assert_eq(expect, table_chunk4.table_view())
+
+    # msg3 is on device but not availabe.
+    table_chunk5 = TableChunk.from_message(msg3)
+    assert is_equal_streams(table_chunk5.stream, stream)
+    assert not table_chunk5.is_available()
+    # but it cost no device memory to make available.
+    assert table_chunk5.make_available_cost() == 0
+    [res, _] = context.br().reserve(MemoryType.DEVICE, 0, allow_overbooking=True)
+    table_chunk6 = table_chunk5.make_available(res)
+    assert table_chunk6.is_available()
+    assert table_chunk6.make_available_cost() == 0
+    assert_eq(expect, table_chunk6.table_view())
