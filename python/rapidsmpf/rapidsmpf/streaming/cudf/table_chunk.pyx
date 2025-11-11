@@ -216,7 +216,7 @@ cdef class TableChunk:
 
         Warnings
         --------
-        The TableChunk is released and must not be used after this call.
+        The old TableChunk is released and must not be used after this call.
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
@@ -302,9 +302,39 @@ cdef class TableChunk:
         return deref(self.handle_ptr()).is_available()
 
     def make_available_cost(self):
+        """
+        Return the estimated cost (in bytes) of making the table available.
+
+        Currently, only device memory usage is accounted for in this estimate.
+
+        Returns
+        -------
+        The estimated cost in bytes.
+        """
         return deref(self.handle_ptr()).make_available_cost()
 
     def make_available(self, MemoryReservation reservation not None):
+        """
+        Move this table chunk into a new one with its data made available.
+
+        As part of the move, a copy or unpack operation may be performed,
+        using the associated CUDA stream for execution. After this call,
+        the current object is left in a moved-from state and should not be
+        accessed further except for reassignment, movement, or destruction.
+
+        Parameters
+        ----------
+        reservation
+            Memory reservation used for allocations, if needed.
+
+        Returns
+        -------
+        A new table chunk with its data available on device.
+
+        Warnings
+        --------
+        The old TableChunk is released and must not be used after this call.
+        """
         cdef cpp_MemoryReservation* res = reservation._handle.get()
         cdef unique_ptr[cpp_TableChunk] handle = self.release_handle()
         cdef unique_ptr[cpp_TableChunk] ret
@@ -356,6 +386,31 @@ cdef class TableChunk:
 def get_table_chunk(
     Message msg not None, BufferResource br not None, *, bool_t allow_overbooking
 ):
+    """
+    Helper function that returns an available table chunk from a message.
+
+    The message is first converted into a table chunk. A memory reservation is then
+    acquired from the provided buffer resource to ensure enough space for making
+    the table data available. If necessary, spilling may occur during this process.
+
+    Parameters
+    ----------
+    msg
+        The input message containing the serialized or packed table data.
+    br
+        Buffer resource used to perform allocations and manage spilling.
+    allow_overbooking
+        Whether memory reservations are allowed to exceed the current limit.
+
+    Returns
+    -------
+    A new table chunk with its data made available on device.
+
+    Examples
+    --------
+    >>> chunk = get_table_chunk(msg, br, allow_overbooking=False)
+    >>> print(chunk.table_view())
+    """
     cdef TableChunk ret = TableChunk.from_message(msg)
     res = br.reserve_and_spill(
         MemoryType.DEVICE,
