@@ -5,6 +5,8 @@
 
 #include <memory>
 
+#include <rmm/aligned.hpp>
+
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -176,6 +178,22 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                         std::move(packed_columns.metadata),
                         br->move(std::move(packed_columns.gpu_data), stream())
                     );
+
+                    // Handle the case where `cudf::pack` allocates slightly more than the
+                    // input size. This can occur because cudf uses aligned allocations,
+                    // which may exceed the requested size. To accommodate this, we
+                    // slightly increase the reservation if the packed data fits within
+                    // the aligned size.
+                    if (packed_data->data->size > reservation.size()) {
+                        auto const aligned_size = rmm::align_up(reservation.size(), 1024);
+                        if (packed_data->data->size <= aligned_size) {
+                            reservation =
+                                br->reserve(
+                                      MemoryType::HOST, packed_data->data->size, true
+                                )
+                                    .first;
+                        }
+                    }
                     packed_data->data =
                         br->move(std::move(packed_data->data), reservation);
                 }
