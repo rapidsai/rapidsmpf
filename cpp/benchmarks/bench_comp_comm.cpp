@@ -711,9 +711,15 @@ RunResult run_once(
         Tag send_tag_nc = initiator ? tag_ping_nc : tag_pong_nc;
         Tag recv_tag_nc = initiator ? tag_pong_nc : tag_ping_nc;
         for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
-            std::size_t recv_size = nocomp_payloads[i]->size;
-            std::unique_ptr<Buffer> send_buf =
-                alloc_and_copy_device(br, stream, *nocomp_payloads[i]);
+            // Exchange payload sizes to avoid assuming symmetric sizes across ranks
+            std::uint64_t local_sz = static_cast<std::uint64_t>(nocomp_payloads[i]->size);
+            std::uint64_t remote_sz = exchange_u64_header(
+                comm, br, stream, peer, send_tag_nc, recv_tag_nc, local_sz
+            );
+            std::unique_ptr<Buffer> send_buf;
+            if (local_sz > 0) {
+                send_buf = alloc_and_copy_device(br, stream, *nocomp_payloads[i]);
+            }
             exchange_payload(
                 comm,
                 br,
@@ -722,7 +728,7 @@ RunResult run_once(
                 send_tag_nc,
                 recv_tag_nc,
                 std::move(send_buf),
-                recv_size
+                static_cast<std::size_t>(remote_sz)
             );
         }
         auto rt_end = Clock::now();
