@@ -927,7 +927,7 @@ rapidsmpf::streaming::Node filter_lineitem(
 
                 // join customers and orders
                  nodes.push_back(
-                     // c_custkey x o_orderkey
+                     // c_custkey x o_custkey
                      rapidsmpf::ndsh::inner_join_broadcast(
                          ctx,
                          filtered_customer,
