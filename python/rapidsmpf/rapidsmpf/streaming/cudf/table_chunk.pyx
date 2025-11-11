@@ -11,7 +11,8 @@ from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 
-from rapidsmpf.buffer.resource cimport MemoryReservation, cpp_MemoryReservation
+from rapidsmpf.buffer.resource cimport (BufferResource, MemoryReservation,
+                                        cpp_MemoryReservation)
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
@@ -350,3 +351,15 @@ cdef class TableChunk:
         True if the table chunk can be spilled, otherwise, False.
         """
         return deref(self.handle_ptr()).is_spillable()
+
+
+def get_table_chunk(
+    Message msg not None, BufferResource br not None, *, bool_t allow_overbooking
+):
+    cdef TableChunk ret = TableChunk.from_message(msg)
+    res = br.reserve_and_spill(
+        MemoryType.DEVICE,
+        ret.make_available_cost(),
+        allow_overbooking=allow_overbooking
+    )
+    return ret.make_available(res)

@@ -8,7 +8,7 @@ from pylibcudf.table import Table
 from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.resource import MemoryReservation
+from rapidsmpf.buffer.resource import BufferResource, MemoryReservation
 from rapidsmpf.streaming.core.message import Message, Payload
 
 class TableChunk:
@@ -31,6 +31,10 @@ class TableChunk:
     def table_view(self) -> Table: ...
     def is_spillable(self) -> bool: ...
     def copy(self, reservation: MemoryReservation) -> TableChunk: ...
+
+def get_table_chunk(
+    msg: Message, br: BufferResource, *, allow_overbooking: bool
+) -> TableChunk: ...
 
 if TYPE_CHECKING:
     # Check that TableChunk implements Payload.

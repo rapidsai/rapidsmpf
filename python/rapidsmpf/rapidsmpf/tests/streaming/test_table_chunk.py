@@ -15,7 +15,7 @@ from rapidsmpf.buffer.content_description import ContentDescription
 from rapidsmpf.cuda_stream import is_equal_streams
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
-from rapidsmpf.streaming.cudf.table_chunk import TableChunk
+from rapidsmpf.streaming.cudf.table_chunk import TableChunk, get_table_chunk
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
@@ -168,11 +168,7 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
     with pytest.raises(IndexError, match="Invalid key"):
         sm.extract(mid=0)
 
-    # Extract, make available, and check table chunk 2.
-    df2_got = TableChunk.from_message(sm.extract(mid=1))
-    [res, _] = context.br().reserve(
-        MemoryType.DEVICE, df2_got.make_available_cost(), allow_overbooking=True
-    )
-    df2_got = df2_got.make_available(res)
+    # User the helper function to extract, make available, and check table chunk 2.
+    df2_got = get_table_chunk(sm.extract(mid=1), context.br(), allow_overbooking=True)
     assert_eq(df2, df2_got.table_view())
     assert sm.get_content_descriptions() == {}
