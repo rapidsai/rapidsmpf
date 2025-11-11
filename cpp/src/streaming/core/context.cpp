@@ -4,6 +4,7 @@
  */
 
 #include <memory>
+#include <utility>
 
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
@@ -63,7 +64,7 @@ Context::Context(
       comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
       executor_{std::move(executor)},
-      br_{br},
+      br_{std::move(br)},
       statistics_{std::move(statistics)},
       spillable_messages_{std::make_shared<SpillableMessages>()} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "comm cannot be NULL");
