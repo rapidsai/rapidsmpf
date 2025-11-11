@@ -74,8 +74,8 @@ Context::Context(
 
     // Setup a spilling function.
     spill_function_id_ = br_->spill_manager().add_spill_function(
-        [sm = spillable_messages_, br](std::size_t amount) -> std::size_t {
-            return spill_messages(*sm, br, amount);
+        [this](std::size_t amount) -> std::size_t {
+            return spill_messages(*spillable_messages_, br_, amount);
         },
         /* priority = */ 0
     );
