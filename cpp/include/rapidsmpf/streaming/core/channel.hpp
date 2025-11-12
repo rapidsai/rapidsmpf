@@ -88,7 +88,8 @@ class Channel {
   private:
     Channel(std::shared_ptr<Context> context) : ctx_{std::move(context)} {}
 
-    coro::ring_buffer<SpillableMessages::MessageId, 1> rb_;
+    // coro::ring_buffer<SpillableMessages::MessageId, 1> rb_;
+    coro::ring_buffer<Message, 1> rb_;
     std::shared_ptr<Context> ctx_;
 };
 
