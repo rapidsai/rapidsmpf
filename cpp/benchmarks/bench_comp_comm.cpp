@@ -27,6 +27,7 @@
 #include <cudf/io/parquet.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
+#include <cudf/types.hpp>
 #include <rmm/cuda_stream_view.hpp>
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
@@ -69,6 +70,7 @@ struct Args {
     std::uint64_t num_ops{1};
     bool enable_cupti_monitoring{false};
     std::string cupti_csv_prefix;
+    bool data_only{false};
 };
 
 struct ArgumentParser {
@@ -81,8 +83,8 @@ struct ArgumentParser {
         try {
             int opt;
             // C: comm, r: runs, w: warmups, m: rmm, F: files, P: pack mode, A: algo, K:
-            // kv, p: ops, M: cupti, h: help
-            while ((opt = getopt(argc, argv, "C:r:w:m:F:P:A:K:p:M:h")) != -1) {
+            // kv, p: ops, M: cupti, D: data-only, h: help
+            while ((opt = getopt(argc, argv, "C:r:w:m:F:P:A:K:p:M:Dh")) != -1) {
                 switch (opt) {
                 case 'C':
                     args_.comm_type = std::string{optarg};
@@ -140,6 +142,9 @@ struct ArgumentParser {
                     args_.enable_cupti_monitoring = true;
                     args_.cupti_csv_prefix = std::string{optarg};
                     break;
+                case 'D':
+                    args_.data_only = true;
+                    break;
                 case 'h':
                 default:
                     {
@@ -160,6 +165,8 @@ struct ArgumentParser {
                               "chunk_size=1MiB,delta=1,rle=1,bitpack=1\n"
                            << "  -p <num>     Number of concurrent ops (default: 1)\n"
                            << "  -M <path>    CUPTI CSV path prefix (enable CUPTI)\n"
+                           << "  -D           Data-only mode (compress/transfer data "
+                              "buffers only)\n"
                            << "  -h           Show this help\n";
                         if (rank == 0)
                             std::cerr << ss.str();
@@ -266,6 +273,8 @@ struct ArgumentParser {
 struct PackedItem {
     // Ownership: we store size and buffer pointer for the packed payload
     std::unique_ptr<PackedData> packed;  // original packed cudf table/column
+    // Data-only mode: directly owned GPU buffer containing column/table data
+    std::unique_ptr<Buffer> raw_data;
 };
 
 struct BuffersToSend {
@@ -276,6 +285,14 @@ struct BuffersToSend {
     // Convenience: device payload bytes (same as total_uncompressed_bytes here)
     std::size_t total_payload_bytes{0};
 };
+
+static inline Buffer& item_data_buffer(PackedItem& it) {
+    return it.packed ? *it.packed->data : *it.raw_data;
+}
+
+static inline Buffer const& item_data_buffer(PackedItem const& it) {
+    return it.packed ? *it.packed->data : *it.raw_data;
+}
 
 struct Timings {
     double pack_s{0.0};
@@ -352,6 +369,67 @@ BuffersToSend make_packed_items(
         for (std::size_t i = 0; i < ret.items.size(); ++i) {
             ensure_ready(*ret.items[i].packed->data);
         }
+    }
+    return ret;
+}
+
+// Collect leaf data buffers recursively (device memory ranges) from a column.
+static void collect_leaf_data_buffers(
+    cudf::column_view const& col,
+    std::vector<std::pair<void const*, std::size_t>>& buffers
+) {
+    for (auto it = col.child_begin(); it != col.child_end(); ++it) {
+        collect_leaf_data_buffers(*it, buffers);
+    }
+    if (col.num_children() == 0 && col.size() > 0) {
+        auto const elem_size = static_cast<std::size_t>(cudf::size_of(col.type()));
+        if (elem_size == 0) {
+            return;
+        }
+        auto const* base = col.head<std::uint8_t>();
+        if (base == nullptr) {
+            return;
+        }
+        auto const byte_offset = static_cast<std::size_t>(col.offset()) * elem_size;
+        auto const num_bytes = static_cast<std::size_t>(col.size()) * elem_size;
+        buffers.emplace_back(static_cast<void const*>(base + byte_offset), num_bytes);
+    }
+}
+
+static std::vector<std::pair<void const*, std::size_t>> collect_table_data_buffers(
+    cudf::table_view const& tv
+) {
+    std::vector<std::pair<void const*, std::size_t>> out;
+    for (auto const& col : tv) {
+        collect_leaf_data_buffers(col, out);
+    }
+    return out;
+}
+
+// Data-only path: build items consisting solely of copies of each leaf device buffer.
+BuffersToSend make_data_only_items(
+    cudf::table const& table, rmm::cuda_stream_view stream, BufferResource* br
+) {
+    BuffersToSend ret{};
+    auto leaves = collect_table_data_buffers(table.view());
+    ret.items.reserve(leaves.size());
+    for (auto const& [src_ptr, nbytes] : leaves) {
+        if (nbytes == 0) {
+            continue;
+        }
+        auto reservation = br->reserve_or_fail(nbytes, MemoryType::DEVICE);
+        auto buf = br->allocate(nbytes, stream, reservation);
+        buf->write_access([&](std::byte* dst, rmm::cuda_stream_view s) {
+            RAPIDSMPF_CUDA_TRY_ALLOC(
+                cudaMemcpyAsync(dst, src_ptr, nbytes, cudaMemcpyDefault, s)
+            );
+        });
+        ensure_ready(*buf);
+        PackedItem item{};
+        item.raw_data = std::move(buf);
+        ret.total_uncompressed_bytes += nbytes;
+        ret.total_payload_bytes += nbytes;
+        ret.items.emplace_back(std::move(item));
     }
     return ret;
 }
@@ -456,7 +534,8 @@ RunResult run_once(
 
     // Pack data per iteration
     auto p0 = Clock::now();
-    auto packed = make_packed_items(table, pack_mode, stream, br);
+    auto packed = args.data_only ? make_data_only_items(table, stream, br)
+                                 : make_packed_items(table, pack_mode, stream, br);
     auto p1 = Clock::now();
 
     // Clone packed items into raw device buffers for repeated ops
@@ -466,9 +545,10 @@ RunResult run_once(
         // Copy metadata + data into a contiguous device buffer for pure send path?
         // For pure send/recv, we only send the device payload; metadata isn't needed for
         // metrics. We'll send the packed->data buffer.
-        auto reservation = br->reserve_or_fail(it.packed->data->size, MemoryType::DEVICE);
-        auto buf = br->allocate(it.packed->data->size, stream, reservation);
-        buffer_copy(*buf, *it.packed->data, it.packed->data->size);
+        auto const& src_buf = item_data_buffer(it);
+        auto reservation = br->reserve_or_fail(src_buf.size, MemoryType::DEVICE);
+        auto buf = br->allocate(src_buf.size, stream, reservation);
+        buffer_copy(*buf, src_buf, src_buf.size);
         nocomp_payloads.emplace_back(std::move(buf));
     }
 
@@ -477,7 +557,7 @@ RunResult run_once(
     std::vector<std::size_t> comp_output_sizes(packed.items.size());
     comp_outputs.reserve(packed.items.size());
     for (std::size_t i = 0; i < packed.items.size(); ++i) {
-        auto const in_bytes = packed.items[i].packed->data->size;
+        auto const in_bytes = item_data_buffer(packed.items[i]).size;
         std::size_t const max_out =
             (in_bytes == 0) ? 1 : codec.get_max_compressed_bytes(in_bytes, stream);
         auto reservation = br->reserve_or_fail(max_out, MemoryType::DEVICE);
@@ -489,7 +569,7 @@ RunResult run_once(
     // Compress all items (single batch) on stream
     std::vector<rmm::cuda_stream_view> comp_streams(packed.items.size());
     for (std::size_t i = 0; i < packed.items.size(); ++i) {
-        auto const in_bytes = packed.items[i].packed->data->size;
+        auto const in_bytes = item_data_buffer(packed.items[i]).size;
         if (in_bytes == 0) {
             comp_output_sizes[i] = 0;
             continue;
@@ -500,7 +580,7 @@ RunResult run_once(
                 std::byte* out_ptr, rmm::cuda_stream_view out_stream
             ) {
                 // Lock input for raw pointer access
-                auto* in_raw = packed.items[i].packed->data->exclusive_data_access();
+                auto* in_raw = item_data_buffer(packed.items[i]).exclusive_data_access();
                 codec.compress(
                     static_cast<void const*>(in_raw),
                     in_bytes,
@@ -515,12 +595,12 @@ RunResult run_once(
     }
     // Synchronize streams and unlock inputs
     for (std::size_t i = 0; i < packed.items.size(); ++i) {
-        auto const in_bytes = packed.items[i].packed->data->size;
+        auto const in_bytes = item_data_buffer(packed.items[i]).size;
         if (in_bytes == 0) {
             continue;
         }
         RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(comp_streams[i].value()));
-        packed.items[i].packed->data->unlock();
+        item_data_buffer(packed.items[i]).unlock();
     }
     auto t1 = Clock::now();
 
@@ -601,7 +681,7 @@ RunResult run_once(
     auto c0 = Clock::now();
     std::vector<rmm::cuda_stream_view> decomp_streams(packed.items.size());
     for (std::size_t i = 0; i < packed.items.size(); ++i) {
-        auto const out_bytes = packed.items[i].packed->data->size;
+        auto const out_bytes = item_data_buffer(packed.items[i]).size;
         if (out_bytes == 0) {
             continue;
         }
@@ -625,7 +705,7 @@ RunResult run_once(
     }
     // Synchronize each decomp stream and then unlock the corresponding input
     for (std::size_t i = 0; i < packed.items.size(); ++i) {
-        auto const out_bytes = packed.items[i].packed->data->size;
+        auto const out_bytes = item_data_buffer(packed.items[i]).size;
         if (out_bytes == 0) {
             continue;
         }
