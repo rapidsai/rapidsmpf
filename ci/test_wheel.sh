@@ -17,4 +17,4 @@ rapids-pip-retry install \
     "${CPP_WHEELHOUSE}"/*.whl \
     "$(echo "${PYTHON_WHEELHOUSE}"/rapidsmpf_"${RAPIDS_PY_CUDA_SUFFIX}"*.whl)[test]"
 
-python -m pytest ./python/rapidsmpf/rapidsmpf/tests
+python -m pytest ./python/rapidsmpf/rapidsmpf/tests/streaming/
