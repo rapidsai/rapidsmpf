@@ -10,6 +10,8 @@ from rmm.pylibrmm.cuda_stream import CudaStreamFlags
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
+from rapidsmpf.statistics cimport Statistics
+
 
 cdef class MemoryReservation:
     """
@@ -180,6 +182,9 @@ cdef class BufferResource:
         Optional CUDA stream pool to use. If None, a new pool with 16 streams
         will be created. Must be an instance of
         ``rmm.pylibrmm.cuda_stream_pool.CudaStreamPool``.
+    statistics
+        The statistics instance to use. If None, a disabled statistics instance
+        will be created.
     """
     def __cinit__(
         self,
@@ -187,6 +192,7 @@ cdef class BufferResource:
         memory_available = None,
         periodic_spill_check = 1e-3,
         stream_pool = None,
+        statistics = None,
     ):
         cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
         if memory_available is not None:
@@ -227,6 +233,14 @@ cdef class BufferResource:
             )
         )
 
+        # Handle statistics parameter
+        # If None, create a disabled statistics instance
+        if statistics is None:
+            statistics = Statistics(enable=False)
+
+        # Keep statistics alive
+        self._statistics = statistics
+
         # Keep MR alive because the C++ BufferResource stores a raw pointer.
         # TODO: once RMM is migrating to CCCL (copyable) any_resource,
         # rather than the any_resource_ref reference type, we don't
@@ -238,6 +252,7 @@ cdef class BufferResource:
                 move(_mem_available),
                 period,
                 cpp_stream_pool,
+                (<Statistics>statistics)._handle,
             )
         self.spill_manager = SpillManager._create(self)
 
@@ -367,6 +382,18 @@ cdef class BufferResource:
             The size of the stream pool.
         """
         return self.stream_pool().get_pool_size()
+
+    @property
+    def statistics(self):
+        """
+        Gets the statistics instance associated with this buffer resource.
+
+        Returns
+        -------
+        Statistics
+            The statistics instance.
+        """
+        return self._statistics
 
 
 cdef class LimitAvailableMemory:

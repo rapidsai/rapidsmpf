@@ -9,6 +9,7 @@ from rmm.pylibrmm.memory_resource import DeviceMemoryResource
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.spill_manager import SpillManager
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.statistics import Statistics
 
 class MemoryReservation:
     @property
@@ -25,11 +26,14 @@ class BufferResource:
         memory_available: Mapping[MemoryType, Callable[[], int]] | None = None,
         periodic_spill_check: float | None = 1e-3,
         stream_pool: CudaStreamPool | None = None,
+        statistics: Statistics | None = None,
     ) -> None: ...
     def memory_available(self, mem_type: MemoryType) -> int: ...
     def memory_reserved(self, mem_type: MemoryType) -> int: ...
     @property
     def spill_manager(self) -> SpillManager: ...
+    @property
+    def statistics(self) -> Statistics: ...
     def reserve(
         self, mem_type: MemoryType, size: int, *, allow_overbooking: bool
     ) -> tuple[MemoryReservation, int]: ...
