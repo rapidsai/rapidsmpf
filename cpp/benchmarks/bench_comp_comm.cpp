@@ -249,7 +249,6 @@ static std::unique_ptr<PackedData> pack_table_to_packed(
     auto ret = std::make_unique<PackedData>(
         std::move(packed.metadata), br->move(std::move(packed.gpu_data), stream)
     );
-    ret->data->stream().synchronize();
     return ret;
 }
 
@@ -407,6 +406,8 @@ BuffersToSend make_packed_items(
     if (mode == PackMode::Table) {
         auto item = PackedItem{};
         item.packed = pack_table_to_packed(table.view(), stream, br);
+        // Ensure the pack is completed before using the buffer downstream
+        ensure_ready(*item.packed->data);
         ret.total_uncompressed_bytes += item.packed->data->size;
         ret.total_payload_bytes += item.packed->data->size;
         ret.items.emplace_back(std::move(item));
@@ -419,6 +420,10 @@ BuffersToSend make_packed_items(
             ret.total_uncompressed_bytes += item.packed->data->size;
             ret.total_payload_bytes += item.packed->data->size;
             ret.items.emplace_back(std::move(item));
+        }
+        // Synchronize all packs after launching them to avoid per-iteration blocking
+        for (std::size_t i = 0; i < ret.items.size(); ++i) {
+            ensure_ready(*ret.items[i].packed->data);
         }
     }
     return ret;
