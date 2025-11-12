@@ -262,11 +262,9 @@ class BufferResource {
      * @return A memory reservation.
      * @throws std::runtime_error if no memory reservation was made.
      */
-    template <std::ranges::input_range Range = decltype(MEMORY_TYPES)>
+    template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
-    [[nodiscard]] MemoryReservation reserve_or_fail(
-        size_t size, Range mem_types = MEMORY_TYPES
-    ) {
+    [[nodiscard]] MemoryReservation reserve_or_fail(size_t size, Range mem_types) {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
             auto [res, _] = reserve(mem_type, size, false);

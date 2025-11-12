@@ -585,7 +585,7 @@ TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
     auto buf1 = create_source_buffer();
 
     // Reserve memory for the slice on br2
-    auto res2 = br2->reserve_or_fail(slice_length);
+    auto res2 = br2->reserve_or_fail(slice_length, MEMORY_TYPES);
 
     // Create slice of buf1 on br2
     auto buf2 = br2->allocate(slice_length, stream, res2);
@@ -609,7 +609,7 @@ TEST_F(BufferResourceDifferentResourcesTest, Copy) {
     auto buf1 = create_source_buffer();
 
     // Create copy of buf1 on br2
-    auto buf2 = br2->allocate(stream, br2->reserve_or_fail(buffer_size));
+    auto buf2 = br2->allocate(stream, br2->reserve_or_fail(buffer_size, MEMORY_TYPES));
     buffer_copy(*buf2, *buf1, buffer_size);
     EXPECT_EQ(buf2->size, buffer_size);
     buf2->stream().synchronize();
