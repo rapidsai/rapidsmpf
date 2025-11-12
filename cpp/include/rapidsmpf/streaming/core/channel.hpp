@@ -44,6 +44,8 @@ class Channel {
      * @param msg The msg to send.
      * @return A coroutine that evaluates to true if the msg was successfully sent or
      * false if the channel was shut down.
+     *
+     * @throws std::logic_error If the message is empty.
      */
     coro::task<bool> send(Message msg);
 
@@ -54,6 +56,8 @@ class Channel {
      *
      * @return A coroutine that evaluates to the message, which will be empty if the
      * channel is shut down.
+     *
+     * @throws std::logic_error If the received message is empty.
      */
     coro::task<Message> receive();
 
@@ -294,9 +298,8 @@ class ShutdownAtExit {
     template <class... T>
     explicit ShutdownAtExit(T&&... channels)
         requires(std::convertible_to<T, std::shared_ptr<Channel>> && ...)
-        : ShutdownAtExit(
-              std::vector<std::shared_ptr<Channel>>{std::forward<T>(channels)...}
-          ) {}
+        : ShutdownAtExit(std::vector<std::shared_ptr<Channel>>{std::forward<T>(channels
+          )...}) {}
 
     // Non-copyable, non-movable.
     ShutdownAtExit(ShutdownAtExit const&) = delete;
