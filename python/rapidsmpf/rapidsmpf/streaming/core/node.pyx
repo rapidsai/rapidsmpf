@@ -7,6 +7,7 @@ from libcpp.utility cimport move
 
 import asyncio
 import inspect
+import sys
 from collections.abc import Awaitable, Iterable, Iterator, Mapping
 from functools import wraps
 
@@ -209,8 +210,11 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
     ValueError
         If Python nodes are present but no executor is provided.
     Exception
-        Any unhandled exception from a node is re-raised after execution. If multiple
-        nodes raise exceptions, only one is re-raised, and it is unspecified which one.
+        Any unhandled exception from a node is re-raised after execution.
+
+        For Python 3.11 an ``ExceptionGroup`` is raised. For Python 3.10,
+        a ``RuntimeError`` is raised.
+
     TypeError
         If nodes contains an unknown node type.
 
@@ -252,7 +256,7 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
             )
 
     async def runner():
-        return await asyncio.gather(*py_nodes)
+        return await asyncio.gather(*py_nodes, return_exceptions=True)
 
     if len(py_nodes) > 0:
         if py_executor is None:
@@ -265,4 +269,19 @@ def run_streaming_pipeline(*, nodes, py_executor = None):
                 cpp_run_streaming_pipeline(move(cpp_nodes))
     finally:
         if len(py_nodes) > 0:
-            py_future.result()  # This will raise any unhandled exception.
+            exceptions = [
+                result for result in py_future.result()
+                if isinstance(result, BaseException)
+            ]
+
+            if exceptions:
+                if sys.version_info >= (3, 11):
+                    exc = ExceptionGroup
+                else:
+                    exc = RuntimeError
+
+                msg = "Exceptions in rapidsmpf.streaming.node.run_streaming_pipeline"
+                raise exc(
+                    msg,
+                    exceptions,
+                )

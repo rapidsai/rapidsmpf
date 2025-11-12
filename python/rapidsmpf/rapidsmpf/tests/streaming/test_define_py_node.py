@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
 
 import cudf
 
+from rapidsmpf.streaming.chunks.arbitrary import ArbitraryChunk
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.node import define_py_node, run_streaming_pipeline
@@ -151,3 +153,45 @@ def test_recv_table_chunks(
         assert result.sequence_number == seq
         tbl = TableChunk.from_message(result)
         assert_eq(tbl.table_view(), expect)
+
+
+def test_pynode_raises_exception(
+    context: Context, py_executor: ThreadPoolExecutor
+) -> None:
+    # https://github.com/rapidsai/rapidsmpf/issues/655
+    # Previously, this would regularly segfault.
+
+    if sys.version_info >= (3, 11):
+        exc = ExceptionGroup  # noqa: F821
+    else:
+        exc = RuntimeError
+
+    @define_py_node()
+    async def sender(ctx: Context, ch_in: Channel, ch_out: Channel) -> None:
+        # send some bytes to ch_out
+        for i in range(4):
+            await ch_out.send(ctx, Message(i, ArbitraryChunk(f"hello {i}".encode())))
+
+        raise RuntimeError("sender error")
+
+    @define_py_node()
+    async def receiver(ctx: Context, ch_in: Channel) -> None:
+        while True:
+            msg = await ch_in.recv(ctx)
+            if msg is None:
+                break
+            ArbitraryChunk.from_message(msg).release()
+
+    ch_in: Channel[ArbitraryChunk[bytes]] = context.create_channel()
+    ch_out: Channel[ArbitraryChunk[bytes]] = context.create_channel()
+
+    with pytest.raises(
+        exc, match="Exceptions in rapidsmpf.streaming.node.run_streaming_pipeline"
+    ):
+        run_streaming_pipeline(
+            nodes=[
+                sender(context, ch_in, ch_out),
+                receiver(context, ch_out),
+            ],
+            py_executor=py_executor,
+        )
