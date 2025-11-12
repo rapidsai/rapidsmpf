@@ -159,7 +159,9 @@ Node unbounded_fo_send_task(
             }
         }
 
-        // now we can copy & send messages in indices [next_idx, end_idx)
+        // now we can copy & send messages in indices [next_idx, curr_recv_msg_sz)
+        // it is guaranteed that message purging will be done only on indices less than
+        // next_idx, so we can safely send messages without locking the mtx
         for (size_t i = state->ch_next_idx[idx]; i < curr_recv_msg_sz; i++) {
             auto const& msg = state->recv_messages[i];
             RAPIDSMPF_EXPECTS(!msg.empty(), "message cannot be empty");
