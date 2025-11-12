@@ -100,6 +100,12 @@ class SpillableMessages {
      */
     std::map<MessageId, ContentDescription> get_content_descriptions() const;
 
+    ~SpillableMessages() {
+        if (!items_.empty()) {
+            std::cout << "SpillableMessages: not empty at destruction" << std::endl;
+        }
+    }
+
   private:
     /**
      * @brief Thread-safe item containing a `Message`.
