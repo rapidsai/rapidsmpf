@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <iostream>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
 
@@ -108,6 +110,18 @@ bool PausableThreadLoop::stop() noexcept {
         // using CAS weak because we can tolerate a spurious failure on retry
         {
             state_.notify_all();
+            try {
+                RAPIDSMPF_EXPECTS(
+                    std::this_thread::get_id() != thread_.get_id(), "joining ourselves"
+                );
+            } catch (std::logic_error const& e) {
+                std::cerr << e.what() << std::endl;
+            }
+            try {
+                RAPIDSMPF_EXPECTS(thread_.joinable(), "not joinable");
+            } catch (std::logic_error const& e) {
+                std::cerr << e.what() << std::endl;
+            }
 
             // wait for state_ Stopping -> Stopped by the event loop thread
             if (thread_.joinable()) {
