@@ -144,6 +144,18 @@ cdef extern from * nogil:
         auto [res, ob] = br->reserve(mem_type, size, allow_overbooking);
         return {std::make_unique<rapidsmpf::MemoryReservation>(std::move(res)), ob};
     }
+
+    std::unique_ptr<rapidsmpf::MemoryReservation>
+    cpp_br_reserve_and_spill(
+        std::shared_ptr<rapidsmpf::BufferResource> br,
+        rapidsmpf::MemoryType mem_type,
+        size_t size,
+        bool allow_overbooking
+    ) {
+        return std::make_unique<rapidsmpf::MemoryReservation>(
+            br->reserve_and_spill(mem_type, size, allow_overbooking)
+        );
+    }
     """
     pair[unique_ptr[cpp_MemoryReservation], size_t] cpp_br_reserve(
         shared_ptr[cpp_BufferResource],
@@ -151,7 +163,12 @@ cdef extern from * nogil:
         size_t,
         bool_t,
     ) except +
-
+    unique_ptr[cpp_MemoryReservation] cpp_br_reserve_and_spill(
+        shared_ptr[cpp_BufferResource],
+        MemoryType,
+        size_t,
+        bool_t,
+    ) except +
 
 cdef class BufferResource:
     """
@@ -342,6 +359,44 @@ cdef class BufferResource:
         with nogil:
             ret = cpp_br_reserve(self._handle, mem_type, size, allow_overbooking)
         return MemoryReservation.from_handle(move(ret.first), self), ret.second
+
+    def reserve_and_spill(
+        self, MemoryType mem_type, size_t size, *, bool_t allow_overbooking
+    ):
+        """
+        Reserve memory and spill if necessary.
+
+        Attempts to reserve the requested amount of memory for the given memory type.
+        If insufficient memory is available, spilling is triggered to free up space.
+        When overbooking is allowed, the reservation may succeed even if spilling
+        was not sufficient to fully satisfy the request.
+
+        Parameters
+        ----------
+        mem_type
+            The memory type to reserve.
+        size
+            The size of the memory to reserve, in bytes.
+        allow_overbooking
+            Whether overbooking is allowed. If false, ensures that enough memory is
+            freed to satisfy the reservation.
+
+        Returns
+        -------
+        A memory reservation that can be used for subsequent allocations.
+
+        Raises
+        ------
+        OverflowError
+            If overbooking is disallowed and the buffer resource cannot reserve
+            and spill enough memory.
+        """
+        cdef unique_ptr[cpp_MemoryReservation] ret
+        with nogil:
+            ret = cpp_br_reserve_and_spill(
+                self._handle, mem_type, size, allow_overbooking
+            )
+        return MemoryReservation.from_handle(move(ret), self)
 
     def release(self, MemoryReservation reservation not None, size_t size):
         """
