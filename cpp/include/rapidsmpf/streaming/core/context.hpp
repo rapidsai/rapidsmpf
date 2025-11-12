@@ -21,7 +21,7 @@ namespace rapidsmpf::streaming {
 /**
  * @brief Context for nodes (coroutines) in rapidsmpf.
  */
-class Context : public std::enable_shared_from_this<Context> {
+class Context {
   public:
     /**
      * @brief Full constructor for the Context.

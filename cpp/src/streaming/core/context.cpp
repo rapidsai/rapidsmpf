@@ -143,7 +143,6 @@ std::shared_ptr<Statistics> Context::statistics() const noexcept {
 }
 
 std::shared_ptr<Channel> Context::create_channel() const noexcept {
-    auto self = std::const_pointer_cast<Context>(shared_from_this());
-    return std::shared_ptr<Channel>(new Channel(self));
+    return std::shared_ptr<Channel>(new Channel(spillable_messages()));
 }
 }  // namespace rapidsmpf::streaming

@@ -86,10 +86,11 @@ class Channel {
     [[nodiscard]] bool empty() const noexcept;
 
   private:
-    Channel(std::shared_ptr<Context> context) : ctx_{std::move(context)} {}
+    Channel(std::shared_ptr<SpillableMessages> spillable_messages)
+        : sm_{std::move(spillable_messages)} {}
 
     coro::ring_buffer<SpillableMessages::MessageId, 1> rb_;
-    std::shared_ptr<Context> ctx_;
+    std::shared_ptr<SpillableMessages> sm_;
 };
 
 /**
