@@ -14,10 +14,11 @@ from rapidsmpf.buffer.buffer cimport MemoryType
 
 cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
     cdef cppclass cpp_TableChunk "rapidsmpf::streaming::TableChunk":
-        cpp_table_view table_view() except +
         cuda_stream_view stream() noexcept
         size_t data_alloc_size(MemoryType mem_type) except +
         bool_t is_available() noexcept
+        size_t make_available_cost() noexcept
+        cpp_table_view table_view() except +
         bool_t is_spillable() noexcept
 
 cdef class TableChunk:
