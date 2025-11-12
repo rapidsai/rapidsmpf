@@ -22,6 +22,39 @@
 
 namespace rapidsmpf {
 
+namespace {
+template <typename InvokeCompressFn>
+void invoke_compress_with_device_size_buffer(
+    InvokeCompressFn&& invoke_compress,
+    std::size_t* out_bytes,
+    rmm::cuda_stream_view stream,
+    BufferResource* br
+) {
+    if (br != nullptr) {
+        auto reservation = br->reserve_or_fail(sizeof(size_t), MemoryType::DEVICE);
+        auto size_buf = br->allocate(sizeof(size_t), stream, reservation);
+        size_buf->write_access([&](std::byte* sz_ptr, rmm::cuda_stream_view s) {
+            invoke_compress(reinterpret_cast<size_t*>(sz_ptr));
+            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+                out_bytes, sz_ptr, sizeof(size_t), cudaMemcpyDeviceToHost, s
+            ));
+        });
+        RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.value()));
+    } else {
+        size_t* d_size = nullptr;
+        RAPIDSMPF_CUDA_TRY(cudaMallocAsync(
+            reinterpret_cast<void**>(&d_size), sizeof(size_t), stream.value()
+        ));
+        invoke_compress(d_size);
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            out_bytes, d_size, sizeof(size_t), cudaMemcpyDeviceToHost, stream.value()
+        ));
+        RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.value()));
+        RAPIDSMPF_CUDA_TRY(cudaFreeAsync(d_size, stream.value()));
+    }
+}
+}  // namespace
+
 class LZ4Codec final : public NvcompCodec {
   public:
     explicit LZ4Codec(std::size_t chunk_size) : chunk_size_{chunk_size} {}
@@ -48,38 +81,19 @@ class LZ4Codec final : public NvcompCodec {
         nvcompBatchedLZ4DecompressOpts_t dopts = nvcompBatchedLZ4DecompressDefaultOpts;
         nvcomp::LZ4Manager mgr{chunk_size_, copts, dopts, stream.value()};
         auto cfg = mgr.configure_compression(in_bytes);
-        if (br != nullptr) {
-            auto reservation = br->reserve_or_fail(sizeof(size_t), MemoryType::DEVICE);
-            auto size_buf = br->allocate(sizeof(size_t), stream, reservation);
-            size_buf->write_access([&](std::byte* sz_ptr, rmm::cuda_stream_view s) {
+        invoke_compress_with_device_size_buffer(
+            [&](size_t* sz_ptr) {
                 mgr.compress(
                     static_cast<uint8_t const*>(d_in),
                     static_cast<uint8_t*>(d_out),
                     cfg,
-                    reinterpret_cast<size_t*>(sz_ptr)
+                    sz_ptr
                 );
-                RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                    out_bytes, sz_ptr, sizeof(size_t), cudaMemcpyDeviceToHost, s
-                ));
-            });
-            RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.value()));
-        } else {
-            size_t* d_size = nullptr;
-            RAPIDSMPF_CUDA_TRY(cudaMallocAsync(
-                reinterpret_cast<void**>(&d_size), sizeof(size_t), stream.value()
-            ));
-            mgr.compress(
-                static_cast<uint8_t const*>(d_in),
-                static_cast<uint8_t*>(d_out),
-                cfg,
-                d_size
-            );
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                out_bytes, d_size, sizeof(size_t), cudaMemcpyDeviceToHost, stream.value()
-            ));
-            RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.value()));
-            RAPIDSMPF_CUDA_TRY(cudaFreeAsync(d_size, stream.value()));
-        }
+            },
+            out_bytes,
+            stream,
+            br
+        );
     }
 
     void decompress(
@@ -133,38 +147,19 @@ class CascadedCodec final : public NvcompCodec {
     ) override {
         nvcomp::CascadedManager mgr{chunk_size_, copts_, dopts_, stream.value()};
         auto cfg = mgr.configure_compression(in_bytes);
-        if (br != nullptr) {
-            auto reservation = br->reserve_or_fail(sizeof(size_t), MemoryType::DEVICE);
-            auto size_buf = br->allocate(sizeof(size_t), stream, reservation);
-            size_buf->write_access([&](std::byte* sz_ptr, rmm::cuda_stream_view s) {
+        invoke_compress_with_device_size_buffer(
+            [&](size_t* sz_ptr) {
                 mgr.compress(
                     static_cast<uint8_t const*>(d_in),
                     static_cast<uint8_t*>(d_out),
                     cfg,
-                    reinterpret_cast<size_t*>(sz_ptr)
+                    sz_ptr
                 );
-                RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                    out_bytes, sz_ptr, sizeof(size_t), cudaMemcpyDeviceToHost, s
-                ));
-            });
-            RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.value()));
-        } else {
-            size_t* d_size = nullptr;
-            RAPIDSMPF_CUDA_TRY(cudaMallocAsync(
-                reinterpret_cast<void**>(&d_size), sizeof(size_t), stream.value()
-            ));
-            mgr.compress(
-                static_cast<uint8_t const*>(d_in),
-                static_cast<uint8_t*>(d_out),
-                cfg,
-                d_size
-            );
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                out_bytes, d_size, sizeof(size_t), cudaMemcpyDeviceToHost, stream.value()
-            ));
-            RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.value()));
-            RAPIDSMPF_CUDA_TRY(cudaFreeAsync(d_size, stream.value()));
-        }
+            },
+            out_bytes,
+            stream,
+            br
+        );
     }
 
     void decompress(
@@ -217,38 +212,19 @@ class SnappyCodec final : public NvcompCodec {
             nvcompBatchedSnappyDecompressDefaultOpts;
         nvcomp::SnappyManager mgr{chunk_size_, copts, dopts, stream.value()};
         auto cfg = mgr.configure_compression(in_bytes);
-        if (br != nullptr) {
-            auto reservation = br->reserve_or_fail(sizeof(size_t), MemoryType::DEVICE);
-            auto size_buf = br->allocate(sizeof(size_t), stream, reservation);
-            size_buf->write_access([&](std::byte* sz_ptr, rmm::cuda_stream_view s) {
+        invoke_compress_with_device_size_buffer(
+            [&](size_t* sz_ptr) {
                 mgr.compress(
                     static_cast<uint8_t const*>(d_in),
                     static_cast<uint8_t*>(d_out),
                     cfg,
-                    reinterpret_cast<size_t*>(sz_ptr)
+                    sz_ptr
                 );
-                RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                    out_bytes, sz_ptr, sizeof(size_t), cudaMemcpyDeviceToHost, s
-                ));
-            });
-            RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.value()));
-        } else {
-            size_t* d_size = nullptr;
-            RAPIDSMPF_CUDA_TRY(cudaMallocAsync(
-                reinterpret_cast<void**>(&d_size), sizeof(size_t), stream.value()
-            ));
-            mgr.compress(
-                static_cast<uint8_t const*>(d_in),
-                static_cast<uint8_t*>(d_out),
-                cfg,
-                d_size
-            );
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                out_bytes, d_size, sizeof(size_t), cudaMemcpyDeviceToHost, stream.value()
-            ));
-            RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.value()));
-            RAPIDSMPF_CUDA_TRY(cudaFreeAsync(d_size, stream.value()));
-        }
+            },
+            out_bytes,
+            stream,
+            br
+        );
     }
 
     void decompress(
@@ -300,38 +276,19 @@ class ZstdCodec final : public NvcompCodec {
         nvcompBatchedZstdDecompressOpts_t dopts = nvcompBatchedZstdDecompressDefaultOpts;
         nvcomp::ZstdManager mgr{chunk_size_, copts, dopts, stream.value()};
         auto cfg = mgr.configure_compression(in_bytes);
-        if (br != nullptr) {
-            auto reservation = br->reserve_or_fail(sizeof(size_t), MemoryType::DEVICE);
-            auto size_buf = br->allocate(sizeof(size_t), stream, reservation);
-            size_buf->write_access([&](std::byte* sz_ptr, rmm::cuda_stream_view s) {
+        invoke_compress_with_device_size_buffer(
+            [&](size_t* sz_ptr) {
                 mgr.compress(
                     static_cast<uint8_t const*>(d_in),
                     static_cast<uint8_t*>(d_out),
                     cfg,
-                    reinterpret_cast<size_t*>(sz_ptr)
+                    sz_ptr
                 );
-                RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                    out_bytes, sz_ptr, sizeof(size_t), cudaMemcpyDeviceToHost, s
-                ));
-            });
-            RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.value()));
-        } else {
-            size_t* d_size = nullptr;
-            RAPIDSMPF_CUDA_TRY(cudaMallocAsync(
-                reinterpret_cast<void**>(&d_size), sizeof(size_t), stream.value()
-            ));
-            mgr.compress(
-                static_cast<uint8_t const*>(d_in),
-                static_cast<uint8_t*>(d_out),
-                cfg,
-                d_size
-            );
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                out_bytes, d_size, sizeof(size_t), cudaMemcpyDeviceToHost, stream.value()
-            ));
-            RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.value()));
-            RAPIDSMPF_CUDA_TRY(cudaFreeAsync(d_size, stream.value()));
-        }
+            },
+            out_bytes,
+            stream,
+            br
+        );
     }
 
     void decompress(
