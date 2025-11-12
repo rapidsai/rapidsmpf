@@ -15,7 +15,7 @@ from rapidsmpf.buffer.content_description import ContentDescription
 from rapidsmpf.cuda_stream import is_equal_streams
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
-from rapidsmpf.streaming.cudf.table_chunk import TableChunk, get_table_chunk
+from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table
 
@@ -106,25 +106,6 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     assert_eq(expect, table_chunk6.table_view())
 
 
-def test_get_table_chunk(context: Context, stream: Stream) -> None:
-    seq = 42
-    expect = random_table(1024)
-    msg = Message(
-        seq, TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
-    )
-
-    # Simulate spilling.
-    res, _ = context.br().reserve(
-        MemoryType.HOST, msg.copy_cost(), allow_overbooking=True
-    )
-    msg = msg.copy(res)
-
-    table = get_table_chunk(msg, context.br(), allow_overbooking=True)
-    assert_eq(expect, table.table_view())
-    table = get_table_chunk(table, context.br(), allow_overbooking=True)
-    assert_eq(expect, table.table_view())
-
-
 def test_spillable_messages(context: Context, stream: Stream) -> None:
     seq = 42
     df1 = random_table(1024)
@@ -187,7 +168,7 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
     with pytest.raises(IndexError, match="Invalid key"):
         sm.extract(mid=0)
 
-    # User the helper function to extract, make available, and check table chunk 2.
-    df2_got = get_table_chunk(sm.extract(mid=1), context.br(), allow_overbooking=True)
+    df2_got = TableChunk.from_message(sm.extract(mid=1))
+    df2_got = df2_got.make_available_and_spill(context.br(), allow_overbooking=True)
     assert_eq(df2, df2_got.table_view())
     assert sm.get_content_descriptions() == {}
