@@ -430,6 +430,7 @@ struct SizeHeader {
 };
 
 struct Timings {
+    double pack_s{0.0};
     double compress_s{0.0};
     double decompress_s{0.0};
     // Round-trip totals measured at initiator
@@ -454,7 +455,8 @@ RunResult run_once(
     rmm::cuda_stream_view stream,
     BufferResource* br,
     std::shared_ptr<Statistics> const& statistics,
-    BuffersToSend const& data,
+    cudf::table const& table,
+    PackMode pack_mode,
     NvcompCodec& codec,
     std::uint64_t run_index
 ) {
@@ -469,10 +471,15 @@ RunResult run_once(
     Tag tag_ping_c{11, 0};
     Tag tag_pong_c{11, 1};
 
+    // Pack data per iteration
+    auto p0 = Clock::now();
+    auto packed = make_packed_items(table, pack_mode, stream, br);
+    auto p1 = Clock::now();
+
     // Clone packed items into raw device buffers for repeated ops
     std::vector<std::unique_ptr<Buffer>> nocomp_payloads;
-    nocomp_payloads.reserve(data.items.size());
-    for (auto const& it : data.items) {
+    nocomp_payloads.reserve(packed.items.size());
+    for (auto const& it : packed.items) {
         // Copy metadata + data into a contiguous device buffer for pure send path?
         // For pure send/recv, we only send the device payload; metadata isn't needed for
         // metrics. We'll send the packed->data buffer.
@@ -484,10 +491,10 @@ RunResult run_once(
 
     // Pre-allocate compression outputs for each item
     std::vector<std::unique_ptr<Buffer>> comp_outputs;
-    std::vector<std::size_t> comp_output_sizes(data.items.size());
-    comp_outputs.reserve(data.items.size());
-    for (std::size_t i = 0; i < data.items.size(); ++i) {
-        auto const in_bytes = data.items[i].packed->data->size;
+    std::vector<std::size_t> comp_output_sizes(packed.items.size());
+    comp_outputs.reserve(packed.items.size());
+    for (std::size_t i = 0; i < packed.items.size(); ++i) {
+        auto const in_bytes = packed.items[i].packed->data->size;
         std::size_t const max_out =
             (in_bytes == 0) ? 1 : codec.get_max_compressed_bytes(in_bytes, stream);
         auto reservation = br->reserve_or_fail(max_out, MemoryType::DEVICE);
@@ -497,21 +504,21 @@ RunResult run_once(
     RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
     auto t0 = Clock::now();
     // Compress all items (single batch) on stream
-    std::vector<rmm::cuda_stream_view> comp_streams(data.items.size());
-    for (std::size_t i = 0; i < data.items.size(); ++i) {
-        auto const in_bytes = data.items[i].packed->data->size;
+    std::vector<rmm::cuda_stream_view> comp_streams(packed.items.size());
+    for (std::size_t i = 0; i < packed.items.size(); ++i) {
+        auto const in_bytes = packed.items[i].packed->data->size;
         if (in_bytes == 0) {
             comp_output_sizes[i] = 0;
             continue;
         }
         // Launch compression on the output buffer's stream and record an event after
         comp_outputs[i]->write_access(
-            [&codec, &data, i, in_bytes, &comp_output_sizes, &comp_streams, br](
+            [&codec, &packed, i, in_bytes, &comp_output_sizes, &comp_streams, br](
                 std::byte* out_ptr, rmm::cuda_stream_view out_stream
             ) {
                 (void)out_ptr;  // pointer used below
                 // Lock input for raw pointer access
-                auto* in_raw = data.items[i].packed->data->exclusive_data_access();
+                auto* in_raw = packed.items[i].packed->data->exclusive_data_access();
                 codec.compress(
                     static_cast<void const*>(in_raw),
                     in_bytes,
@@ -526,13 +533,13 @@ RunResult run_once(
         );
     }
     // Synchronize streams and unlock inputs
-    for (std::size_t i = 0; i < data.items.size(); ++i) {
-        auto const in_bytes = data.items[i].packed->data->size;
+    for (std::size_t i = 0; i < packed.items.size(); ++i) {
+        auto const in_bytes = packed.items[i].packed->data->size;
         if (in_bytes == 0) {
             continue;
         }
         RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(comp_streams[i].value()));
-        data.items[i].packed->data->unlock();
+        packed.items[i].packed->data->unlock();
     }
     auto t1 = Clock::now();
 
@@ -581,7 +588,7 @@ RunResult run_once(
         Rank peer = initiator ? dst : src;
         Tag send_tag_c = initiator ? tag_ping_c : tag_pong_c;
         Tag recv_tag_c = initiator ? tag_pong_c : tag_ping_c;
-        for (std::size_t i = 0; i < data.items.size(); ++i) {
+        for (std::size_t i = 0; i < packed.items.size(); ++i) {
             // Header exchange: send our size, receive peer size
             std::uint64_t local_sz = static_cast<std::uint64_t>(comp_output_sizes[i]);
             std::uint64_t remote_sz = exchange_u64_header(
@@ -613,9 +620,9 @@ RunResult run_once(
     // Decompress received buffers (simulate by decompressing our own produced outputs in
     // symmetric setup)
     auto c0 = Clock::now();
-    std::vector<rmm::cuda_stream_view> decomp_streams(data.items.size());
-    for (std::size_t i = 0; i < data.items.size(); ++i) {
-        auto const out_bytes = data.items[i].packed->data->size;
+    std::vector<rmm::cuda_stream_view> decomp_streams(packed.items.size());
+    for (std::size_t i = 0; i < packed.items.size(); ++i) {
+        auto const out_bytes = packed.items[i].packed->data->size;
         if (out_bytes == 0) {
             continue;
         }
@@ -639,8 +646,8 @@ RunResult run_once(
         );
     }
     // Synchronize each decomp stream and then unlock the corresponding input
-    for (std::size_t i = 0; i < data.items.size(); ++i) {
-        auto const out_bytes = data.items[i].packed->data->size;
+    for (std::size_t i = 0; i < packed.items.size(); ++i) {
+        auto const out_bytes = packed.items[i].packed->data->size;
         if (out_bytes == 0) {
             continue;
         }
@@ -650,13 +657,14 @@ RunResult run_once(
     auto c1 = Clock::now();
 
     RunResult result{};
+    result.times.pack_s = std::chrono::duration<double>(p1 - p0).count();
     result.times.compress_s = std::chrono::duration<double>(t1 - t0).count();
     result.times.rt_nocomp_s = rt_nc_total.count();
     result.times.rt_comp_s = rt_c_total.count();
     result.times.decompress_s = std::chrono::duration<double>(c1 - c0).count();
 
     // Use payload (device) bytes as the logical uncompressed size for throughput
-    result.counts.logical_uncompressed_bytes = data.total_payload_bytes * args.num_ops;
+    result.counts.logical_uncompressed_bytes = packed.total_payload_bytes * args.num_ops;
     result.counts.logical_compressed_bytes =
         std::accumulate(
             comp_output_sizes.begin(), comp_output_sizes.end(), std::size_t{0}
@@ -769,28 +777,30 @@ int main(int argc, char** argv) {
     auto table_with_md = cudf::io::read_parquet(reader_opts);
     auto& table = table_with_md.tbl;
 
-    // Pack per mode
-    auto packed = make_packed_items(*table, args.pack_mode, stream, &br);
-
     // Prepare codec
     auto codec = make_codec(args.algo, args.params);
 
     // Runs
-    std::vector<double> compress_t, decompress_t, rt_nc_t, rt_c_t;
+    std::vector<double> pack_t, compress_t, decompress_t, rt_nc_t, rt_c_t;
+    pack_t.reserve(args.num_runs);
     compress_t.reserve(args.num_runs);
     decompress_t.reserve(args.num_runs);
     rt_nc_t.reserve(args.num_runs);
     rt_c_t.reserve(args.num_runs);
 
-    std::size_t logical_bytes = packed.total_uncompressed_bytes * args.num_ops;
+    std::size_t logical_bytes = 0;
     std::size_t logical_compressed_bytes_last = 0;
 
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
         if (i == args.num_warmups + args.num_runs - 1) {
             stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
         }
-        auto rr = run_once(comm, args, stream, &br, stats, packed, *codec, i);
+        auto rr =
+            run_once(comm, args, stream, &br, stats, *table, args.pack_mode, *codec, i);
 
+        logical_bytes = rr.counts.logical_uncompressed_bytes;
+        double pBps =
+            static_cast<double>(rr.counts.logical_uncompressed_bytes) / rr.times.pack_s;
         double cBps = static_cast<double>(rr.counts.logical_uncompressed_bytes)
                       / rr.times.compress_s;
         double dBps = static_cast<double>(rr.counts.logical_uncompressed_bytes)
@@ -815,7 +825,7 @@ int main(int argc, char** argv) {
                 : 0.0;
 
         std::stringstream ss;
-        ss << "compress: " << format_nbytes(cBps)
+        ss << "pack: " << format_nbytes(pBps) << "/s | compress: " << format_nbytes(cBps)
            << "/s | decompress: " << format_nbytes(dBps)
            << "/s | rt(nocomp): " << format_nbytes(rt_nc_Bps)
            << "/s | rt(comp): " << format_nbytes(rt_c_Bps) << "/s"
@@ -825,6 +835,9 @@ int main(int argc, char** argv) {
         log.print(ss.str());
 
         if (i >= args.num_warmups) {
+            pack_t.push_back(
+                static_cast<double>(rr.counts.logical_uncompressed_bytes) / pBps
+            );
             compress_t.push_back(
                 static_cast<double>(rr.counts.logical_uncompressed_bytes) / cBps
             );
@@ -845,13 +858,15 @@ int main(int argc, char** argv) {
     };
 
     if (!compress_t.empty()) {
+        double mean_elapsed_p = harmonic_mean(pack_t);
         double mean_elapsed_c = harmonic_mean(compress_t);
         double mean_elapsed_d = harmonic_mean(decompress_t);
         double mean_rt_nc = harmonic_mean(rt_nc_t);
         double mean_rt_c = harmonic_mean(rt_c_t);
 
         std::stringstream ss;
-        ss << "means: compress: " << format_nbytes(logical_bytes / mean_elapsed_c) << "/s"
+        ss << "means: pack: " << format_nbytes(logical_bytes / mean_elapsed_p) << "/s"
+           << " | compress: " << format_nbytes(logical_bytes / mean_elapsed_c) << "/s"
            << " | decompress: " << format_nbytes(logical_bytes / mean_elapsed_d) << "/s"
            << " | rt(nocomp): "
            << format_nbytes((2.0 * static_cast<double>(logical_bytes)) / mean_rt_nc)
