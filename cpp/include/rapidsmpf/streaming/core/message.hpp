@@ -92,11 +92,23 @@ class Message {
         payload_ = std::shared_ptr<T>(std::move(payload));
     }
 
+    // In tandem with coro::queue the move assignment of std::any breaks GCC's
+    // uninitialized variable tracking and we get a warning that std::any::_M_manager' may
+    // be used uninitialized [-Wmaybe-uninitialized] This is a bug in GCC 14.x which we
+    // workaround by suppressing the warning for the move ctors/assignment. Fixed in
+    // GCC 15.2.
+#if defined(__GNUC__) && __GNUC__ == 14
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
     /** @brief Move construct. @param other Source message. */
     Message(Message&& other) noexcept = default;
 
     /** @brief Move assign. @param other Source message. @return *this. */
     Message& operator=(Message&& other) noexcept = default;
+#if defined(__GNUC__) && __GNUC__ == 14
+#pragma GCC diagnostic pop
+#endif
     Message(Message const&) = delete;
     Message& operator=(Message const&) = delete;
 
