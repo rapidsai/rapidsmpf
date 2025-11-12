@@ -1,47 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-from enum import IntEnum
-
-from libcpp.memory cimport make_unique, shared_ptr
+from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context
+from rapidsmpf.streaming.core.fanout cimport FanoutPolicy
 from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
 
 
-class FanoutPolicy(IntEnum):
-    """
-    Fanout policy controlling how messages are propagated.
-
-    Attributes
-    ----------
-    BOUNDED : int
-        Process messages as they arrive and immediately forward them.
-        Messages are forwarded as soon as they are received from the input channel.
-        The next message is not processed until all output channels have completed
-        sending the current one, ensuring backpressure and synchronized flow.
-    UNBOUNDED : int
-        Forward messages without enforcing backpressure.
-        In this mode, messages may be accumulated internally before being
-        broadcast, or they may be forwarded immediately depending on the
-        implementation and downstream consumption rate.
-
-        This mode disables coordinated backpressure between outputs, allowing
-        consumers to process at independent rates, but can lead to unbounded
-        buffering and increased memory usage.
-
-        Note: Consumers might not receive any messages until *all* upstream
-        messages have been sent, depending on the implementation and buffering
-        strategy.
-    """
-    BOUNDED = <uint8_t>cpp_FanoutPolicy.BOUNDED
-    UNBOUNDED = <uint8_t>cpp_FanoutPolicy.UNBOUNDED
-
-
-def fanout(Context ctx, Channel ch_in, list chs_out, policy):
+def fanout(Context ctx, Channel ch_in, list chs_out, FanoutPolicy policy):
     """
     Broadcast messages from one input channel to multiple output channels.
 
@@ -89,11 +59,9 @@ def fanout(Context ctx, Channel ch_in, list chs_out, policy):
     ...     ctx, ch_in, [ch_out1, ch_out2], streaming.FanoutPolicy.BOUNDED
     ... )
     """
-    # Validate policy
-    if not isinstance(policy, (FanoutPolicy, int)):
-        raise TypeError(f"policy must be a FanoutPolicy enum value, got {type(policy)}")
-
     cdef vector[shared_ptr[cpp_Channel]] _chs_out
+    if len(chs_out) == 0:
+        raise ValueError("output channels cannot be empty")
     owner = []
     for ch_out in chs_out:
         if not isinstance(ch_out, Channel):
@@ -101,10 +69,9 @@ def fanout(Context ctx, Channel ch_in, list chs_out, policy):
         owner.append(ch_out)
         _chs_out.push_back((<Channel>ch_out)._handle)
 
-    cdef cpp_FanoutPolicy _policy = <cpp_FanoutPolicy>(<int>policy)
     cdef cpp_Node _ret
     with nogil:
         _ret = cpp_fanout(
-            ctx._handle, ch_in._handle, move(_chs_out), _policy
+            ctx._handle, ch_in._handle, move(_chs_out), policy
         )
     return CppNode.from_handle(make_unique[cpp_Node](move(_ret)), owner)

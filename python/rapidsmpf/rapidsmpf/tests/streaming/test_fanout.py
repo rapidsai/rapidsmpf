@@ -86,8 +86,9 @@ def test_fanout_basic(context: Context, stream: Stream, policy: FanoutPolicy) ->
 
 
 @pytest.mark.parametrize("num_outputs", [1, 3, 5])
+@pytest.mark.parametrize("policy", [FanoutPolicy.BOUNDED, FanoutPolicy.UNBOUNDED])
 def test_fanout_multiple_outputs(
-    context: Context, stream: Stream, num_outputs: int
+    context: Context, stream: Stream, num_outputs: int, policy: FanoutPolicy
 ) -> None:
     """Test fanout with varying numbers of output channels."""
     # Create channels
@@ -107,7 +108,7 @@ def test_fanout_multiple_outputs(
 
     # Create nodes
     push_node = push_to_channel(context, ch_in, messages)
-    fanout_node = fanout(context, ch_in, chs_out, FanoutPolicy.BOUNDED)
+    fanout_node = fanout(context, ch_in, chs_out, policy)
     pull_nodes = []
     outputs = []
     for ch_out in chs_out:
@@ -133,27 +134,10 @@ def test_fanout_multiple_outputs(
 
 
 def test_fanout_empty_outputs(context: Context, stream: Stream) -> None:
-    """Test fanout with empty output list raises appropriate error or handles gracefully."""
+    """Test fanout with empty output list raises value error."""
     ch_in: Channel[TableChunk] = context.create_channel()
-
-    # This should work but produce no output (or could raise ValueError)
-    # The C++ implementation may handle this differently
-    fanout_node = fanout(context, ch_in, [], FanoutPolicy.BOUNDED)
-
-    # Create a simple message
-    df = cudf.DataFrame({"a": [1, 2, 3]})
-    chunk = TableChunk.from_pylibcudf_table(
-        cudf_to_pylibcudf_table(df), stream, exclusive_view=False
-    )
-    messages = [Message(0, chunk)]
-    push_node = push_to_channel(context, ch_in, messages)
-
-    # Run pipeline - should complete without error
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        run_streaming_pipeline(
-            nodes=[push_node, fanout_node],
-            py_executor=executor,
-        )
+    with pytest.raises(ValueError):
+        fanout(context, ch_in, [], FanoutPolicy.BOUNDED)
 
 
 def test_fanout_policy_enum() -> None:

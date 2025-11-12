@@ -46,6 +46,8 @@ constexpr std::span<const MemoryType> try_memory_types(Message const& msg) {
 Node send_to_channels(
     Context* ctx, Message&& msg, std::vector<std::shared_ptr<Channel>>& chs_out
 ) {
+    RAPIDSMPF_EXPECTS(!chs_out.empty(), "output channels cannot be empty");
+
     std::vector<coro::task<bool>> tasks;
     tasks.reserve(chs_out.size());
     for (size_t i = 0; i < chs_out.size() - 1; i++) {
@@ -260,10 +262,10 @@ Node unbounded_fo_process_input_task(
  *
  * This is an all-purpose implementation that can support consuming messages by the
  * channel order or message order. Output channels could be connected to single/multiple
- * consumer nodes. A consumer node can decide to consume all messages from a single channel
- * before moving to the next channel, or it can consume messages from all channels before
- * moving to the next message. When a message has been sent to all output channels, it is
- * purged from the internal deque.
+ * consumer nodes. A consumer node can decide to consume all messages from a single
+ * channel before moving to the next channel, or it can consume messages from all channels
+ * before moving to the next message. When a message has been sent to all output channels,
+ * it is purged from the internal deque.
  *
  * @param ctx The context to use.
  * @param ch_in The input channel to receive messages from.
@@ -308,6 +310,8 @@ Node fanout(
     std::vector<std::shared_ptr<Channel>> chs_out,
     FanoutPolicy policy
 ) {
+    RAPIDSMPF_EXPECTS(!chs_out.empty(), "output channels cannot be empty");
+
     switch (policy) {
     case FanoutPolicy::BOUNDED:
         return bounded_fanout(std::move(ctx), std::move(ch_in), std::move(chs_out));

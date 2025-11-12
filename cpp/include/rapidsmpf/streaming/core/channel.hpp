@@ -298,8 +298,9 @@ class ShutdownAtExit {
     template <class... T>
     explicit ShutdownAtExit(T&&... channels)
         requires(std::convertible_to<T, std::shared_ptr<Channel>> && ...)
-        : ShutdownAtExit(std::vector<std::shared_ptr<Channel>>{std::forward<T>(channels
-          )...}) {}
+        : ShutdownAtExit(
+              std::vector<std::shared_ptr<Channel>>{std::forward<T>(channels)...}
+          ) {}
 
     // Non-copyable, non-movable.
     ShutdownAtExit(ShutdownAtExit const&) = delete;
