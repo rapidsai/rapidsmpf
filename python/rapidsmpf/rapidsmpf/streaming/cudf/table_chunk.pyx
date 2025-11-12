@@ -326,7 +326,8 @@ cdef class TableChunk:
         Parameters
         ----------
         reservation
-            Memory reservation used for allocations, if needed.
+            Memory reservation used for allocations, if making data available
+            is needed.
 
         Returns
         -------
