@@ -233,8 +233,6 @@ cdef class BufferResource:
             )
         )
 
-        # Handle statistics parameter
-        # If None, create a disabled statistics instance
         if statistics is None:
             statistics = Statistics(enable=False)
 
