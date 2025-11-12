@@ -97,6 +97,7 @@ files:
       key: requires
     includes:
       - build-universal
+      - build-nvml
       - depends_on_libcudf
       - depends_on_librmm
       - depends_on_libucxx
@@ -198,6 +199,15 @@ dependencies:
         packages:
           - scikit-build-core[pyproject]>=0.10.0
 
+  build-nvml:
+    specific:
+      - output_types: [pyproject, requirements]
+        matrices:
+          - matrix:
+              cuda: "12.*"
+            packages:
+              - nvidia-nvml-dev-cu12
+          - {matrix: null, packages: [nvidia-nvml-dev]}
   build-mpi:
     common:
       - output_types: [conda, pyproject, requirements]
@@ -249,6 +259,7 @@ dependencies:
         packages:
           - cuda-cudart-dev
           - cuda-cupti-dev
+          - cuda-nvml-dev
           - cuda-nvrtc-dev
           - cuda-nvtx-dev
   py_version:
