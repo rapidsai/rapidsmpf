@@ -56,5 +56,9 @@ rapids-logger "Run example smoketests"
 rapids-logger "Run benchmark smoketests"
 ./run_cpp_benchmark_smoketests.sh
 
+# Ensure tools are runnable
+rapids-logger "Run tools smoketests"
+./run_cpp_tools_smoketests.sh
+
 rapids-logger "Test script exiting with exit code: $EXITCODE"
 exit ${EXITCODE}
