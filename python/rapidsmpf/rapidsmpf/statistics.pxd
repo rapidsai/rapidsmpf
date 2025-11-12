@@ -25,9 +25,6 @@ cdef extern from "<rapidsmpf/statistics.hpp>" nogil:
         bool is_memory_profiling_enabled() except +
         unordered_map[string, cpp_MemoryRecord] get_memory_records() except +
 
-        @staticmethod
-        shared_ptr[cpp_Statistics] disabled() except +
-
     cdef struct cpp_MemoryRecord "rapidsmpf::Statistics::MemoryRecord":
         cpp_ScopedMemoryRecord scoped
         int64_t global_peak
