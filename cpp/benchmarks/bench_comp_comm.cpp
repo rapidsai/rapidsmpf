@@ -39,7 +39,6 @@
 #include <rapidsmpf/communicator/ucxx_utils.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
-#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils.hpp>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
@@ -71,186 +70,6 @@ struct Args {
     bool enable_cupti_monitoring{false};
     std::string cupti_csv_prefix;
 };
-
-std::vector<std::string> expand_glob(std::string const& pattern) {
-    std::vector<std::string> files;
-    glob_t glob_result{};
-    int rc = glob(pattern.c_str(), GLOB_TILDE, nullptr, &glob_result);
-    if (rc == 0) {
-        for (std::size_t i = 0; i < glob_result.gl_pathc; ++i) {
-            files.emplace_back(glob_result.gl_pathv[i]);
-        }
-    }
-    globfree(&glob_result);
-    return files;
-}
-
-std::size_t parse_nbytes(std::string const& s) {
-    // Simple parser: supports suffixes KiB, MiB, GiB, KB, MB, GB, or no suffix.
-    auto to_lower = [](char c) { return static_cast<char>(std::tolower(c)); };
-    std::string v;
-    v.reserve(s.size());
-    for (char c : s)
-        v.push_back(to_lower(c));
-
-    std::size_t mult = 1;
-    if (v.ends_with("kib")) {
-        mult = 1ull << 10;
-        v = v.substr(0, v.size() - 3);
-    } else if (v.ends_with("mib")) {
-        mult = 1ull << 20;
-        v = v.substr(0, v.size() - 3);
-    } else if (v.ends_with("gib")) {
-        mult = 1ull << 30;
-        v = v.substr(0, v.size() - 3);
-    } else if (v.ends_with("kb")) {
-        mult = 1000ull;
-        v = v.substr(0, v.size() - 2);
-    } else if (v.ends_with("mb")) {
-        mult = 1000ull * 1000ull;
-        v = v.substr(0, v.size() - 2);
-    } else if (v.ends_with("gb")) {
-        mult = 1000ull * 1000ull * 1000ull;
-        v = v.substr(0, v.size() - 2);
-    }
-
-    return static_cast<std::size_t>(std::stoll(v)) * mult;
-}
-
-KvParams parse_kv_params(std::string const& kv) {
-    KvParams p{};
-    if (kv.empty())
-        return p;
-    std::size_t start = 0;
-    while (start < kv.size()) {
-        auto comma = kv.find(',', start);
-        auto part = kv.substr(
-            start, comma == std::string::npos ? std::string::npos : comma - start
-        );
-        auto eq = part.find('=');
-        if (eq != std::string::npos) {
-            std::string key = part.substr(0, eq);
-            std::string val = part.substr(eq + 1);
-            if (key == "chunk_size")
-                p.chunk_size = parse_nbytes(val);
-            else if (key == "delta")
-                p.cascaded_delta = std::stoi(val);
-            else if (key == "rle")
-                p.cascaded_rle = std::stoi(val);
-            else if (key == "bitpack")
-                p.cascaded_bitpack = std::stoi(val);
-        }
-        if (comma == std::string::npos)
-            break;
-        start = comma + 1;
-    }
-    return p;
-}
-
-struct PhaseThroughputs {
-    double compress_Bps{0.0};
-    double decompress_Bps{0.0};
-    double comp_send_Bps{0.0};
-    double recv_decomp_Bps{0.0};
-    double send_only_Bps{0.0};
-    double recv_only_Bps{0.0};
-};
-
-static inline void ensure_ready(Buffer& buf) {
-    if (!buf.is_latest_write_done()) {
-        buf.stream().synchronize();
-    }
-}
-
-static inline std::unique_ptr<Buffer> alloc_device(
-    BufferResource* br, rmm::cuda_stream_view stream, std::size_t size
-) {
-    auto res = br->reserve_or_fail(size, MemoryType::DEVICE);
-    return br->allocate(size, stream, res);
-}
-
-static inline std::unique_ptr<Buffer> alloc_and_copy_device(
-    BufferResource* br, rmm::cuda_stream_view stream, Buffer const& src
-) {
-    auto out = alloc_device(br, stream, src.size);
-    buffer_copy(*out, src, src.size);
-    return out;
-}
-
-// Non-blocking helpers to exchange headers and payloads concurrently.
-static inline std::uint64_t exchange_u64_header(
-    std::shared_ptr<Communicator> const& comm,
-    BufferResource* br,
-    rmm::cuda_stream_view stream,
-    Rank peer,
-    Tag send_tag,
-    Tag recv_tag,
-    std::uint64_t send_value
-) {
-    // Post header send
-    auto send_hdr_res = br->reserve_or_fail(sizeof(std::uint64_t), MemoryType::HOST);
-    auto send_hdr = br->allocate(sizeof(std::uint64_t), stream, send_hdr_res);
-    send_hdr->write_access([&](std::byte* p, rmm::cuda_stream_view) {
-        std::memcpy(p, &send_value, sizeof(std::uint64_t));
-    });
-    ensure_ready(*send_hdr);
-    auto send_hdr_fut = comm->send(std::move(send_hdr), peer, send_tag);
-    // Post header recv
-    auto recv_hdr_res = br->reserve_or_fail(sizeof(std::uint64_t), MemoryType::HOST);
-    auto recv_hdr = br->allocate(sizeof(std::uint64_t), stream, recv_hdr_res);
-    ensure_ready(*recv_hdr);
-    auto recv_hdr_fut = comm->recv(peer, recv_tag, std::move(recv_hdr));
-    // Wait recv, read value, then ensure send completion
-    auto recv_hdr_buf = comm->wait(std::move(recv_hdr_fut));
-    std::uint64_t recv_value = 0;
-    {
-        auto* p = recv_hdr_buf->exclusive_data_access();
-        std::memcpy(&recv_value, p, sizeof(std::uint64_t));
-        recv_hdr_buf->unlock();
-    }
-    std::ignore = comm->wait(std::move(send_hdr_fut));
-    return recv_value;
-}
-
-static inline void exchange_payload(
-    std::shared_ptr<Communicator> const& comm,
-    BufferResource* br,
-    rmm::cuda_stream_view stream,
-    Rank peer,
-    Tag send_tag,
-    Tag recv_tag,
-    std::unique_ptr<Buffer> send_buf,  // may be null if no data to send
-    std::size_t recv_size  // may be zero if no data to recv
-) {
-    std::unique_ptr<Communicator::Future> data_send_fut;
-    std::unique_ptr<Communicator::Future> data_recv_fut;
-    if (recv_size > 0) {
-        auto recv_buf = alloc_device(br, stream, recv_size);
-        ensure_ready(*recv_buf);
-        data_recv_fut = comm->recv(peer, recv_tag, std::move(recv_buf));
-    }
-    if (send_buf && send_buf->size > 0) {
-        ensure_ready(*send_buf);
-        data_send_fut = comm->send(std::move(send_buf), peer, send_tag);
-    }
-    if (data_recv_fut) {
-        (void)comm->wait(std::move(data_recv_fut));
-    }
-    if (data_send_fut) {
-        std::ignore = comm->wait(std::move(data_send_fut));
-    }
-}
-
-// Convenience: wrap metadata + gpu_data into rapidsmpf::PackedData
-static std::unique_ptr<PackedData> pack_table_to_packed(
-    cudf::table_view tv, rmm::cuda_stream_view stream, BufferResource* br
-) {
-    auto packed = cudf::pack(tv, stream, br->device_mr());
-    auto ret = std::make_unique<PackedData>(
-        std::move(packed.metadata), br->move(std::move(packed.gpu_data), stream)
-    );
-    return ret;
-}
 
 struct ArgumentParser {
     ArgumentParser(int argc, char* const* argv, bool use_mpi) {
@@ -378,6 +197,68 @@ struct ArgumentParser {
         return args_;
     }
 
+    static std::size_t parse_nbytes(std::string const& s) {
+        // Simple parser: supports suffixes KiB, MiB, GiB, KB, MB, GB, or no suffix.
+        auto to_lower = [](char c) { return static_cast<char>(std::tolower(c)); };
+        std::string v;
+        v.reserve(s.size());
+        for (char c : s)
+            v.push_back(to_lower(c));
+
+        std::size_t mult = 1;
+        if (v.ends_with("kib")) {
+            mult = 1ull << 10;
+            v = v.substr(0, v.size() - 3);
+        } else if (v.ends_with("mib")) {
+            mult = 1ull << 20;
+            v = v.substr(0, v.size() - 3);
+        } else if (v.ends_with("gib")) {
+            mult = 1ull << 30;
+            v = v.substr(0, v.size() - 3);
+        } else if (v.ends_with("kb")) {
+            mult = 1000ull;
+            v = v.substr(0, v.size() - 2);
+        } else if (v.ends_with("mb")) {
+            mult = 1000ull * 1000ull;
+            v = v.substr(0, v.size() - 2);
+        } else if (v.ends_with("gb")) {
+            mult = 1000ull * 1000ull * 1000ull;
+            v = v.substr(0, v.size() - 2);
+        }
+
+        return static_cast<std::size_t>(std::stoll(v)) * mult;
+    }
+
+    static KvParams parse_kv_params(std::string const& kv) {
+        KvParams p{};
+        if (kv.empty())
+            return p;
+        std::size_t start = 0;
+        while (start < kv.size()) {
+            auto comma = kv.find(',', start);
+            auto part = kv.substr(
+                start, comma == std::string::npos ? std::string::npos : comma - start
+            );
+            auto eq = part.find('=');
+            if (eq != std::string::npos) {
+                std::string key = part.substr(0, eq);
+                std::string val = part.substr(eq + 1);
+                if (key == "chunk_size")
+                    p.chunk_size = parse_nbytes(val);
+                else if (key == "delta")
+                    p.cascaded_delta = std::stoi(val);
+                else if (key == "rle")
+                    p.cascaded_rle = std::stoi(val);
+                else if (key == "bitpack")
+                    p.cascaded_bitpack = std::stoi(val);
+            }
+            if (comma == std::string::npos)
+                break;
+            start = comma + 1;
+        }
+        return p;
+    }
+
   private:
     Args args_{};
 };
@@ -396,6 +277,54 @@ struct BuffersToSend {
     std::size_t total_payload_bytes{0};
 };
 
+struct Timings {
+    double pack_s{0.0};
+    double compress_s{0.0};
+    double decompress_s{0.0};
+    // Round-trip totals measured at initiator
+    double rt_nocomp_s{0.0};
+    double rt_comp_s{0.0};
+};
+
+struct Counters {
+    std::size_t logical_uncompressed_bytes{0};
+    std::size_t logical_compressed_bytes{0};
+};
+
+struct RunResult {
+    Timings times;
+    Counters counts;
+};
+
+std::vector<std::string> expand_glob(std::string const& pattern) {
+    std::vector<std::string> files;
+    glob_t glob_result{};
+    int rc = glob(pattern.c_str(), GLOB_TILDE, nullptr, &glob_result);
+    if (rc == 0) {
+        for (std::size_t i = 0; i < glob_result.gl_pathc; ++i) {
+            files.emplace_back(glob_result.gl_pathv[i]);
+        }
+    }
+    globfree(&glob_result);
+    return files;
+}
+
+static inline void ensure_ready(Buffer& buf) {
+    if (!buf.is_latest_write_done()) {
+        buf.stream().synchronize();
+    }
+}
+
+static std::unique_ptr<PackedData> pack_table_to_packed(
+    cudf::table_view tv, rmm::cuda_stream_view stream, BufferResource* br
+) {
+    auto packed = cudf::pack(tv, stream, br->device_mr());
+    auto ret = std::make_unique<PackedData>(
+        std::move(packed.metadata), br->move(std::move(packed.gpu_data), stream)
+    );
+    return ret;
+}
+
 BuffersToSend make_packed_items(
     cudf::table const& table,
     PackMode mode,
@@ -406,7 +335,6 @@ BuffersToSend make_packed_items(
     if (mode == PackMode::Table) {
         auto item = PackedItem{};
         item.packed = pack_table_to_packed(table.view(), stream, br);
-        // Ensure the pack is completed before using the buffer downstream
         ensure_ready(*item.packed->data);
         ret.total_uncompressed_bytes += item.packed->data->size;
         ret.total_payload_bytes += item.packed->data->size;
@@ -421,7 +349,6 @@ BuffersToSend make_packed_items(
             ret.total_payload_bytes += item.packed->data->size;
             ret.items.emplace_back(std::move(item));
         }
-        // Synchronize all packs after launching them to avoid per-iteration blocking
         for (std::size_t i = 0; i < ret.items.size(); ++i) {
             ensure_ready(*ret.items[i].packed->data);
         }
@@ -429,43 +356,94 @@ BuffersToSend make_packed_items(
     return ret;
 }
 
-// Send/recv helpers: send a header (compressed size) as host buffer.
-struct SizeHeader {
-    std::uint64_t bytes;
-};
+static inline std::unique_ptr<Buffer> alloc_device(
+    BufferResource* br, rmm::cuda_stream_view stream, std::size_t size
+) {
+    auto res = br->reserve_or_fail(size, MemoryType::DEVICE);
+    return br->allocate(size, stream, res);
+}
 
-struct Timings {
-    double pack_s{0.0};
-    double compress_s{0.0};
-    double decompress_s{0.0};
-    // Round-trip totals measured at initiator
-    double rt_nocomp_s{0.0};
-    double rt_comp_s{0.0};
-};
+static inline std::unique_ptr<Buffer> alloc_and_copy_device(
+    BufferResource* br, rmm::cuda_stream_view stream, Buffer const& src
+) {
+    auto out = alloc_device(br, stream, src.size);
+    buffer_copy(*out, src, src.size);
+    return out;
+}
 
-// Returns timings and bytes counters
-struct Counters {
-    std::size_t logical_uncompressed_bytes{0};
-    std::size_t logical_compressed_bytes{0};
-};
+static inline std::uint64_t exchange_u64_header(
+    std::shared_ptr<Communicator> const& comm,
+    BufferResource* br,
+    rmm::cuda_stream_view stream,
+    Rank peer,
+    Tag send_tag,
+    Tag recv_tag,
+    std::uint64_t send_value
+) {
+    // Post header send
+    auto send_hdr_res = br->reserve_or_fail(sizeof(std::uint64_t), MemoryType::HOST);
+    auto send_hdr = br->allocate(sizeof(std::uint64_t), stream, send_hdr_res);
+    send_hdr->write_access([&](std::byte* p, rmm::cuda_stream_view) {
+        std::memcpy(p, &send_value, sizeof(std::uint64_t));
+    });
+    ensure_ready(*send_hdr);
+    auto send_hdr_fut = comm->send(std::move(send_hdr), peer, send_tag);
+    // Post header recv
+    auto recv_hdr_res = br->reserve_or_fail(sizeof(std::uint64_t), MemoryType::HOST);
+    auto recv_hdr = br->allocate(sizeof(std::uint64_t), stream, recv_hdr_res);
+    ensure_ready(*recv_hdr);
+    auto recv_hdr_fut = comm->recv(peer, recv_tag, std::move(recv_hdr));
+    // Wait recv, read value, then ensure send completion
+    auto recv_hdr_buf = comm->wait(std::move(recv_hdr_fut));
+    std::uint64_t recv_value = 0;
+    {
+        auto* p = recv_hdr_buf->exclusive_data_access();
+        std::memcpy(&recv_value, p, sizeof(std::uint64_t));
+        recv_hdr_buf->unlock();
+    }
+    std::ignore = comm->wait(std::move(send_hdr_fut));
+    return recv_value;
+}
 
-struct RunResult {
-    Timings times;
-    Counters counts;
-};
+static inline void exchange_payload(
+    std::shared_ptr<Communicator> const& comm,
+    BufferResource* br,
+    rmm::cuda_stream_view stream,
+    Rank peer,
+    Tag send_tag,
+    Tag recv_tag,
+    std::unique_ptr<Buffer> send_buf,
+    std::size_t recv_size
+) {
+    std::unique_ptr<Communicator::Future> data_send_fut;
+    std::unique_ptr<Communicator::Future> data_recv_fut;
+    if (recv_size > 0) {
+        auto recv_buf = alloc_device(br, stream, recv_size);
+        ensure_ready(*recv_buf);
+        data_recv_fut = comm->recv(peer, recv_tag, std::move(recv_buf));
+    }
+    if (send_buf && send_buf->size > 0) {
+        ensure_ready(*send_buf);
+        data_send_fut = comm->send(std::move(send_buf), peer, send_tag);
+    }
+    if (data_recv_fut) {
+        std::ignore = comm->wait(std::move(data_recv_fut));
+    }
+    if (data_send_fut) {
+        std::ignore = comm->wait(std::move(data_send_fut));
+    }
+}
 
 RunResult run_once(
     std::shared_ptr<Communicator> const& comm,
     Args const& args,
     rmm::cuda_stream_view stream,
     BufferResource* br,
-    std::shared_ptr<Statistics> const& statistics,
     cudf::table const& table,
     PackMode pack_mode,
     NvcompCodec& codec,
     std::uint64_t run_index
 ) {
-    (void)statistics;
     auto const nranks = comm->nranks();
     auto const rank = comm->rank();
     auto const dst = static_cast<Rank>((rank + 1) % nranks);
@@ -521,7 +499,6 @@ RunResult run_once(
             [&codec, &packed, i, in_bytes, &comp_output_sizes, &comp_streams, br](
                 std::byte* out_ptr, rmm::cuda_stream_view out_stream
             ) {
-                (void)out_ptr;  // pointer used below
                 // Lock input for raw pointer access
                 auto* in_raw = packed.items[i].packed->data->exclusive_data_access();
                 codec.compress(
@@ -532,7 +509,6 @@ RunResult run_once(
                     out_stream,
                     br
                 );
-                // Defer synchronization and unlock; record stream for later sync
                 comp_streams[i] = out_stream;
             }
         );
@@ -548,8 +524,7 @@ RunResult run_once(
     }
     auto t1 = Clock::now();
 
-    // Phase A (RTT no compression): ping-pong per op (sequential per item to avoid
-    // deadlocks)
+    // Phase A (RTT no compression): ping-pong per op (sequential per item)
     Duration rt_nc_total{0};
     for (std::uint64_t op = 0; op < args.num_ops; ++op) {
         bool initiator =
@@ -559,7 +534,7 @@ RunResult run_once(
         Tag send_tag_nc = initiator ? tag_ping_nc : tag_pong_nc;
         Tag recv_tag_nc = initiator ? tag_pong_nc : tag_ping_nc;
         for (std::size_t i = 0; i < nocomp_payloads.size(); ++i) {
-            // Exchange payload sizes to avoid assuming symmetric sizes across ranks
+            // Exchange payload sizes
             std::uint64_t local_sz = static_cast<std::uint64_t>(nocomp_payloads[i]->size);
             std::uint64_t remote_sz = exchange_u64_header(
                 comm, br, stream, peer, send_tag_nc, recv_tag_nc, local_sz
@@ -622,8 +597,7 @@ RunResult run_once(
         rt_c_total += (rt_end - rt_start);
     }
 
-    // Decompress received buffers (simulate by decompressing our own produced outputs in
-    // symmetric setup)
+    // Decompress received buffers (simulate by decompressing our own produced outputs)
     auto c0 = Clock::now();
     std::vector<rmm::cuda_stream_view> decomp_streams(packed.items.size());
     for (std::size_t i = 0; i < packed.items.size(); ++i) {
@@ -645,7 +619,6 @@ RunResult run_once(
                     out_bytes,
                     out_stream
                 );
-                // Defer unlock until after per-stream synchronization
                 decomp_streams[i] = out_stream;
             }
         );
@@ -668,7 +641,7 @@ RunResult run_once(
     result.times.rt_comp_s = rt_c_total.count();
     result.times.decompress_s = std::chrono::duration<double>(c1 - c0).count();
 
-    // Use payload (device) bytes as the logical uncompressed size for throughput
+    // Use payload bytes as the logical uncompressed size for throughput
     result.counts.logical_uncompressed_bytes = packed.total_payload_bytes * args.num_ops;
     result.counts.logical_compressed_bytes =
         std::accumulate(
@@ -682,10 +655,13 @@ RunResult run_once(
 
 int main(int argc, char** argv) {
     // Check if we should use bootstrap mode with rrun
+    // This is determined by checking for RAPIDSMPF_RANK environment variable
     bool use_bootstrap = std::getenv("RAPIDSMPF_RANK") != nullptr;
 
     int provided = 0;
     if (!use_bootstrap) {
+        // Explicitly initialize MPI with thread support, as this is needed for both mpi
+        // and ucxx communicators.
         RAPIDSMPF_MPI(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided));
         RAPIDSMPF_EXPECTS(
             provided == MPI_THREAD_MULTIPLE,
@@ -711,10 +687,12 @@ int main(int argc, char** argv) {
         comm = std::make_shared<MPI>(MPI_COMM_WORLD, options);
     } else if (args.comm_type == "ucxx") {
         if (use_bootstrap) {
+            // Launched with rrun - use bootstrap backend
             comm = rapidsmpf::bootstrap::create_ucxx_comm(
                 rapidsmpf::bootstrap::Backend::AUTO, options
             );
         } else {
+            // Launched with mpirun - use MPI bootstrap
             comm = rapidsmpf::ucxx::init_using_mpi(MPI_COMM_WORLD, options);
         }
     } else {
@@ -725,12 +703,11 @@ int main(int argc, char** argv) {
     auto& log = comm->logger();
     rmm::cuda_stream_view stream = cudf::get_default_stream();
 
-    // RMM setup
     auto const mr_stack = set_current_rmm_stack(args.rmm_mr);
     rmm::device_async_resource_ref mr = cudf::get_current_device_resource_ref();
     BufferResource br{mr};
 
-    // Hardware info
+    // Print benchmark/hardware info.
     {
         std::stringstream ss;
         auto const cur_dev = rmm::get_current_cuda_device().value();
@@ -749,9 +726,8 @@ int main(int argc, char** argv) {
         log.print(ss.str());
     }
 
-    // Stats and CUPTI
-    auto stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ false);
 #ifdef RAPIDSMPF_HAVE_CUPTI
+    // Create CUPTI monitor if enabled
     std::unique_ptr<rapidsmpf::CuptiMonitor> cupti_monitor;
     if (args.enable_cupti_monitoring) {
         cupti_monitor = std::make_unique<rapidsmpf::CuptiMonitor>();
@@ -776,16 +752,13 @@ int main(int argc, char** argv) {
         );
     log.print("Rank " + std::to_string(comm->rank()) + " reading: " + my_file);
 
-    // Read Parquet into cudf::table
     cudf::io::parquet_reader_options reader_opts =
         cudf::io::parquet_reader_options::builder(cudf::io::source_info{my_file});
     auto table_with_md = cudf::io::read_parquet(reader_opts);
     auto& table = table_with_md.tbl;
 
-    // Prepare codec
     auto codec = make_codec(args.algo, args.params);
 
-    // Runs
     std::vector<double> pack_t, compress_t, decompress_t, rt_nc_t, rt_c_t;
     pack_t.reserve(args.num_runs);
     compress_t.reserve(args.num_runs);
@@ -797,11 +770,7 @@ int main(int argc, char** argv) {
     std::size_t logical_compressed_bytes_last = 0;
 
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
-        if (i == args.num_warmups + args.num_runs - 1) {
-            stats = std::make_shared<rapidsmpf::Statistics>(/* enable = */ true);
-        }
-        auto rr =
-            run_once(comm, args, stream, &br, stats, *table, args.pack_mode, *codec, i);
+        auto rr = run_once(comm, args, stream, &br, *table, args.pack_mode, *codec, i);
 
         logical_bytes = rr.counts.logical_uncompressed_bytes;
         double pBps =
@@ -854,7 +823,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Means
     auto harmonic_mean = [](std::vector<double> const& v) {
         double denom_sum = 0.0;
         for (auto x : v)
