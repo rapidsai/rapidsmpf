@@ -33,7 +33,10 @@ class TableChunk:
     def copy(self, reservation: MemoryReservation) -> TableChunk: ...
 
 def get_table_chunk(
-    obj: Message[TableChunk] | TableChunk, br: BufferResource, *, allow_overbooking: bool
+    obj: Message[TableChunk] | TableChunk,
+    br: BufferResource,
+    *,
+    allow_overbooking: bool,
 ) -> TableChunk: ...
 
 if TYPE_CHECKING:
