@@ -167,9 +167,7 @@ class BoundedQueue {
      * @return A coroutine representing the shutdown.
      */
     [[nodiscard]] coro::task<void> shutdown() {
-        auto [r1, r2] = co_await coro::when_all(q_.shutdown(), semaphore_.shutdown());
-        r1.return_value();
-        r2.return_value();
+        coro_results(co_await coro::when_all(q_.shutdown(), semaphore_.shutdown()));
     }
 
     /**
