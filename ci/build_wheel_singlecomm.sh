@@ -36,6 +36,10 @@ export PIP_NO_BUILD_ISOLATION=0
 
 export SKBUILD_CMAKE_ARGS="-DBUILD_MPI_SUPPORT=OFF;-DBUILD_UCXX_SUPPORT=OFF;-DBUILD_TESTS=OFF;-DBUILD_BENCHMARKS=OFF;-DBUILD_EXAMPLES=OFF;-DBUILD_NUMA_SUPPORT=OFF"
 
+# Needed also for librapidsmpf to find nvml.h
+SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
+export SITE_PACKAGES
+
 ./ci/build_wheel.sh "${package_name}" "${package_dir}"
 
 python -m auditwheel repair \
@@ -69,9 +73,6 @@ rapids-pip-retry install \
     -r /tmp/requirements-build.txt
 
 export SKBUILD_CMAKE_ARGS=""
-
-SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
-export SITE_PACKAGES
 
 ./ci/build_wheel.sh "${package_name_py}" "${package_dir_py}"
 
