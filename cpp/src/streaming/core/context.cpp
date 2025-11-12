@@ -145,4 +145,11 @@ std::shared_ptr<Statistics> Context::statistics() const noexcept {
 std::shared_ptr<Channel> Context::create_channel() const noexcept {
     return std::shared_ptr<Channel>(new Channel(spillable_messages()));
 }
+
+std::shared_ptr<BoundedQueue> Context::create_bounded_queue(
+    std::size_t buffer_size
+) const noexcept {
+    return std::shared_ptr<BoundedQueue>(new BoundedQueue(buffer_size));
+}
+
 }  // namespace rapidsmpf::streaming

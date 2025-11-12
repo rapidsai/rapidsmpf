@@ -15,9 +15,6 @@
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/core/queue.hpp>
 
-#include <coro/queue.hpp>
-#include <coro/sync_wait.hpp>
-
 namespace rapidsmpf::streaming {
 
 /**
@@ -70,7 +67,7 @@ class Lineariser {
         : ctx_{std::move(ctx)}, ch_out_{std::move(ch_out)} {
         queues_.reserve(num_producers);
         for (std::size_t i = 0; i < num_producers; i++) {
-            queues_.push_back(std::make_shared<BoundedQueue>(buffer_size));
+            queues_.push_back(ctx->create_bounded_queue(buffer_size));
         }
     }
 

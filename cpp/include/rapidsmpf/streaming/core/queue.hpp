@@ -29,6 +29,8 @@ namespace rapidsmpf::streaming {
  * release the ticket having received the message.
  */
 class BoundedQueue {
+    friend Context;
+
   private:
     /**
      * @brief Helper class to shutdown the queue at exit of a function via RAII.
@@ -100,7 +102,6 @@ class BoundedQueue {
         Semaphore* semaphore_;
     };
 
-  public:
     /**
      * @brief A queue with a maximum capacity, managed by a semaphore.
      *
@@ -110,12 +111,13 @@ class BoundedQueue {
      * permission to send in to the queue with the send itself.
      *
      * Hence the pattern is first to acquire the resource, then compute the message,
-     * followed by a send of the message. The consumer the releases the resource when they
-     * are ready.
+     * followed by a send of the message. The consumer then releases the resource when
+     * they are ready.
      */
-    explicit BoundedQueue(std::size_t buffer_size)
+    BoundedQueue(std::size_t buffer_size)
         : semaphore_{static_cast<std::ptrdiff_t>(buffer_size)} {};
 
+  public:
     /**
      * @brief Acquire a ticket to send into the queue.
      *
