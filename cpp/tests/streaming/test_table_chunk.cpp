@@ -377,3 +377,37 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
     );
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m.get<TableChunk>().table_view(), expect);
 }
+
+TEST_F(StreamingTableChunk, ToMessageUnalignedSize) {
+    constexpr unsigned int num_rows = 5;
+    constexpr std::int64_t seed = 2025;
+    constexpr std::uint64_t seq = 7;
+
+    auto expect = random_table_with_index(seed, num_rows, 0, 5);
+    auto chunk =
+        std::make_unique<TableChunk>(std::make_unique<cudf::table>(expect), stream);
+
+    Message m = to_message(seq, std::move(chunk));
+    EXPECT_EQ(m.sequence_number(), seq);
+    EXPECT_FALSE(m.empty());
+    EXPECT_TRUE(m.holds<TableChunk>());
+    EXPECT_TRUE(m.content_description().spillable());
+    EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m.content_description().content_size(MemoryType::DEVICE), 80);
+    EXPECT_EQ(m.copy_cost(), 80);
+
+    // Deep copy: device → host.
+    // Note: `m.copy_cost() == 80`, but cudf performs 128-byte aligned allocations.
+    // This means `m.copy_cost()` is not always sufficient; however, TableChunk.copy()
+    // accounts for this alignment internally.
+    auto reservation = br->reserve_or_fail(m.copy_cost(), MemoryType::HOST);
+    Message m2 = m.copy(reservation);
+    EXPECT_EQ(reservation.size(), 0);
+    EXPECT_FALSE(m2.empty());
+    EXPECT_TRUE(m2.holds<TableChunk>());
+    EXPECT_TRUE(m2.content_description().spillable());
+    EXPECT_EQ(m2.copy_cost(), 128);
+    EXPECT_EQ(m2.content_description().content_size(MemoryType::HOST), 128);
+    EXPECT_EQ(m2.content_description().content_size(MemoryType::DEVICE), 0);
+    EXPECT_EQ(m2.sequence_number(), seq);
+}
