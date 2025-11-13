@@ -127,7 +127,9 @@ std::unique_ptr<Chunk> Chunk::deserialize(
     return std::unique_ptr<Chunk>(new Chunk(
         id,
         std::move(metadata),
-        br->allocate(br->stream_pool().get_stream(), br->reserve_or_fail(data_size))
+        br->allocate(
+            br->stream_pool().get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
+        )
     ));
 }
 
