@@ -20,6 +20,7 @@ conda activate clang_tidy
 set -u
 
 source rapids-configure-sccache
+export SCCACHE_RECACHE=1
 
 # Run the build via CMake, which will run clang-tidy when RAPIDSMPF_CLANG_TIDY is enabled.
 cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DRAPIDSMPF_CLANG_TIDY=ON -DCMAKE_CUDA_ARCHITECTURES=75 -GNinja
