@@ -267,7 +267,7 @@ cdef class BufferResource:
                 move(_mem_available),
                 period,
                 cpp_stream_pool,
-                (<Statistics>statistics)._handle,
+                (<Statistics?>statistics)._handle,
             )
         self.spill_manager = SpillManager._create(self)
 
@@ -443,8 +443,7 @@ cdef class BufferResource:
 
         Returns
         -------
-        Statistics
-            The statistics instance.
+        The Statistics instance.
         """
         return self._statistics
 
