@@ -58,6 +58,9 @@ Node send_to_channels(
     }
     // move the message to the last channel to avoid extra copy
     tasks.emplace_back(chs_out.back()->send(std::move(msg)));
+
+    // note that the send tasks may return false if the channel is shut down. But it does
+    // not affect the bounded fanout implementation.
     coro_results(co_await coro::when_all(std::move(tasks)));
 }
 
@@ -88,7 +91,7 @@ Node bounded_fanout(
         }
 
         co_await send_to_channels(ctx.get(), std::move(msg), chs_out);
-        logger.debug("Sent message ", msg.sequence_number());
+        logger.trace("Sent message ", msg.sequence_number());
     }
 
     std::vector<Node> drain_tasks;
@@ -97,7 +100,7 @@ Node bounded_fanout(
         drain_tasks.emplace_back(ch->drain(ctx->executor()));
     }
     coro_results(co_await coro::when_all(std::move(drain_tasks)));
-    logger.debug("Completed bounded fanout");
+    logger.trace("Completed bounded fanout");
 }
 
 /**
@@ -152,6 +155,7 @@ Node unbounded_fo_send_task(
     while (true) {
         {
             auto lock = co_await state->mtx.scoped_lock();
+            logger.trace("before data_ready wait ", idx);
             co_await state->data_ready.wait(lock, [&] {
                 // irrespective of input_done, update the end_idx to the total number of
                 // messages
@@ -176,13 +180,13 @@ Node unbounded_fo_send_task(
             auto res = ctx.br()->reserve_or_fail(msg.copy_cost(), try_memory_types(msg));
             if (!co_await ch_out->send(msg.copy(res))) {
                 // Failed to send message. Could be that the channel is shut down.
-                // So we need to abort the send task, and notify
-                // the process input task
+                // So we need to abort the send task, and notify the process input task
                 {
                     auto lock = co_await state->mtx.scoped_lock();
                     state->ch_next_idx[idx] = InvalidIdx;
                 }
-                co_await state->data_ready.notify_one();
+                // notify the process input task to check if it should break
+                co_await state->request_data.notify_one();
                 co_return;
             }
         }
@@ -211,19 +215,23 @@ Node unbounded_fo_send_task(
 }
 
 /**
- * @brief RAII helper class to close the unbounded fanout state when it goes out of
- * scope.
+ * @brief RAII helper class to set input_done to true and notify all send tasks to wind
+ * down when the unbounded fanout state goes out of scope.
  */
-struct UnboundedFanoutStateCloser {
+struct StateInputDoneAtExit {
     std::shared_ptr<UnboundedFanoutState> state;
 
-    ~UnboundedFanoutStateCloser() {
-        // forcibly set input_done to true and notify all send tasks to wind down
-        coro::sync_wait([](auto&& s) -> coro::task<void> {
-            auto lock = co_await s->mtx.scoped_lock();
-            s->input_done = true;
-            co_await s->data_ready.notify_all();
-        }(std::move(state)));
+    // forcibly set input_done to true and notify all send tasks to wind down
+    Node set_input_done() {
+        {
+            auto lock = co_await state->mtx.scoped_lock();
+            state->input_done = true;
+        }
+        co_await state->data_ready.notify_all();
+    }
+
+    ~StateInputDoneAtExit() {
+        coro::sync_wait(set_input_done());
     }
 };
 
@@ -241,7 +249,7 @@ Node unbounded_fo_process_input_task(
     std::shared_ptr<UnboundedFanoutState> state
 ) {
     ShutdownAtExit ch_in_shutdown{ch_in};
-    UnboundedFanoutStateCloser state_closer{state};
+    StateInputDoneAtExit state_closer{state};
     co_await ctx.executor()->schedule();
     auto& logger = ctx.logger();
 
@@ -249,26 +257,31 @@ Node unbounded_fo_process_input_task(
 
     // input_done is only set by this task, so reading without lock is safe here
     while (!state->input_done) {
-        size_t last_completed_idx = InvalidIdx, latest_processed_idx = 0;
+        size_t last_completed_idx = InvalidIdx, latest_processed_idx = InvalidIdx;
         {
             auto lock = co_await state->mtx.scoped_lock();
+            logger.trace("before request_data wait");
             co_await state->request_data.wait(lock, [&] {
-                for (auto idx : state->ch_next_idx) {
-                    if (idx != InvalidIdx) {
-                        last_completed_idx = std::min(last_completed_idx, idx);
-                        latest_processed_idx = std::max(latest_processed_idx, idx);
-                    }
-                }
-                // if min idx was never updated, that means all send tasks are in an
-                // invalid state
-                return (last_completed_idx == InvalidIdx)
-                       || (latest_processed_idx == state->recv_messages.size());
-            });
-        }
+                auto filtered = state->ch_next_idx | std::views::filter([](size_t idx) {
+                                    return idx != InvalidIdx;
+                                });
 
-        // all send tasks are in an invalid state, so we can break
-        if (last_completed_idx == InvalidIdx) {
-            break;
+                if (std::ranges::empty(filtered)) {
+                    // no valid indices, so all send tasks are in an invalid state
+                    return true;
+                }
+
+                auto [min_val, max_val] = std::ranges::minmax(filtered);
+                last_completed_idx = min_val;
+                latest_processed_idx = max_val;
+
+                return latest_processed_idx == state->recv_messages.size();
+            });
+
+            // all send tasks are in an invalid state, so we can break
+            if (last_completed_idx == InvalidIdx && latest_processed_idx == InvalidIdx) {
+                break;
+            }
         }
 
         // receive a message from the input channel
@@ -279,7 +292,6 @@ Node unbounded_fo_process_input_task(
             if (msg.empty()) {
                 state->input_done = true;
             } else {
-                logger.trace("Received input", msg.sequence_number());
                 state->recv_messages.emplace_back(std::move(msg));
             }
         }

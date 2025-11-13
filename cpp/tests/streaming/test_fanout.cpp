@@ -129,6 +129,70 @@ TEST_P(StreamingFanout, SinkPerChannel) {
     }
 }
 
+namespace {
+
+Node shutdown_channel_after_n_messages(
+    std::shared_ptr<Context> ctx,
+    std::shared_ptr<Channel> ch_in,
+    std::vector<Message>& out_messages,
+    size_t max_messages
+) {
+    ShutdownAtExit c{ch_in};
+    co_await ctx->executor()->schedule();
+
+    for (size_t i = 0; i < max_messages; ++i) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            break;
+        }
+        out_messages.push_back(std::move(msg));
+    }
+    co_await ch_in->shutdown();
+}
+
+}  // namespace
+
+TEST_P(StreamingFanout, SinkPerChannel_ShutdownHalfWay) {
+    // Prepare inputs
+    auto inputs = make_int_inputs(num_msgs);
+
+    // Create pipeline
+    std::vector<std::vector<Message>> outs(num_out_chs);
+    {
+        std::vector<Node> nodes;
+
+        auto in = ctx->create_channel();
+        nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
+
+        std::vector<std::shared_ptr<Channel>> out_chs;
+        for (int i = 0; i < num_out_chs; ++i) {
+            out_chs.emplace_back(ctx->create_channel());
+        }
+
+        nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+
+        for (int i = 0; i < num_out_chs; ++i) {
+            nodes.emplace_back(
+                shutdown_channel_after_n_messages(ctx, out_chs[i], outs[i], num_msgs / 2)
+            );
+        }
+
+        run_streaming_pipeline(std::move(nodes));
+    }
+
+    for (int c = 0; c < num_out_chs; ++c) {
+        // Validate sizes
+        EXPECT_EQ(outs[c].size(), static_cast<size_t>(num_msgs / 2));
+
+        // Validate ordering/content and that shallow copies share the same underlying
+        // object
+        for (int i = 0; i < num_msgs / 2; ++i) {
+            SCOPED_TRACE("channel " + std::to_string(c) + " idx " + std::to_string(i));
+            EXPECT_EQ(outs[c][i].get<int>(), i);
+        }
+    }
+}
+
 enum class ConsumePolicy : uint8_t {
     CHANNEL_ORDER,  // consume all messages from a single channel before moving to the
                     // next
@@ -204,9 +268,9 @@ struct ManyInputSinkStreamingFanout : public StreamingFanout {
             std::vector<int> actual;
             actual.reserve(outs[c].size());
             std::ranges::transform(
-                outs[c], std::back_inserter(actual), [](const Message& m) {
-                    return m.get<int>();
-                }
+                outs[c],
+                std::back_inserter(actual),
+                [](const Message& m) { return m.get<int>(); }
             );
             EXPECT_EQ(expected, actual);
         }
