@@ -138,10 +138,14 @@ std::size_t postbox_spilling(
             continue;
         }
         // We extract the chunk, spilled it, and insert it back into the PostBox.
-        auto chunk = postbox.extract(pid, cid);
-        chunk.set_data_buffer(br->move(chunk.release_data_buffer(), host_reservation));
-        postbox.insert(std::move(chunk));
-        RAPIDSMPF_NVTX_MARKER("postbox_spilling::chunk_spilled_bytes", size);
+        {
+            RAPIDSMPF_NVTX_SCOPED_RANGE("postbox_spilling::chunk", size);
+            auto chunk = postbox.extract(pid, cid);
+            chunk.set_data_buffer(
+                br->move(chunk.release_data_buffer(), host_reservation)
+            );
+            postbox.insert(std::move(chunk));
+        }
         if ((total_spilled += size) >= amount) {
             break;
         }
