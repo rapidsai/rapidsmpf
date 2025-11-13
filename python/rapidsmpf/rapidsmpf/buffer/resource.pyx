@@ -255,6 +255,8 @@ cdef class BufferResource:
 
         # Keep statistics alive
         self._statistics = statistics
+        # checked cast requires the GIL
+        stats_handle = (<Statistics?>statistics)._handle
 
         # Keep MR alive because the C++ BufferResource stores a raw pointer.
         # TODO: once RMM is migrating to CCCL (copyable) any_resource,
@@ -267,7 +269,7 @@ cdef class BufferResource:
                 move(_mem_available),
                 period,
                 cpp_stream_pool,
-                (<Statistics?>statistics)._handle,
+                stats_handle,
             )
         self.spill_manager = SpillManager._create(self)
 
