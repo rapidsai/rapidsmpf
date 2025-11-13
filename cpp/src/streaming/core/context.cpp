@@ -78,7 +78,7 @@ Context::Context(
         [this](std::size_t amount) -> std::size_t {
             return spill_messages(*spillable_messages_, br_, amount);
         },
-        /* priority = */ 0
+        -1  // set priority lower than in the Shuffler and AllGather.
     );
 }
 
