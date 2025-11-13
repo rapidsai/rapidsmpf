@@ -35,10 +35,10 @@
 #include <rapidsmpf/allgather/allgather.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
-#include <rapidsmpf/streaming/cudf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 

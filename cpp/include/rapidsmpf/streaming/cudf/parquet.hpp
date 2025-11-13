@@ -11,10 +11,10 @@
 #include <cudf/io/parquet.hpp>
 #include <cudf/types.hpp>
 
+#include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
-#include <rapidsmpf/streaming/cudf/owning_wrapper.hpp>
 
 namespace rapidsmpf::streaming {
 

@@ -17,8 +17,8 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 
+#include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
-#include <rapidsmpf/streaming/cudf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 #include "../utils.hpp"
