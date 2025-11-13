@@ -220,17 +220,13 @@ std::vector<std::uint8_t> Options::serialize() const {
     for (auto const& kv : shared.options) {
         entries.emplace_back(kv.first, kv.second.get_value_as_string());
     }
-    std::ranges::sort(entries, [](auto const& a, auto const& b) {
-        return a.first < b.first;
-    });
+    using entry_type = decltype(entries)::value_type;
+    std::ranges::sort(entries, std::less{}, &entry_type::first);
 
     // Write offsets and data.
     std::size_t offset_index = 1;  // Offsets start after `count`.
     std::size_t data_offset = header_size;
-    for (auto const& kv : entries) {
-        auto const& key = kv.first;
-        auto const& value = kv.second;
-
+    for (auto const& [key, value] : entries) {
         auto key_offset = static_cast<uint64_t>(data_offset);
         auto value_offset = static_cast<uint64_t>(key_offset + key.size());
 
