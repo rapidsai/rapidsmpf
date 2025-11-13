@@ -13,8 +13,8 @@
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/debug_utilities.hpp>
 #include <cudf_test/table_utilities.hpp>
-#include <rmm/mr/device/limiting_resource_adaptor.hpp>
-#include <rmm/mr/device/owning_wrapper.hpp>
+#include <rmm/mr/limiting_resource_adaptor.hpp>
+#include <rmm/mr/owning_wrapper.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
