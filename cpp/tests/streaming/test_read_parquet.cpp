@@ -138,9 +138,9 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(false, true)
     ),
     [](const ::testing::TestParamInfo<ReadParquetParams>& info) {
-        const auto& skip_rows = std::get<0>(info.param);
-        const auto& num_rows = std::get<1>(info.param);
-        const auto& use_filter = std::get<2>(info.param);
+        auto const& skip_rows = std::get<0>(info.param);
+        auto const& num_rows = std::get<1>(info.param);
+        auto const& use_filter = std::get<2>(info.param);
         std::string result = "skip_rows_";
         result += skip_rows.has_value() ? std::to_string(skip_rows.value()) : "none";
         result += "_num_rows_";
