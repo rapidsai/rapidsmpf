@@ -30,7 +30,7 @@
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
 #include <rmm/cuda_stream_view.hpp>
-#include <rmm/mr/device/per_device_resource.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/allgather/allgather.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
