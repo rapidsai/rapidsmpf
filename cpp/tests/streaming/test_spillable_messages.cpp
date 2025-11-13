@@ -201,7 +201,7 @@ TEST_F(StreamingSpillableMessages, SpillInFlightMessages) {
                 for (int j = 0; j < msgs_per_producer; ++j) {
                     auto seq = i * num_producer_producer_pairs + j;
                     co_await ch_out->send(create_int_msg(
-                        seq, 1, MemoryType::DEVICE, ContentDescription::Spillable::YES
+                        seq, seq, MemoryType::DEVICE, ContentDescription::Spillable::YES
                     ));
                 }
                 co_await ch_out->drain(ctx->executor());
@@ -231,7 +231,7 @@ TEST_F(StreamingSpillableMessages, SpillInFlightMessages) {
                     );
                     auto seq = i * num_producer_producer_pairs + j;
                     EXPECT_EQ(msg.sequence_number(), seq);
-                    EXPECT_EQ(msg.release<int>(), 1);
+                    EXPECT_EQ(msg.release<int>(), seq);
                 }
             }(i, spilled_expect, spilled_got, ctx, ch)
         );
