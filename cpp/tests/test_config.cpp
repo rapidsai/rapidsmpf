@@ -280,3 +280,48 @@ TEST(OptionsTest, SerializeThrowsIfOptionValueIsSet) {
     // Expect serialize() to throw because the option value has been accessed.
     EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
 }
+
+TEST(SerializationLimits, ExceedMaxKeyLength) {
+    std::string long_key(4097, 'k');  // 4097 bytes, exceeds 4096 limit
+    std::unordered_map<std::string, std::string> strings = {{long_key, "value"}};
+    Options opts(strings);
+
+    EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
+}
+
+TEST(SerializationLimits, ExceedMaxValueLength) {
+    std::string long_value(1024 * 1024 + 1, 'v');  // 1048577 bytes, exceeds 1 MiB limit
+    std::unordered_map<std::string, std::string> strings = {{"key", long_value}};
+    Options opts(strings);
+
+    EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
+}
+
+TEST(SerializationLimits, ExceedMaxOptions) {
+    Options opts;
+    std::unordered_map<std::string, std::string> many_options;
+
+    // Create 65537 options, exceeds 65536 limit
+    for (int i = 0; i < 65537; ++i) {
+        many_options["key_" + std::to_string(i)] = "value_" + std::to_string(i);
+    }
+    opts.insert_if_absent(std::move(many_options));
+
+    EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
+}
+
+TEST(SerializationLimits, ExceedMaxTotalSize) {
+    Options opts;
+
+    // Each value is 1 MiB, so 65 of them would be 65 MiB + overhead, exceeding 64 MiB
+    // limit
+    std::string large_value(1024 * 1024, 'x');
+    std::unordered_map<std::string, std::string> many_options;
+
+    for (int i = 0; i < 65; ++i) {
+        many_options["key_" + std::to_string(i)] = large_value;
+    }
+    opts.insert_if_absent(std::move(many_options));
+
+    EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
+}
