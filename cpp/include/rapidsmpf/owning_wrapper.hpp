@@ -7,7 +7,7 @@
 
 #include <memory>
 
-namespace rapidsmpf::streaming {
+namespace rapidsmpf {
 
 /**
  * @brief Utility class to store an arbitrary type-erased object while another object is
@@ -68,4 +68,4 @@ class OwningWrapper {
     using owning_type = std::unique_ptr<void, deleter_type>;
     owning_type obj_{nullptr, [](void*) {}};
 };
-}  // namespace rapidsmpf::streaming
+}  // namespace rapidsmpf
