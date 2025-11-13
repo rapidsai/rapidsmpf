@@ -53,8 +53,7 @@ Node send_to_channels(
     for (size_t i = 0; i < chs_out.size() - 1; i++) {
         // do a reservation for each copy, so that it will fallback to host memory if
         // needed
-        // TODO: change this
-        auto res = ctx->br()->reserve_or_fail(msg.copy_cost(), try_memory_types(msg)[0]);
+        auto res = ctx->br()->reserve_or_fail(msg.copy_cost(), try_memory_types(msg));
         tasks.emplace_back(chs_out[i]->send(msg.copy(res)));
     }
     // move the message to the last channel to avoid extra copy
@@ -124,6 +123,12 @@ struct UnboundedFanoutState {
 };
 
 /**
+ * @brief Sentinel value indicating that the index is invalid. This is set when a failure
+ * occurs during send tasks. process input task will filter out messages with this index.
+ */
+constexpr size_t InvalidIdx = std::numeric_limits<size_t>::max();
+
+/**
  * @brief Send messages to multiple output channels.
  *
  * @param ctx The context to use.
@@ -168,12 +173,18 @@ Node unbounded_fo_send_task(
 
             // make reservations for each message so that it will fallback to host memory
             // if needed
-            // TODO: change this
-            auto res =
-                ctx.br()->reserve_or_fail(msg.copy_cost(), try_memory_types(msg)[0]);
-            RAPIDSMPF_EXPECTS(
-                co_await ch_out->send(msg.copy(res)), "failed to send message"
-            );
+            auto res = ctx.br()->reserve_or_fail(msg.copy_cost(), try_memory_types(msg));
+            if (!co_await ch_out->send(msg.copy(res))) {
+                // Failed to send message. Could be that the channel is shut down.
+                // So we need to abort the send task, and notify
+                // the process input task
+                {
+                    auto lock = co_await state->mtx.scoped_lock();
+                    state->ch_next_idx[idx] = InvalidIdx;
+                }
+                co_await state->data_ready.notify_one();
+                co_return;
+            }
         }
         logger.trace(
             "sent ", idx, " [", state->ch_next_idx[idx], ", ", curr_recv_msg_sz, ")"
@@ -185,8 +196,8 @@ Node unbounded_fo_send_task(
         state->ch_next_idx[idx] = curr_recv_msg_sz;
         if (state->ch_next_idx[idx] == state->recv_messages.size()) {
             if (state->input_done) {
-                break;  // no more messages will be received, and all messages have been
-                        // sent
+                // no more messages will be received, and all messages have been sent
+                break;
             } else {
                 // request more data from the input channel
                 lock.unlock();
@@ -199,12 +210,38 @@ Node unbounded_fo_send_task(
     logger.trace("Send task ", idx, " completed");
 }
 
+/**
+ * @brief RAII helper class to close the unbounded fanout state when it goes out of
+ * scope.
+ */
+struct UnboundedFanoutStateCloser {
+    std::shared_ptr<UnboundedFanoutState> state;
+
+    ~UnboundedFanoutStateCloser() {
+        // forcibly set input_done to true and notify all send tasks to wind down
+        coro::sync_wait([](auto&& s) -> coro::task<void> {
+            auto lock = co_await s->mtx.scoped_lock();
+            s->input_done = true;
+            co_await s->data_ready.notify_all();
+        }(std::move(state)));
+    }
+};
+
+/**
+ * @brief Process input messages and notify send tasks to copy & send messages.
+ *
+ * @param ctx The context to use.
+ * @param ch_in The input channel to receive messages from.
+ * @param state The state of the unbounded fanout.
+ * @return A coroutine representing the task.
+ */
 Node unbounded_fo_process_input_task(
     Context& ctx,
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<UnboundedFanoutState> state
 ) {
     ShutdownAtExit ch_in_shutdown{ch_in};
+    UnboundedFanoutStateCloser state_closer{state};
     co_await ctx.executor()->schedule();
     auto& logger = ctx.logger();
 
@@ -212,16 +249,26 @@ Node unbounded_fo_process_input_task(
 
     // input_done is only set by this task, so reading without lock is safe here
     while (!state->input_done) {
-        size_t last_completed_idx, latest_processed_idx;
+        size_t last_completed_idx = InvalidIdx, latest_processed_idx = 0;
         {
             auto lock = co_await state->mtx.scoped_lock();
             co_await state->request_data.wait(lock, [&] {
-                auto res = std::ranges::minmax(state->ch_next_idx);
-                last_completed_idx = res.min;
-                latest_processed_idx = res.max;
-
-                return latest_processed_idx == state->recv_messages.size();
+                for (auto idx : state->ch_next_idx) {
+                    if (idx != InvalidIdx) {
+                        last_completed_idx = std::min(last_completed_idx, idx);
+                        latest_processed_idx = std::max(latest_processed_idx, idx);
+                    }
+                }
+                // if min idx was never updated, that means all send tasks are in an
+                // invalid state
+                return (last_completed_idx == InvalidIdx)
+                       || (latest_processed_idx == state->recv_messages.size());
             });
+        }
+
+        // all send tasks are in an invalid state, so we can break
+        if (last_completed_idx == InvalidIdx) {
+            break;
         }
 
         // receive a message from the input channel
@@ -240,12 +287,11 @@ Node unbounded_fo_process_input_task(
         // notify send_tasks to copy & send messages
         co_await state->data_ready.notify_all();
 
-        // purge completed send_tasks. This will reset the messages to empty, so that they
-        // release the memory, however the deque is not resized. This guarantees that the
-        // indices are not invalidated.
-        // intentionally not locking the mtx here, because we only need to know a
-        // lower-bound on the last completed idx (ch_next_idx values are monotonically
-        // increasing)
+        // purge completed send_tasks. This will reset the messages to empty, so that
+        // they release the memory, however the deque is not resized. This guarantees
+        // that the indices are not invalidated. intentionally not locking the mtx
+        // here, because we only need to know a lower-bound on the last completed idx
+        // (ch_next_idx values are monotonically increasing)
         while (state->purge_idx + 1 < last_completed_idx) {
             state->recv_messages[state->purge_idx].reset();
             state->purge_idx++;
@@ -263,11 +309,11 @@ Node unbounded_fo_process_input_task(
  * @brief Broadcast messages from one input channel to multiple output channels.
  *
  * This is an all-purpose implementation that can support consuming messages by the
- * channel order or message order. Output channels could be connected to single/multiple
- * consumer nodes. A consumer node can decide to consume all messages from a single
- * channel before moving to the next channel, or it can consume messages from all channels
- * before moving to the next message. When a message has been sent to all output channels,
- * it is purged from the internal deque.
+ * channel order or message order. Output channels could be connected to
+ * single/multiple consumer nodes. A consumer node can decide to consume all messages
+ * from a single channel before moving to the next channel, or it can consume messages
+ * from all channels before moving to the next message. When a message has been sent
+ * to all output channels, it is purged from the internal deque.
  *
  * @param ctx The context to use.
  * @param ch_in The input channel to receive messages from.
@@ -313,6 +359,12 @@ Node fanout(
     FanoutPolicy policy
 ) {
     RAPIDSMPF_EXPECTS(!chs_out.empty(), "output channels cannot be empty");
+
+    // if there is only one output channel, both bounded and unbounded implementations are
+    // semantically equivalent. So we can use the bounded fanout implementation.
+    if (chs_out.size() == 1) {
+        return bounded_fanout(std::move(ctx), std::move(ch_in), std::move(chs_out));
+    }
 
     switch (policy) {
     case FanoutPolicy::BOUNDED:

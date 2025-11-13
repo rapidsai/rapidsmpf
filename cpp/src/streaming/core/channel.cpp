@@ -15,10 +15,9 @@ coro::task<bool> Channel::send(Message msg) {
 }
 
 coro::task<Message> Channel::receive() {
-    auto msg = co_await rb_.consume();
-    if (msg.has_value()) {
-        RAPIDSMPF_EXPECTS(!msg->empty(), "received empty message");
-        co_return sm_->extract(*msg);
+    auto msg_id = co_await rb_.consume();
+    if (msg_id.has_value()) {
+        co_return sm_->extract(msg_id.value());
     } else {
         co_return Message{};
     }
