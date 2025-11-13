@@ -35,7 +35,8 @@ namespace rapidsmpf::streaming {
  *
  * @note All result types must be the same. If your coroutines produce heterogeneous
  * result types, this helper cannot be used; you must instead extract each result
- * manually by calling `.return_value()` on each element.
+ * manually by calling `.return_value()` on each element, or use the `tuple` form of
+ * `coro_results`.
  *
  * @note The return values of libcoro's gather functions such as `coro::when_all`
  * and `coro::wait_all` must always be retrieved by calling `.return_value()` (either
@@ -64,6 +65,43 @@ auto coro_results(Range&& task_results) {
         }
         return ret;
     }
+}
+
+/**
+ * @brief Collect the results of multiple finished coroutines from a tuple.
+ *
+ * This overload works with a tuple of coroutine result objects, typically from
+ * `co_await coro::when_all(...)`.
+ *
+ * - If the tasks produce non-void types, all values are collected into a
+ *   `std::tuple<T1, T2, ...>` and returned.
+ * - If the tasks return `void`, the function simply invokes `.return_value()`
+ *   on each element to surface any unhandled exceptions and then returns `void`.
+ *
+ * @tparam Args Types of coroutine result objects in the tuple
+ * @param results Tuple of coroutine result objects to extract values from
+ * @return `std::tuple<T1, T2, ...>` if the underlying tasks return values, or
+ * `void` if all underlying tasks return `void`.
+ */
+template <typename... Args>
+auto coro_results(std::tuple<Args...>&& results) {
+    return std::apply(
+        [](auto&&... result) {
+            if constexpr ((std::is_void_v<std::remove_cvref_t<
+                               decltype(std::declval<
+                                            std::remove_reference_t<decltype(result)>>()
+                                            .return_value())>>
+                           && ...))
+            {
+                (result.return_value(), ...);
+            } else {
+                return std::make_tuple(
+                    std::forward<decltype(result)>(result).return_value()...
+                );
+            }
+        },
+        std::move(results)
+    );
 }
 
 }  // namespace rapidsmpf::streaming

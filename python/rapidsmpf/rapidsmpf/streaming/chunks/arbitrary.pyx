@@ -8,6 +8,7 @@ from libc.stdint cimport uint64_t
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 
+from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
@@ -17,7 +18,7 @@ cdef extern from * nogil:
     namespace {
     rapidsmpf::streaming::Message cpp_to_message(
         std::uint64_t sequence_number,
-        std::unique_ptr<rapidsmpf::streaming::OwningWrapper> obj
+        std::unique_ptr<rapidsmpf::OwningWrapper> obj
     ) {
         return rapidsmpf::streaming::Message{
             sequence_number,

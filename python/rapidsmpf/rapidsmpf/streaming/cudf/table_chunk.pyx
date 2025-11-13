@@ -13,6 +13,8 @@ from pylibcudf.table cimport Table
 
 from rapidsmpf.buffer.resource cimport (BufferResource, MemoryReservation,
                                         cpp_MemoryReservation)
+# Need the header include for inline C++ code
+from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper  # no-cython-lint
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
@@ -49,7 +51,7 @@ cdef extern from * nogil:
             view,
             device_alloc_size,
             stream,
-            rapidsmpf::streaming::OwningWrapper(owner, py_deleter),
+            rapidsmpf::OwningWrapper(owner, py_deleter),
             exclusive_view ?
                 rapidsmpf::streaming::TableChunk::ExclusiveView::YES
                 : rapidsmpf::streaming::TableChunk::ExclusiveView::NO

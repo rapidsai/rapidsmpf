@@ -3,11 +3,7 @@
 
 from libcpp.memory cimport unique_ptr
 
-
-cdef extern from "<rapidsmpf/streaming/cudf/owning_wrapper.hpp>" nogil:
-    cdef cppclass cpp_OwningWrapper "rapidsmpf::streaming::OwningWrapper":
-        cpp_OwningWrapper(void *, void(*)(void*)) noexcept
-        void* release() noexcept
+from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 
 
 cdef class ArbitraryChunk:
