@@ -60,8 +60,15 @@ class OwningWrapper {
      *
      * @return Pointer to object.
      */
-    void* release() noexcept {
+    [[nodiscard]] void* release() noexcept {
         return obj_.release();
+    }
+
+    /**
+     * @brief @return Get access to the underlying pointer.
+     */
+    [[nodiscard]] void* get() const noexcept {
+        return obj_.get();
     }
 
   private:
