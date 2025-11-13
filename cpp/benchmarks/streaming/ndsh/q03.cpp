@@ -167,22 +167,27 @@
          auto chunk_stream = chunk.stream();
          auto table = chunk.table_view();
          auto var1 = cudf::make_string_scalar("BUILDING", chunk_stream, mr);
+
          auto mask = cudf::binary_operation(
             table.column(0), // c_mktsegment is col 0
-            *static_cast<cudf::scalar*>(var1.get()),
+            *var1,
             cudf::binary_operator::EQUAL,
             cudf::data_type(cudf::type_id::BOOL8),
             chunk_stream,
             mr
+        );
+
+        auto filtered = cudf::apply_boolean_mask(
+            table,
+            mask->view(), 
+            chunk_stream, mr
         );
         // std::cout << "Number of columns in filtered customer output: " << table.select({1}).num_columns() << std::endl;
          co_await ch_out->send(
              rapidsmpf::streaming::to_message(
                  msg.sequence_number(),
                  std::make_unique<rapidsmpf::streaming::TableChunk>(
-                     cudf::apply_boolean_mask(
-                         table.select({1}), mask->view(), chunk_stream, mr
-                     ),
+                     std::move(filtered),
                      chunk_stream
                  )
              )
@@ -211,8 +216,11 @@
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
 
-        auto ms_since_epoch = cudf::timestamp_ms{cudf::duration_ms{795225600000}};
-        auto var2 = cudf::timestamp_scalar<cudf::timestamp_ms>{ms_since_epoch};
+        // auto ms_since_epoch = cudf::timestamp_ms{cudf::duration_ms{795225600000}};
+        // auto var2 = cudf::timestamp_scalar<cudf::timestamp_ms>{ms_since_epoch};
+        auto days_since_epoch = cudf::timestamp_D{cudf::duration_D{9204}};
+        auto var2 = cudf::timestamp_scalar<cudf::timestamp_D>{days_since_epoch};
+        
         auto mask = cudf::binary_operation(
             table.column(1), // o_orderdate is col 1
             var2,
@@ -221,17 +229,18 @@
             chunk_stream,
             mr
         );
+        auto filtered = cudf::apply_boolean_mask(
+            table,
+            mask->view(), 
+            chunk_stream, mr
+        );
+
         // std::cout << "Number of columns in filtered orders output: " << table.num_columns() << std::endl;
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
                 msg.sequence_number(),
                 std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    cudf::apply_boolean_mask(
-                        table, // still need all columns
-                        mask->view(), 
-                        chunk_stream, 
-                        mr
-                    ),
+                    std::move(filtered),
                     chunk_stream
                 )
             )
@@ -261,8 +270,10 @@ rapidsmpf::streaming::Node filter_lineitem(
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
 
-        auto ms_since_epoch = cudf::timestamp_ms{cudf::duration_ms{795225600000}};
-        auto var2 = cudf::timestamp_scalar<cudf::timestamp_ms>{ms_since_epoch};
+        // auto ms_since_epoch = cudf::timestamp_ms{cudf::duration_ms{795225600000}};
+        // auto var2 = cudf::timestamp_scalar<cudf::timestamp_ms>{ms_since_epoch};
+        auto days_since_epoch = cudf::timestamp_D{cudf::duration_D{9204}};
+        auto var2 = cudf::timestamp_scalar<cudf::timestamp_D>{days_since_epoch};
 
         auto mask = cudf::binary_operation(
             table.column(1), // l_shipdate is col 1
@@ -272,15 +283,17 @@ rapidsmpf::streaming::Node filter_lineitem(
             chunk_stream,
             mr
         );
+        auto filtered = cudf::apply_boolean_mask(
+            table,
+            mask->view(), 
+            chunk_stream, mr
+        );
         // std::cout << "Number of columns in filtered lineitem output: " << table.select({0, 2, 3}).num_columns() << std::endl;
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
                 msg.sequence_number(),
                 std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    cudf::apply_boolean_mask(
-                        // no longer need l_shipdate
-                        table.select({0, 2, 3}), mask->view(), chunk_stream, mr
-                    ),
+                    std::move(filtered),
                     chunk_stream
                 )
             )
@@ -298,12 +311,14 @@ rapidsmpf::streaming::Node filter_lineitem(
      rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
 
     //  customer_x_orders_x_lineitem is the input to the with_column op
-    //  "c_custkey", # 0 (customers<-orders on o_custkey)
-    //  "o_orderkey", # 1 (orders<-lineitem on o_orderkey)
-    //  "o_orderdate", # 2
-    //  "o_shippriority", # 3
-    //  "l_extendedprice", # 4 (l_shipdate was filtered out)
-    //  "l_discount", # 5
+    //  "c_mktsegment", # 0
+    //  "c_custkey", # 1 (customers<-orders on o_custkey)
+    //  "o_orderkey", # 2 (orders<-lineitem on o_orderkey)
+    //  "o_orderdate", # 3
+    //  "o_shippriority", # 4
+    //  "l_shipdate", # 5
+    //  "l_extendedprice", # 6
+    //  "l_discount", # 7
      co_await ctx->executor()->schedule();
      while (true) {
          auto msg = co_await ch_in->receive();
@@ -331,23 +346,23 @@ rapidsmpf::streaming::Node filter_lineitem(
          // o_orderkey
          result.push_back(
              std::make_unique<cudf::column>(
-                 table.column(1), chunk_stream, ctx->br()->device_mr()
+                 table.column(2), chunk_stream, ctx->br()->device_mr()
              )
          );
          // o_orderdate
          result.push_back(
             std::make_unique<cudf::column>(
-                table.column(2), chunk_stream, ctx->br()->device_mr()
+                table.column(3), chunk_stream, ctx->br()->device_mr()
             )
         );
         // o_shippriority
         result.push_back(
             std::make_unique<cudf::column>(
-                table.column(3), chunk_stream, ctx->br()->device_mr()
+                table.column(4), chunk_stream, ctx->br()->device_mr()
             )
         );
-        auto extendedprice = table.column(4);
-        auto discount = table.column(5);
+        auto extendedprice = table.column(6);
+        auto discount = table.column(7);
 
          std::string udf =
              R"***(
@@ -367,6 +382,7 @@ rapidsmpf::streaming::Node filter_lineitem(
                  ctx->br()->device_mr()
              )
          );
+         // Out: [o_orderkey, o_orderdate, o_shippriority, revenue]
          co_await ch_out->send(
              rapidsmpf::streaming::to_message(
                  sequence_number,
@@ -378,68 +394,8 @@ rapidsmpf::streaming::Node filter_lineitem(
      }
      co_await ch_out->drain(ctx->executor());
  }
- 
-// change the order of columns from o_orderkey, o_orderdate, o_shippriority, revenue
-// to o_orderkey, revenue, o_orderdate, o_shippriority
- [[maybe_unused]] rapidsmpf::streaming::Node select_columns(
-    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
-    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
-) {
-    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
 
-    co_await ctx->executor()->schedule();
-    while (true) {
-        auto msg = co_await ch_in->receive();
-        if (msg.empty()) {
-            break;
-        }
-        auto chunk = rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
-        auto chunk_stream = chunk.stream();
-        auto sequence_number = msg.sequence_number();
-        auto table = chunk.table_view();
-        std::vector<std::unique_ptr<cudf::column>> result;
-        result.reserve(4);
-        
-        // o_orderkey
-        result.push_back(
-            std::make_unique<cudf::column>(
-                table.column(0), chunk_stream, ctx->br()->device_mr()
-            )
-        );
-        // revenue
-        result.push_back(
-           std::make_unique<cudf::column>(
-               table.column(3), chunk_stream, ctx->br()->device_mr()
-           )
-       );
-       // o_orderdate
-       result.push_back(
-           std::make_unique<cudf::column>(
-               table.column(1), chunk_stream, ctx->br()->device_mr()
-           )
-       );
-       // o_shippriority
-       result.push_back(
-           std::make_unique<cudf::column>(
-               table.column(2), chunk_stream, ctx->br()->device_mr()
-           )
-       );
-        co_await ch_out->send(
-            rapidsmpf::streaming::to_message(
-                sequence_number,
-                std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    std::make_unique<cudf::table>(std::move(result)), chunk_stream
-                )
-            )
-        );
-    }
-    co_await ch_out->drain(ctx->executor());
-}
-
-
+// In: [o_orderkey, o_orderdate, o_shippriority, revenue]
  [[maybe_unused]] rapidsmpf::streaming::Node chunkwise_groupby_agg(
      [[maybe_unused]] std::shared_ptr<rapidsmpf::streaming::Context> ctx,
      std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
@@ -460,8 +416,17 @@ rapidsmpf::streaming::Node filter_lineitem(
          );
          auto chunk_stream = chunk.stream();
          auto table = chunk.table_view();
+
+        // std::cout << "Number of columns in groupby input: " << table.num_columns() << std::endl;
+
+        //  for (int i = 0; i < table.num_columns(); ++i) {
+        //     cudf::data_type dtype = table.column(i).type();
+        //     cudf::type_id tid = dtype.id();
+        //     std::cout << "Column " << i << " type_id: " << static_cast<int>(tid) << std::endl;
+        //  }
+
          auto grouper = cudf::groupby::groupby(
-            // grup by [o_orderkey, o_orderdate, o_shippriority]
+            // group by [o_orderkey, o_orderdate, o_shippriority]
              table.select({0, 1, 2}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
          );
          auto requests = std::vector<cudf::groupby::aggregation_request>();
@@ -610,7 +575,69 @@ rapidsmpf::streaming::Node filter_lineitem(
      }
      co_await ch_out->drain(ctx->executor());
  }
+
+// change the order of columns from o_orderkey, o_orderdate, o_shippriority, revenue
+// to o_orderkey, revenue, o_orderdate, o_shippriority
+[[maybe_unused]] rapidsmpf::streaming::Node select_columns(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+
+    co_await ctx->executor()->schedule();
+    while (true) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            break;
+        }
+        auto chunk = rapidsmpf::ndsh::to_device(
+            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+        );
+        auto chunk_stream = chunk.stream();
+        auto sequence_number = msg.sequence_number();
+        auto table = chunk.table_view();
+        std::vector<std::unique_ptr<cudf::column>> result;
+        result.reserve(4);
+        
+        // o_orderkey
+        result.push_back(
+            std::make_unique<cudf::column>(
+                table.column(0), chunk_stream, ctx->br()->device_mr()
+            )
+        );
+        // revenue
+        result.push_back(
+           std::make_unique<cudf::column>(
+               table.column(3), chunk_stream, ctx->br()->device_mr()
+           )
+       );
+       // o_orderdate
+       result.push_back(
+           std::make_unique<cudf::column>(
+               table.column(1), chunk_stream, ctx->br()->device_mr()
+           )
+       );
+       // o_shippriority
+       result.push_back(
+           std::make_unique<cudf::column>(
+               table.column(2), chunk_stream, ctx->br()->device_mr()
+           )
+       );
+        co_await ch_out->send(
+            rapidsmpf::streaming::to_message(
+                sequence_number,
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::make_unique<cudf::table>(std::move(result)), chunk_stream
+                )
+            )
+        );
+    }
+    co_await ch_out->drain(ctx->executor());
+}
+
  
+
  [[maybe_unused]] rapidsmpf::streaming::Node sort_by(
      [[maybe_unused]] std::shared_ptr<rapidsmpf::streaming::Context> ctx,
      std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
@@ -891,7 +918,7 @@ rapidsmpf::streaming::Node filter_lineitem(
                  
                  // read and filter customer
                  // In: "c_mktsegment", "c_custkey"
-                 // Out: "c_custkey"
+                 // Out: "c_mktsegment", "c_custkey"
                  nodes.push_back(read_customer(
                      ctx,
                      customer,
@@ -915,7 +942,7 @@ rapidsmpf::streaming::Node filter_lineitem(
 
                  // read and filter lineitem
                  // In: "l_orderkey", "l_shipdate", "l_extendedprice", "l_discount"
-                 // Out: "l_orderkey", "l_extendedprice", "l_discount"
+                 // Out: "l_orderkey", "l_shipdate", "l_extendedprice", "l_discount"
                  nodes.push_back(read_lineitem(
                     ctx,
                     lineitem,
@@ -927,13 +954,15 @@ rapidsmpf::streaming::Node filter_lineitem(
 
                 // join customers and orders
                  nodes.push_back(
-                     // c_custkey x o_custkey
+                     // Keys c_custkey x o_custkey
+                     // Left: "c_mktsegment", "c_custkey"
+                     // Right: "o_orderkey", "o_orderdate", "o_shippriority", "o_custkey"
                      rapidsmpf::ndsh::inner_join_broadcast(
                          ctx,
                          filtered_customer,
                          filtered_orders,
                          customer_x_orders,
-                         {0},
+                         {1},
                          {3},
                          rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
                          rapidsmpf::ndsh::KeepKeys::YES
@@ -941,21 +970,23 @@ rapidsmpf::streaming::Node filter_lineitem(
                  );
 
                  // join customer_x_orders and lineitem
+                 // Keys o_orderkey x l_orderkey
+                 // Left: "c_mktsegment", "c_custkey", "o_orderkey", "o_orderdate", "o_shippriority",
+                 // Right: "l_orderkey", "l_shipdate", "l_extendedprice", "l_discount"
                  nodes.push_back(
-                    // o_orderkey x l_orderkey
                     rapidsmpf::ndsh::inner_join_broadcast(
                         ctx,
                         customer_x_orders,
                         filtered_lineitem,
                         customer_x_orders_x_lineitem,
-                        {0},
+                        {2},
                         {0},
                         rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
                         rapidsmpf::ndsh::KeepKeys::YES
                     )
                 );
 
-                // with columns
+                // with columns (and eliminating columns)
                 auto groupby_input = ctx->create_channel();
 
                 nodes.push_back(with_columns(
