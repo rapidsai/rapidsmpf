@@ -62,6 +62,7 @@ cache:
       - ${{ compiler("cxx") }}
       - ${{ compiler("cuda") }} =${{ cuda_version }}
       - cuda-cupti-dev
+      - cuda-nvml-dev
       - cuda-version =${{ cuda_version }}
       - cmake ${{ cmake_version }}
       - ninja
@@ -70,6 +71,7 @@ cache:
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
       - cuda-cupti-dev
+      - cuda-nvml-dev
       - librmm =${{ minor_version }}
       - libcudf =${{ minor_version }}
       - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
@@ -87,6 +89,8 @@ outputs:
           cmake --install cpp/build --component=tools
       dynamic_linking:
         overlinking_behavior: "error"
+        missing_dso_allowlist:
+          - "libnvidia-ml.so.1"
       prefix_detection:
         ignore:
           # See https://github.com/rapidsai/build-planning/issues/160
@@ -96,11 +100,13 @@ outputs:
       build:
         - cmake ${{ cmake_version }}
         - cuda-cupti-dev
+        - cuda-nvml-dev
         - ${{ stdlib("c") }}
       host:
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
         - cuda-cupti-dev
+        - cuda-nvml-dev
         - libcudf =${{ minor_version }}
         - openmpi >=5.0
         - ucxx ${{ ucxx_version }}
@@ -141,10 +147,12 @@ outputs:
       build:
         - cmake ${{ cmake_version }}
         - cuda-cupti-dev
+        - cuda-nvml-dev
         - ${{ stdlib("c") }}
       host:
         - cuda-cudart-dev
         - cuda-cupti-dev
+        - cuda-nvml-dev
         - cuda-version =${{ cuda_version }}
         - libcudf =${{ minor_version }}
         - librmm =${{ minor_version }}

@@ -177,6 +177,7 @@ add_library(
   src/shuffler/postbox.cpp
   src/shuffler/shuffler.cpp
   src/statistics.cpp
+  src/topology_discovery.cpp
   src/utils.cpp
 )
 if(RAPIDSMPF_HAVE_STREAMING)
@@ -234,6 +235,33 @@ target_include_directories(
   INTERFACE "$<INSTALL_INTERFACE:include>"
 )
 
+# Try to locate NVML headers when building wheels (installed in site-packages) Prefer any existing
+# include path resolution first; fall back to scanning Python site-packages
+find_path(
+  NVML_INCLUDE_DIR
+  NAMES nvml.h
+  HINTS ${CUDAToolkit_INCLUDE_DIRS}
+  PATH_SUFFIXES include
+)
+
+if(NOT NVML_INCLUDE_DIR)
+  # Use environment-provided site-packages if available (set by CI/build scripts)
+  if(DEFINED ENV{SITE_PACKAGES})
+    file(GLOB _nvml_sites "$ENV{SITE_PACKAGES}/nvidia/*/include")
+    foreach(_cand IN LISTS _nvml_sites)
+      if(EXISTS "${_cand}/nvml.h")
+        set(NVML_INCLUDE_DIR "${_cand}")
+        break()
+      endif()
+    endforeach()
+  endif()
+endif()
+
+if(NVML_INCLUDE_DIR)
+  message(STATUS "Found NVML headers at: ${NVML_INCLUDE_DIR}")
+  target_include_directories(rapidsmpf PRIVATE ${NVML_INCLUDE_DIR})
+endif()
+
 target_link_libraries(
   rapidsmpf
   PUBLIC rmm::rmm cudf::cudf CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
@@ -244,6 +272,7 @@ target_link_libraries(
           $<TARGET_NAME_IF_EXISTS:conda_env>
           maybe_asan
           $<TARGET_NAME_IF_EXISTS:CCCL::cudax>
+          ${CMAKE_DL_LIBS}
 )
 
 target_compile_definitions(
@@ -334,6 +363,11 @@ endif()
 # * add tools
 # -------------------------------------------------------------------------------------
 add_subdirectory(tools)
+
+# Ensure NVML include directory is also available to the topology_discovery tool
+if(NVML_INCLUDE_DIR AND TARGET topology_discovery)
+  target_include_directories(topology_discovery PRIVATE ${NVML_INCLUDE_DIR})
+endif()
 
 # ##################################################################################################
 # * install targets -------------------------------------------------------------------------------
