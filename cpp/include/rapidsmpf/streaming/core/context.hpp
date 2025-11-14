@@ -12,6 +12,8 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/streaming/core/channel.hpp>
+#include <rapidsmpf/streaming/core/queue.hpp>
 
 #include <coro/coro.hpp>
 
@@ -39,7 +41,7 @@ class Context {
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
         std::unique_ptr<coro::thread_pool> executor,
-        BufferResource* br,
+        std::shared_ptr<BufferResource> br,
         std::shared_ptr<Statistics> statistics
     );
 
@@ -56,59 +58,90 @@ class Context {
     Context(
         config::Options options,
         std::shared_ptr<Communicator> comm,
-        BufferResource* br,
+        std::shared_ptr<BufferResource> br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
+
+    ~Context() noexcept;
 
     /**
      * @brief Returns the configuration options.
      *
      * @return The Options instance.
      */
-    config::Options get_options();
+    [[nodiscard]] config::Options get_options() const noexcept;
 
     /**
      * @brief Returns the communicator.
      *
      * @return Shared pointer to the communicator.
      */
-    std::shared_ptr<Communicator> comm();
+    [[nodiscard]] std::shared_ptr<Communicator> comm() const noexcept;
 
     /**
      * @brief Returns the progress thread.
      *
      * @return Shared pointer to the progress thread.
      */
-    std::shared_ptr<ProgressThread> progress_thread();
+    [[nodiscard]] std::shared_ptr<ProgressThread> progress_thread() const noexcept;
 
     /**
      * @brief Returns the coroutine thread pool.
      *
      * @return Reference to unique pointer to the thread pool.
      */
-    std::unique_ptr<coro::thread_pool>& executor();
+    [[nodiscard]] std::unique_ptr<coro::thread_pool>& executor() noexcept;
 
     /**
      * @brief Returns the buffer resource.
      *
      * @return Raw pointer to the buffer resource.
      */
-    BufferResource* br();
+    [[nodiscard]] BufferResource* br() const noexcept;
 
     /**
      * @brief Returns the statistics collector.
      *
      * @return Shared pointer to the statistics instance.
      */
-    std::shared_ptr<Statistics> statistics();
+    [[nodiscard]] std::shared_ptr<Statistics> statistics() const noexcept;
+
+    /**
+     * @brief Create a new channel associated with this context.
+     *
+     * @return A shared pointer to the newly created channel.
+     */
+    [[nodiscard]] std::shared_ptr<Channel> create_channel() const noexcept;
+
+    /**
+     * @brief Returns the spillable messages collection.
+     *
+     * @return A shared pointer to the collection.
+     */
+    [[nodiscard]] std::shared_ptr<SpillableMessages> spillable_messages() const {
+        return spillable_messages_;
+    }
+
+    /**
+     * @brief Create a new bounded queue associated with this context.
+     *
+     * @param buffer_size Maximum size of the queue.
+     *
+     * @return A shared pointer to the newly created bounded queue.
+     */
+    [[nodiscard]] std::shared_ptr<BoundedQueue> create_bounded_queue(
+        std::size_t buffer_size
+    ) const noexcept;
 
   private:
     config::Options options_;
     std::shared_ptr<Communicator> comm_;
     std::shared_ptr<ProgressThread> progress_thread_;
     std::unique_ptr<coro::thread_pool> executor_;
-    BufferResource* br_;
+    std::shared_ptr<BufferResource> br_;
     std::shared_ptr<Statistics> statistics_;
+    std::shared_ptr<SpillableMessages> spillable_messages_;
+    SpillManager::SpillFunctionID spill_function_id_{};
 };
 
 }  // namespace rapidsmpf::streaming

@@ -2,15 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import IntEnum
-from typing import cast
 
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
 from rmm.pylibrmm.stream import Stream
 
 class AllocType(IntEnum):
-    PRIMARY = cast(int, ...)
-    FALLBACK = cast(int, ...)
-    ALL = cast(int, ...)
+    PRIMARY = ...
+    FALLBACK = ...
+    ALL = ...
 
 class ScopedMemoryRecord:
     def num_total_allocs(self, alloc_type: AllocType = AllocType.ALL) -> int: ...

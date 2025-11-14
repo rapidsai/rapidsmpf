@@ -7,15 +7,27 @@
 #include <cstddef>
 #include <memory>
 
+#include <cudf/ast/expressions.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/types.hpp>
 
+#include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 
-namespace rapidsmpf::streaming::node {
+namespace rapidsmpf::streaming {
 
+/**
+ * @brief Filter ast expression with lifetime/stream management.
+ */
+struct Filter {
+    rmm::cuda_stream_view stream;  ///< Stream the filter's scalars are valid on.
+    cudf::ast::expression& filter;  ///< Filter expression.
+    OwningWrapper owner{};  ///< Owner of all objects in the filter.
+};
+
+namespace node {
 /**
  * @brief Asynchronously read parquet files into an output channel.
  *
@@ -32,9 +44,7 @@ namespace rapidsmpf::streaming::node {
  * the read options "as-if" one were reading the whole input in one go.
  * @param num_rows_per_chunk Target (maximum) number of rows any sent `TableChunk` should
  * have.
- *
- * @warning If the options contain a filter then any stream-ordered operations to create
- * scalars must be synchronised before calling this function.
+ * @param filter Optional filter expression to apply to the read.
  *
  * @return Streaming node representing the asynchronous read.
  */
@@ -44,7 +54,8 @@ Node read_parquet(
     std::size_t num_producers,
     cudf::io::parquet_reader_options options,
     // TODO: use byte count, not row count?
-    cudf::size_type num_rows_per_chunk
+    cudf::size_type num_rows_per_chunk,
+    std::unique_ptr<Filter> filter = nullptr
 );
-
-}  // namespace rapidsmpf::streaming::node
+}  // namespace node
+}  // namespace rapidsmpf::streaming

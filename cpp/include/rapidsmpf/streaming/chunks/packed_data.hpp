@@ -44,27 +44,18 @@ inline ContentDescription get_content_description(PackedDataChunk const& obj) {
 Message to_message(
     std::uint64_t sequence_number, std::unique_ptr<PackedDataChunk> chunk
 ) {
-    Message::Callbacks cbs{
-        .content_size = [](Message const& msg,
-                           MemoryType mem_type) -> std::pair<size_t, bool> {
+    auto cd = get_content_description(*chunk);
+    return Message{
+        sequence_number,
+        std::move(chunk),
+        cd,
+        [](Message const& msg, MemoryReservation& reservation) -> Message {
             auto const& self = msg.get<PackedDataChunk>();
-            if (self.data.data->mem_type() == mem_type) {
-                return {self.data.data->size, true};
-            }
-            return {0, true};
-        },
-        .copy = [](Message const& msg,
-                   BufferResource* br,
-                   MemoryReservation& reservation) -> Message {
-            auto const& self = msg.get<PackedDataChunk>();
-            return Message(
-                msg.sequence_number(),
-                std::make_unique<PackedDataChunk>(self.data.copy(br, reservation)),
-                msg.callbacks()
-            );
+            auto chunk = std::make_unique<PackedDataChunk>(self.data.copy(reservation));
+            auto cd = get_content_description(*chunk);
+            return Message{msg.sequence_number(), std::move(chunk), cd, msg.copy_cb()};
         }
     };
-    return Message{sequence_number, std::move(chunk), std::move(cbs)};
 }
 
 }  // namespace rapidsmpf::streaming

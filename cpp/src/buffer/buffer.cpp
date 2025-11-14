@@ -115,7 +115,7 @@ void Buffer::unlock() {
 
 bool Buffer::is_latest_write_done() const {
     throw_if_locked();
-    return latest_write_event_.is_ready();
+    return size == 0 || latest_write_event_.is_ready();
 }
 
 Buffer::DeviceStorageT Buffer::release_device() {

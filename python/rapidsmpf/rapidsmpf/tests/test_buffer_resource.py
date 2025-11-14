@@ -9,6 +9,7 @@ import rmm.mr
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
+from rapidsmpf.statistics import Statistics
 
 
 def KiB(x: int) -> int:
@@ -114,3 +115,31 @@ def test_memory_reservation(mem_type: MemoryType) -> None:
         match="isn't big enough",
     ):
         br.release(res1, KiB(10))
+
+
+def test_stream_pool() -> None:
+    """Test that stream_pool parameter can be configured."""
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+
+    # Test with default stream pool size (16)
+    br_default = BufferResource(mr)
+    assert br_default.stream_pool_size() == 16
+
+    # Test with custom stream pool
+    custom_pool = rmm.pylibrmm.cuda_stream_pool.CudaStreamPool(pool_size=32)
+    br_custom = BufferResource(mr, stream_pool=custom_pool)
+    assert br_custom.stream_pool_size() == 32
+
+
+def test_statistics() -> None:
+    """Test that statistics parameter can be configured."""
+    mr = RmmResourceAdaptor(rmm.mr.CudaMemoryResource())
+
+    # Disabled by default
+    br_default = BufferResource(mr)
+    assert not br_default.statistics.enabled
+
+    # Test with enabled statistics (with memory profiling)
+    stats_mr = Statistics(enable=True, mr=mr)
+    br_with_mr = BufferResource(mr, statistics=stats_mr)
+    assert br_with_mr.statistics is stats_mr

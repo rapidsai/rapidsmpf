@@ -13,12 +13,14 @@
 #include <cudf_test/table_utilities.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/core/queue.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 #include "../utils.hpp"
@@ -40,7 +42,7 @@ TEST_F(StreamingLeafTasks, PushAndPullChunks) {
     }
 
     std::vector<Node> nodes;
-    auto ch1 = std::make_shared<Channel>();
+    auto ch1 = ctx->create_channel();
 
     // Note, we use a scope to check that coroutines keeps the input alive.
     {
@@ -91,12 +93,17 @@ Node producer(
 ) {
     co_await ctx->executor()->schedule();
     auto ticket = co_await ch->acquire();
-    auto [_, receipt] = co_await ticket.send(Message{0, std::make_unique<int>(val)});
+    auto [_, receipt] = co_await ticket.send(
+        Message{0, std::make_unique<int>(val), ContentDescription{}}
+    );
     if (should_throw) {
         throw std::runtime_error("Producer throws");
     }
     EXPECT_THROW(
-        co_await ticket.send(Message{0, std::make_unique<int>(val)}), std::logic_error
+        co_await ticket.send(
+            Message{0, std::make_unique<int>(val), ContentDescription{}}
+        ),
+        std::logic_error
     );
     co_await receipt;
     EXPECT_TRUE(receipt.is_ready());
@@ -125,7 +132,7 @@ Node consumer(
 }  // namespace
 
 TEST_F(StreamingLeafTasks, ThrottledAdaptor) {
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
     std::vector<Node> producers;
     std::vector<Node> consumers;
@@ -144,7 +151,7 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptor) {
 }
 
 TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInProduce) {
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
     std::vector<Node> producers;
     std::vector<Node> consumers;
@@ -159,7 +166,7 @@ TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInProduce) {
 }
 
 TEST_F(StreamingLeafTasks, ThrottledAdaptorThrowInConsume) {
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     auto throttle = std::make_shared<ThrottlingAdaptor>(ch, 4);
     std::vector<Node> producers;
     std::vector<Node> consumers;
@@ -189,6 +196,165 @@ TEST_P(StreamingThrottledAdaptor, NonPositiveThrottleThrows) {
         GTEST_SKIP() << "Test only runs on rank zero";
     }
     int max_tickets = GetParam();
-    auto ch = std::make_shared<Channel>();
+    auto ch = ctx->create_channel();
     EXPECT_THROW(ThrottlingAdaptor(ch, max_tickets), std::logic_error);
+}
+
+using StreamingBoundedQueue = StreamingLeafTasks;
+
+TEST_F(StreamingBoundedQueue, TicketUseOnce) {
+    if (GlobalEnvironment->comm_->rank() != 0) {
+        // Test is independent of size of communicator.
+        GTEST_SKIP() << "Test only runs on rank zero";
+    }
+
+    auto q = ctx->create_bounded_queue(2);
+
+    auto producer = [](std::shared_ptr<BoundedQueue> q) -> coro::task<void> {
+        auto shutdown = q->raii_shutdown();
+        auto ticket = co_await q->acquire();
+        EXPECT_TRUE(ticket.has_value());
+        auto sent = co_await ticket->send(
+            Message{0, std::make_unique<int>(0), ContentDescription{}}
+        );
+        EXPECT_TRUE(sent);
+        EXPECT_THROW(
+            co_await ticket->send(
+                Message{1, std::make_unique<int>(1), ContentDescription{}}
+            ),
+            std::logic_error
+        );
+    };
+
+    coro::sync_wait(producer(q));
+}
+
+TEST_F(StreamingBoundedQueue, ShutdownStopsProducer) {
+    if (GlobalEnvironment->comm_->rank() != 0) {
+        // Test is independent of size of communicator.
+        GTEST_SKIP() << "Test only runs on rank zero";
+    }
+
+    auto q = ctx->create_bounded_queue(2);
+
+    auto producer = [](std::shared_ptr<BoundedQueue> q) -> coro::task<void> {
+        auto shutdown = q->raii_shutdown();
+        while (true) {
+            auto ticket = co_await q->acquire();
+            // We're going to shutdown before the producer gets to go.
+            EXPECT_TRUE(!ticket.has_value());
+            if (!ticket.has_value()) {
+                break;
+            }
+        }
+    };
+    coro::sync_wait(q->shutdown());
+    coro::sync_wait(producer(q));
+}
+
+TEST_F(StreamingBoundedQueue, ProducerThrows) {
+    if (GlobalEnvironment->comm_->rank() != 0) {
+        // Test is independent of size of communicator.
+        GTEST_SKIP() << "Test only runs on rank zero";
+    }
+
+    auto q = ctx->create_bounded_queue(2);
+
+    auto producer = [](std::shared_ptr<BoundedQueue> q) -> coro::task<void> {
+        auto shutdown = q->raii_shutdown();
+        throw std::runtime_error("Producer throws");
+    };
+    auto consumer = [](std::shared_ptr<BoundedQueue> q) -> coro::task<void> {
+        auto shutdown = q->raii_shutdown();
+        auto [receipt, msg] = co_await q->receive();
+        EXPECT_TRUE(msg.empty());
+    };
+    EXPECT_THROW(
+        coro_results(coro::sync_wait(coro::when_all(consumer(q), producer(q)))),
+        std::runtime_error
+    );
+}
+
+TEST_F(StreamingBoundedQueue, ConsumerThrows) {
+    if (GlobalEnvironment->comm_->rank() != 0) {
+        // Test is independent of size of communicator.
+        GTEST_SKIP() << "Test only runs on rank zero";
+    }
+
+    auto q = ctx->create_bounded_queue(2);
+
+    auto producer = [](std::shared_ptr<BoundedQueue> q) -> coro::task<void> {
+        auto shutdown = q->raii_shutdown();
+        auto ticket = co_await q->acquire();
+        EXPECT_TRUE(ticket.has_value());
+        EXPECT_TRUE(
+            co_await ticket->send(
+                Message{0, std::make_unique<int>(1), ContentDescription{}}
+            )
+        );
+        while (true) {
+            auto ticket = co_await q->acquire();
+            if (!ticket.has_value()) {
+                break;
+            }
+        }
+    };
+    auto consumer = [](std::shared_ptr<BoundedQueue> q) -> coro::task<void> {
+        auto shutdown = q->raii_shutdown();
+        auto [receipt, msg] = co_await q->receive();
+        EXPECT_FALSE(msg.empty());
+        EXPECT_EQ(msg.sequence_number(), 0);
+        EXPECT_EQ(msg.release<int>(), 1);
+        co_await receipt;
+        throw std::runtime_error("Consumer throws");
+    };
+    EXPECT_THROW(
+        coro_results(coro::sync_wait(coro::when_all(consumer(q), producer(q)))),
+        std::runtime_error
+    );
+}
+
+TEST_F(StreamingBoundedQueue, MultipleAcquire) {
+    if (GlobalEnvironment->comm_->rank() != 0) {
+        // Test is independent of size of communicator.
+        GTEST_SKIP() << "Test only runs on rank zero";
+    }
+
+    auto q = ctx->create_bounded_queue(2);
+
+    auto producer = [](std::shared_ptr<BoundedQueue> q) -> coro::task<void> {
+        auto shutdown = q->raii_shutdown();
+        int i = 0;
+        while (true) {
+            auto ticket = co_await q->acquire();
+            if (!ticket.has_value()) {
+                EXPECT_EQ(i, 2);
+                break;
+            }
+            EXPECT_TRUE(ticket.has_value());
+            EXPECT_TRUE(
+                co_await ticket->send(
+                    Message{
+                        static_cast<std::uint64_t>(i),
+                        std::make_unique<int>(i),
+                        ContentDescription{}
+                    }
+                )
+            );
+            i++;
+        }
+    };
+    auto consumer = [](std::shared_ptr<BoundedQueue> q) -> coro::task<void> {
+        auto shutdown = q->raii_shutdown();
+        // Receiving, but not releasing the tickets
+        auto [_, msg] = co_await q->receive();
+        EXPECT_FALSE(msg.empty());
+        EXPECT_EQ(msg.sequence_number(), 0);
+        EXPECT_EQ(msg.release<int>(), 0);
+        std::tie(std::ignore, msg) = co_await q->receive();
+        EXPECT_FALSE(msg.empty());
+        EXPECT_EQ(msg.sequence_number(), 1);
+        EXPECT_EQ(msg.release<int>(), 1);
+    };
+    coro_results(coro::sync_wait(coro::when_all(consumer(q), producer(q))));
 }

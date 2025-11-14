@@ -9,15 +9,19 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <utility>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
 #include <coro/coro.hpp>
 #include <coro/semaphore.hpp>
 
 namespace rapidsmpf::streaming {
+
+class Context;
 
 /**
  * @brief An awaitable semaphore to manage acquisition and release of finite resources.
@@ -26,8 +30,13 @@ using Semaphore = coro::semaphore<std::numeric_limits<std::ptrdiff_t>::max()>;
 
 /**
  * @brief A coroutine-based channel for sending and receiving messages asynchronously.
+ *
+ * The constructor is private, use the factory method `Context::create_channel()` to
+ * create a new channel.
  */
 class Channel {
+    friend Context;
+
   public:
     /**
      * @brief Asynchronously send a message into the channel.
@@ -38,10 +47,7 @@ class Channel {
      * @return A coroutine that evaluates to true if the msg was successfully sent or
      * false if the channel was shut down.
      */
-    coro::task<bool> send(Message msg) {
-        auto result = co_await rb_.produce(std::move(msg));
-        co_return result == coro::ring_buffer_result::produce::produced;
-    }
+    coro::task<bool> send(Message msg);
 
     /**
      * @brief Asynchronously receive a message from the channel.
@@ -51,14 +57,7 @@ class Channel {
      * @return A coroutine that evaluates to the message, which will be empty if the
      * channel is shut down.
      */
-    coro::task<Message> receive() {
-        auto msg = co_await rb_.consume();
-        if (msg.has_value()) {
-            co_return std::move(*msg);
-        } else {
-            co_return Message{};
-        }
-    }
+    coro::task<Message> receive();
 
     /**
      * @brief Drains all pending messages from the channel and shuts it down.
@@ -68,9 +67,7 @@ class Channel {
      * @param executor The thread pool used to process remaining messages.
      * @return A coroutine representing the completion of the shutdown drain.
      */
-    Node drain(std::unique_ptr<coro::thread_pool>& executor) {
-        return rb_.shutdown_drain(executor);
-    }
+    Node drain(std::unique_ptr<coro::thread_pool>& executor);
 
     /**
      * @brief Immediately shuts down the channel.
@@ -79,21 +76,21 @@ class Channel {
      *
      * @return A coroutine representing the completion of the shutdown.
      */
-    Node shutdown() {
-        return rb_.shutdown();
-    }
+    Node shutdown();
 
     /**
      * @brief Check whether the channel is empty.
      *
      * @return True if there are no messages in the buffer.
      */
-    [[nodiscard]] bool empty() const noexcept {
-        return rb_.empty();
-    }
+    [[nodiscard]] bool empty() const noexcept;
 
   private:
-    coro::ring_buffer<Message, 1> rb_;
+    Channel(std::shared_ptr<SpillableMessages> spillable_messages)
+        : sm_{std::move(spillable_messages)} {}
+
+    coro::ring_buffer<SpillableMessages::MessageId, 1> rb_;
+    std::shared_ptr<SpillableMessages> sm_;
 };
 
 /**
@@ -198,7 +195,7 @@ class ThrottlingAdaptor {
      *
      * Example usage:
      * @code{.cpp}
-     * auto ch = std::make_shared<Channel>();
+     * auto ch = ctx->create_channel();
      * auto throttled = ThrottlingAdaptor(ch, 4);
      * auto make_task = [&]() {
      *     auto ticket = co_await throttled.acquire();

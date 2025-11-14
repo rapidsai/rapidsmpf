@@ -15,10 +15,10 @@
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/table_utilities.hpp>
 #include <rmm/cuda_stream_view.hpp>
-#include <rmm/mr/device/per_device_resource.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
+#include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
-#include <rapidsmpf/streaming/cudf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 #include "../utils.hpp"
@@ -103,7 +103,7 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
         );
         // This is like spilling since the original `chunk` is ExclusiveView::YES and
         // overwritten.
-        chunk = chunk.copy(br.get(), res);
+        chunk = chunk.copy(res);
         EXPECT_EQ(num_deletions, 4);
     }
 }
@@ -186,7 +186,7 @@ TEST_F(StreamingTableChunk, DeviceToDeviceCopy) {
     auto res = br->reserve_or_fail(
         chunk.data_alloc_size(MemoryType::DEVICE), MemoryType::DEVICE
     );
-    auto chunk2 = chunk.copy(br.get(), res);
+    auto chunk2 = chunk.copy(res);
 
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(chunk2.table_view(), expect);
 }
@@ -214,7 +214,7 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     auto host_res = br->reserve_or_fail(
         dev_chunk.data_alloc_size(MemoryType::DEVICE), MemoryType::HOST
     );
-    auto host_copy = dev_chunk.copy(br.get(), host_res);
+    auto host_copy = dev_chunk.copy(host_res);
     EXPECT_FALSE(host_copy.is_available());
     EXPECT_TRUE(host_copy.is_spillable());
     EXPECT_EQ(host_copy.stream().value(), stream.value());
@@ -231,7 +231,7 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     auto host_res2 = br->reserve_or_fail(
         host_copy.data_alloc_size(MemoryType::HOST), MemoryType::HOST
     );
-    auto host_copy2 = host_copy.copy(br.get(), host_res2);
+    auto host_copy2 = host_copy.copy(host_res2);
     EXPECT_FALSE(host_copy2.is_available());
     EXPECT_TRUE(host_copy2.is_spillable());
     EXPECT_EQ(host_copy2.stream().value(), stream.value());
@@ -266,7 +266,7 @@ TEST_F(StreamingTableChunk, DeviceToHostRoundTripCopy) {
     auto dev_res2 = br->reserve_or_fail(
         dev_back.data_alloc_size(MemoryType::DEVICE), MemoryType::DEVICE
     );
-    auto dev_copy2 = dev_back.copy(br.get(), dev_res2);
+    auto dev_copy2 = dev_back.copy(dev_res2);
     EXPECT_TRUE(dev_copy2.is_available());
     EXPECT_EQ(dev_copy2.make_available_cost(), 0);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(dev_copy2.table_view(), expect);
@@ -291,28 +291,31 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
     Message m = to_message(seq, std::move(chunk));
     EXPECT_FALSE(m.empty());
     EXPECT_TRUE(m.holds<TableChunk>());
-    EXPECT_EQ(m.content_size(MemoryType::HOST), std::make_pair(size_t{0}, true));
-    EXPECT_EQ(m.content_size(MemoryType::DEVICE), std::make_pair(size_t{1024}, true));
+    EXPECT_TRUE(m.content_description().spillable());
+    EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m.content_description().content_size(MemoryType::DEVICE), 1024);
     EXPECT_EQ(m.sequence_number(), seq);
 
     // Deep-copy: device to host.
     auto reservation = br->reserve_or_fail(m.copy_cost(), MemoryType::HOST);
-    Message m2 = m.copy(br.get(), reservation);
+    Message m2 = m.copy(reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m2.empty());
     EXPECT_TRUE(m2.holds<TableChunk>());
-    EXPECT_EQ(m2.content_size(MemoryType::HOST), std::make_pair(size_t{1024}, true));
-    EXPECT_EQ(m2.content_size(MemoryType::DEVICE), std::make_pair(size_t{0}, true));
+    EXPECT_TRUE(m2.content_description().spillable());
+    EXPECT_EQ(m2.content_description().content_size(MemoryType::HOST), 1024);
+    EXPECT_EQ(m2.content_description().content_size(MemoryType::DEVICE), 0);
     EXPECT_EQ(m2.sequence_number(), seq);
 
     // Deep-copy: host to host.
     reservation = br->reserve_or_fail(m2.copy_cost(), MemoryType::HOST);
-    Message m3 = m.copy(br.get(), reservation);
+    Message m3 = m.copy(reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m3.empty());
     EXPECT_TRUE(m3.holds<TableChunk>());
-    EXPECT_EQ(m3.content_size(MemoryType::HOST), std::make_pair(size_t{1024}, true));
-    EXPECT_EQ(m3.content_size(MemoryType::DEVICE), std::make_pair(size_t{0}, true));
+    EXPECT_TRUE(m3.content_description().spillable());
+    EXPECT_EQ(m3.content_description().content_size(MemoryType::HOST), 1024);
+    EXPECT_EQ(m3.content_description().content_size(MemoryType::DEVICE), 0);
     EXPECT_EQ(m3.sequence_number(), seq);
 
     // Copy the chunk back to device and verify.
@@ -325,23 +328,25 @@ TEST_F(StreamingTableChunk, ToMessageRoundTrip) {
 
     // Deep-copy: host to device.
     reservation = br->reserve_or_fail(m2.copy_cost(), MemoryType::DEVICE);
-    Message m4 = m.copy(br.get(), reservation);
+    Message m4 = m.copy(reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m4.empty());
     EXPECT_TRUE(m4.holds<TableChunk>());
-    EXPECT_EQ(m4.content_size(MemoryType::HOST), std::make_pair(size_t{0}, true));
-    EXPECT_EQ(m4.content_size(MemoryType::DEVICE), std::make_pair(size_t{1024}, true));
+    EXPECT_TRUE(m4.content_description().spillable());
+    EXPECT_EQ(m4.content_description().content_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m4.content_description().content_size(MemoryType::DEVICE), 1024);
     EXPECT_EQ(m4.sequence_number(), seq);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m4.get<TableChunk>().table_view(), expect);
 
     // Deep-copy: device to device.
     reservation = br->reserve_or_fail(m4.copy_cost(), MemoryType::DEVICE);
-    Message m5 = m.copy(br.get(), reservation);
+    Message m5 = m.copy(reservation);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_FALSE(m5.empty());
     EXPECT_TRUE(m5.holds<TableChunk>());
-    EXPECT_EQ(m5.content_size(MemoryType::HOST), std::make_pair(size_t{0}, true));
-    EXPECT_EQ(m5.content_size(MemoryType::DEVICE), std::make_pair(size_t{1024}, true));
+    EXPECT_TRUE(m5.content_description().spillable());
+    EXPECT_EQ(m5.content_description().content_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m5.content_description().content_size(MemoryType::DEVICE), 1024);
     EXPECT_EQ(m5.sequence_number(), seq);
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m5.get<TableChunk>().table_view(), expect);
 }
@@ -365,9 +370,44 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
     Message m = to_message(seq, std::move(chunk));
     EXPECT_FALSE(m.empty());
     EXPECT_TRUE(m.holds<TableChunk>());
-    EXPECT_EQ(m.content_size(MemoryType::HOST), std::make_pair(size_t{0}, false));
+    EXPECT_FALSE(m.content_description().spillable());
+    EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 0);
     EXPECT_EQ(
-        m.content_size(MemoryType::DEVICE), std::make_pair(expect.alloc_size(), false)
+        m.content_description().content_size(MemoryType::DEVICE), expect.alloc_size()
     );
     CUDF_TEST_EXPECT_TABLES_EQUIVALENT(m.get<TableChunk>().table_view(), expect);
+}
+
+TEST_F(StreamingTableChunk, ToMessageUnalignedSize) {
+    constexpr unsigned int num_rows = 5;
+    constexpr std::int64_t seed = 2025;
+    constexpr std::uint64_t seq = 7;
+
+    auto expect = random_table_with_index(seed, num_rows, 0, 5);
+    auto chunk =
+        std::make_unique<TableChunk>(std::make_unique<cudf::table>(expect), stream);
+
+    Message m = to_message(seq, std::move(chunk));
+    EXPECT_EQ(m.sequence_number(), seq);
+    EXPECT_FALSE(m.empty());
+    EXPECT_TRUE(m.holds<TableChunk>());
+    EXPECT_TRUE(m.content_description().spillable());
+    EXPECT_EQ(m.content_description().content_size(MemoryType::HOST), 0);
+    EXPECT_EQ(m.content_description().content_size(MemoryType::DEVICE), 80);
+    EXPECT_EQ(m.copy_cost(), 80);
+
+    // Deep copy: device → host.
+    // Note: `m.copy_cost() == 80`, but cudf performs 128-byte aligned allocations.
+    // This means `m.copy_cost()` is not always sufficient; however, TableChunk.copy()
+    // accounts for this alignment internally.
+    auto reservation = br->reserve_or_fail(m.copy_cost(), MemoryType::HOST);
+    Message m2 = m.copy(reservation);
+    EXPECT_EQ(reservation.size(), 0);
+    EXPECT_FALSE(m2.empty());
+    EXPECT_TRUE(m2.holds<TableChunk>());
+    EXPECT_TRUE(m2.content_description().spillable());
+    EXPECT_EQ(m2.copy_cost(), 128);
+    EXPECT_EQ(m2.content_description().content_size(MemoryType::HOST), 128);
+    EXPECT_EQ(m2.content_description().content_size(MemoryType::DEVICE), 0);
+    EXPECT_EQ(m2.sequence_number(), seq);
 }

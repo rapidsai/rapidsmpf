@@ -16,10 +16,10 @@
 #include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
-#include <rapidsmpf/streaming/cudf/owning_wrapper.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -220,16 +220,13 @@ class TableChunk {
      * example, copying an available table chunk from device to host memory will result
      * in an unavailable copy.
      *
-     * @param br Buffer resource used for allocations.
      * @param reservation Memory reservation used to track and limit allocations.
      * @return A new `TableChunk` instance containing copies of all buffers and metadata.
      *
      * @throws std::overflow_error If the total allocation size exceeds the available
      * reservation.
      */
-    [[nodiscard]] TableChunk copy(
-        BufferResource* br, MemoryReservation& reservation
-    ) const;
+    [[nodiscard]] TableChunk copy(MemoryReservation& reservation) const;
 
   private:
     ///< @brief Optional owning object if the TableChunk was constructed from a

@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <unordered_map>
 #include <utility>
 
@@ -252,18 +253,39 @@ class BufferResource {
     );
 
     /**
-     * @brief Make a memory reservation or fail.
+     * @brief Make a memory reservation or fail based on the given order of memory types.
      *
      * @param size The size of the buffer to allocate.
-     * @param mem_type Optional memory type to allocate the buffer
-     * from. If not provided then all memory types will be tried in
-     * the order they appear in `MEMORY_TYPES`.
+     * @param mem_types Range of memory types to try to reserve memory from. If not
+     * provided, all memory types will be tried in the order they appear in
+     * `MEMORY_TYPES`.
      * @return A memory reservation.
      * @throws std::runtime_error if no memory reservation was made.
      */
-    [[nodiscard]] MemoryReservation reserve_or_fail(
-        size_t size, std::optional<MemoryType> mem_type = std::nullopt
-    );
+    template <std::ranges::input_range Range>
+        requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
+    [[nodiscard]] MemoryReservation reserve_or_fail(size_t size, Range mem_types) {
+        // try to reserve memory from the given order
+        for (auto const& mem_type : mem_types) {
+            auto [res, _] = reserve(mem_type, size, false);
+            if (res.size() == size) {
+                return std::move(res);
+            }
+        }
+        RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
+    }
+
+    /**
+     * @brief Make a memory reservation or fail.
+     *
+     * @param size The size of the buffer to allocate.
+     * @param mem_type The memory type to try to reserve memory from.
+     * @return A memory reservation.
+     * @throws std::runtime_error if no memory reservation was made.
+     */
+    [[nodiscard]] MemoryReservation reserve_or_fail(size_t size, MemoryType mem_type) {
+        return reserve_or_fail(size, std::ranges::single_view{mem_type});
+    }
 
     /**
      * @brief Consume a portion of the reserved memory.

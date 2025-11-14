@@ -5,6 +5,8 @@
 
 #include <memory>
 
+#include <rmm/aligned.hpp>
+
 #include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
@@ -119,7 +121,8 @@ bool TableChunk::is_spillable() const {
     return is_spillable_;
 }
 
-TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) const {
+TableChunk TableChunk::copy(MemoryReservation& reservation) const {
+    BufferResource* br = reservation.br();
     if (is_available()) {  // If `is_available() == true`, the chunk is in device memory.
         switch (reservation.mem_type()) {
         case MemoryType::DEVICE:
@@ -175,6 +178,22 @@ TableChunk TableChunk::copy(BufferResource* br, MemoryReservation& reservation) 
                         std::move(packed_columns.metadata),
                         br->move(std::move(packed_columns.gpu_data), stream())
                     );
+
+                    // Handle the case where `cudf::pack` allocates slightly more than the
+                    // input size. This can occur because cudf uses aligned allocations,
+                    // which may exceed the requested size. To accommodate this, we
+                    // slightly increase the reservation if the packed data fits within
+                    // the aligned size.
+                    if (packed_data->data->size > reservation.size()) {
+                        auto const aligned_size = rmm::align_up(reservation.size(), 1024);
+                        if (packed_data->data->size <= aligned_size) {
+                            reservation =
+                                br->reserve(
+                                      MemoryType::HOST, packed_data->data->size, true
+                                )
+                                    .first;
+                        }
+                    }
                     packed_data->data =
                         br->move(std::move(packed_data->data), reservation);
                 }
@@ -205,24 +224,18 @@ ContentDescription get_content_description(TableChunk const& obj) {
 }
 
 Message to_message(std::uint64_t sequence_number, std::unique_ptr<TableChunk> chunk) {
-    Message::Callbacks cbs{
-        .content_size = [](Message const& msg,
-                           MemoryType mem_type) -> std::pair<size_t, bool> {
+    auto cd = get_content_description(*chunk);
+    return Message{
+        sequence_number,
+        std::move(chunk),
+        cd,
+        [](Message const& msg, MemoryReservation& reservation) -> Message {
             auto const& self = msg.get<TableChunk>();
-            return {self.data_alloc_size(mem_type), self.is_spillable()};
-        },
-        .copy = [](Message const& msg,
-                   BufferResource* br,
-                   MemoryReservation& reservation) -> Message {
-            auto const& self = msg.get<TableChunk>();
-            return Message(
-                msg.sequence_number(),
-                std::make_unique<TableChunk>(self.copy(br, reservation)),
-                msg.callbacks()
-            );
+            auto chunk = std::make_unique<TableChunk>(self.copy(reservation));
+            auto cd = get_content_description(*chunk);
+            return Message{msg.sequence_number(), std::move(chunk), cd, msg.copy_cb()};
         }
     };
-    return Message{sequence_number, std::move(chunk), std::move(cbs)};
 }
 
 }  // namespace rapidsmpf::streaming

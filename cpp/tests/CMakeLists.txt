@@ -45,8 +45,7 @@ file(CREATE_LINK "${RAPIDSMPF_BINARY_DIR}/gtests" "${CMAKE_CURRENT_BINARY_DIR}/g
 add_library(test_sources INTERFACE)
 target_sources(
   test_sources
-  INTERFACE error_macros_tests.cpp
-            test_allgather.cpp
+  INTERFACE test_allgather.cpp
             test_buffer_resource.cpp
             test_chunk.cpp
             test_communicator.cpp
@@ -54,6 +53,8 @@ target_sources(
             test_cuda_stream.cpp
             test_cudf_utils.cpp
             test_cupti_monitor.cpp
+            test_error_macros.cpp
+            test_metadata_payload_exchange.cpp
             test_partition.cpp
             test_pausable_thread_loop.cpp
             test_pinned_resources.cpp
@@ -78,6 +79,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
               streaming/test_partition.cpp
               streaming/test_read_parquet.cpp
               streaming/test_shuffler.cpp
+              streaming/test_spillable_messages.cpp
               streaming/test_table_chunk.cpp
   )
 endif()

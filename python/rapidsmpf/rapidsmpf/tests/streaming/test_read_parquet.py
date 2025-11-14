@@ -11,16 +11,19 @@ import pytest
 
 import pylibcudf as plc
 
-from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel
 from rapidsmpf.streaming.core.node import run_streaming_pipeline
-from rapidsmpf.streaming.cudf.parquet import read_parquet
+from rapidsmpf.streaming.cudf.parquet import Filter, read_parquet
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
 
 if TYPE_CHECKING:
     from typing import Literal
 
+    from rmm.pylibrmm.stream import Stream
+
+    from rapidsmpf.streaming.core.channel import Channel
     from rapidsmpf.streaming.core.context import Context
+    from rapidsmpf.streaming.core.node import CppNode
 
 
 @pytest.fixture(scope="module")
@@ -46,17 +49,72 @@ def source(
     return plc.io.SourceInfo(sources)
 
 
+def make_filter(stream: Stream) -> plc.expressions.Expression:
+    return plc.expressions.Operation(
+        plc.expressions.ASTOperator.LESS,
+        plc.expressions.ColumnReference(0),
+        plc.expressions.Literal(
+            plc.Scalar.from_py(15, dtype=plc.DataType(plc.TypeId.INT32), stream=stream)
+        ),
+    )
+
+
+def make_producer(
+    context: Context,
+    ch: Channel[TableChunk],
+    options: plc.io.parquet.ParquetReaderOptions,
+    *,
+    use_filter: bool,
+) -> CppNode:
+    if use_filter:
+        fstream = context.get_stream_from_pool()
+        return read_parquet(
+            context, ch, 4, options, 3, Filter(fstream, make_filter(fstream))
+        )
+    else:
+        return read_parquet(context, ch, 4, options, 3)
+
+
+def get_expected(
+    ctx: Context,
+    source: plc.io.SourceInfo,
+    skip_rows: int | Literal["none"],
+    num_rows: int | Literal["all"],
+    *,
+    use_filter: bool,
+) -> plc.Table:
+    options = plc.io.parquet.ParquetReaderOptions.builder(source).build()
+
+    if skip_rows != "none":
+        options.set_skip_rows(skip_rows)
+    if num_rows != "all":
+        options.set_num_rows(num_rows)
+    if use_filter:
+        fstream = ctx.get_stream_from_pool()
+        filter = make_filter(fstream)
+        fstream.synchronize()
+        options.set_filter(filter)
+
+    expected = plc.io.parquet.read_parquet(options).tbl
+
+    if use_filter:
+        fstream.synchronize()
+    return expected
+
+
 @pytest.mark.parametrize(
     "skip_rows", ["none", 7, 19, 113], ids=lambda s: f"skip_rows_{s}"
 )
 @pytest.mark.parametrize("num_rows", ["all", 0, 3, 31, 83], ids=lambda s: f"nrows_{s}")
+@pytest.mark.parametrize("use_filter", [False, True])
 def test_read_parquet(
     context: Context,
     source: plc.io.SourceInfo,
     skip_rows: int | Literal["none"],
     num_rows: int | Literal["all"],
+    use_filter: bool,  # noqa: FBT001
 ) -> None:
-    ch = Channel[TableChunk]()
+    ch: Channel[TableChunk] = context.create_channel()
 
     options = plc.io.parquet.ParquetReaderOptions.builder(source).build()
 
@@ -64,9 +122,8 @@ def test_read_parquet(
         options.set_skip_rows(skip_rows)
     if num_rows != "all":
         options.set_num_rows(num_rows)
-    expected = plc.io.parquet.read_parquet(options).tbl
 
-    producer = read_parquet(context, ch, 4, options, 3)
+    producer = make_producer(context, ch, options, use_filter=use_filter)
 
     consumer, deferred_messages = pull_from_channel(context, ch)
 
@@ -84,6 +141,8 @@ def test_read_parquet(
     got = plc.concatenate.concatenate([chunk.table_view() for chunk in chunks])
     for chunk in chunks:
         chunk.stream.synchronize()
+
+    expected = get_expected(context, source, skip_rows, num_rows, use_filter=use_filter)
 
     assert got.num_rows() == expected.num_rows()
     assert got.num_columns() == expected.num_columns()

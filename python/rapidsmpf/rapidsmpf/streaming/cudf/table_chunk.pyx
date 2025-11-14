@@ -11,6 +11,10 @@ from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 
+from rapidsmpf.buffer.resource cimport (BufferResource, MemoryReservation,
+                                        cpp_MemoryReservation)
+# Need the header include for inline C++ code
+from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper  # no-cython-lint
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
@@ -20,9 +24,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
         (uint64_t sequence_number, unique_ptr[cpp_TableChunk]) except +
 
 
-# Helper function to release a table chunk from a message, which is needed
-# because TableChunk doesn't have a default ctor.
-cdef extern from *:
+cdef extern from * nogil:
     """
     namespace {
     std::unique_ptr<rapidsmpf::streaming::TableChunk>
@@ -49,19 +51,30 @@ cdef extern from *:
             view,
             device_alloc_size,
             stream,
-            rapidsmpf::streaming::OwningWrapper(owner, py_deleter),
+            rapidsmpf::OwningWrapper(owner, py_deleter),
             exclusive_view ?
                 rapidsmpf::streaming::TableChunk::ExclusiveView::YES
                 : rapidsmpf::streaming::TableChunk::ExclusiveView::NO
         );
     }
+
+    std::unique_ptr<rapidsmpf::streaming::TableChunk> cpp_table_make_available(
+        std::unique_ptr<rapidsmpf::streaming::TableChunk> &&table,
+        rapidsmpf::MemoryReservation* reservation
+    ) {
+        return std::make_unique<rapidsmpf::streaming::TableChunk>(
+            table->make_available(*reservation)
+        );
+    }
     }
     """
-    unique_ptr[cpp_TableChunk] \
-        cpp_release_table_chunk_from_message(cpp_Message) except +
-
+    unique_ptr[cpp_TableChunk] cpp_release_table_chunk_from_message(
+        cpp_Message
+    ) except +
     unique_ptr[cpp_TableChunk] cpp_from_table_view_with_owner(...) except +
-
+    unique_ptr[cpp_TableChunk] cpp_table_make_available(
+        unique_ptr[cpp_TableChunk], cpp_MemoryReservation*
+    ) except +
 
 cdef class TableChunk:
     """
@@ -133,8 +146,7 @@ cdef class TableChunk:
 
         Returns
         -------
-        TableChunk
-            A new TableChunk wrapping the given pylibcudf Table.
+        A new TableChunk wrapping the given pylibcudf Table.
 
         Notes
         -----
@@ -206,7 +218,7 @@ cdef class TableChunk:
 
         Warnings
         --------
-        The TableChunk is released and must not be used after this call.
+        The original table chunk is released and must not be used after this call.
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
@@ -290,6 +302,93 @@ cdef class TableChunk:
         True if the table is already available; otherwise, False.
         """
         return deref(self.handle_ptr()).is_available()
+
+    def make_available_cost(self):
+        """
+        Return the estimated cost (in bytes) of making the table available.
+
+        Currently, only device memory usage is accounted for in this estimate.
+
+        Returns
+        -------
+        The estimated cost in bytes.
+        """
+        return deref(self.handle_ptr()).make_available_cost()
+
+    def make_available(self, MemoryReservation reservation not None):
+        """
+        Move this table chunk into a new one with its data made available.
+
+        As part of the move, a copy or unpack operation may be performed,
+        using the associated CUDA stream for execution. After this call,
+        the current object is left in a moved-from state and should not be
+        accessed further except for reassignment, movement, or destruction.
+
+        Parameters
+        ----------
+        reservation
+            Memory reservation used for allocations, if making data available
+            is needed.
+
+        Returns
+        -------
+        A new table chunk with its data available on device.
+
+        Warnings
+        --------
+        The original table chunk is released and must not be used after this call.
+        """
+        cdef cpp_MemoryReservation* res = reservation._handle.get()
+        cdef unique_ptr[cpp_TableChunk] handle = self.release_handle()
+        cdef unique_ptr[cpp_TableChunk] ret
+        with nogil:
+            ret = cpp_table_make_available(move(handle), res)
+        return TableChunk.from_handle(move(ret))
+
+    def make_available_and_spill(
+        self, BufferResource br not None, *, allow_overbooking
+    ):
+        """
+        Make this table chunk available on device, spilling other data if necessary.
+
+        Ensures that the data backing this table chunk is made available in device
+        memory. If there is insufficient free memory to complete the operation, the
+        buffer resource may spill other data until enough space has been freed.
+
+        Parameters
+        ----------
+        br
+            Buffer resource used for allocations and spill management.
+        allow_overbooking
+            Whether the memory reservation may temporarily exceed the current
+            allocation limit.
+
+        Returns
+        -------
+        A new table chunk with its data made available on device.
+
+        Raises
+        ------
+        MemoryError
+            If the allocation or spilling process fails to free enough memory.
+
+        Warnings
+        --------
+        The original table chunk is released and must not be used after this call.
+
+        Examples
+        --------
+        >>> # Make the data of an existing chunk available on device
+        >>> chunk = chunk.make_available_and_spill(br, allow_overbooking=False)
+        >>> chunk.table_view()
+        """
+
+        cdef MemoryReservation res = br.reserve_and_spill(
+            MemoryType.DEVICE,
+            self.make_available_cost(),
+            allow_overbooking=allow_overbooking
+        )
+        return self.make_available(res)
 
     def table_view(self):
         """

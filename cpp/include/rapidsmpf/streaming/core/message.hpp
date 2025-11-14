@@ -14,6 +14,7 @@
 #include <utility>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/error.hpp>
 
@@ -26,64 +27,38 @@ namespace rapidsmpf::streaming {
 class Message {
   public:
     /**
-     * @brief Callback functions associated with a message.
+     * @brief Callback for performing a deep copy of a message.
      *
-     * Allows type-specific customization of memory-related operations, such as
-     * computing data sizes or performing deep copies.
+     * The copy operation allocates new memory for the message's payload using the
+     * provided memory reservation. The memory type specified in the reservation
+     * determines where the new copy will primarily reside (e.g., device or host
+     * memory).
+     *
+     * @param msg Source message to copy.
+     * @param reservation Memory reservation to consume during allocation.
+     * @return A new `Message` instance containing a deep copy of the payload.
      */
-    struct Callbacks {
-        /**
-         * @brief Callback for computing the size of a message's content.
-         *
-         * This callback returns the total size, in bytes, of the data portion associated
-         * with a message. It is used to determine memory requirements for the content
-         * only — not for metadata or any auxiliary information.
-         *
-         * Typically, this data is represented by a `Buffer` that may reside in any
-         * memory type (e.g., host or device). The size reported by this callback
-         * determines how large a memory reservation must be when performing a
-         * `Message::copy()`.
-         *
-         * @param msg Reference to the message whose data size is queried.
-         * @param mem_type Target memory type to query.
-         * @return A pair (size, spillable) where:
-         *   - size: total size (in bytes) of the content for the given memory type.
-         *   - spillable: `true` if the message owns its buffers and releasing it frees
-         *     memory; otherwise `false`.
-         */
-        std::function<std::pair<size_t, bool>(Message const&, MemoryType)> content_size;
+    using CopyCallback =
+        std::function<Message(Message const&, MemoryReservation& reservation)>;
 
-        /**
-         * @brief Callback for performing a deep copy of a message.
-         *
-         * The copy operation allocates new memory for the message's payload using the
-         * provided buffer resource and memory reservation. The memory type specified
-         * in the reservation determines where the new copy will primarily reside
-         * (e.g., device or host memory).
-         *
-         * @param msg Source message to copy.
-         * @param br Buffer resource used for memory allocations.
-         * @param reservation Memory reservation to consume during allocation.
-         * @return A new `Message` instance containing a deep copy of the payload.
-         */
-        std::function<
-            Message(Message const&, BufferResource* br, MemoryReservation& reservation)>
-            copy;
-    };
-
-    // @brief Create an empty message.
+    /// @brief Create an empty message.
     Message() = default;
 
     /**
      * @brief Construct a new message from a unique pointer to its payload.
      *
-     * Optionally, a set of `Callbacks` can be provided to define custom behavior
-     * for size computation, copying, and other message operations.
+     * The message may optionally support deep-copy and spilling operations through a
+     * user-provided `CopyCallback`. If no callback is provided, copy and spill
+     * operations are disabled.
      *
      * @tparam T Type of the payload to store inside the message.
      * @param sequence_number Ordering identifier for the message.
      * @param payload Non-null unique pointer to the payload.
-     * @param callbacks Optional set of callbacks defining message operations.
+     * @param content_description Description of the payload's content. When a copy
+     * callback is provided, this description must accurately reflect the content of the
+     * payload (e.g., per-memory-type sizes and spillable status).
+     * @param copy_cb Optional callback used to perform deep copies of the message. If
+     * `nullptr`, copying and spilling are disabled.
      *
      * @note Sequence numbers are used to ensure that when multiple producers send into
      * the same output channel, channel ordering is preserved. Specifically, the guarantee
@@ -92,7 +67,6 @@ class Message {
      * increasing sequence number order. Behaviour is undefined if not. To ensure
      * insertion into an output channel from multiple producers obeys this invariant, use
      * a `Lineariser`.
-     *
      * This promise allows consumers to ensure ordering by buffering at most
      * `num_consumers` messages, rather than needing to buffer the entire channel input.
      *
@@ -102,9 +76,12 @@ class Message {
     Message(
         std::uint64_t sequence_number,
         std::unique_ptr<T> payload,
-        Callbacks callbacks = Callbacks{}
+        ContentDescription content_description,
+        CopyCallback copy_cb = nullptr
     )
-        : sequence_number_(sequence_number), callbacks_{std::move(callbacks)} {
+        : sequence_number_(sequence_number),
+          content_description_{content_description},
+          copy_cb_{std::move(copy_cb)} {
         RAPIDSMPF_EXPECTS(
             payload != nullptr, "nullptr not allowed", std::invalid_argument
         );
@@ -115,11 +92,23 @@ class Message {
         payload_ = std::shared_ptr<T>(std::move(payload));
     }
 
+    // In tandem with coro::queue the move assignment of std::any breaks GCC's
+    // uninitialized variable tracking and we get a warning that std::any::_M_manager' may
+    // be used uninitialized [-Wmaybe-uninitialized] This is a bug in GCC 14.x which we
+    // workaround by suppressing the warning for the move ctors/assignment. Fixed in
+    // GCC 15.2.
+#if defined(__GNUC__) && __GNUC__ == 14
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
     /** @brief Move construct. @param other Source message. */
     Message(Message&& other) noexcept = default;
 
     /** @brief Move assign. @param other Source message. @return *this. */
     Message& operator=(Message&& other) noexcept = default;
+#if defined(__GNUC__) && __GNUC__ == 14
+#pragma GCC diagnostic pop
+#endif
     Message(Message const&) = delete;
     Message& operator=(Message const&) = delete;
 
@@ -188,83 +177,62 @@ class Message {
     }
 
     /**
-     * @brief Returns the callbacks associated with this message.
+     * @brief Returns the content description associated with the message.
      *
-     * The callbacks define custom behaviors for operations such as
-     * `content_size()` and `copy()`.
-     *
-     * @return Constant reference to the message's registered callbacks.
+     * @return The message's content description.
      */
-    [[nodiscard]] constexpr Callbacks const& callbacks() const noexcept {
-        return callbacks_;
+    [[nodiscard]] constexpr ContentDescription const&
+    content_description() const noexcept {
+        return content_description_;
     }
 
     /**
-     * @brief Query the size of the message's content for a given memory type.
+     * @brief Returns the copy callback associated with the message.
      *
-     * Invokes the registered `content_size` callback to compute the total size
-     * (in bytes) of the message's content portion stored in the specified memory
-     * space (e.g., host or device). This excludes any metadata or auxiliary information.
-     *
-     * The returned pair provides both the total size and whether the underlying buffers
-     * are spillable, i.e., whether the message owns its buffers and releasing it will
-     * free the associated memory.
-     *
-     * @param mem_type Memory type to query.
-     * @return A pair (size, spillable) where:
-     *   - size: total size (in bytes) of the content for the given memory type.
-     *   - spillable: `true` if the message owns its buffers and releasing it frees
-     *     memory; otherwise `false`.
-     *
-     * @throws std::invalid_argument if the message does not support `content_size`.
+     * @return The message's copy callback function.
      */
-    [[nodiscard]] std::pair<size_t, bool> content_size(MemoryType mem_type) {
-        RAPIDSMPF_EXPECTS(
-            callbacks_.content_size,
-            "message doesn't support `content_size`",
-            std::invalid_argument
-        );
-        return callbacks_.content_size(*this, mem_type);
+    [[nodiscard]] constexpr CopyCallback const& copy_cb() const noexcept {
+        return copy_cb_;
     }
 
     /**
-     * @brief Query the total content size required for a deep copy.
+     * @brief Returns the total memory size required for a deep copy of the payload.
+     *
+     * The computed size represents the total amount of memory that must be
+     * reserved to duplicate all content buffers of the message, regardless of
+     * their current memory locations. For example, if the payload's content
+     * resides in both host and device memory, the returned size is the sum of
+     * both.
      *
      * @return Total number of bytes that must be reserved to perform a deep copy
      * of the message's payload and content buffers.
      *
      * @see copy()
      */
-    [[nodiscard]] size_t copy_cost() {
-        size_t ret = 0;
-        for (MemoryType mem_type : MEMORY_TYPES) {
-            ret += content_size(mem_type).first;
-        }
-        return ret;
+    [[nodiscard]] constexpr size_t copy_cost() const noexcept {
+        return content_description().content_size();
     }
 
     /**
      * @brief Perform a deep copy of this message and its payload.
      *
      * Invokes the registered `copy` callback to create a new `Message` with freshly
-     * allocated buffers. The allocation is performed using the provided buffer
-     * resource and memory reservation, which together define the memory type
-     * (e.g., host or device).
+     * allocated buffers. The allocation is performed using the provided memory
+     * reservation, which also define the target memory type (e.g., host or device).
      *
      * The resulting message contains a deep copy of the original payload, while
      * preserving the same metadata and callbacks.
      *
-     * @param br Buffer resource used for allocations.
      * @param reservation Memory reservation to consume for the copy.
      * @return A new `Message` instance containing a deep copy of the payload.
      *
      * @throws std::invalid_argument if the message does not support copying.
      */
-    [[nodiscard]] Message copy(BufferResource* br, MemoryReservation& reservation) const {
+    [[nodiscard]] Message copy(MemoryReservation& reservation) const {
         RAPIDSMPF_EXPECTS(
-            callbacks_.copy, "message doesn't support `copy`", std::invalid_argument
+            copy_cb(), "message doesn't support `copy`", std::invalid_argument
         );
-        return callbacks_.copy(*this, br, reservation);
+        return copy_cb()(*this, reservation);
     }
 
   private:
@@ -285,7 +253,8 @@ class Message {
   private:
     std::uint64_t sequence_number_{0};
     std::any payload_;
-    Callbacks callbacks_;
+    ContentDescription content_description_;
+    CopyCallback copy_cb_;
 };
 
 }  // namespace rapidsmpf::streaming
