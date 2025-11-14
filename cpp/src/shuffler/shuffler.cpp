@@ -227,7 +227,7 @@ class Shuffler::Progress {
         {
             auto const t0_metadata_recv = Clock::now();
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("meta_recv");
-            int recv_any_iters =
+            [[maybe_unused]] int recv_any_iters =
                 0;  // this will be stripped off if RAPIDSMPF_VERBOSE_INFO is not set
             while (true) {
                 auto const [msg, src] = shuffler_.comm_->recv_any(metadata_tag);
