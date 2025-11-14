@@ -8,6 +8,7 @@
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/nvtx.hpp>
 
 namespace rapidsmpf {
 
@@ -110,6 +111,7 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
 std::unique_ptr<Buffer> BufferResource::allocate(
     std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
 ) {
+    RAPIDSMPF_NVTX_SCOPED_RANGE("BufferResource::allocate");
     std::unique_ptr<Buffer> ret;
     switch (reservation.mem_type_) {
     case MemoryType::HOST:
@@ -153,7 +155,10 @@ std::unique_ptr<Buffer> BufferResource::move(
 ) {
     if (reservation.mem_type_ != buffer->mem_type()) {
         auto ret = allocate(buffer->size, buffer->stream(), reservation);
-        buffer_copy(*ret, *buffer, buffer->size);
+        {
+            RAPIDSMPF_NVTX_SCOPED_RANGE("BufferResource::move::buffer_copy");
+            buffer_copy(*ret, *buffer, buffer->size);
+        }
         return ret;
     }
     return buffer;

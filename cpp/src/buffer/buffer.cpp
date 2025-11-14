@@ -156,6 +156,8 @@ void buffer_copy(
 
     // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
     // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
+    // This is too much synchronization. The source source buffer has an event. That's all
+    // we need to wait for.
     cuda_stream_join(dst.stream(), src.stream());
     dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
@@ -166,6 +168,8 @@ void buffer_copy(
             stream
         ));
     });
+    // Again, this is too much. We only need to wait on the event in the destination
+    // buffer. We don't need to allocate an event.
     cuda_stream_join(src.stream(), dst.stream());
 }
 

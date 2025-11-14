@@ -7,6 +7,7 @@
 #include <utility>
 
 #include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -33,6 +34,7 @@ std::size_t spill_messages(
     std::shared_ptr<BufferResource> br,
     std::size_t amount
 ) {
+    RAPIDSMPF_NVTX_SCOPED_RANGE("spill_messages::amount", amount);
     // Recall that std::map is sorted by key by default, so iteration follows the
     // order in which messages were inserted into `spillable_messages`.
     std::map<SpillableMessages::MessageId, ContentDescription> cds =
@@ -45,9 +47,11 @@ std::size_t spill_messages(
             break;
         }
         if (cd.spillable()) {
+            RAPIDSMPF_NVTX_SCOPED_RANGE("spill_messages::spill", id);
             total_spilled += spillable_messages.spill(id, br.get());
         }
     }
+    RAPIDSMPF_NVTX_MARKER("spill_messages::total_spilled_bytes", total_spilled);
     return total_spilled;
 }
 }  // namespace
