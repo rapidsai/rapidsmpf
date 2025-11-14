@@ -284,14 +284,17 @@ Node unbounded_fo_process_input_task(
                     state->ch_next_idx, [](size_t idx) { return idx != InvalidIdx; }
                 );
 
-                if (std::ranges::empty(filtered_view)) {
+                auto it = std::ranges::begin(filtered_view);  // first valid idx
+                auto end = std::ranges::end(filtered_view);  // end idx
+
+                if (it == end) {
                     // no valid indices, so all send tasks are in an invalid state
                     return true;
                 }
 
-                auto [min_val, max_val] = std::ranges::minmax(filtered_view);
-                last_completed_idx = min_val;
-                latest_processed_idx = max_val;
+                auto [min_it, max_it] = std::minmax_element(it, end);
+                last_completed_idx = *min_it;
+                latest_processed_idx = *max_it;
 
                 return latest_processed_idx == state->recv_messages.size();
             });
