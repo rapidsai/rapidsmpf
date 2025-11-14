@@ -365,13 +365,12 @@ Node unbounded_fanout(
     tasks.reserve(chs_out.size() + 1);
 
     auto& executor = *ctx->executor();
-    // schedule send tasks for each output channel
+
     for (size_t i = 0; i < chs_out.size(); i++) {
         tasks.emplace_back(executor.schedule(
             unbounded_fo_send_task(*ctx, i, std::move(chs_out[i]), state)
         ));
     }
-    // schedule process input task
     tasks.emplace_back(executor.schedule(
         unbounded_fo_process_input_task(*ctx, std::move(ch_in), std::move(state))
     ));
