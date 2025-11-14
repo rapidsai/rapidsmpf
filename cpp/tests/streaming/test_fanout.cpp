@@ -91,10 +91,8 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 TEST_P(StreamingFanout, SinkPerChannel) {
-    // Prepare inputs
     auto inputs = make_int_inputs(num_msgs);
 
-    // Create pipeline
     std::vector<std::vector<Message>> outs(num_out_chs);
     {
         std::vector<Node> nodes;
@@ -131,6 +129,16 @@ TEST_P(StreamingFanout, SinkPerChannel) {
 
 namespace {
 
+/**
+ * @brief A node that pulls and shuts down a channel after a certain number of messages
+ * have been received.
+ *
+ * @param ctx The context to use.
+ * @param ch_in The input channel to receive messages from.
+ * @param out_messages The output messages to store the received messages in.
+ * @param max_messages The maximum number of messages to receive.
+ * @return A coroutine representing the task.
+ */
 Node shutdown_channel_after_n_messages(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
@@ -152,11 +160,10 @@ Node shutdown_channel_after_n_messages(
 
 }  // namespace
 
+// all channels shutsdown after receiving num_msgs / 2 messages
 TEST_P(StreamingFanout, SinkPerChannel_ShutdownHalfWay) {
-    // Prepare inputs
     auto inputs = make_int_inputs(num_msgs);
 
-    // Create pipeline
     std::vector<std::vector<Message>> outs(num_out_chs);
     {
         std::vector<Node> nodes;
@@ -181,12 +188,52 @@ TEST_P(StreamingFanout, SinkPerChannel_ShutdownHalfWay) {
     }
 
     for (int c = 0; c < num_out_chs; ++c) {
-        // Validate sizes
-        EXPECT_EQ(outs[c].size(), static_cast<size_t>(num_msgs / 2));
+        EXPECT_EQ(static_cast<size_t>(num_msgs / 2), outs[c].size());
 
-        // Validate ordering/content and that shallow copies share the same underlying
-        // object
         for (int i = 0; i < num_msgs / 2; ++i) {
+            SCOPED_TRACE("channel " + std::to_string(c) + " idx " + std::to_string(i));
+            EXPECT_EQ(outs[c][i].get<int>(), i);
+        }
+    }
+}
+
+// only odd channels shutdown after receiving num_msgs / 2 messages, others continue to
+// receive all messages
+TEST_P(StreamingFanout, SinkPerChannel_OddChannelsShutdownHalfWay) {
+    auto inputs = make_int_inputs(num_msgs);
+
+    std::vector<std::vector<Message>> outs(num_out_chs);
+    {
+        std::vector<Node> nodes;
+
+        auto in = ctx->create_channel();
+        nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
+
+        std::vector<std::shared_ptr<Channel>> out_chs;
+        for (int i = 0; i < num_out_chs; ++i) {
+            out_chs.emplace_back(ctx->create_channel());
+        }
+
+        nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+
+        for (int i = 0; i < num_out_chs; ++i) {
+            if (i % 2 == 0) {
+                nodes.emplace_back(node::pull_from_channel(ctx, out_chs[i], outs[i]));
+            } else {
+                nodes.emplace_back(shutdown_channel_after_n_messages(
+                    ctx, out_chs[i], outs[i], num_msgs / 2
+                ));
+            }
+        }
+
+        run_streaming_pipeline(std::move(nodes));
+    }
+
+    for (int c = 0; c < num_out_chs; ++c) {
+        int expected_size = c % 2 == 0 ? num_msgs : num_msgs / 2;
+        EXPECT_EQ(outs[c].size(), expected_size);
+
+        for (int i = 0; i < expected_size; ++i) {
             SCOPED_TRACE("channel " + std::to_string(c) + " idx " + std::to_string(i));
             EXPECT_EQ(outs[c][i].get<int>(), i);
         }
@@ -268,9 +315,9 @@ struct ManyInputSinkStreamingFanout : public StreamingFanout {
             std::vector<int> actual;
             actual.reserve(outs[c].size());
             std::ranges::transform(
-                outs[c],
-                std::back_inserter(actual),
-                [](const Message& m) { return m.get<int>(); }
+                outs[c], std::back_inserter(actual), [](const Message& m) {
+                    return m.get<int>();
+                }
             );
             EXPECT_EQ(expected, actual);
         }

@@ -39,8 +39,8 @@ constexpr std::span<const MemoryType> try_memory_types(Message const& msg) {
 /**
  * @brief Asynchronously send a message to multiple output channels.
  *
- * @param msg The message to broadcast. Each channel receives a shallow
- * copy of the original message.
+ * @param msg The message to broadcast. Each channel receives a deep copy of the original
+ * message.
  * @param chs_out The set of output channels to which the message is sent.
  */
 Node send_to_channels(
@@ -59,8 +59,8 @@ Node send_to_channels(
     // move the message to the last channel to avoid extra copy
     tasks.emplace_back(chs_out.back()->send(std::move(msg)));
 
-    // note that the send tasks may return false if the channel is shut down. But it does
-    // not affect the bounded fanout implementation.
+    // note that the send tasks may return false if the channel is shut down. But we can
+    // safely ignore this in bounded fanout.
     coro_results(co_await coro::when_all(std::move(tasks)));
 }
 
@@ -132,6 +132,30 @@ struct UnboundedFanoutState {
 constexpr size_t InvalidIdx = std::numeric_limits<size_t>::max();
 
 /**
+ * @brief RAII helper class to set a channel index to invalid and notify the process input
+ * task to check if it should break.
+ */
+struct SetChannelIdxInvalidAtExit {
+    std::shared_ptr<UnboundedFanoutState> state;
+    size_t idx;
+
+    ~SetChannelIdxInvalidAtExit() {
+        coro::sync_wait(set_channel_idx_invalid());
+    }
+
+    Node set_channel_idx_invalid() {
+        if (state) {
+            {
+                auto lock = co_await state->mtx.scoped_lock();
+                state->ch_next_idx[idx] = InvalidIdx;
+            }
+            co_await state->request_data.notify_one();
+        }
+        state.reset();
+    }
+};
+
+/**
  * @brief Send messages to multiple output channels.
  *
  * @param ctx The context to use.
@@ -147,6 +171,7 @@ Node unbounded_fo_send_task(
     std::shared_ptr<UnboundedFanoutState> state
 ) {
     ShutdownAtExit ch_shutdown{ch_out};
+    SetChannelIdxInvalidAtExit set_ch_idx_invalid{.state = state, .idx = idx};
     co_await ctx.executor()->schedule();
 
     auto& logger = ctx.logger();
@@ -155,7 +180,6 @@ Node unbounded_fo_send_task(
     while (true) {
         {
             auto lock = co_await state->mtx.scoped_lock();
-            logger.trace("before data_ready wait ", idx);
             co_await state->data_ready.wait(lock, [&] {
                 // irrespective of input_done, update the end_idx to the total number of
                 // messages
@@ -181,12 +205,7 @@ Node unbounded_fo_send_task(
             if (!co_await ch_out->send(msg.copy(res))) {
                 // Failed to send message. Could be that the channel is shut down.
                 // So we need to abort the send task, and notify the process input task
-                {
-                    auto lock = co_await state->mtx.scoped_lock();
-                    state->ch_next_idx[idx] = InvalidIdx;
-                }
-                // notify the process input task to check if it should break
-                co_await state->request_data.notify_one();
+                co_await set_ch_idx_invalid.set_channel_idx_invalid();
                 co_return;
             }
         }
@@ -221,6 +240,10 @@ Node unbounded_fo_send_task(
 struct StateInputDoneAtExit {
     std::shared_ptr<UnboundedFanoutState> state;
 
+    ~StateInputDoneAtExit() {
+        coro::sync_wait(set_input_done());
+    }
+
     // forcibly set input_done to true and notify all send tasks to wind down
     Node set_input_done() {
         {
@@ -228,10 +251,6 @@ struct StateInputDoneAtExit {
             state->input_done = true;
         }
         co_await state->data_ready.notify_all();
-    }
-
-    ~StateInputDoneAtExit() {
-        coro::sync_wait(set_input_done());
     }
 };
 
@@ -260,18 +279,17 @@ Node unbounded_fo_process_input_task(
         size_t last_completed_idx = InvalidIdx, latest_processed_idx = InvalidIdx;
         {
             auto lock = co_await state->mtx.scoped_lock();
-            logger.trace("before request_data wait");
             co_await state->request_data.wait(lock, [&] {
-                auto filtered = state->ch_next_idx | std::views::filter([](size_t idx) {
-                                    return idx != InvalidIdx;
-                                });
+                auto filtered_view = std::ranges::filter_view(
+                    state->ch_next_idx, [](size_t idx) { return idx != InvalidIdx; }
+                );
 
-                if (std::ranges::empty(filtered)) {
+                if (std::ranges::empty(filtered_view)) {
                     // no valid indices, so all send tasks are in an invalid state
                     return true;
                 }
 
-                auto [min_val, max_val] = std::ranges::minmax(filtered);
+                auto [min_val, max_val] = std::ranges::minmax(filtered_view);
                 last_completed_idx = min_val;
                 latest_processed_idx = max_val;
 
