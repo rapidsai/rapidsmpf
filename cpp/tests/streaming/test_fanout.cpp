@@ -158,6 +158,12 @@ Node shutdown_channel_after_n_messages(
     co_await ch_in->shutdown();
 }
 
+Node throwing_node(std::shared_ptr<Context> ctx, std::shared_ptr<Channel> ch_out) {
+    ShutdownAtExit c{ch_out};
+    co_await ctx->executor()->schedule();
+    throw std::logic_error("throwing source");
+}
+
 }  // namespace
 
 // all channels shutsdown after receiving num_msgs / 2 messages
@@ -238,6 +244,57 @@ TEST_P(StreamingFanout, SinkPerChannel_OddChannelsShutdownHalfWay) {
             EXPECT_EQ(outs[c][i].get<int>(), i);
         }
     }
+}
+
+// tests that throwing a source node propagates the error to the pipeline. This test will
+// throw, but it should not hang.
+TEST_P(StreamingFanout, SinkPerChannel_ThrowingSource) {
+    std::vector<Node> nodes;
+
+    auto in = ctx->create_channel();
+    nodes.emplace_back(throwing_node(ctx, in));
+
+    std::vector<std::shared_ptr<Channel>> out_chs;
+    for (int i = 0; i < num_out_chs; ++i) {
+        out_chs.emplace_back(ctx->create_channel());
+    }
+
+    nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+
+    std::vector<Message> dummy_out;
+    for (int i = 0; i < num_out_chs; ++i) {
+        nodes.emplace_back(node::pull_from_channel(ctx, out_chs[i], dummy_out));
+    }
+
+    EXPECT_THROW(run_streaming_pipeline(std::move(nodes)), std::logic_error);
+}
+
+// tests that throwing a sink node propagates the error to the pipeline. This test
+// will throw, but it should not hang.
+TEST_P(StreamingFanout, SinkPerChannel_ThrowingSink) {
+    auto inputs = make_int_inputs(num_msgs);
+
+    std::vector<Node> nodes;
+    auto in = ctx->create_channel();
+    nodes.emplace_back(node::push_to_channel(ctx, in, std::move(inputs)));
+
+    std::vector<std::shared_ptr<Channel>> out_chs;
+    for (int i = 0; i < num_out_chs; ++i) {
+        out_chs.emplace_back(ctx->create_channel());
+    }
+
+    nodes.emplace_back(node::fanout(ctx, in, out_chs, policy));
+
+    std::vector<std::vector<Message>> dummy_outs(num_out_chs);
+    for (int i = 0; i < num_out_chs; ++i) {
+        if (i == 0) {
+            nodes.emplace_back(throwing_node(ctx, out_chs[i]));
+        } else {
+            nodes.emplace_back(node::pull_from_channel(ctx, out_chs[i], dummy_outs[i]));
+        }
+    }
+
+    EXPECT_THROW(run_streaming_pipeline(std::move(nodes)), std::logic_error);
 }
 
 enum class ConsumePolicy : uint8_t {
