@@ -14,6 +14,7 @@ namespace rapidsmpf::shuffler::detail {
 
 template <typename KeyType>
 void PostBox<KeyType>::insert(Chunk&& chunk) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     // check if all partition IDs in the chunk map to the same key
     KeyType key = key_map_fn_(chunk.part_id(0));
     for (size_t i = 1; i < chunk.n_messages(); ++i) {
@@ -37,6 +38,7 @@ bool PostBox<KeyType>::is_empty(PartID pid) const {
 
 template <typename KeyType>
 Chunk PostBox<KeyType>::extract(PartID pid, ChunkID cid) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
     std::lock_guard const lock(mutex_);
     return extract_item(pigeonhole_[key_map_fn_(pid)], cid).second;
 }
