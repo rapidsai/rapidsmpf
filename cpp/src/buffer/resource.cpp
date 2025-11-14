@@ -111,7 +111,7 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
 std::unique_ptr<Buffer> BufferResource::allocate(
     std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
 ) {
-    RAPIDSMPF_NVTX_SCOPED_RANGE("BufferResource::allocate");
+    RAPIDSMPF_NVTX_SCOPED_RANGE("BufferResource::allocate", size);
     std::unique_ptr<Buffer> ret;
     switch (reservation.mem_type_) {
     case MemoryType::HOST:
