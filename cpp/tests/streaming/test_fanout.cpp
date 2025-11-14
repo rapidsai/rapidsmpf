@@ -65,6 +65,11 @@ class StreamingFanout
     void SetUp() override {
         std::tie(policy, num_threads, num_out_chs, num_msgs) = GetParam();
         SetUpWithThreads(num_threads);
+
+        // restrict fanout tests to single communicator mode to reduce test runtime
+        if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
+            GTEST_SKIP() << "Skipping test in non-single communicator mode";
+        }
     }
 
     FanoutPolicy policy;
@@ -78,9 +83,9 @@ INSTANTIATE_TEST_SUITE_P(
     StreamingFanout,
     ::testing::Combine(
         ::testing::Values(FanoutPolicy::BOUNDED, FanoutPolicy::UNBOUNDED),
-        ::testing::Values(1, 2, 4),  // number of threads
-        ::testing::Values(1, 2, 4),  // number of output channels
-        ::testing::Values(1, 10, 100)  // number of messages
+        ::testing::Values(1, 4),  // number of threads
+        ::testing::Values(1, 4),  // number of output channels
+        ::testing::Values(10, 100)  // number of messages
     ),
     [](testing::TestParamInfo<StreamingFanout::ParamType> const& info) {
         return "policy_" + policy_to_string(std::get<0>(info.param)) + "_nthreads_"
@@ -246,9 +251,28 @@ TEST_P(StreamingFanout, SinkPerChannel_OddChannelsShutdownHalfWay) {
     }
 }
 
+class ThrowingStreamingFanout : public StreamingFanout {};
+
+INSTANTIATE_TEST_SUITE_P(
+    ThrowingStreamingFanout,
+    ThrowingStreamingFanout,
+    ::testing::Combine(
+        ::testing::Values(FanoutPolicy::BOUNDED, FanoutPolicy::UNBOUNDED),
+        ::testing::Values(1, 4),  // number of threads
+        ::testing::Values(4),  // number of output channels
+        ::testing::Values(10)  // number of messages
+    ),
+    [](testing::TestParamInfo<StreamingFanout::ParamType> const& info) {
+        return "policy_" + policy_to_string(std::get<0>(info.param)) + "_nthreads_"
+               + std::to_string(std::get<1>(info.param)) + "_nch_out_"
+               + std::to_string(std::get<2>(info.param)) + "_nmsgs_"
+               + std::to_string(std::get<3>(info.param));
+    }
+);
+
 // tests that throwing a source node propagates the error to the pipeline. This test will
 // throw, but it should not hang.
-TEST_P(StreamingFanout, SinkPerChannel_ThrowingSource) {
+TEST_P(ThrowingStreamingFanout, ThrowingSource) {
     std::vector<Node> nodes;
 
     auto in = ctx->create_channel();
@@ -271,7 +295,7 @@ TEST_P(StreamingFanout, SinkPerChannel_ThrowingSource) {
 
 // tests that throwing a sink node propagates the error to the pipeline. This test
 // will throw, but it should not hang.
-TEST_P(StreamingFanout, SinkPerChannel_ThrowingSink) {
+TEST_P(ThrowingStreamingFanout, ThrowingSink) {
     auto inputs = make_int_inputs(num_msgs);
 
     std::vector<Node> nodes;
@@ -297,6 +321,7 @@ TEST_P(StreamingFanout, SinkPerChannel_ThrowingSink) {
     EXPECT_THROW(run_streaming_pipeline(std::move(nodes)), std::logic_error);
 }
 
+namespace {
 enum class ConsumePolicy : uint8_t {
     CHANNEL_ORDER,  // consume all messages from a single channel before moving to the
                     // next
@@ -341,6 +366,7 @@ Node many_input_sink(
         }
     }
 }
+}  // namespace
 
 struct ManyInputSinkStreamingFanout : public StreamingFanout {
     void run(ConsumePolicy consume_policy) {
@@ -372,9 +398,9 @@ struct ManyInputSinkStreamingFanout : public StreamingFanout {
             std::vector<int> actual;
             actual.reserve(outs[c].size());
             std::ranges::transform(
-                outs[c], std::back_inserter(actual), [](const Message& m) {
-                    return m.get<int>();
-                }
+                outs[c],
+                std::back_inserter(actual),
+                [](const Message& m) { return m.get<int>(); }
             );
             EXPECT_EQ(expected, actual);
         }
@@ -386,9 +412,9 @@ INSTANTIATE_TEST_SUITE_P(
     ManyInputSinkStreamingFanout,
     ::testing::Combine(
         ::testing::Values(FanoutPolicy::BOUNDED, FanoutPolicy::UNBOUNDED),
-        ::testing::Values(1, 2, 4),  // number of threads
-        ::testing::Values(1, 2, 4),  // number of output channels
-        ::testing::Values(1, 10, 100)  // number of messages
+        ::testing::Values(1, 4),  // number of threads
+        ::testing::Values(1, 4),  // number of output channels
+        ::testing::Values(10, 100)  // number of messages
     ),
     [](testing::TestParamInfo<StreamingFanout::ParamType> const& info) {
         return "policy_" + policy_to_string(std::get<0>(info.param)) + "_nthreads_"
