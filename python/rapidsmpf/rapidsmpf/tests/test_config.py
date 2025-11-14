@@ -310,7 +310,8 @@ def test_serialize_empty_options() -> None:
     opts = Options()
     serialized = opts.serialize()
     assert isinstance(serialized, bytes)
-    assert len(serialized) == 8  # Only the count (0) as uint64_t.
+    # v1 format: prelude(8) + count(8) + CRC32(4)
+    assert len(serialized) == 8 + 8 + 4
 
     deserialized = Options.deserialize(serialized)
     assert deserialized.get_strings() == {}
@@ -337,7 +338,9 @@ def test_deserialize_out_of_bounds_offset() -> None:
 
     # Overwrite offset to something out of bounds.
     bad_offset = len(buf) + 100
-    buf[8:16] = bad_offset.to_bytes(8, "little")  # tamper key offset.
+    # v1 layout: prelude(8), count(8), key_offset(8), value_offset(8)
+    key_offset_start = 8 + 8
+    buf[key_offset_start : key_offset_start + 8] = bad_offset.to_bytes(8, "little")
     with pytest.raises(IndexError):
         Options.deserialize(bytes(buf))
 
