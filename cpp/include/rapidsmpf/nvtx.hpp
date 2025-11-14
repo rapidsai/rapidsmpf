@@ -173,3 +173,20 @@ struct rapidsmpf_domain {
  */
 #define RAPIDSMPF_NVTX_MARKER(message, payload) \
     RAPIDSMPF_NVTX_MARKER_IMPL(message, payload)
+
+/**
+ * @brief Convenience macro for generating an NVTX marker in the `rapidsmpf` domain to
+ * annotate a certain time point, that is only activate when RAPIDSMPF_VERBOSE_INFO is
+ * defined.
+ *
+ * @param message The message to annotate.
+ * @param payload The payload to annotate.
+ *
+ * Use this macro to annotate asynchronous operations.
+ */
+#if RAPIDSMPF_VERBOSE_INFO
+#define RAPIDSMPF_NVTX_MARKER_VERBOSE(message, payload) \
+    RAPIDSMPF_NVTX_MARKER_IMPL(message, payload)
+#else
+#define RAPIDSMPF_NVTX_MARKER_VERBOSE(message, payload)
+#endif

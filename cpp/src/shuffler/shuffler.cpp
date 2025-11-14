@@ -227,9 +227,8 @@ class Shuffler::Progress {
         {
             auto const t0_metadata_recv = Clock::now();
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("meta_recv");
-#if RAPIDSMPF_VERBOSE_INFO
-            int i = 0;
-#endif
+            int recv_any_iters =
+                0;  // this will be stripped off if RAPIDSMPF_VERBOSE_INFO is not set
             while (true) {
                 auto const [msg, src] = shuffler_.comm_->recv_any(metadata_tag);
                 if (msg) {
@@ -247,16 +246,12 @@ class Shuffler::Progress {
                 } else {
                     break;
                 }
-#if RAPIDSMPF_VERBOSE_INFO
-                i++;
-#endif
+                recv_any_iters++;
             }
             stats.add_duration_stat(
                 "event-loop-metadata-recv", Clock::now() - t0_metadata_recv
             );
-#if RAPIDSMPF_VERBOSE_INFO
-            RAPIDSMPF_NVTX_MARKER("meta_recv_iters", i);
-#endif
+            RAPIDSMPF_NVTX_MARKER_VERBOSE("meta_recv_iters", recv_any_iters);
         }
 
         // Post receives for incoming chunks
