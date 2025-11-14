@@ -403,8 +403,8 @@ void get_environment_variables(
         "^" + key_regex + "$", std::regex::ECMAScript | std::regex::optimize
     );
     for (char** env = environ; *env != nullptr; ++env) {
-        const char* cstr = *env;
-        const char* eq = std::strchr(cstr, '=');
+        char const* cstr = *env;
+        char const* eq = std::strchr(cstr, '=');
         if (!eq) {
             continue;
         }
