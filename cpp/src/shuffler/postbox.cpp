@@ -6,6 +6,7 @@
 #include <sstream>
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/shuffler/postbox.hpp>
 #include <rapidsmpf/utils.hpp>
