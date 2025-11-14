@@ -398,9 +398,9 @@ struct ManyInputSinkStreamingFanout : public StreamingFanout {
             std::vector<int> actual;
             actual.reserve(outs[c].size());
             std::ranges::transform(
-                outs[c],
-                std::back_inserter(actual),
-                [](const Message& m) { return m.get<int>(); }
+                outs[c], std::back_inserter(actual), [](const Message& m) {
+                    return m.get<int>();
+                }
             );
             EXPECT_EQ(expected, actual);
         }
