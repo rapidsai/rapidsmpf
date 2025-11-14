@@ -32,9 +32,8 @@ target_compile_options(
                         "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  rapidsmpfndsh
-  PRIVATE rapidsmpf::rapidsmpf rmm::rmm cudf::cudf libcoro $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
-          $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+  rapidsmpfndsh PRIVATE rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+                        $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
 add_executable(q09 "q09.cpp")
@@ -51,8 +50,14 @@ target_compile_options(
               "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  q09 PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf ucxx::ucxx ucx::ucp
-              $<TARGET_NAME_IF_EXISTS:MPI::MPI_C> $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+  q09 PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+              $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+)
+install(
+  TARGETS rapidsmpfndsh
+  COMPONENT benchmarking
+  DESTINATION ${lib_dir}
+  EXCLUDE_FROM_ALL
 )
 install(
   TARGETS q09
