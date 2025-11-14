@@ -17,7 +17,7 @@ coro::task<bool> Channel::send(Message msg) {
 coro::task<Message> Channel::receive() {
     auto msg_id = co_await rb_.consume();
     if (msg_id.has_value()) {
-        co_return sm_->extract(msg_id.value());
+        co_return sm_->extract(*msg_id);
     } else {
         co_return Message{};
     }
