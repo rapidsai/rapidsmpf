@@ -377,11 +377,13 @@ def test_gather_shuffle_statistics() -> None:
 
         stats = gather_shuffle_statistics(client)
         expected_stats = {
-            "event-loop-check-future-finish",
-            "event-loop-init-gpu-data-send",
-            "event-loop-metadata-recv",
-            "event-loop-metadata-send",
-            "event-loop-post-incoming-chunk-recv",
+            "metadata-payload-exchange-complete-data-transfers",
+            "metadata-payload-exchange-progress",
+            "metadata-payload-exchange-receive-metadata",
+            "metadata-payload-exchange-send-messages",
+            "metadata-payload-exchange-setup-data-receives",
+            "event-loop-process-communication",
+            "event-loop-submit-outgoing",
             "event-loop-total",
             "shuffle-payload-recv",
             "shuffle-payload-send",
