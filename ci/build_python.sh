@@ -5,7 +5,6 @@
 set -euo pipefail
 
 source rapids-configure-sccache
-
 source rapids-date-string
 
 export CMAKE_GENERATOR=Ninja
@@ -26,7 +25,7 @@ RAPIDS_PREPENDED_CONDA_CHANNELS=("$CPP_CHANNEL")
 # populates `RATTLER_CHANNELS` array and `RATTLER_ARGS` array
 source rapids-rattler-channel-string
 
-sccache --zero-stats
+sccache --stop-server 2>/dev/null || true
 
 rapids-logger "Building rapidsmpf"
 
