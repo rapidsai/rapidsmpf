@@ -10,7 +10,7 @@ dependencies:
 - clang-tools==20.1.4
 - clang==20.1.4
 - click >=8.1
-- cmake>=3.30.4,<4
+- cmake>=3.30.4
 - cuda-cudart-dev
 - cuda-cupti-dev
 - cuda-nvcc
