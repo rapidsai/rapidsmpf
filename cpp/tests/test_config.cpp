@@ -206,12 +206,26 @@ TEST(OptionsTest, SerializeDeserializeRoundTripPreservesData) {
     }
 }
 
+TEST(OptionsTest, DeserializeThrowsOnCrcMismatch) {
+    std::unordered_map<std::string, std::string> strings = {{"alpha", "1"}};
+    Options opts(strings);
+    auto buffer = opts.serialize();
+    ASSERT_GE(buffer.size(), static_cast<size_t>(8 + sizeof(uint64_t) + 4));
+    // Flip one byte in the data region (just before CRC trailer)
+    if (buffer.size() > (8 + sizeof(uint64_t) + 4)) {
+        buffer[buffer.size() - 5] ^= 0xFF;
+        EXPECT_THROW(
+            static_cast<void>(Options::deserialize(buffer)), std::invalid_argument
+        );
+    }
+}
+
 TEST(OptionsTest, SerializeDeserializeEmptyOptions) {
     Options empty;
     auto buffer = empty.serialize();
 
-    // Buffer should contain only the count (0)
-    EXPECT_EQ(buffer.size(), sizeof(uint64_t));
+    // Buffer contains MAGIC+ver (8), count (8) and CRC32 (4)
+    EXPECT_EQ(buffer.size(), 8 + sizeof(uint64_t) + 4);
 
     Options deserialized = Options::deserialize(buffer);
     EXPECT_TRUE(deserialized.get_strings().empty());
@@ -223,10 +237,18 @@ TEST(OptionsTest, DeserializeThrowsOnBufferTooSmallForCount) {
 }
 
 TEST(OptionsTest, DeserializeThrowsOnBufferTooSmallForHeader) {
-    // Buffer has count = 2 but no offsets/data
+    // Buffer has MAGIC+ver/flags and count = 2 but no offsets/data
     uint64_t count = 2;
-    std::vector<std::uint8_t> buffer(sizeof(uint64_t));
-    std::memcpy(buffer.data(), &count, sizeof(uint64_t));
+    std::vector<std::uint8_t> buffer(8 + sizeof(uint64_t));
+    buffer[0] = 'R';
+    buffer[1] = 'M';
+    buffer[2] = 'P';
+    buffer[3] = 'F';
+    buffer[4] = 1;  // version
+    buffer[5] = 0x01;  // flags: CRC present (won't be validated due to too-small buffer)
+    buffer[6] = 0;
+    buffer[7] = 0;  // reserved
+    std::memcpy(buffer.data() + 8, &count, sizeof(uint64_t));
     EXPECT_THROW(static_cast<void>(Options::deserialize(buffer)), std::invalid_argument);
 }
 
@@ -237,11 +259,13 @@ TEST(OptionsTest, DeserializeThrowsOnOffsetOutOfBounds) {
 
     // Corrupt count to 1 (valid)
     uint64_t count = 1;
-    std::memcpy(buffer.data(), &count, sizeof(uint64_t));
+    // Count is stored after 8-byte prelude
+    std::memcpy(buffer.data() + 8, &count, sizeof(uint64_t));
 
     // Corrupt one offset to be out-of-bounds (key offset)
     auto bad_offset = static_cast<uint64_t>(buffer.size() + 100);
-    std::memcpy(buffer.data() + sizeof(uint64_t), &bad_offset, sizeof(uint64_t));
+    // First key offset follows prelude (8) + count (8)
+    std::memcpy(buffer.data() + 8 + sizeof(uint64_t), &bad_offset, sizeof(uint64_t));
 
     EXPECT_THROW(static_cast<void>(Options::deserialize(buffer)), std::out_of_range);
 }
@@ -254,5 +278,50 @@ TEST(OptionsTest, SerializeThrowsIfOptionValueIsSet) {
                                     })));
 
     // Expect serialize() to throw because the option value has been accessed.
+    EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
+}
+
+TEST(SerializationLimits, ExceedMaxKeyLength) {
+    std::string long_key(4097, 'k');  // 4097 bytes, exceeds 4096 limit
+    std::unordered_map<std::string, std::string> strings = {{long_key, "value"}};
+    Options opts(strings);
+
+    EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
+}
+
+TEST(SerializationLimits, ExceedMaxValueLength) {
+    std::string long_value(1024 * 1024 + 1, 'v');  // 1048577 bytes, exceeds 1 MiB limit
+    std::unordered_map<std::string, std::string> strings = {{"key", long_value}};
+    Options opts(strings);
+
+    EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
+}
+
+TEST(SerializationLimits, ExceedMaxOptions) {
+    Options opts;
+    std::unordered_map<std::string, std::string> many_options;
+
+    // Create 65537 options, exceeds 65536 limit
+    for (int i = 0; i < 65537; ++i) {
+        many_options["key_" + std::to_string(i)] = "value_" + std::to_string(i);
+    }
+    opts.insert_if_absent(std::move(many_options));
+
+    EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
+}
+
+TEST(SerializationLimits, ExceedMaxTotalSize) {
+    Options opts;
+
+    // Each value is 1 MiB, so 65 of them would be 65 MiB + overhead, exceeding 64 MiB
+    // limit
+    std::string large_value(1024 * 1024, 'x');
+    std::unordered_map<std::string, std::string> many_options;
+
+    for (int i = 0; i < 65; ++i) {
+        many_options["key_" + std::to_string(i)] = large_value;
+    }
+    opts.insert_if_absent(std::move(many_options));
+
     EXPECT_THROW(static_cast<void>(opts.serialize()), std::invalid_argument);
 }

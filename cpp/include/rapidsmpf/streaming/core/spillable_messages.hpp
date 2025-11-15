@@ -100,7 +100,6 @@ class SpillableMessages {
      */
     std::map<MessageId, ContentDescription> get_content_descriptions() const;
 
-
   private:
     /**
      * @brief Thread-safe item containing a `Message`.

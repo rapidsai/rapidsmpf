@@ -16,10 +16,10 @@
 #include <rapidsmpf/buffer/content_description.hpp>
 #include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
-#include <rapidsmpf/streaming/cudf/owning_wrapper.hpp>
 
 namespace rapidsmpf::streaming {
 

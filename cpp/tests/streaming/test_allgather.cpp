@@ -28,8 +28,9 @@
 
 using namespace rapidsmpf;
 
-class AsyncAllGather : public BaseStreamingFixture,
-                       public ::testing::WithParamInterface<std::tuple<int, MemoryType>> {
+class StreamingAllGather
+    : public BaseStreamingFixture,
+      public ::testing::WithParamInterface<std::tuple<int, MemoryType>> {
   public:
     void SetUp() override {
         BaseStreamingFixture::SetUpWithThreads(std::get<0>(GetParam()));
@@ -43,18 +44,18 @@ class AsyncAllGather : public BaseStreamingFixture,
 };
 
 INSTANTIATE_TEST_SUITE_P(
-    AsyncAllGather,
-    AsyncAllGather,
+    StreamingAllGather,
+    StreamingAllGather,
     ::testing::Combine(
         ::testing::Values(1, 4), ::testing::Values(MemoryType::HOST, MemoryType::DEVICE)
     ),
-    [](testing::TestParamInfo<AsyncAllGather::ParamType> const& info) {
+    [](testing::TestParamInfo<StreamingAllGather::ParamType> const& info) {
         return "nthreads_" + std::to_string(std::get<0>(info.param)) + "_mem_type_"
                + (std::get<1>(info.param) == MemoryType::HOST ? "HOST" : "DEVICE");
     }
 );
 
-TEST_P(AsyncAllGather, basic) {
+TEST_P(StreamingAllGather, basic) {
     auto mem_type = std::get<1>(GetParam());
     auto allgather = streaming::AllGather(ctx, OpID{0});
 
@@ -133,7 +134,7 @@ TEST_P(AsyncAllGather, basic) {
     EXPECT_EQ(expected, result);
 }
 
-TEST_P(AsyncAllGather, streaming_node) {
+TEST_P(StreamingAllGather, streaming_node) {
     auto mem_type = std::get<1>(GetParam());
 
     auto ch_in = ctx->create_channel();

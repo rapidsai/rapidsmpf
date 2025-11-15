@@ -13,6 +13,7 @@
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
+#include <rapidsmpf/streaming/core/queue.hpp>
 
 #include <coro/coro.hpp>
 
@@ -60,6 +61,8 @@ class Context {
         std::shared_ptr<BufferResource> br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
+
+    ~Context() noexcept;
 
     /**
      * @brief Returns the configuration options.
@@ -110,6 +113,26 @@ class Context {
      */
     [[nodiscard]] std::shared_ptr<Channel> create_channel() const noexcept;
 
+    /**
+     * @brief Returns the spillable messages collection.
+     *
+     * @return A shared pointer to the collection.
+     */
+    [[nodiscard]] std::shared_ptr<SpillableMessages> spillable_messages() const {
+        return spillable_messages_;
+    }
+
+    /**
+     * @brief Create a new bounded queue associated with this context.
+     *
+     * @param buffer_size Maximum size of the queue.
+     *
+     * @return A shared pointer to the newly created bounded queue.
+     */
+    [[nodiscard]] std::shared_ptr<BoundedQueue> create_bounded_queue(
+        std::size_t buffer_size
+    ) const noexcept;
+
   private:
     config::Options options_;
     std::shared_ptr<Communicator> comm_;
@@ -117,6 +140,8 @@ class Context {
     std::unique_ptr<coro::thread_pool> executor_;
     std::shared_ptr<BufferResource> br_;
     std::shared_ptr<Statistics> statistics_;
+    std::shared_ptr<SpillableMessages> spillable_messages_;
+    SpillManager::SpillFunctionID spill_function_id_{};
 };
 
 }  // namespace rapidsmpf::streaming

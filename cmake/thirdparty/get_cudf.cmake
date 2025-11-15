@@ -43,6 +43,5 @@ function(find_and_configure_cudf)
   endif()
 endfunction()
 find_and_configure_cudf(
-  VERSION ${RAPIDS_VERSION} GIT_REPO https://github.com/rapidsai/cudf.git GIT_TAG
-  "branch-${RAPIDS_VERSION_MAJOR_MINOR}"
+  VERSION ${RAPIDS_VERSION} GIT_REPO https://github.com/rapidsai/cudf.git GIT_TAG "release/25.12"
 )

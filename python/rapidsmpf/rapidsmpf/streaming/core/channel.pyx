@@ -1,10 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from cpython.object cimport PyObject
+from cpython.ref cimport Py_INCREF
 from libcpp.memory cimport shared_ptr
 from libcpp.utility cimport move
 
 from functools import partial
+
+from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
+from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.context cimport Context, cpp_Context
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 from rapidsmpf.streaming.core.utilities cimport cython_invoke_python_function
@@ -19,10 +24,10 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         void (*py_invoker)(void*),
-        void *py_function
+        rapidsmpf::OwningWrapper py_function
     ) {
         co_await channel->drain(ctx->executor());
-        py_invoker(py_function);
+        py_invoker(py_function.get());
     }
     }  // namespace
 
@@ -30,12 +35,12 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         void (*py_invoker)(void*),
-        void *py_function
+        rapidsmpf::OwningWrapper py_function
     ) {
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn(
                 _channel_drain_task(
-                    std::move(channel), ctx, py_invoker, py_function
+                    std::move(channel), ctx, py_invoker, std::move(py_function)
                 )
             ),
             "could not spawn task on thread pool"
@@ -46,7 +51,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_Context] ctx,
         shared_ptr[cpp_Channel] channel,
         void (*py_invoker)(void*),
-        void *py_function
+        cpp_OwningWrapper py_function
     )
 
 
@@ -56,10 +61,10 @@ cdef extern from * nogil:
     coro::task<void> _channel_shutdown_task(
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         void (*py_invoker)(void*),
-        void *py_function
+        rapidsmpf::OwningWrapper py_function
     ) {
         co_await channel->shutdown();
-        py_invoker(py_function);
+        py_invoker(py_function.get());
     }
     }  // namespace
 
@@ -67,12 +72,12 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::Context> ctx,
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         void (*py_invoker)(void*),
-        void *py_function
+        rapidsmpf::OwningWrapper py_function
     ) {
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn(
                 _channel_shutdown_task(
-                    std::move(channel), py_invoker, py_function
+                    std::move(channel), py_invoker, std::move(py_function)
                 )
             ),
             "could not spawn task on thread pool"
@@ -83,7 +88,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_Context] ctx,
         shared_ptr[cpp_Channel] channel,
         void (*py_invoker)(void*),
-        void *py_function
+        cpp_OwningWrapper py_function
     )
 
 
@@ -94,10 +99,10 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         rapidsmpf::streaming::Message msg,
         void (*py_invoker)(void*),
-        void *py_function
+        rapidsmpf::OwningWrapper py_function
     ) {
         co_await channel->send(std::move(msg));
-        py_invoker(py_function);
+        py_invoker(py_function.get());
     }
     }  // namespace
 
@@ -106,12 +111,15 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         rapidsmpf::streaming::Message msg,
         void (*py_invoker)(void*),
-        void *py_function
+        rapidsmpf::OwningWrapper py_function
     ) {
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn(
                 _channel_send_task(
-                    std::move(channel), std::move(msg), py_invoker, py_function
+                    std::move(channel),
+                    std::move(msg),
+                    py_invoker,
+                    std::move(py_function)
                 )
             ),
             "could not spawn task on thread pool"
@@ -123,7 +131,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_Channel] channel,
         cpp_Message msg,
         void (*py_invoker)(void*),
-        void *py_function
+        cpp_OwningWrapper py_function
     )
 
 
@@ -134,14 +142,14 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         rapidsmpf::streaming::Message &msg_output,
         void (*py_invoker)(void*),
-        void *py_function_msg,
-        void *py_function_empty
+        rapidsmpf::OwningWrapper py_function_msg,
+        rapidsmpf::OwningWrapper py_function_empty
     ) {
         msg_output = co_await channel->receive();
         if (msg_output.empty()) {
-            py_invoker(py_function_empty);
+            py_invoker(py_function_empty.get());
         } else {
-            py_invoker(py_function_msg);
+            py_invoker(py_function_msg.get());
         }
     }
     }  // namespace
@@ -151,8 +159,8 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::Channel> channel,
         rapidsmpf::streaming::Message &msg_output,
         void (*py_invoker)(void*),
-        void *py_function_msg,
-        void *py_function_empty
+        rapidsmpf::OwningWrapper py_function_msg,
+        rapidsmpf::OwningWrapper py_function_empty
     ) {
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn(
@@ -160,8 +168,8 @@ cdef extern from * nogil:
                     std::move(channel),
                     msg_output,
                     py_invoker,
-                    py_function_msg,
-                    py_function_empty
+                    std::move(py_function_msg),
+                    std::move(py_function_empty)
                 )
             ),
             "could not spawn task on thread pool"
@@ -173,8 +181,8 @@ cdef extern from * nogil:
         shared_ptr[cpp_Channel] channel,
         cpp_Message &msg_output,
         void (*py_invoker)(void*),
-        void *py_function_msg,
-        void *py_function_empty
+        cpp_OwningWrapper py_function_msg,
+        cpp_OwningWrapper py_function_empty
     )
 
 
@@ -214,13 +222,14 @@ cdef class Channel:
         loop = asyncio.get_running_loop()
         ret = loop.create_future()
         callback = partial(loop.call_soon_threadsafe, partial(ret.set_result, None))
+        Py_INCREF(callback)
 
         with nogil:
             cpp_channel_drain(
                 ctx._handle,
                 self._handle,
                 cython_invoke_python_function,
-                <void *>callback
+                move(cpp_OwningWrapper(<void*><PyObject*>callback, py_deleter))
             )
         await ret
 
@@ -242,13 +251,14 @@ cdef class Channel:
         loop = asyncio.get_running_loop()
         ret = loop.create_future()
         callback = partial(loop.call_soon_threadsafe, partial(ret.set_result, None))
+        Py_INCREF(callback)
 
         with nogil:
             cpp_channel_shutdown(
                 ctx._handle,
                 self._handle,
                 cython_invoke_python_function,
-                <void *>callback
+                move(cpp_OwningWrapper(<void*><PyObject*>callback, py_deleter))
             )
         await ret
 
@@ -270,6 +280,7 @@ cdef class Channel:
         loop = asyncio.get_running_loop()
         ret = loop.create_future()
         callback = partial(loop.call_soon_threadsafe, partial(ret.set_result, None))
+        Py_INCREF(callback)
 
         with nogil:
             cpp_channel_send(
@@ -277,7 +288,7 @@ cdef class Channel:
                 self._handle,
                 move(msg._handle),
                 cython_invoke_python_function,
-                <void *>callback
+                move(cpp_OwningWrapper(<void*><PyObject*>callback, py_deleter))
             )
         await ret
 
@@ -307,6 +318,8 @@ cdef class Channel:
         callback_empty = partial(
             loop.call_soon_threadsafe, partial(ret.set_result, None)
         )
+        Py_INCREF(callback_msg)
+        Py_INCREF(callback_empty)
 
         with nogil:
             cpp_channel_recv(
@@ -314,7 +327,7 @@ cdef class Channel:
                 self._handle,
                 msg._handle,
                 cython_invoke_python_function,
-                <void *>callback_msg,
-                <void *>callback_empty
+                move(cpp_OwningWrapper(<void*><PyObject*>callback_msg, py_deleter)),
+                move(cpp_OwningWrapper(<void*><PyObject*>callback_empty, py_deleter))
             )
         return await ret
