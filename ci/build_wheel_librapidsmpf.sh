@@ -3,9 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
-source rapids-configure-sccache
-export SCCACHE_RECACHE=1
 
+source rapids-configure-sccache
 source rapids-init-pip
 
 package_name="librapidsmpf"
