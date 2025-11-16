@@ -40,3 +40,6 @@ for i in {0..2}; do
     exit 1
   fi
 done
+
+# Ensure that pinned memory resources benchmark is runnable
+python "${TIMEOUT_TOOL_PATH}" 30 ./bench_pinned_memory_resources

@@ -23,9 +23,9 @@ namespace rapidsmpf {
 #if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)
 namespace {
 cuda::experimental::memory_pool_properties get_memory_pool_properties(
-    PinnedPoolProperties const&
+    PinnedPoolProperties const& properties
 ) {
-    return cuda::experimental::memory_pool_properties{};
+    return {.initial_pool_size = properties.initial_pool_size};
 }
 }  // namespace
 
