@@ -129,6 +129,11 @@ TEST_F(SpillingTest, SpillUnspillRoundtripPreservesDataAndMetadata) {
 
     // Check that contents match original
     auto res = br->reserve_or_fail(back_on_host[0].data->size, MemoryType::HOST);
-    auto actual = br->move_to_host_vector(std::move(back_on_host[0].data), res);
-    EXPECT_EQ(*actual, payload);
+    auto actual = br->move_to_host_buffer(std::move(back_on_host[0].data), res);
+    EXPECT_EQ(payload.size(), actual->size());
+    EXPECT_TRUE(std::equal(
+        payload.begin(),
+        payload.end(),
+        reinterpret_cast<uint8_t const*>(actual->data())
+    ));
 }
