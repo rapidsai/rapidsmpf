@@ -66,6 +66,7 @@
 #include "join.hpp"
 #include "rapidsmpf/cuda_stream.hpp"
 #include "rapidsmpf/owning_wrapper.hpp"
+#include "rapidsmpf/streaming/core/coro_utils.hpp"
 #include "utilities.hpp"
 
 // select
@@ -186,78 +187,83 @@ std::string get_table_path(
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     std::vector<cudf::table> partial_results;
     std::uint64_t sequence = 0;
-    co_await ctx->executor()->schedule();
     ctx->comm()->logger().print("Chunkwise groupby");
-    while (true) {
-        auto msg = co_await ch_in->receive();
-        if (msg.empty()) {
-            break;
-        }
-        auto chunk = rapidsmpf::ndsh::to_device(
-            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
-        );
-        auto chunk_stream = chunk.stream();
-        auto table = chunk.table_view();
+    auto grouper = [&]() -> coro::task<void> {
+        while (true) {
+            auto msg = co_await ch_in->receive();
+            co_await ctx->executor()->schedule();
+            if (msg.empty()) {
+                break;
+            }
+            auto chunk = rapidsmpf::ndsh::to_device(
+                ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+            );
+            auto chunk_stream = chunk.stream();
+            auto table = chunk.table_view();
 
-        auto grouper = cudf::groupby::groupby(
-            // group by [l_returnflag, l_linestatus]
-            table.select({0, 1}),
-            cudf::null_policy::EXCLUDE,
-            cudf::sorted::NO
-        );
-        auto requests = std::vector<cudf::groupby::aggregation_request>();
-        std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
-        aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
-        requests.push_back(
-            // sum(l_quantity)
-            cudf::groupby::aggregation_request(table.column(2), std::move(aggs))
-        );
-        aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
-        requests.push_back(
-            // sum(l_extendedprice)
-            cudf::groupby::aggregation_request(table.column(3), std::move(aggs))
-        );
-        aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
-        requests.push_back(
-            // sum(disc_price)
-            cudf::groupby::aggregation_request(table.column(4), std::move(aggs))
-        );
-        aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
-        requests.push_back(
-            // sum(charge)
-            cudf::groupby::aggregation_request(table.column(5), std::move(aggs))
-        );
-        aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
-        requests.push_back(
-            // sum(l_discount)
-            cudf::groupby::aggregation_request(table.column(6), std::move(aggs))
-        );
-        aggs.push_back(
-            cudf::make_count_aggregation<cudf::groupby_aggregation>(
-                cudf::null_policy::INCLUDE
-            )
-        );
-        requests.push_back(
-            // count(*)
-            cudf::groupby::aggregation_request(table.column(0), std::move(aggs))
-        );
-        auto [keys, results] =
-            grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
-        // Drop chunk, we don't need it.
-        std::ignore = std::move(chunk);
-        auto result = keys->release();
-        for (auto&& r : results) {
-            std::ranges::move(r.results, std::back_inserter(result));
-        }
-        co_await ch_out->send(
-            rapidsmpf::streaming::to_message(
-                sequence++,
-                std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    std::make_unique<cudf::table>(std::move(result)), chunk_stream
+            auto grouper = cudf::groupby::groupby(
+                // group by [l_returnflag, l_linestatus]
+                table.select({0, 1}),
+                cudf::null_policy::EXCLUDE,
+                cudf::sorted::NO
+            );
+            auto requests = std::vector<cudf::groupby::aggregation_request>();
+            std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
+            aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+            requests.push_back(
+                // sum(l_quantity)
+                cudf::groupby::aggregation_request(table.column(2), std::move(aggs))
+            );
+            aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+            requests.push_back(
+                // sum(l_extendedprice)
+                cudf::groupby::aggregation_request(table.column(3), std::move(aggs))
+            );
+            aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+            requests.push_back(
+                // sum(disc_price)
+                cudf::groupby::aggregation_request(table.column(4), std::move(aggs))
+            );
+            aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+            requests.push_back(
+                // sum(charge)
+                cudf::groupby::aggregation_request(table.column(5), std::move(aggs))
+            );
+            aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+            requests.push_back(
+                // sum(l_discount)
+                cudf::groupby::aggregation_request(table.column(6), std::move(aggs))
+            );
+            aggs.push_back(
+                cudf::make_count_aggregation<cudf::groupby_aggregation>(
+                    cudf::null_policy::INCLUDE
                 )
-            )
-        );
-    }
+            );
+            requests.push_back(
+                // count(*)
+                cudf::groupby::aggregation_request(table.column(0), std::move(aggs))
+            );
+            auto [keys, results] =
+                grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
+            // Drop chunk, we don't need it.
+            std::ignore = std::move(chunk);
+            auto result = keys->release();
+            for (auto&& r : results) {
+                std::ranges::move(r.results, std::back_inserter(result));
+            }
+            co_await ch_out->send(
+                rapidsmpf::streaming::to_message(
+                    sequence++,
+                    std::make_unique<rapidsmpf::streaming::TableChunk>(
+                        std::make_unique<cudf::table>(std::move(result)), chunk_stream
+                    )
+                )
+            );
+        }
+    };
+    rapidsmpf::streaming::coro_results(
+        co_await coro::when_all(grouper(), grouper(), grouper(), grouper())
+    );
     co_await ch_out->drain(ctx->executor());
 }
 
@@ -832,7 +838,7 @@ int main(int argc, char** argv) {
                 nodes.push_back(read_lineitem(
                     ctx,
                     lineitem,
-                    /* num_tickets */ 8,
+                    /* num_tickets */ 4,
                     cmd_options.num_rows_per_chunk,
                     cmd_options.input_directory
                 ));
