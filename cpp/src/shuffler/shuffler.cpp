@@ -177,7 +177,7 @@ class Shuffler::Progress {
      * @return The progress state of the shuffler.
      */
     ProgressThread::ProgressState operator()() {
-        RAPIDSMPF_NVTX_SCOPED_RANGE("Shuffler.Progress", p_iters++);
+        RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("Shuffler.Progress", p_iters++);
         auto const t0_event_loop = Clock::now();
 
         // Tags for each stage of the shuffle
@@ -192,7 +192,7 @@ class Shuffler::Progress {
         {
             auto const t0_send_metadata = Clock::now();
             auto ready_chunks = shuffler_.outgoing_postbox_.extract_all_ready();
-            RAPIDSMPF_NVTX_SCOPED_RANGE("meta_send", ready_chunks.size());
+            RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("meta_send", ready_chunks.size());
             for (auto&& chunk : ready_chunks) {
                 // All messages in the chunk maps to the same key (checked by the PostBox)
                 // thus we can use the partition ID of the first message in the chunk to
@@ -232,8 +232,9 @@ class Shuffler::Progress {
         // `incoming_chunks_`.
         {
             auto const t0_metadata_recv = Clock::now();
-            RAPIDSMPF_NVTX_SCOPED_RANGE("meta_recv");
-            int i = 0;
+            RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("meta_recv");
+            [[maybe_unused]] int recv_any_iters =
+                0;  // this will be stripped off if RAPIDSMPF_VERBOSE_INFO is not set
             while (true) {
                 auto const [msg, src] = shuffler_.comm_->recv_any(metadata_tag);
                 if (msg) {
@@ -251,17 +252,19 @@ class Shuffler::Progress {
                 } else {
                     break;
                 }
-                i++;
+                recv_any_iters++;
             }
             stats.add_duration_stat(
                 "event-loop-metadata-recv", Clock::now() - t0_metadata_recv
             );
-            RAPIDSMPF_NVTX_MARKER("meta_recv_iters", i);
+            RAPIDSMPF_NVTX_MARKER_VERBOSE("meta_recv_iters", recv_any_iters);
         }
 
         // Post receives for incoming chunks
         {
-            RAPIDSMPF_NVTX_SCOPED_RANGE("post_chunk_recv", incoming_chunks_.size());
+            RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(
+                "post_chunk_recv", incoming_chunks_.size()
+            );
             auto const t0_post_incoming_chunk_recv = Clock::now();
             for (auto it = incoming_chunks_.begin(); it != incoming_chunks_.end();) {
                 auto& [src, chunk] = *it;
@@ -348,7 +351,7 @@ class Shuffler::Progress {
         // requested data.
         {
             auto const t0_init_gpu_data_send = Clock::now();
-            RAPIDSMPF_NVTX_SCOPED_RANGE(
+            RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(
                 "init_gpu_send",
                 std::transform_reduce(
                     ready_ack_receives_.begin(),
@@ -385,7 +388,9 @@ class Shuffler::Progress {
         // Check if any data in transit is finished.
         {
             auto const t0_check_future_finish = Clock::now();
-            RAPIDSMPF_NVTX_SCOPED_RANGE("check_fut_finish", in_transit_futures_.size());
+            RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(
+                "check_fut_finish", in_transit_futures_.size()
+            );
             if (!in_transit_futures_.empty()) {
                 std::vector<ChunkID> finished =
                     shuffler_.comm_->test_some(in_transit_futures_);
@@ -445,7 +450,9 @@ class Shuffler::Progress {
     std::unordered_map<Rank, std::vector<std::unique_ptr<Communicator::Future>>>
         ready_ack_receives_;  ///< Receives matching ready for data messages.
 
+#if RAPIDSMPF_VERBOSE_INFO
     int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
+#endif
 };
 
 std::vector<PartID> Shuffler::local_partitions(
