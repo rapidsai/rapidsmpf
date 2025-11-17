@@ -36,9 +36,9 @@ target_link_libraries(
                         $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 
-add_executable(q09 "q09.cpp")
+add_executable(q01 "q01.cpp")
 set_target_properties(
-  q09
+  q01
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks/ndsh>"
              CXX_STANDARD 20
              CXX_STANDARD_REQUIRED ON
@@ -46,11 +46,11 @@ set_target_properties(
              CUDA_STANDARD_REQUIRED ON
 )
 target_compile_options(
-  q09 PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+  q01 PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
               "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
 )
 target_link_libraries(
-  q09 PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+  q01 PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
               $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
 add_executable(q03 "q03.cpp")
@@ -70,11 +70,34 @@ target_link_libraries(
   q03 PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
               $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
+add_executable(q09 "q09.cpp")
+set_target_properties(
+  q09
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks/ndsh>"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             CUDA_STANDARD 20
+             CUDA_STANDARD_REQUIRED ON
+)
+target_compile_options(
+  q09 PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+              "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+)
+target_link_libraries(
+  q09 PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+              $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+)
 
 install(
   TARGETS rapidsmpfndsh
   COMPONENT benchmarking
   DESTINATION ${lib_dir}
+  EXCLUDE_FROM_ALL
+)
+install(
+  TARGETS q01
+  COMPONENT benchmarking
+  DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL
 )
 install(
