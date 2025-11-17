@@ -226,12 +226,19 @@ class Options {
      * options. Once an option has been accessed and parsed, its string value may no
      * longer accurately reflect its state, making serialization potentially inconsistent.
      *
-     * The format is:
+     * The format (v1) is:
+     * - [4 bytes MAGIC "RMPF"][1 byte version][1 byte flags][2 bytes reserved]
      * - [uint64_t count] — number of key-value pairs.
      * - [count * 2 * uint64_t] — offset pairs (key_offset, value_offset) for each entry.
      * - [raw bytes] — all key and value strings, contiguous and null-free.
      *
      * Offsets are absolute byte positions into the buffer.
+     *
+     * Serialization limits:
+     * - Maximum options: 65,536 entries
+     * - Maximum key size: 4 KiB
+     * - Maximum value size: 1 MiB
+     * - Maximum total buffer size: 64 MiB
      *
      * @return A byte vector representing the serialized options.
      *

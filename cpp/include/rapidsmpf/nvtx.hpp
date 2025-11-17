@@ -130,6 +130,33 @@ struct rapidsmpf_domain {
  */
 #define RAPIDSMPF_NVTX_SCOPED_RANGE(...) RAPIDSMPF_NVTX_SCOPED_RANGE_IMPL(__VA_ARGS__)
 
+/**
+ * @brief Convenience macro for generating an NVTX scoped range in the `rapidsmpf` domain
+ * that is only active when RAPIDSMPF_VERBOSE_INFO is defined.
+ *
+ * This macro behaves identically to RAPIDSMPF_NVTX_SCOPED_RANGE, but only creates
+ * the NVTX range when the RAPIDSMPF_VERBOSE_INFO compile-time flag is set.
+ *
+ * Usage:
+ * - `RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(message)` - Annotate with message only
+ * - `RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(message, payload)` - Annotate with message and
+ * payload
+ *
+ * Example:
+ * ```
+ * void some_function(){
+ *    RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("detailed operation");
+ *    RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("detailed operation", count);
+ *    ...
+ * }
+ * ```
+ */
+#if RAPIDSMPF_VERBOSE_INFO
+#define RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(...) RAPIDSMPF_NVTX_SCOPED_RANGE(__VA_ARGS__)
+#else
+#define RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE(...)
+#endif
+
 #define RAPIDSMPF_NVTX_MARKER_IMPL(msg, val)                                  \
     nvtx3::mark_in<rapidsmpf_domain>(nvtx3::event_attributes{                 \
         RAPIDSMPF_REGISTER_STRING(msg), nvtx3::payload{convert_to_64bit(val)} \
@@ -146,3 +173,20 @@ struct rapidsmpf_domain {
  */
 #define RAPIDSMPF_NVTX_MARKER(message, payload) \
     RAPIDSMPF_NVTX_MARKER_IMPL(message, payload)
+
+/**
+ * @brief Convenience macro for generating an NVTX marker in the `rapidsmpf` domain to
+ * annotate a certain time point, that is only activate when RAPIDSMPF_VERBOSE_INFO is
+ * defined.
+ *
+ * @param message The message to annotate.
+ * @param payload The payload to annotate.
+ *
+ * Use this macro to annotate asynchronous operations.
+ */
+#if RAPIDSMPF_VERBOSE_INFO
+#define RAPIDSMPF_NVTX_MARKER_VERBOSE(message, payload) \
+    RAPIDSMPF_NVTX_MARKER_IMPL(message, payload)
+#else
+#define RAPIDSMPF_NVTX_MARKER_VERBOSE(message, payload)
+#endif
