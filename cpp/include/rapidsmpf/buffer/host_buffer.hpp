@@ -53,7 +53,7 @@ class HostBuffer {
      *
      * @throws std::invalid_argument If @p data is nullptr.
      */
-    HostBuffer(std::unique_ptr<std::vector<uint8_t>> data) {
+    explicit HostBuffer(std::unique_ptr<std::vector<uint8_t>> data) {
         RAPIDSMPF_EXPECTS(
             data != nullptr, "the data pointer cannot be nullptr", std::invalid_argument
         );
@@ -124,7 +124,7 @@ class HostBuffer {
 
     /**
      * @brief Copy constructor.
-    
+
      * @param other The host buffer to copy from.
      */
     HostBuffer(const HostBuffer& other) : HostBuffer(other.data(), other.size()) {}

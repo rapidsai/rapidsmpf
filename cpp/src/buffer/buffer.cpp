@@ -20,10 +20,10 @@ namespace rapidsmpf {
 
 
 Buffer::Buffer(
-    std::unique_ptr<std::vector<uint8_t>> host_buffer, rmm::cuda_stream_view stream
+    std::unique_ptr<HostBuffer> host_buffer, rmm::cuda_stream_view stream
 )
     : size{host_buffer ? host_buffer->size() : 0},
-      storage_{std::make_unique<HostBuffer>(std::move(host_buffer))},
+      storage_{std::move(host_buffer)},
       stream_{stream} {
     RAPIDSMPF_EXPECTS(
         std::get<HostStorageT>(storage_) != nullptr, "the host_buffer cannot be NULL"

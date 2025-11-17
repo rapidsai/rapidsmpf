@@ -275,9 +275,7 @@ class Buffer {
      * @throws std::invalid_argument If @p host_buffer is null.
      * @throws std::logic_error If the buffer is locked.
      */
-    Buffer(
-        std::unique_ptr<std::vector<uint8_t>> host_buffer, rmm::cuda_stream_view stream
-    );
+    Buffer(std::unique_ptr<HostBuffer> host_buffer, rmm::cuda_stream_view stream);
 
     /**
      * @brief Construct a stream-ordered Buffer from device memory.

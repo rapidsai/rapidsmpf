@@ -118,9 +118,9 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     case MemoryType::HOST:
         // TODO: use pinned memory, maybe use rmm::mr::pinned_memory_resource and
         // std::pmr::vector?
-        ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<std::vector<uint8_t>>(size), stream)
-        );
+        ret =
+            std::unique_ptr<Buffer>(new Buffer(std::make_unique<HostBuffer>(size), stream)
+            );
         break;
     case MemoryType::DEVICE:
         ret = std::unique_ptr<Buffer>(
