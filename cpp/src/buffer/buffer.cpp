@@ -12,6 +12,7 @@
 #include <rmm/cuda_stream_view.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/host_buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 
@@ -22,7 +23,7 @@ Buffer::Buffer(
     std::unique_ptr<std::vector<uint8_t>> host_buffer, rmm::cuda_stream_view stream
 )
     : size{host_buffer ? host_buffer->size() : 0},
-      storage_{std::move(host_buffer)},
+      storage_{std::make_unique<HostBuffer>(std::move(host_buffer))},
       stream_{stream} {
     RAPIDSMPF_EXPECTS(
         std::get<HostStorageT>(storage_) != nullptr, "the host_buffer cannot be NULL"
