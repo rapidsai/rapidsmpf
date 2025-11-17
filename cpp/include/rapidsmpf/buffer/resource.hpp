@@ -16,6 +16,7 @@
 #include <rmm/cuda_stream_pool.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/host_buffer.hpp>
 #include <rapidsmpf/buffer/spill_manager.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
@@ -395,7 +396,7 @@ class BufferResource {
      * @throws std::invalid_argument If the reservation's memory type isn't host memory.
      * @throws std::overflow_error If the allocation size exceeds the reservation.
      */
-    std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
+    std::unique_ptr<HostBuffer> move_to_host_buffer(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
     );
 

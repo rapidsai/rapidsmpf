@@ -386,6 +386,18 @@ class BufferResourceCopySliceTest
             EXPECT_EQ(data[i], host_pattern[offset + i]);
         }
     }
+
+    void verify_slice(
+        rapidsmpf::HostBuffer const& data,
+        std::size_t const offset,
+        std::size_t const length
+    ) {
+        EXPECT_EQ(data.size(), length);
+        auto* bytes = reinterpret_cast<uint8_t const*>(data.data());
+        for (std::size_t i = 0; i < length; ++i) {
+            EXPECT_EQ(bytes[i], host_pattern[offset + i]);
+        }
+    }
 };
 
 TEST_P(BufferResourceCopySliceTest, CopySlice) {
@@ -471,6 +483,18 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
         EXPECT_GE(data.size(), offset + length);
         for (std::size_t i = 0; i < length; ++i) {
             EXPECT_EQ(data[offset + i], host_pattern[i]);
+        }
+    }
+
+    void verify_slice(
+        rapidsmpf::HostBuffer const& data,
+        std::size_t const offset,
+        std::size_t const length
+    ) {
+        EXPECT_GE(data.size(), offset + length);
+        auto* bytes = reinterpret_cast<uint8_t const*>(data.data());
+        for (std::size_t i = 0; i < length; ++i) {
+            EXPECT_EQ(bytes[offset + i], host_pattern[i]);
         }
     }
 };
