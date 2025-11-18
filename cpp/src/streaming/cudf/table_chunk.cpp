@@ -8,6 +8,7 @@
 #include <rmm/aligned.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
@@ -24,7 +25,6 @@ TableChunk::TableChunk(std::unique_ptr<cudf::table> table, rmm::cuda_stream_view
 
 TableChunk::TableChunk(
     cudf::table_view table_view,
-    std::size_t device_alloc_size,
     rmm::cuda_stream_view stream,
     OwningWrapper&& owner,
     ExclusiveView exclusive_view
@@ -33,7 +33,8 @@ TableChunk::TableChunk(
       table_view_{table_view},
       stream_{stream},
       is_spillable_{static_cast<bool>(exclusive_view)} {
-    data_alloc_size_[static_cast<std::size_t>(MemoryType::DEVICE)] = device_alloc_size;
+    data_alloc_size_[static_cast<std::size_t>(MemoryType::DEVICE)] =
+        estimated_memory_usage(table_view, stream_);
     make_available_cost_ = 0;
 }
 

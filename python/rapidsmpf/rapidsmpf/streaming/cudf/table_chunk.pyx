@@ -3,11 +3,9 @@
 
 from cpython.object cimport PyObject
 from cython.operator cimport dereference as deref
-from libc.stddef cimport size_t
 from libc.stdint cimport uint64_t
 from libcpp.memory cimport unique_ptr
 from libcpp.utility cimport move
-from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 
@@ -38,7 +36,6 @@ cdef extern from * nogil:
 
     std::unique_ptr<rapidsmpf::streaming::TableChunk> cpp_from_table_view_with_owner(
         cudf::table_view view,
-        std::size_t device_alloc_size,
         rmm::cuda_stream_view stream,
         PyObject *owner,
         void(*py_deleter)(void *),
@@ -49,7 +46,6 @@ cdef extern from * nogil:
         Py_XINCREF(owner);
         return std::make_unique<rapidsmpf::streaming::TableChunk>(
             view,
-            device_alloc_size,
             stream,
             rapidsmpf::OwningWrapper(owner, py_deleter),
             exclusive_view ?
@@ -173,15 +169,10 @@ cdef class TableChunk:
         ensure the stream remains valid for the lifetime of the streaming pipeline.
         """
         cdef cuda_stream_view _stream = stream.view()
-        cdef size_t device_alloc_size = 0
-        for col in table.columns():
-            device_alloc_size += (<Column?>col).device_buffer_size()
-
         cdef cpp_table_view view = table.view()
         return TableChunk.from_handle(
             cpp_from_table_view_with_owner(
                 view,
-                device_alloc_size,
                 _stream,
                 <PyObject *>table,
                 py_deleter,
