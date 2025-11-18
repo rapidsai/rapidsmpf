@@ -66,6 +66,15 @@ cdef extern from * nogil:
             table->make_available(*reservation)
         );
     }
+
+    std::unique_ptr<rapidsmpf::streaming::TableChunk> cpp_table_copy(
+        std::unique_ptr<rapidsmpf::streaming::TableChunk> const& table,
+        rapidsmpf::MemoryReservation* reservation
+    ) {
+        return std::make_unique<rapidsmpf::streaming::TableChunk>(
+            table->copy(*reservation)
+        );
+    }
     }
     """
     unique_ptr[cpp_TableChunk] cpp_release_table_chunk_from_message(
@@ -73,6 +82,9 @@ cdef extern from * nogil:
     ) except +
     unique_ptr[cpp_TableChunk] cpp_from_table_view_with_owner(...) except +
     unique_ptr[cpp_TableChunk] cpp_table_make_available(
+        unique_ptr[cpp_TableChunk], cpp_MemoryReservation*
+    ) except +
+    unique_ptr[cpp_TableChunk] cpp_table_copy(
         unique_ptr[cpp_TableChunk], cpp_MemoryReservation*
     ) except +
 
@@ -429,3 +441,29 @@ cdef class TableChunk:
         True if the table chunk can be spilled, otherwise, False.
         """
         return deref(self.handle_ptr()).is_spillable()
+
+    def copy(self, MemoryReservation reservation not None):
+        """
+        Create a deep copy of this table chunk.
+
+        All buffers are allocated for the new table chunk using the provided
+        memory reservation, which also determines the target memory type of
+        the copy.
+
+        Parameters
+        ----------
+        reservation
+            Memory reservation to consume for allocating the buffers of the
+            new table chunk.
+
+        Returns
+        -------
+        TableChunk
+            A new table chunk containing a deep copy of this chunk's data and
+            metadata.
+        """
+        cdef unique_ptr[cpp_TableChunk] ret
+        cdef cpp_MemoryReservation* res = reservation._handle.get()
+        with nogil:
+            ret = cpp_table_copy(self._handle, res)
+        return TableChunk.from_handle(move(ret))
