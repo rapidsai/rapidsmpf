@@ -171,6 +171,7 @@ add_library(
   src/cuda_event.cpp
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
+  src/nvcomp.cpp
   src/pausable_thread_loop.cpp
   src/progress_thread.cpp
   src/rmm_resource_adaptor.cpp
