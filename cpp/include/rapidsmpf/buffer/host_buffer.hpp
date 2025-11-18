@@ -174,7 +174,8 @@ class HostBuffer {
     std::allocator<std::byte> allocator_{};
     size_t size_{0};  ///< Size of the buffer in bytes.
     std::byte* data_{nullptr};  ///< Pointer to the allocated buffer data.
-    std::unique_ptr<std::vector<uint8_t>> parent_buf_{nullptr
+    std::unique_ptr<std::vector<uint8_t>> parent_buf_{
+        nullptr
     };  ///< Pointer to the parent vector, if this was constructed from a vector.
 };
 }  // namespace rapidsmpf

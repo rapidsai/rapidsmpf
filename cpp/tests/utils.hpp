@@ -175,9 +175,11 @@ inline void validate_packed_data(
     RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
     auto const& host_buf = *const_cast<rapidsmpf::Buffer const&>(*copied_vec).host();
     EXPECT_EQ(metadata.size(), host_buf.size());
-    EXPECT_TRUE(std::equal(
-        metadata.begin(),
-        metadata.end(),
-        reinterpret_cast<uint8_t const*>(host_buf.data())
-    ));
+    EXPECT_TRUE(
+        std::equal(
+            metadata.begin(),
+            metadata.end(),
+            reinterpret_cast<uint8_t const*>(host_buf.data())
+        )
+    );
 }

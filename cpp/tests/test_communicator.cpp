@@ -88,9 +88,11 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     auto recv_data_h = br->move_to_host_buffer(std::move(recv_buf), host_reservation);
     stream.synchronize();
     EXPECT_EQ(send_data_h.size(), recv_data_h->size());
-    EXPECT_TRUE(std::equal(
-        send_data_h.begin(),
-        send_data_h.end(),
-        reinterpret_cast<uint8_t const*>(recv_data_h->data())
-    ));
+    EXPECT_TRUE(
+        std::equal(
+            send_data_h.begin(),
+            send_data_h.end(),
+            reinterpret_cast<uint8_t const*>(recv_data_h->data())
+        )
+    );
 }

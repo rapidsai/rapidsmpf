@@ -19,9 +19,7 @@
 namespace rapidsmpf {
 
 
-Buffer::Buffer(
-    std::unique_ptr<HostBuffer> host_buffer, rmm::cuda_stream_view stream
-)
+Buffer::Buffer(std::unique_ptr<HostBuffer> host_buffer, rmm::cuda_stream_view stream)
     : size{host_buffer ? host_buffer->size() : 0},
       storage_{std::move(host_buffer)},
       stream_{stream} {
