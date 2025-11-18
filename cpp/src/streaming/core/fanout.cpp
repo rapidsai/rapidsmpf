@@ -121,8 +121,6 @@ struct UnboundedFanoutState {
     std::deque<Message> recv_messages;
     // next index to send for each channel
     std::vector<size_t> ch_next_idx;
-    // index of the first message to purge
-    size_t purge_idx{0};
 };
 
 /**
@@ -255,6 +253,44 @@ struct StateInputDoneAtExit {
 };
 
 /**
+ * @brief Wait for a data request from the send tasks.
+ *
+ * @param state The state of the unbounded fanout.
+ * @param last_completed_idx The index of the last completed message.
+ * @param latest_processed_idx The index of the latest processed message.
+ * @return True if the state is valid and can move forward, false otherwise (all send
+ * tasks are in an invalid state).
+ */
+auto wait_for_data_request(
+    UnboundedFanoutState& state, size_t& last_completed_idx, size_t& latest_processed_idx
+) -> coro::task<bool> {
+    auto lock = co_await state.mtx.scoped_lock();
+    co_await state.request_data.wait(lock, [&] {
+        auto filtered_view = std::ranges::filter_view(state.ch_next_idx, [](size_t idx) {
+            return idx != InvalidIdx;
+        });
+
+        auto it = std::ranges::begin(filtered_view);  // first valid idx
+        auto end = std::ranges::end(filtered_view);  // end idx
+
+        if (it == end) {
+            // no valid indices, so all send tasks are in an invalid state
+            return true;
+        }
+
+        auto [min_it, max_it] = std::minmax_element(it, end);
+        last_completed_idx = *min_it;
+        latest_processed_idx = *max_it;
+
+        return latest_processed_idx == state.recv_messages.size();
+    });
+
+    // if both last_completed_idx and latest_processed_idx are invalid, it means that all
+    // send tasks are in an invalid state.
+    co_return !(last_completed_idx == InvalidIdx && latest_processed_idx == InvalidIdx);
+}
+
+/**
  * @brief Process input messages and notify send tasks to copy & send messages.
  *
  * @param ctx The context to use.
@@ -274,35 +310,18 @@ Node unbounded_fo_process_input_task(
 
     logger.trace("Scheduled process input task");
 
+    // index of the first message to purge
+    size_t purge_idx = 0;
+
     // input_done is only set by this task, so reading without lock is safe here
     while (!state->input_done) {
         size_t last_completed_idx = InvalidIdx, latest_processed_idx = InvalidIdx;
+
+        if (!co_await wait_for_data_request(
+                *state, last_completed_idx, latest_processed_idx
+            ))
         {
-            auto lock = co_await state->mtx.scoped_lock();
-            co_await state->request_data.wait(lock, [&] {
-                auto filtered_view = std::ranges::filter_view(
-                    state->ch_next_idx, [](size_t idx) { return idx != InvalidIdx; }
-                );
-
-                auto it = std::ranges::begin(filtered_view);  // first valid idx
-                auto end = std::ranges::end(filtered_view);  // end idx
-
-                if (it == end) {
-                    // no valid indices, so all send tasks are in an invalid state
-                    return true;
-                }
-
-                auto [min_it, max_it] = std::minmax_element(it, end);
-                last_completed_idx = *min_it;
-                latest_processed_idx = *max_it;
-
-                return latest_processed_idx == state->recv_messages.size();
-            });
-
-            // all send tasks are in an invalid state, so we can break
-            if (last_completed_idx == InvalidIdx && latest_processed_idx == InvalidIdx) {
-                break;
-            }
+            break;  // waiting returned an invalid state, so we need to break
         }
 
         // receive a message from the input channel
@@ -325,12 +344,12 @@ Node unbounded_fo_process_input_task(
         // that the indices are not invalidated. intentionally not locking the mtx
         // here, because we only need to know a lower-bound on the last completed idx
         // (ch_next_idx values are monotonically increasing)
-        while (state->purge_idx + 1 < last_completed_idx) {
-            state->recv_messages[state->purge_idx].reset();
-            state->purge_idx++;
+        while (purge_idx + 1 < last_completed_idx) {
+            state->recv_messages[purge_idx].reset();
+            purge_idx++;
         }
         logger.trace(
-            "recv_messages active size: ", state->recv_messages.size() - state->purge_idx
+            "recv_messages active size: ", state->recv_messages.size() - purge_idx
         );
     }
 
@@ -358,6 +377,8 @@ Node unbounded_fanout(
     std::shared_ptr<Channel> ch_in,
     std::vector<std::shared_ptr<Channel>> chs_out
 ) {
+    auto& executor = *ctx->executor();
+
     ShutdownAtExit ch_in_shutdown{ch_in};
     ShutdownAtExit chs_out_shutdown{chs_out};
     co_await ctx->executor()->schedule();
@@ -366,8 +387,6 @@ Node unbounded_fanout(
 
     std::vector<Node> tasks;
     tasks.reserve(chs_out.size() + 1);
-
-    auto& executor = *ctx->executor();
 
     for (size_t i = 0; i < chs_out.size(); i++) {
         tasks.emplace_back(executor.schedule(
