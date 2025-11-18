@@ -15,7 +15,7 @@ from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 from rapidsmpf.memory.buffer cimport MemoryType
-from rapidsmpf.memory.resource cimport BufferResource
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.spill_manager cimport SpillManager, cpp_SpillManager
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)

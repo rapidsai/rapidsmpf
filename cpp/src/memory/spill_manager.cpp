@@ -5,7 +5,7 @@
 
 #include <utility>
 
-#include <rapidsmpf/memory/resource.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/nvtx.hpp>
 

@@ -7,7 +7,7 @@ from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.config import Options
-from rapidsmpf.memory.resource import BufferResource
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.message import PayloadT

@@ -26,8 +26,8 @@ from rapidsmpf.communicator.ucxx import (
 )
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.memory.packed_data import PackedData
-from rapidsmpf.memory.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler

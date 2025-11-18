@@ -13,8 +13,8 @@
 #include <cudf/utilities/memory_resource.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
-#include <rapidsmpf/memory/resource.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 
 #include "utils.hpp"

@@ -17,9 +17,10 @@ from pylibcudf.table cimport Table
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
+from rapidsmpf.memory.buffer_resource cimport (BufferResource,
+                                               cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
-from rapidsmpf.memory.resource cimport BufferResource, cpp_BufferResource
 from rapidsmpf.statistics cimport Statistics, cpp_Statistics
 
 

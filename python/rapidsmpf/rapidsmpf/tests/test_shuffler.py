@@ -16,7 +16,7 @@ from rapidsmpf.integrations.cudf.partition import (
     unpack_and_concat,
     unspill_partitions,
 )
-from rapidsmpf.memory.resource import BufferResource
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.shuffler import (
     Shuffler,

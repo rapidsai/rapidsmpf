@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from rapidsmpf.memory.buffer import MemoryType
-from rapidsmpf.memory.resource import BufferResource
+from rapidsmpf.memory.buffer_resource import BufferResource
 
 class MemoryReservation:
     @property

@@ -6,7 +6,7 @@ from libcpp.utility cimport move
 
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options
-from rapidsmpf.memory.resource cimport BufferResource
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.statistics cimport Statistics
 
 from rapidsmpf.config import get_environment_variables

@@ -27,7 +27,7 @@ cdef extern from "<functional>" nogil:
     cdef cppclass cpp_MemoryAvailable "std::function<std::int64_t()>":
         pass
 
-cdef extern from "<rapidsmpf/memory/resource.hpp>" nogil:
+cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef cppclass cpp_BufferResource "rapidsmpf::BufferResource":
         cpp_BufferResource(
             device_memory_resource *device_mr,
@@ -53,7 +53,7 @@ cdef class BufferResource:
     cdef Statistics _statistics
     cdef const cuda_stream_pool* stream_pool(self)
 
-cdef extern from "<rapidsmpf/memory/resource.hpp>" nogil:
+cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef cppclass cpp_LimitAvailableMemory "rapidsmpf::LimitAvailableMemory":
         cpp_LimitAvailableMemory(
             cpp_RmmResourceAdaptor *mr, int64_t limit

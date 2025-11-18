@@ -3,7 +3,7 @@
 from pylibcudf.contiguous_split import PackedColumns as CudfPackedColumns
 from rmm.pylibrmm.stream import Stream
 
-from rapidsmpf.memory.resource import BufferResource
+from rapidsmpf.memory.buffer_resource import BufferResource
 
 class PackedData:
     def __init__(self) -> None: ...

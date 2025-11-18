@@ -5,8 +5,8 @@
 
 #include <utility>
 
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
-#include <rapidsmpf/memory/resource.hpp>
 
 namespace rapidsmpf {
 

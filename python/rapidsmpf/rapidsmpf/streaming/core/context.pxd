@@ -5,7 +5,7 @@ from libcpp.memory cimport shared_ptr
 
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.config cimport Options
-from rapidsmpf.memory.resource cimport BufferResource
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.statistics cimport Statistics
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 

@@ -11,7 +11,7 @@ import rmm.pylibrmm
 import rmm.pylibrmm.stream
 
 from rapidsmpf.integrations.ray import RapidsMPFActor
-from rapidsmpf.memory.resource import BufferResource
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.shuffler import Shuffler
 

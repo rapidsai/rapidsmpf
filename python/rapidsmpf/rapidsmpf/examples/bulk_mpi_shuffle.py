@@ -24,7 +24,7 @@ from rapidsmpf.integrations.cudf.partition import (
     unspill_partitions,
 )
 from rapidsmpf.memory.buffer import MemoryType
-from rapidsmpf.memory.resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler

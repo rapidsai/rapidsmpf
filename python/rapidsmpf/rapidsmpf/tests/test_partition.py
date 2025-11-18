@@ -17,7 +17,7 @@ from rapidsmpf.integrations.cudf.partition import (
     unpack_and_concat,
     unspill_partitions,
 )
-from rapidsmpf.memory.resource import BufferResource
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.testing import assert_eq
 from rapidsmpf.utils.cudf import (
     cudf_to_pylibcudf_table,

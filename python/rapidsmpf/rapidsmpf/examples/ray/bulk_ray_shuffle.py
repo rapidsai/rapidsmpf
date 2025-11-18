@@ -23,7 +23,7 @@ from rapidsmpf.integrations.cudf.partition import (
 )
 from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
 from rapidsmpf.memory.buffer import MemoryType
-from rapidsmpf.memory.resource import BufferResource, LimitAvailableMemory
+from rapidsmpf.memory.buffer_resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import pylibcudf_to_cudf_dataframe

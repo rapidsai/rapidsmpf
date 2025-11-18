@@ -11,9 +11,9 @@ from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 
+from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
                                                   cpp_MemoryReservation)
-from rapidsmpf.memory.resource cimport BufferResource
 # Need the header include for inline C++ code
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper  # no-cython-lint
 from rapidsmpf.streaming.chunks.utils cimport py_deleter

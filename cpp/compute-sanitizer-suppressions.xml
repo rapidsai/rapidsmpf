@@ -106,7 +106,7 @@
       </frame>
       <frame>
         <func>rapidsmpf::BufferResource::move</func>
-        <path>.*/memory/resource.cpp</path>
+        <path>.*/memory/buffer_resource.cpp</path>
         <module>.*/librapidsmpf.so</module>
       </frame>
       <frame>
@@ -198,7 +198,7 @@
       </frame>
       <frame>
         <func>rapidsmpf::BufferResource::move</func>
-        <path>.*/memory/resource.cpp</path>
+        <path>.*/memory/buffer_resource.cpp</path>
         <module>/.*/librapidsmpf.so</module>
       </frame>
       <frame>
@@ -261,7 +261,7 @@
       </frame>
       <frame>
         <func>rapidsmpf::BufferResource::move</func>
-        <path>.*/memory/resource.cpp</path>
+        <path>.*/memory/buffer_resource.cpp</path>
         <module>.*/librapidsmpf.so</module>
       </frame>
       <frame>

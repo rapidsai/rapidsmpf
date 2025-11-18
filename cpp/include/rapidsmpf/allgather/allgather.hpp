@@ -20,8 +20,8 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
-#include <rapidsmpf/memory/resource.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>

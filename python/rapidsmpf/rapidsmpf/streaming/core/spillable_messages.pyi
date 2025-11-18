@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.content_description import ContentDescription
-from rapidsmpf.memory.resource import BufferResource
 from rapidsmpf.streaming.core.message import Message, PayloadT
 
 class SpillableMessages:

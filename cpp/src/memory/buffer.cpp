@@ -13,7 +13,7 @@
 
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
-#include <rapidsmpf/memory/resource.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 
 namespace rapidsmpf {
 
