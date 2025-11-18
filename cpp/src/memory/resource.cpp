@@ -11,17 +11,6 @@
 
 namespace rapidsmpf {
 
-
-MemoryReservation::~MemoryReservation() noexcept {
-    clear();
-}
-
-void MemoryReservation::clear() noexcept {
-    if (size_ > 0) {
-        br_->release(*this, size_);
-    }
-}
-
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,

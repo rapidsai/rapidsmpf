@@ -15,6 +15,7 @@ from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 from rapidsmpf.memory.buffer cimport MemoryType
+from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 from rapidsmpf.memory.spill_manager cimport SpillManager, cpp_SpillManager
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
@@ -27,10 +28,6 @@ cdef extern from "<functional>" nogil:
         pass
 
 cdef extern from "<rapidsmpf/memory/resource.hpp>" nogil:
-    cdef cppclass cpp_MemoryReservation "rapidsmpf::MemoryReservation":
-        size_t size() noexcept
-        MemoryType mem_type() noexcept
-
     cdef cppclass cpp_BufferResource "rapidsmpf::BufferResource":
         cpp_BufferResource(
             device_memory_resource *device_mr,
@@ -45,17 +42,6 @@ cdef extern from "<rapidsmpf/memory/resource.hpp>" nogil:
         const cuda_stream_pool &stream_pool() except +
         size_t release(cpp_MemoryReservation&, size_t) except +
         shared_ptr[cpp_Statistics] statistics() except +
-
-
-cdef class MemoryReservation:
-    cdef unique_ptr[cpp_MemoryReservation] _handle
-    cdef BufferResource _br
-
-    @staticmethod
-    cdef MemoryReservation from_handle(
-        unique_ptr[cpp_MemoryReservation] handle,
-        BufferResource br,
-    )
 
 cdef class BufferResource:
     cdef object __weakref__

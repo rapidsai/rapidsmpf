@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Generic, Protocol, Self, TypeVar
 
 from rapidsmpf.memory.content_description import ContentDescription
-from rapidsmpf.memory.resource import MemoryReservation
+from rapidsmpf.memory.memory_reservation import MemoryReservation
 
 PayloadT = TypeVar("PayloadT", bound="Payload")
 

@@ -5,7 +5,7 @@ from cython.operator cimport dereference as deref
 from libcpp.utility cimport move
 
 from rapidsmpf.memory.content_description cimport content_description_from_cpp
-from rapidsmpf.memory.resource cimport MemoryReservation
+from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 
 
 cdef class Message:

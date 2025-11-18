@@ -160,6 +160,7 @@ add_library(
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
   src/memory/buffer.cpp
+  src/memory/memory_reservation.cpp
   src/memory/pinned_memory_resource.cu
   src/memory/resource.cpp
   src/memory/spill_manager.cpp
