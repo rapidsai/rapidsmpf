@@ -12,15 +12,14 @@
 #include <rmm/cuda_stream_view.hpp>
 
 #include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/buffer/host_buffer.hpp>
 #include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 
 namespace rapidsmpf {
 
 
-Buffer::Buffer(
-    std::unique_ptr<std::vector<uint8_t>> host_buffer, rmm::cuda_stream_view stream
-)
+Buffer::Buffer(std::unique_ptr<HostBuffer> host_buffer, rmm::cuda_stream_view stream)
     : size{host_buffer ? host_buffer->size() : 0},
       storage_{std::move(host_buffer)},
       stream_{stream} {
@@ -156,6 +155,8 @@ void buffer_copy(
 
     // We have to sync both before *and* after the memcpy. Otherwise, `src.stream()`
     // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
+    // This is too much synchronization. The source source buffer has an event. That's all
+    // we need to wait for.
     cuda_stream_join(dst.stream(), src.stream());
     dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
         RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
@@ -166,6 +167,8 @@ void buffer_copy(
             stream
         ));
     });
+    // Again, this is too much. We only need to wait on the event in the destination
+    // buffer. We don't need to allocate an event.
     cuda_stream_join(src.stream(), dst.stream());
 }
 
