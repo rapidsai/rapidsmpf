@@ -53,6 +53,7 @@ option(BUILD_SHARED_LIBS "Build RapidsMPF shared library" ON)
 option(CUDA_STATIC_RUNTIME "Statically link the CUDA runtime" OFF)
 option(RAPIDSMPF_CLANG_TIDY "Enable clang-tidy during compilation" OFF)
 option(RAPIDSMPF_ASAN "Enable AddressSanitizer" OFF)
+option(RAPIDSMPF_VERBOSE_INFO "Enable detail mode" OFF)
 
 message(STATUS "librapidsmpf build options:")
 message(STATUS "  BUILD_MPI_SUPPORT       : ${BUILD_MPI_SUPPORT}")
@@ -67,6 +68,7 @@ message(STATUS "  BUILD_SHARED_LIBS       : ${BUILD_SHARED_LIBS}")
 message(STATUS "  CUDA_STATIC_RUNTIME     : ${CUDA_STATIC_RUNTIME}")
 message(STATUS "  RAPIDSMPF_CLANG_TIDY    : ${RAPIDSMPF_CLANG_TIDY}")
 message(STATUS "  RAPIDSMPF_ASAN          : ${RAPIDSMPF_ASAN}")
+message(STATUS "  RAPIDSMPF_VERBOSE_INFO  : ${RAPIDSMPF_VERBOSE_INFO}")
 
 # Copy options to our prefix to prevent upstream projects from modifying them.
 set(RAPIDSMPF_HAVE_MPI ${BUILD_MPI_SUPPORT})
@@ -283,6 +285,7 @@ target_compile_definitions(
          $<$<BOOL:${RAPIDSMPF_HAVE_STREAMING}>:RAPIDSMPF_HAVE_STREAMING>
          $<$<BOOL:${RAPIDSMPF_HAVE_CUPTI}>:RAPIDSMPF_HAVE_CUPTI>
          $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>
+         $<$<BOOL:${RAPIDSMPF_VERBOSE_INFO}>:RAPIDSMPF_VERBOSE_INFO>
 )
 
 rapids_cuda_set_runtime(rapidsmpf USE_STATIC ${CUDA_STATIC_RUNTIME})
