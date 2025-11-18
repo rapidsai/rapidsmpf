@@ -19,15 +19,15 @@ from pylibcudf.contiguous_split import pack
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 import rapidsmpf.communicator.mpi
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.packed_data import PackedData
-from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.communicator.ucxx import (
     barrier,
     get_root_ucxx_address,
     new_communicator,
 )
 from rapidsmpf.config import Options, get_environment_variables
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.packed_data import PackedData
+from rapidsmpf.memory.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler

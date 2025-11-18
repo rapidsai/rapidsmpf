@@ -6,7 +6,7 @@
 #include <memory>
 #include <utility>
 
-#include <rapidsmpf/buffer/resource.hpp>
+#include <rapidsmpf/memory/resource.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/utils.hpp>
 

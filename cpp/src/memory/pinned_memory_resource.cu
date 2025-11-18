@@ -11,8 +11,8 @@
 
 #include <rmm/resource_ref.hpp>
 
-#include <rapidsmpf/buffer/pinned_memory_resource.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/utils.hpp>
 
 #if RAPIDSMPF_CUDA_VERSION_AT_LEAST(RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION)

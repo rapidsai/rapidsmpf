@@ -5,7 +5,7 @@
 
 #include <algorithm>
 
-#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>

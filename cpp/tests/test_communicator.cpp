@@ -10,9 +10,9 @@
 #include <rmm/mr/device_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/resource.hpp>
 
 #include "environment.hpp"
 #include "utils.hpp"

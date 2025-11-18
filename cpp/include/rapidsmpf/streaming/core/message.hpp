@@ -13,10 +13,10 @@
 #include <typeinfo>
 #include <utility>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/content_description.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/content_description.hpp>
+#include <rapidsmpf/memory/resource.hpp>
 
 namespace rapidsmpf::streaming {
 

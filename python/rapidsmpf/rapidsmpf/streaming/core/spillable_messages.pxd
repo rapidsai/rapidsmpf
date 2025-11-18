@@ -6,8 +6,8 @@ from libc.stdint cimport uint64_t
 from libcpp.map cimport map as cpp_map
 from libcpp.memory cimport unique_ptr
 
-from rapidsmpf.buffer.content_description cimport cpp_ContentDescription
-from rapidsmpf.buffer.resource cimport cpp_BufferResource
+from rapidsmpf.memory.content_description cimport cpp_ContentDescription
+from rapidsmpf.memory.resource cimport cpp_BufferResource
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 

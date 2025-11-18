@@ -11,7 +11,7 @@ from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 
-from rapidsmpf.buffer.resource cimport (BufferResource, MemoryReservation,
+from rapidsmpf.memory.resource cimport (BufferResource, MemoryReservation,
                                         cpp_MemoryReservation)
 # Need the header include for inline C++ code
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper  # no-cython-lint
@@ -81,7 +81,7 @@ cdef class TableChunk:
     A unit of table data in a streaming pipeline.
 
     Represents either an unpacked pylibcudf table, a packed (serialized) table,
-    or `rapidsmpf.buffer.packed_data.PackedData`.
+    or `rapidsmpf.memory.packed_data.PackedData`.
 
     A TableChunk may be initially unavailable (e.g., if the data is packed or
     spilled), and can be made available (i.e., materialized to device memory)

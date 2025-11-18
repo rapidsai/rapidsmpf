@@ -11,8 +11,8 @@ from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.librmm.device_buffer cimport device_buffer
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf.buffer.packed_data cimport cpp_PackedData
-from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
+from rapidsmpf.memory.packed_data cimport cpp_PackedData
+from rapidsmpf.memory.resource cimport BufferResource, cpp_BufferResource
 
 
 # Create a new PackedData from metadata and device buffers.

@@ -17,14 +17,14 @@ import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
 import rapidsmpf.communicator.mpi
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.config import Options, get_environment_variables
 from rapidsmpf.integrations.cudf.partition import (
     partition_and_pack,
     unpack_and_concat,
     unspill_partitions,
 )
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.resource import BufferResource, LimitAvailableMemory
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.shuffler import Shuffler

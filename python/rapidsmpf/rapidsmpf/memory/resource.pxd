@@ -14,8 +14,8 @@ from rmm.librmm.memory_resource cimport device_memory_resource
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
-from rapidsmpf.buffer.buffer cimport MemoryType
-from rapidsmpf.buffer.spill_manager cimport SpillManager, cpp_SpillManager
+from rapidsmpf.memory.buffer cimport MemoryType
+from rapidsmpf.memory.spill_manager cimport SpillManager, cpp_SpillManager
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
 from rapidsmpf.statistics cimport Statistics, cpp_Statistics
@@ -26,7 +26,7 @@ cdef extern from "<functional>" nogil:
     cdef cppclass cpp_MemoryAvailable "std::function<std::int64_t()>":
         pass
 
-cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
+cdef extern from "<rapidsmpf/memory/resource.hpp>" nogil:
     cdef cppclass cpp_MemoryReservation "rapidsmpf::MemoryReservation":
         size_t size() noexcept
         MemoryType mem_type() noexcept
@@ -67,7 +67,7 @@ cdef class BufferResource:
     cdef Statistics _statistics
     cdef const cuda_stream_pool* stream_pool(self)
 
-cdef extern from "<rapidsmpf/buffer/resource.hpp>" nogil:
+cdef extern from "<rapidsmpf/memory/resource.hpp>" nogil:
     cdef cppclass cpp_LimitAvailableMemory "rapidsmpf::LimitAvailableMemory":
         cpp_LimitAvailableMemory(
             cpp_RmmResourceAdaptor *mr, int64_t limit

@@ -5,9 +5,9 @@
 
 #include <limits>
 
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/resource.hpp>
 
 namespace rapidsmpf {
 

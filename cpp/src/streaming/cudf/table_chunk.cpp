@@ -7,7 +7,7 @@
 
 #include <rmm/aligned.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {

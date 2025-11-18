@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 
-from rapidsmpf.buffer.packed_data import PackedData
-from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.communicator.communicator import Communicator
+from rapidsmpf.memory.packed_data import PackedData
+from rapidsmpf.memory.resource import BufferResource
 from rapidsmpf.progress_thread import ProgressThread
 from rapidsmpf.statistics import Statistics
 

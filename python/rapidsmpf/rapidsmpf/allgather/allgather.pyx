@@ -10,10 +10,10 @@ from libcpp.vector cimport vector
 
 from rapidsmpf.allgather.allgather cimport (Ordered, cpp_AllGather,
                                             milliseconds_t)
-from rapidsmpf.buffer.packed_data cimport (PackedData, cpp_PackedData,
-                                           packed_data_vector_to_list)
-from rapidsmpf.buffer.resource cimport BufferResource, cpp_BufferResource
 from rapidsmpf.communicator.communicator cimport Communicator
+from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
+                                           packed_data_vector_to_list)
+from rapidsmpf.memory.resource cimport BufferResource, cpp_BufferResource
 from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics
 

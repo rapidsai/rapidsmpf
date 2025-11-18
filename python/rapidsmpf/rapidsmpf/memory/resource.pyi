@@ -6,8 +6,8 @@ from collections.abc import Callable, Mapping
 from rmm.pylibrmm.cuda_stream_pool import CudaStreamPool
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
 
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.spill_manager import SpillManager
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.spill_manager import SpillManager
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 

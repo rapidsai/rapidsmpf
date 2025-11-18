@@ -159,10 +159,10 @@ add_library(
   src/allgather/allgather.cpp
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
-  src/buffer/buffer.cpp
-  src/buffer/pinned_memory_resource.cu
-  src/buffer/resource.cpp
-  src/buffer/spill_manager.cpp
+  src/memory/buffer.cpp
+  src/memory/pinned_memory_resource.cu
+  src/memory/resource.cpp
+  src/memory/spill_manager.cpp
   src/communicator/communicator.cpp
   src/communicator/metadata_payload_exchange/core.cpp
   src/communicator/metadata_payload_exchange/tag.cpp
