@@ -308,7 +308,7 @@ Node unbounded_fo_process_input_task(
         // receive a message from the input channel
         auto msg = co_await ch_in->receive();
 
-        {  // relock mtx to update input_done/ recv_messages
+        {  // relock mtx to update input_done/recv_messages
             auto lock = co_await state->mtx.scoped_lock();
             if (msg.empty()) {
                 state->input_done = true;
