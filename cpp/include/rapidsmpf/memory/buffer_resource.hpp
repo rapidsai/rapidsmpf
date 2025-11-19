@@ -109,16 +109,6 @@ class BufferResource {
     }
 
     /**
-     * @brief Get a reference to the current reserved memory of the specified memory type.
-     *
-     * @param mem_type The target memory type.
-     * @return A reference to the memory reserved.
-     */
-    [[nodiscard]] std::size_t& memory_reserved(MemoryType mem_type) {
-        return memory_reserved_[static_cast<std::size_t>(mem_type)];
-    }
-
-    /**
      * @brief Reserve an amount of the specified memory type.
      *
      * Creates a new reservation of the specified size and type to inform about upcoming

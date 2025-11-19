@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from numbers import Number
 from typing import Any
 
-from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor, ScopedMemoryRecord
+from rapidsmpf.memory.scoped_memory_record import ScopedMemoryRecord
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 
 class Statistics:
     def __init__(

@@ -98,6 +98,9 @@ libraries.
 
 .. automodule:: rapidsmpf.memory.packed_data
    :members:
+
+.. automodule:: rapidsmpf.memory.scoped_memory_record
+   :members:
 ```
 
 ## Config Options
