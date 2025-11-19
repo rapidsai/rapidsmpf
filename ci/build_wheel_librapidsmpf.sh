@@ -4,7 +4,6 @@
 
 set -euo pipefail
 
-source rapids-configure-sccache
 source rapids-init-pip
 
 package_name="librapidsmpf"
