@@ -4,6 +4,7 @@
  */
 
 
+#include <span>
 #include <sstream>
 
 #include <gtest/gtest.h>
@@ -12,12 +13,12 @@
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/debug_utilities.hpp>
 #include <cudf_test/table_utilities.hpp>
-#include <rmm/mr/device/limiting_resource_adaptor.hpp>
-#include <rmm/mr/device/owning_wrapper.hpp>
+#include <rmm/mr/limiting_resource_adaptor.hpp>
+#include <rmm/mr/owning_wrapper.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -223,6 +224,75 @@ TEST(BufferResource, LimitAvailableMemory) {
     EXPECT_EQ(reserve4.size(), 10_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::DEVICE), 0_KiB);
     EXPECT_EQ(br.memory_reserved(MemoryType::HOST), 10_KiB);
+}
+
+class BufferResourceReserveOrFailTest : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        // Create a buffer resource with limited device memory (10 KiB) and unlimited
+        // host memory.
+        cuda_mr = std::make_unique<rmm::mr::cuda_memory_resource>();
+        mr = std::make_unique<RmmResourceAdaptor>(*cuda_mr);
+        br = std::make_unique<BufferResource>(
+            *mr,
+            std::unordered_map<MemoryType, BufferResource::MemoryAvailable>{
+                {MemoryType::DEVICE, LimitAvailableMemory{mr.get(), 10_KiB}}
+            }
+        );
+    }
+
+    std::unique_ptr<rmm::mr::cuda_memory_resource> cuda_mr;
+    std::unique_ptr<RmmResourceAdaptor> mr;
+    std::unique_ptr<BufferResource> br;
+};
+
+// Static assertions to verify that various container types can be used with
+// reserve_or_fail
+static_assert(
+    std::convertible_to<std::ranges::range_value_t<decltype(MEMORY_TYPES)>, MemoryType>
+);
+static_assert(
+    std::convertible_to<std::ranges::range_value_t<std::vector<MemoryType>>, MemoryType>
+);
+static_assert(
+    std::convertible_to<std::ranges::range_value_t<std::span<MemoryType>>, MemoryType>
+);
+static_assert(std::convertible_to<
+              std::ranges::range_value_t<std::initializer_list<MemoryType>>,
+              MemoryType>);
+
+TEST_F(BufferResourceReserveOrFailTest, DeviceType) {
+    // Test reserve_or_fail with single device memory type
+    auto res = br->reserve_or_fail(5_KiB, MemoryType::DEVICE);
+    EXPECT_EQ(res.size(), 5_KiB);
+    EXPECT_EQ(res.mem_type(), MemoryType::DEVICE);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 5_KiB);
+    EXPECT_THROW(
+        std::ignore = br->reserve_or_fail(100_KiB, MemoryType::DEVICE), std::runtime_error
+    );
+}
+
+TEST_F(BufferResourceReserveOrFailTest, HostType) {
+    // Test reserve_or_fail with single host memory type
+    auto res = br->reserve_or_fail(5_KiB, MemoryType::HOST);
+    EXPECT_EQ(res.size(), 5_KiB);
+    EXPECT_EQ(res.mem_type(), MemoryType::HOST);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 5_KiB);
+}
+
+TEST_F(BufferResourceReserveOrFailTest, MultipleTypes) {
+    // just test the vector case. All other container types are tested in the static
+    // assertions above.
+    std::vector<MemoryType> types{MemoryType::DEVICE, MemoryType::HOST};
+    auto res = br->reserve_or_fail(5_KiB, types);
+    EXPECT_EQ(res.size(), 5_KiB);
+    EXPECT_EQ(res.mem_type(), MemoryType::DEVICE);
+    EXPECT_EQ(br->memory_reserved(MemoryType::DEVICE), 5_KiB);
+
+    auto res1 = br->reserve_or_fail(10_KiB, types);  // this falls back to host
+    EXPECT_EQ(res1.size(), 10_KiB);
+    EXPECT_EQ(res1.mem_type(), MemoryType::HOST);
+    EXPECT_EQ(br->memory_reserved(MemoryType::HOST), 10_KiB);
 }
 
 class BaseBufferResourceCopyTest : public ::testing::Test {
@@ -515,7 +585,7 @@ TEST_F(BufferResourceDifferentResourcesTest, CopySlice) {
     auto buf1 = create_source_buffer();
 
     // Reserve memory for the slice on br2
-    auto res2 = br2->reserve_or_fail(slice_length);
+    auto res2 = br2->reserve_or_fail(slice_length, MEMORY_TYPES);
 
     // Create slice of buf1 on br2
     auto buf2 = br2->allocate(slice_length, stream, res2);
@@ -539,7 +609,7 @@ TEST_F(BufferResourceDifferentResourcesTest, Copy) {
     auto buf1 = create_source_buffer();
 
     // Create copy of buf1 on br2
-    auto buf2 = br2->allocate(stream, br2->reserve_or_fail(buffer_size));
+    auto buf2 = br2->allocate(stream, br2->reserve_or_fail(buffer_size, MEMORY_TYPES));
     buffer_copy(*buf2, *buf1, buffer_size);
     EXPECT_EQ(buf2->size, buffer_size);
     buf2->stream().synchronize();

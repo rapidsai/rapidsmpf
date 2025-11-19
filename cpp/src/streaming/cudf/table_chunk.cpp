@@ -5,7 +5,8 @@
 
 #include <memory>
 
-#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/integrations/cudf/utils.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
 namespace rapidsmpf::streaming {
@@ -22,7 +23,6 @@ TableChunk::TableChunk(std::unique_ptr<cudf::table> table, rmm::cuda_stream_view
 
 TableChunk::TableChunk(
     cudf::table_view table_view,
-    std::size_t device_alloc_size,
     rmm::cuda_stream_view stream,
     OwningWrapper&& owner,
     ExclusiveView exclusive_view
@@ -31,7 +31,8 @@ TableChunk::TableChunk(
       table_view_{table_view},
       stream_{stream},
       is_spillable_{static_cast<bool>(exclusive_view)} {
-    data_alloc_size_[static_cast<std::size_t>(MemoryType::DEVICE)] = device_alloc_size;
+    data_alloc_size_[static_cast<std::size_t>(MemoryType::DEVICE)] =
+        estimated_memory_usage(table_view, stream_);
     make_available_cost_ = 0;
 }
 
@@ -176,6 +177,22 @@ TableChunk TableChunk::copy(MemoryReservation& reservation) const {
                         std::move(packed_columns.metadata),
                         br->move(std::move(packed_columns.gpu_data), stream())
                     );
+
+                    // Handle the case where `cudf::pack` allocates slightly more than the
+                    // input size. This can occur because cudf uses aligned allocations,
+                    // which may exceed the requested size. To accommodate this, we
+                    // allow some wiggle room.
+                    if (packed_data->data->size > reservation.size()) {
+                        auto const wiggle_room =
+                            1024 * static_cast<std::size_t>(table_view().num_columns());
+                        if (packed_data->data->size <= reservation.size() + wiggle_room) {
+                            reservation =
+                                br->reserve(
+                                      MemoryType::HOST, packed_data->data->size, true
+                                )
+                                    .first;
+                        }
+                    }
                     packed_data->data =
                         br->move(std::move(packed_data->data), reservation);
                 }

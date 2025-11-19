@@ -10,7 +10,7 @@ import pytest
 
 import cudf
 
-from rapidsmpf.buffer.resource import BufferResource
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.testing import assert_eq
 
 MPI = pytest.importorskip("mpi4py.MPI")

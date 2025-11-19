@@ -11,9 +11,9 @@
 
 #include <rmm/cuda_stream_view.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 
 namespace rapidsmpf {
 
@@ -115,7 +115,7 @@ void Buffer::unlock() {
 
 bool Buffer::is_latest_write_done() const {
     throw_if_locked();
-    return latest_write_event_.is_ready();
+    return size == 0 || latest_write_event_.is_ready();
 }
 
 Buffer::DeviceStorageT Buffer::release_device() {

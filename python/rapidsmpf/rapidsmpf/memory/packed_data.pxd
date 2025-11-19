@@ -6,7 +6,7 @@ from libcpp.memory cimport unique_ptr
 from libcpp.vector cimport vector
 
 
-cdef extern from "<rapidsmpf/buffer/packed_data.hpp>" nogil:
+cdef extern from "<rapidsmpf/memory/packed_data.hpp>" nogil:
     cdef cppclass cpp_PackedData "rapidsmpf::PackedData":
         pass
 

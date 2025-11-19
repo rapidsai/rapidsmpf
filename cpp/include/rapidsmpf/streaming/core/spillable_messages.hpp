@@ -11,7 +11,7 @@
 #include <optional>
 #include <unordered_map>
 
-#include <rapidsmpf/buffer/content_description.hpp>
+#include <rapidsmpf/memory/content_description.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 
 namespace rapidsmpf::streaming {
@@ -99,7 +99,6 @@ class SpillableMessages {
      * @return Copy of a map from `MessageId` to `ContentDescription`.
      */
     std::map<MessageId, ContentDescription> get_content_descriptions() const;
-
 
   private:
     /**

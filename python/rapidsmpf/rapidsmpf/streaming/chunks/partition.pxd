@@ -6,7 +6,7 @@ from libcpp.memory cimport unique_ptr
 from libcpp.unordered_map cimport unordered_map
 from libcpp.vector cimport vector
 
-from rapidsmpf.buffer.packed_data cimport cpp_PackedData
+from rapidsmpf.memory.packed_data cimport cpp_PackedData
 
 
 cdef extern from "<rapidsmpf/streaming/chunks/partition.hpp>" nogil:

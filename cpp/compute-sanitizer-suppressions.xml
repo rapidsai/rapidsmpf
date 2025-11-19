@@ -101,12 +101,12 @@
       <frame></frame>
       <frame>
         <func>rapidsmpf::buffer_copy</func>
-        <path>.*/buffer/buffer.cpp</path>
+        <path>.*/memory/buffer.cpp</path>
         <module>.*/librapidsmpf.so</module>
       </frame>
       <frame>
         <func>rapidsmpf::BufferResource::move</func>
-        <path>.*/buffer/resource.cpp</path>
+        <path>.*/memory/buffer_resource.cpp</path>
         <module>.*/librapidsmpf.so</module>
       </frame>
       <frame>
@@ -184,7 +184,7 @@
       </frame>
       <frame>
         <func>rapidsmpf::buffer_copy const</func>
-        <path>.*/buffer/buffer.cpp</path>
+        <path>.*/memory/buffer.cpp</path>
         <module>.*/librapidsmpf.so</module>
       </frame>
       <frame></frame>
@@ -193,12 +193,12 @@
       <frame></frame>
       <frame>
         <func>rapidsmpf::buffer_copy</func>
-        <path>.*/buffer/buffer.cpp</path>
+        <path>.*/memory/buffer.cpp</path>
         <module>/.*/librapidsmpf.so</module>
       </frame>
       <frame>
         <func>rapidsmpf::BufferResource::move</func>
-        <path>.*/buffer/resource.cpp</path>
+        <path>.*/memory/buffer_resource.cpp</path>
         <module>/.*/librapidsmpf.so</module>
       </frame>
       <frame>
@@ -231,7 +231,7 @@
       </frame>
       <frame>
         <func>rapidsmpf::buffer_copy const</func>
-        <path>.*/buffer/buffer.cpp</path>
+        <path>.*/memory/buffer.cpp</path>
         <module>.*/librapidsmpf.so</module>
       </frame>
       <frame>
@@ -251,17 +251,17 @@
       </frame>
       <frame>
         <func>std::invoke_result&lt;rapidsmpf::buffer_copy</func>
-        <path>*/buffer/buffer.hpp</path>
+        <path>*/memory/buffer.hpp</path>
         <module>.*/librapidsmpf.so</module>
       </frame>
       <frame>
         <func>rapidsmpf::buffer_copy</func>
-        <path>.*/buffer/buffer.cpp</path>
+        <path>.*/memory/buffer.cpp</path>
         <module>.*/librapidsmpf.so</module>
       </frame>
       <frame>
         <func>rapidsmpf::BufferResource::move</func>
-        <path>.*/buffer/resource.cpp</path>
+        <path>.*/memory/buffer_resource.cpp</path>
         <module>.*/librapidsmpf.so</module>
       </frame>
       <frame>

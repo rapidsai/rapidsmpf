@@ -13,8 +13,8 @@
 #include <optional>
 
 #include <rapidsmpf/allgather/allgather.hpp>
-#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/utils.hpp>
 
@@ -127,7 +127,9 @@ std::unique_ptr<Chunk> Chunk::deserialize(
     return std::unique_ptr<Chunk>(new Chunk(
         id,
         std::move(metadata),
-        br->allocate(br->stream_pool().get_stream(), br->reserve_or_fail(data_size))
+        br->allocate(
+            br->stream_pool().get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
+        )
     ));
 }
 

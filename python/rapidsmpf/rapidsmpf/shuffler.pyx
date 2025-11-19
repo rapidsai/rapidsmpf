@@ -9,7 +9,7 @@ from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
-from rapidsmpf.buffer.packed_data cimport (PackedData, cpp_PackedData,
+from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
 from rapidsmpf.progress_thread cimport ProgressThread
 from rapidsmpf.statistics cimport Statistics

@@ -5,22 +5,11 @@
 
 #include <limits>
 
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 
 namespace rapidsmpf {
-
-
-MemoryReservation::~MemoryReservation() noexcept {
-    clear();
-}
-
-void MemoryReservation::clear() noexcept {
-    if (size_ > 0) {
-        br_->release(*this, size_);
-    }
-}
 
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
@@ -91,27 +80,6 @@ MemoryReservation BufferResource::reserve_and_spill(
     }
 
     return std::move(reservation);
-}
-
-MemoryReservation BufferResource::reserve_or_fail(
-    size_t size, std::optional<MemoryType> mem_type
-) {
-    if (mem_type) {
-        auto [res, _] = reserve(*mem_type, size, false);
-        RAPIDSMPF_EXPECTS(
-            res.size() == size, "failed to reserve memory", std::runtime_error
-        );
-        return std::move(res);
-    }
-
-    // try to allocate data buffer from memory types in order [DEVICE, HOST]
-    for (auto mem_type : MEMORY_TYPES) {
-        auto [res, _] = reserve(mem_type, size, false);
-        if (res.size() == size) {
-            return std::move(res);
-        }
-    }
-    RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
 }
 
 std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t size) {

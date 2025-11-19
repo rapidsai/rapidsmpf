@@ -3,14 +3,17 @@
 
 from cpython.object cimport PyObject
 from cython.operator cimport dereference as deref
-from libc.stddef cimport size_t
 from libc.stdint cimport uint64_t
 from libcpp.memory cimport unique_ptr
 from libcpp.utility cimport move
-from pylibcudf.column cimport Column
 from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from pylibcudf.table cimport Table
 
+from rapidsmpf.memory.buffer_resource cimport BufferResource
+from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
+                                                  cpp_MemoryReservation)
+# Need the header include for inline C++ code
+from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper  # no-cython-lint
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
@@ -20,9 +23,7 @@ cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:
         (uint64_t sequence_number, unique_ptr[cpp_TableChunk]) except +
 
 
-# Helper function to release a table chunk from a message, which is needed
-# because TableChunk doesn't have a default ctor.
-cdef extern from *:
+cdef extern from * nogil:
     """
     namespace {
     std::unique_ptr<rapidsmpf::streaming::TableChunk>
@@ -36,7 +37,6 @@ cdef extern from *:
 
     std::unique_ptr<rapidsmpf::streaming::TableChunk> cpp_from_table_view_with_owner(
         cudf::table_view view,
-        std::size_t device_alloc_size,
         rmm::cuda_stream_view stream,
         PyObject *owner,
         void(*py_deleter)(void *),
@@ -47,28 +47,50 @@ cdef extern from *:
         Py_XINCREF(owner);
         return std::make_unique<rapidsmpf::streaming::TableChunk>(
             view,
-            device_alloc_size,
             stream,
-            rapidsmpf::streaming::OwningWrapper(owner, py_deleter),
+            rapidsmpf::OwningWrapper(owner, py_deleter),
             exclusive_view ?
                 rapidsmpf::streaming::TableChunk::ExclusiveView::YES
                 : rapidsmpf::streaming::TableChunk::ExclusiveView::NO
         );
     }
+
+    std::unique_ptr<rapidsmpf::streaming::TableChunk> cpp_table_make_available(
+        std::unique_ptr<rapidsmpf::streaming::TableChunk> &&table,
+        rapidsmpf::MemoryReservation* reservation
+    ) {
+        return std::make_unique<rapidsmpf::streaming::TableChunk>(
+            table->make_available(*reservation)
+        );
+    }
+
+    std::unique_ptr<rapidsmpf::streaming::TableChunk> cpp_table_copy(
+        std::unique_ptr<rapidsmpf::streaming::TableChunk> const& table,
+        rapidsmpf::MemoryReservation* reservation
+    ) {
+        return std::make_unique<rapidsmpf::streaming::TableChunk>(
+            table->copy(*reservation)
+        );
+    }
     }
     """
-    unique_ptr[cpp_TableChunk] \
-        cpp_release_table_chunk_from_message(cpp_Message) except +
-
+    unique_ptr[cpp_TableChunk] cpp_release_table_chunk_from_message(
+        cpp_Message
+    ) except +
     unique_ptr[cpp_TableChunk] cpp_from_table_view_with_owner(...) except +
-
+    unique_ptr[cpp_TableChunk] cpp_table_make_available(
+        unique_ptr[cpp_TableChunk], cpp_MemoryReservation*
+    ) except +
+    unique_ptr[cpp_TableChunk] cpp_table_copy(
+        unique_ptr[cpp_TableChunk], cpp_MemoryReservation*
+    ) except +
 
 cdef class TableChunk:
     """
     A unit of table data in a streaming pipeline.
 
     Represents either an unpacked pylibcudf table, a packed (serialized) table,
-    or `rapidsmpf.buffer.packed_data.PackedData`.
+    or `rapidsmpf.memory.packed_data.PackedData`.
 
     A TableChunk may be initially unavailable (e.g., if the data is packed or
     spilled), and can be made available (i.e., materialized to device memory)
@@ -133,8 +155,7 @@ cdef class TableChunk:
 
         Returns
         -------
-        TableChunk
-            A new TableChunk wrapping the given pylibcudf Table.
+        A new TableChunk wrapping the given pylibcudf Table.
 
         Notes
         -----
@@ -149,15 +170,10 @@ cdef class TableChunk:
         ensure the stream remains valid for the lifetime of the streaming pipeline.
         """
         cdef cuda_stream_view _stream = stream.view()
-        cdef size_t device_alloc_size = 0
-        for col in table.columns():
-            device_alloc_size += (<Column?>col).device_buffer_size()
-
         cdef cpp_table_view view = table.view()
         return TableChunk.from_handle(
             cpp_from_table_view_with_owner(
                 view,
-                device_alloc_size,
                 _stream,
                 <PyObject *>table,
                 py_deleter,
@@ -206,7 +222,7 @@ cdef class TableChunk:
 
         Warnings
         --------
-        The TableChunk is released and must not be used after this call.
+        The original table chunk is released and must not be used after this call.
         """
         if not message.empty():
             raise ValueError("cannot move into a non-empty message")
@@ -291,6 +307,93 @@ cdef class TableChunk:
         """
         return deref(self.handle_ptr()).is_available()
 
+    def make_available_cost(self):
+        """
+        Return the estimated cost (in bytes) of making the table available.
+
+        Currently, only device memory usage is accounted for in this estimate.
+
+        Returns
+        -------
+        The estimated cost in bytes.
+        """
+        return deref(self.handle_ptr()).make_available_cost()
+
+    def make_available(self, MemoryReservation reservation not None):
+        """
+        Move this table chunk into a new one with its data made available.
+
+        As part of the move, a copy or unpack operation may be performed,
+        using the associated CUDA stream for execution. After this call,
+        the current object is left in a moved-from state and should not be
+        accessed further except for reassignment, movement, or destruction.
+
+        Parameters
+        ----------
+        reservation
+            Memory reservation used for allocations, if making data available
+            is needed.
+
+        Returns
+        -------
+        A new table chunk with its data available on device.
+
+        Warnings
+        --------
+        The original table chunk is released and must not be used after this call.
+        """
+        cdef cpp_MemoryReservation* res = reservation._handle.get()
+        cdef unique_ptr[cpp_TableChunk] handle = self.release_handle()
+        cdef unique_ptr[cpp_TableChunk] ret
+        with nogil:
+            ret = cpp_table_make_available(move(handle), res)
+        return TableChunk.from_handle(move(ret))
+
+    def make_available_and_spill(
+        self, BufferResource br not None, *, allow_overbooking
+    ):
+        """
+        Make this table chunk available on device, spilling other data if necessary.
+
+        Ensures that the data backing this table chunk is made available in device
+        memory. If there is insufficient free memory to complete the operation, the
+        buffer resource may spill other data until enough space has been freed.
+
+        Parameters
+        ----------
+        br
+            Buffer resource used for allocations and spill management.
+        allow_overbooking
+            Whether the memory reservation may temporarily exceed the current
+            allocation limit.
+
+        Returns
+        -------
+        A new table chunk with its data made available on device.
+
+        Raises
+        ------
+        MemoryError
+            If the allocation or spilling process fails to free enough memory.
+
+        Warnings
+        --------
+        The original table chunk is released and must not be used after this call.
+
+        Examples
+        --------
+        >>> # Make the data of an existing chunk available on device
+        >>> chunk = chunk.make_available_and_spill(br, allow_overbooking=False)
+        >>> chunk.table_view()
+        """
+
+        cdef MemoryReservation res = br.reserve_and_spill(
+            MemoryType.DEVICE,
+            self.make_available_cost(),
+            allow_overbooking=allow_overbooking
+        )
+        return self.make_available(res)
+
     def table_view(self):
         """
         Returns a view of the underlying pylibcudf table.
@@ -330,3 +433,29 @@ cdef class TableChunk:
         True if the table chunk can be spilled, otherwise, False.
         """
         return deref(self.handle_ptr()).is_spillable()
+
+    def copy(self, MemoryReservation reservation not None):
+        """
+        Create a deep copy of this table chunk.
+
+        All buffers are allocated for the new table chunk using the provided
+        memory reservation, which also determines the target memory type of
+        the copy.
+
+        Parameters
+        ----------
+        reservation
+            Memory reservation to consume for allocating the buffers of the
+            new table chunk.
+
+        Returns
+        -------
+        TableChunk
+            A new table chunk containing a deep copy of this chunk's data and
+            metadata.
+        """
+        cdef unique_ptr[cpp_TableChunk] ret
+        cdef cpp_MemoryReservation* res = reservation._handle.get()
+        with nogil:
+            ret = cpp_table_copy(self._handle, res)
+        return TableChunk.from_handle(move(ret))

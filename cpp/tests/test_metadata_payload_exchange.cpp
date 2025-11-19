@@ -6,14 +6,14 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <rmm/mr/device/cuda_memory_resource.hpp>
-#include <rmm/mr/device/device_memory_resource.hpp>
+#include <rmm/mr/cuda_memory_resource.hpp>
+#include <rmm/mr/device_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"

@@ -6,7 +6,7 @@ from libc.stdint cimport int64_t
 from libcpp.memory cimport shared_ptr
 
 
-cdef extern from "<rapidsmpf/buffer/spill_manager.hpp>" nogil:
+cdef extern from "<rapidsmpf/memory/spill_manager.hpp>" nogil:
     cdef cppclass cpp_SpillFunction "rapidsmpf::SpillManager::SpillFunction":
         pass
 

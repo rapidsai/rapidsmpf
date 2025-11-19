@@ -6,88 +6,14 @@ from libc.stdint cimport int64_t
 from libcpp.memory cimport make_shared, shared_ptr
 from libcpp.utility cimport move
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
+
 from rmm.pylibrmm.cuda_stream import CudaStreamFlags
+
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
-
-cdef class MemoryReservation:
-    """
-    Represents a reservation for future memory allocation.
-
-    A reservation is created by :meth:`BufferResource.reserve` and must be used
-    when allocating buffers through the same :class:`BufferResource`.
-    """
-    def __init__(self):
-        raise ValueError("use the `from_handle` factory function")
-
-    def __dealloc__(self):
-        with nogil:
-            self._handle.reset()
-
-    @staticmethod
-    cdef MemoryReservation from_handle(
-        unique_ptr[cpp_MemoryReservation] handle,
-        BufferResource br,
-    ):
-        """
-        Construct a MemoryReservation from an existing C++ handle.
-
-        Parameters
-        ----------
-        handle
-            A unique pointer to a C++ MemoryReservation.
-        br
-            The buffer resource associated with the reservation.
-
-        Returns
-        -------
-        A new MemoryReservation wrapping the given handle.
-        """
-        if not handle:
-            raise ValueError("handle cannot be None")
-        if br is None:
-            raise ValueError("br cannot be None")
-
-        cdef MemoryReservation ret = MemoryReservation.__new__(
-            MemoryReservation
-        )
-        ret._handle = move(handle)
-        ret._br = br  # Need to keep the buffer resource alive.
-        return ret
-
-    @property
-    def size(self):
-        """
-        Get the remaining size of the reserved memory.
-
-        Returns
-        -------
-        The size of the reserved memory in bytes.
-        """
-        return deref(self._handle).size()
-
-    @property
-    def mem_type(self):
-        """
-        Get the type of memory associated with this reservation.
-
-        Returns
-        -------
-        The memory type associated with this reservation.
-        """
-        return deref(self._handle).mem_type()
-
-    @property
-    def br(self):
-        """
-        Get the buffer resource associated with this reservation.
-
-        Returns
-        -------
-        The buffer resource associated with this reservation.
-        """
-        return self._br
+from rapidsmpf.memory.memory_reservation cimport MemoryReservation
+from rapidsmpf.statistics cimport Statistics
 
 
 # Converter from `shared_ptr[cpp_LimitAvailableMemory]` to `cpp_MemoryAvailable`
@@ -142,6 +68,18 @@ cdef extern from * nogil:
         auto [res, ob] = br->reserve(mem_type, size, allow_overbooking);
         return {std::make_unique<rapidsmpf::MemoryReservation>(std::move(res)), ob};
     }
+
+    std::unique_ptr<rapidsmpf::MemoryReservation>
+    cpp_br_reserve_and_spill(
+        std::shared_ptr<rapidsmpf::BufferResource> br,
+        rapidsmpf::MemoryType mem_type,
+        size_t size,
+        bool allow_overbooking
+    ) {
+        return std::make_unique<rapidsmpf::MemoryReservation>(
+            br->reserve_and_spill(mem_type, size, allow_overbooking)
+        );
+    }
     """
     pair[unique_ptr[cpp_MemoryReservation], size_t] cpp_br_reserve(
         shared_ptr[cpp_BufferResource],
@@ -149,7 +87,12 @@ cdef extern from * nogil:
         size_t,
         bool_t,
     ) except +
-
+    unique_ptr[cpp_MemoryReservation] cpp_br_reserve_and_spill(
+        shared_ptr[cpp_BufferResource],
+        MemoryType,
+        size_t,
+        bool_t,
+    ) except +
 
 cdef class BufferResource:
     """
@@ -180,6 +123,9 @@ cdef class BufferResource:
         Optional CUDA stream pool to use. If None, a new pool with 16 streams
         will be created. Must be an instance of
         ``rmm.pylibrmm.cuda_stream_pool.CudaStreamPool``.
+    statistics
+        The statistics instance to use. If None, a disabled statistics instance
+        will be created.
     """
     def __cinit__(
         self,
@@ -187,6 +133,7 @@ cdef class BufferResource:
         memory_available = None,
         periodic_spill_check = 1e-3,
         stream_pool = None,
+        statistics = None,
     ):
         cdef unordered_map[MemoryType, cpp_MemoryAvailable] _mem_available
         if memory_available is not None:
@@ -227,6 +174,14 @@ cdef class BufferResource:
             )
         )
 
+        if statistics is None:
+            statistics = Statistics(enable=False)
+
+        # Keep statistics alive
+        self._statistics = statistics
+        # checked cast requires the GIL
+        stats_handle = (<Statistics?>statistics)._handle
+
         # Keep MR alive because the C++ BufferResource stores a raw pointer.
         # TODO: once RMM is migrating to CCCL (copyable) any_resource,
         # rather than the any_resource_ref reference type, we don't
@@ -238,6 +193,7 @@ cdef class BufferResource:
                 move(_mem_available),
                 period,
                 cpp_stream_pool,
+                stats_handle,
             )
         self.spill_manager = SpillManager._create(self)
 
@@ -330,6 +286,44 @@ cdef class BufferResource:
             ret = cpp_br_reserve(self._handle, mem_type, size, allow_overbooking)
         return MemoryReservation.from_handle(move(ret.first), self), ret.second
 
+    def reserve_and_spill(
+        self, MemoryType mem_type, size_t size, *, bool_t allow_overbooking
+    ):
+        """
+        Reserve memory and spill if necessary.
+
+        Attempts to reserve the requested amount of memory for the given memory type.
+        If insufficient memory is available, spilling is triggered to free up space.
+        When overbooking is allowed, the reservation may succeed even if spilling
+        was not sufficient to fully satisfy the request.
+
+        Parameters
+        ----------
+        mem_type
+            The memory type to reserve.
+        size
+            The size of the memory to reserve, in bytes.
+        allow_overbooking
+            Whether overbooking is allowed. If false, ensures that enough memory is
+            freed to satisfy the reservation.
+
+        Returns
+        -------
+        A memory reservation that can be used for subsequent allocations.
+
+        Raises
+        ------
+        OverflowError
+            If overbooking is disallowed and the buffer resource cannot reserve
+            and spill enough memory.
+        """
+        cdef unique_ptr[cpp_MemoryReservation] ret
+        with nogil:
+            ret = cpp_br_reserve_and_spill(
+                self._handle, mem_type, size, allow_overbooking
+            )
+        return MemoryReservation.from_handle(move(ret), self)
+
     def release(self, MemoryReservation reservation not None, size_t size):
         """
         Consume a portion of the reserved memory.
@@ -367,6 +361,17 @@ cdef class BufferResource:
             The size of the stream pool.
         """
         return self.stream_pool().get_pool_size()
+
+    @property
+    def statistics(self):
+        """
+        Gets the statistics instance associated with this buffer resource.
+
+        Returns
+        -------
+        The Statistics instance.
+        """
+        return self._statistics
 
 
 cdef class LimitAvailableMemory:
