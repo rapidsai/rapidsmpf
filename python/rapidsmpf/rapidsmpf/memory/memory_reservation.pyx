@@ -9,8 +9,8 @@ cdef class MemoryReservation:
     """
     Represents a reservation for future memory allocation.
 
-    A reservation is created by :meth:`BufferResource.reserve` and must be used
-    when allocating buffers through the same :class:`BufferResource`.
+    A reservation is created by `BufferResource.reserve` and must be used
+    when allocating buffers through the same `BufferResource`.
     """
     def __init__(self):
         raise ValueError("use the `from_handle` factory function")
