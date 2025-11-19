@@ -5,7 +5,6 @@
 
 #include <memory>
 
-#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/integrations/cudf/utils.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
