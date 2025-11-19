@@ -178,7 +178,6 @@ struct UnboundedFanout {
      * @param ctx The context to use.
      * @param self Self index of the task
      * @param ch_out The output channel to send messages to.
-     * @param state The state of the unbounded fanout.
      * @return A coroutine representing the task.
      */
     Node send_task(Context& ctx, size_t self, std::shared_ptr<Channel> ch_out) {
