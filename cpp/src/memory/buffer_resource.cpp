@@ -36,7 +36,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 ) {
     auto const& available = memory_available(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
-    std::size_t& reserved = memory_reserved(mem_type);
+    std::size_t& reserved = memory_reserved_[static_cast<std::size_t>(mem_type)];
 
     // Calculate the available memory _after_ the memory has been reserved.
     std::int64_t headroom =
@@ -90,7 +90,8 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
             + format_nbytes(size) + ")",
         std::overflow_error
     );
-    std::size_t& reserved = memory_reserved(reservation.mem_type_);
+    std::size_t& reserved =
+        memory_reserved_[static_cast<std::size_t>(reservation.mem_type_)];
     RAPIDSMPF_EXPECTS(reserved >= size, "corrupted reservation stat");
     reserved -= size;
     return reservation.size_ -= size;

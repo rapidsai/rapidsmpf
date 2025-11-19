@@ -10,8 +10,8 @@ from libcpp.vector cimport vector
 
 from dataclasses import dataclass
 
+from rapidsmpf.memory.scoped_memory_record cimport ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
-                                             ScopedMemoryRecord,
                                              cpp_RmmResourceAdaptor)
 
 
