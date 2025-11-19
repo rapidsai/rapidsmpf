@@ -58,6 +58,18 @@ std::string policy_to_string(FanoutPolicy policy) {
     }
 }
 
+using BaseStreamingFanout = BaseStreamingFixture;
+
+TEST_F(BaseStreamingFanout, InvalidNumberOfOutputChannels) {
+    auto in = ctx->create_channel();
+    std::vector<std::shared_ptr<Channel>> out_chs;
+    out_chs.push_back(ctx->create_channel());
+    EXPECT_THROW(
+        std::ignore = node::fanout(ctx, in, out_chs, FanoutPolicy::BOUNDED),
+        std::invalid_argument
+    );
+}
+
 class StreamingFanout
     : public BaseStreamingFixture,
       public ::testing::WithParamInterface<std::tuple<FanoutPolicy, int, int, int>> {
@@ -84,7 +96,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(FanoutPolicy::BOUNDED, FanoutPolicy::UNBOUNDED),
         ::testing::Values(1, 4),  // number of threads
-        ::testing::Values(1, 4),  // number of output channels
+        ::testing::Values(2, 4),  // number of output channels
         ::testing::Values(10, 100)  // number of messages
     ),
     [](testing::TestParamInfo<StreamingFanout::ParamType> const& info) {
@@ -413,7 +425,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(FanoutPolicy::BOUNDED, FanoutPolicy::UNBOUNDED),
         ::testing::Values(1, 4),  // number of threads
-        ::testing::Values(1, 4),  // number of output channels
+        ::testing::Values(2, 4),  // number of output channels
         ::testing::Values(10, 100)  // number of messages
     ),
     [](testing::TestParamInfo<StreamingFanout::ParamType> const& info) {

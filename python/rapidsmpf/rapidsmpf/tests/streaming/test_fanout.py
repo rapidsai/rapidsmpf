@@ -97,6 +97,11 @@ def test_fanout_multiple_outputs(
         context.create_channel() for _ in range(num_outputs)
     ]
 
+    if num_outputs == 1:
+        with pytest.raises(ValueError):
+            fanout(context, ch_in, chs_out, policy)
+        return
+
     # Create test messages
     messages = []
     for i in range(3):

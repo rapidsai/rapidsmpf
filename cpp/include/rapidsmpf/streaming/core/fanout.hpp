@@ -49,12 +49,13 @@ enum class FanoutPolicy : uint8_t {
  *
  * @param ctx The node context to use.
  * @param ch_in Input channel from which messages are received.
- * @param chs_out Output channels to which messages are broadcast.
+ * @param chs_out Output channels to which messages are broadcast. Must be at least 2.
  * @param policy The fanout strategy to use (see ::FanoutPolicy).
  *
  * @return Streaming node representing the fanout operation.
  *
- * @throws std::invalid_argument If an unknown fanout policy is specified.
+ * @throws std::invalid_argument If an unknown fanout policy is specified or if the number
+ * of output channels is less than 2.
  */
 Node fanout(
     std::shared_ptr<Context> ctx,
