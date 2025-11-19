@@ -10,9 +10,9 @@ import pytest
 
 import cudf
 
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.content_description import ContentDescription
 from rapidsmpf.cuda_stream import is_equal_streams
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.content_description import ContentDescription
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
@@ -104,6 +104,31 @@ def test_roundtrip(context: Context, stream: Stream, *, exclusive_view: bool) ->
     assert table_chunk6.is_available()
     assert table_chunk6.make_available_cost() == 0
     assert_eq(expect, table_chunk6.table_view())
+
+
+def test_copy_roundtrip(context: Context, stream: Stream) -> None:
+    for nrows, ncols in [(1, 1), (1000, 100), (1, 1000)]:
+        expect = cudf_to_pylibcudf_table(
+            cudf.DataFrame(
+                {
+                    f"{name}": cupy.random.random(nrows, dtype=cupy.float32)
+                    for name in range(ncols)
+                }
+            )
+        )
+
+        tbl1 = TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+        res, _ = context.br().reserve(
+            MemoryType.HOST,
+            tbl1.data_alloc_size(MemoryType.DEVICE),
+            allow_overbooking=True,
+        )
+        tbl2 = tbl1.copy(res)
+        res, _ = context.br().reserve(
+            MemoryType.DEVICE, tbl2.make_available_cost(), allow_overbooking=True
+        )
+        tbl3 = tbl2.make_available(res)
+        assert_eq(expect, tbl3.table_view())
 
 
 def test_spillable_messages(context: Context, stream: Stream) -> None:

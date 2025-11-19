@@ -11,11 +11,11 @@ import cudf
 import rmm.mr
 from rmm.pylibrmm.stream import DEFAULT_STREAM
 
-from rapidsmpf.buffer.resource import BufferResource
 from rapidsmpf.communicator.single import (
     new_communicator as single_process_comm,
 )
 from rapidsmpf.config import Options, get_environment_variables
+from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.streaming.core.context import Context
 from rapidsmpf.streaming.core.leaf_node import pull_from_channel, push_to_channel

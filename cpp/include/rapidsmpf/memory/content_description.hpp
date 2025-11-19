@@ -7,7 +7,7 @@
 #include <type_traits>
 #include <utility>
 
-#include <rapidsmpf/buffer/buffer.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 
 namespace rapidsmpf {
 

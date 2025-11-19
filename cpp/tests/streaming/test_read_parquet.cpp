@@ -33,8 +33,8 @@
 #include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/allgather/allgather.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>

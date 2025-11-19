@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 
-from rapidsmpf.buffer.buffer import MemoryType
+from rapidsmpf.memory.buffer import MemoryType
 
 @dataclass
 class ContentDescription:

@@ -13,8 +13,8 @@
 #include <optional>
 
 #include <rapidsmpf/allgather/allgather.hpp>
-#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/utils.hpp>
 

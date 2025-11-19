@@ -17,11 +17,11 @@ import cudf
 import rmm
 from pylibcudf import gpumemoryview
 
-from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.integrations.dask.spilling import (
     SpillableWrapper,
     register_dask_serialize,
 )
+from rapidsmpf.memory.buffer import MemoryType
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

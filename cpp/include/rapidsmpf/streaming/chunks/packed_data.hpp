@@ -5,8 +5,8 @@
 
 #pragma once
 
-#include <rapidsmpf/buffer/content_description.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
+#include <rapidsmpf/memory/content_description.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 
 namespace rapidsmpf::streaming {

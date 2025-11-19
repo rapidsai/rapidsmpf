@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.spill_collection import SpillCollection, Spillable
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.spill_collection import SpillCollection, Spillable
 
 if TYPE_CHECKING:
     import rmm

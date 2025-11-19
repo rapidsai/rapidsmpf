@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 
-from rapidsmpf.buffer.buffer import MemoryType
+from rapidsmpf.memory.buffer import MemoryType
 
 
 cdef content_description_from_cpp(cpp_ContentDescription cd):

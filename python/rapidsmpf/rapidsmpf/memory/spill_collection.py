@@ -8,7 +8,7 @@ import threading
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from weakref import WeakValueDictionary
 
-from rapidsmpf.buffer.buffer import MemoryType
+from rapidsmpf.memory.buffer import MemoryType
 
 if TYPE_CHECKING:
     import rmm

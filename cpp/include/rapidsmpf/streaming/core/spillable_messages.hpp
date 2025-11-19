@@ -11,7 +11,7 @@
 #include <optional>
 #include <unordered_map>
 
-#include <rapidsmpf/buffer/content_description.hpp>
+#include <rapidsmpf/memory/content_description.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 
 namespace rapidsmpf::streaming {
