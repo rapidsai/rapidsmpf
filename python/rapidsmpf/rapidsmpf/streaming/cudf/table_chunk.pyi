@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, Self
 from pylibcudf.table import Table
 from rmm.pylibrmm.stream import Stream
 
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.resource import BufferResource, MemoryReservation
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.memory.memory_reservation import MemoryReservation
 from rapidsmpf.streaming.core.message import Message, Payload
 
 class TableChunk:

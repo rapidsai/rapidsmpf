@@ -17,8 +17,8 @@
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
-#include <rapidsmpf/buffer/pinned_memory_resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/utils.hpp>
 
 #include "utils.hpp"

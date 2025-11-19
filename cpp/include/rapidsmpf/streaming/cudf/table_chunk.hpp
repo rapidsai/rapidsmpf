@@ -13,9 +13,9 @@
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
 
-#include <rapidsmpf/buffer/content_description.hpp>
-#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/content_description.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/owning_wrapper.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>

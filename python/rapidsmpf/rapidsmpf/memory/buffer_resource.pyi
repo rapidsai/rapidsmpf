@@ -6,18 +6,11 @@ from collections.abc import Callable, Mapping
 from rmm.pylibrmm.cuda_stream_pool import CudaStreamPool
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
 
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.spill_manager import SpillManager
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.memory_reservation import MemoryReservation
+from rapidsmpf.memory.spill_manager import SpillManager
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
-
-class MemoryReservation:
-    @property
-    def size(self) -> int: ...
-    @property
-    def mem_type(self) -> MemoryType: ...
-    @property
-    def br(self) -> BufferResource: ...
 
 class BufferResource:
     def __init__(

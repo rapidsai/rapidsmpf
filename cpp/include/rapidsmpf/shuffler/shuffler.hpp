@@ -14,10 +14,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include <rapidsmpf/buffer/packed_data.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>

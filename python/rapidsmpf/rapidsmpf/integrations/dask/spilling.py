@@ -16,8 +16,8 @@ from distributed.protocol.cuda import (
 from distributed.protocol.serialize import dask_dumps, dask_loads
 from distributed.utils import log_errors
 
-from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.integrations.dask.core import get_worker_context
+from rapidsmpf.memory.buffer import MemoryType
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from rmm.pylibrmm.memory_resource import DeviceMemoryResource
     from rmm.pylibrmm.stream import Stream
 
-    from rapidsmpf.buffer.spill_collection import SpillCollection
+    from rapidsmpf.memory.spill_collection import SpillCollection
 
 WrappedType = TypeVar("WrappedType")
 
@@ -40,7 +40,7 @@ class SpillableWrapper(Generic[WrappedType]):
     references should exist to the object. If such references do exist,
     modifying the object results in undefined behavior.
 
-    Implements the `rapidsmpf.buffer.spill_collection.Spillable` protocol.
+    Implements the `rapidsmpf.memory.spill_collection.Spillable` protocol.
 
     Notes
     -----

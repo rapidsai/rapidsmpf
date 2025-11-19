@@ -159,10 +159,6 @@ add_library(
   src/allgather/allgather.cpp
   src/bootstrap/bootstrap.cpp
   src/bootstrap/file_backend.cpp
-  src/buffer/buffer.cpp
-  src/buffer/pinned_memory_resource.cu
-  src/buffer/resource.cpp
-  src/buffer/spill_manager.cpp
   src/communicator/communicator.cpp
   src/communicator/metadata_payload_exchange/core.cpp
   src/communicator/metadata_payload_exchange/tag.cpp
@@ -171,6 +167,11 @@ add_library(
   src/cuda_event.cpp
   src/integrations/cudf/partition.cpp
   src/integrations/cudf/utils.cpp
+  src/memory/buffer.cpp
+  src/memory/buffer_resource.cpp
+  src/memory/memory_reservation.cpp
+  src/memory/pinned_memory_resource.cu
+  src/memory/spill_manager.cpp
   src/pausable_thread_loop.cpp
   src/progress_thread.cpp
   src/rmm_resource_adaptor.cpp

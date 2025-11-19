@@ -13,8 +13,8 @@
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/mr/pinned_host_memory_resource.hpp>
 
-#include <rapidsmpf/buffer/pinned_memory_resource.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/pinned_memory_resource.hpp>
 
 namespace {
 class HostMemoryResource {

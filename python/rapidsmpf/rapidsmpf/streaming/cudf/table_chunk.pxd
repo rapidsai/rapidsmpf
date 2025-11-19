@@ -9,8 +9,8 @@ from pylibcudf.libcudf.table.table_view cimport table_view as cpp_table_view
 from rmm.librmm.cuda_stream_view cimport cuda_stream_view
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf.buffer.buffer cimport MemoryType
-from rapidsmpf.buffer.resource cimport cpp_MemoryReservation
+from rapidsmpf.memory.buffer cimport MemoryType
+from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 
 
 cdef extern from "<rapidsmpf/streaming/cudf/table_chunk.hpp>" nogil:

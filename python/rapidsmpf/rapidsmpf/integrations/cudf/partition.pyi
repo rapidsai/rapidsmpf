@@ -7,8 +7,8 @@ from collections.abc import Iterable
 from pylibcudf.table import Table
 from rmm.pylibrmm.stream import Stream
 
-from rapidsmpf.buffer.packed_data import PackedData
-from rapidsmpf.buffer.resource import BufferResource
+from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.statistics import Statistics
 
 def partition_and_pack(

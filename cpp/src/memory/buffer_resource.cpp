@@ -5,22 +5,11 @@
 
 #include <limits>
 
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 
 namespace rapidsmpf {
-
-
-MemoryReservation::~MemoryReservation() noexcept {
-    clear();
-}
-
-void MemoryReservation::clear() noexcept {
-    if (size_ > 0) {
-        br_->release(*this, size_);
-    }
-}
 
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,

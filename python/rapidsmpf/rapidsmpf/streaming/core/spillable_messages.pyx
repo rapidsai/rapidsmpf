@@ -8,8 +8,8 @@ from libcpp.map cimport map as cpp_map
 from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 
-from rapidsmpf.buffer.content_description cimport content_description_from_cpp
-from rapidsmpf.buffer.resource cimport BufferResource
+from rapidsmpf.memory.buffer_resource cimport BufferResource
+from rapidsmpf.memory.content_description cimport content_description_from_cpp
 
 
 cdef class SpillableMessages:

@@ -18,8 +18,8 @@
 #include <cudf/table/table_view.hpp>
 #include <cudf_test/column_wrapper.hpp>
 
-#include <rapidsmpf/buffer/packed_data.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 
 /**
  * @brief User-defined literal for specifying memory sizes in MiB.

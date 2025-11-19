@@ -12,10 +12,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include <rapidsmpf/buffer/buffer.hpp>
-#include <rapidsmpf/buffer/resource.hpp>
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 
 /**
  * @namespace rapidsmpf

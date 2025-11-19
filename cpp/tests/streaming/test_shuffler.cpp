@@ -11,10 +11,10 @@
 #include <cudf/copying.hpp>
 #include <cudf_test/table_utilities.hpp>
 
-#include <rapidsmpf/buffer/buffer.hpp>
 #include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/streaming/coll/shuffler.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/leaf_node.hpp>

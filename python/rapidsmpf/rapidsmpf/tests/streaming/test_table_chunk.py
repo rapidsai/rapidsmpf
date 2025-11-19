@@ -10,9 +10,9 @@ import pytest
 
 import cudf
 
-from rapidsmpf.buffer.buffer import MemoryType
-from rapidsmpf.buffer.content_description import ContentDescription
 from rapidsmpf.cuda_stream import is_equal_streams
+from rapidsmpf.memory.buffer import MemoryType
+from rapidsmpf.memory.content_description import ContentDescription
 from rapidsmpf.streaming.core.message import Message
 from rapidsmpf.streaming.core.spillable_messages import SpillableMessages
 from rapidsmpf.streaming.cudf.table_chunk import TableChunk
