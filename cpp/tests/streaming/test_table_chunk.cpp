@@ -59,11 +59,7 @@ TEST_F(StreamingTableChunk, TableChunkOwner) {
     };
     auto make_chunk = [&](TableChunk::ExclusiveView exclusive_view) {
         return TableChunk{
-            expect,
-            expect.alloc_size(),
-            stream,
-            OwningWrapper(new int, deleter),
-            exclusive_view
+            expect, stream, OwningWrapper(new int, deleter), exclusive_view
         };
     };
     auto check_chunk = [&](TableChunk const& chunk, bool is_spillable) {
@@ -360,11 +356,7 @@ TEST_F(StreamingTableChunk, ToMessageNotSpillable) {
 
     auto deleter = [](void* p) { delete static_cast<int*>(p); };
     auto chunk = std::make_unique<TableChunk>(
-        expect,
-        expect.alloc_size(),
-        stream,
-        OwningWrapper(new int, deleter),
-        TableChunk::ExclusiveView::NO
+        expect, stream, OwningWrapper(new int, deleter), TableChunk::ExclusiveView::NO
     );
 
     Message m = to_message(seq, std::move(chunk));
