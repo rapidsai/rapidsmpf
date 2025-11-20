@@ -20,14 +20,15 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace \
         pass
 
 
-cdef extern from "<rapidsmpf/bootstrap/ucxx.hpp>" namespace \
-  "rapidsmpf::bootstrap" nogil:
-    bint is_running_with_rrun() except +
+cdef extern from "<rapidsmpf/bootstrap/ucxx.hpp>" nogil:
+    bint cpp_is_running_with_rrun \
+        "rapidsmpf::bootstrap::is_running_with_rrun"() except +
 
-    shared_ptr[cpp_UCXX_Communicator] create_ucxx_comm(
-        Backend backend,
-        cpp_Options options,
-    ) except +
+    shared_ptr[cpp_UCXX_Communicator] cpp_create_ucxx_comm \
+        "rapidsmpf::bootstrap::create_ucxx_comm"(
+            Backend backend,
+            cpp_Options options,
+        ) except +
 
 
 def create_ucxx_comm(Backend backend = Backend.AUTO, options = None):
@@ -68,7 +69,7 @@ def create_ucxx_comm(Backend backend = Backend.AUTO, options = None):
         cpp_options = <Options>options
 
     with nogil:
-        ucxx_comm = create_ucxx_comm(backend, cpp_options._handle)
+        ucxx_comm = cpp_create_ucxx_comm(backend, cpp_options._handle)
         base_comm = dynamic_pointer_cast[cpp_Communicator, cpp_UCXX_Communicator](
             ucxx_comm
         )
@@ -92,5 +93,5 @@ def is_running_with_rrun():
     """
     cdef bint ret
     with nogil:
-        ret = is_running_with_rrun()
+        ret = cpp_is_running_with_rrun()
     return bool(ret)
