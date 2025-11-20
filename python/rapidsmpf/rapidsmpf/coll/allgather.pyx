@@ -8,8 +8,7 @@ from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
-from rapidsmpf.allgather.allgather cimport (Ordered, cpp_AllGather,
-                                            milliseconds_t)
+from rapidsmpf.coll.allgather cimport Ordered, cpp_AllGather, milliseconds_t
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
@@ -23,7 +22,7 @@ cdef class AllGather:
     """
     AllGather communication service for distributed operations.
 
-    The `rapidsmpf.allgather.AllGather` class provides a communication service
+    The `rapidsmpf.coll.AllGather` class provides a communication service
     where each rank contributes data and all ranks receive all inputs from all ranks.
 
     The implementation uses a ring broadcast algorithm where each rank receives a

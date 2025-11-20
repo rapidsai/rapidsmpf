@@ -16,16 +16,16 @@ from rapidsmpf.progress_thread cimport cpp_ProgressThread
 from rapidsmpf.statistics cimport cpp_Statistics
 
 
-cdef extern from "<rapidsmpf/allgather/allgather.hpp>" namespace \
-        "rapidsmpf::allgather::AllGather" nogil:
+cdef extern from "<rapidsmpf/coll/allgather.hpp>" namespace \
+        "rapidsmpf::coll::AllGather" nogil:
     cpdef enum class Ordered(bool):
         NO
         YES
 
-cdef extern from "<rapidsmpf/allgather/allgather.hpp>" nogil:
+cdef extern from "<rapidsmpf/coll/allgather.hpp>" nogil:
     ctypedef int64_t milliseconds_t "std::chrono::milliseconds"
 
-    cdef cppclass cpp_AllGather "rapidsmpf::allgather::AllGather":
+    cdef cppclass cpp_AllGather "rapidsmpf::coll::AllGather":
         cpp_AllGather(
             shared_ptr[cpp_Communicator] comm,
             shared_ptr[cpp_ProgressThread] progress_thread,
