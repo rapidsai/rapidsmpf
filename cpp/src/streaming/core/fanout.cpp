@@ -90,6 +90,10 @@ Node bounded_fanout(
             break;
         }
 
+        std::erase_if(chs_out, [](auto&& ch) { return ch->is_shutdown(); });
+        if (chs_out.empty()) {
+            break;
+        }
         co_await send_to_channels(ctx.get(), std::move(msg), chs_out);
         logger.trace("Sent message ", msg.sequence_number());
     }
