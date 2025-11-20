@@ -48,10 +48,9 @@ Node send_to_channels(
 ) {
     RAPIDSMPF_EXPECTS(!chs_out.empty(), "output channels cannot be empty");
 
-    auto async_copy_and_send = [](Context& ctx_,
-                                  Message const& msg_,
-                                  size_t msg_sz_,
-                                  Channel& ch_) -> coro::task<bool> {
+    auto async_copy_and_send =
+        [](Context& ctx_, Message const& msg_, size_t msg_sz_, Channel& ch_
+        ) -> coro::task<bool> {
         co_await ctx_.executor()->schedule();
         auto res = ctx_.br()->reserve_or_fail(msg_sz_, try_memory_types(msg_));
         co_return co_await ch_.send(msg_.copy(res));
@@ -281,13 +280,14 @@ struct UnboundedFanout {
     /**
      * @brief Wait for a data request from the send tasks.
      *
-     * @return The index of the last completed message and the index of the latest
-     * processed message. If both are InvalidIdx, it means that all send tasks are in an
-     * invalid state.
+     * @return A minmax pair of `per_ch_processed` values. min is index of the last
+     * completed message index + 1 and max is the index of the latest processed message
+     * index + 1. If both are InvalidIdx, it means that all send tasks are in an invalid
+     * state.
      */
     auto wait_for_data_request() -> coro::task<std::pair<size_t, size_t>> {
-        size_t lowest_completed_idx = InvalidIdx;
-        size_t latest_processed_idx = InvalidIdx;
+        size_t per_ch_processed_min = InvalidIdx;
+        size_t per_ch_processed_max = InvalidIdx;
 
         auto lock = co_await mtx.scoped_lock();
         co_await request_data.wait(lock, [&] {
@@ -304,13 +304,13 @@ struct UnboundedFanout {
             }
 
             auto [min_it, max_it] = std::minmax_element(it, end);
-            lowest_completed_idx = *min_it;
-            latest_processed_idx = *max_it;
+            per_ch_processed_min = *min_it;
+            per_ch_processed_max = *max_it;
 
-            return latest_processed_idx == recv_messages.size();
+            return per_ch_processed_max == recv_messages.size();
         });
 
-        co_return std::make_pair(lowest_completed_idx, latest_processed_idx);
+        co_return std::make_pair(per_ch_processed_min, per_ch_processed_max);
     }
 
     /**
@@ -330,9 +330,9 @@ struct UnboundedFanout {
 
         // no_more_input is only set by this task, so reading without lock is safe here
         while (!no_more_input) {
-            auto [lowest_completed_idx, latest_processed_idx] =
+            auto [per_ch_processed_min, per_ch_processed_max] =
                 co_await wait_for_data_request();
-            if (lowest_completed_idx == InvalidIdx && latest_processed_idx == InvalidIdx)
+            if (per_ch_processed_min == InvalidIdx && per_ch_processed_max == InvalidIdx)
             {
                 break;
             }
@@ -352,10 +352,10 @@ struct UnboundedFanout {
             // notify send_tasks to copy & send messages
             co_await data_ready.notify_all();
 
-            // Reset messages that are no longer needed, so that they release the memory,
-            // however the deque is not resized. This guarantees that the indices are not
+            // Reset messages that are no longer needed, so that they release the memory.
+            // However the deque is not resized. This guarantees that the indices are not
             // invalidated.
-            while (purge_idx + 1 < lowest_completed_idx) {
+            while (purge_idx < per_ch_processed_min) {
                 recv_messages[purge_idx].reset();
                 purge_idx++;
             }
