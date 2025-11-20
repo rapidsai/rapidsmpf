@@ -288,8 +288,8 @@ struct UnboundedFanout {
                 return idx != InvalidIdx;
             });
 
-            auto it = std::ranges::begin(filtered_view);  // first valid idx
-            auto end = std::ranges::end(filtered_view);  // end idx
+            auto it = std::ranges::begin(filtered_view);
+            auto end = std::ranges::end(filtered_view);
 
             if (it == end) {
                 // no valid indices, so all send tasks are in an invalid state
