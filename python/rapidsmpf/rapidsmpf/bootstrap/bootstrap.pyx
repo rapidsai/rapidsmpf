@@ -22,6 +22,8 @@ cdef extern from "<rapidsmpf/communicator/ucxx.hpp>" namespace \
 
 cdef extern from "<rapidsmpf/bootstrap/ucxx.hpp>" namespace \
   "rapidsmpf::bootstrap" nogil:
+    bint is_running_with_rrun() except +
+
     shared_ptr[cpp_UCXX_Communicator] create_ucxx_comm(
         Backend backend,
         cpp_Options options,
@@ -73,3 +75,22 @@ def create_ucxx_comm(Backend backend = Backend.AUTO, options = None):
         ret._handle = base_comm
 
     return ret
+
+
+def is_running_with_rrun():
+    """
+    Check whether the current process was launched via ``rrun``.
+
+    This helper inspects the bootstrap environment (e.g. the presence of
+    ``RAPIDSMPF_RANK``) to determine if the process is running under
+    ``rrun``-managed bootstrap mode.
+
+    Returns
+    -------
+    bool
+        ``True`` if running under ``rrun`` bootstrap mode, ``False`` otherwise.
+    """
+    cdef bint ret
+    with nogil:
+        ret = is_running_with_rrun()
+    return bool(ret)

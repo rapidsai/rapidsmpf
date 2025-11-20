@@ -4,6 +4,10 @@
 
 from __future__ import annotations
 
-from rapidsmpf.bootstrap.bootstrap import Backend, create_ucxx_comm
+from rapidsmpf.bootstrap.bootstrap import (
+    Backend,
+    create_ucxx_comm,
+    is_running_with_rrun,
+)
 
-__all__ = ["Backend", "create_ucxx_comm"]
+__all__ = ["Backend", "create_ucxx_comm", "is_running_with_rrun"]
