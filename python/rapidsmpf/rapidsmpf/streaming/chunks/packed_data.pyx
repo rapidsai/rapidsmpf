@@ -45,8 +45,8 @@ cdef class PackedDataChunk:
         """
         return PackedData.from_librapidsmpf(self.release_handle())
 
-    @classmethod
-    def from_packed_data(cls, PackedData obj not None):
+    @staticmethod
+    def from_packed_data(PackedData obj not None):
         """
         Construct a PackedDataChunk from an existing PackedData object.
 
@@ -59,7 +59,7 @@ cdef class PackedDataChunk:
         -------
         A new PackedDataChunk from the given object.
         """
-        return cls.from_handle(move(obj._handle))
+        return PackedDataChunk.from_handle(move(obj.c_obj))
 
     @staticmethod
     cdef PackedDataChunk from_handle(
