@@ -3,8 +3,15 @@
 
 Channels are asynchronous messaging queue used to move messages between {term}`Node`s in the rapidsmpf streaming network.
 
-<img src="../_static/animation-legend.png" alt="Animation Legend" style="width: 320px;"/>
-<img src="../_static/buffers-animated.gif" alt="Animated buffer pipeline" style="max-width: 4500px;"/>
+```{image} ../_static/animation-legend.png
+:width: 320px
+:alt: Animation Legend
+```
+
+```{image} ../_static/buffers-animated.gif
+:width: 4500px
+:alt: Animated buffer pipeline
+```
 
 <br/>
 As buffers move through the graph, the channels (arrows) move from empty (dashed line) to full (solid line).
