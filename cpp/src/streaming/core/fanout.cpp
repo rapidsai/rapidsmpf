@@ -44,24 +44,33 @@ constexpr std::span<const MemoryType> try_memory_types(Message const& msg) {
  * @param chs_out The set of output channels to which the message is sent.
  */
 Node send_to_channels(
-    Context* ctx, Message&& msg, std::vector<std::shared_ptr<Channel>>& chs_out
+    Context& ctx, Message&& msg, std::vector<std::shared_ptr<Channel>>& chs_out
 ) {
     RAPIDSMPF_EXPECTS(!chs_out.empty(), "output channels cannot be empty");
 
-    std::vector<coro::task<bool>> tasks;
-    tasks.reserve(chs_out.size());
+    auto async_copy_and_send = [](Context& ctx_,
+                                  Message const& msg_,
+                                  size_t msg_sz_,
+                                  Channel& ch_) -> coro::task<bool> {
+        co_await ctx_.executor()->schedule();
+        auto res = ctx_.br()->reserve_or_fail(msg_sz_, try_memory_types(msg_));
+        co_return co_await ch_.send(msg_.copy(res));
+    };
+
+    // async copy & send tasks for all channels except the last one
+    std::vector<coro::task<bool>> async_send_tasks;
+    async_send_tasks.reserve(chs_out.size() - 1);
+    size_t msg_sz = msg.copy_cost();
     for (size_t i = 0; i < chs_out.size() - 1; i++) {
-        // do a reservation for each copy, so that it will fallback to host memory if
-        // needed
-        auto res = ctx->br()->reserve_or_fail(msg.copy_cost(), try_memory_types(msg));
-        tasks.emplace_back(chs_out[i]->send(msg.copy(res)));
+        async_send_tasks.emplace_back(async_copy_and_send(ctx, msg, msg_sz, *chs_out[i]));
     }
-    // move the message to the last channel to avoid extra copy
-    tasks.emplace_back(chs_out.back()->send(std::move(msg)));
 
     // note that the send tasks may return false if the channel is shut down. But we can
     // safely ignore this in bounded fanout.
-    coro_results(co_await coro::when_all(std::move(tasks)));
+    coro_results(co_await coro::when_all(std::move(async_send_tasks)));
+
+    // move the message to the last channel to avoid extra copy
+    co_await chs_out.back()->send(std::move(msg));
 }
 
 /**
@@ -82,7 +91,6 @@ Node bounded_fanout(
 ) {
     ShutdownAtExit c1{ch_in};
     ShutdownAtExit c2{chs_out};
-    auto& logger = ctx->logger();
     co_await ctx->executor()->schedule();
     while (true) {
         auto msg = co_await ch_in->receive();
@@ -90,12 +98,13 @@ Node bounded_fanout(
             break;
         }
 
+        // filter out shut down channels to avoid making unnecessary copies
         std::erase_if(chs_out, [](auto&& ch) { return ch->is_shutdown(); });
         if (chs_out.empty()) {
+            // all channels are shut down, so we can break & shutdown the input channel
             break;
         }
-        co_await send_to_channels(ctx.get(), std::move(msg), chs_out);
-        logger.trace("Sent message ", msg.sequence_number());
+        co_await send_to_channels(*ctx, std::move(msg), chs_out);
     }
 
     std::vector<Node> drain_tasks;
@@ -104,7 +113,6 @@ Node bounded_fanout(
         drain_tasks.emplace_back(ch->drain(ctx->executor()));
     }
     coro_results(co_await coro::when_all(std::move(drain_tasks)));
-    logger.trace("Completed bounded fanout");
 }
 
 /**
@@ -117,22 +125,28 @@ Node bounded_fanout(
  * Main task operation:
  * - There is a shared deque of cached messages, and a vector that indicates the next
  * index of the message to be sent to each output channel.
- * - Recv task awaits until the number of cached messages is equal to the latest sent
- * message index by any of the send tasks. This notifies the recv task to pull a message
- * from the input channel, cache it, and notify the send tasks about the new messages.
- * recv task continues this process until the input channel is fully consumed.
- * - Each send task awaits until there are more cached messages to send. Once notified, it
- * determines the current end of the cached messages, and sends messages in the range
- * [next_idx, end_idx). Once these messages have been sent, it updates the next index to
- * end_idx and notifies the recv task.
+ * - All shared resources are protected by a mutex. There are two condition variables
+ * where:
+ *   - recv task notifies send tasks when new messages are cached
+ *   - send tasks notify recv task when they have completed sending messages
+ * - Recv task awaits until the number of cached messages at least one send task has
+ * completed sending all the cached messages. It will then pull a message from the input
+ * channel, cache it, and notify the send tasks about the new messages. recv task
+ * continues this process until the input channel is fully consumed.
+ * - Each send task awaits until there are more cached messages to send. When the new
+ * messages available noitification is received, it will continue to copy and send cached
+ * messages, starting from the index of the last sent message, to the end of the cached
+ * messages (as it last observed). Then it updates the last completed message index and
+ * notifies the recv task. This process continues until the recv task notifies that the
+ * input channel is fully consumed.
  *
  * Additional considerations:
- * - In the recv task loop, it also identifies the last completed message index by all
- * send tasks. Message upto this index are no longer needed, and are purged from the
- * cached messages.
+ * - In the recv task loop, it also identifies the lowest completed message index by all
+ * send tasks. Message upto this index are no longer needed, and are released from the
+ * cached messages deque.
  * - When a send task fails to send a message, this means the channel may have been
- * prematurely shut down. In this case, it sets its index to InvalidIdx. Recv task will
- * filter out channels with InvalidIdx.
+ * prematurely shut down. In this case, it sets a sential value to mark it as invalid.
+ * Recv task will filter out channels with the invalid sentinel value.
  * - There two RAII helpers to ensure that the notification mechanisms are properly
  * cleaned up when the unbounded fanout state goes out of scope/ encounters an error.
  *
@@ -143,7 +157,7 @@ struct UnboundedFanout {
      *
      * @param num_channels The number of output channels.
      */
-    explicit UnboundedFanout(size_t num_channels) : ch_next_idx(num_channels, 0) {}
+    explicit UnboundedFanout(size_t num_channels) : per_ch_processed(num_channels, 0) {}
 
     /**
      * @brief Sentinel value indicating that the index is invalid. This is set when a
@@ -158,21 +172,20 @@ struct UnboundedFanout {
      */
     struct SetChannelIdxInvalidAtExit {
         UnboundedFanout* fanout;
-        size_t idx;
+        size_t& self_next_idx;
 
         ~SetChannelIdxInvalidAtExit() {
             coro::sync_wait(set_channel_idx_invalid());
         }
 
         Node set_channel_idx_invalid() {
-            if (idx != InvalidIdx) {
+            if (self_next_idx != InvalidIdx) {
                 {
                     auto lock = co_await fanout->mtx.scoped_lock();
-                    fanout->ch_next_idx[idx] = InvalidIdx;
+                    self_next_idx = InvalidIdx;
                 }
                 co_await fanout->request_data.notify_one();
             }
-            idx = InvalidIdx;
         }
     };
 
@@ -180,28 +193,28 @@ struct UnboundedFanout {
      * @brief Send messages to multiple output channels.
      *
      * @param ctx The context to use.
-     * @param self Self index of the task
+     * @param self_next_idx Next index to send for the current channel
      * @param ch_out The output channel to send messages to.
      * @return A coroutine representing the task.
      */
-    Node send_task(Context& ctx, size_t self, std::shared_ptr<Channel> ch_out) {
+    Node send_task(Context& ctx, size_t& self_next_idx, std::shared_ptr<Channel> ch_out) {
         ShutdownAtExit ch_shutdown{ch_out};
-        SetChannelIdxInvalidAtExit set_ch_idx_invalid{.fanout = this, .idx = self};
+        SetChannelIdxInvalidAtExit set_ch_idx_invalid{
+            .fanout = this, .self_next_idx = self_next_idx
+        };
         co_await ctx.executor()->schedule();
 
-        auto& logger = ctx.logger();
-
-        size_t curr_recv_msg_sz = 0;  // current size of the recv_messages deque
+        size_t n_available_messages = 0;  // number of messages available to send
         while (true) {
             {
                 auto lock = co_await mtx.scoped_lock();
                 co_await data_ready.wait(lock, [&] {
-                    // irrespective of input_done, update the end_idx to the total number
-                    // of messages
-                    curr_recv_msg_sz = recv_messages.size();
-                    return input_done || ch_next_idx[self] < curr_recv_msg_sz;
+                    // irrespective of no_more_input, update the end_idx to the total
+                    // number of messages
+                    n_available_messages = recv_messages.size();
+                    return no_more_input || self_next_idx < n_available_messages;
                 });
-                if (input_done && ch_next_idx[self] == curr_recv_msg_sz) {
+                if (no_more_input && self_next_idx == n_available_messages) {
                     // no more messages will be received, and all messages have been sent
                     break;
                 }
@@ -210,12 +223,10 @@ struct UnboundedFanout {
             // now we can copy & send messages in indices [next_idx, curr_recv_msg_sz)
             // it is guaranteed that message purging will be done only on indices less
             // than next_idx, so we can safely send messages without locking the mtx
-            for (size_t i = ch_next_idx[self]; i < curr_recv_msg_sz; i++) {
+            for (size_t i = self_next_idx; i < n_available_messages; i++) {
                 auto const& msg = recv_messages[i];
                 RAPIDSMPF_EXPECTS(!msg.empty(), "message cannot be empty");
 
-                // make reservations for each message so that it will fallback to host
-                // memory if needed
                 auto res =
                     ctx.br()->reserve_or_fail(msg.copy_cost(), try_memory_types(msg));
                 if (!co_await ch_out->send(msg.copy(res))) {
@@ -226,16 +237,13 @@ struct UnboundedFanout {
                     co_return;
                 }
             }
-            logger.trace(
-                "sent ", self, " [", ch_next_idx[self], ", ", curr_recv_msg_sz, ")"
-            );
 
-            // now next_idx can be updated to end_idx, and if !input_done, we need to
+            // now next_idx can be updated to end_idx, and if !no_more_input, we need to
             // request the recv task for more data
             auto lock = co_await mtx.scoped_lock();
-            ch_next_idx[self] = curr_recv_msg_sz;
-            if (ch_next_idx[self] == recv_messages.size()) {
-                if (input_done) {
+            self_next_idx = n_available_messages;
+            if (self_next_idx == recv_messages.size()) {
+                if (no_more_input) {
                     // no more messages will be received, and all messages have been sent
                     break;
                 } else {
@@ -247,11 +255,10 @@ struct UnboundedFanout {
         }
 
         co_await ch_out->drain(ctx.executor());
-        logger.trace("Send task ", self, " completed");
     }
 
     /**
-     * @brief RAII helper class to set input_done to true and notify all send tasks to
+     * @brief RAII helper class to set no_more_input to true and notify all send tasks to
      * wind down when the unbounded fanout state goes out of scope.
      */
     struct SetInputDoneAtExit {
@@ -261,11 +268,11 @@ struct UnboundedFanout {
             coro::sync_wait(set_input_done());
         }
 
-        // forcibly set input_done to true and notify all send tasks to wind down
+        // forcibly set no_more_input to true and notify all send tasks to wind down
         Node set_input_done() {
             {
                 auto lock = co_await fanout->mtx.scoped_lock();
-                fanout->input_done = true;
+                fanout->no_more_input = true;
             }
             co_await fanout->data_ready.notify_all();
         }
@@ -279,17 +286,17 @@ struct UnboundedFanout {
      * invalid state.
      */
     auto wait_for_data_request() -> coro::task<std::pair<size_t, size_t>> {
-        size_t last_completed_idx = InvalidIdx;
+        size_t lowest_completed_idx = InvalidIdx;
         size_t latest_processed_idx = InvalidIdx;
 
         auto lock = co_await mtx.scoped_lock();
         co_await request_data.wait(lock, [&] {
-            auto filtered_view = std::ranges::filter_view(ch_next_idx, [](size_t idx) {
-                return idx != InvalidIdx;
-            });
+            auto filtered_view = std::ranges::filter_view(
+                per_ch_processed, [](size_t idx) { return idx != InvalidIdx; }
+            );
 
-            auto it = std::ranges::begin(filtered_view);  // first valid idx
-            auto end = std::ranges::end(filtered_view);  // end idx
+            auto it = std::ranges::begin(filtered_view);  // advance to first valid idx
+            auto end = std::ranges::end(filtered_view);
 
             if (it == end) {
                 // no valid indices, so all send tasks are in an invalid state
@@ -297,13 +304,13 @@ struct UnboundedFanout {
             }
 
             auto [min_it, max_it] = std::minmax_element(it, end);
-            last_completed_idx = *min_it;
+            lowest_completed_idx = *min_it;
             latest_processed_idx = *max_it;
 
             return latest_processed_idx == recv_messages.size();
         });
 
-        co_return std::make_pair(last_completed_idx, latest_processed_idx);
+        co_return std::make_pair(lowest_completed_idx, latest_processed_idx);
     }
 
     /**
@@ -317,28 +324,26 @@ struct UnboundedFanout {
         ShutdownAtExit ch_in_shutdown{ch_in};
         SetInputDoneAtExit set_input_done{.fanout = this};
         co_await ctx.executor()->schedule();
-        auto& logger = ctx.logger();
-
-        logger.trace("Scheduled process input task");
 
         // index of the first message to purge
         size_t purge_idx = 0;
 
-        // input_done is only set by this task, so reading without lock is safe here
-        while (!input_done) {
-            auto [last_completed_idx, latest_processed_idx] =
+        // no_more_input is only set by this task, so reading without lock is safe here
+        while (!no_more_input) {
+            auto [lowest_completed_idx, latest_processed_idx] =
                 co_await wait_for_data_request();
-            if (last_completed_idx == InvalidIdx && latest_processed_idx == InvalidIdx) {
-                break;  // all send tasks are in an invalid state, so we need to break
+            if (lowest_completed_idx == InvalidIdx && latest_processed_idx == InvalidIdx)
+            {
+                break;
             }
 
             // receive a message from the input channel
             auto msg = co_await ch_in->receive();
 
-            {  // relock mtx to update input_done/recv_messages
+            {
                 auto lock = co_await mtx.scoped_lock();
                 if (msg.empty()) {
-                    input_done = true;
+                    no_more_input = true;
                 } else {
                     recv_messages.emplace_back(std::move(msg));
                 }
@@ -347,44 +352,37 @@ struct UnboundedFanout {
             // notify send_tasks to copy & send messages
             co_await data_ready.notify_all();
 
-            // purge completed send_tasks. This will reset the messages to empty, so that
-            // they release the memory, however the deque is not resized. This guarantees
-            // that the indices are not invalidated. intentionally not locking the mtx
-            // here, because we only need to know a lower-bound on the last completed idx
-            // (ch_next_idx values are monotonically increasing)
-            while (purge_idx + 1 < last_completed_idx) {
+            // Reset messages that are no longer needed, so that they release the memory,
+            // however the deque is not resized. This guarantees that the indices are not
+            // invalidated.
+            while (purge_idx + 1 < lowest_completed_idx) {
                 recv_messages[purge_idx].reset();
                 purge_idx++;
             }
-            logger.trace("recv_messages active size: ", recv_messages.size() - purge_idx);
         }
 
         co_await ch_in->drain(ctx.executor());
-        logger.trace("Process input task completed");
     }
 
     coro::mutex mtx;  ///< notify send tasks to copy & send messages
     coro::condition_variable
-        data_ready;  ///< notify send tasks to copy & send messages notify this task to
-                     ///< receive more data from the input channel
-    coro::condition_variable
-        request_data;  ///< notify recv task to receive more data from the input channel
-    bool input_done{false};  ///< set to true when the input channel is fully consumed
+        data_ready;  ///< recv task notifies send tasks to copy & send messages
+    coro::condition_variable request_data;  ///< send tasks notify recv task to pull more
+                                            ///< data from the input channel
+    bool no_more_input{false};  ///< set to true when the input channel is fully consumed
     std::deque<Message>
-        recv_messages;  ///< messages received from the input channel. We use a deque to
-                        ///< avoid references being invalidated by reallocations.
-    std::vector<size_t> ch_next_idx;  ///< next index to send for each channel
+        recv_messages;  ///< messages received from the input channel. Using a deque to
+                        ///< avoid invalidating references by reallocations.
+    std::vector<size_t>
+        per_ch_processed;  ///< number of messages processed for each channel (ie. next
+                           ///< index to send for each channel)
 };
 
 /**
  * @brief Broadcast messages from one input channel to multiple output channels.
  *
- * This is an all-purpose implementation that can support consuming messages by the
- * channel order or message order. Output channels could be connected to
- * single/multiple consumer nodes. A consumer node can decide to consume all messages
- * from a single channel before moving to the next channel, or it can consume messages
- * from all channels before moving to the next message. When a message has been sent
- * to all output channels, it is purged from the internal deque.
+ * In contrast to `bounded_fanout`, an unbounded fanout supports arbitrary
+ * consumption orders of the output channels.
  *
  * @param ctx The context to use.
  * @param ch_in The input channel to receive messages from.
@@ -401,21 +399,19 @@ Node unbounded_fanout(
     ShutdownAtExit ch_in_shutdown{ch_in};
     ShutdownAtExit chs_out_shutdown{chs_out};
     co_await ctx->executor()->schedule();
-    auto& logger = ctx->logger();
-    auto fanout = std::make_unique<UnboundedFanout>(chs_out.size());
+    UnboundedFanout fanout(chs_out.size());
 
     std::vector<Node> tasks;
     tasks.reserve(chs_out.size() + 1);
 
     for (size_t i = 0; i < chs_out.size(); i++) {
-        tasks.emplace_back(
-            executor.schedule(fanout->send_task(*ctx, i, std::move(chs_out[i])))
-        );
+        tasks.emplace_back(executor.schedule(
+            fanout.send_task(*ctx, fanout.per_ch_processed[i], std::move(chs_out[i]))
+        ));
     }
-    tasks.emplace_back(executor.schedule(fanout->recv_task(*ctx, std::move(ch_in))));
+    tasks.emplace_back(executor.schedule(fanout.recv_task(*ctx, std::move(ch_in))));
 
     coro_results(co_await coro::when_all(std::move(tasks)));
-    logger.debug("Unbounded fanout completed");
 }
 
 }  // namespace
