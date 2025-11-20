@@ -8,11 +8,11 @@
 
 #include <rmm/exec_policy.hpp>
 
-#include <rapidsmpf/allreduce/allreduce.hpp>
+#include <rapidsmpf/coll/allreduce.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 
-namespace rapidsmpf::allreduce::detail {
+namespace rapidsmpf::coll::detail {
 
 namespace {
 
@@ -177,4 +177,4 @@ ReduceKernel make_reduce_kernel<unsigned long, ReduceOp::MAX>() {
     return make_reduce_kernel_impl<unsigned long, ReduceOp::MAX>();
 }
 
-}  // namespace rapidsmpf::allreduce::detail
+}  // namespace rapidsmpf::coll::detail

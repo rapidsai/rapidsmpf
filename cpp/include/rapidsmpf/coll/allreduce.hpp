@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-#include <rapidsmpf/allgather/allgather.hpp>
+#include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -24,7 +24,7 @@
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 
-namespace rapidsmpf::allreduce {
+namespace rapidsmpf::coll {
 
 /**
  * @brief Reduction operators supported by `AllReduce`.
@@ -57,7 +57,7 @@ using ReduceKernel = std::function<void(PackedData& accum, PackedData&& incoming
 /**
  * @brief AllReduce collective.
  *
- * The current implementation is built using `allgather::AllGather` and performs
+ * The current implementation is built using `coll::AllGather` and performs
  * the reduction locally after allgather completes. Considering `R` is the number of
  * ranks, and `N` is the number of bytes of data, per rank this incurs `O(R * N)` bytes of
  * memory consumption and `O(R)` communication operations.
@@ -89,7 +89,7 @@ class AllReduce {
      * @param finished_callback Optional callback run once locally when the allreduce
      *        is finished and results are ready for extraction.
      *
-     * @note This constructor internally creates an `allgather::AllGather` instance
+     * @note This constructor internally creates an `AllGather` instance
      *       that uses the same communicator, progress thread, and buffer resource.
      */
     AllReduce(
@@ -183,7 +183,7 @@ class AllReduce {
     ReduceKernel reduce_kernel_;  ///< Type-erased reduction kernel
     std::function<void(void)> finished_callback_;  ///< Optional finished callback
 
-    allgather::AllGather gatherer_;  ///< Underlying allgather primitive
+    AllGather gatherer_;  ///< Underlying allgather primitive
 
     std::atomic<std::uint32_t> nlocal_insertions_{0};  ///< Number of local inserts
     std::atomic<bool> reduced_computed_{
@@ -204,4 +204,4 @@ template <typename T, ReduceOp Op>
 ReduceKernel make_reduce_kernel();
 }  // namespace detail
 
-}  // namespace rapidsmpf::allreduce
+}  // namespace rapidsmpf::coll

@@ -14,7 +14,7 @@
 
 using rapidsmpf::MemoryType;
 using rapidsmpf::PackedData;
-using rapidsmpf::allreduce::ReduceKernel;
+using rapidsmpf::coll::ReduceKernel;
 
 ReduceKernel make_custom_value_reduce_kernel() {
     return [](PackedData& accum, PackedData&& incoming) {

@@ -11,7 +11,7 @@
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
-#include <rapidsmpf/allreduce/allreduce.hpp>
+#include <rapidsmpf/coll/allreduce.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -24,9 +24,9 @@
 using rapidsmpf::MemoryType;
 using rapidsmpf::OpID;
 using rapidsmpf::PackedData;
-using rapidsmpf::allreduce::AllReduce;
-using rapidsmpf::allreduce::ReduceKernel;
-using rapidsmpf::allreduce::ReduceOp;
+using rapidsmpf::coll::AllReduce;
+using rapidsmpf::coll::ReduceKernel;
+using rapidsmpf::coll::ReduceOp;
 
 namespace {
 
@@ -177,7 +177,7 @@ TEST_F(BaseAllReduceTest, shutdown) {
         OpID{99},
         br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::allreduce::detail::make_reduce_kernel<int, ReduceOp::SUM>()
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>()
     );
 }
 
@@ -188,7 +188,7 @@ TEST_F(BaseAllReduceTest, timeout) {
         OpID{98},
         br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::allreduce::detail::make_reduce_kernel<int, ReduceOp::SUM>()
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>()
     );
 
     EXPECT_THROW(
@@ -237,7 +237,7 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
         OpID{0},
         br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::allreduce::detail::make_reduce_kernel<int, ReduceOp::SUM>()
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>()
     );
 
     for (int i = 0; i < n_inserts; i++) {
@@ -317,7 +317,7 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_host_allreduce) {
         OpID{1},
         this->br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::allreduce::detail::make_reduce_kernel<T, op>()
+        rapidsmpf::coll::detail::make_reduce_kernel<T, op>()
     );
 
     int constexpr n_elements{8};
@@ -434,7 +434,7 @@ TEST_F(AllReduceNonUniformInsertsTest, non_uniform_inserts) {
         OpID{6},
         br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::allreduce::detail::make_reduce_kernel<int, ReduceOp::SUM>()
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>()
     );
 
     // Rank r inserts r messages -> non-uniform across ranks.

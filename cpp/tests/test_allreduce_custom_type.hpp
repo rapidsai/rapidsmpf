@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <rapidsmpf/allreduce/allreduce.hpp>
+#include <rapidsmpf/coll/allreduce.hpp>
 
 /**
  * @brief Simple user-defined type used to demonstrate custom allreduce kernels.
@@ -25,4 +25,4 @@ struct CustomValue {
  * The returned kernel expects `PackedData::data` to contain a contiguous array
  * of `CustomValue` in device memory, with equal sizes for all ranks.
  */
-rapidsmpf::allreduce::ReduceKernel make_custom_value_reduce_kernel();
+rapidsmpf::coll::ReduceKernel make_custom_value_reduce_kernel();

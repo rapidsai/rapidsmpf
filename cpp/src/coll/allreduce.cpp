@@ -10,10 +10,10 @@
 #include <utility>
 #include <vector>
 
-#include <rapidsmpf/allreduce/allreduce.hpp>
+#include <rapidsmpf/coll/allreduce.hpp>
 #include <rapidsmpf/error.hpp>
 
-namespace rapidsmpf::allreduce {
+namespace rapidsmpf::coll {
 
 AllReduce::AllReduce(
     std::shared_ptr<Communicator> comm,
@@ -56,9 +56,8 @@ std::vector<PackedData> AllReduce::wait_and_extract(std::chrono::milliseconds ti
     // Block until the underlying allgather completes, then perform the reduction locally
     // (exactly once).
     if (!reduced_computed_.load(std::memory_order_acquire)) {
-        auto gathered = gatherer_.wait_and_extract(
-            allgather::AllGather::Ordered::YES, std::move(timeout)
-        );
+        auto gathered =
+            gatherer_.wait_and_extract(AllGather::Ordered::YES, std::move(timeout));
         reduced_results_ = reduce_all(std::move(gathered));
         reduced_computed_.store(true, std::memory_order_release);
         if (finished_callback_) {
@@ -120,4 +119,4 @@ std::vector<PackedData> AllReduce::reduce_all(std::vector<PackedData>&& gathered
     return results;
 }
 
-}  // namespace rapidsmpf::allreduce
+}  // namespace rapidsmpf::coll
