@@ -19,12 +19,10 @@
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
+#include "utils.hpp"
+
 
 using namespace rapidsmpf;
-
-constexpr std::size_t operator"" _KiB(unsigned long long n) {
-    return n * (1 << 10);
-}
 
 TEST(SpillManager, SpillFunction) {
     // Create a buffer resource that report `mem_available` as the available memory.
