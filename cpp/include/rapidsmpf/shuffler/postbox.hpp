@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <array>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -124,13 +125,41 @@ class PostBox {
      */
     [[nodiscard]] std::string str() const;
 
+    /**
+     * @brief Returns the size of the data in the specified memory type.
+     *
+     * @param mem_type The type of memory to query.
+     * @return The size of the data in the specified memory type.
+     */
+    [[nodiscard]] constexpr size_t data_size(MemoryType mem_type) const {
+        return data_size_[static_cast<size_t>(mem_type)];
+    }
+
   private:
+    constexpr size_t& data_size_ref(MemoryType mem_type) {
+        return data_size_[static_cast<size_t>(mem_type)];
+    }
+
+    void increment_data_size(Chunk const& chunk) {
+        if (chunk.is_data_buffer_set()) {
+            data_size_ref(chunk.data_memory_type()) += chunk.concat_data_size();
+        }
+    }
+
+    void decrement_data_size(Chunk const& chunk) {
+        if (chunk.is_data_buffer_set()) {
+            data_size_ref(chunk.data_memory_type()) -= chunk.concat_data_size();
+        }
+    }
+
     // TODO: more fine-grained locking e.g. by locking each partition individually.
     mutable std::mutex mutex_;
     std::function<key_type(PartID)>
         key_map_fn_;  ///< Function to map partition IDs to keys.
     std::unordered_map<key_type, std::unordered_map<ChunkID, Chunk>>
         pigeonhole_;  ///< Storage for chunks, organized by a key and chunk ID.
+
+    std::array<size_t, std::size(MEMORY_TYPES)> data_size_{};
 };
 
 /**
