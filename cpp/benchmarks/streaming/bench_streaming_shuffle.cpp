@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cstdlib>
 #include <memory>
 #include <string>
 #include <vector>
@@ -291,9 +290,7 @@ rapidsmpf::Duration run(
 }
 
 int main(int argc, char** argv) {
-    // Check if we should use bootstrap mode with rrun
-    // This is determined by checking for RAPIDSMPF_RANK environment variable
-    bool use_bootstrap = std::getenv("RAPIDSMPF_RANK") != nullptr;
+    bool use_bootstrap = rapidsmpf::bootstrap::is_running_with_rrun();
 
     // Explicitly initialize MPI with thread support, as this is needed for both mpi
     // and ucxx communicators when not using bootstrap mode.

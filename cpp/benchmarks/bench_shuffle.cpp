@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cstdlib>
 #include <functional>
 #include <numeric>
 #include <string>
@@ -253,7 +252,7 @@ class ArgumentParser {
 };
 
 void barrier(std::shared_ptr<rapidsmpf::Communicator>& comm) {
-    bool use_bootstrap = std::getenv("RAPIDSMPF_RANK") != nullptr;
+    bool use_bootstrap = rapidsmpf::bootstrap::is_running_with_rrun();
     if (!use_bootstrap) {
         RAPIDSMPF_MPI(MPI_Barrier(MPI_COMM_WORLD));
     } else {
@@ -542,9 +541,7 @@ rapidsmpf::Duration run_hash_partition_with_datagen(
 }
 
 int main(int argc, char** argv) {
-    // Check if we should use bootstrap mode with rrun
-    // This is determined by checking for RAPIDSMPF_RANK environment variable
-    bool use_bootstrap = std::getenv("RAPIDSMPF_RANK") != nullptr;
+    bool use_bootstrap = rapidsmpf::bootstrap::is_running_with_rrun();
 
     // Explicitly initialize MPI with thread support, as this is needed for both mpi
     // and ucxx communicators when not using bootstrap mode.
