@@ -24,13 +24,11 @@ AllReduce::AllReduce(
     ReduceKernel reduce_kernel,
     std::function<void(void)> finished_callback
 )
-    : comm_{std::move(comm)},
-      progress_thread_{std::move(progress_thread)},
-      br_{br},
-      statistics_{std::move(statistics)},
-      reduce_kernel_{std::move(reduce_kernel)},
+    : reduce_kernel_{std::move(reduce_kernel)},
       finished_callback_{std::move(finished_callback)},
-      gatherer_{comm_, progress_thread_, op_id, br_, statistics_} {
+      gatherer_{
+          std::move(comm), std::move(progress_thread), op_id, br, std::move(statistics)
+      } {
     RAPIDSMPF_EXPECTS(
         static_cast<bool>(reduce_kernel_),
         "AllReduce requires a valid ReduceKernel at construction time"
@@ -55,24 +53,16 @@ bool AllReduce::finished() const noexcept {
 std::vector<PackedData> AllReduce::wait_and_extract(std::chrono::milliseconds timeout) {
     // Block until the underlying allgather completes, then perform the reduction locally
     // (exactly once).
-    if (!reduced_computed_.load(std::memory_order_acquire)) {
-        auto gathered =
-            gatherer_.wait_and_extract(AllGather::Ordered::YES, std::move(timeout));
-        reduced_results_ = reduce_all(std::move(gathered));
-        reduced_computed_.store(true, std::memory_order_release);
-        if (finished_callback_) {
-            finished_callback_();
-        }
-    }
-    return std::move(reduced_results_);
+    auto gathered =
+        gatherer_.wait_and_extract(AllGather::Ordered::YES, std::move(timeout));
+    return reduce_all(std::move(gathered));
 }
 
 bool AllReduce::is_ready() const noexcept {
-    return reduced_computed_.load(std::memory_order_acquire) || gatherer_.finished();
+    return gatherer_.finished();
 }
 
 std::vector<PackedData> AllReduce::reduce_all(std::vector<PackedData>&& gathered) {
-    auto const nranks = static_cast<std::size_t>(comm_->nranks());
     auto const total = gathered.size();
 
     if (total == 0) {
@@ -80,17 +70,14 @@ std::vector<PackedData> AllReduce::reduce_all(std::vector<PackedData>&& gathered
     }
 
     RAPIDSMPF_EXPECTS(
-        nranks > 0, "AllReduce requires a positive number of ranks", std::runtime_error
-    );
-    RAPIDSMPF_EXPECTS(
-        total % nranks == 0,
+        total % nranks_ == 0,
         "AllReduce expects each rank to contribute the same number of messages",
         std::runtime_error
     );
 
     auto const n_local =
         static_cast<std::size_t>(nlocal_insertions_.load(std::memory_order_acquire));
-    auto const n_per_rank = total / nranks;
+    auto const n_per_rank = total / nranks_;
 
     // We allow non-uniform insertion counts across ranks but require that the local
     // insertion count matches the per-rank contribution implied by the gather.
@@ -109,7 +96,7 @@ std::vector<PackedData> AllReduce::reduce_all(std::vector<PackedData>&& gathered
     for (std::size_t k = 0; k < n_per_rank; ++k) {
         // Start from rank 0's contribution for this logical insertion.
         auto accum = std::move(gathered[k]);
-        for (std::size_t r = 1; r < nranks; ++r) {
+        for (std::size_t r = 1; r < nranks_; ++r) {
             auto idx = r * n_per_rank + k;
             reduce_kernel_(accum, std::move(gathered[idx]));
         }

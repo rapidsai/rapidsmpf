@@ -175,21 +175,13 @@ class AllReduce {
     /// @brief Perform the reduction across all ranks for all gathered contributions.
     [[nodiscard]] std::vector<PackedData> reduce_all(std::vector<PackedData>&& gathered);
 
-    std::shared_ptr<Communicator> comm_;  ///< Communicator
-    std::shared_ptr<ProgressThread>
-        progress_thread_;  ///< Progress thread (unused directly).
-    BufferResource* br_;  ///< Buffer resource
-    std::shared_ptr<Statistics> statistics_;  ///< Statistics collection instance
     ReduceKernel reduce_kernel_;  ///< Type-erased reduction kernel
     std::function<void(void)> finished_callback_;  ///< Optional finished callback
 
+    Rank nranks_;  ///< Number of ranks in the communicator
     AllGather gatherer_;  ///< Underlying allgather primitive
 
     std::atomic<std::uint32_t> nlocal_insertions_{0};  ///< Number of local inserts
-    std::atomic<bool> reduced_computed_{
-        false
-    };  ///< Whether the reduction has been computed
-    std::vector<PackedData> reduced_results_;  ///< Cached reduced results
 };
 
 namespace detail {
