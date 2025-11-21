@@ -46,6 +46,8 @@ add_library(test_sources INTERFACE)
 target_sources(
   test_sources
   INTERFACE test_allgather.cpp
+            test_allreduce.cpp
+            test_allreduce_custom_kernels.cu
             test_buffer_resource.cpp
             test_chunk.cpp
             test_communicator.cpp

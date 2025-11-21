@@ -31,8 +31,10 @@ namespace rapidsmpf {
 /**
  * @brief Checks if the PinnedMemoryResource is supported for the current CUDA version.
  *
- * Requires rapidsmpf to be build with cuda>=12.6.
+ * Requires rapidsmpf to be built with CUDA>=12.6.
  *
+ * @return True if the PinnedMemoryResource is supported for the current CUDA version,
+ *         false otherwise.
  * @note The driver version check is cached and only performed once.
  */
 inline bool is_pinned_memory_resources_supported() {
