@@ -30,3 +30,5 @@ install(
   DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL
 )
+
+add_subdirectory(ndsh)
