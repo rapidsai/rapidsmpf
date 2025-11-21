@@ -372,17 +372,19 @@ class ConcurrentShuffleTest
 
         for (int t_id = 0; t_id < num_shufflers; t_id++) {
             // pass a copy of the insert_fn and insert_finished_fn to each thread
-            futures.push_back(std::async(
-                std::launch::async,
-                [this,
-                 t_id,
-                 insert_fn1 = insert_fn,
-                 insert_finished_fn1 = insert_finished_fn] {
-                    ASSERT_NO_FATAL_FAILURE(this->RunTest(
-                        t_id, std::move(insert_fn1), std::move(insert_finished_fn1)
-                    ));
-                }
-            ));
+            futures.push_back(
+                std::async(
+                    std::launch::async,
+                    [this,
+                     t_id,
+                     insert_fn1 = insert_fn,
+                     insert_finished_fn1 = insert_finished_fn] {
+                        ASSERT_NO_FATAL_FAILURE(this->RunTest(
+                            t_id, std::move(insert_fn1), std::move(insert_finished_fn1)
+                        ));
+                    }
+                )
+            );
         }
 
         for (auto& f : futures) {
@@ -482,9 +484,9 @@ class ShuffleInsertGroupedTest
 
         stream = cudf::get_default_stream();
 
-        progress_thread =
-            std::make_shared<rapidsmpf::ProgressThread>(GlobalEnvironment->comm_->logger()
-            );
+        progress_thread = std::make_shared<rapidsmpf::ProgressThread>(
+            GlobalEnvironment->comm_->logger()
+        );
 
         GlobalEnvironment->barrier();
     }
@@ -702,8 +704,9 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmpf::BufferResource br{
         mr,
         {{rapidsmpf::MemoryType::DEVICE,
-          [&device_memory_available]() -> std::int64_t { return device_memory_available; }
-        }},
+          [&device_memory_available]() -> std::int64_t {
+              return device_memory_available;
+          }}},
         std::nullopt  // disable periodic spill check
     };
     EXPECT_EQ(
@@ -880,9 +883,7 @@ class FinishCounterMultithreadingTest
         n_finished_pids = 0;
 
         finish_counter = std::make_unique<rapidsmpf::shuffler::detail::FinishCounter>(
-            nranks,
-            local_partitions,
-            [&](rapidsmpf::shuffler::PartID pid) {
+            nranks, local_partitions, [&](rapidsmpf::shuffler::PartID pid) {
                 {
                     std::lock_guard lock(mtx);
                     finished_pids.push_back(pid);
@@ -1036,13 +1037,7 @@ class PostBoxTest : public cudf::test::BaseFixture {
         postbox.reset();
     }
 
-    std::unique_ptr<rapidsmpf::Buffer> make_empty_buffer() {
-        return br.allocate(stream, br.reserve_or_fail(0, rapidsmpf::MemoryType::HOST));
-    }
-
     std::unique_ptr<PostboxType> postbox;
-    rmm::cuda_stream_view stream{cudf::get_default_stream()};
-    rapidsmpf::BufferResource br{cudf::get_current_device_resource_ref()};
 };
 
 TEST_F(PostBoxTest, EmptyPostbox) {
@@ -1061,7 +1056,6 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
             rapidsmpf::shuffler::detail::ChunkID{i},
             rapidsmpf::shuffler::PartID{i % num_partitions}
         );
-        chunk.set_data_buffer(make_empty_buffer());
         postbox->insert(std::move(chunk));
     }
 
@@ -1105,7 +1099,6 @@ TEST_F(PostBoxTest, ThreadSafety) {
                     rapidsmpf::shuffler::detail::ChunkID{i * chunks_per_thread + j},
                     rapidsmpf::shuffler::PartID{j / chunks_per_partition}
                 );
-                chunk.set_data_buffer(make_empty_buffer());
                 postbox->insert(std::move(chunk));
             }
         });
@@ -1123,66 +1116,6 @@ TEST_F(PostBoxTest, ThreadSafety) {
     }
     EXPECT_EQ(extracted_nchunks, num_threads * chunks_per_thread);
 
-    EXPECT_TRUE(postbox->empty());
-}
-
-TEST_F(PostBoxTest, DataSize) {
-    // Helper method to create packed data with specified sizes and memory type
-    auto create_packed_data =
-        [&](size_t metadata_size, size_t buffer_size, rapidsmpf::MemoryType mem_type
-        ) -> rapidsmpf::PackedData {
-        auto metadata = std::make_unique<std::vector<uint8_t>>(metadata_size);
-        auto data_reservation = br.reserve_or_fail(buffer_size, mem_type);
-        auto data = br.allocate(stream, std::move(data_reservation));
-        return rapidsmpf::PackedData{std::move(metadata), std::move(data)};
-    };
-
-    // Initially, both device and host data sizes should be 0
-    EXPECT_EQ(postbox->data_size(rapidsmpf::MemoryType::DEVICE), 0);
-    EXPECT_EQ(postbox->data_size(rapidsmpf::MemoryType::HOST), 0);
-
-    // Create a chunk with device memory (100 bytes of data)
-    auto chunk1 = rapidsmpf::shuffler::detail::Chunk::from_packed_data(
-        1, 0, create_packed_data(50, 100, rapidsmpf::MemoryType::DEVICE)
-    );
-    postbox->insert(std::move(chunk1));
-
-    // Device data size should be 100, host should still be 0
-    EXPECT_EQ(postbox->data_size(rapidsmpf::MemoryType::DEVICE), 100);
-    EXPECT_EQ(postbox->data_size(rapidsmpf::MemoryType::HOST), 0);
-
-    // Create another chunk with device memory (200 bytes of data)
-    auto chunk2 = rapidsmpf::shuffler::detail::Chunk::from_packed_data(
-        2, 1, create_packed_data(30, 200, rapidsmpf::MemoryType::DEVICE)
-    );
-    postbox->insert(std::move(chunk2));
-
-    // Device data size should now be 300 (100 + 200)
-    EXPECT_EQ(postbox->data_size(rapidsmpf::MemoryType::DEVICE), 300);
-    EXPECT_EQ(postbox->data_size(rapidsmpf::MemoryType::HOST), 0);
-
-    // Create a chunk with host memory (150 bytes of data)
-    auto chunk3 = rapidsmpf::shuffler::detail::Chunk::from_packed_data(
-        3, 2, create_packed_data(40, 150, rapidsmpf::MemoryType::HOST)
-    );
-
-    postbox->insert(std::move(chunk3));
-
-    // Device should still be 300, host should be 150
-    EXPECT_EQ(postbox->data_size(rapidsmpf::MemoryType::DEVICE), 300);
-    EXPECT_EQ(postbox->data_size(rapidsmpf::MemoryType::HOST), 150);
-
-    // Extract a chunk and verify sizes decrease
-    std::ignore = postbox->extract(0, 1);
-    EXPECT_EQ(postbox->data_size(rapidsmpf::MemoryType::DEVICE), 200);
-    EXPECT_EQ(postbox->data_size(rapidsmpf::MemoryType::HOST), 150);
-
-    // Extract all remaining chunks
-    std::ignore = postbox->extract_all_ready();
-
-    // Both should be 0 after extracting all
-    EXPECT_EQ(postbox->data_size(rapidsmpf::MemoryType::DEVICE), 0);
-    EXPECT_EQ(postbox->data_size(rapidsmpf::MemoryType::HOST), 0);
     EXPECT_TRUE(postbox->empty());
 }
 
@@ -1332,8 +1265,9 @@ TEST_F(ExtractEmptyPartitionsTest, SomeEmptyAndNonEmptyInsertions) {
     }
 
     insert_chunks(std::move(chunks));
-    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto pid) { return pid % 3 == 0; })
-    );
+    EXPECT_NO_FATAL_FAILURE(verify_extracted_chunks([](auto pid) {
+        return pid % 3 == 0;
+    }));
 }
 
 TEST(ShufflerTest, multiple_shutdowns) {
@@ -1350,8 +1284,9 @@ TEST(ShufflerTest, multiple_shutdowns) {
     constexpr int n_threads = 10;
     std::vector<std::future<void>> futures;
     for (int i = 0; i < n_threads; ++i) {
-        futures.emplace_back(std::async(std::launch::async, [&] { shuffler->shutdown(); })
-        );
+        futures.emplace_back(std::async(std::launch::async, [&] {
+            shuffler->shutdown();
+        }));
     }
     std::ranges::for_each(futures, [](auto& future) { future.get(); });
     shuffler.reset();

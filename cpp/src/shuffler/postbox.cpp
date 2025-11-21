@@ -23,9 +23,10 @@ void PostBox<KeyType>::insert(Chunk&& chunk) {
         );
     }
     std::lock_guard const lock(mutex_);
-    auto [it, inserted] = pigeonhole_[key].emplace(chunk.chunk_id(), std::move(chunk));
-    RAPIDSMPF_EXPECTS(inserted, "PostBox.insert(): chunk already exist");
-    increment_data_size(it->second);
+    RAPIDSMPF_EXPECTS(
+        pigeonhole_[key].emplace(chunk.chunk_id(), std::move(chunk)).second,
+        "PostBox.insert(): chunk already exist"
+    );
 }
 
 template <typename KeyType>
@@ -37,29 +38,19 @@ bool PostBox<KeyType>::is_empty(PartID pid) const {
 template <typename KeyType>
 Chunk PostBox<KeyType>::extract(PartID pid, ChunkID cid) {
     std::lock_guard const lock(mutex_);
-    auto chunk = std::move(extract_item(pigeonhole_[key_map_fn_(pid)], cid).second);
-    decrement_data_size(chunk);
-    return chunk;
+    return extract_item(pigeonhole_[key_map_fn_(pid)], cid).second;
 }
 
 template <typename KeyType>
 std::unordered_map<ChunkID, Chunk> PostBox<KeyType>::extract(PartID pid) {
     std::lock_guard const lock(mutex_);
-    auto chunks = extract_value(pigeonhole_, key_map_fn_(pid));
-    for (auto const& [cid, chunk] : chunks) {
-        decrement_data_size(chunk);
-    }
-    return chunks;
+    return extract_value(pigeonhole_, key_map_fn_(pid));
 }
 
 template <typename KeyType>
 std::unordered_map<ChunkID, Chunk> PostBox<KeyType>::extract_by_key(KeyType key) {
     std::lock_guard const lock(mutex_);
-    auto chunks = extract_value(pigeonhole_, key);
-    for (auto const& [cid, chunk] : chunks) {
-        decrement_data_size(chunk);
-    }
-    return chunks;
+    return extract_value(pigeonhole_, key);
 }
 
 template <typename KeyType>
@@ -74,10 +65,8 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
         auto& chunks = pid_it->second;
         auto chunk_it = chunks.begin();
         while (chunk_it != chunks.end()) {
-            auto&& chunk = chunk_it->second;
-            if (chunk.is_ready()) {
-                decrement_data_size(chunk);
-                ret.emplace_back(std::move(chunk));
+            if (chunk_it->second.is_ready()) {
+                ret.emplace_back(std::move(chunk_it->second));
                 chunk_it = chunks.erase(chunk_it);
             } else {
                 ++chunk_it;
