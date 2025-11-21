@@ -31,7 +31,12 @@ class BaseStreamingFixture : public ::testing::Test {
         br.reset();
     }
 
-    void SetUpWithThreads(int num_streaming_threads) {
+    void SetUpWithThreads(
+        int num_streaming_threads,
+        std::unordered_map<
+            rapidsmpf::MemoryType,
+            rapidsmpf::BufferResource::MemoryAvailable> memory_available = {}
+    ) {
         // create a new options object, since we can not modify values in the global
         // options object
         auto env_vars = rapidsmpf::config::get_environment_variables();
@@ -39,7 +44,7 @@ class BaseStreamingFixture : public ::testing::Test {
         rapidsmpf::config::Options options(std::move(env_vars));
 
         stream = cudf::get_default_stream();
-        br = std::make_shared<rapidsmpf::BufferResource>(mr_cuda);
+        br = std::make_shared<rapidsmpf::BufferResource>(mr_cuda, memory_available);
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
             std::move(options), GlobalEnvironment->comm_, br
         );
