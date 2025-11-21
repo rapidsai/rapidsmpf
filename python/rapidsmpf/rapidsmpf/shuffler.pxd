@@ -37,6 +37,24 @@ cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
         uint32_t wait_any() except +
         void wait_on(uint32_t pid) except +
         string str() except +
+# Insert PackedData into a partition map. We implement this in C++ because
+# PackedData doesn't have a default ctor.
+cdef extern from *:
+    """
+    void cpp_insert_chunk_into_partition_map(
+        std::unordered_map<std::uint32_t, rapidsmpf::PackedData> &partition_map,
+        std::uint32_t pid,
+        std::unique_ptr<rapidsmpf::PackedData> packed_data
+    ) {
+        partition_map.insert({pid, std::move(*packed_data)});
+    }
+    """
+    void cpp_insert_chunk_into_partition_map(
+        unordered_map[uint32_t, cpp_PackedData] &partition_map,
+        uint32_t pid,
+        unique_ptr[cpp_PackedData] packed_data,
+    ) except + nogil
+
 
 cdef class Shuffler:
     cdef unique_ptr[cpp_Shuffler] _handle
