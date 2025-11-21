@@ -48,9 +48,10 @@ Node send_to_channels(
 ) {
     RAPIDSMPF_EXPECTS(!chs_out.empty(), "output channels cannot be empty");
 
-    auto async_copy_and_send =
-        [](Context& ctx_, Message const& msg_, size_t msg_sz_, Channel& ch_
-        ) -> coro::task<bool> {
+    auto async_copy_and_send = [](Context& ctx_,
+                                  Message const& msg_,
+                                  size_t msg_sz_,
+                                  Channel& ch_) -> coro::task<bool> {
         co_await ctx_.executor()->schedule();
         auto res = ctx_.br()->reserve_or_fail(msg_sz_, try_memory_types(msg_));
         co_return co_await ch_.send(msg_.copy(res));
@@ -204,6 +205,7 @@ struct UnboundedFanout {
         co_await ctx.executor()->schedule();
 
         size_t n_available_messages = 0;  // number of messages available to send
+        std::vector<std::reference_wrapper<Message>> messages_to_send;
         while (true) {
             {
                 auto lock = co_await mtx.scoped_lock();
@@ -217,18 +219,20 @@ struct UnboundedFanout {
                     // no more messages will be received, and all messages have been sent
                     break;
                 }
+                // stash msg references under the lock
+                messages_to_send.reserve(n_available_messages - self_next_idx);
+                for (size_t i = self_next_idx; i < n_available_messages; i++) {
+                    messages_to_send.emplace_back(recv_messages[i]);
+                }
             }
 
-            // now we can copy & send messages in indices [next_idx, curr_recv_msg_sz)
-            // it is guaranteed that message purging will be done only on indices less
-            // than next_idx, so we can safely send messages without locking the mtx
-            for (size_t i = self_next_idx; i < n_available_messages; i++) {
-                auto const& msg = recv_messages[i];
-                RAPIDSMPF_EXPECTS(!msg.empty(), "message cannot be empty");
+            for (auto const& msg : messages_to_send) {
+                RAPIDSMPF_EXPECTS(!msg.get().empty(), "message cannot be empty");
 
-                auto res =
-                    ctx.br()->reserve_or_fail(msg.copy_cost(), try_memory_types(msg));
-                if (!co_await ch_out->send(msg.copy(res))) {
+                auto res = ctx.br()->reserve_or_fail(
+                    msg.get().copy_cost(), try_memory_types(msg.get())
+                );
+                if (!co_await ch_out->send(msg.get().copy(res))) {
                     // Failed to send message. Could be that the channel is shut down.
                     // So we need to abort the send task, and notify the process input
                     // task
@@ -236,6 +240,7 @@ struct UnboundedFanout {
                     co_return;
                 }
             }
+            messages_to_send.clear();
 
             // now next_idx can be updated to end_idx, and if !no_more_input, we need to
             // request the recv task for more data
