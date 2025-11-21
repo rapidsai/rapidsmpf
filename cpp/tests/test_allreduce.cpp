@@ -72,9 +72,9 @@ struct Combiner<ReduceOp::MAX> {
 };
 
 template <typename T>
-T make_input_value(int rank, int insert_idx, int elem_idx) {
+T make_input_value(int rank, int elem_idx) {
     // Simple positive pattern valid for all tested arithmetic types.
-    auto base = static_cast<std::uint64_t>((rank + 1) * 100 + (insert_idx + 1) * 10);
+    auto base = static_cast<std::uint64_t>((rank + 1) * 100 + (elem_idx + 1) * 10);
     return static_cast<T>(base + elem_idx);
 }
 
@@ -169,7 +169,6 @@ class BaseAllReduceTest : public ::testing::Test {
     std::unique_ptr<rmm::mr::device_memory_resource> mr;
 };
 
-// Test simple shutdown (construct and destruct without inserting).
 TEST_F(BaseAllReduceTest, shutdown) {
     AllReduce allreduce(
         GlobalEnvironment->comm_,
@@ -191,6 +190,11 @@ TEST_F(BaseAllReduceTest, timeout) {
         rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>()
     );
 
+    std::vector<int> data(1, 42);  // Simple test data
+    auto packed = make_packed_from_host(br.get(), data.data(), data.size());
+    allreduce.insert(std::move(packed));
+
+    // This should timeout since insert_finished() hasn't been called yet
     EXPECT_THROW(
         std::ignore = allreduce.wait_and_extract(std::chrono::milliseconds{20}),
         std::runtime_error
@@ -198,32 +202,25 @@ TEST_F(BaseAllReduceTest, timeout) {
 
     allreduce.insert_finished();
     auto result = allreduce.wait_and_extract();
-    EXPECT_EQ(result.size(), 0);
 }
 
 class AllReduceIntSumTest : public BaseAllReduceTest,
-                            public ::testing::WithParamInterface<std::tuple<int, int>> {
+                            public ::testing::WithParamInterface<int> {
   protected:
     void SetUp() override {
         BaseAllReduceTest::SetUp();
-        std::tie(n_elements, n_inserts) = GetParam();
+        n_elements = GetParam();
     }
 
     int n_elements{};
-    int n_inserts{};
 };
 
-// Parameterized test for different element counts and numbers of inserts.
 INSTANTIATE_TEST_SUITE_P(
     AllReduceIntSum,
     AllReduceIntSumTest,
-    ::testing::Combine(
-        ::testing::Values(0, 1, 10, 100),  // n_elements
-        ::testing::Values(0, 1, 10)  // n_inserts
-    ),
-    [](const ::testing::TestParamInfo<AllReduceIntSumTest::ParamType>& info) {
-        return "n_elements_" + std::to_string(std::get<0>(info.param)) + "_n_inserts_"
-               + std::to_string(std::get<1>(info.param));
+    ::testing::Values(0, 1, 10, 100),  // n_elements
+    [](const ::testing::TestParamInfo<int>& info) {
+        return "n_elements_" + std::to_string(info.param);
     }
 );
 
@@ -240,41 +237,27 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
         rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>()
     );
 
-    for (int i = 0; i < n_inserts; i++) {
-        std::vector<int> data(std::max(0, n_elements));
-        for (int j = 0; j < n_elements; j++) {
-            data[j] = i * 10 + this_rank;
-        }
-        auto packed = make_packed_from_host(br.get(), data.data(), data.size());
-        allreduce.insert(static_cast<std::uint64_t>(i), std::move(packed));
+    std::vector<int> data(std::max(0, n_elements));
+    for (int j = 0; j < n_elements; j++) {
+        data[j] = this_rank;
     }
+    auto packed = make_packed_from_host(br.get(), data.data(), data.size());
+    allreduce.insert(std::move(packed));
 
     allreduce.insert_finished();
 
-    auto results = allreduce.wait_and_extract();
-    if (n_inserts == 0) {
-        EXPECT_TRUE(results.empty());
-        EXPECT_TRUE(allreduce.finished());
-        return;
-    }
+    auto result = allreduce.wait_and_extract();
 
-    ASSERT_EQ(static_cast<std::size_t>(n_inserts), results.size());
-
-    for (int i = 0; i < n_inserts; i++) {
-        auto& pd = results[static_cast<std::size_t>(i)];
-        auto reduced = unpack_to_host<int>(pd);
-        ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
-        int const expected_value =
-            static_cast<int>(nranks) * (i * 10) + (nranks * (nranks - 1)) / 2;
-        for (int j = 0; j < n_elements; j++) {
-            EXPECT_EQ(reduced[static_cast<std::size_t>(j)], expected_value);
-        }
+    auto reduced = unpack_to_host<int>(result);
+    ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
+    // Expected value is sum of all ranks (0 + 1 + 2 + ... + nranks-1)
+    int const expected_value = (nranks * (nranks - 1)) / 2;
+    for (int j = 0; j < n_elements; j++) {
+        EXPECT_EQ(reduced[static_cast<std::size_t>(j)], expected_value);
     }
 
     EXPECT_TRUE(allreduce.finished());
 }
-
-// Typed host tests covering multiple T / ReduceOp combinations.
 
 template <typename Config>
 class AllReduceTypedOpsTest : public BaseAllReduceTest {
@@ -321,35 +304,26 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_host_allreduce) {
     );
 
     int constexpr n_elements{8};
-    int constexpr n_inserts{3};
 
-    for (int i = 0; i < n_inserts; i++) {
-        std::vector<T> data(n_elements);
-        for (int j = 0; j < n_elements; j++) {
-            data[j] = make_input_value<T>(this_rank, i, j);
-        }
-        auto packed = make_packed_from_host<T>(this->br.get(), data.data(), data.size());
-        allreduce.insert(static_cast<std::uint64_t>(i), std::move(packed));
+    std::vector<T> data(n_elements);
+    for (int j = 0; j < n_elements; j++) {
+        data[j] = make_input_value<T>(this_rank, j);
     }
+    auto packed = make_packed_from_host<T>(this->br.get(), data.data(), data.size());
+    allreduce.insert(std::move(packed));
 
     allreduce.insert_finished();
-    auto results = allreduce.wait_and_extract();
+    auto result = allreduce.wait_and_extract();
 
-    ASSERT_EQ(static_cast<std::size_t>(n_inserts), results.size());
-
-    for (int i = 0; i < n_inserts; i++) {
-        auto& pd = results[static_cast<std::size_t>(i)];
-        auto reduced = unpack_to_host<T>(pd);
-        ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
-        for (int j = 0; j < n_elements; j++) {
-            T expected = make_input_value<T>(0, i, j);
-            for (int r = 1; r < nranks; ++r) {
-                expected = Combiner<op>::template apply<T>(
-                    expected, make_input_value<T>(r, i, j)
-                );
-            }
-            EXPECT_EQ(reduced[static_cast<std::size_t>(j)], expected);
+    auto reduced = unpack_to_host<T>(result);
+    ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
+    for (int j = 0; j < n_elements; j++) {
+        T expected = make_input_value<T>(0, j);
+        for (int r = 1; r < nranks; ++r) {
+            expected =
+                Combiner<op>::template apply<T>(expected, make_input_value<T>(r, j));
         }
+        EXPECT_EQ(reduced[static_cast<std::size_t>(j)], expected);
     }
 }
 
@@ -374,51 +348,41 @@ TEST_F(AllReduceCustomTypeTest, custom_struct_allreduce) {
     );
 
     int constexpr n_elements{4};
-    int constexpr n_inserts{3};
 
     // Each rank contributes the same logical layout of CustomValue, staged into
     // device-backed PackedData.
-    for (int i = 0; i < n_inserts; ++i) {
-        std::vector<CustomValue> data(n_elements);
-        for (int j = 0; j < n_elements; ++j) {
-            data[static_cast<std::size_t>(j)].value =
-                make_input_value<int>(this_rank, i, j);
-            data[static_cast<std::size_t>(j)].weight = this_rank * 10 + j;
-        }
-
-        auto packed =
-            make_packed_from_host<CustomValue>(br.get(), data.data(), data.size());
-
-        allreduce.insert(static_cast<std::uint64_t>(i), std::move(packed));
+    std::vector<CustomValue> data(n_elements);
+    for (int j = 0; j < n_elements; ++j) {
+        data[static_cast<std::size_t>(j)].value = make_input_value<int>(this_rank, j);
+        data[static_cast<std::size_t>(j)].weight = this_rank * 10 + j;
     }
 
+    auto packed = make_packed_from_host<CustomValue>(br.get(), data.data(), data.size());
+
+    allreduce.insert(std::move(packed));
+
     allreduce.insert_finished();
-    auto results = allreduce.wait_and_extract();
+    auto result = allreduce.wait_and_extract();
 
-    ASSERT_EQ(static_cast<std::size_t>(n_inserts), results.size());
+    auto reduced = unpack_to_host<CustomValue>(result);
+    ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
 
-    for (int i = 0; i < n_inserts; ++i) {
-        auto& pd = results[static_cast<std::size_t>(i)];
-        auto reduced = unpack_to_host<CustomValue>(pd);
-        ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
-
-        for (int j = 0; j < n_elements; ++j) {
-            // Expected value is SUM over ranks of make_input_value<int>(rank, i, j).
-            int expected_value = make_input_value<int>(0, i, j);
-            for (int r = 1; r < nranks; ++r) {
-                expected_value += make_input_value<int>(r, i, j);
-            }
-
-            // Expected weight is MIN over ranks of (rank * 10 + j).
-            int expected_weight = 0 * 10 + j;
-            for (int r = 1; r < nranks; ++r) {
-                expected_weight = std::min(expected_weight, r * 10 + j);
-            }
-
-            auto const& cv = reduced[static_cast<std::size_t>(j)];
-            EXPECT_EQ(cv.value, expected_value);
-            EXPECT_EQ(cv.weight, expected_weight);
+    for (int j = 0; j < n_elements; ++j) {
+        // Expected value is SUM over ranks of make_input_value<int>(rank, j).
+        int expected_value = make_input_value<int>(0, j);
+        for (int r = 1; r < nranks; ++r) {
+            expected_value += make_input_value<int>(r, j);
         }
+
+        // Expected weight is MIN over ranks of (rank * 10 + j).
+        int expected_weight = 0 * 10 + j;
+        for (int r = 1; r < nranks; ++r) {
+            expected_weight = std::min(expected_weight, r * 10 + j);
+        }
+
+        auto const& cv = reduced[static_cast<std::size_t>(j)];
+        EXPECT_EQ(cv.value, expected_value);
+        EXPECT_EQ(cv.weight, expected_weight);
     }
 }
 
@@ -437,21 +401,20 @@ TEST_F(AllReduceNonUniformInsertsTest, non_uniform_inserts) {
         rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>()
     );
 
-    // Rank r inserts r messages -> non-uniform across ranks.
-    auto n_inserts = this_rank;
-    for (int i = 0; i < n_inserts; ++i) {
+    // Test that some ranks not inserting causes failure.
+    // Only rank 0 inserts data, other ranks don't.
+    if (this_rank == 0) {
         std::vector<int> data(n_elements);
         for (int j = 0; j < n_elements; ++j) {
-            data[static_cast<std::size_t>(j)] = make_input_value<int>(this_rank, i, j);
+            data[static_cast<std::size_t>(j)] = make_input_value<int>(this_rank, j);
         }
         auto packed = make_packed_from_host<int>(br.get(), data.data(), data.size());
-        allreduce.insert(static_cast<std::uint64_t>(i), std::move(packed));
+        allreduce.insert(std::move(packed));
     }
+    // Other ranks don't call insert()
 
     allreduce.insert_finished();
 
-    // AllReduce currently requires each rank to contribute the same number of
-    // messages. With non-uniform inserts this invariant is violated and the
-    // reduction is expected to throw when we attempt to extract results.
+    // Should fail since not all ranks contributed
     EXPECT_THROW(std::ignore = allreduce.wait_and_extract(), std::runtime_error);
 }

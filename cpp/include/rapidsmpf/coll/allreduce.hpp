@@ -63,12 +63,9 @@ using ReduceKernel = std::function<void(PackedData& accum, PackedData&& incoming
  * memory consumption and `O(R)` communication operations.
  *
  * Semantics:
- *  - Each rank may call `insert` any number of times with a local sequence number.
- *  - Conceptually, the *k*-th insertion on each rank participates in a single
- *    global reduction. That is, insertions are paired across ranks by their
- *    local insertion order, not by sequence number values.
- *  - Once all ranks call `insert_finished`, `wait_and_extract` returns one
- *    globally-reduced `PackedData` per local insertion on this rank.
+ *  - Each rank calls `insert` exactly once to contribute data to the reduction.
+ *  - Once all ranks call `insert_finished`, `wait_and_extract` returns the
+ *    globally-reduced `PackedData`.
  *
  * The actual reduction is implemented via a type-erased `ReduceKernel` that is
  * supplied at construction time. Helper factories such as
@@ -119,15 +116,11 @@ class AllReduce {
     /**
      * @brief Insert packed data into the allreduce operation.
      *
-     * @param sequence_number Local ordered sequence number of the data.
      * @param packed_data The data to contribute to the allreduce.
      *
-     * The caller promises that:
-     *  - `sequence_number`s are non-decreasing on each rank.
-     *  - The *k*-th call to `insert` on each rank corresponds to the same logical
-     *    reduction across all ranks (i.e., same element type and shape).
+     * @throws std::runtime_error If insert has already been called on this instance.
      */
-    void insert(std::uint64_t sequence_number, PackedData&& packed_data);
+    void insert(PackedData&& packed_data);
 
     /**
      * @brief Mark that this rank has finished contributing data.
@@ -143,19 +136,18 @@ class AllReduce {
     [[nodiscard]] bool finished() const noexcept;
 
     /**
-     * @brief Wait for completion and extract all reduced data.
+     * @brief Wait for completion and extract the reduced data.
      *
-     * Blocks until the allreduce operation completes and returns all locally
-     * reduced results, ordered by local insertion order.
+     * Blocks until the allreduce operation completes and returns the
+     * globally reduced result.
      *
      * @param timeout Optional maximum duration to wait. Negative values mean
      *        no timeout.
      *
-     * @return A vector containing reduced packed data, one entry per local
-     *         insertion on this rank.
+     * @return The reduced packed data.
      * @throws std::runtime_error If the timeout is reached.
      */
-    [[nodiscard]] std::vector<PackedData> wait_and_extract(
+    [[nodiscard]] PackedData wait_and_extract(
         std::chrono::milliseconds timeout = std::chrono::milliseconds{-1}
     );
 
@@ -172,8 +164,8 @@ class AllReduce {
     [[nodiscard]] bool is_ready() const noexcept;
 
   private:
-    /// @brief Perform the reduction across all ranks for all gathered contributions.
-    [[nodiscard]] std::vector<PackedData> reduce_all(std::vector<PackedData>&& gathered);
+    /// @brief Perform the reduction across all ranks for the gathered contributions.
+    [[nodiscard]] PackedData reduce_all(std::vector<PackedData>&& gathered);
 
     ReduceKernel reduce_kernel_;  ///< Type-erased reduction kernel
     std::function<void(void)> finished_callback_;  ///< Optional finished callback
@@ -181,7 +173,7 @@ class AllReduce {
     Rank nranks_;  ///< Number of ranks in the communicator
     AllGather gatherer_;  ///< Underlying allgather primitive
 
-    std::atomic<std::uint32_t> nlocal_insertions_{0};  ///< Number of local inserts
+    bool inserted_{false};  ///< Whether insert has been called
 };
 
 namespace detail {
