@@ -69,7 +69,7 @@ class Context {
      *
      * @return The Options instance.
      */
-    [[nodiscard]] config::Options get_options() const noexcept;
+    [[nodiscard]] config::Options options() const noexcept;
 
     /**
      * @brief Returns the communicator.
