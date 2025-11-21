@@ -85,69 +85,6 @@ std::unique_ptr<Buffer> allocate_buffer(
     return ret;
 }
 
-/**
- * @brief Spills memory buffers within a postbox, e.g., from device to host memory.
- *
- * This function moves a specified amount of memory from device to host storage
- * or another lower-priority memory space, helping manage limited GPU memory
- * by offloading excess data.
- *
- * The spilling is stream-ordered on the individual CUDA stream of each spilled buffer.
- *
- * @note While spilling, chunks are temporarily extracted from the postbox thus other
- * threads trying to extract a chunk that is in the process of being spilled, will fail.
- * To avoid this, the Shuffler uses `outbox_spillling_mutex_` to serialize extractions.
- *
- * @param br Buffer resource for GPU data allocations.
- * @param log A logger for recording events and debugging information.
- * @param statistics The statistics instance to use.
- * @param stream CUDA stream to use for memory and kernel operations.
- * @param amount The maximum amount of data (in bytes) to be spilled.
- *
- * @return The actual amount of data successfully spilled from the postbox.
- *
- * @warning This may temporarily empty the postbox, causing emptiness checks to return
- * true even though the postbox is not actually empty. As a result, in the current
- * implementation `postbox_spilling()` must not be used to spill `outgoing_postbox_`.
- */
-template <typename KeyType>
-std::size_t postbox_spilling(
-    BufferResource* br,
-    Communicator::Logger& log,
-    PostBox<KeyType>& postbox,
-    std::size_t amount
-) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-    // Let's look for chunks to spill in the outbox.
-    auto const chunk_info = postbox.search(MemoryType::DEVICE);
-    std::size_t total_spilled{0};
-    for (auto [pid, cid, size] : chunk_info) {
-        if (size == 0) {  // skip empty data buffers
-            continue;
-        }
-
-        // TODO: Use a clever strategy to decide which chunks to spill. For now, we
-        // just spill the chunks in an arbitrary order.
-        auto [host_reservation, host_overbooking] =
-            br->reserve(MemoryType::HOST, size, true);
-        if (host_overbooking > 0) {
-            log.warn(
-                "Cannot spill to host because of host memory overbooking: ",
-                format_nbytes(host_overbooking)
-            );
-            continue;
-        }
-        // We extract the chunk, spilled it, and insert it back into the PostBox.
-        auto chunk = postbox.extract(pid, cid);
-        chunk.set_data_buffer(br->move(chunk.release_data_buffer(), host_reservation));
-        postbox.insert(std::move(chunk));
-        if ((total_spilled += size) >= amount) {
-            break;
-        }
-    }
-    return total_spilled;
-}
-
 }  // namespace
 
 class Shuffler::Progress {
@@ -476,20 +413,21 @@ Shuffler::Shuffler(
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
       br_{br},
+      comm_{std::move(comm)},
+      local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       outgoing_postbox_{
           [this](PartID pid) -> Rank {
               return this->partition_owner(this->comm_, pid);
           },  // extract Rank from pid
-          static_cast<std::size_t>(comm->nranks())
+          std::views::iota(Rank(0), Rank(this->comm_->nranks()))
       },
-      ready_postbox_{
-          [](PartID pid) -> PartID { return pid; },  // identity mapping
-          static_cast<std::size_t>(total_num_partitions),
+      ready_postbox_{//   [](PartID pid) -> PartID { return pid; },  // identity mapping
+                     //   static_cast<std::size_t>(total_num_partitions),
+                     std::identity{},
+                     local_partitions_
       },
-      comm_{std::move(comm)},
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
-      local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},
       statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
@@ -768,7 +706,7 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
 std::vector<PackedData> Shuffler::extract(PartID pid) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
+    // std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
 
     // Quick return if the partition is empty.
     if (ready_postbox_.is_empty(pid)) {
@@ -776,13 +714,13 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     }
 
     auto chunks = ready_postbox_.extract(pid);
-    lock.unlock();
+    // lock.unlock();
 
     std::vector<PackedData> ret;
     ret.reserve(chunks.size());
 
-    std::ranges::transform(chunks, std::back_inserter(ret), [](auto&& p) -> PackedData {
-        return {p.second.release_metadata_buffer(), p.second.release_data_buffer()};
+    std::ranges::transform(chunks, std::back_inserter(ret), [](auto&& c) -> PackedData {
+        return {c.release_metadata_buffer(), c.release_data_buffer()};
     });
 
     return ret;
@@ -815,8 +753,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     }
     std::size_t spilled{0};
     if (spill_need > 0) {
-        std::lock_guard<std::mutex> lock(ready_postbox_spilling_mutex_);
-        spilled = postbox_spilling(br_, comm_->logger(), ready_postbox_, spill_need);
+        spilled = ready_postbox_.spill(br_, spill_need);
     }
     return spilled;
 }

@@ -341,28 +341,25 @@ class Shuffler {
 
   private:
     BufferResource* br_;
+    std::shared_ptr<Communicator> comm_;
     std::atomic<bool> active_{true};
+    std::vector<PartID> const local_partitions_;
+
     detail::PostBox<Rank> outgoing_postbox_;  ///< Postbox for outgoing chunks, that are
                                               ///< ready to be sent to other ranks.
     detail::PostBox<PartID> ready_postbox_;  ///< Postbox for received chunks, that are
                                              ///< ready to be extracted by the user.
 
-    std::shared_ptr<Communicator> comm_;
     std::shared_ptr<ProgressThread> progress_thread_;
     ProgressThread::FunctionID progress_thread_function_id_;
     OpID const op_id_;
 
     SpillManager::SpillFunctionID spill_function_id_;
 
-    std::vector<PartID> const local_partitions_;
 
     detail::FinishCounter finish_counter_;
     std::unordered_map<PartID, detail::ChunkID> outbound_chunk_counter_;
     mutable std::mutex outbound_chunk_counter_mutex_;
-
-    // We protect ready_postbox extraction to avoid returning a chunk that is in the
-    // process of being spilled by `Shuffler::spill`.
-    mutable std::mutex ready_postbox_spilling_mutex_;
 
     std::atomic<detail::ChunkID> chunk_id_counter_{0};
 

@@ -4,13 +4,17 @@
  */
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <mutex>
+#include <ranges>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 
 namespace rapidsmpf::shuffler::detail {
@@ -31,16 +35,21 @@ class PostBox {
      *
      * @tparam Fn The type of the function that maps a partition ID to a key.
      * @param key_map_fn A function that maps a partition ID to a key.
-     * @param num_keys_hint The number of keys to reserve space for.
+     * @param keys The keys expected to be used in the PostBox.
      *
      * @note The `key_map_fn` must be convertible to a function that takes a `PartID` and
      * returns a `KeyType`.
      */
-    template <typename Fn>
-    PostBox(Fn&& key_map_fn, size_t num_keys_hint = 0)
-        : key_map_fn_(std::move(key_map_fn)) {
-        if (num_keys_hint > 0) {
-            pigeonhole_.reserve(num_keys_hint);
+    template <typename Fn, std::ranges::input_range Range>
+        requires std::convertible_to<std::ranges::range_value_t<Range>, KeyType>
+    PostBox(Fn&& key_map_fn, Range&& keys) : key_map_fn_(std::move(key_map_fn)) {
+        pigeonhole_.reserve(std::ranges::size(keys));
+        for (const auto& key : keys) {
+            pigeonhole_.emplace(
+                std::piecewise_construct,
+                std::forward_as_tuple(key),
+                std::forward_as_tuple()
+            );
         }
     }
 
@@ -63,17 +72,6 @@ class PostBox {
     bool is_empty(PartID pid) const;
 
     /**
-     * @brief Extracts a specific chunk from the PostBox.
-     *
-     * @param pid The ID of the partition containing the chunk.
-     * @param cid The ID of the chunk to be accessed.
-     * @return The extracted chunk.
-     *
-     * @throws std::out_of_range If the chunk is not found.
-     */
-    [[nodiscard]] Chunk extract(PartID pid, ChunkID cid);
-
-    /**
      * @brief Extracts all chunks associated with a specific partition.
      *
      * @param pid The ID of the partition.
@@ -81,7 +79,7 @@ class PostBox {
      *
      * @throws std::out_of_range If the partition is not found.
      */
-    std::unordered_map<ChunkID, Chunk> extract(PartID pid);
+    std::vector<Chunk> extract(PartID pid);
 
     /**
      * @brief Extracts all chunks associated with a specific key.
@@ -91,7 +89,7 @@ class PostBox {
      *
      * @throws std::out_of_range If the key is not found.
      */
-    std::unordered_map<ChunkID, Chunk> extract_by_key(KeyType key);
+    std::vector<Chunk> extract_by_key(KeyType key);
 
     /**
      * @brief Extracts all ready chunks from the PostBox.
@@ -108,29 +106,35 @@ class PostBox {
     [[nodiscard]] bool empty() const;
 
     /**
-     * @brief Searches for chunks of the specified memory type.
-     *
-     * @param mem_type The type of memory to search within.
-     * @return A vector of tuples, where each tuple contains: PartID, ChunkID, and the
-     * size of the chunk.
-     */
-    [[nodiscard]] std::vector<std::tuple<key_type, ChunkID, std::size_t>> search(
-        MemoryType mem_type
-    ) const;
-
-    /**
      * @brief Returns a description of this instance.
      * @return The description.
      */
     [[nodiscard]] std::string str() const;
 
+    /**
+     * @brief Spills the specified amount of data from the PostBox.
+     *
+     * @param br Buffer resource to use for spilling.
+     * @param amount The amount of data to spill.
+     * @return The amount of data spilled.
+     */
+    size_t spill(BufferResource* br, size_t amount);
+
   private:
-    // TODO: more fine-grained locking e.g. by locking each partition individually.
-    mutable std::mutex mutex_;
+    /**
+     * @brief Map value for the PostBox.
+     *
+     * @note The mutex is used to protect the chunks set.
+     */
+    struct MapValue {
+        mutable std::mutex mutex;  ///< Mutex to protect each key
+        std::unordered_set<Chunk> chunks;  ///< Set of chunks for the key
+    };
+
     std::function<key_type(PartID)>
         key_map_fn_;  ///< Function to map partition IDs to keys.
-    std::unordered_map<key_type, std::unordered_map<ChunkID, Chunk>>
-        pigeonhole_;  ///< Storage for chunks, organized by a key and chunk ID.
+    std::unordered_map<key_type, MapValue> pigeonhole_;  ///< Storage for chunks
+    std::atomic<size_t> n_non_empty_keys_{0};
 };
 
 /**
