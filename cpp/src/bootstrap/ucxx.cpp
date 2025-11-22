@@ -8,6 +8,7 @@
 #ifdef RAPIDSMPF_HAVE_UCXX
 
 #include <chrono>
+#include <cstdlib>
 #include <memory>
 
 #include <cuda_device_runtime_api.h>
@@ -17,6 +18,10 @@
 #include <rapidsmpf/communicator/ucxx.hpp>
 
 namespace rapidsmpf::bootstrap {
+
+bool is_running_with_rrun() {
+    return std::getenv("RAPIDSMPF_RANK") != nullptr;
+}
 
 std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options options) {
     auto ctx = init(backend);
