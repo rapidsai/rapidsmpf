@@ -10,7 +10,6 @@
 #include <ranges>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include <rapidsmpf/error.hpp>
@@ -115,20 +114,19 @@ class PostBox {
      * @brief Spills the specified amount of data from the PostBox.
      *
      * @param br Buffer resource to use for spilling.
+     * @param log Logger to use for logging.
      * @param amount The amount of data to spill.
      * @return The amount of data spilled.
      */
-    size_t spill(BufferResource* br, size_t amount);
+    size_t spill(BufferResource* br, Communicator::Logger& log, size_t amount);
 
   private:
     /**
      * @brief Map value for the PostBox.
-     *
-     * @note The mutex is used to protect the chunks set.
      */
     struct MapValue {
         mutable std::mutex mutex;  ///< Mutex to protect each key
-        std::unordered_set<Chunk> chunks;  ///< Set of chunks for the key
+        std::vector<Chunk> chunks;  ///< Vector of chunks for the key
     };
 
     std::function<key_type(PartID)>

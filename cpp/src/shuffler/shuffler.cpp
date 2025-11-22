@@ -753,7 +753,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     }
     std::size_t spilled{0};
     if (spill_need > 0) {
-        spilled = ready_postbox_.spill(br_, spill_need);
+        spilled = ready_postbox_.spill(br_, comm_->logger(), spill_need);
     }
     return spilled;
 }

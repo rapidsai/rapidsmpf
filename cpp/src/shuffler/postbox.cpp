@@ -3,9 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
+#include <ranges>
 #include <sstream>
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/shuffler/postbox.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -32,10 +35,7 @@ void PostBox<KeyType>::insert(Chunk&& chunk) {
             "PostBox.insert(): n_non_empty_keys_ is already at the maximum"
         );
     }
-    RAPIDSMPF_EXPECTS(
-        map_value.chunks.emplace(std::move(chunk)).second,
-        "PostBox.insert(): chunk already exist"
-    );
+    map_value.chunks.push_back(std::move(chunk));
 }
 
 template <typename KeyType>
@@ -53,15 +53,11 @@ std::vector<Chunk> PostBox<KeyType>::extract(PartID pid) {
 template <typename KeyType>
 std::vector<Chunk> PostBox<KeyType>::extract_by_key(KeyType key) {
     auto& map_value = pigeonhole_.at(key);
-    std::vector<Chunk> ret;
     std::lock_guard lock(map_value.mutex);
     RAPIDSMPF_EXPECTS(!map_value.chunks.empty(), "PostBox.extract(): partition is empty");
-    ret.reserve(map_value.chunks.size());
 
-    for (auto it = map_value.chunks.begin(); it != map_value.chunks.end();) {
-        auto node = map_value.chunks.extract(it++);
-        ret.emplace_back(std::move(node.value()));
-    }
+    std::vector<Chunk> ret = std::move(map_value.chunks);
+    map_value.chunks.clear();
 
     RAPIDSMPF_EXPECTS(
         n_non_empty_keys_.fetch_sub(1, std::memory_order_relaxed) > 0,
@@ -77,24 +73,33 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
     // Iterate through the outer map
     for (auto& [key, map_value] : pigeonhole_) {
         std::lock_guard lock(map_value.mutex);
-        bool chunks_available = !map_value.chunks.empty();
-        auto chunk_it = map_value.chunks.begin();
-        while (chunk_it != map_value.chunks.end()) {
-            if (chunk_it->is_ready()) {
-                auto node = map_value.chunks.extract(chunk_it++);
-                ret.emplace_back(std::move(node.value()));
-            } else {
-                ++chunk_it;
-            }
-        }
 
-        // if the chunks were available and are now empty, its fully extracted
-        if (chunks_available && map_value.chunks.empty()) {
+        // Partition: non-ready chunks first, ready chunks at the end
+        auto partition_point =
+            std::ranges::partition(map_value.chunks, [](const Chunk& c) {
+                return !c.is_ready();
+            }).begin();
+
+        // if the chunks are available and all are ready, then all chunks will be
+        // extracted
+        if (map_value.chunks.begin() == partition_point
+            && partition_point != map_value.chunks.end())
+        {
             RAPIDSMPF_EXPECTS(
                 n_non_empty_keys_.fetch_sub(1, std::memory_order_relaxed) > 0,
                 "PostBox.extract_all_ready(): n_non_empty_keys_ is already 0"
             );
         }
+
+        // Move ready chunks to result
+        ret.insert(
+            ret.end(),
+            std::make_move_iterator(partition_point),
+            std::make_move_iterator(map_value.chunks.end())
+        );
+
+        // Remove ready chunks from the vector
+        map_value.chunks.erase(partition_point, map_value.chunks.end());
     }
     return ret;
 }
@@ -105,9 +110,44 @@ bool PostBox<KeyType>::empty() const {
 }
 
 template <typename KeyType>
-size_t PostBox<KeyType>::spill(BufferResource* /* br */, size_t /* amount */) {
-    // TODO: implement spill
-    return 0;
+size_t PostBox<KeyType>::spill(
+    BufferResource* br, Communicator::Logger& log, size_t amount
+) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+
+    // individually lock each key and spill the chunks in it. If we are unable to lock the
+    // key, then it will be skipped.
+    size_t total_spilled = 0;
+    for (auto& [key, map_value] : pigeonhole_) {
+        std::unique_lock lock(map_value.mutex, std::try_to_lock);
+        if (lock) {  // now all chunks in this key are locked
+            for (auto& chunk : map_value.chunks) {
+                if (chunk.is_data_buffer_set()
+                    && chunk.data_memory_type() == MemoryType::DEVICE)
+                {
+                    size_t size = chunk.concat_data_size();
+                    auto [host_reservation, host_overbooking] =
+                        br->reserve(MemoryType::HOST, size, true);
+                    if (host_overbooking > 0) {
+                        log.warn(
+                            "Cannot spill to host because of host memory overbooking: ",
+                            format_nbytes(host_overbooking)
+                        );
+                        continue;
+                    }
+                    chunk.set_data_buffer(
+                        br->move(chunk.release_data_buffer(), host_reservation)
+                    );
+                    total_spilled += size;
+                    if (total_spilled >= amount) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    return total_spilled;
 }
 
 template <typename KeyType>
