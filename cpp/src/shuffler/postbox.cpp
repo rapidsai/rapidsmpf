@@ -3,9 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
+#include <ranges>
 #include <sstream>
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/shuffler/postbox.hpp>
 #include <rapidsmpf/utils.hpp>
@@ -22,88 +25,129 @@ void PostBox<KeyType>::insert(Chunk&& chunk) {
             "PostBox.insert(): all messages in the chunk must map to the same key"
         );
     }
-    std::lock_guard const lock(mutex_);
-    RAPIDSMPF_EXPECTS(
-        pigeonhole_[key].emplace(chunk.chunk_id(), std::move(chunk)).second,
-        "PostBox.insert(): chunk already exist"
-    );
+    // std::lock_guard const lock(mutex_);
+    auto& map_value = pigeonhole_.at(key);
+    std::lock_guard lock(map_value.mutex);
+    if (map_value.chunks.empty()) {
+        RAPIDSMPF_EXPECTS(
+            n_non_empty_keys_.fetch_add(1, std::memory_order_relaxed) + 1
+                <= pigeonhole_.size(),
+            "PostBox.insert(): n_non_empty_keys_ is already at the maximum"
+        );
+    }
+    map_value.chunks.push_back(std::move(chunk));
 }
 
 template <typename KeyType>
 bool PostBox<KeyType>::is_empty(PartID pid) const {
-    std::lock_guard const lock(mutex_);
-    return !pigeonhole_.contains(key_map_fn_(pid));
+    auto& map_value = pigeonhole_.at(key_map_fn_(pid));
+    std::lock_guard lock(map_value.mutex);
+    return map_value.chunks.empty();
 }
 
 template <typename KeyType>
-Chunk PostBox<KeyType>::extract(PartID pid, ChunkID cid) {
-    std::lock_guard const lock(mutex_);
-    return extract_item(pigeonhole_[key_map_fn_(pid)], cid).second;
+std::vector<Chunk> PostBox<KeyType>::extract(PartID pid) {
+    return extract_by_key(key_map_fn_(pid));
 }
 
 template <typename KeyType>
-std::unordered_map<ChunkID, Chunk> PostBox<KeyType>::extract(PartID pid) {
-    std::lock_guard const lock(mutex_);
-    return extract_value(pigeonhole_, key_map_fn_(pid));
-}
+std::vector<Chunk> PostBox<KeyType>::extract_by_key(KeyType key) {
+    auto& map_value = pigeonhole_.at(key);
+    std::lock_guard lock(map_value.mutex);
+    RAPIDSMPF_EXPECTS(!map_value.chunks.empty(), "PostBox.extract(): partition is empty");
 
-template <typename KeyType>
-std::unordered_map<ChunkID, Chunk> PostBox<KeyType>::extract_by_key(KeyType key) {
-    std::lock_guard const lock(mutex_);
-    return extract_value(pigeonhole_, key);
+    std::vector<Chunk> ret = std::move(map_value.chunks);
+    map_value.chunks.clear();
+
+    RAPIDSMPF_EXPECTS(
+        n_non_empty_keys_.fetch_sub(1, std::memory_order_relaxed) > 0,
+        "PostBox.extract(): n_non_empty_keys_ is already 0"
+    );
+    return ret;
 }
 
 template <typename KeyType>
 std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
-    std::lock_guard const lock(mutex_);
     std::vector<Chunk> ret;
 
     // Iterate through the outer map
-    auto pid_it = pigeonhole_.begin();
-    while (pid_it != pigeonhole_.end()) {
-        // Iterate through the inner map
-        auto& chunks = pid_it->second;
-        auto chunk_it = chunks.begin();
-        while (chunk_it != chunks.end()) {
-            if (chunk_it->second.is_ready()) {
-                ret.emplace_back(std::move(chunk_it->second));
-                chunk_it = chunks.erase(chunk_it);
-            } else {
-                ++chunk_it;
-            }
+    for (auto& [key, map_value] : pigeonhole_) {
+        std::lock_guard lock(map_value.mutex);
+
+        // Partition: non-ready chunks first, ready chunks at the end
+        auto partition_point =
+            std::ranges::partition(map_value.chunks, [](const Chunk& c) {
+                return !c.is_ready();
+            }).begin();
+
+        // if the chunks are available and all are ready, then all chunks will be
+        // extracted
+        if (map_value.chunks.begin() == partition_point
+            && partition_point != map_value.chunks.end())
+        {
+            RAPIDSMPF_EXPECTS(
+                n_non_empty_keys_.fetch_sub(1, std::memory_order_relaxed) > 0,
+                "PostBox.extract_all_ready(): n_non_empty_keys_ is already 0"
+            );
         }
 
-        // Remove the pid entry if its chunks map is empty
-        if (chunks.empty()) {
-            pid_it = pigeonhole_.erase(pid_it);
-        } else {
-            ++pid_it;
-        }
+        // Move ready chunks to result
+        ret.insert(
+            ret.end(),
+            std::make_move_iterator(partition_point),
+            std::make_move_iterator(map_value.chunks.end())
+        );
+
+        // Remove ready chunks from the vector
+        map_value.chunks.erase(partition_point, map_value.chunks.end());
     }
-
     return ret;
 }
 
 template <typename KeyType>
 bool PostBox<KeyType>::empty() const {
-    std::lock_guard const lock(mutex_);
-    return pigeonhole_.empty();
+    return n_non_empty_keys_.load(std::memory_order_acquire) == 0;
 }
 
 template <typename KeyType>
-std::vector<std::tuple<KeyType, ChunkID, std::size_t>> PostBox<KeyType>::search(
-    MemoryType mem_type
-) const {
-    std::lock_guard const lock(mutex_);
-    std::vector<std::tuple<KeyType, ChunkID, std::size_t>> ret;
-    for (auto& [key, chunks] : pigeonhole_) {
-        for (auto& [cid, chunk] : chunks) {
-            if (!chunk.is_control_message(0) && chunk.data_memory_type() == mem_type) {
-                ret.emplace_back(key, cid, chunk.concat_data_size());
+size_t PostBox<KeyType>::spill(
+    BufferResource* br, Communicator::Logger& log, size_t amount
+) {
+    RAPIDSMPF_NVTX_FUNC_RANGE();
+
+    // individually lock each key and spill the chunks in it. If we are unable to lock the
+    // key, then it will be skipped.
+    size_t total_spilled = 0;
+    for (auto& [key, map_value] : pigeonhole_) {
+        std::unique_lock lock(map_value.mutex, std::try_to_lock);
+        if (lock) {  // now all chunks in this key are locked
+            for (auto& chunk : map_value.chunks) {
+                if (chunk.is_data_buffer_set()
+                    && chunk.data_memory_type() == MemoryType::DEVICE)
+                {
+                    size_t size = chunk.concat_data_size();
+                    auto [host_reservation, host_overbooking] =
+                        br->reserve(MemoryType::HOST, size, true);
+                    if (host_overbooking > 0) {
+                        log.warn(
+                            "Cannot spill to host because of host memory overbooking: ",
+                            format_nbytes(host_overbooking)
+                        );
+                        continue;
+                    }
+                    chunk.set_data_buffer(
+                        br->move(chunk.release_data_buffer(), host_reservation)
+                    );
+                    total_spilled += size;
+                    if (total_spilled >= amount) {
+                        break;
+                    }
+                }
             }
         }
     }
-    return ret;
+
+    return total_spilled;
 }
 
 template <typename KeyType>
@@ -113,14 +157,14 @@ std::string PostBox<KeyType>::str() const {
     }
     std::stringstream ss;
     ss << "PostBox(";
-    for (auto const& [key, chunks] : pigeonhole_) {
+    for (auto const& [key, map_value] : pigeonhole_) {
         ss << "k=" << key << ": [";
-        for (auto const& [cid, chunk] : chunks) {
-            assert(cid == chunk.chunk_id());
+        for (auto const& chunk : map_value.chunks) {
+            // assert(cid == chunk.chunk_id());
             if (chunk.is_control_message(0)) {
                 ss << "EOP" << chunk.expected_num_chunks(0) << ", ";
             } else {
-                ss << cid << ", ";
+                ss << chunk.chunk_id() << ", ";
             }
         }
         ss << "\b\b], ";

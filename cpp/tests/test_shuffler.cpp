@@ -570,7 +570,7 @@ class ShuffleInsertGroupedTest
             }
 
             auto chunks = shuffler.outgoing_postbox_.extract_by_key(rank);
-            for (auto& [cid, chunk] : chunks) {
+            for (auto& chunk : chunks) {
                 for (size_t i = 0; i < chunk.n_messages(); ++i) {
                     outbound_chunks[chunk.part_id(i)]++;
                     if (chunk.is_control_message(i)) {
@@ -594,7 +594,7 @@ class ShuffleInsertGroupedTest
                 // control messages
                 outbound_chunks[pid]++;
                 n_control_messages++;
-                for (auto& [cid, chunk] : local_chunks) {
+                for (auto& chunk : local_chunks) {
                     for (size_t i = 0; i < chunk.n_messages(); ++i) {
                         outbound_chunks[chunk.part_id(i)]++;
 
@@ -1023,7 +1023,7 @@ class PostBoxTest : public cudf::test::BaseFixture {
             [this](rapidsmpf::shuffler::PartID part_id) {
                 return partition_owner(part_id);
             },
-            GlobalEnvironment->comm_->nranks()
+            std::views::iota(0, GlobalEnvironment->comm_->nranks())
         );
     }
 
@@ -1068,9 +1068,11 @@ TEST_F(PostBoxTest, InsertAndExtractMultipleChunks) {
         auto chunks = postbox->extract_by_key(rank);
         extracted_nchunks += chunks.size();
 
-        for (auto& [_, chunk] : chunks) {
-            extracted_chunks.emplace_back(std::move(chunk));
-        }
+        extracted_chunks.insert(
+            extracted_chunks.end(),
+            std::make_move_iterator(chunks.begin()),
+            std::make_move_iterator(chunks.end())
+        );
     }
     EXPECT_EQ(extracted_nchunks, num_chunks);
     EXPECT_TRUE(postbox->empty());
