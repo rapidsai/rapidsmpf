@@ -1012,7 +1012,7 @@ Chunk make_dummy_chunk(ChunkID chunk_id, PartID part_id) {
 }
 }  // namespace rapidsmpf::shuffler::detail
 
-class PostBoxTest : public cudf::test::BaseFixture {
+class PostBoxTest : public ::testing::Test {
   protected:
     using PostboxType = rapidsmpf::shuffler::detail::PostBox<rapidsmpf::Rank>;
 
@@ -1294,3 +1294,173 @@ TEST(ShufflerTest, multiple_shutdowns) {
     shuffler.reset();
     GlobalEnvironment->barrier();
 }
+
+// Parameterized test for PostBox with concurrent insert/extract threads
+class PostBoxMultithreadedTest
+    : public ::testing::TestWithParam<std::tuple<uint32_t, uint32_t, uint32_t>> {
+  protected:
+    static constexpr size_t chunk_size = 1024;  // 1KB
+
+    void SetUp() override {
+        std::tie(num_threads, num_keys, chunks_per_key) = GetParam();
+        stream = cudf::get_default_stream();
+
+        // Create buffer resource with chunk_size*num_keys/10 device memory limit
+        int64_t device_memory_limit = (num_keys * chunk_size) / 10;
+
+        auto mr_ptr = cudf::get_current_device_resource_ref();
+        mr = std::make_unique<rapidsmpf::RmmResourceAdaptor>(mr_ptr);
+
+        br = std::make_unique<rapidsmpf::BufferResource>(
+            mr_ptr,
+            std::unordered_map<
+                rapidsmpf::MemoryType,
+                rapidsmpf::BufferResource::MemoryAvailable>{
+                {rapidsmpf::MemoryType::DEVICE,
+                 rapidsmpf::LimitAvailableMemory(mr.get(), device_memory_limit)}
+            },
+            std::nullopt  // disable periodic spill check
+        );
+
+        // Create PostBox with identity mapping: keys are [0, num_keys)
+        postbox = std::make_unique<
+            rapidsmpf::shuffler::detail::PostBox<rapidsmpf::shuffler::PartID>>(
+            std::identity{}, std::views::iota(0u, num_keys)
+        );
+
+        num_extracted_chunks.store(0, std::memory_order_relaxed);
+
+        spill_function_id = br->spill_manager().add_spill_function(
+            [this](size_t amount) -> size_t {
+                return postbox->spill(
+                    br.get(), GlobalEnvironment->comm_->logger(), amount
+                );
+            },
+            0
+        );
+    }
+
+    void TearDown() override {
+        postbox.reset();
+        br->spill_manager().remove_spill_function(spill_function_id);
+        br.reset();
+        mr.reset();
+    }
+
+    uint32_t num_threads;
+    uint32_t num_keys;
+    uint32_t chunks_per_key;
+    rmm::cuda_stream_view stream;
+
+    std::unique_ptr<rapidsmpf::RmmResourceAdaptor> mr;
+    std::unique_ptr<rapidsmpf::BufferResource> br;
+    std::unique_ptr<rapidsmpf::shuffler::detail::PostBox<rapidsmpf::shuffler::PartID>>
+        postbox;
+    rapidsmpf::SpillManager::SpillFunctionID spill_function_id;
+};
+
+TEST_P(PostBoxMultithreadedTest, ConcurrentInsertExtract) {
+    std::atomic<uint32_t> chunk_id_counter{0};
+    std::atomic<uint32_t> completed_insert_threads{0};
+    std::atomic<uint32_t> num_extracted_chunks{0};
+    std::vector<std::future<void>> insert_futures;
+    std::vector<std::future<void>> extract_futures;
+
+    auto gen_keys = [this](uint32_t tid) {
+        std::unordered_set<uint32_t> keys;
+        keys.reserve(num_keys / num_threads);
+        for (uint32_t key = tid; key < num_keys; key += num_threads) {
+            keys.insert(key);
+        }
+        return keys;
+    };
+
+    // insert & spill threads
+    for (uint32_t tid = 0; tid < num_threads; ++tid) {
+        insert_futures.emplace_back(std::async(std::launch::async, [&, tid] {
+            for (uint32_t p = 0; p < chunks_per_key; ++p) {
+                for (auto key : gen_keys(tid)) {
+                    // Create chunk with 1KB device buffer and 1KB host buffer
+                    auto chunk_id =
+                        chunk_id_counter.fetch_add(1, std::memory_order_relaxed);
+
+                    // Reserve 1KB allocation using buffer resource reserve and spill
+                    auto reservation = br->reserve_and_spill(
+                        rapidsmpf::MemoryType::DEVICE, chunk_size, true
+                    );
+
+                    auto metadata = std::make_unique<std::vector<uint8_t>>(
+                        chunk_size, static_cast<uint8_t>(key)
+                    );
+                    auto buffer = br->allocate(stream, std::move(reservation));
+
+                    postbox->insert(
+                        rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+                            chunk_id, key, {std::move(metadata), std::move(buffer)}
+                        )
+                    );
+                }
+            }
+            // Signal that this insert thread is done
+            completed_insert_threads.fetch_add(1, std::memory_order_release);
+        }));
+    }
+
+    auto insert_done = [&]() {
+        return completed_insert_threads.load(std::memory_order_acquire) == num_threads;
+    };
+
+    // extract threads
+    for (uint32_t tid = 0; tid < num_threads; ++tid) {
+        extract_futures.emplace_back(std::async(std::launch::async, [&, tid] {
+            auto keys = gen_keys(tid);
+
+            while (!keys.empty()) {  // extact untill all keys are empty
+                for (auto it = keys.begin(); it != keys.end();) {
+                    if (!postbox->is_empty(*it)) {
+                        auto chunks = postbox->extract(*it);
+                        auto chunk_count = static_cast<uint32_t>(chunks.size());
+                        num_extracted_chunks.fetch_add(
+                            chunk_count, std::memory_order_relaxed
+                        );
+                        it++;
+                    } else if (insert_done() && postbox->is_empty(*it)) {
+                        it = keys.erase(it);
+                    } else {
+                        it++;
+                    }
+                }
+            }
+        }));
+    }
+
+    for (auto& future : insert_futures) {
+        EXPECT_NO_THROW(future.get());
+    }
+
+    for (auto& future : extract_futures) {
+        EXPECT_NO_THROW(future.get());
+    }
+
+    // Verify that all chunks were extracted
+    uint32_t expected_total_chunks = num_keys * chunks_per_key;
+    SCOPED_TRACE("postbox: " + postbox->str());
+    EXPECT_EQ(expected_total_chunks, chunk_id_counter.load());
+    EXPECT_EQ(expected_total_chunks, num_extracted_chunks.load());
+    EXPECT_TRUE(postbox->empty());
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    PostBoxConcurrent,
+    PostBoxMultithreadedTest,
+    testing::Combine(
+        testing::Values(1, 2),  // num_threads
+        testing::Values(10, 100),  // num_keys
+        testing::Values(1, 10)  // chunks_per_key
+    ),
+    [](const testing::TestParamInfo<PostBoxMultithreadedTest::ParamType>& info) {
+        return "nthreads_" + std::to_string(std::get<0>(info.param)) + "_keys_"
+               + std::to_string(std::get<1>(info.param)) + "_chunks_"
+               + std::to_string(std::get<2>(info.param));
+    }
+);

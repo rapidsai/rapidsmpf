@@ -164,7 +164,7 @@ std::string PostBox<KeyType>::str() const {
     std::stringstream ss;
     ss << "PostBox(";
     for (auto const& [key, map_value] : pigeonhole_) {
-        ss << "k=" << key << ": [";
+        ss << "k=" << key << ":[";
         for (auto const& chunk : map_value.chunks) {
             // assert(cid == chunk.chunk_id());
             if (chunk.is_control_message(0)) {
@@ -173,7 +173,7 @@ std::string PostBox<KeyType>::str() const {
                 ss << chunk.chunk_id() << ", ";
             }
         }
-        ss << "\b\b], ";
+        ss << (map_value.chunks.empty() ? "], " : "\b\b], ");
     }
     ss << "\b\b)";
     return ss.str();
