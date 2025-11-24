@@ -204,7 +204,7 @@ struct UnboundedFanout {
         };
         co_await ctx.executor()->schedule();
 
-        size_t n_available_messages = 0;  // number of messages available to send
+        size_t n_available_messages = 0;
         std::vector<std::reference_wrapper<Message>> messages_to_send;
         while (true) {
             {
