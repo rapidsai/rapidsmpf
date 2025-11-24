@@ -68,7 +68,7 @@ class PostBox {
      * @note The result reflects a snapshot at the time of the call and may change
      * immediately afterward.
      */
-    bool is_empty(PartID pid) const;
+    [[nodiscard]] bool is_empty(PartID pid) const;
 
     /**
      * @brief Extracts all chunks associated with a specific partition.

@@ -72,7 +72,10 @@ std::vector<Chunk> PostBox<KeyType>::extract_all_ready() {
 
     // Iterate through the outer map
     for (auto& [key, map_value] : pigeonhole_) {
-        std::lock_guard lock(map_value.mutex);
+        std::unique_lock lock(map_value.mutex, std::try_to_lock);
+        if (!lock.owns_lock()) {
+            continue;
+        }
 
         // Partition: non-ready chunks first, ready chunks at the end
         auto partition_point =
