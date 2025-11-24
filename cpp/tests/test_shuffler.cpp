@@ -1328,8 +1328,6 @@ class PostBoxMultithreadedTest
             std::identity{}, std::views::iota(0u, num_keys)
         );
 
-        num_extracted_chunks.store(0, std::memory_order_relaxed);
-
         spill_function_id = br->spill_manager().add_spill_function(
             [this](size_t amount) -> size_t {
                 return postbox->spill(
