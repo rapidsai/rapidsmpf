@@ -132,7 +132,10 @@ class PostBox {
     std::function<key_type(PartID)>
         key_map_fn_;  ///< Function to map partition IDs to keys.
     std::unordered_map<key_type, MapValue> pigeonhole_;  ///< Storage for chunks
-    std::atomic<size_t> n_non_empty_keys_{0};
+    std::atomic<size_t> n_non_empty_keys_{
+        0
+    };  ///< Number of non-empty keys. Since the pigenhole map is not extracted, this
+        ///< count will be used to check the emptiness
 };
 
 /**

@@ -421,11 +421,7 @@ Shuffler::Shuffler(
           },  // extract Rank from pid
           std::views::iota(Rank(0), Rank(this->comm_->nranks()))
       },
-      ready_postbox_{//   [](PartID pid) -> PartID { return pid; },  // identity mapping
-                     //   static_cast<std::size_t>(total_num_partitions),
-                     std::identity{},
-                     local_partitions_
-      },
+      ready_postbox_{std::identity{}, local_partitions_},
       progress_thread_{std::move(progress_thread)},
       op_id_{op_id},
       finish_counter_{comm_->nranks(), local_partitions_, std::move(finished_callback)},
@@ -706,7 +702,6 @@ void Shuffler::insert_finished(std::vector<PartID>&& pids) {
 
 std::vector<PackedData> Shuffler::extract(PartID pid) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    // std::unique_lock<std::mutex> lock(ready_postbox_spilling_mutex_);
 
     // Quick return if the partition is empty.
     if (ready_postbox_.is_empty(pid)) {
@@ -714,7 +709,6 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     }
 
     auto chunks = ready_postbox_.extract(pid);
-    // lock.unlock();
 
     std::vector<PackedData> ret;
     ret.reserve(chunks.size());

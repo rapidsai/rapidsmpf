@@ -25,10 +25,11 @@ void PostBox<KeyType>::insert(Chunk&& chunk) {
             "PostBox.insert(): all messages in the chunk must map to the same key"
         );
     }
-    // std::lock_guard const lock(mutex_);
+
     auto& map_value = pigeonhole_.at(key);
     std::lock_guard lock(map_value.mutex);
     if (map_value.chunks.empty()) {
+        // this key is currently empty. So increment the non-empty key count.
         RAPIDSMPF_EXPECTS(
             n_non_empty_keys_.fetch_add(1, std::memory_order_relaxed) + 1
                 <= pigeonhole_.size(),
@@ -123,28 +124,30 @@ size_t PostBox<KeyType>::spill(
     size_t total_spilled = 0;
     for (auto& [key, map_value] : pigeonhole_) {
         std::unique_lock lock(map_value.mutex, std::try_to_lock);
-        if (lock) {  // now all chunks in this key are locked
-            for (auto& chunk : map_value.chunks) {
-                if (chunk.is_data_buffer_set()
-                    && chunk.data_memory_type() == MemoryType::DEVICE)
-                {
-                    size_t size = chunk.concat_data_size();
-                    auto [host_reservation, host_overbooking] =
-                        br->reserve(MemoryType::HOST, size, true);
-                    if (host_overbooking > 0) {
-                        log.warn(
-                            "Cannot spill to host because of host memory overbooking: ",
-                            format_nbytes(host_overbooking)
-                        );
-                        continue;
-                    }
-                    chunk.set_data_buffer(
-                        br->move(chunk.release_data_buffer(), host_reservation)
+        if (!lock) {  // skip to the next key
+            continue;
+        }
+
+        for (auto& chunk : map_value.chunks) {
+            if (chunk.is_data_buffer_set()
+                && chunk.data_memory_type() == MemoryType::DEVICE)
+            {
+                size_t size = chunk.concat_data_size();
+                auto [host_reservation, host_overbooking] =
+                    br->reserve(MemoryType::HOST, size, true);
+                if (host_overbooking > 0) {
+                    log.warn(
+                        "Cannot spill to host because of host memory overbooking: ",
+                        format_nbytes(host_overbooking)
                     );
-                    total_spilled += size;
-                    if (total_spilled >= amount) {
-                        break;
-                    }
+                    continue;
+                }
+                chunk.set_data_buffer(
+                    br->move(chunk.release_data_buffer(), host_reservation)
+                );
+                total_spilled += size;
+                if (total_spilled >= amount) {
+                    break;
                 }
             }
         }
