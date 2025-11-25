@@ -7,6 +7,7 @@
 # `Single` communicator may be used.
 
 set -euo pipefail
+
 source rapids-init-pip
 
 package_name="librapidsmpf"
