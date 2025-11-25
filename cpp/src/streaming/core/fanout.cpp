@@ -257,7 +257,6 @@ struct UnboundedFanout {
                 }
             }
         }
-
         co_await ch_out->drain(ctx.executor());
     }
 
@@ -302,7 +301,6 @@ struct UnboundedFanout {
 
             auto it = std::ranges::begin(filtered_view);  // advance to first valid idx
             auto end = std::ranges::end(filtered_view);
-
             if (it == end) {
                 // no valid indices, so all send tasks are in an invalid state
                 return true;
