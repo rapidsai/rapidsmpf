@@ -201,10 +201,12 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
 
 def test_spillable_messages_by_context(context: Context, stream: Stream) -> None:
     seq = 42
-    df1 = random_table(1024)
+    expect = random_table(1024)
 
-    context.spillable_messages().insert(
-        Message(seq, TableChunk.from_pylibcudf_table(df1, stream, exclusive_view=True))
+    mid = context.spillable_messages().insert(
+        Message(
+            seq, TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+        )
     )
     assert context.spillable_messages().get_content_descriptions() == {
         0: ContentDescription(
@@ -212,3 +214,5 @@ def test_spillable_messages_by_context(context: Context, stream: Stream) -> None
             spillable=True,
         )
     }
+    got = TableChunk.from_message(context.spillable_messages().extract(mid=mid))
+    assert_eq(expect, got.table_view())
