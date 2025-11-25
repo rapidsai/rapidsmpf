@@ -11,8 +11,7 @@ from rapidsmpf.streaming.core.fanout cimport FanoutPolicy
 from rapidsmpf.streaming.core.node cimport CppNode, cpp_Node
 
 
-def fanout(Context ctx, Channel ch_in, list[Channel] chs_out, FanoutPolicy policy) \
-        -> CppNode:
+def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
     """
     Broadcast messages from one input channel to multiple output channels.
 
@@ -25,18 +24,18 @@ def fanout(Context ctx, Channel ch_in, list[Channel] chs_out, FanoutPolicy polic
 
     Parameters
     ----------
-    ctx :
+    ctx
         The node context to use.
-    ch_in :
+    ch_in
         Input channel from which messages are received.
-    chs_out :
+    chs_out
         Output channels to which messages are broadcast.
-    policy :
+    policy
         The fanout strategy to use (see FanoutPolicy).
 
     Returns
     -------
-        Streaming node representing the fanout operation.
+    Streaming node representing the fanout operation.
 
     Raises
     ------
