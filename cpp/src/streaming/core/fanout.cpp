@@ -147,7 +147,7 @@ Node bounded_fanout(
  * - When a send task fails to send a message, this means the channel may have been
  * prematurely shut down. In this case, it sets a sential value to mark it as invalid.
  * Recv task will filter out channels with the invalid sentinel value.
- * - There two RAII helpers to ensure that the notification mechanisms are properly
+ * - There are two RAII helpers to ensure that the notification mechanisms are properly
  * cleaned up when the unbounded fanout state goes out of scope/ encounters an error.
  *
  */
@@ -369,18 +369,24 @@ struct UnboundedFanout {
         co_await ch_in->drain(ctx.executor());
     }
 
-    coro::mutex mtx;  ///< notify send tasks to copy & send messages
-    coro::condition_variable
-        data_ready;  ///< recv task notifies send tasks to copy & send messages
-    coro::condition_variable request_data;  ///< send tasks notify recv task to pull more
-                                            ///< data from the input channel
-    bool no_more_input{false};  ///< set to true when the input channel is fully consumed
-    std::deque<Message>
-        recv_messages;  ///< messages received from the input channel. Using a deque to
-                        ///< avoid invalidating references by reallocations.
-    std::vector<size_t>
-        per_ch_processed;  ///< number of messages processed for each channel (ie. next
-                           ///< index to send for each channel)
+    coro::mutex mtx;
+
+    /// @brief recv task notifies send tasks to copy & send messages
+    coro::condition_variable data_ready;
+
+    /// @brief send tasks notify recv task to pull more data from the input channel
+    coro::condition_variable request_data;
+
+    /// @brief set to true when the input channel is fully consumed
+    bool no_more_input{false};
+
+    /// @brief messages received from the input channel. Using a deque to avoid
+    /// invalidating references by reallocations.
+    std::deque<Message> recv_messages;
+
+    /// @brief number of messages processed for each channel (ie. next index to send for
+    /// each channel)
+    std::vector<size_t> per_ch_processed;
 };
 
 /**
