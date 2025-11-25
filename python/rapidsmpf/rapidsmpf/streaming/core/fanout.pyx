@@ -31,8 +31,10 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
     chs_out
         Output channels to which messages are broadcast.
     policy
-        The fanout strategy to use (see FanoutPolicy).
-
+        The fanout policy to use. `FanoutPolicy.BOUNDED` can be used if all
+        output channels are being consumed by independent consumers in the
+        downstream. `FanoutPolicy.UNBOUNDED` can be used if the output channels
+        are being consumed by a single/ shared consumer in the downstream.
     Returns
     -------
     Streaming node representing the fanout operation.
