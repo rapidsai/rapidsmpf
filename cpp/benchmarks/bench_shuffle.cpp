@@ -48,7 +48,7 @@ class ArgumentParser {
         }
         try {
             int option;
-            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:igxhM:")) != -1) {
+            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:igsxhM:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -74,6 +74,8 @@ class ArgumentParser {
                               "`insert`.\n"
                            << "  -g         Use pre-partitioned (hash) input tables "
                               "(default: unset, hash partition during insertion)\n"
+                           << "  -s         Discard output chunks to simulate streaming "
+                              "(default: disabled)\n"
                            << "  -x         Enable memory profiler (default: disabled)\n"
 #ifdef RAPIDSMPF_HAVE_CUPTI
                            << "  -M <path>  Enable CUPTI memory monitoring and save CSV "
@@ -149,6 +151,9 @@ class ArgumentParser {
                 case 'g':
                     hash_partition_with_datagen = true;
                     break;
+                case 's':
+                    enable_output_discard = true;
+                    break;
                 case 'x':
                     enable_memory_profiler = true;
                     break;
@@ -216,6 +221,9 @@ class ArgumentParser {
         if (device_mem_limit_mb >= 0) {
             ss << "  -l " << device_mem_limit_mb << " (device memory limit in MiB)\n";
         }
+        if (enable_output_discard) {
+            ss << "  -s (enable output discard to simulate streaming)\n";
+        }
         if (enable_memory_profiler) {
             ss << "  -x (enable memory profiling)\n";
         }
@@ -243,6 +251,7 @@ class ArgumentParser {
     std::string comm_type{"mpi"};
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
+    bool enable_output_discard{false};
     bool enable_memory_profiler{false};
     bool hash_partition_with_datagen{false};
     bool use_concat_insert{false};
@@ -293,16 +302,17 @@ rapidsmpf::Duration do_run(
         while (!shuffler.finished()) {
             auto finished_partition = shuffler.wait_any();
             auto packed_chunks = shuffler.extract(finished_partition);
-            output_partitions.emplace_back(
-                rapidsmpf::unpack_and_concat(
-                    rapidsmpf::unspill_partitions(
-                        std::move(packed_chunks), br, true, statistics
-                    ),
-                    stream,
-                    br,
-                    statistics
-                )
+            auto output_partition = rapidsmpf::unpack_and_concat(
+                rapidsmpf::unspill_partitions(
+                    std::move(packed_chunks), br, true, statistics
+                ),
+                stream,
+                br,
+                statistics
             );
+            if (!args.enable_output_discard) {
+                output_partitions.emplace_back(std::move(output_partition));
+            }
         }
         stream.synchronize();
     }
