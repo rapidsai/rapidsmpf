@@ -1,0 +1,1014 @@
+/**
+ * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <array>
+#include <cstdlib>
+#include <filesystem>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <string>
+
+#include <cuda_runtime_api.h>
+#include <getopt.h>
+#include <mpi.h>
+
+#include <cudf/binaryop.hpp>
+#include <cudf/copying.hpp>
+#include <cudf/groupby.hpp>
+#include <cudf/io/parquet.hpp>
+#include <cudf/io/types.hpp>
+#include <cudf/scalar/scalar.hpp>
+#include <cudf/scalar/scalar_factories.hpp>
+#include <cudf/sorting.hpp>
+#include <cudf/stream_compaction.hpp>
+#include <cudf/strings/strings_column_view.hpp>
+#include <cudf/table/table_view.hpp>
+#include <cudf/types.hpp>
+#include <cudf/utilities/type_dispatcher.hpp>
+#include <cudf/wrappers/timestamps.hpp>
+#include <rmm/mr/cuda_async_memory_resource.hpp>
+#include <rmm/mr/per_device_resource.hpp>
+#include <rmm/mr/pool_memory_resource.hpp>
+#include <rmm/resource_ref.hpp>
+
+#include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/communicator/single.hpp>
+#include <rapidsmpf/communicator/ucxx.hpp>
+#include <rapidsmpf/communicator/ucxx_utils.hpp>
+#include <rapidsmpf/config.hpp>
+#include <rapidsmpf/cuda_event.hpp>
+#include <rapidsmpf/integrations/cudf/partition.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/streaming/coll/allgather.hpp>
+#include <rapidsmpf/streaming/core/channel.hpp>
+#include <rapidsmpf/streaming/core/context.hpp>
+#include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/cudf/parquet.hpp>
+#include <rapidsmpf/streaming/cudf/table_chunk.hpp>
+
+#include "concatenate.hpp"
+#include "join.hpp"
+#include "utils.hpp"
+
+/* Query 4 from the TPC-H benchmark.
+
+This performs a left semi join between the orders and lineitem tables,
+followed by a grouped count aggregation on a low-cardinality column.
+
+```python
+lineitem = pl.scan_parquet("/raid/rapidsmpf/data/tpch/scale-100.0/lineitem.parquet")
+orders = pl.scan_parquet("/raid/rapidsmpf/data/tpch/scale-100.0/orders.parquet")
+
+var1 = date(1993, 7, 1)  #  8582
+var2 = date(1993, 10, 1)  # 8674
+
+q = (
+    # SQL exists translates to semi join in Polars API
+    orders.join(
+        (lineitem.filter(pl.col("l_commitdate") < pl.col("l_receiptdate"))),
+        left_on="o_orderkey",
+        right_on="l_orderkey",
+        how="semi",
+    )
+    .filter(pl.col("o_orderdate").is_between(var1, var2, closed="left"))
+    .group_by("o_orderpriority")
+    .agg(pl.len().alias("order_count"))
+    .sort("o_orderpriority")
+)
+```
+
+Some rough stats:
+
+| Scale Factor | Table / Stage     | Row Count   | Percent of prior |
+| ------------ | ----------------- | ----------- | ---------------- |
+| 100          | lineitem          | 600,037,902 | -                |
+| 100          | lineitem-filtered | 379,356,474 | 63%              |
+| 100          | orders            | 150,000,000 | -                |
+| 100          | orders-filtered   | 5733776     | 3.8%             |
+| 100          | joined            | 5257429     | 91% / 1.4%       |
+| 100          | groupby           | 5           | 0.0%             |
+| 100          | final             | 5           | 100%             |
+| 100          | sorted            | 5           | 100%             |
+
+At SF-100
+
+
+orders: 150000000
+orders-filtered: 5733776 (3.8%)
+
+joined: 5257429 (91% of orders-filtered, 1.4% of lineitem-filtered)
+
+My filtered table looks a bit off. 5,733,776 instead of 5,257,429
+
+
+        This returns just (o_orderpriority, order_count)
+
+*/
+
+namespace {
+
+// DEBUG: Helper to print first few rows of a table
+void debug_print_table(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    cudf::table_view const& table,
+    std::string const& label
+) {
+    if (table.num_rows() == 0) {
+        ctx->comm()->logger().print("[DEBUG] ", label, " is empty");
+        return;
+    }
+    ctx->comm()->logger().print("[DEBUG] ", label, " rows ", table.num_rows());
+
+    // For simplicity, just print that we have the table
+    // To actually print values would require type dispatch and host copies
+    for (cudf::size_type col_idx = 0; col_idx < table.num_columns(); ++col_idx) {
+        ctx->comm()->logger().print(
+            "  Column ",
+            col_idx,
+            ": type=",
+            cudf::type_to_name(table.column(col_idx).type()),
+            " size=",
+            table.column(col_idx).size(),
+            " nulls=",
+            table.column(col_idx).null_count()
+        );
+    }
+}
+
+// TODO: move this
+std::string get_table_path(
+    std::string const& input_directory, std::string const& table_name
+) {
+    auto dir = input_directory.empty() ? "." : input_directory;
+    auto file_path = dir + "/" + table_name + ".parquet";
+    if (std::filesystem::exists(file_path)) {
+        return file_path;
+    }
+    return dir + "/" + table_name + "/";
+}
+
+/* Select the columns after the join
+
+Input table:
+
+- o_orderkey
+- o_orderpriority
+
+*/
+rapidsmpf::streaming::Node select_columns(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+
+    while (true) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            ctx->comm()->logger().print("Select columns: no more input");
+            break;
+        }
+        co_await ctx->executor()->schedule();
+        auto chunk = rapidsmpf::ndsh::to_device(
+            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+        );
+        auto chunk_stream = chunk.stream();
+        auto sequence_number = msg.sequence_number();
+        auto table = chunk.table_view();
+
+        debug_print_table(ctx, table, "select_columns::input!!!!!");
+        std::cout << "test 1" << std::endl;
+        std::vector<std::unique_ptr<cudf::column>> result;
+        std::cout << "test 2" << std::endl;
+        result.reserve(1);
+        std::cout << "test 3" << std::endl;
+        // o_orderpriority
+        // TODO: This index might change once we do a semi join, which only
+        // returns results from the left table.
+        // my guess is that *this* throws, and then we see the messages
+        // about no more output elsewhere from the cleanup stuff.
+        result.push_back(
+            std::make_unique<cudf::column>(
+                // o_orderpriority
+                table.column(1),
+                chunk_stream,
+                ctx->br()->device_mr()
+            )
+        );
+
+        std::cout << "test 4" << std::endl;
+        auto result_table = std::make_unique<cudf::table>(std::move(result));
+        std::cout << "test 5" << std::endl;
+
+        debug_print_table(ctx, result_table->view(), "select_columns::output");
+        std::cout << "test 6" << std::endl;
+        co_await ch_out->send(
+            rapidsmpf::streaming::to_message(
+                sequence_number,
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::move(result_table), chunk_stream
+                )
+            )
+        );
+    }
+    co_await ch_out->drain(ctx->executor());
+}
+
+/*
+Read the lineitem table.
+
+Output table:
+
+    - l_commitdate
+    - l_receiptdate
+    - l_orderkey
+*/
+rapidsmpf::streaming::Node read_lineitem(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
+    std::size_t num_producers,
+    cudf::size_type num_rows_per_chunk,
+    std::string const& input_directory
+) {
+    auto files = rapidsmpf::ndsh::detail::list_parquet_files(
+        get_table_path(input_directory, "lineitem")
+    );
+    auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
+                       .columns({
+                           "l_commitdate",  // used in filter
+                           "l_receiptdate",  // used in filter
+                           "l_orderkey",  // used in join
+                       })
+                       .build();
+
+    return rapidsmpf::streaming::node::read_parquet(
+        ctx, ch_out, num_producers, options, num_rows_per_chunk
+    );
+}
+
+/*
+Read the orders table.
+
+Output table:
+
+    - o_orderdate
+    - o_orderkey
+    - o_orderpriority
+*/
+rapidsmpf::streaming::Node read_orders(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
+    std::size_t num_producers,
+    cudf::size_type num_rows_per_chunk,
+    std::string const& input_directory
+) {
+    auto files = rapidsmpf::ndsh::detail::list_parquet_files(
+        get_table_path(input_directory, "orders")
+    );
+    auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
+                       .columns({
+                           "o_orderdate",  // used in filter
+                           "o_orderkey",  // used in join
+                           "o_orderpriority",  // used in group by
+                       })
+                       .build();
+    // We'd like to push the filter down to the read_parquet node,
+    // but our expression is not currently supported.
+    // https://github.com/rapidsai/cudf/issues/17142
+    return rapidsmpf::streaming::node::read_parquet(
+        ctx, ch_out, num_producers, options, num_rows_per_chunk
+    );
+}
+
+/* Filter the lineitem table.
+
+Input table:
+
+    - l_commitdate
+    - l_receiptdate
+    - l_orderkey
+
+Output table:
+
+    - l_orderkey
+*/
+rapidsmpf::streaming::Node filter_lineitem(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+    auto mr = ctx->br()->device_mr();
+    while (true) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            break;
+        }
+        co_await ctx->executor()->schedule();
+        auto chunk = rapidsmpf::ndsh::to_device(
+            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+        );
+        auto chunk_stream = chunk.stream();
+        auto table = chunk.table_view();
+
+        debug_print_table(ctx, table, "lineitem");
+
+        auto l_commitdate = table.column(0);
+        auto l_receiptdate = table.column(1);
+        auto mask = cudf::binary_operation(
+            l_commitdate,
+            l_receiptdate,
+            cudf::binary_operator::LESS,
+            cudf::data_type(cudf::type_id::BOOL8),
+            chunk_stream,
+            mr
+        );
+        auto filtered_table =
+            cudf::apply_boolean_mask(table.select({2}), mask->view(), chunk_stream, mr);
+        debug_print_table(ctx, filtered_table->view(), "filtered_lineitem");
+        // TODO: Confirm that this is needed...
+        co_await ch_out->send(
+            rapidsmpf::streaming::to_message(
+                msg.sequence_number(),
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::move(filtered_table), chunk_stream
+                )
+            )
+        );
+    }
+    co_await ch_out->drain(ctx->executor());
+}
+
+/* Filter the orders table.
+
+Input table:
+
+    - o_orderdate
+    - o_orderkey
+    - o_orderpriority
+
+Output table:
+
+    - o_orderkey
+    - o_orderpriority
+*/
+rapidsmpf::streaming::Node filter_order(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+    auto mr = ctx->br()->device_mr();
+    while (true) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            break;
+        }
+        co_await ctx->executor()->schedule();
+        auto chunk = rapidsmpf::ndsh::to_device(
+            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+        );
+        auto chunk_stream = chunk.stream();
+        auto table = chunk.table_view();
+
+        debug_print_table(ctx, table, "orders");
+
+        auto var1 = cudf::timestamp_scalar<cudf::timestamp_D>(
+            8582,  // 1993-07-01
+            true
+        );
+        auto var2 = cudf::timestamp_scalar<cudf::timestamp_D>(
+            8674,  // 1993-10-01
+            true
+        );
+
+
+        auto o_orderdate = table.column(0);
+
+        // Seems like is_between must be written as an AND of two binary operations
+        // We use closed="left", so it's >= var1 and < var2
+        auto mask1 = cudf::binary_operation(
+            o_orderdate,
+            var1,
+            cudf::binary_operator::GREATER_EQUAL,
+            cudf::data_type(cudf::type_id::BOOL8),
+            chunk_stream,
+            mr
+        );
+        auto mask2 = cudf::binary_operation(
+            o_orderdate,
+            var2,
+            cudf::binary_operator::LESS,
+            cudf::data_type(cudf::type_id::BOOL8),
+            chunk_stream,
+            mr
+        );
+
+        auto mask = cudf::binary_operation(
+            mask1->view(),
+            mask2->view(),
+            cudf::binary_operator::LOGICAL_AND,
+            cudf::data_type(cudf::type_id::BOOL8),
+            chunk_stream,
+            mr
+        );
+
+        auto filtered_table = cudf::apply_boolean_mask(
+            table.select({1, 2}), mask->view(), chunk_stream, mr
+        );
+        debug_print_table(ctx, filtered_table->view(), "filtered_order");
+
+        co_await ch_out->send(
+            rapidsmpf::streaming::to_message(
+                msg.sequence_number(),
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::move(filtered_table), chunk_stream
+                )
+            )
+        );
+    }
+    co_await ch_out->drain(ctx->executor());
+}
+
+/* Group the joined orders table by o_orderpriority (chunk).
+
+We're performing a `.group_by(...).count()`, so the chunk-stage
+is just a count.
+
+Input table:
+
+    - o_orderkey
+    - o_orderpriority
+
+Output table:
+
+    - o_orderpriority
+    - order_count
+*/
+rapidsmpf::streaming::Node chunkwise_groupby_agg(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+    std::vector<cudf::table> partial_results;
+    std::uint64_t sequence = 0;
+    while (true) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            ctx->comm()->logger().print("Chunkwise groupby agg: no more input");
+            break;
+        }
+        co_await ctx->executor()->schedule();
+        auto chunk = rapidsmpf::ndsh::to_device(
+            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+        );
+        auto chunk_stream = chunk.stream();
+        auto table = chunk.table_view();
+
+        debug_print_table(ctx, table, "chunkwise_groupby_agg::input");
+
+        auto grouper = cudf::groupby::groupby(
+            table.select({0}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
+        );
+        auto requests = std::vector<cudf::groupby::aggregation_request>();
+        std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
+        aggs.push_back(cudf::make_count_aggregation<cudf::groupby_aggregation>());
+        requests.push_back(
+            cudf::groupby::aggregation_request(table.column(0), std::move(aggs))
+        );
+        auto [keys, results] =
+            grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
+        // Drop chunk, we don't need it.
+        std::ignore = std::move(chunk);
+        auto result = keys->release();
+        for (auto&& r : results) {
+            std::ranges::move(r.results, std::back_inserter(result));
+        }
+
+        auto result_table = std::make_unique<cudf::table>(std::move(result));
+        debug_print_table(ctx, result_table->view(), "chunkwise_groupby_agg::output");
+
+
+        co_await ch_out->send(
+            rapidsmpf::streaming::to_message(
+                sequence++,
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::move(result_table), chunk_stream
+                )
+            )
+        );
+    }
+    co_await ch_out->drain(ctx->executor());
+}
+
+/* Group the joined orders table by o_orderpriority (final).
+
+We're performing a `.group_by(...).count()`, so the final stage
+is just a sum.
+
+Input table:
+
+    - o_orderkey
+    - o_orderpriority
+
+Output table:
+
+    - o_orderpriority
+    - order_count
+*/
+
+rapidsmpf::streaming::Node final_groupby_agg(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
+    rapidsmpf::OpID tag
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+    co_await ctx->executor()->schedule();
+    // TODO: requires concatenated input stream.
+    auto msg = co_await ch_in->receive();
+    auto next = co_await ch_in->receive();
+    ctx->comm()->logger().print("Final groupby");
+    RAPIDSMPF_EXPECTS(next.empty(), "Expecting concatenated input at this point");
+    auto chunk =
+        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
+    auto chunk_stream = chunk.stream();
+    auto table = chunk.table_view();
+
+    debug_print_table(ctx, table, "final_groupby_agg::input");
+    std::unique_ptr<cudf::table> local_result{nullptr};
+    if (!table.is_empty()) {
+        auto grouper = cudf::groupby::groupby(
+            table.select({0}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
+        );
+        auto requests = std::vector<cudf::groupby::aggregation_request>();
+        std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
+        aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+        // TODO: Figure out the columns here. Do we just have the one?
+        // Or do we have o_orderpriority, count?
+        requests.push_back(
+            cudf::groupby::aggregation_request(table.column(1), std::move(aggs))
+        );
+        auto [keys, results] =
+            grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
+        // Drop chunk, we don't need it.
+        std::ignore = std::move(chunk);
+        auto result = keys->release();
+        for (auto&& r : results) {
+            std::ranges::move(r.results, std::back_inserter(result));
+        }
+        local_result = std::make_unique<cudf::table>(std::move(result));
+    }
+    if (ctx->comm()->nranks() > 1) {
+        // Reduce across ranks...
+        // Need a reduce primitive in rapidsmpf, but let's just use an allgather and
+        // discard for now.
+        rapidsmpf::streaming::AllGather gatherer{ctx, tag};
+        if (local_result) {
+            auto pack =
+                cudf::pack(local_result->view(), chunk_stream, ctx->br()->device_mr());
+            gatherer.insert(
+                0,
+                {rapidsmpf::PackedData(
+                    std::move(pack.metadata),
+                    ctx->br()->move(std::move(pack.gpu_data), chunk_stream)
+                )}
+            );
+        }
+        gatherer.insert_finished();
+        auto packed_data =
+            co_await gatherer.extract_all(rapidsmpf::streaming::AllGather::Ordered::NO);
+        if (ctx->comm()->rank() == 0) {
+            auto global_result = rapidsmpf::unpack_and_concat(
+                rapidsmpf::unspill_partitions(
+                    std::move(packed_data), ctx->br(), true, ctx->statistics()
+                ),
+                chunk_stream,
+                ctx->br(),
+                ctx->statistics()
+            );
+            if (ctx->comm()->rank() == 0) {
+                // We will only actually bother to do this on rank zero.
+                auto result_view = global_result->view();
+                auto grouper = cudf::groupby::groupby(
+                    result_view.select({0}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
+                );
+                auto requests = std::vector<cudf::groupby::aggregation_request>();
+                std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
+                aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+                requests.push_back(
+                    cudf::groupby::aggregation_request(
+                        result_view.column(1), std::move(aggs)
+                    )
+                );
+                auto [keys, results] =
+                    grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
+                global_result.reset();
+                auto result = keys->release();
+                for (auto&& r : results) {
+                    std::ranges::move(r.results, std::back_inserter(result));
+                }
+                co_await ch_out->send(
+                    rapidsmpf::streaming::to_message(
+                        0,
+                        std::make_unique<rapidsmpf::streaming::TableChunk>(
+                            std::make_unique<cudf::table>(std::move(result)), chunk_stream
+                        )
+                    )
+                );
+            }
+        } else {
+            std::ignore = std::move(packed_data);
+        }
+    } else {
+        co_await ch_out->send(
+            rapidsmpf::streaming::to_message(
+                0,
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::move(local_result), chunk_stream
+                )
+            )
+        );
+    }
+    co_await ch_out->drain(ctx->executor());
+}
+
+/* Sort the grouped orders table.
+
+Input table:
+
+    - o_orderpriority
+    - order_count
+
+Output table:
+
+    - o_orderpriority
+    - order_count
+*/
+rapidsmpf::streaming::Node sort_by(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+    co_await ctx->executor()->schedule();
+    ctx->comm()->logger().print("Final sortby");
+    auto msg = co_await ch_in->receive();
+    // We know we only have a single chunk from the groupby
+    if (msg.empty()) {
+        co_return;
+    }
+    ctx->comm()->logger().print("Sortby");
+    auto chunk =
+        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
+    auto table = chunk.table_view();
+    debug_print_table(ctx, table, "sort_by::input");
+    auto result = rapidsmpf::streaming::to_message(
+        0,
+        std::make_unique<rapidsmpf::streaming::TableChunk>(
+            cudf::sort_by_key(
+                table,
+                table.select({0, 1}),
+                {cudf::order::ASCENDING, cudf::order::DESCENDING},
+                {cudf::null_order::BEFORE, cudf::null_order::BEFORE},
+                chunk.stream(),
+                ctx->br()->device_mr()
+            ),
+            chunk.stream()
+        )
+    );
+    co_await ch_out->send(std::move(result));
+    co_await ch_out->drain(ctx->executor());
+}
+
+rapidsmpf::streaming::Node write_parquet(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::string output_path
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in};
+    co_await ctx->executor()->schedule();
+    auto msg = co_await ch_in->receive();
+    if (msg.empty()) {
+        co_return;
+    }
+    ctx->comm()->logger().print("write parquet");
+    auto chunk =
+        rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
+    auto sink = cudf::io::sink_info(output_path);
+    auto builder = cudf::io::parquet_writer_options::builder(sink, chunk.table_view());
+    auto metadata = cudf::io::table_input_metadata(chunk.table_view());
+    metadata.column_metadata[0].set_name("o_orderpriority");
+    metadata.column_metadata[1].set_name("order_count");
+    builder = builder.metadata(metadata);
+    auto options = builder.build();
+    cudf::io::write_parquet(options, chunk.stream());
+    ctx->comm()->logger().print(
+        "Wrote chunk with ",
+        chunk.table_view().num_rows(),
+        " rows and ",
+        chunk.table_view().num_columns(),
+        " columns to ",
+        output_path
+    );
+}
+
+
+}  // namespace
+
+struct ProgramOptions {
+    int num_streaming_threads{1};
+    cudf::size_type num_rows_per_chunk{100'000'000};
+    std::optional<double> spill_device_limit{std::nullopt};
+    bool use_shuffle_join = false;
+    std::string output_file;
+    std::string input_directory;
+};
+
+// TODO: Refactor to common utilities
+ProgramOptions parse_options(int argc, char** argv) {
+    ProgramOptions options;
+
+    auto print_usage = [&argv]() {
+        std::cerr
+            << "Usage: " << argv[0] << " [options]\n"
+            << "Options:\n"
+            << "  --num-streaming-threads <n>  Number of streaming threads (default: 1)\n"
+            << "  --num-rows-per-chunk <n>     Number of rows per chunk (default: "
+               "100000000)\n"
+            << "  --spill-device-limit <n>     Fractional spill device limit (default: "
+               "None)\n"
+            << "  --use-shuffle-join           Use shuffle join (default: false)\n"
+            << "  --output-file <path>         Output file path (required)\n"
+            << "  --input-directory <path>     Input directory path (required)\n"
+            << "  --help                       Show this help message\n";
+    };
+
+    static std::array<option, 8> long_options = {
+        {{"num-streaming-threads", required_argument, nullptr, 1},
+         {"num-rows-per-chunk", required_argument, nullptr, 2},
+         {"use-shuffle-join", no_argument, nullptr, 3},
+         {"output-file", required_argument, nullptr, 4},
+         {"input-directory", required_argument, nullptr, 5},
+         {"help", no_argument, nullptr, 6},
+         {"spill-device-limit", required_argument, nullptr, 7},
+         {nullptr, 0, nullptr, 0}}
+    };
+
+    int opt;
+    int option_index = 0;
+
+    bool saw_output_file = false;
+    bool saw_input_directory = false;
+
+    while ((opt = getopt_long(argc, argv, "", long_options.data(), &option_index)) != -1)
+    {
+        switch (opt) {
+        case 1:
+            options.num_streaming_threads = std::atoi(optarg);
+            break;
+        case 2:
+            options.num_rows_per_chunk = std::atoi(optarg);
+            break;
+        case 3:
+            options.use_shuffle_join = true;
+            break;
+        case 4:
+            options.output_file = optarg;
+            saw_output_file = true;
+            break;
+        case 5:
+            options.input_directory = optarg;
+            saw_input_directory = true;
+            break;
+        case 6:
+            print_usage();
+            std::exit(0);
+        case 7:
+            options.spill_device_limit = std::stod(optarg);
+            break;
+        case '?':
+            if (optopt == 0 && optind > 1) {
+                std::cerr << "Error: Unknown option '" << argv[optind - 1] << "'\n\n";
+            }
+            print_usage();
+            std::exit(1);
+        default:
+            print_usage();
+            std::exit(1);
+        }
+    }
+
+    // Check if required options were provided
+    if (!saw_output_file || !saw_input_directory) {
+        if (!saw_output_file) {
+            std::cerr << "Error: --output-file is required\n";
+        }
+        if (!saw_input_directory) {
+            std::cerr << "Error: --input-directory is required\n";
+        }
+        std::cerr << std::endl;
+        print_usage();
+        std::exit(1);
+    }
+
+    return options;
+}
+
+int main(int argc, char** argv) {
+    cudaFree(nullptr);
+    rapidsmpf::mpi::init(&argc, &argv);
+    MPI_Comm mpi_comm;
+    RAPIDSMPF_MPI(MPI_Comm_dup(MPI_COMM_WORLD, &mpi_comm));
+    auto cmd_options = parse_options(argc, argv);
+    auto limit_size = rmm::percent_of_free_device_memory(
+        static_cast<std::size_t>(cmd_options.spill_device_limit.value_or(1) * 100)
+    );
+    rmm::mr::cuda_async_memory_resource mr{};
+    auto stats_mr = rapidsmpf::RmmResourceAdaptor(&mr);
+    rmm::device_async_resource_ref mr_ref(stats_mr);
+    rmm::mr::set_current_device_resource(&stats_mr);
+    rmm::mr::set_current_device_resource_ref(mr_ref);
+    std::unordered_map<rapidsmpf::MemoryType, rapidsmpf::BufferResource::MemoryAvailable>
+        memory_available{};
+    if (cmd_options.spill_device_limit.has_value()) {
+        memory_available[rapidsmpf::MemoryType::DEVICE] = rapidsmpf::LimitAvailableMemory{
+            &stats_mr, static_cast<std::int64_t>(limit_size)
+        };
+    }
+    auto br = std::make_shared<rapidsmpf::BufferResource>(
+        stats_mr, std::move(memory_available)
+    );
+    auto envvars = rapidsmpf::config::get_environment_variables();
+    envvars["num_streaming_threads"] = std::to_string(cmd_options.num_streaming_threads);
+    auto options = rapidsmpf::config::Options(envvars);
+    auto stats = std::make_shared<rapidsmpf::Statistics>(&stats_mr);
+    {
+        auto comm = rapidsmpf::ucxx::init_using_mpi(mpi_comm, options);
+        auto progress =
+            std::make_shared<rapidsmpf::ProgressThread>(comm->logger(), stats);
+        auto ctx =
+            std::make_shared<rapidsmpf::streaming::Context>(options, comm, br, stats);
+        comm->logger().print(
+            "Executor has ", ctx->executor()->thread_count(), " threads"
+        );
+        comm->logger().print("Executor has ", ctx->comm()->nranks(), " ranks");
+
+        std::string output_path = cmd_options.output_file;
+        std::vector<double> timings;
+        for (int i = 0; i < 2; i++) {
+            rapidsmpf::OpID op_id{0};
+            std::vector<rapidsmpf::streaming::Node> nodes;
+            auto start = std::chrono::steady_clock::now();
+            {
+                RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing Q4 pipeline");
+                // Convention for channel names: express the *output*.
+                /* Lineitem Table */
+                // [l_commitdate, l_receiptdate, l_orderkey]
+                auto lineitem = ctx->create_channel();
+                // [l_orderkey]
+                auto filtered_lineitem = ctx->create_channel();
+                // [l_orderkey]
+                auto filtered_lineitem_shuffled = ctx->create_channel();
+
+                /* Orders Table */
+                // [o_orderdate, o_orderkey, o_orderpriority]
+                auto order = ctx->create_channel();
+                // [o_orderkey, o_orderpriority]
+                auto filtered_order = ctx->create_channel();
+
+                // [o_orderkey, o_orderpriority]
+                // Ideally this would *just* be o_orderpriority.
+                auto orders_x_lineitem = ctx->create_channel();
+
+                // [o_orderpriority]
+                auto projected_columns = ctx->create_channel();
+                // [o_orderpriority, order_count]
+                auto grouped_chunkwise = ctx->create_channel();
+                // [o_orderpriority, order_count]
+                auto grouped_concatenated = ctx->create_channel();
+                // [o_orderpriority, order_count]
+                auto grouped_finalized = ctx->create_channel();
+                // [o_orderpriority, order_count]
+                auto sorted = ctx->create_channel();
+
+                nodes.push_back(read_lineitem(
+                    ctx,
+                    lineitem,
+                    4,
+                    cmd_options.num_rows_per_chunk,
+                    cmd_options.input_directory
+                ));
+                nodes.push_back(
+                    filter_lineitem(ctx, lineitem, filtered_lineitem)
+                );  // l_orderkey
+                nodes.push_back(read_orders(
+                    ctx,
+                    order,
+                    4,
+                    cmd_options.num_rows_per_chunk,
+                    cmd_options.input_directory
+                ));  // o_orderdate, o_orderkey, o_orderpriority
+                nodes.push_back(filter_order(ctx, order, filtered_order));  // o_orderkey
+
+
+                // TODO: customisable
+                std::uint32_t num_partitions = 16;
+                nodes.push_back(
+                    rapidsmpf::ndsh::shuffle(
+                        ctx,
+                        filtered_lineitem,
+                        filtered_lineitem_shuffled,
+                        {0},
+                        num_partitions,
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+                    )
+                );
+
+                // TODO: Figure out if we want a broadcast or shuffle join.
+                // I think we want a shuffle.
+                // TODO: Confirm which table we want for build vs. probe. `orders` is much
+                // smaller.
+                nodes.push_back(
+                    // [o_orderkey, o_orderpriority] x [l_orderkey]
+                    rapidsmpf::ndsh::left_semi_join_broadcast(
+                        ctx,
+                        filtered_order,
+                        filtered_lineitem_shuffled,
+                        orders_x_lineitem,
+                        {0},
+                        {0},
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
+                        rapidsmpf::ndsh::KeepKeys::YES
+                    )
+                );
+
+                nodes.push_back(
+                    select_columns(ctx, orders_x_lineitem, projected_columns)
+                );
+
+                nodes.push_back(
+                    chunkwise_groupby_agg(ctx, projected_columns, grouped_chunkwise)
+                );
+                nodes.push_back(
+                    rapidsmpf::ndsh::concatenate(
+                        ctx,
+                        grouped_chunkwise,
+                        grouped_concatenated,
+                        rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+                    )
+                );
+                nodes.push_back(final_groupby_agg(
+                    ctx,
+                    grouped_concatenated,
+                    grouped_finalized,
+                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+                ));
+                nodes.push_back(sort_by(ctx, grouped_finalized, sorted));
+                nodes.push_back(write_parquet(ctx, sorted, output_path));
+            }
+            auto end = std::chrono::steady_clock::now();
+            std::chrono::duration<double> pipeline = end - start;
+            start = std::chrono::steady_clock::now();
+            {
+                RAPIDSMPF_NVTX_SCOPED_RANGE("Q4 Iteration");
+                rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+            }
+            end = std::chrono::steady_clock::now();
+            std::chrono::duration<double> compute = end - start;
+            comm->logger().print(
+                "Iteration ", i, " pipeline construction time [s]: ", pipeline.count()
+            );
+            comm->logger().print("Iteration ", i, " compute time [s]: ", compute.count());
+            timings.push_back(pipeline.count());
+            timings.push_back(compute.count());
+            ctx->comm()->logger().print(stats->report());
+            RAPIDSMPF_MPI(MPI_Barrier(mpi_comm));
+        }
+        if (comm->rank() == 0) {
+            for (int i = 0; i < 2; i++) {
+                comm->logger().print(
+                    "Iteration ",
+                    i,
+                    " pipeline construction time [s]: ",
+                    timings[size_t(2 * i)]
+                );
+                comm->logger().print(
+                    "Iteration ", i, " compute time [s]: ", timings[size_t(2 * i + 1)]
+                );
+            }
+        }
+    }
+
+    RAPIDSMPF_MPI(MPI_Comm_free(&mpi_comm));
+    RAPIDSMPF_MPI(MPI_Finalize());
+    return 0;
+}
