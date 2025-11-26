@@ -36,7 +36,7 @@ std::vector<std::string> list_parquet_files(std::string const& root_path) {
         return {root_path};
     }
     std::vector<std::string> result;
-    for (const auto& entry : std::filesystem::directory_iterator(root_path)) {
+    for (auto const& entry : std::filesystem::directory_iterator(root_path)) {
         if (entry.is_regular_file()) {
             std::string filename = entry.path().filename().string();
             if (filename.ends_with(".parquet")) {

@@ -12,11 +12,22 @@
 
 namespace rapidsmpf::ndsh {
 
+///< @brief Should the concatenation respect input ordering?
 enum class ConcatOrder : bool {
-    DONT_CARE,
-    LINEARIZE,
+    DONT_CARE,  ///< No, we don't need ordering
+    LINEARIZE,  ///< Yes, maintain input ordering
 };
 
+/**
+ * @brief Concatenate all table chunks from an input channel.
+ *
+ * @param ctx Streaming context.
+ * @param ch_in Input channel of `TableChunk`s.
+ * @param ch_out Output channel of concatenated chunks, contains at most one message.
+ * @param order Do we care about maintaining the input ordering?
+ *
+ * @return Coroutine representing the concatenation.
+ */
 streaming::Node concatenate(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,

@@ -15,11 +15,30 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 
 namespace rapidsmpf::ndsh {
+///< @brief Treatment of keys in the result of a join
 enum class KeepKeys : bool {
-    NO,
-    YES,
+    NO,  ///< Key columns do not appear in the output
+    YES,  ///< Key columns do appear in the output
 };
 
+/**
+ * @brief Perform a streaming inner join between two tables.
+ *
+ * @note This performs a broadcast join, broadcasting the table represented by the `left`
+ * channel to all ranks, and then streaming through the chunks of the `right` channel.
+ *
+ * @param ctx Streaming context.
+ * @param left Channel of `TableChunk`s used as the broadcasted build side.
+ * @param right Channel of `TableChunk`s joined in turn against the build side.
+ * @param ch_out Output channel of `TableChunk`s.
+ * @param left_on Column indices of the keys in the left table.
+ * @param right_on Column indices of the keys in the right table.
+ * @param tag Disambiguating tag for the broadcast of the left table.
+ * @param keep_keys Does the result contain the key columns, or only "carrier" value
+ * columns
+ *
+ * @return Coroutine representing the completion of the join.
+ */
 streaming::Node inner_join_broadcast(
     std::shared_ptr<streaming::Context> ctx,
     // We will always choose left as build table and do "broadcast" joins
@@ -31,6 +50,23 @@ streaming::Node inner_join_broadcast(
     OpID tag,
     KeepKeys keep_keys = KeepKeys::YES
 );
+/**
+ * @brief Perform a streaming inner join between two tables.
+ *
+ * @note This performs a shuffle join, the left and right channels are required to provide
+ * hash-partitioned data in-order.
+ *
+ * @param ctx Streaming context.
+ * @param left Channel of `TableChunk`s in hash-partitioned order.
+ * @param right Channel of `TableChunk`s in matching hash-partitioned order.
+ * @param ch_out Output channel of `TableChunk`s.
+ * @param left_on Column indices of the keys in the left table.
+ * @param right_on Column indices of the keys in the right table.
+ * @param keep_keys Does the result contain the key columns, or only "carrier" value
+ * columns
+ *
+ * @return Coroutine representing the completion of the join.
+ */
 streaming::Node inner_join_shuffle(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> left,
@@ -40,6 +76,19 @@ streaming::Node inner_join_shuffle(
     std::vector<cudf::size_type> right_on,
     KeepKeys keep_keys = KeepKeys::YES
 );
+
+/**
+ * @brief Shuffle the input channel by hash-partitioning on given key columns.
+ *
+ * @param ctx Streaming context.
+ * @param ch_in Channel of `TableChunk`s to shuffle.
+ * @param ch_out Channel of shuffled `TableChunk`s.
+ * @param keys Indices of key columns to shuffle on.
+ * @param num_partitions Number of output partitions of the shuffle.
+ * @param tag Disambiguating tag for the shuffle.
+ *
+ * @return Coroutine representing the completion of the shuffle.
+ */
 streaming::Node shuffle(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,
@@ -48,4 +97,5 @@ streaming::Node shuffle(
     std::uint32_t num_partitions,
     OpID tag
 );
+
 }  // namespace rapidsmpf::ndsh

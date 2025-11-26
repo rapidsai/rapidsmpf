@@ -41,6 +41,21 @@ namespace rapidsmpf::ndsh {
 
 namespace {
 
+/**
+ * @brief Broadcast the concatenation of all input messages to all ranks.
+ *
+ * @note Receives all input chunks, gathers from all ranks, and then provides concatenated
+ * output.
+ *
+ * @note Since this is used for unordered joins, the input order of `ch_in` across ranks
+ * is not preserved in the output.
+ *
+ * @param ctx Streaming context
+ * @param ch_in Input channel of `TableChunk`s
+ * @param tag Disambiguating tag for allgather
+ *
+ * @return Message containing the concatenation of all the input table chunks.
+ */
 coro::task<streaming::Message> broadcast(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,
@@ -60,8 +75,7 @@ coro::task<streaming::Message> broadcast(
                 break;
             }
             auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
-            auto chunk_stream = chunk.stream();
-            cuda_stream_join(gather_stream, chunk_stream, &event);
+            cuda_stream_join(gather_stream, chunk.stream(), &event);
             views.push_back(chunk.table_view());
             chunks.push_back(std::move(chunk));
         }
@@ -131,6 +145,20 @@ coro::task<streaming::Message> broadcast(
     }
 }
 
+/**
+ * @brief Join a table chunk against a build hash table returning a message of the result.
+ *
+ * @param ctx Streaming context
+ * @param right_chunk Chunk to join
+ * @param sequence Sequence number of the output
+ * @param joiner hash_join object, representing the build table.
+ * @param build_carrier Columns from the build-side table to be included in the output.
+ * @param right_on Key column indiecs in `right_chunk`.
+ * @param build_stream Stream the `joiner` will be deallocated on.
+ * @param build_event Event recording the creation of the `joiner`.
+ *
+ * @return Message of `TableChunk` containing the result of the inner join.
+ */
 streaming::Message inner_join_chunk(
     std::shared_ptr<streaming::Context> ctx,
     streaming::TableChunk&& right_chunk,
@@ -373,4 +401,5 @@ streaming::Node shuffle(
     }
     co_await ch_out->drain(ctx->executor());
 }
+
 }  // namespace rapidsmpf::ndsh

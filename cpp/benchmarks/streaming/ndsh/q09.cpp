@@ -65,11 +65,9 @@ std::string get_table_path(
 ) {
     auto dir = input_directory.empty() ? "." : input_directory;
     auto file_path = dir + "/" + table_name + ".parquet";
-
     if (std::filesystem::exists(file_path)) {
         return file_path;
     }
-
     return dir + "/" + table_name + "/";
 }
 
@@ -226,7 +224,7 @@ rapidsmpf::streaming::Node filter_part(
     co_await ch_out->drain(ctx->executor());
 }
 
-[[maybe_unused]] rapidsmpf::streaming::Node select_columns(
+rapidsmpf::streaming::Node select_columns(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
@@ -299,8 +297,8 @@ static __device__ void calculate_amount(double *amount, double discount, double 
     co_await ch_out->drain(ctx->executor());
 }
 
-[[maybe_unused]] rapidsmpf::streaming::Node chunkwise_groupby_agg(
-    [[maybe_unused]] std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+rapidsmpf::streaming::Node chunkwise_groupby_agg(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
 ) {
@@ -347,8 +345,8 @@ static __device__ void calculate_amount(double *amount, double discount, double 
     co_await ch_out->drain(ctx->executor());
 }
 
-[[maybe_unused]] rapidsmpf::streaming::Node final_groupby_agg(
-    [[maybe_unused]] std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+rapidsmpf::streaming::Node final_groupby_agg(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out,
     rapidsmpf::OpID tag
@@ -461,8 +459,8 @@ static __device__ void calculate_amount(double *amount, double discount, double 
     co_await ch_out->drain(ctx->executor());
 }
 
-[[maybe_unused]] rapidsmpf::streaming::Node sort_by(
-    [[maybe_unused]] std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+rapidsmpf::streaming::Node sort_by(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
 ) {
@@ -502,7 +500,7 @@ static __device__ void calculate_amount(double *amount, double discount, double 
     co_await ch_out->drain(ctx->executor());
 }
 
-[[maybe_unused]] rapidsmpf::streaming::Node write_parquet(
+rapidsmpf::streaming::Node write_parquet(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
     std::string output_path
@@ -634,6 +632,45 @@ ProgramOptions parse_options(int argc, char** argv) {
     return options;
 }
 
+/**
+ * @brief Run a derived version of TPC-H query 9.
+ *
+ * The SQL form of the query is:
+ * @code{.sql}
+ * select
+ *     nation,
+ *     o_year,
+ *     round(sum(amount), 2) as sum_profit
+ * from
+ *     (
+ *         select
+ *             n_name as nation,
+ *             year(o_orderdate) as o_year,
+ *             l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount
+ *         from
+ *             part,
+ *             supplier,
+ *             lineitem,
+ *             partsupp,
+ *             orders,
+ *             nation
+ *         where
+ *             s_suppkey = l_suppkey
+ *             and ps_suppkey = l_suppkey
+ *             and ps_partkey = l_partkey
+ *             and p_partkey = l_partkey
+ *             and o_orderkey = l_orderkey
+ *             and s_nationkey = n_nationkey
+ *             and p_name like '%green%'
+ *     ) as profit
+ * group by
+ *     nation,
+ *     o_year
+ * order by
+ *     nation,
+ *     o_year desc
+ * @endcode{}
+ */
 int main(int argc, char** argv) {
     cudaFree(nullptr);
     rapidsmpf::mpi::init(&argc, &argv);
@@ -644,8 +681,6 @@ int main(int argc, char** argv) {
         static_cast<std::size_t>(cmd_options.spill_device_limit.value_or(1) * 100)
     );
     rmm::mr::cuda_async_memory_resource mr{};
-    // rmm::mr::cuda_memory_resource base{};
-    // rmm::mr::pool_memory_resource mr{&base, pool_size};
     auto stats_mr = rapidsmpf::RmmResourceAdaptor(&mr);
     rmm::device_async_resource_ref mr_ref(stats_mr);
     rmm::mr::set_current_device_resource(&stats_mr);
@@ -788,7 +823,7 @@ int main(int argc, char** argv) {
                     auto supplier_x_part_x_partsupp_x_lineitem_shuffled =
                         ctx->create_channel();
                     auto orders_shuffled = ctx->create_channel();
-                    // TODO:
+                    // TODO: customisable
                     std::uint32_t num_partitions = 16;
                     nodes.push_back(
                         rapidsmpf::ndsh::shuffle(
