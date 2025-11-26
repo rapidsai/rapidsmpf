@@ -56,7 +56,7 @@
 
 #include "concatenate.hpp"
 #include "join.hpp"
-#include "utilities.hpp"
+#include "utils.hpp"
 
 namespace {
 

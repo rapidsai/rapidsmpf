@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "utilities.hpp"
+#include "utils.hpp"
 
 #include <cstdlib>
 #include <filesystem>

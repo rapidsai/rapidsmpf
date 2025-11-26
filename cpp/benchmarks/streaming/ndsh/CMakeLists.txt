@@ -13,7 +13,7 @@ if(NOT RAPIDSMPF_HAVE_STREAMING)
   message(FATAL_ERROR "Streaming NDSH benchmarks require streaming support")
 endif()
 
-add_library(rapidsmpfndsh concatenate.cpp join.cpp utilities.cpp)
+add_library(rapidsmpfndsh concatenate.cpp join.cpp utils.cpp)
 
 set_target_properties(
   rapidsmpfndsh

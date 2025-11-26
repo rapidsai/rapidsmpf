@@ -19,7 +19,7 @@
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
 
-#include "utilities.hpp"
+#include "utils.hpp"
 
 namespace rapidsmpf::ndsh {
 
