@@ -6,7 +6,9 @@
 
 #include <atomic>
 #include <functional>
+#include <list>
 #include <mutex>
+#include <random>
 #include <ranges>
 #include <string>
 #include <unordered_map>
@@ -50,6 +52,8 @@ class PostBox {
                 std::forward_as_tuple()
             );
         }
+        rng_ = std::mt19937(std::random_device{}());
+        dist_ = std::uniform_int_distribution<size_t>(0, keys.size() - 1);
     }
 
     /**
@@ -126,16 +130,23 @@ class PostBox {
      */
     struct MapValue {
         mutable std::mutex mutex;  ///< Mutex to protect each key
-        std::vector<Chunk> chunks;  ///< Vector of chunks for the key
+        std::list<Chunk> ready_chunks;  ///< Vector of chunks for the key
+        size_t n_spilling_chunks{0};  ///< Number of chunks that are being spilled
+
+        [[nodiscard]] bool is_empty_unsafe() const noexcept {
+            return ready_chunks.empty() && n_spilling_chunks == 0;
+        }
     };
 
     std::function<key_type(PartID)>
         key_map_fn_;  ///< Function to map partition IDs to keys.
     std::unordered_map<key_type, MapValue> pigeonhole_;  ///< Storage for chunks
-    std::atomic<size_t> n_non_empty_keys_{
-        0
-    };  ///< Number of non-empty keys. Since the pigenhole map is not extracted, this
-        ///< count will be used to check the emptiness
+    std::atomic<size_t> n_chunks{0
+    };  ///< Number of chunks in the PostBox. Since the pigenhole map is not extracted,
+        ///< this count will be used to check the emptiness
+    std::mt19937 rng_;  ///< Random number generator
+    std::uniform_int_distribution<size_t>
+        dist_;  ///< Distribution for selecting a random key
 };
 
 /**
