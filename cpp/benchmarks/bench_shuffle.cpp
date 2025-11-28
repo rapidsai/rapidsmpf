@@ -367,8 +367,8 @@ std::vector<InputPartitionsT> generate_input_partitions(
             static_cast<cudf::size_type>(args.num_local_rows)
         );
 
-        // reserve at least size_lb and spill if necessary (no overbooking)
-        auto res = br->reserve_and_spill(rapidsmpf::MemoryType::DEVICE, size_lb, false);
+        // reserve at least size_lb and spill if necessary (allow overbooking)
+        auto res = br->reserve_and_spill(rapidsmpf::MemoryType::DEVICE, size_lb, true);
         cudf::table table = random_table(
             static_cast<cudf::size_type>(args.num_columns),
             static_cast<cudf::size_type>(args.num_local_rows),
