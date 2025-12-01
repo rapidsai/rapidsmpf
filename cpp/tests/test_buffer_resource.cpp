@@ -22,6 +22,8 @@
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
+#include "driver_types.h"
+
 using namespace rapidsmpf;
 
 constexpr std::size_t operator"" _KiB(unsigned long long n) {
@@ -361,17 +363,12 @@ class BufferResourceCopySliceTest
         slice->stream().synchronize();
         EXPECT_TRUE(slice->is_latest_write_done());
 
-        if (dest_type == MemoryType::HOST) {
-            verify_slice(*const_cast<const Buffer&>(*slice).host(), offset, length);
-        } else {
-            std::vector<uint8_t> verify_data(length);
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                verify_data.data(), slice->data(), length, cudaMemcpyDeviceToHost, stream
-            ));
-            stream.synchronize();
-            verify_slice(verify_data, offset, length);
-        }
-
+        std::vector<uint8_t> verify_data(length);
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            verify_data.data(), slice->data(), length, cudaMemcpyDefault, stream
+        ));
+        stream.synchronize();
+        verify_slice(verify_data, offset, length);
         return slice;
     }
 
@@ -445,20 +442,16 @@ class BufferResourceCopyToTest : public BaseBufferResourceCopyTest,
         dest->stream().synchronize();
         EXPECT_TRUE(dest->is_latest_write_done());
 
-        if (dest->mem_type() == MemoryType::HOST) {
-            verify_slice(*const_cast<const Buffer&>(*dest).host(), dest_offset, length);
-        } else {
-            std::vector<uint8_t> verify_data_buf(length);
-            RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
-                verify_data_buf.data(),
-                dest->data() + dest_offset,
-                length,
-                cudaMemcpyDeviceToHost,
-                stream
-            ));
-            stream.synchronize();
-            verify_slice(verify_data_buf, 0, length);
-        }
+        std::vector<uint8_t> verify_data_buf(length);
+        RAPIDSMPF_CUDA_TRY(cudaMemcpyAsync(
+            verify_data_buf.data(),
+            dest->data() + dest_offset,
+            length,
+            cudaMemcpyDefault,
+            stream
+        ));
+        stream.synchronize();
+        verify_slice(verify_data_buf, 0, length);
     }
 
     // verify the slice of the buffer[offset:offset+length] is the same as the host
