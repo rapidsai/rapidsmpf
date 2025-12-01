@@ -125,7 +125,7 @@ class ShufflerAsync {
      *
      * @return A coroutine that, when awaited, indicates the shuffle has completed.
      */
-    [[nodiscard]] Node insert_finished(std::vector<shuffler::PartID>&& pids);
+    [[nodiscard]] Node insert_finished();
 
     /**
      * @brief Asynchronously extracts all data for a specific partition.
