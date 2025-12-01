@@ -66,29 +66,35 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: pull-request
+      node_type: cpu8
       script: ci/build_wheel_librapidsmpf.sh
       package-name: librapidsmpf
       package-type: cpp
       # build for every combination of arch and CUDA version, but only for the latest Python version
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
+      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   wheel-build-rapidsmpf:
     needs: [checks, wheel-build-librapidsmpf]
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: pull-request
+      node_type: cpu8
       script: ci/build_wheel_rapidsmpf.sh
       package-name: rapidsmpf
       package-type: python
+      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   wheel-build-rapidsmpf-singlecomm:
     needs: [checks, wheel-build-librapidsmpf]
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
     with:
       build_type: pull-request
+      node_type: cpu8
       script: ci/build_wheel_singlecomm.sh
       package-name: rapidsmpf-singlecomm
       package-type: python
+      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   wheel-test:
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python
     needs: [changed-files, wheel-build-rapidsmpf]
@@ -98,13 +104,16 @@ jobs:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       script: ci/test_wheel.sh
+      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   conda-cpp-build:
     needs: checks
     secrets: inherit
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
     with:
       build_type: pull-request
+      node_type: cpu8
       script: ci/build_cpp.sh
+      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   conda-cpp-linters:
     secrets: inherit
     needs: checks
@@ -122,6 +131,7 @@ jobs:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       script: ci/test_cpp.sh
+      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   conda-cpp-memcheck:
     secrets: inherit
     needs: conda-cpp-build
@@ -147,6 +157,7 @@ jobs:
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       run_codecov: false
       script: ci/test_python.sh
+      sccache-dist-token-secret-name: GIST_REPO_READ_ORG_GITHUB_TOKEN
   docs-build:
     needs: conda-python-build
     secrets: inherit
@@ -163,6 +174,7 @@ jobs:
     with:
       arch: '["amd64", "arm64"]'
       cuda: '["13.0"]'
+      python_package_manager: '["conda"]'
       node_type: "cpu8"
       rapids-aux-secret-1: GIST_REPO_READ_ORG_GITHUB_TOKEN
       env: |

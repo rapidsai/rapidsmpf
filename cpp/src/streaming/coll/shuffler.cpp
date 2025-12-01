@@ -153,7 +153,9 @@ void ShufflerAsync::insert(std::unordered_map<shuffler::PartID, PackedData>&& ch
     shuffler_.insert(std::move(chunks));
 }
 
-Node ShufflerAsync::insert_finished(std::vector<shuffler::PartID>&& pids) {
+Node ShufflerAsync::insert_finished() {
+    std::vector<shuffler::PartID> pids(total_num_partitions());
+    std::iota(pids.begin(), pids.end(), shuffler::PartID{0});
     shuffler_.insert_finished(std::move(pids));
     return finished_drain();
 }
@@ -258,12 +260,7 @@ Node shuffler(
         shuffler_async.insert(std::move(partition_map.data));
     }
 
-    // Tell the shuffler that we have no more input data.
-    std::vector<rapidsmpf::shuffler::PartID> finished(
-        shuffler_async.total_num_partitions()
-    );
-    std::iota(finished.begin(), finished.end(), 0);
-    auto finish_token = shuffler_async.insert_finished(std::move(finished));
+    auto finish_token = shuffler_async.insert_finished();
 
     for ([[maybe_unused]] auto& _ : shuffler_async.local_partitions()) {
         auto finished = co_await shuffler_async.extract_any_async();

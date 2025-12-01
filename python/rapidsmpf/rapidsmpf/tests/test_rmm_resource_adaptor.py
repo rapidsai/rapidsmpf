@@ -10,11 +10,8 @@ import pytest
 import rmm
 import rmm.mr
 
-from rapidsmpf.rmm_resource_adaptor import (
-    AllocType,
-    RmmResourceAdaptor,
-    ScopedMemoryRecord,
-)
+from rapidsmpf.memory.scoped_memory_record import AllocType, ScopedMemoryRecord
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 
 if TYPE_CHECKING:
     from rmm.pylibrmm.stream import Stream

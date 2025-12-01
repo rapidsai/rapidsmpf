@@ -93,8 +93,8 @@ nitpick_ignore_regex = [
     # for IntEnums coming from Cython.
     ("py:obj", "rapidsmpf.communicator.communicator.LOG_LEVEL.*"),
     ("py:obj", "rapidsmpf.memory.buffer.MemoryType.*"),
+    ("py:obj", "rapidsmpf.memory.scoped_memory_record.AllocType.*"),
     ("py:obj", "(denominator|imag|numerator|real)"),
-    ('py:obj', 'rapidsmpf.rmm_resource_adaptor.AllocType.*'),
     ('py:class', 'rmm.pylibrmm.stream.Stream'),
     ('py:class', 'rmm.pylibrmm.memory_resource.DeviceMemoryResource'),
     # We're subclassing this from RMM, and sphinx can't find these methods.

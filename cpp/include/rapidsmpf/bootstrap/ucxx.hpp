@@ -22,6 +22,16 @@ class UCXX;
 namespace bootstrap {
 
 /**
+ * @brief Check if the current process was launched via `rrun`.
+ *
+ * This helper detects bootstrap mode by checking for the presence of the
+ * `RAPIDSMPF_RANK` environment variable, which is set by `rrun`.
+ *
+ * @return true if running under `rrun` bootstrap mode, false otherwise.
+ */
+bool is_running_with_rrun();
+
+/**
  * @brief Create a UCXX communicator using the bootstrap backend.
  *
  * This function creates a fully initialized UCXX communicator by:

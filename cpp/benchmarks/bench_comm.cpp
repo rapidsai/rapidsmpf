@@ -252,9 +252,7 @@ Duration run(
 }
 
 int main(int argc, char** argv) {
-    // Check if we should use bootstrap mode with rrun
-    // This is determined by checking for RAPIDSMPF_RANK environment variable
-    bool use_bootstrap = std::getenv("RAPIDSMPF_RANK") != nullptr;
+    bool use_bootstrap = rapidsmpf::bootstrap::is_running_with_rrun();
 
     int provided = 0;
     if (!use_bootstrap) {
