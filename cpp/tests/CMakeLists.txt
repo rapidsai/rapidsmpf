@@ -57,6 +57,7 @@ target_sources(
             test_metadata_payload_exchange.cpp
             test_partition.cpp
             test_pausable_thread_loop.cpp
+            test_pinned_resources.cpp
             test_progress_thread.cpp
             test_rmm_resource_adaptor.cpp
             test_shuffler_many_streams.cpp
