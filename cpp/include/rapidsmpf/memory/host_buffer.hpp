@@ -21,7 +21,7 @@ namespace rapidsmpf {
 
 
 /**
- * @brief Block of host memory allocated.
+ * @brief Block of host memory.
  */
 class HostBuffer {
   public:
