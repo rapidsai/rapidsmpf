@@ -64,7 +64,7 @@ using ReduceKernel = std::function<void(PackedData& accum, PackedData&& incoming
  *
  * Semantics:
  *  - Each rank calls `insert` exactly once to contribute data to the reduction.
- *  - Once all ranks call `insert_finished`, `wait_and_extract` returns the
+ *  - Once all ranks call `insert`, `wait_and_extract` returns the
  *    globally-reduced `PackedData`.
  *
  * The actual reduction is implemented via a type-erased `ReduceKernel` that is
@@ -121,11 +121,6 @@ class AllReduce {
      * @throws std::runtime_error If insert has already been called on this instance.
      */
     void insert(PackedData&& packed_data);
-
-    /**
-     * @brief Mark that this rank has finished contributing data.
-     */
-    void insert_finished();
 
     /**
      * @brief Check if the allreduce operation has completed.

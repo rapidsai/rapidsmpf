@@ -46,9 +46,6 @@ void AllReduce::insert(PackedData&& packed_data) {
     );
     inserted_ = true;
     gatherer_.insert(0, std::move(packed_data));
-}
-
-void AllReduce::insert_finished() {
     gatherer_.insert_finished();
 }
 

@@ -194,13 +194,6 @@ TEST_F(BaseAllReduceTest, timeout) {
     auto packed = make_packed_from_host(br.get(), data.data(), data.size());
     allreduce.insert(std::move(packed));
 
-    // This should timeout since insert_finished() hasn't been called yet
-    EXPECT_THROW(
-        std::ignore = allreduce.wait_and_extract(std::chrono::milliseconds{20}),
-        std::runtime_error
-    );
-
-    allreduce.insert_finished();
     auto result = allreduce.wait_and_extract();
 }
 
@@ -243,8 +236,6 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
     }
     auto packed = make_packed_from_host(br.get(), data.data(), data.size());
     allreduce.insert(std::move(packed));
-
-    allreduce.insert_finished();
 
     auto result = allreduce.wait_and_extract();
 
@@ -311,8 +302,6 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_host_allreduce) {
     }
     auto packed = make_packed_from_host<T>(this->br.get(), data.data(), data.size());
     allreduce.insert(std::move(packed));
-
-    allreduce.insert_finished();
     auto result = allreduce.wait_and_extract();
 
     auto reduced = unpack_to_host<T>(result);
@@ -360,8 +349,6 @@ TEST_F(AllReduceCustomTypeTest, custom_struct_allreduce) {
     auto packed = make_packed_from_host<CustomValue>(br.get(), data.data(), data.size());
 
     allreduce.insert(std::move(packed));
-
-    allreduce.insert_finished();
     auto result = allreduce.wait_and_extract();
 
     auto reduced = unpack_to_host<CustomValue>(result);
@@ -413,8 +400,9 @@ TEST_F(AllReduceNonUniformInsertsTest, non_uniform_inserts) {
     }
     // Other ranks don't call insert()
 
-    allreduce.insert_finished();
-
     // Should fail since not all ranks contributed
-    EXPECT_THROW(std::ignore = allreduce.wait_and_extract(), std::runtime_error);
+    EXPECT_THROW(
+        std::ignore = allreduce.wait_and_extract(std::chrono::milliseconds{20}),
+        std::runtime_error
+    );
 }
