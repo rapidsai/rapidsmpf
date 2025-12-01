@@ -480,3 +480,41 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_not_called_without_inser
     // Callback should not be called since operation never finished
     EXPECT_FALSE(callback_called.load(std::memory_order_acquire));
 }
+
+TEST_F(AllReduceFinishedCallbackTest, wait_and_extract_multiple_times) {
+    auto this_rank = comm->rank();
+    auto nranks = comm->nranks();
+    constexpr int n_elements = 5;
+
+    AllReduce allreduce(
+        GlobalEnvironment->comm_,
+        GlobalEnvironment->progress_thread_,
+        OpID{9},
+        br.get(),
+        rapidsmpf::Statistics::disabled(),
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>()
+    );
+
+    std::vector<int> data(n_elements);
+    for (int j = 0; j < n_elements; j++) {
+        data[j] = this_rank;
+    }
+    auto packed = make_packed_from_host(br.get(), data.data(), data.size());
+    allreduce.insert(std::move(packed));
+
+    // First call should succeed
+    auto result1 = allreduce.wait_and_extract();
+    auto reduced1 = unpack_to_host<int>(result1);
+    ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced1.size());
+    int const expected_value = (nranks * (nranks - 1)) / 2;
+    for (int j = 0; j < n_elements; j++) {
+        EXPECT_EQ(reduced1[static_cast<std::size_t>(j)], expected_value);
+    }
+
+    EXPECT_TRUE(allreduce.finished());
+
+    // Second call: since data was already extracted from underlying AllGather,
+    // subsequent calls will get empty data, which should cause reduce_all to throw
+    // an error because it expects exactly nranks contributions
+    EXPECT_THROW(std::ignore = allreduce.wait_and_extract(), std::runtime_error);
+}
