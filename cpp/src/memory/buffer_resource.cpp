@@ -8,8 +8,7 @@
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
-
-#include "rapidsmpf/memory/host_buffer.hpp"
+#include <rapidsmpf/memory/host_buffer.hpp>
 
 namespace rapidsmpf {
 

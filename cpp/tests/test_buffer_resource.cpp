@@ -22,8 +22,6 @@
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils.hpp>
 
-#include "driver_types.h"
-
 using namespace rapidsmpf;
 
 constexpr std::size_t operator"" _KiB(unsigned long long n) {
