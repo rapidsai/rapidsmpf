@@ -167,7 +167,7 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     return ret;
 }
 
-std::unique_ptr<HostBuffer> BufferResource::move_to_host_vector(
+std::unique_ptr<HostBuffer> BufferResource::move_to_host_buffer(
     std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
 ) {
     RAPIDSMPF_EXPECTS(

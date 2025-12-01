@@ -288,19 +288,19 @@ class BufferResource {
     );
 
     /**
-     * @brief Move a Buffer into a host vector.
+     * @brief Move a Buffer into a host buffer.
      *
      * If the Buffer already resides in host memory, a cheap move is performed.
      * Otherwise, the Buffer is copied to host memory using its own CUDA stream.
      *
      * @param buffer Buffer to move.
      * @param reservation Memory reservation used if a copy is required.
-     * @return Unique pointer to the resulting host vector.
+     * @return Unique pointer to the resulting host buffer.
      *
      * @throws std::invalid_argument If the reservation's memory type isn't host memory.
      * @throws std::overflow_error If the allocation size exceeds the reservation.
      */
-    std::unique_ptr<HostBuffer> move_to_host_vector(
+    std::unique_ptr<HostBuffer> move_to_host_buffer(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
     );
 

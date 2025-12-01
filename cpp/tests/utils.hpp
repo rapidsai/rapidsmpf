@@ -170,7 +170,7 @@ inline void validate_packed_data(
     EXPECT_EQ(n_elements * sizeof(int), packed_data.data->size);
 
     auto res = br.reserve_or_fail(packed_data.data->size, rapidsmpf::MemoryType::HOST);
-    auto data_on_host = br.move_to_host_vector(std::move(packed_data.data), res);
+    auto data_on_host = br.move_to_host_buffer(std::move(packed_data.data), res);
     RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream));
     EXPECT_EQ(metadata, data_on_host->copy_to_uint8_vector());
 }
