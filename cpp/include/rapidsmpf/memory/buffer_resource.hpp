@@ -17,6 +17,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
@@ -83,6 +84,15 @@ class BufferResource {
      */
     [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
         return device_mr_;
+    }
+
+    /**
+     * @brief Get the RMM host memory resource.
+     *
+     * @return Reference to the RMM resource used for host allocations.
+     */
+    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept {
+        return host_mr_;
     }
 
     /**
@@ -321,6 +331,7 @@ class BufferResource {
   private:
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
+    HostMemoryResource host_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
