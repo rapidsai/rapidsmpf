@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -405,4 +406,77 @@ TEST_F(AllReduceNonUniformInsertsTest, non_uniform_inserts) {
         std::ignore = allreduce.wait_and_extract(std::chrono::milliseconds{20}),
         std::runtime_error
     );
+}
+
+class AllReduceFinishedCallbackTest : public BaseAllReduceTest {};
+
+TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
+    auto this_rank = comm->rank();
+    auto nranks = comm->nranks();
+    constexpr int n_elements = 10;
+
+    std::atomic<bool> callback_called{false};
+    std::atomic<int> callback_count{0};
+
+    AllReduce allreduce(
+        GlobalEnvironment->comm_,
+        GlobalEnvironment->progress_thread_,
+        OpID{7},
+        br.get(),
+        rapidsmpf::Statistics::disabled(),
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>(),
+        [&callback_called, &callback_count]() {
+            callback_called.store(true, std::memory_order_release);
+            callback_count.fetch_add(1, std::memory_order_relaxed);
+        }
+    );
+
+    // Initially callback should not be called
+    EXPECT_FALSE(callback_called.load(std::memory_order_acquire));
+    EXPECT_EQ(callback_count.load(std::memory_order_acquire), 0);
+
+    std::vector<int> data(n_elements);
+    for (int j = 0; j < n_elements; j++) {
+        data[j] = this_rank;
+    }
+    auto packed = make_packed_from_host(br.get(), data.data(), data.size());
+    allreduce.insert(std::move(packed));
+
+    auto result = allreduce.wait_and_extract();
+
+    // After wait_and_extract completes, callback should have been called exactly once
+    EXPECT_TRUE(callback_called.load(std::memory_order_acquire));
+    EXPECT_EQ(callback_count.load(std::memory_order_acquire), 1);
+
+    auto reduced = unpack_to_host<int>(result);
+    ASSERT_EQ(static_cast<std::size_t>(n_elements), reduced.size());
+    int const expected_value = (nranks * (nranks - 1)) / 2;
+    for (int j = 0; j < n_elements; j++) {
+        EXPECT_EQ(reduced[static_cast<std::size_t>(j)], expected_value);
+    }
+
+    EXPECT_TRUE(allreduce.finished());
+}
+
+TEST_F(AllReduceFinishedCallbackTest, finished_callback_not_called_without_insert) {
+    std::atomic<bool> callback_called{false};
+
+    AllReduce allreduce(
+        GlobalEnvironment->comm_,
+        GlobalEnvironment->progress_thread_,
+        OpID{8},
+        br.get(),
+        rapidsmpf::Statistics::disabled(),
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>(),
+        [&callback_called]() { callback_called.store(true, std::memory_order_release); }
+    );
+
+    // Don't insert anything, just wait for timeout
+    EXPECT_THROW(
+        std::ignore = allreduce.wait_and_extract(std::chrono::milliseconds{50}),
+        std::runtime_error
+    );
+
+    // Callback should not be called since operation never finished
+    EXPECT_FALSE(callback_called.load(std::memory_order_acquire));
 }

@@ -25,10 +25,14 @@ AllReduce::AllReduce(
     std::function<void(void)> finished_callback
 )
     : reduce_kernel_{std::move(reduce_kernel)},
-      finished_callback_{std::move(finished_callback)},
       nranks_{comm->nranks()},
       gatherer_{
-          std::move(comm), std::move(progress_thread), op_id, br, std::move(statistics)
+          std::move(comm),
+          std::move(progress_thread),
+          op_id,
+          br,
+          std::move(statistics),
+          std::move(finished_callback)
       } {
     RAPIDSMPF_EXPECTS(
         static_cast<bool>(reduce_kernel_),

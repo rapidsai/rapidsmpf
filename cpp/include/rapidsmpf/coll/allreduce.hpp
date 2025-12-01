@@ -163,7 +163,6 @@ class AllReduce {
     [[nodiscard]] PackedData reduce_all(std::vector<PackedData>&& gathered);
 
     ReduceKernel reduce_kernel_;  ///< Type-erased reduction kernel
-    std::function<void(void)> finished_callback_;  ///< Optional finished callback
 
     Rank nranks_;  ///< Number of ranks in the communicator
     AllGather gatherer_;  ///< Underlying allgather primitive
