@@ -87,5 +87,5 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
         br->reserve(rapidsmpf::MemoryType::HOST, nelems, true);
     auto recv_data_h = br->move_to_host_vector(std::move(recv_buf), host_reservation);
     stream.synchronize();
-    EXPECT_EQ(send_data_h, *recv_data_h);
+    EXPECT_EQ(send_data_h, recv_data_h->copy_to_uint8_vector());
 }

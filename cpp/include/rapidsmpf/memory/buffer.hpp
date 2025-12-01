@@ -10,7 +10,6 @@
 #include <functional>
 #include <memory>
 #include <variant>
-#include <vector>
 
 #include <cuda_runtime.h>
 
@@ -19,9 +18,11 @@
 
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
+
 
 /// @brief Enum representing the type of memory.
 enum class MemoryType : int {
@@ -58,7 +59,7 @@ class Buffer {
     using DeviceStorageT = std::unique_ptr<rmm::device_buffer>;
 
     /// @brief Storage type for the host buffer.
-    using HostStorageT = std::unique_ptr<std::vector<uint8_t>>;
+    using HostStorageT = std::unique_ptr<HostBuffer>;
 
     /**
      * @brief Storage type in Buffer, which could be either host or device memory.
@@ -274,9 +275,7 @@ class Buffer {
      * @throws std::invalid_argument If @p host_buffer is null.
      * @throws std::logic_error If the buffer is locked.
      */
-    Buffer(
-        std::unique_ptr<std::vector<uint8_t>> host_buffer, rmm::cuda_stream_view stream
-    );
+    Buffer(std::unique_ptr<HostBuffer> host_buffer, rmm::cuda_stream_view stream);
 
     /**
      * @brief Construct a stream-ordered Buffer from device memory.
