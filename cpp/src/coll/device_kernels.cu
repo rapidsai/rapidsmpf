@@ -46,7 +46,7 @@ void device_elementwise_reduce(Buffer* acc_buf, Buffer* in_buf, Op op) {
     // Destination buffer: use write_access so the latest-write event is updated.
     acc_buf->write_access([&](std::byte* acc_bytes, rmm::cuda_stream_view stream) {
         auto* acc_ptr = reinterpret_cast<T*>(acc_bytes);
-        auto policy = rmm::exec_policy(stream);
+        auto policy = rmm::exec_policy_nosync(stream);
 
         thrust::transform(policy, acc_ptr, acc_ptr + count, in_ptr, acc_ptr, op);
     });
