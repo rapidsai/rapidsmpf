@@ -126,6 +126,10 @@ std::shared_ptr<Communicator> Context::comm() const noexcept {
     return comm_;
 }
 
+Communicator::Logger& Context::logger() const noexcept {
+    return comm_->logger();
+}
+
 std::shared_ptr<ProgressThread> Context::progress_thread() const noexcept {
     return progress_thread_;
 }
