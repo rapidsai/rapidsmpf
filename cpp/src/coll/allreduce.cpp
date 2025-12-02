@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -22,9 +23,12 @@ AllReduce::AllReduce(
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
     ReduceKernel reduce_kernel,
+    bool use_device_reduction,
     std::function<void(void)> finished_callback
 )
-    : reduce_kernel_{std::move(reduce_kernel)},
+    : br_{br},
+      reduce_kernel_{std::move(reduce_kernel)},
+      use_device_reduction_{use_device_reduction},
       nranks_{comm->nranks()},
       gatherer_{
           std::move(comm),
@@ -77,6 +81,30 @@ PackedData AllReduce::reduce_all(std::vector<PackedData>&& gathered) {
         "AllReduce expects exactly one contribution from each rank",
         std::runtime_error
     );
+
+    // Determine target memory type based on use_device_reduction_ flag
+    MemoryType target_mem_type =
+        use_device_reduction_ ? MemoryType::DEVICE : MemoryType::HOST;
+
+    // Normalize all buffers to the target memory type
+    if (target_mem_type == MemoryType::HOST) {
+        // Normalize all device buffers to host
+        for (auto& pd : gathered) {
+            if (pd.data && pd.data->mem_type() == MemoryType::DEVICE) {
+                auto reservation = br_->reserve_or_fail(pd.data->size, MemoryType::HOST);
+                pd.data = br_->move(std::move(pd.data), reservation);
+            }
+        }
+    } else {
+        // Normalize all host buffers to device
+        for (auto& pd : gathered) {
+            if (pd.data && pd.data->mem_type() == MemoryType::HOST) {
+                auto reservation =
+                    br_->reserve_or_fail(pd.data->size, MemoryType::DEVICE);
+                pd.data = br_->move(std::move(pd.data), reservation);
+            }
+        }
+    }
 
     // Start with rank 0's contribution as the accumulator
     auto accum = std::move(gathered[0]);

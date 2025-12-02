@@ -115,82 +115,82 @@ ReduceKernel make_reduce_kernel_impl() {
 // Explicit specializations for the (T, Op) combinations we support on device.
 
 template <>
-ReduceKernel make_reduce_kernel<int, ReduceOp::SUM>() {
+ReduceKernel make_device_reduce_kernel<int, ReduceOp::SUM>() {
     return make_reduce_kernel_impl<int, ReduceOp::SUM>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<int, ReduceOp::PROD>() {
+ReduceKernel make_device_reduce_kernel<int, ReduceOp::PROD>() {
     return make_reduce_kernel_impl<int, ReduceOp::PROD>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<int, ReduceOp::MIN>() {
+ReduceKernel make_device_reduce_kernel<int, ReduceOp::MIN>() {
     return make_reduce_kernel_impl<int, ReduceOp::MIN>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<int, ReduceOp::MAX>() {
+ReduceKernel make_device_reduce_kernel<int, ReduceOp::MAX>() {
     return make_reduce_kernel_impl<int, ReduceOp::MAX>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<float, ReduceOp::SUM>() {
+ReduceKernel make_device_reduce_kernel<float, ReduceOp::SUM>() {
     return make_reduce_kernel_impl<float, ReduceOp::SUM>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<float, ReduceOp::PROD>() {
+ReduceKernel make_device_reduce_kernel<float, ReduceOp::PROD>() {
     return make_reduce_kernel_impl<float, ReduceOp::PROD>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<float, ReduceOp::MIN>() {
+ReduceKernel make_device_reduce_kernel<float, ReduceOp::MIN>() {
     return make_reduce_kernel_impl<float, ReduceOp::MIN>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<float, ReduceOp::MAX>() {
+ReduceKernel make_device_reduce_kernel<float, ReduceOp::MAX>() {
     return make_reduce_kernel_impl<float, ReduceOp::MAX>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<double, ReduceOp::SUM>() {
+ReduceKernel make_device_reduce_kernel<double, ReduceOp::SUM>() {
     return make_reduce_kernel_impl<double, ReduceOp::SUM>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<double, ReduceOp::PROD>() {
+ReduceKernel make_device_reduce_kernel<double, ReduceOp::PROD>() {
     return make_reduce_kernel_impl<double, ReduceOp::PROD>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<double, ReduceOp::MIN>() {
+ReduceKernel make_device_reduce_kernel<double, ReduceOp::MIN>() {
     return make_reduce_kernel_impl<double, ReduceOp::MIN>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<double, ReduceOp::MAX>() {
+ReduceKernel make_device_reduce_kernel<double, ReduceOp::MAX>() {
     return make_reduce_kernel_impl<double, ReduceOp::MAX>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<unsigned long, ReduceOp::SUM>() {
+ReduceKernel make_device_reduce_kernel<unsigned long, ReduceOp::SUM>() {
     return make_reduce_kernel_impl<unsigned long, ReduceOp::SUM>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<unsigned long, ReduceOp::PROD>() {
+ReduceKernel make_device_reduce_kernel<unsigned long, ReduceOp::PROD>() {
     return make_reduce_kernel_impl<unsigned long, ReduceOp::PROD>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<unsigned long, ReduceOp::MIN>() {
+ReduceKernel make_device_reduce_kernel<unsigned long, ReduceOp::MIN>() {
     return make_reduce_kernel_impl<unsigned long, ReduceOp::MIN>();
 }
 
 template <>
-ReduceKernel make_reduce_kernel<unsigned long, ReduceOp::MAX>() {
+ReduceKernel make_device_reduce_kernel<unsigned long, ReduceOp::MAX>() {
     return make_reduce_kernel_impl<unsigned long, ReduceOp::MAX>();
 }
 
