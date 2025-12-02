@@ -236,7 +236,7 @@ TEST_F(BaseAllReduceTest, shutdown) {
         OpID{99},
         br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::coll::detail::make_reduction_kernel<int, ReduceOp::SUM>()
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>()
     );
 }
 
@@ -247,7 +247,7 @@ TEST_F(BaseAllReduceTest, timeout) {
         OpID{98},
         br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::coll::detail::make_reduction_kernel<int, ReduceOp::SUM>()
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>()
     );
 
     std::vector<int> data(1, 42);  // Simple test data
@@ -336,7 +336,7 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
     ReduceKernel kernel =
         (config.reduction_type == MemoryReductionConfig::DEVICE_REDUCTION)
             ? rapidsmpf::coll::detail::make_device_reduce_kernel<int, ReduceOp::SUM>()
-            : rapidsmpf::coll::detail::make_reduction_kernel<int, ReduceOp::SUM>();
+            : rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>();
 
     bool use_device_reduction =
         (config.reduction_type == MemoryReductionConfig::DEVICE_REDUCTION);
@@ -430,7 +430,7 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
         ReduceKernel kernel =
             (config.reduction_type == MemoryReductionConfig::DEVICE_REDUCTION)
                 ? rapidsmpf::coll::detail::make_device_reduce_kernel<T, op>()
-                : rapidsmpf::coll::detail::make_reduction_kernel<T, op>();
+                : rapidsmpf::coll::detail::make_reduce_kernel<T, op>();
 
         bool use_device_reduction =
             (config.reduction_type == MemoryReductionConfig::DEVICE_REDUCTION);
@@ -587,7 +587,7 @@ TEST_F(AllReduceNonUniformInsertsTest, non_uniform_inserts) {
         OpID{6},
         br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::coll::detail::make_reduction_kernel<int, ReduceOp::SUM>()
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>()
     );
 
     // Test that some ranks not inserting causes failure.
@@ -625,7 +625,7 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
         OpID{7},
         br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::coll::detail::make_reduction_kernel<int, ReduceOp::SUM>(),
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>(),
         false,
         [&callback_called, &callback_count]() {
             callback_called.store(true, std::memory_order_release);
@@ -669,7 +669,7 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_not_called_without_inser
         OpID{8},
         br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::coll::detail::make_reduction_kernel<int, ReduceOp::SUM>(),
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>(),
         false,
         [&callback_called]() { callback_called.store(true, std::memory_order_release); }
     );
@@ -695,7 +695,7 @@ TEST_F(AllReduceFinishedCallbackTest, wait_and_extract_multiple_times) {
         OpID{9},
         br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::coll::detail::make_reduction_kernel<int, ReduceOp::SUM>()
+        rapidsmpf::coll::detail::make_reduce_kernel<int, ReduceOp::SUM>()
     );
 
     std::vector<int> data(n_elements);

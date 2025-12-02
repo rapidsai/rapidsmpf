@@ -69,7 +69,7 @@ using ReduceKernel = std::function<void(PackedData& accum, PackedData&& incoming
  *
  * The actual reduction is implemented via a type-erased `ReduceKernel` that is
  * supplied at construction time. Helper factories such as
- * `detail::make_reduction_kernel` (defaults to host-side) or
+ * `detail::make_reduce_kernel` (defaults to host-side) or
  * `detail::make_device_reduce_kernel` (device-side) can be used to build
  * element-wise reductions over contiguous arrays.
  */
@@ -330,7 +330,7 @@ ReduceKernel make_device_reduce_kernel();
  *        device-resident. If false (default), always use host-side reduction.
  */
 template <typename T, ReduceOp Op>
-ReduceKernel make_reduction_kernel(bool prefer_device = false) {
+ReduceKernel make_reduce_kernel(bool prefer_device = false) {
     auto host_kernel = make_host_reduce_kernel<T, Op>();
     auto device_kernel = make_device_reduce_kernel<T, Op>();
 
