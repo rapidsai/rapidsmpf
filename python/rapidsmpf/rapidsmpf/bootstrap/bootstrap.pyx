@@ -51,8 +51,7 @@ def create_ucxx_comm(Backend backend = Backend.AUTO, options = None):
 
     Returns
     -------
-    rapidsmpf.communicator.communicator.Communicator
-        A new RapidsMPF-UCXX communicator instance.
+    A new RapidsMPF-UCXX communicator instance.
     """
     cdef Communicator ret = Communicator.__new__(Communicator)
     cdef shared_ptr[cpp_UCXX_Communicator] ucxx_comm
@@ -88,8 +87,7 @@ def is_running_with_rrun():
 
     Returns
     -------
-    bool
-        ``True`` if running under ``rrun`` bootstrap mode, ``False`` otherwise.
+    ``True`` if running under ``rrun`` bootstrap mode, ``False`` otherwise.
     """
     cdef bint ret
     with nogil:
