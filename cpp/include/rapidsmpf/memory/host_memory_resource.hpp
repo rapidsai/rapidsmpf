@@ -47,7 +47,6 @@ class HostMemoryResource {
      *
      * @param size Number of bytes to allocate.
      * @param alignment Required alignment, must be a power of two.
-     *
      * @return Pointer to the allocated memory.
      *
      * @throw std::bad_alloc If the allocation fails.
