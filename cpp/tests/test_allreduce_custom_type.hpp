@@ -25,4 +25,4 @@ struct CustomValue {
  * The returned kernel expects `PackedData::data` to contain a contiguous array
  * of `CustomValue` in device memory, with equal sizes for all ranks.
  */
-rapidsmpf::coll::ReduceKernel make_custom_value_reduce_kernel();
+rapidsmpf::coll::ReduceKernel make_custom_value_reduce_kernel_device();

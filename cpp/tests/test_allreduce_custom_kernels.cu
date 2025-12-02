@@ -16,7 +16,7 @@ using rapidsmpf::MemoryType;
 using rapidsmpf::PackedData;
 using rapidsmpf::coll::ReduceKernel;
 
-ReduceKernel make_custom_value_reduce_kernel() {
+ReduceKernel make_custom_value_reduce_kernel_device() {
     return [](PackedData& accum, PackedData&& incoming) {
         RAPIDSMPF_EXPECTS(
             accum.data && incoming.data,
