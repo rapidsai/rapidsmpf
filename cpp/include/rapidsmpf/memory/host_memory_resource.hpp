@@ -93,5 +93,5 @@ class HostMemoryResource final : public rmm::mr::device_memory_resource {
 };
 
 static_assert(cuda::mr::resource_with<HostMemoryResource, cuda::mr::host_accessible>);
-
+static_assert(!cuda::mr::resource_with<HostMemoryResource, cuda::mr::device_accessible>);
 }  // namespace rapidsmpf
