@@ -61,7 +61,7 @@ PackedData AllReduce::wait_and_extract(std::chrono::milliseconds timeout) {
     // Block until the underlying allgather completes, then perform the reduction locally
     // (exactly once).
     auto gathered =
-        gatherer_.wait_and_extract(AllGather::Ordered::YES, std::move(timeout));
+        gatherer_.wait_and_extract(AllGather::Ordered::NO, std::move(timeout));
     return reduce_all(std::move(gathered));
 }
 

@@ -5,8 +5,10 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <type_traits>
 #include <vector>
 
 #include <cuda_runtime_api.h>
@@ -313,7 +315,18 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_host_allreduce) {
             expected =
                 Combiner<op>::template apply<T>(expected, make_input_value<T>(r, j));
         }
-        EXPECT_EQ(reduced[static_cast<std::size_t>(j)], expected);
+        if constexpr (std::is_floating_point_v<T>) {
+            // For floating point types, use near comparison to account for numerical
+            // precision
+            EXPECT_NEAR(
+                reduced[static_cast<std::size_t>(j)],
+                expected,
+                std::abs(expected) * 1e-5 + 1e-5
+            );
+        } else {
+            // For integral types, use exact equality
+            EXPECT_EQ(reduced[static_cast<std::size_t>(j)], expected);
+        }
     }
 }
 
