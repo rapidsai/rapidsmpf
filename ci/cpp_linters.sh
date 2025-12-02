@@ -19,8 +19,7 @@ set +u
 conda activate clang_tidy
 set -u
 
-# Disable sccache for clang-tidy to prevent build errors with libcudf and librmm.
-# source rapids-configure-sccache
+source rapids-configure-sccache
 
 # Run the build via CMake, which will run clang-tidy when RAPIDSMPF_CLANG_TIDY is enabled.
 cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DRAPIDSMPF_CLANG_TIDY=ON -DCMAKE_CUDA_ARCHITECTURES=75 -GNinja
