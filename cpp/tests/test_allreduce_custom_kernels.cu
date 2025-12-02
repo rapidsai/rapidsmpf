@@ -14,13 +14,13 @@
 
 using rapidsmpf::MemoryType;
 using rapidsmpf::PackedData;
-using rapidsmpf::coll::ReduceKernel;
+using rapidsmpf::coll::ReduceOperator;
 
-ReduceKernel make_custom_value_reduce_kernel_device() {
+ReduceOperator make_custom_value_reduce_operator_device() {
     return [](PackedData& accum, PackedData&& incoming) {
         RAPIDSMPF_EXPECTS(
             accum.data && incoming.data,
-            "CustomValue reduction kernel requires non-null data buffers"
+            "CustomValue reduction operator requires non-null data buffers"
         );
 
         auto* acc_buf = accum.data.get();
@@ -30,18 +30,18 @@ ReduceKernel make_custom_value_reduce_kernel_device() {
         auto const in_nbytes = in_buf->size;
         RAPIDSMPF_EXPECTS(
             acc_nbytes == in_nbytes,
-            "CustomValue reduction kernel requires equal-sized buffers"
+            "CustomValue reduction operator requires equal-sized buffers"
         );
         RAPIDSMPF_EXPECTS(
             acc_nbytes % sizeof(CustomValue) == 0,
-            "CustomValue reduction kernel requires buffer size to be a multiple "
+            "CustomValue reduction operator requires buffer size to be a multiple "
             "of sizeof(CustomValue)"
         );
 
         RAPIDSMPF_EXPECTS(
             acc_buf->mem_type() == MemoryType::DEVICE
                 && in_buf->mem_type() == MemoryType::DEVICE,
-            "CustomValue reduction kernel expects device-backed buffers"
+            "CustomValue reduction operator expects device-backed buffers"
         );
 
         auto const count = acc_nbytes / sizeof(CustomValue);

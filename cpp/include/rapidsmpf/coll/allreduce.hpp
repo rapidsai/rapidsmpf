@@ -39,9 +39,9 @@ enum class ReduceOp : std::uint8_t {
 };
 
 /**
- * @brief Type-erased reduction kernel used by `AllReduce`.
+ * @brief Type-erased reduction operator used by `AllReduce`.
  *
- * The kernel must implement an associative binary operation over the contents of
+ * The operator must implement an associative binary operation over the contents of
  * two `PackedData` objects and accumulate the result into @p accum.
  *
  * Implementations must:
@@ -49,10 +49,10 @@ enum class ReduceOp : std::uint8_t {
  *  - Combine @p incoming into @p accum in-place.
  *  - Leave @p incoming in a valid but unspecified state after the call.
  *
- * The kernel is responsible for interpreting `PackedData::metadata` and
+ * The operator is responsible for interpreting `PackedData::metadata` and
  * `PackedData::data` consistently across all ranks.
  */
-using ReduceKernel = std::function<void(PackedData& accum, PackedData&& incoming)>;
+using ReduceOperator = std::function<void(PackedData& accum, PackedData&& incoming)>;
 
 /**
  * @brief AllReduce collective.
@@ -67,10 +67,10 @@ using ReduceKernel = std::function<void(PackedData& accum, PackedData&& incoming
  *  - Once all ranks call `insert`, `wait_and_extract` returns the
  *    globally-reduced `PackedData`.
  *
- * The actual reduction is implemented via a type-erased `ReduceKernel` that is
+ * The actual reduction is implemented via a type-erased `ReduceOperator` that is
  * supplied at construction time. Helper factories such as
- * `detail::make_reduce_kernel` (defaults to host-side) or
- * `detail::make_device_reduce_kernel` (device-side) can be used to build
+ * `detail::make_reduce_operator` (defaults to host-side) or
+ * `detail::make_device_reduce_operator` (device-side) can be used to build
  * element-wise reductions over contiguous arrays.
  */
 class AllReduce {
@@ -83,7 +83,7 @@ class AllReduce {
      * @param op_id Unique operation identifier for this allreduce.
      * @param br Buffer resource for memory allocation.
      * @param statistics Statistics collection instance (disabled by default).
-     * @param reduce_kernel Type-erased reduction kernel to use.
+     * @param reduce_operator Type-erased reduction operator to use.
      * @param use_device_reduction If true, perform reduction on device memory.
      *        If false (default), perform reduction on host memory. Buffers will
      *        be normalized to the target memory type before reduction.
@@ -99,7 +99,7 @@ class AllReduce {
         OpID op_id,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-        ReduceKernel reduce_kernel = {},
+        ReduceOperator reduce_operator = {},
         bool use_device_reduction = false,
         std::function<void(void)> finished_callback = nullptr
     );
@@ -168,7 +168,7 @@ class AllReduce {
     [[nodiscard]] PackedData reduce_all(std::vector<PackedData>&& gathered);
 
     BufferResource* br_;  ///< Buffer resource for memory normalization
-    ReduceKernel reduce_kernel_;  ///< Type-erased reduction kernel
+    ReduceOperator reduce_operator_;  ///< Type-erased reduction operator
     bool use_device_reduction_;  ///< Whether to perform reduction on device memory
 
     Rank nranks_;  ///< Number of ranks in the communicator
@@ -222,22 +222,22 @@ template <typename T, ReduceOp Op>
 inline constexpr bool is_supported_reduce_op_v = is_supported_reduce_op<T, Op>::value;
 
 /**
- * @brief Create a host-based element-wise reduction kernel for a given (T, Op).
+ * @brief Create a host-based element-wise reduction operator for a given (T, Op).
  *
- * The kernel assumes that the `PackedData::data` buffers reside in host memory
+ * The operator assumes that the `PackedData::data` buffers reside in host memory
  * and contain a contiguous array of @p T with identical sizes on all ranks.
  */
 template <typename T, ReduceOp Op>
-ReduceKernel make_host_reduce_kernel() {
+ReduceOperator make_host_reduce_operator() {
     static_assert(
         is_supported_reduce_op_v<T, Op>,
-        "make_host_reduce_kernel called for unsupported (T, Op) combination"
+        "make_host_reduce_operator called for unsupported (T, Op) combination"
     );
 
     auto const apply = [](PackedData& accum, PackedData&& incoming, auto&& op) {
         RAPIDSMPF_EXPECTS(
             accum.data && incoming.data,
-            "AllReduce reduction kernel requires non-null data buffers"
+            "AllReduce reduction operator requires non-null data buffers"
         );
 
         auto* acc_buf = accum.data.get();
@@ -247,13 +247,13 @@ ReduceKernel make_host_reduce_kernel() {
         auto const in_nbytes = in_buf->size;
         RAPIDSMPF_EXPECTS(
             acc_nbytes == in_nbytes,
-            "AllReduce reduction kernel requires equal-sized buffers"
+            "AllReduce reduction operator requires equal-sized buffers"
         );
 
         auto const nbytes = acc_nbytes;
         RAPIDSMPF_EXPECTS(
             nbytes % sizeof(T) == 0,
-            "AllReduce reduction kernel requires buffer size to be a multiple of "
+            "AllReduce reduction operator requires buffer size to be a multiple of "
             "sizeof(T)"
         );
 
@@ -262,7 +262,7 @@ ReduceKernel make_host_reduce_kernel() {
         RAPIDSMPF_EXPECTS(
             acc_buf->mem_type() == MemoryType::HOST
                 && in_buf->mem_type() == MemoryType::HOST,
-            "make_host_reduce_kernel expects host memory"
+            "make_host_reduce_operator expects host memory"
         );
 
         auto* acc_bytes = acc_buf->exclusive_data_access();
@@ -304,25 +304,25 @@ ReduceKernel make_host_reduce_kernel() {
         static_assert(
             Op == ReduceOp::SUM || Op == ReduceOp::PROD || Op == ReduceOp::MIN
                 || Op == ReduceOp::MAX,
-            "AllReduce kernel only implemented for SUM, PROD, MIN, and MAX"
+            "AllReduce operator only implemented for SUM, PROD, MIN, and MAX"
         );
     }
 }
 
 /**
- * @brief Create a device-based element-wise reduction kernel for a given (T, Op).
+ * @brief Create a device-based element-wise reduction operator for a given (T, Op).
  *
- * This kernel expects both `PackedData::data` buffers to reside in device memory.
+ * This operator expects both `PackedData::data` buffers to reside in device memory.
  * Implementations are provided in `device_kernels.cu` for a subset of (T, Op)
  * combinations.
  */
 template <typename T, ReduceOp Op>
-ReduceKernel make_device_reduce_kernel();
+ReduceOperator make_device_reduce_operator();
 
 /**
- * @brief Create a memory-type aware reduction kernel for a given (T, Op).
+ * @brief Create a memory-type aware reduction operator for a given (T, Op).
  *
- * The returned kernel defaults to host-side reduction. If all buffers are in device
+ * The returned operator defaults to host-side reduction. If all buffers are in device
  * memory and device reduction is explicitly requested, it will use device reduction.
  * Otherwise, it normalizes all buffers to host memory and performs host-side reduction.
  *
@@ -330,16 +330,16 @@ ReduceKernel make_device_reduce_kernel();
  *        device-resident. If false (default), always use host-side reduction.
  */
 template <typename T, ReduceOp Op>
-ReduceKernel make_reduce_kernel(bool prefer_device = false) {
-    auto host_kernel = make_host_reduce_kernel<T, Op>();
-    auto device_kernel = make_device_reduce_kernel<T, Op>();
+ReduceOperator make_reduce_operator(bool prefer_device = false) {
+    auto host_operator = make_host_reduce_operator<T, Op>();
+    auto device_operator = make_device_reduce_operator<T, Op>();
 
-    return [host = std::move(host_kernel),
-            device = std::move(device_kernel),
+    return [host = std::move(host_operator),
+            device = std::move(device_operator),
             prefer_device](PackedData& accum, PackedData&& incoming) mutable {
         RAPIDSMPF_EXPECTS(
             accum.data && incoming.data,
-            "AllReduce reduction kernel requires data buffers"
+            "AllReduce reduction operator requires data buffers"
         );
 
         auto const mem_type = accum.data->mem_type();
@@ -347,7 +347,7 @@ ReduceKernel make_reduce_kernel(bool prefer_device = false) {
         if (prefer_device && mem_type == MemoryType::DEVICE) {
             device(accum, std::move(incoming));
         } else {
-            // Default to host kernel for HOST (and any other non-DEVICE types such as
+            // Default to host operator for HOST (and any other non-DEVICE types such as
             // MANAGED).
             host(accum, std::move(incoming));
         }

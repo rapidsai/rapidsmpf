@@ -22,12 +22,12 @@ AllReduce::AllReduce(
     OpID op_id,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
-    ReduceKernel reduce_kernel,
+    ReduceOperator reduce_operator,
     bool use_device_reduction,
     std::function<void(void)> finished_callback
 )
     : br_{br},
-      reduce_kernel_{std::move(reduce_kernel)},
+      reduce_operator_{std::move(reduce_operator)},
       use_device_reduction_{use_device_reduction},
       nranks_{comm->nranks()},
       gatherer_{
@@ -39,8 +39,8 @@ AllReduce::AllReduce(
           std::move(finished_callback)
       } {
     RAPIDSMPF_EXPECTS(
-        static_cast<bool>(reduce_kernel_),
-        "AllReduce requires a valid ReduceKernel at construction time"
+        static_cast<bool>(reduce_operator_),
+        "AllReduce requires a valid ReduceOperator at construction time"
     );
 }
 
@@ -111,7 +111,7 @@ PackedData AllReduce::reduce_all(std::vector<PackedData>&& gathered) {
 
     // Reduce contributions from all other ranks into the accumulator
     for (std::size_t r = 1; r < static_cast<std::size_t>(nranks_); ++r) {
-        reduce_kernel_(accum, std::move(gathered[r]));
+        reduce_operator_(accum, std::move(gathered[r]));
     }
 
     return accum;
