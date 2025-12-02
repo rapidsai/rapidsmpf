@@ -197,3 +197,22 @@ def test_spillable_messages(context: Context, stream: Stream) -> None:
     df2_got = df2_got.make_available_and_spill(context.br(), allow_overbooking=True)
     assert_eq(df2, df2_got.table_view())
     assert sm.get_content_descriptions() == {}
+
+
+def test_spillable_messages_by_context(context: Context, stream: Stream) -> None:
+    seq = 42
+    expect = random_table(1024)
+
+    mid = context.spillable_messages().insert(
+        Message(
+            seq, TableChunk.from_pylibcudf_table(expect, stream, exclusive_view=True)
+        )
+    )
+    assert context.spillable_messages().get_content_descriptions() == {
+        0: ContentDescription(
+            content_sizes={MemoryType.DEVICE: 1024, MemoryType.HOST: 0},
+            spillable=True,
+        )
+    }
+    got = TableChunk.from_message(context.spillable_messages().extract(mid=mid))
+    assert_eq(expect, got.table_view())
