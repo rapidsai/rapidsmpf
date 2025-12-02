@@ -53,8 +53,11 @@ void device_elementwise_reduce(Buffer* acc_buf, Buffer* in_buf, Op op) {
 }
 
 template <typename T, ReduceOp Op>
-ReduceKernel make_reduce_kernel_impl() {
-    if constexpr (Op == ReduceOp::SUM) {
+struct ReduceKernelMaker;
+
+template <typename T>
+struct ReduceKernelMaker<T, ReduceOp::SUM> {
+    static ReduceKernel make() {
         return [](PackedData& accum, PackedData&& incoming) {
             if constexpr (std::is_same_v<T, bool>) {
                 device_elementwise_reduce<T>(
@@ -66,31 +69,45 @@ ReduceKernel make_reduce_kernel_impl() {
                 );
             }
         };
-    } else if constexpr (Op == ReduceOp::PROD) {
+    }
+};
+
+template <typename T>
+struct ReduceKernelMaker<T, ReduceOp::PROD> {
+    static ReduceKernel make() {
         return [](PackedData& accum, PackedData&& incoming) {
             device_elementwise_reduce<T>(
                 accum.data.get(), incoming.data.get(), thrust::multiplies<T>{}
             );
         };
-    } else if constexpr (Op == ReduceOp::MIN) {
+    }
+};
+
+template <typename T>
+struct ReduceKernelMaker<T, ReduceOp::MIN> {
+    static ReduceKernel make() {
         return [](PackedData& accum, PackedData&& incoming) {
             device_elementwise_reduce<T>(
                 accum.data.get(), incoming.data.get(), thrust::minimum<T>{}
             );
         };
-    } else if constexpr (Op == ReduceOp::MAX) {
+    }
+};
+
+template <typename T>
+struct ReduceKernelMaker<T, ReduceOp::MAX> {
+    static ReduceKernel make() {
         return [](PackedData& accum, PackedData&& incoming) {
             device_elementwise_reduce<T>(
                 accum.data.get(), incoming.data.get(), thrust::maximum<T>{}
             );
         };
-    } else {
-        static_assert(
-            Op == ReduceOp::SUM || Op == ReduceOp::PROD || Op == ReduceOp::MIN
-                || Op == ReduceOp::MAX,
-            "Device reduction kernel only implemented for SUM, PROD, MIN, and MAX"
-        );
     }
+};
+
+template <typename T, ReduceOp Op>
+ReduceKernel make_reduce_kernel_impl() {
+    return ReduceKernelMaker<T, Op>::make();
 }
 
 }  // namespace
