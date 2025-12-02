@@ -48,7 +48,7 @@ class ArgumentParser {
         }
         try {
             int option;
-            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:igsxhM:")) != -1) {
+            while ((option = getopt(argc, argv, "C:r:w:c:n:p:o:m:l:igsbxhM:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -76,6 +76,8 @@ class ArgumentParser {
                               "(default: unset, hash partition during insertion)\n"
                            << "  -s         Discard output chunks to simulate streaming "
                               "(default: disabled)\n"
+                           << "  -b         Disallow memory overbooking when generating "
+                              "input data (default: allow memory overbooking)\n"
                            << "  -x         Enable memory profiler (default: disabled)\n"
 #ifdef RAPIDSMPF_HAVE_CUPTI
                            << "  -M <path>  Enable CUPTI memory monitoring and save CSV "
@@ -154,6 +156,9 @@ class ArgumentParser {
                 case 's':
                     enable_output_discard = true;
                     break;
+                case 'b':
+                    input_data_allow_overbooking = false;
+                    break;
                 case 'x':
                     enable_memory_profiler = true;
                     break;
@@ -224,6 +229,9 @@ class ArgumentParser {
         if (enable_output_discard) {
             ss << "  -s (enable output discard to simulate streaming)\n";
         }
+        if (!input_data_allow_overbooking) {
+            ss << "  -b (disallow memory overbooking when generating input data)\n";
+        }
         if (enable_memory_profiler) {
             ss << "  -x (enable memory profiling)\n";
         }
@@ -252,6 +260,7 @@ class ArgumentParser {
     std::uint64_t local_nbytes;
     std::uint64_t total_nbytes;
     bool enable_output_discard{false};
+    bool input_data_allow_overbooking{true};
     bool enable_memory_profiler{false};
     bool hash_partition_with_datagen{false};
     bool use_concat_insert{false};
@@ -367,8 +376,10 @@ std::vector<InputPartitionsT> generate_input_partitions(
             static_cast<cudf::size_type>(args.num_local_rows)
         );
 
-        // reserve at least size_lb and spill if necessary (allow overbooking)
-        auto res = br->reserve_and_spill(rapidsmpf::MemoryType::DEVICE, size_lb, true);
+        // reserve at least size_lb and spill if necessary.
+        auto res = br->reserve_and_spill(
+            rapidsmpf::MemoryType::DEVICE, size_lb, args.input_data_allow_overbooking
+        );
         cudf::table table = random_table(
             static_cast<cudf::size_type>(args.num_columns),
             static_cast<cudf::size_type>(args.num_local_rows),
