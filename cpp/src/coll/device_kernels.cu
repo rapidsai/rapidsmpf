@@ -14,6 +14,8 @@
 
 namespace rapidsmpf::coll::detail {
 
+using ReduceOperatorFunction = rapidsmpf::coll::ReduceOperatorFunction;
+
 namespace {
 
 template <typename T, typename Op>
@@ -52,12 +54,12 @@ void device_elementwise_reduce(Buffer* acc_buf, Buffer* in_buf, Op op) {
     });
 }
 
-template <typename T, ReduceOp Op>
+template <typename T, DeviceReduceOp Op>
 struct ReduceOperatorMaker;
 
 template <typename T>
-struct ReduceOperatorMaker<T, ReduceOp::SUM> {
-    static ReduceOperator make() {
+struct ReduceOperatorMaker<T, DeviceReduceOp::SUM> {
+    static ReduceOperatorFunction make() {
         return [](PackedData& accum, PackedData&& incoming) {
             if constexpr (std::is_same_v<T, bool>) {
                 device_elementwise_reduce<T>(
@@ -73,8 +75,8 @@ struct ReduceOperatorMaker<T, ReduceOp::SUM> {
 };
 
 template <typename T>
-struct ReduceOperatorMaker<T, ReduceOp::PROD> {
-    static ReduceOperator make() {
+struct ReduceOperatorMaker<T, DeviceReduceOp::PROD> {
+    static ReduceOperatorFunction make() {
         return [](PackedData& accum, PackedData&& incoming) {
             device_elementwise_reduce<T>(
                 accum.data.get(), incoming.data.get(), thrust::multiplies<T>{}
@@ -84,8 +86,8 @@ struct ReduceOperatorMaker<T, ReduceOp::PROD> {
 };
 
 template <typename T>
-struct ReduceOperatorMaker<T, ReduceOp::MIN> {
-    static ReduceOperator make() {
+struct ReduceOperatorMaker<T, DeviceReduceOp::MIN> {
+    static ReduceOperatorFunction make() {
         return [](PackedData& accum, PackedData&& incoming) {
             device_elementwise_reduce<T>(
                 accum.data.get(), incoming.data.get(), thrust::minimum<T>{}
@@ -95,8 +97,8 @@ struct ReduceOperatorMaker<T, ReduceOp::MIN> {
 };
 
 template <typename T>
-struct ReduceOperatorMaker<T, ReduceOp::MAX> {
-    static ReduceOperator make() {
+struct ReduceOperatorMaker<T, DeviceReduceOp::MAX> {
+    static ReduceOperatorFunction make() {
         return [](PackedData& accum, PackedData&& incoming) {
             device_elementwise_reduce<T>(
                 accum.data.get(), incoming.data.get(), thrust::maximum<T>{}
@@ -105,8 +107,8 @@ struct ReduceOperatorMaker<T, ReduceOp::MAX> {
     }
 };
 
-template <typename T, ReduceOp Op>
-ReduceOperator make_reduce_operator_impl() {
+template <typename T, DeviceReduceOp Op>
+ReduceOperatorFunction make_reduce_operator_impl() {
     return ReduceOperatorMaker<T, Op>::make();
 }
 
@@ -115,83 +117,87 @@ ReduceOperator make_reduce_operator_impl() {
 // Explicit specializations for the (T, Op) combinations we support on device.
 
 template <>
-ReduceOperator make_device_reduce_operator<int, ReduceOp::SUM>() {
-    return make_reduce_operator_impl<int, ReduceOp::SUM>();
+ReduceOperatorFunction make_device_reduce_operator_impl<int, DeviceReduceOp::SUM>() {
+    return make_reduce_operator_impl<int, DeviceReduceOp::SUM>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<int, ReduceOp::PROD>() {
-    return make_reduce_operator_impl<int, ReduceOp::PROD>();
+ReduceOperatorFunction make_device_reduce_operator_impl<int, DeviceReduceOp::PROD>() {
+    return make_reduce_operator_impl<int, DeviceReduceOp::PROD>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<int, ReduceOp::MIN>() {
-    return make_reduce_operator_impl<int, ReduceOp::MIN>();
+ReduceOperatorFunction make_device_reduce_operator_impl<int, DeviceReduceOp::MIN>() {
+    return make_reduce_operator_impl<int, DeviceReduceOp::MIN>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<int, ReduceOp::MAX>() {
-    return make_reduce_operator_impl<int, ReduceOp::MAX>();
+ReduceOperatorFunction make_device_reduce_operator_impl<int, DeviceReduceOp::MAX>() {
+    return make_reduce_operator_impl<int, DeviceReduceOp::MAX>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<float, ReduceOp::SUM>() {
-    return make_reduce_operator_impl<float, ReduceOp::SUM>();
+ReduceOperatorFunction make_device_reduce_operator_impl<float, DeviceReduceOp::SUM>() {
+    return make_reduce_operator_impl<float, DeviceReduceOp::SUM>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<float, ReduceOp::PROD>() {
-    return make_reduce_operator_impl<float, ReduceOp::PROD>();
+ReduceOperatorFunction make_device_reduce_operator_impl<float, DeviceReduceOp::PROD>() {
+    return make_reduce_operator_impl<float, DeviceReduceOp::PROD>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<float, ReduceOp::MIN>() {
-    return make_reduce_operator_impl<float, ReduceOp::MIN>();
+ReduceOperatorFunction make_device_reduce_operator_impl<float, DeviceReduceOp::MIN>() {
+    return make_reduce_operator_impl<float, DeviceReduceOp::MIN>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<float, ReduceOp::MAX>() {
-    return make_reduce_operator_impl<float, ReduceOp::MAX>();
+ReduceOperatorFunction make_device_reduce_operator_impl<float, DeviceReduceOp::MAX>() {
+    return make_reduce_operator_impl<float, DeviceReduceOp::MAX>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<double, ReduceOp::SUM>() {
-    return make_reduce_operator_impl<double, ReduceOp::SUM>();
+ReduceOperatorFunction make_device_reduce_operator_impl<double, DeviceReduceOp::SUM>() {
+    return make_reduce_operator_impl<double, DeviceReduceOp::SUM>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<double, ReduceOp::PROD>() {
-    return make_reduce_operator_impl<double, ReduceOp::PROD>();
+ReduceOperatorFunction make_device_reduce_operator_impl<double, DeviceReduceOp::PROD>() {
+    return make_reduce_operator_impl<double, DeviceReduceOp::PROD>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<double, ReduceOp::MIN>() {
-    return make_reduce_operator_impl<double, ReduceOp::MIN>();
+ReduceOperatorFunction make_device_reduce_operator_impl<double, DeviceReduceOp::MIN>() {
+    return make_reduce_operator_impl<double, DeviceReduceOp::MIN>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<double, ReduceOp::MAX>() {
-    return make_reduce_operator_impl<double, ReduceOp::MAX>();
+ReduceOperatorFunction make_device_reduce_operator_impl<double, DeviceReduceOp::MAX>() {
+    return make_reduce_operator_impl<double, DeviceReduceOp::MAX>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<unsigned long, ReduceOp::SUM>() {
-    return make_reduce_operator_impl<unsigned long, ReduceOp::SUM>();
+ReduceOperatorFunction
+make_device_reduce_operator_impl<unsigned long, DeviceReduceOp::SUM>() {
+    return make_reduce_operator_impl<unsigned long, DeviceReduceOp::SUM>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<unsigned long, ReduceOp::PROD>() {
-    return make_reduce_operator_impl<unsigned long, ReduceOp::PROD>();
+ReduceOperatorFunction
+make_device_reduce_operator_impl<unsigned long, DeviceReduceOp::PROD>() {
+    return make_reduce_operator_impl<unsigned long, DeviceReduceOp::PROD>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<unsigned long, ReduceOp::MIN>() {
-    return make_reduce_operator_impl<unsigned long, ReduceOp::MIN>();
+ReduceOperatorFunction
+make_device_reduce_operator_impl<unsigned long, DeviceReduceOp::MIN>() {
+    return make_reduce_operator_impl<unsigned long, DeviceReduceOp::MIN>();
 }
 
 template <>
-ReduceOperator make_device_reduce_operator<unsigned long, ReduceOp::MAX>() {
-    return make_reduce_operator_impl<unsigned long, ReduceOp::MAX>();
+ReduceOperatorFunction
+make_device_reduce_operator_impl<unsigned long, DeviceReduceOp::MAX>() {
+    return make_reduce_operator_impl<unsigned long, DeviceReduceOp::MAX>();
 }
 
 }  // namespace rapidsmpf::coll::detail

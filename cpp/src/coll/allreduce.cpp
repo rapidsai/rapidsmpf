@@ -20,15 +20,13 @@ AllReduce::AllReduce(
     std::shared_ptr<Communicator> comm,
     std::shared_ptr<ProgressThread> progress_thread,
     OpID op_id,
+    ReduceOperator reduce_operator,
     BufferResource* br,
     std::shared_ptr<Statistics> statistics,
-    ReduceOperator reduce_operator,
-    bool use_device_reduction,
     std::function<void(void)> finished_callback
 )
-    : br_{br},
-      reduce_operator_{std::move(reduce_operator)},
-      use_device_reduction_{use_device_reduction},
+    : reduce_operator_{std::move(reduce_operator)},
+      br_{br},
       nranks_{comm->nranks()},
       gatherer_{
           std::move(comm),
@@ -37,12 +35,7 @@ AllReduce::AllReduce(
           br,
           std::move(statistics),
           std::move(finished_callback)
-      } {
-    RAPIDSMPF_EXPECTS(
-        static_cast<bool>(reduce_operator_),
-        "AllReduce requires a valid ReduceOperator at construction time"
-    );
-}
+      } {}
 
 AllReduce::~AllReduce() = default;
 
@@ -82,9 +75,9 @@ PackedData AllReduce::reduce_all(std::vector<PackedData>&& gathered) {
         std::runtime_error
     );
 
-    // Determine target memory type based on use_device_reduction_ flag
+    // Determine target memory type based on operator type
     MemoryType target_mem_type =
-        use_device_reduction_ ? MemoryType::DEVICE : MemoryType::HOST;
+        reduce_operator_.is_device() ? MemoryType::DEVICE : MemoryType::HOST;
 
     // Normalize all buffers to the target memory type
     if (target_mem_type == MemoryType::HOST) {

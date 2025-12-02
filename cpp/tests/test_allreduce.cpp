@@ -29,22 +29,24 @@ using rapidsmpf::MemoryType;
 using rapidsmpf::OpID;
 using rapidsmpf::PackedData;
 using rapidsmpf::coll::AllReduce;
-using rapidsmpf::coll::ReduceOp;
+using rapidsmpf::coll::DeviceReduceOp;
+using rapidsmpf::coll::HostReduceOp;
 using rapidsmpf::coll::ReduceOperator;
+using rapidsmpf::coll::ReduceOperatorType;
 
 namespace {
 
-template <typename T, ReduceOp Op>
+template <typename T, HostReduceOp Op>
 struct AllReduceConfig {
     using value_type = T;
-    static constexpr ReduceOp reduce_op_id = Op;
+    static constexpr HostReduceOp reduce_op_id = Op;
 };
 
-template <ReduceOp Op>
+template <HostReduceOp Op>
 struct Combiner;
 
 template <>
-struct Combiner<ReduceOp::SUM> {
+struct Combiner<HostReduceOp::SUM> {
     template <typename T>
     static T apply(T a, T b) {
         return a + b;
@@ -52,7 +54,7 @@ struct Combiner<ReduceOp::SUM> {
 };
 
 template <>
-struct Combiner<ReduceOp::PROD> {
+struct Combiner<HostReduceOp::PROD> {
     template <typename T>
     static T apply(T a, T b) {
         return a * b;
@@ -60,7 +62,7 @@ struct Combiner<ReduceOp::PROD> {
 };
 
 template <>
-struct Combiner<ReduceOp::MIN> {
+struct Combiner<HostReduceOp::MIN> {
     template <typename T>
     static T apply(T a, T b) {
         return std::min(a, b);
@@ -68,7 +70,7 @@ struct Combiner<ReduceOp::MIN> {
 };
 
 template <>
-struct Combiner<ReduceOp::MAX> {
+struct Combiner<HostReduceOp::MAX> {
     template <typename T>
     static T apply(T a, T b) {
         return std::max(a, b);
@@ -89,46 +91,50 @@ T make_input_value(int rank, int elem_idx) {
  * of `CustomValue` in host memory, with equal sizes for all ranks.
  */
 ReduceOperator make_custom_value_reduce_operator_host() {
-    return [](PackedData& accum, PackedData&& incoming) {
-        RAPIDSMPF_EXPECTS(
-            accum.data && incoming.data,
-            "CustomValue reduction operator requires non-null data buffers"
-        );
+    return ReduceOperator(
+        [](PackedData& accum, PackedData&& incoming) {
+            RAPIDSMPF_EXPECTS(
+                accum.data && incoming.data,
+                "CustomValue reduction operator requires non-null data buffers"
+            );
 
-        auto* acc_buf = accum.data.get();
-        auto* in_buf = incoming.data.get();
+            auto* acc_buf = accum.data.get();
+            auto* in_buf = incoming.data.get();
 
-        auto const acc_nbytes = acc_buf->size;
-        auto const in_nbytes = in_buf->size;
-        RAPIDSMPF_EXPECTS(
-            acc_nbytes == in_nbytes,
-            "CustomValue reduction operator requires equal-sized buffers"
-        );
-        RAPIDSMPF_EXPECTS(
-            acc_nbytes % sizeof(CustomValue) == 0,
-            "CustomValue reduction operator requires buffer size to be a multiple "
-            "of sizeof(CustomValue)"
-        );
+            auto const acc_nbytes = acc_buf->size;
+            auto const in_nbytes = in_buf->size;
+            RAPIDSMPF_EXPECTS(
+                acc_nbytes == in_nbytes,
+                "CustomValue reduction operator requires equal-sized buffers"
+            );
+            RAPIDSMPF_EXPECTS(
+                acc_nbytes % sizeof(CustomValue) == 0,
+                "CustomValue reduction operator requires buffer size to be a multiple "
+                "of sizeof(CustomValue)"
+            );
 
-        RAPIDSMPF_EXPECTS(
-            acc_buf->mem_type() == MemoryType::HOST
-                && in_buf->mem_type() == MemoryType::HOST,
-            "CustomValue host reduction operator expects host-backed buffers"
-        );
+            RAPIDSMPF_EXPECTS(
+                acc_buf->mem_type() == MemoryType::HOST
+                    && in_buf->mem_type() == MemoryType::HOST,
+                "CustomValue host reduction operator expects host-backed buffers"
+            );
 
-        auto const count = acc_nbytes / sizeof(CustomValue);
+            auto const count = acc_nbytes / sizeof(CustomValue);
 
-        auto* acc_ptr = reinterpret_cast<CustomValue*>(acc_buf->exclusive_data_access());
-        auto const* in_ptr = reinterpret_cast<CustomValue const*>(in_buf->data());
+            auto* acc_ptr =
+                reinterpret_cast<CustomValue*>(acc_buf->exclusive_data_access());
+            auto const* in_ptr = reinterpret_cast<CustomValue const*>(in_buf->data());
 
-        // Perform host-side elementwise reduction
-        for (std::size_t i = 0; i < count; ++i) {
-            acc_ptr[i].value += in_ptr[i].value;
-            acc_ptr[i].weight = std::min(acc_ptr[i].weight, in_ptr[i].weight);
-        }
+            // Perform host-side elementwise reduction
+            for (std::size_t i = 0; i < count; ++i) {
+                acc_ptr[i].value += in_ptr[i].value;
+                acc_ptr[i].weight = std::min(acc_ptr[i].weight, in_ptr[i].weight);
+            }
 
-        acc_buf->unlock();
-    };
+            acc_buf->unlock();
+        },
+        ReduceOperatorType::Host
+    );
 }
 
 /**
@@ -234,9 +240,9 @@ TEST_F(BaseAllReduceTest, shutdown) {
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
         OpID{99},
+        rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>(),
         br.get(),
-        rapidsmpf::Statistics::disabled(),
-        rapidsmpf::coll::detail::make_reduce_operator<int, ReduceOp::SUM>()
+        rapidsmpf::Statistics::disabled()
     );
 }
 
@@ -245,9 +251,9 @@ TEST_F(BaseAllReduceTest, timeout) {
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
         OpID{98},
+        rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>(),
         br.get(),
-        rapidsmpf::Statistics::disabled(),
-        rapidsmpf::coll::detail::make_reduce_operator<int, ReduceOp::SUM>()
+        rapidsmpf::Statistics::disabled()
     );
 
     std::vector<int> data(1, 42);  // Simple test data
@@ -332,23 +338,19 @@ TEST_P(AllReduceIntSumTest, basic_allreduce_sum_int) {
     auto this_rank = comm->rank();
     auto nranks = comm->nranks();
 
-    // Choose kernel based on reduction type
+    // Choose operator based on reduction type
     ReduceOperator kernel =
         (config.reduction_type == MemoryReductionConfig::DEVICE_REDUCTION)
-            ? rapidsmpf::coll::detail::make_device_reduce_operator<int, ReduceOp::SUM>()
-            : rapidsmpf::coll::detail::make_reduce_operator<int, ReduceOp::SUM>();
-
-    bool use_device_reduction =
-        (config.reduction_type == MemoryReductionConfig::DEVICE_REDUCTION);
+            ? rapidsmpf::coll::detail::make_reduce_operator<int, DeviceReduceOp::SUM>()
+            : rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>();
 
     AllReduce allreduce(
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
         OpID{0},
-        br.get(),
-        rapidsmpf::Statistics::disabled(),
         std::move(kernel),
-        use_device_reduction
+        br.get(),
+        rapidsmpf::Statistics::disabled()
     );
 
     std::vector<int> data(std::max(0, n_elements));
@@ -385,26 +387,26 @@ template <typename Config>
 class AllReduceTypedOpsTest : public BaseAllReduceTest {
   public:
     using value_type = typename Config::value_type;
-    static constexpr ReduceOp op = Config::reduce_op_id;
+    static constexpr HostReduceOp op = Config::reduce_op_id;
 };
 
 using AllReduceConfigs = ::testing::Types<
-    AllReduceConfig<int, ReduceOp::SUM>,
-    AllReduceConfig<int, ReduceOp::PROD>,
-    AllReduceConfig<int, ReduceOp::MIN>,
-    AllReduceConfig<int, ReduceOp::MAX>,
-    AllReduceConfig<float, ReduceOp::SUM>,
-    AllReduceConfig<float, ReduceOp::PROD>,
-    AllReduceConfig<float, ReduceOp::MIN>,
-    AllReduceConfig<float, ReduceOp::MAX>,
-    AllReduceConfig<double, ReduceOp::SUM>,
-    AllReduceConfig<double, ReduceOp::PROD>,
-    AllReduceConfig<double, ReduceOp::MIN>,
-    AllReduceConfig<double, ReduceOp::MAX>,
-    AllReduceConfig<std::uint64_t, ReduceOp::SUM>,
-    AllReduceConfig<std::uint64_t, ReduceOp::PROD>,
-    AllReduceConfig<std::uint64_t, ReduceOp::MIN>,
-    AllReduceConfig<std::uint64_t, ReduceOp::MAX>>;
+    AllReduceConfig<int, HostReduceOp::SUM>,
+    AllReduceConfig<int, HostReduceOp::PROD>,
+    AllReduceConfig<int, HostReduceOp::MIN>,
+    AllReduceConfig<int, HostReduceOp::MAX>,
+    AllReduceConfig<float, HostReduceOp::SUM>,
+    AllReduceConfig<float, HostReduceOp::PROD>,
+    AllReduceConfig<float, HostReduceOp::MIN>,
+    AllReduceConfig<float, HostReduceOp::MAX>,
+    AllReduceConfig<double, HostReduceOp::SUM>,
+    AllReduceConfig<double, HostReduceOp::PROD>,
+    AllReduceConfig<double, HostReduceOp::MIN>,
+    AllReduceConfig<double, HostReduceOp::MAX>,
+    AllReduceConfig<std::uint64_t, HostReduceOp::SUM>,
+    AllReduceConfig<std::uint64_t, HostReduceOp::PROD>,
+    AllReduceConfig<std::uint64_t, HostReduceOp::MIN>,
+    AllReduceConfig<std::uint64_t, HostReduceOp::MAX>>;
 
 TYPED_TEST_SUITE(AllReduceTypedOpsTest, AllReduceConfigs);
 
@@ -427,22 +429,34 @@ TYPED_TEST(AllReduceTypedOpsTest, basic_allreduce) {
     };
 
     for (auto const& config : configs) {
-        ReduceOperator kernel =
-            (config.reduction_type == MemoryReductionConfig::DEVICE_REDUCTION)
-                ? rapidsmpf::coll::detail::make_device_reduce_operator<T, op>()
-                : rapidsmpf::coll::detail::make_reduce_operator<T, op>();
-
-        bool use_device_reduction =
-            (config.reduction_type == MemoryReductionConfig::DEVICE_REDUCTION);
+        // Convert op to device version if needed
+        ReduceOperator kernel = [&]() -> ReduceOperator {
+            if (config.reduction_type == MemoryReductionConfig::DEVICE_REDUCTION) {
+                if constexpr (op == HostReduceOp::SUM) {
+                    return rapidsmpf::coll::detail::
+                        make_reduce_operator<T, DeviceReduceOp::SUM>();
+                } else if constexpr (op == HostReduceOp::PROD) {
+                    return rapidsmpf::coll::detail::
+                        make_reduce_operator<T, DeviceReduceOp::PROD>();
+                } else if constexpr (op == HostReduceOp::MIN) {
+                    return rapidsmpf::coll::detail::
+                        make_reduce_operator<T, DeviceReduceOp::MIN>();
+                } else if constexpr (op == HostReduceOp::MAX) {
+                    return rapidsmpf::coll::detail::
+                        make_reduce_operator<T, DeviceReduceOp::MAX>();
+                }
+            } else {
+                return rapidsmpf::coll::detail::make_reduce_operator<T, op>();
+            }
+        }();
 
         AllReduce allreduce(
             GlobalEnvironment->comm_,
             GlobalEnvironment->progress_thread_,
             OpID{1},
-            this->br.get(),
-            rapidsmpf::Statistics::disabled(),
             std::move(kernel),
-            use_device_reduction
+            this->br.get(),
+            rapidsmpf::Statistics::disabled()
         );
 
         int constexpr n_elements{8};
@@ -510,7 +524,7 @@ TEST_F(AllReduceCustomTypeTest, custom_struct_allreduce) {
 
     // Test both host and device custom reduction operators
     struct TestConfig {
-        bool use_device_reduction;
+        bool is_device;
         MemoryType buffer_type;
         const char* name;
     };
@@ -521,7 +535,7 @@ TEST_F(AllReduceCustomTypeTest, custom_struct_allreduce) {
     };
 
     for (auto const& config : configs) {
-        ReduceOperator kernel = config.use_device_reduction
+        ReduceOperator kernel = config.is_device
                                     ? make_custom_value_reduce_operator_device()
                                     : make_custom_value_reduce_operator_host();
 
@@ -529,10 +543,9 @@ TEST_F(AllReduceCustomTypeTest, custom_struct_allreduce) {
             GlobalEnvironment->comm_,
             GlobalEnvironment->progress_thread_,
             OpID{5},
-            br.get(),
-            rapidsmpf::Statistics::disabled(),
             std::move(kernel),
-            config.use_device_reduction
+            br.get(),
+            rapidsmpf::Statistics::disabled()
         );
 
         // Each rank contributes the same logical layout of CustomValue
@@ -585,9 +598,9 @@ TEST_F(AllReduceNonUniformInsertsTest, non_uniform_inserts) {
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
         OpID{6},
+        rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>(),
         br.get(),
-        rapidsmpf::Statistics::disabled(),
-        rapidsmpf::coll::detail::make_reduce_operator<int, ReduceOp::SUM>()
+        rapidsmpf::Statistics::disabled()
     );
 
     // Test that some ranks not inserting causes failure.
@@ -623,10 +636,9 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_invoked) {
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
         OpID{7},
+        rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>(),
         br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::coll::detail::make_reduce_operator<int, ReduceOp::SUM>(),
-        false,
         [&callback_called, &callback_count]() {
             callback_called.store(true, std::memory_order_release);
             callback_count.fetch_add(1, std::memory_order_relaxed);
@@ -667,10 +679,9 @@ TEST_F(AllReduceFinishedCallbackTest, finished_callback_not_called_without_inser
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
         OpID{8},
+        rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>(),
         br.get(),
         rapidsmpf::Statistics::disabled(),
-        rapidsmpf::coll::detail::make_reduce_operator<int, ReduceOp::SUM>(),
-        false,
         [&callback_called]() { callback_called.store(true, std::memory_order_release); }
     );
 
@@ -693,9 +704,9 @@ TEST_F(AllReduceFinishedCallbackTest, wait_and_extract_multiple_times) {
         GlobalEnvironment->comm_,
         GlobalEnvironment->progress_thread_,
         OpID{9},
+        rapidsmpf::coll::detail::make_reduce_operator<int, HostReduceOp::SUM>(),
         br.get(),
-        rapidsmpf::Statistics::disabled(),
-        rapidsmpf::coll::detail::make_reduce_operator<int, ReduceOp::SUM>()
+        rapidsmpf::Statistics::disabled()
     );
 
     std::vector<int> data(n_elements);

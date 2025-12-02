@@ -27,11 +27,11 @@
 namespace rapidsmpf::coll {
 
 /**
- * @brief Reduction operators supported by `AllReduce`.
+ * @brief Host-side reduction operators supported by `AllReduce`.
  *
  * These closely mirror the reduction operators from MPI.
  */
-enum class ReduceOp : std::uint8_t {
+enum class HostReduceOp : std::uint8_t {
     SUM,  ///< Sum / addition
     PROD,  ///< Product / multiplication
     MIN,  ///< Minimum
@@ -39,20 +39,96 @@ enum class ReduceOp : std::uint8_t {
 };
 
 /**
- * @brief Type-erased reduction operator used by `AllReduce`.
+ * @brief Device-side reduction operators supported by `AllReduce`.
  *
- * The operator must implement an associative binary operation over the contents of
- * two `PackedData` objects and accumulate the result into @p accum.
- *
- * Implementations must:
- *  - Treat @p accum as the running partial result.
- *  - Combine @p incoming into @p accum in-place.
- *  - Leave @p incoming in a valid but unspecified state after the call.
- *
- * The operator is responsible for interpreting `PackedData::metadata` and
- * `PackedData::data` consistently across all ranks.
+ * These closely mirror the reduction operators from MPI.
  */
-using ReduceOperator = std::function<void(PackedData& accum, PackedData&& incoming)>;
+enum class DeviceReduceOp : std::uint8_t {
+    SUM,  ///< Sum / addition
+    PROD,  ///< Product / multiplication
+    MIN,  ///< Minimum
+    MAX,  ///< Maximum
+};
+
+/**
+ * @brief Type trait to determine if an enum type represents a device operator.
+ */
+template <typename OpEnum>
+struct is_device_reduce_op_enum : std::false_type {};
+
+template <>
+struct is_device_reduce_op_enum<DeviceReduceOp> : std::true_type {};
+
+/**
+ * @brief Check if an enum type represents a device operator.
+ */
+template <typename OpEnum>
+inline constexpr bool is_device_reduce_op_enum_v =
+    is_device_reduce_op_enum<OpEnum>::value;
+
+/**
+ * @brief Type alias for the reduction function signature.
+ */
+using ReduceOperatorFunction =
+    std::function<void(PackedData& accum, PackedData&& incoming)>;
+
+/**
+ * @brief Enumeration indicating whether a reduction operator runs on host or device.
+ */
+enum class ReduceOperatorType {
+    Host,  ///< Host-side reduction operator
+    Device  ///< Device-side reduction operator
+};
+
+/**
+ * @brief Reduction operator that preserves type information.
+ *
+ * This class allows AllReduce to determine whether an operator is host- or device-based
+ * without requiring runtime checks. Built-in operators use the HostReduceOp and
+ * DeviceReduceOp enums to determine this, while custom operators should pass
+ * ReduceOperatorType::Device for device-side reduction or ReduceOperatorType::Host for
+ * host-side reduction.
+ */
+class ReduceOperator {
+  public:
+    /**
+     * @brief Construct a new ReduceOperator.
+     *
+     * @param fn The reduction function to wrap.
+     * @param type The type of reduction operator (Host or Device).
+     *
+     * @throw std::runtime_error if fn is empty/invalid.
+     */
+    ReduceOperator(ReduceOperatorFunction fn, ReduceOperatorType type)
+        : fn(std::move(fn)), type_(type) {
+        RAPIDSMPF_EXPECTS(
+            static_cast<bool>(this->fn), "ReduceOperator requires a valid function"
+        );
+    }
+
+    /**
+     * @brief Call the wrapped operator.
+     *
+     * @param accum The accumulator PackedData that will hold the result.
+     * @param incoming The incoming PackedData to combine into the accumulator.
+     */
+    void operator()(PackedData& accum, PackedData&& incoming) const {
+        fn(accum, std::move(incoming));
+    }
+
+    /**
+     * @brief Check if this operator is device-based.
+     *
+     * @return True if this is a device-based operator, false if host-based.
+     */
+    [[nodiscard]] bool is_device() const noexcept {
+        return type_ == ReduceOperatorType::Device;
+    }
+
+  private:
+    ReduceOperatorFunction fn;  ///< The reduction function
+    ReduceOperatorType type_;  ///< The type of reduction (host or device)
+};
 
 /**
  * @brief AllReduce collective.
@@ -83,12 +159,13 @@ class AllReduce {
      * @param op_id Unique operation identifier for this allreduce.
      * @param br Buffer resource for memory allocation.
      * @param statistics Statistics collection instance (disabled by default).
-     * @param reduce_operator Type-erased reduction operator to use.
-     * @param use_device_reduction If true, perform reduction on device memory.
-     *        If false (default), perform reduction on host memory. Buffers will
-     *        be normalized to the target memory type before reduction.
+     * @param reduce_operator Type-erased reduction operator to use. For built-in
+     * operators, use HostReduceOp and DeviceReduceOp enum values for host- and
+     * device-side reduction respectively. For custom operators, pass
+     * ReduceOperatorType::Device for device-side reduction or ReduceOperatorType::Host
+     * for host-side reduction when constructing the ReduceOperator.
      * @param finished_callback Optional callback run once locally when the allreduce
-     *        is finished and results are ready for extraction.
+     * is finished and results are ready for extraction.
      *
      * @note This constructor internally creates an `AllGather` instance
      *       that uses the same communicator, progress thread, and buffer resource.
@@ -97,10 +174,9 @@ class AllReduce {
         std::shared_ptr<Communicator> comm,
         std::shared_ptr<ProgressThread> progress_thread,
         OpID op_id,
+        ReduceOperator reduce_operator,
         BufferResource* br,
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-        ReduceOperator reduce_operator = {},
-        bool use_device_reduction = false,
         std::function<void(void)> finished_callback = nullptr
     );
 
@@ -167,9 +243,8 @@ class AllReduce {
     /// @brief Perform the reduction across all ranks for the gathered contributions.
     [[nodiscard]] PackedData reduce_all(std::vector<PackedData>&& gathered);
 
+    ReduceOperator reduce_operator_;  ///< Reduction operator
     BufferResource* br_;  ///< Buffer resource for memory normalization
-    ReduceOperator reduce_operator_;  ///< Type-erased reduction operator
-    bool use_device_reduction_;  ///< Whether to perform reduction on device memory
 
     Rank nranks_;  ///< Number of ranks in the communicator
     AllGather gatherer_;  ///< Underlying allgather primitive
@@ -201,25 +276,48 @@ template <>
 struct is_supported_arithmetic_op<bool> : std::true_type {};
 
 /**
- * @brief Type trait to check if a (T, Op) combination is supported.
+ * @brief Type trait to check if a (T, OpEnum, Op) combination is supported.
  */
-template <typename T, ReduceOp Op>
+template <typename T, typename OpEnum, OpEnum Op>
 struct is_supported_reduce_op : std::false_type {};
 
+// HostReduceOp specializations
 template <typename T>
-struct is_supported_reduce_op<T, ReduceOp::SUM> : is_supported_arithmetic_op<T> {};
+struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::SUM>
+    : is_supported_arithmetic_op<T> {};
 
 template <typename T>
-struct is_supported_reduce_op<T, ReduceOp::PROD> : is_supported_arithmetic_op<T> {};
+struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::PROD>
+    : is_supported_arithmetic_op<T> {};
 
 template <typename T>
-struct is_supported_reduce_op<T, ReduceOp::MIN> : is_supported_arithmetic_op<T> {};
+struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::MIN>
+    : is_supported_arithmetic_op<T> {};
 
 template <typename T>
-struct is_supported_reduce_op<T, ReduceOp::MAX> : is_supported_arithmetic_op<T> {};
+struct is_supported_reduce_op<T, HostReduceOp, HostReduceOp::MAX>
+    : is_supported_arithmetic_op<T> {};
 
-template <typename T, ReduceOp Op>
-inline constexpr bool is_supported_reduce_op_v = is_supported_reduce_op<T, Op>::value;
+// DeviceReduceOp specializations
+template <typename T>
+struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::SUM>
+    : is_supported_arithmetic_op<T> {};
+
+template <typename T>
+struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::PROD>
+    : is_supported_arithmetic_op<T> {};
+
+template <typename T>
+struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::MIN>
+    : is_supported_arithmetic_op<T> {};
+
+template <typename T>
+struct is_supported_reduce_op<T, DeviceReduceOp, DeviceReduceOp::MAX>
+    : is_supported_arithmetic_op<T> {};
+
+template <typename T, typename OpEnum, OpEnum Op>
+inline constexpr bool is_supported_reduce_op_v =
+    is_supported_reduce_op<T, OpEnum, Op>::value;
 
 /**
  * @brief Create a host-based element-wise reduction operator for a given (T, Op).
@@ -227,11 +325,11 @@ inline constexpr bool is_supported_reduce_op_v = is_supported_reduce_op<T, Op>::
  * The operator assumes that the `PackedData::data` buffers reside in host memory
  * and contain a contiguous array of @p T with identical sizes on all ranks.
  */
-template <typename T, ReduceOp Op>
-ReduceOperator make_host_reduce_operator() {
+template <typename T, HostReduceOp Op>
+ReduceOperatorFunction make_host_reduce_operator_impl() {
     static_assert(
-        is_supported_reduce_op_v<T, Op>,
-        "make_host_reduce_operator called for unsupported (T, Op) combination"
+        is_supported_reduce_op_v<T, HostReduceOp, Op>,
+        "make_host_reduce_operator_impl called for unsupported (T, Op) combination"
     );
 
     auto const apply = [](PackedData& accum, PackedData&& incoming, auto&& op) {
@@ -278,7 +376,7 @@ ReduceOperator make_host_reduce_operator() {
         in_buf->unlock();
     };
 
-    if constexpr (Op == ReduceOp::SUM) {
+    if constexpr (Op == HostReduceOp::SUM) {
         return [apply](PackedData& accum, PackedData&& incoming) {
             if constexpr (std::is_same_v<T, bool>) {
                 apply(accum, std::move(incoming), [](T a, T b) {
@@ -288,70 +386,77 @@ ReduceOperator make_host_reduce_operator() {
                 apply(accum, std::move(incoming), std::plus<T>{});
             }
         };
-    } else if constexpr (Op == ReduceOp::PROD) {
+    } else if constexpr (Op == HostReduceOp::PROD) {
         return [apply](PackedData& accum, PackedData&& incoming) {
             apply(accum, std::move(incoming), std::multiplies<T>{});
         };
-    } else if constexpr (Op == ReduceOp::MIN) {
+    } else if constexpr (Op == HostReduceOp::MIN) {
         return [apply](PackedData& accum, PackedData&& incoming) {
             apply(accum, std::move(incoming), [](T a, T b) { return std::min(a, b); });
         };
-    } else if constexpr (Op == ReduceOp::MAX) {
+    } else if constexpr (Op == HostReduceOp::MAX) {
         return [apply](PackedData& accum, PackedData&& incoming) {
             apply(accum, std::move(incoming), [](T a, T b) { return std::max(a, b); });
         };
     } else {
         static_assert(
-            Op == ReduceOp::SUM || Op == ReduceOp::PROD || Op == ReduceOp::MIN
-                || Op == ReduceOp::MAX,
+            Op == HostReduceOp::SUM || Op == HostReduceOp::PROD || Op == HostReduceOp::MIN
+                || Op == HostReduceOp::MAX,
             "AllReduce operator only implemented for SUM, PROD, MIN, and MAX"
         );
     }
 }
 
 /**
- * @brief Create a device-based element-wise reduction operator for a given (T, Op).
+ * @brief Create a host-based element-wise reduction operator wrapper for a given (T, Op).
+ */
+template <typename T, HostReduceOp Op>
+ReduceOperator make_host_reduce_operator() {
+    return ReduceOperator(
+        make_host_reduce_operator_impl<T, Op>(), ReduceOperatorType::Host
+    );
+}
+
+/**
+ * @brief Create a device-based element-wise reduction operator implementation for a given
+ * (T, Op).
  *
  * This operator expects both `PackedData::data` buffers to reside in device memory.
  * Implementations are provided in `device_kernels.cu` for a subset of (T, Op)
  * combinations.
  */
-template <typename T, ReduceOp Op>
-ReduceOperator make_device_reduce_operator();
+template <typename T, DeviceReduceOp Op>
+ReduceOperatorFunction make_device_reduce_operator_impl();
 
 /**
- * @brief Create a memory-type aware reduction operator for a given (T, Op).
- *
- * The returned operator defaults to host-side reduction. If all buffers are in device
- * memory and device reduction is explicitly requested, it will use device reduction.
- * Otherwise, it normalizes all buffers to host memory and performs host-side reduction.
- *
- * @param prefer_device If true, prefer device-side reduction when all buffers are
- *        device-resident. If false (default), always use host-side reduction.
+ * @brief Create a device-based element-wise reduction operator wrapper for a given (T,
+ * Op).
  */
-template <typename T, ReduceOp Op>
-ReduceOperator make_reduce_operator(bool prefer_device = false) {
-    auto host_operator = make_host_reduce_operator<T, Op>();
-    auto device_operator = make_device_reduce_operator<T, Op>();
+template <typename T, DeviceReduceOp Op>
+ReduceOperator make_device_reduce_operator() {
+    return ReduceOperator(
+        make_device_reduce_operator_impl<T, Op>(), ReduceOperatorType::Device
+    );
+}
 
-    return [host = std::move(host_operator),
-            device = std::move(device_operator),
-            prefer_device](PackedData& accum, PackedData&& incoming) mutable {
-        RAPIDSMPF_EXPECTS(
-            accum.data && incoming.data,
-            "AllReduce reduction operator requires data buffers"
-        );
+/**
+ * @brief Create a reduction operator for a given (T, HostReduceOp).
+ *
+ * Convenience overload for host-side operators.
+ */
+template <typename T, HostReduceOp Op>
+ReduceOperator make_reduce_operator() {
+    return make_host_reduce_operator<T, Op>();
+}
 
-        auto const mem_type = accum.data->mem_type();
-
-        if (prefer_device && mem_type == MemoryType::DEVICE) {
-            device(accum, std::move(incoming));
-        } else {
-            // Default to host operator for HOST (and any other non-DEVICE types such as
-            // MANAGED).
-            host(accum, std::move(incoming));
-        }
-    };
+/**
+ * @brief Create a reduction operator for a given (T, DeviceReduceOp).
+ *
+ * Convenience overload for device-side operators.
+ */
+template <typename T, DeviceReduceOp Op>
+ReduceOperator make_reduce_operator() {
+    return make_device_reduce_operator<T, Op>();
 }
 
 }  // namespace detail
