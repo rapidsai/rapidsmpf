@@ -118,7 +118,7 @@ Context::~Context() noexcept {
     br_->spill_manager().remove_spill_function(spill_function_id_);
 }
 
-config::Options Context::get_options() const noexcept {
+config::Options Context::options() const noexcept {
     return options_;
 }
 
