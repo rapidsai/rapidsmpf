@@ -14,6 +14,7 @@
 #include <cudf/concatenate.hpp>
 #include <cudf/contiguous_split.hpp>
 #include <cudf/copying.hpp>
+#include <cudf/join/filtered_join.hpp>
 #include <cudf/join/hash_join.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/table/table_view.hpp>
@@ -143,6 +144,73 @@ coro::task<streaming::Message> broadcast(
             );
         }
     }
+}
+
+/**
+ * @brief Join a table chunk against a build hash table returning a message of the result.
+ *
+ * @param ctx Streaming context
+ * @param right_chunk Chunk to join
+ * @param sequence Sequence number of the output
+ * @param joiner filtered_join object, representing the build table.
+ * @param build_carrier Columns from the build-side table to be included in the output.
+ * @param right_on Key column indices in `right_chunk`.
+ * @param build_stream Stream the `joiner` will be deallocated on.
+ * @param build_event Event recording the creation of the `joiner`.
+ *
+ * @return Message of `TableChunk` containing the result of the inner join.
+ */
+streaming::Message semi_join_chunk(
+    std::shared_ptr<streaming::Context> ctx,
+    streaming::TableChunk const& left_chunk,
+    streaming::TableChunk&& right_chunk,
+    [[maybe_unused]] std::vector<cudf::size_type> left_on,
+    std::vector<cudf::size_type> right_on,
+    std::uint64_t sequence
+) {
+    CudaEvent event;
+    right_chunk = to_device(ctx, std::move(right_chunk));
+
+    auto joiner = cudf::filtered_join(
+        right_chunk.table_view().select(right_on),
+        cudf::null_equality::UNEQUAL,
+        cudf::set_as_build_table::RIGHT,
+        left_chunk.stream()
+    );
+
+    CudaEvent build_event;
+    build_event.record(left_chunk.stream());
+
+    auto chunk_stream = right_chunk.stream();
+    build_event.stream_wait(chunk_stream);
+
+    auto match = joiner.semi_join(
+        left_chunk.table_view().select(left_on), chunk_stream, ctx->br()->device_mr()
+    );
+
+    ctx->comm()->logger().debug(
+        "semi_join_chunk: left.num_rows()=", left_chunk.table_view().num_rows()
+    );
+    ctx->comm()->logger().debug("semi_join_chunk: match.size()=", match->size());
+
+    cudf::column_view indices = cudf::device_span<cudf::size_type const>(*match);
+    auto result_columns = cudf::gather(
+                              left_chunk.table_view(),
+                              indices,
+                              cudf::out_of_bounds_policy::DONT_CHECK,
+                              chunk_stream,
+                              ctx->br()->device_mr()
+    )
+                              ->release();
+
+    auto result_table = std::make_unique<cudf::table>(std::move(result_columns));
+    ctx->comm()->logger().debug(
+        "semi_join_chunk: result_table.num_rows()=", result_table->num_rows()
+    );
+    return streaming::to_message(
+        sequence,
+        std::make_unique<streaming::TableChunk>(std::move(result_table), chunk_stream)
+    );
 }
 
 /**
@@ -347,6 +415,58 @@ streaming::Node inner_join_shuffle(
     co_await ch_out->drain(ctx->executor());
 }
 
+streaming::Node left_semi_join_broadcast(
+    std::shared_ptr<streaming::Context> ctx,
+    // We will always choose left as build table and do "broadcast" joins
+    std::shared_ptr<streaming::Channel> left,
+    std::shared_ptr<streaming::Channel> right,
+    std::shared_ptr<streaming::Channel> ch_out,
+    std::vector<cudf::size_type> left_on,
+    std::vector<cudf::size_type> right_on,
+    OpID tag,
+    [[maybe_unused]] KeepKeys keep_keys
+) {
+    /* This implementation has some issues.
+
+    - It currently *assumes* that `left` is small and fits in memory
+    - It currently *assumes* that `right` is shuffled
+
+    This is to work around some issues in cudf's filtered join. That
+    currently has a hard requirement that the right table be the build table.
+    So we don't have any table reuse yet.
+    */
+
+
+    streaming::ShutdownAtExit c{left, right, ch_out};
+    co_await ctx->executor()->schedule();
+    ctx->comm()->logger().print("Inner broadcast join ", static_cast<int>(tag));
+    auto left_table = to_device(
+        ctx, (co_await broadcast(ctx, left, tag)).release<streaming::TableChunk>()
+    );
+    ctx->comm()->logger().print(
+        "Left (probe) table has ", left_table.table_view().num_rows(), " rows"
+    );
+
+    std::size_t sequence = 0;
+    while (true) {
+        auto right_msg = co_await right->receive();
+        if (right_msg.empty()) {
+            ctx->comm()->logger().print("left_semi_join_broadcast: no more input");
+            break;
+        }
+        co_await ch_out->send(semi_join_chunk(
+            ctx,
+            left_table,
+            right_msg.release<streaming::TableChunk>(),
+            left_on,
+            right_on,
+            sequence++
+        ));
+    }
+
+    co_await ch_out->drain(ctx->executor());
+}
+
 streaming::Node shuffle(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,
@@ -362,9 +482,13 @@ streaming::Node shuffle(
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
+            ctx->comm()->logger().print("Shuffle: no more input");
             break;
         }
         auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
+        ctx->comm()->logger().print(
+            "Shuffle: received chunk. nrows=", chunk.table_view().num_rows()
+        );
         auto packed = partition_and_pack(
             chunk.table_view(),
             keys,
@@ -377,6 +501,7 @@ streaming::Node shuffle(
         );
         shuffler.insert(std::move(packed));
     }
+    ctx->comm()->logger().print("Shuffle: inserted all chunks");
     co_await shuffler.insert_finished();
     for (auto pid : shuffler.local_partitions()) {
         auto packed_data = co_await shuffler.extract_async(pid);
