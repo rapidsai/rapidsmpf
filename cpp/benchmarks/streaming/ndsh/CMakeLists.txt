@@ -71,6 +71,24 @@ target_link_libraries(
   q09 PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
               $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
 )
+
+add_executable(q18 "q18.cpp")
+set_target_properties(
+  q18
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${RAPIDSMPF_BINARY_DIR}/benchmarks/ndsh>"
+             CXX_STANDARD 20
+             CXX_STANDARD_REQUIRED ON
+             CUDA_STANDARD 20
+             CUDA_STANDARD_REQUIRED ON
+)
+target_compile_options(
+  q18 PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
+              "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
+)
+target_link_libraries(
+  q18 PRIVATE rapidsmpfndsh rapidsmpf::rapidsmpf $<TARGET_NAME_IF_EXISTS:MPI::MPI_C>
+              $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+)
 install(
   TARGETS rapidsmpfndsh
   COMPONENT benchmarking
@@ -78,7 +96,7 @@ install(
   EXCLUDE_FROM_ALL
 )
 install(
-  TARGETS q04 q09
+  TARGETS q04 q09 q18
   COMPONENT benchmarking
   DESTINATION bin/benchmarks/librapidsmpf
   EXCLUDE_FROM_ALL

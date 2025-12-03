@@ -467,6 +467,46 @@ streaming::Node left_semi_join_broadcast(
     co_await ch_out->drain(ctx->executor());
 }
 
+streaming::Node left_semi_join_shuffle(
+    std::shared_ptr<streaming::Context> ctx,
+    std::shared_ptr<streaming::Channel> left,
+    std::shared_ptr<streaming::Channel> right,
+    std::shared_ptr<streaming::Channel> ch_out,
+    std::vector<cudf::size_type> left_on,
+    std::vector<cudf::size_type> right_on,
+    [[maybe_unused]] KeepKeys keep_keys
+) {
+    streaming::ShutdownAtExit c{left, right, ch_out};
+    ctx->comm()->logger().print("Left semi shuffle join");
+    co_await ctx->executor()->schedule();
+    while (true) {
+        // Requirement: two shuffles kick out partitions in the same order
+        auto left_msg = co_await left->receive();
+        auto right_msg = co_await right->receive();
+        if (left_msg.empty()) {
+            RAPIDSMPF_EXPECTS(
+                right_msg.empty(), "Left does not have same number of partitions as right"
+            );
+            break;
+        }
+        RAPIDSMPF_EXPECTS(
+            left_msg.sequence_number() == right_msg.sequence_number(),
+            "Mismatching sequence numbers"
+        );
+        auto left_chunk = to_device(ctx, left_msg.release<streaming::TableChunk>());
+        auto right_chunk = to_device(ctx, right_msg.release<streaming::TableChunk>());
+        co_await ch_out->send(semi_join_chunk(
+            ctx,
+            left_chunk,
+            std::move(right_chunk),
+            left_on,
+            right_on,
+            left_msg.sequence_number()
+        ));
+    }
+    co_await ch_out->drain(ctx->executor());
+}
+
 streaming::Node shuffle(
     std::shared_ptr<streaming::Context> ctx,
     std::shared_ptr<streaming::Channel> ch_in,
