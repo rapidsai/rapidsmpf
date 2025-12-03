@@ -46,6 +46,7 @@
 #include <rapidsmpf/streaming/coll/allgather.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
+#include <rapidsmpf/streaming/core/fanout.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
 #include <rapidsmpf/streaming/cudf/parquet.hpp>
 #include <rapidsmpf/streaming/cudf/table_chunk.hpp>
@@ -491,6 +492,7 @@ struct ProgramOptions {
     cudf::size_type num_rows_per_chunk{100'000'000};
     std::optional<double> spill_device_limit{std::nullopt};
     bool use_shuffle_join = false;
+    bool use_fanout = false;
     std::string output_file;
     std::string input_directory;
 };
@@ -508,6 +510,9 @@ ProgramOptions parse_options(int argc, char** argv) {
             << "  --spill-device-limit <n>     Fractional spill device limit (default: "
                "None)\n"
             << "  --use-shuffle-join           Use shuffle join (default: false)\n"
+            << "  --fanout                     Use fanout instead of re-reading "
+               "lineitem. "
+               "Faster but may increase memory pressure (default: false)\n"
             << "  --output-file <path>         Output file path (required)\n"
             << "  --input-directory <path>     Input directory path (required)\n"
             << "  --help                       Show this help message\n";
@@ -521,6 +526,7 @@ ProgramOptions parse_options(int argc, char** argv) {
         {"input-directory", required_argument, nullptr, 5},
         {"help", no_argument, nullptr, 6},
         {"spill-device-limit", required_argument, nullptr, 7},
+        {"fanout", no_argument, nullptr, 8},
         {nullptr, 0, nullptr, 0}
     };
 
@@ -554,6 +560,9 @@ ProgramOptions parse_options(int argc, char** argv) {
             std::exit(0);
         case 7:
             options.spill_device_limit = std::stod(optarg);
+            break;
+        case 8:
+            options.use_fanout = true;
             break;
         case '?':
             if (optopt == 0 && optind > 1) {
@@ -674,15 +683,45 @@ int main(int argc, char** argv) {
                 // Number of partitions for shuffle operations
                 std::uint32_t num_partitions = 16;
 
-                // Read lineitem for the subquery (groupby + filter)
+                // Channels for lineitem data
                 auto lineitem_for_agg = ctx->create_channel();
-                nodes.push_back(read_lineitem(
-                    ctx,
-                    lineitem_for_agg,
-                    /* num_tickets */ 4,
-                    cmd_options.num_rows_per_chunk,
-                    cmd_options.input_directory
-                ));  // l_orderkey, l_quantity
+                auto lineitem_for_join = ctx->create_channel();
+
+                if (cmd_options.use_fanout) {
+                    // Use fanout: read lineitem once, broadcast to both consumers
+                    auto lineitem = ctx->create_channel();
+                    nodes.push_back(read_lineitem(
+                        ctx,
+                        lineitem,
+                        /* num_tickets */ 4,
+                        cmd_options.num_rows_per_chunk,
+                        cmd_options.input_directory
+                    ));
+                    nodes.push_back(
+                        rapidsmpf::streaming::node::fanout(
+                            ctx,
+                            lineitem,
+                            {lineitem_for_agg, lineitem_for_join},
+                            rapidsmpf::streaming::node::FanoutPolicy::UNBOUNDED
+                        )
+                    );
+                } else {
+                    // Read lineitem twice (avoids potential fanout issues)
+                    nodes.push_back(read_lineitem(
+                        ctx,
+                        lineitem_for_agg,
+                        /* num_tickets */ 4,
+                        cmd_options.num_rows_per_chunk,
+                        cmd_options.input_directory
+                    ));
+                    nodes.push_back(read_lineitem(
+                        ctx,
+                        lineitem_for_join,
+                        /* num_tickets */ 4,
+                        cmd_options.num_rows_per_chunk,
+                        cmd_options.input_directory
+                    ));
+                }
 
                 // Read orders
                 auto orders = ctx->create_channel();
@@ -693,17 +732,6 @@ int main(int argc, char** argv) {
                     cmd_options.num_rows_per_chunk,
                     cmd_options.input_directory
                 ));  // o_orderkey, o_custkey, o_orderdate, o_totalprice
-
-                // Read lineitem again for the main join
-                // (Reading twice avoids deadlock from fanout with blocked channel)
-                auto lineitem_for_join = ctx->create_channel();
-                nodes.push_back(read_lineitem(
-                    ctx,
-                    lineitem_for_join,
-                    /* num_tickets */ 4,
-                    cmd_options.num_rows_per_chunk,
-                    cmd_options.input_directory
-                ));  // l_orderkey, l_quantity
 
                 // Read customer
                 auto customer = ctx->create_channel();
