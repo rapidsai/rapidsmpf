@@ -114,46 +114,6 @@ My filtered table looks a bit off. 5,733,776 instead of 5,257,429
 
 namespace {
 
-// DEBUG: Helper to print first few rows of a table
-void debug_print_table(
-    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-    cudf::table_view const& table,
-    std::string const& label
-) {
-    if (table.num_rows() == 0) {
-        ctx->comm()->logger().print("[DEBUG] ", label, " is empty");
-        return;
-    }
-    ctx->comm()->logger().print("[DEBUG] ", label, " rows ", table.num_rows());
-
-    // For simplicity, just print that we have the table
-    // To actually print values would require type dispatch and host copies
-    for (cudf::size_type col_idx = 0; col_idx < table.num_columns(); ++col_idx) {
-        ctx->comm()->logger().print(
-            "  Column ",
-            col_idx,
-            ": type=",
-            cudf::type_to_name(table.column(col_idx).type()),
-            " size=",
-            table.column(col_idx).size(),
-            " nulls=",
-            table.column(col_idx).null_count()
-        );
-    }
-}
-
-// TODO: move this
-std::string get_table_path(
-    std::string const& input_directory, std::string const& table_name
-) {
-    auto dir = input_directory.empty() ? "." : input_directory;
-    auto file_path = dir + "/" + table_name + ".parquet";
-    if (std::filesystem::exists(file_path)) {
-        return file_path;
-    }
-    return dir + "/" + table_name + "/";
-}
-
 /* Select the columns after the join
 
 Input table:
@@ -172,7 +132,7 @@ rapidsmpf::streaming::Node select_columns(
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
-            ctx->comm()->logger().print("Select columns: no more input");
+            ctx->comm()->logger().debug("Select columns: no more input");
             break;
         }
         co_await ctx->executor()->schedule();
@@ -183,32 +143,22 @@ rapidsmpf::streaming::Node select_columns(
         auto sequence_number = msg.sequence_number();
         auto table = chunk.table_view();
 
-        debug_print_table(ctx, table, "select_columns::input!!!!!");
-        std::cout << "test 1" << std::endl;
+        rapidsmpf::ndsh::detail::debug_print_table(
+            ctx, table, "select_columns::input!!!!!"
+        );
         std::vector<std::unique_ptr<cudf::column>> result;
-        std::cout << "test 2" << std::endl;
         result.reserve(1);
-        std::cout << "test 3" << std::endl;
-        // o_orderpriority
-        // TODO: This index might change once we do a semi join, which only
-        // returns results from the left table.
-        // my guess is that *this* throws, and then we see the messages
-        // about no more output elsewhere from the cleanup stuff.
         result.push_back(
             std::make_unique<cudf::column>(
-                // o_orderpriority
-                table.column(1),
-                chunk_stream,
-                ctx->br()->device_mr()
+                table.column(1), chunk_stream, ctx->br()->device_mr()
             )
         );
 
-        std::cout << "test 4" << std::endl;
         auto result_table = std::make_unique<cudf::table>(std::move(result));
-        std::cout << "test 5" << std::endl;
 
-        debug_print_table(ctx, result_table->view(), "select_columns::output");
-        std::cout << "test 6" << std::endl;
+        rapidsmpf::ndsh::detail::debug_print_table(
+            ctx, result_table->view(), "select_columns::output"
+        );
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
                 sequence_number,
@@ -238,7 +188,7 @@ rapidsmpf::streaming::Node read_lineitem(
     std::string const& input_directory
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
-        get_table_path(input_directory, "lineitem")
+        rapidsmpf::ndsh::detail::get_table_path(input_directory, "lineitem")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({
@@ -270,7 +220,7 @@ rapidsmpf::streaming::Node read_orders(
     std::string const& input_directory
 ) {
     auto files = rapidsmpf::ndsh::detail::list_parquet_files(
-        get_table_path(input_directory, "orders")
+        rapidsmpf::ndsh::detail::get_table_path(input_directory, "orders")
     );
     auto options = cudf::io::parquet_reader_options::builder(cudf::io::source_info(files))
                        .columns({
@@ -318,7 +268,7 @@ rapidsmpf::streaming::Node filter_lineitem(
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
 
-        debug_print_table(ctx, table, "lineitem");
+        rapidsmpf::ndsh::detail::debug_print_table(ctx, table, "lineitem");
 
         auto l_commitdate = table.column(0);
         auto l_receiptdate = table.column(1);
@@ -332,7 +282,9 @@ rapidsmpf::streaming::Node filter_lineitem(
         );
         auto filtered_table =
             cudf::apply_boolean_mask(table.select({2}), mask->view(), chunk_stream, mr);
-        debug_print_table(ctx, filtered_table->view(), "filtered_lineitem");
+        rapidsmpf::ndsh::detail::debug_print_table(
+            ctx, filtered_table->view(), "filtered_lineitem"
+        );
         // TODO: Confirm that this is needed...
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
@@ -378,7 +330,7 @@ rapidsmpf::streaming::Node filter_order(
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
 
-        debug_print_table(ctx, table, "orders");
+        rapidsmpf::ndsh::detail::debug_print_table(ctx, table, "orders");
 
         auto var1 = cudf::timestamp_scalar<cudf::timestamp_D>(
             8582,  // 1993-07-01
@@ -423,7 +375,9 @@ rapidsmpf::streaming::Node filter_order(
         auto filtered_table = cudf::apply_boolean_mask(
             table.select({1, 2}), mask->view(), chunk_stream, mr
         );
-        debug_print_table(ctx, filtered_table->view(), "filtered_order");
+        rapidsmpf::ndsh::detail::debug_print_table(
+            ctx, filtered_table->view(), "filtered_order"
+        );
 
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
@@ -463,7 +417,7 @@ rapidsmpf::streaming::Node chunkwise_groupby_agg(
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
-            ctx->comm()->logger().print("Chunkwise groupby agg: no more input");
+            ctx->comm()->logger().debug("Chunkwise groupby agg: no more input");
             break;
         }
         co_await ctx->executor()->schedule();
@@ -473,7 +427,9 @@ rapidsmpf::streaming::Node chunkwise_groupby_agg(
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
 
-        debug_print_table(ctx, table, "chunkwise_groupby_agg::input");
+        rapidsmpf::ndsh::detail::debug_print_table(
+            ctx, table, "chunkwise_groupby_agg::input"
+        );
 
         auto grouper = cudf::groupby::groupby(
             table.select({0}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
@@ -494,7 +450,9 @@ rapidsmpf::streaming::Node chunkwise_groupby_agg(
         }
 
         auto result_table = std::make_unique<cudf::table>(std::move(result));
-        debug_print_table(ctx, result_table->view(), "chunkwise_groupby_agg::output");
+        rapidsmpf::ndsh::detail::debug_print_table(
+            ctx, result_table->view(), "chunkwise_groupby_agg::output"
+        );
 
 
         co_await ch_out->send(
@@ -536,14 +494,14 @@ rapidsmpf::streaming::Node final_groupby_agg(
     // TODO: requires concatenated input stream.
     auto msg = co_await ch_in->receive();
     auto next = co_await ch_in->receive();
-    ctx->comm()->logger().print("Final groupby");
+    ctx->comm()->logger().debug("Final groupby");
     RAPIDSMPF_EXPECTS(next.empty(), "Expecting concatenated input at this point");
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
     auto chunk_stream = chunk.stream();
     auto table = chunk.table_view();
 
-    debug_print_table(ctx, table, "final_groupby_agg::input");
+    rapidsmpf::ndsh::detail::debug_print_table(ctx, table, "final_groupby_agg::input");
     std::unique_ptr<cudf::table> local_result{nullptr};
     if (!table.is_empty()) {
         auto grouper = cudf::groupby::groupby(
@@ -660,17 +618,17 @@ rapidsmpf::streaming::Node sort_by(
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
-    ctx->comm()->logger().print("Final sortby");
+    ctx->comm()->logger().debug("Final sortby");
     auto msg = co_await ch_in->receive();
     // We know we only have a single chunk from the groupby
     if (msg.empty()) {
         co_return;
     }
-    ctx->comm()->logger().print("Sortby");
+    ctx->comm()->logger().debug("Sortby");
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
     auto table = chunk.table_view();
-    debug_print_table(ctx, table, "sort_by::input");
+    rapidsmpf::ndsh::detail::debug_print_table(ctx, table, "sort_by::input");
     auto result = rapidsmpf::streaming::to_message(
         0,
         std::make_unique<rapidsmpf::streaming::TableChunk>(
@@ -700,7 +658,7 @@ rapidsmpf::streaming::Node write_parquet(
     if (msg.empty()) {
         co_return;
     }
-    ctx->comm()->logger().print("write parquet");
+    ctx->comm()->logger().debug("write parquet");
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
     auto sink = cudf::io::sink_info(output_path);
@@ -920,7 +878,7 @@ int main(int argc, char** argv) {
                 nodes.push_back(filter_order(ctx, order, filtered_order));  // o_orderkey
 
 
-                // TODO: customisable
+                // TODO: customizable num_partitions
                 std::uint32_t num_partitions = 16;
                 nodes.push_back(
                     rapidsmpf::ndsh::shuffle(

@@ -154,7 +154,7 @@ coro::task<streaming::Message> broadcast(
  * @param sequence Sequence number of the output
  * @param joiner filtered_join object, representing the build table.
  * @param build_carrier Columns from the build-side table to be included in the output.
- * @param right_on Key column indiecs in `right_chunk`.
+ * @param right_on Key column indices in `right_chunk`.
  * @param build_stream Stream the `joiner` will be deallocated on.
  * @param build_event Event recording the creation of the `joiner`.
  *
@@ -167,11 +167,6 @@ streaming::Message semi_join_chunk(
     [[maybe_unused]] std::vector<cudf::size_type> left_on,
     std::vector<cudf::size_type> right_on,
     std::uint64_t sequence
-    // cudf::filtered_join& joiner,
-    // cudf::table_view build_carrier,
-    // std::vector<cudf::size_type> right_on,
-    // rmm::cuda_stream_view build_stream,
-    // CudaEvent* build_event
 ) {
     CudaEvent event;
     right_chunk = to_device(ctx, std::move(right_chunk));
@@ -193,10 +188,10 @@ streaming::Message semi_join_chunk(
         left_chunk.table_view().select(left_on), chunk_stream, ctx->br()->device_mr()
     );
 
-    ctx->comm()->logger().print(
+    ctx->comm()->logger().debug(
         "semi_join_chunk: left.num_rows()=", left_chunk.table_view().num_rows()
     );
-    ctx->comm()->logger().print("semi_join_chunk: match.size()=", match->size());
+    ctx->comm()->logger().debug("semi_join_chunk: match.size()=", match->size());
 
     cudf::column_view indices = cudf::device_span<cudf::size_type const>(*match);
     auto result_columns = cudf::gather(
@@ -209,7 +204,7 @@ streaming::Message semi_join_chunk(
                               ->release();
 
     auto result_table = std::make_unique<cudf::table>(std::move(result_columns));
-    ctx->comm()->logger().print(
+    ctx->comm()->logger().debug(
         "semi_join_chunk: result_table.num_rows()=", result_table->num_rows()
     );
     return streaming::to_message(

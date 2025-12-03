@@ -68,9 +68,6 @@ streaming::Node concatenate(
             auto chunk = msg.release<streaming::TableChunk>();
             chunk = to_device(ctx, std::move(chunk));
             cuda_stream_join(concat_stream, chunk.stream(), &event);
-            ctx->comm()->logger().print(
-                "Concatenate chunk ", chunk.table_view().num_rows()
-            );
             views.push_back(chunk.table_view());
             chunks.push_back(std::move(chunk));
         }
