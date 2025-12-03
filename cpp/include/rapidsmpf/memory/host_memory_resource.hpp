@@ -43,34 +43,25 @@ class HostMemoryResource {
     HostMemoryResource& operator=(HostMemoryResource&&) = default;
 
     /**
-     * @brief Synchronously allocates host memory.
+     * @brief Synchronously allocates host memory is disabled.
      *
-     * @param size Number of bytes to allocate.
-     * @param alignment Required alignment, must be a power of two.
-     * @return Pointer to the allocated memory.
+     * Always use stream-ordered allocators in RapidsMPF.
      *
-     * @throw std::bad_alloc If the allocation fails.
-     * @throw std::invalid_argument If @p alignment is not a valid alignment.
+     * @return N/A.
+     *
+     * @throw std::invalid_argument Always.
      */
-    void* allocate_sync(std::size_t size, std::size_t alignment) {
-        return do_allocate(size, rmm::cuda_stream_default, alignment);
+    void* allocate_sync(std::size_t, std::size_t) {
+        RAPIDSMPF_FAIL(
+            "only async stream-ordered allocation must be used in RapidsMPF",
+            std::invalid_argument
+        );
     }
 
     /**
-     * @brief Synchronously deallocates host memory.
-     *
-     * The CUDA default stream is synchronized before deallocation to ensure
-     * that any in-flight operations that might touch @p ptr have completed.
-     *
-     * @param ptr Pointer to the memory to deallocate. May be nullptr.
-     * @param size Number of bytes previously allocated at @p ptr.
-     * @param alignment Alignment originally used for the allocation.
+     * @brief Synchronously deallocates host memory is disabled.
      */
-    void deallocate_sync(
-        void* ptr, std::size_t size, [[maybe_unused]] std::size_t alignment
-    ) noexcept {
-        do_deallocate(ptr, size, rmm::cuda_stream_default, alignment);
-    }
+    void deallocate_sync(void*, std::size_t, std::size_t) noexcept {}
 
     /**
      * @brief Allocates host memory associated with a CUDA stream.
