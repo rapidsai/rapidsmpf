@@ -4,7 +4,6 @@
  */
 #pragma once
 
-#include <array>
 #include <atomic>
 #include <cstddef>
 #include <functional>
@@ -19,22 +18,10 @@
 
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
-
-/// @brief Enum representing the type of memory.
-enum class MemoryType : int {
-    DEVICE = 0,  ///< Device memory
-    HOST = 1  ///< Host memory
-};
-
-/// @brief The lowest memory type that can be spilled to.
-constexpr MemoryType LowestSpillType = MemoryType::HOST;
-
-/// @brief Array of all the different memory types.
-/// @note Ensure that this array is always sorted in decreasing order of preference.
-constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
 
 /**
  * @brief Buffer representing device or host memory.
