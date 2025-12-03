@@ -29,9 +29,6 @@ enum class MemoryType : int {
     HOST = 1  ///< Host memory
 };
 
-/// @brief The lowest memory type that can be spilled to.
-constexpr MemoryType LowestSpillType = MemoryType::HOST;
-
 /// @brief Array of all the different memory types.
 /// @note Ensure that this array is always sorted in decreasing order of preference.
 constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
