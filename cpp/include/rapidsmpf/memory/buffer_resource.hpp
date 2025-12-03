@@ -134,6 +134,11 @@ class BufferResource {
     /**
      * @brief Reserve device memory and spill if necessary.
      *
+     * Attempts to reserve the requested amount of device memory. If insufficient memory
+     * is available, spilling is triggered to free up space. When overbooking is allowed,
+     * the reservation may succeed even if spilling was not sufficient to fully satisfy
+     * the request.
+     *
      * @param size The size of the memory to reserve.
      * @param allow_overbooking Whether to allow overbooking. If false, ensures enough
      * memory is freed to satisfy the reservation; otherwise, allows overbooking even
