@@ -11,6 +11,19 @@
 
 namespace rapidsmpf {
 
+namespace {
+/// @brief Helper that adds missing functions to the `memory_available` argument.
+auto add_missing_availability_functions(
+    std::unordered_map<MemoryType, BufferResource::MemoryAvailable>&& memory_available
+) {
+    for (MemoryType mem_type : MEMORY_TYPES) {
+        // Add missing memory availability functions.
+        memory_available.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);
+    }
+    return memory_available;
+}
+}  // namespace
+
 BufferResource::BufferResource(
     rmm::device_async_resource_ref device_mr,
     std::unordered_map<MemoryType, MemoryAvailable> memory_available,
@@ -19,14 +32,10 @@ BufferResource::BufferResource(
     std::shared_ptr<Statistics> statistics
 )
     : device_mr_{device_mr},
-      memory_available_{std::move(memory_available)},
+      memory_available_{add_missing_availability_functions(std::move(memory_available))},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
       statistics_{std::move(statistics)} {
-    for (MemoryType mem_type : MEMORY_TYPES) {
-        // Add missing memory availability functions.
-        memory_available_.try_emplace(mem_type, std::numeric_limits<std::int64_t>::max);
-    }
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
@@ -54,21 +63,14 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     return {MemoryReservation(mem_type, this, size), overbooking};
 }
 
-MemoryReservation BufferResource::reserve_and_spill(
-    MemoryType mem_type, size_t size, bool allow_overbooking
+MemoryReservation BufferResource::reserve_device_memory_and_spill(
+    size_t size, bool allow_overbooking
 ) {
     // reserve device memory with overbooking
-    auto [reservation, ob] = reserve(mem_type, size, true);
+    auto [reservation, ob] = reserve(MemoryType::DEVICE, size, true);
 
     // ask the spill manager to make room for overbooking
     if (ob > 0) {
-        RAPIDSMPF_EXPECTS(
-            mem_type < LowestSpillType,
-            "Allocating on the lowest spillable memory type resulted in overbooking",
-            std::overflow_error
-        );
-
-        // TODO: spill functions should be aware of the memory type it should spill to
         auto spilled = spill_manager_.spill(ob);
         RAPIDSMPF_EXPECTS(
             allow_overbooking || spilled >= ob,

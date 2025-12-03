@@ -32,8 +32,8 @@ Node partition_and_pack(
             break;
         }
         auto table = msg.release<TableChunk>();
-        auto reservation = ctx->br()->reserve_and_spill(
-            MemoryType::DEVICE, table.make_available_cost(), false
+        auto reservation = ctx->br()->reserve_device_memory_and_spill(
+            table.make_available_cost(), false
         );
         auto tbl = table.make_available(reservation);
 
