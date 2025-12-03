@@ -492,7 +492,6 @@ struct ProgramOptions {
     cudf::size_type num_rows_per_chunk{100'000'000};
     std::optional<double> spill_device_limit{std::nullopt};
     bool use_shuffle_join = false;
-    bool use_fanout = false;
     std::string output_file;
     std::string input_directory;
 };
@@ -510,9 +509,6 @@ ProgramOptions parse_options(int argc, char** argv) {
             << "  --spill-device-limit <n>     Fractional spill device limit (default: "
                "None)\n"
             << "  --use-shuffle-join           Use shuffle join (default: false)\n"
-            << "  --fanout                     Use fanout instead of re-reading "
-               "lineitem. "
-               "Faster but may increase memory pressure (default: false)\n"
             << "  --output-file <path>         Output file path (required)\n"
             << "  --input-directory <path>     Input directory path (required)\n"
             << "  --help                       Show this help message\n";
@@ -526,7 +522,6 @@ ProgramOptions parse_options(int argc, char** argv) {
         {"input-directory", required_argument, nullptr, 5},
         {"help", no_argument, nullptr, 6},
         {"spill-device-limit", required_argument, nullptr, 7},
-        {"fanout", no_argument, nullptr, 8},
         {nullptr, 0, nullptr, 0}
     };
 
@@ -560,9 +555,6 @@ ProgramOptions parse_options(int argc, char** argv) {
             std::exit(0);
         case 7:
             options.spill_device_limit = std::stod(optarg);
-            break;
-        case 8:
-            options.use_fanout = true;
             break;
         case '?':
             if (optopt == 0 && optind > 1) {
@@ -683,46 +675,6 @@ int main(int argc, char** argv) {
                 // Number of partitions for shuffle operations
                 std::uint32_t num_partitions = 16;
 
-                // Channels for lineitem data
-                auto lineitem_for_agg = ctx->create_channel();
-                auto lineitem_for_join = ctx->create_channel();
-
-                if (cmd_options.use_fanout) {
-                    // Use fanout: read lineitem once, broadcast to both consumers
-                    auto lineitem = ctx->create_channel();
-                    nodes.push_back(read_lineitem(
-                        ctx,
-                        lineitem,
-                        /* num_tickets */ 4,
-                        cmd_options.num_rows_per_chunk,
-                        cmd_options.input_directory
-                    ));
-                    nodes.push_back(
-                        rapidsmpf::streaming::node::fanout(
-                            ctx,
-                            lineitem,
-                            {lineitem_for_agg, lineitem_for_join},
-                            rapidsmpf::streaming::node::FanoutPolicy::UNBOUNDED
-                        )
-                    );
-                } else {
-                    // Read lineitem twice (avoids potential fanout issues)
-                    nodes.push_back(read_lineitem(
-                        ctx,
-                        lineitem_for_agg,
-                        /* num_tickets */ 4,
-                        cmd_options.num_rows_per_chunk,
-                        cmd_options.input_directory
-                    ));
-                    nodes.push_back(read_lineitem(
-                        ctx,
-                        lineitem_for_join,
-                        /* num_tickets */ 4,
-                        cmd_options.num_rows_per_chunk,
-                        cmd_options.input_directory
-                    ));
-                }
-
                 // Read orders
                 auto orders = ctx->create_channel();
                 nodes.push_back(read_orders(
@@ -748,14 +700,24 @@ int main(int argc, char** argv) {
                 if (cmd_options.use_shuffle_join) {
                     // ========== SHUFFLE-BASED PIPELINE ==========
                     // For large scale factors (SF300+), use shuffle-based operations
+                    // Shuffle lineitem once, then fanout to both consumers.
 
-                    // 1. Shuffle lineitem by l_orderkey, then groupby+filter per
-                    // partition
+                    // 1. Read lineitem once
+                    auto lineitem = ctx->create_channel();
+                    nodes.push_back(read_lineitem(
+                        ctx,
+                        lineitem,
+                        /* num_tickets */ 4,
+                        cmd_options.num_rows_per_chunk,
+                        cmd_options.input_directory
+                    ));
+
+                    // 2. Shuffle lineitem by l_orderkey (single shuffle for both uses)
                     auto lineitem_shuffled = ctx->create_channel();
                     nodes.push_back(
                         rapidsmpf::ndsh::shuffle(
                             ctx,
-                            lineitem_for_agg,
+                            lineitem,
                             lineitem_shuffled,
                             {0},  // l_orderkey
                             num_partitions,
@@ -765,13 +727,25 @@ int main(int argc, char** argv) {
                         )
                     );
 
-                    // Groupby+filter per partition (output is partitioned by l_orderkey)
+                    // 3. Fanout shuffled lineitem to both consumers (agg and join)
+                    auto lineitem_for_groupby = ctx->create_channel();
+                    auto lineitem_for_join = ctx->create_channel();
+                    nodes.push_back(
+                        rapidsmpf::streaming::node::fanout(
+                            ctx,
+                            lineitem_shuffled,
+                            {lineitem_for_groupby, lineitem_for_join},
+                            rapidsmpf::streaming::node::FanoutPolicy::UNBOUNDED
+                        )
+                    );
+
+                    // 4. Groupby+filter per partition (output stays partitioned)
                     auto lineitem_agg_filtered = ctx->create_channel();
                     nodes.push_back(groupby_filter_lineitem(
-                        ctx, lineitem_shuffled, lineitem_agg_filtered, 300.0
+                        ctx, lineitem_for_groupby, lineitem_agg_filtered, 300.0
                     ));  // l_orderkey, sum_quantity (filtered, partitioned)
 
-                    // 2. Shuffle orders by o_orderkey
+                    // 5. Shuffle orders by o_orderkey
                     auto orders_shuffled = ctx->create_channel();
                     nodes.push_back(
                         rapidsmpf::ndsh::shuffle(
@@ -786,7 +760,7 @@ int main(int argc, char** argv) {
                         )
                     );
 
-                    // 3. Shuffle semi-join: orders x lineitem_agg (both partitioned)
+                    // 6. Shuffle semi-join: orders x lineitem_agg (both partitioned)
                     auto orders_filtered = ctx->create_channel();
                     nodes.push_back(
                         rapidsmpf::ndsh::left_semi_join_shuffle(
@@ -800,28 +774,13 @@ int main(int argc, char** argv) {
                         )
                     );  // o_orderkey, o_custkey, o_orderdate, o_totalprice (partitioned)
 
-                    // 4. Shuffle lineitem for main join by l_orderkey
-                    auto lineitem_for_join_shuffled = ctx->create_channel();
-                    nodes.push_back(
-                        rapidsmpf::ndsh::shuffle(
-                            ctx,
-                            lineitem_for_join,
-                            lineitem_for_join_shuffled,
-                            {0},  // l_orderkey
-                            num_partitions,
-                            rapidsmpf::OpID{
-                                static_cast<rapidsmpf::OpID>(10 * i + op_id++)
-                            }
-                        )
-                    );
-
-                    // 5. Shuffle inner join: orders_filtered x lineitem (both
+                    // 7. Shuffle inner join: orders_filtered x lineitem (both
                     // partitioned)
                     nodes.push_back(
                         rapidsmpf::ndsh::inner_join_shuffle(
                             ctx,
                             orders_filtered,
-                            lineitem_for_join_shuffled,
+                            lineitem_for_join,
                             orders_x_lineitem,
                             {0},  // o_orderkey
                             {0},  // l_orderkey
@@ -832,6 +791,27 @@ int main(int argc, char** argv) {
                 } else {
                     // ========== BROADCAST-BASED PIPELINE ==========
                     // For smaller scale factors, use broadcast joins
+
+                    // Read lineitem once, fanout to both consumers
+                    auto lineitem = ctx->create_channel();
+                    nodes.push_back(read_lineitem(
+                        ctx,
+                        lineitem,
+                        /* num_tickets */ 4,
+                        cmd_options.num_rows_per_chunk,
+                        cmd_options.input_directory
+                    ));
+
+                    auto lineitem_for_agg = ctx->create_channel();
+                    auto lineitem_for_join = ctx->create_channel();
+                    nodes.push_back(
+                        rapidsmpf::streaming::node::fanout(
+                            ctx,
+                            lineitem,
+                            {lineitem_for_agg, lineitem_for_join},
+                            rapidsmpf::streaming::node::FanoutPolicy::UNBOUNDED
+                        )
+                    );
 
                     // Groupby l_orderkey, sum(l_quantity), filter > 300
                     auto lineitem_agg_filtered = ctx->create_channel();
