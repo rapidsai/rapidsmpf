@@ -303,7 +303,6 @@ rapidsmpf::streaming::Node chunkwise_groupby_agg(
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
-    std::vector<cudf::table> partial_results;
     std::uint64_t sequence = 0;
     while (true) {
         auto msg = co_await ch_in->receive();
@@ -411,40 +410,33 @@ rapidsmpf::streaming::Node final_groupby_agg(
                 ctx->br(),
                 ctx->statistics()
             );
-            if (ctx->comm()->rank() == 0) {
-                // We will only actually bother to do this on rank zero.
-                auto result_view = global_result->view();
-                auto grouper = cudf::groupby::groupby(
-                    result_view.select({0, 1}),
-                    cudf::null_policy::EXCLUDE,
-                    cudf::sorted::NO
-                );
-                auto requests = std::vector<cudf::groupby::aggregation_request>();
-                std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
-                aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
-                requests.push_back(
-                    cudf::groupby::aggregation_request(
-                        result_view.column(2), std::move(aggs)
-                    )
-                );
-                auto [keys, results] =
-                    grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
-                global_result.reset();
-                auto result = keys->release();
-                for (auto&& r : results) {
-                    std::ranges::move(r.results, std::back_inserter(result));
-                }
-                co_await ch_out->send(
-                    rapidsmpf::streaming::to_message(
-                        0,
-                        std::make_unique<rapidsmpf::streaming::TableChunk>(
-                            std::make_unique<cudf::table>(std::move(result)), chunk_stream
-                        )
-                    )
-                );
+
+            // We will only actually bother to do this on rank zero.
+            auto result_view = global_result->view();
+            auto grouper = cudf::groupby::groupby(
+                result_view.select({0, 1}), cudf::null_policy::EXCLUDE, cudf::sorted::NO
+            );
+            auto requests = std::vector<cudf::groupby::aggregation_request>();
+            std::vector<std::unique_ptr<cudf::groupby_aggregation>> aggs;
+            aggs.push_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
+            requests.push_back(
+                cudf::groupby::aggregation_request(result_view.column(2), std::move(aggs))
+            );
+            auto [keys, results] =
+                grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
+            global_result.reset();
+            auto result = keys->release();
+            for (auto&& r : results) {
+                std::ranges::move(r.results, std::back_inserter(result));
             }
-        } else {
-            std::ignore = std::move(packed_data);
+            co_await ch_out->send(
+                rapidsmpf::streaming::to_message(
+                    0,
+                    std::make_unique<rapidsmpf::streaming::TableChunk>(
+                        std::make_unique<cudf::table>(std::move(result)), chunk_stream
+                    )
+                )
+            );
         }
     } else {
         co_await ch_out->send(
