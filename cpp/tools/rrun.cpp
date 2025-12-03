@@ -67,6 +67,9 @@ struct Config {
     bool verbose{false};  // Verbose output
     bool cleanup{true};  // Cleanup coordination directory on exit
     bool tag_output{false};  // Tag output with rank number
+    bool bind_cpu{true};  // Bind to CPU affinity (default: true)
+    bool bind_memory{true};  // Bind to NUMA memory (default: true)
+    bool bind_network{true};  // Bind to network devices (default: true)
     std::optional<rapidsmpf::SystemTopologyInfo>
         topology;  // Discovered topology information
     std::map<int, rapidsmpf::GpuTopologyInfo const*>
@@ -137,6 +140,11 @@ void print_usage(std::string_view prog_name) {
         << "Common Options:\n"
         << "  -d <coord_dir>     Coordination directory (default: /tmp/rrun_<random>)\n"
         << "  --tag-output       Tag stdout and stderr with rank number\n"
+        << "  --bind-to <type>   Bind to topology resources (default: all)\n"
+        << "                     Can be specified multiple times\n"
+        << "                     Options: cpu, memory, network, all, none\n"
+        << "                     Examples: --bind-to cpu --bind-to network\n"
+        << "                              --bind-to none (disable all bindings)\n"
         << "  -x, --set-env <VAR=val>\n"
         << "                     Set environment variable for all ranks\n"
         << "                     Can be specified multiple times\n"
@@ -314,6 +322,31 @@ Config parse_args(int argc, char* argv[]) {
             cfg.gpus = parse_gpu_list(argv[++i]);
         } else if (arg == "--tag-output") {
             cfg.tag_output = true;
+        } else if (arg == "--bind-to") {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing argument for --bind-to");
+            }
+            std::string bind_type = argv[++i];
+            if (bind_type == "none") {
+                cfg.bind_cpu = false;
+                cfg.bind_memory = false;
+                cfg.bind_network = false;
+            } else if (bind_type == "all") {
+                cfg.bind_cpu = true;
+                cfg.bind_memory = true;
+                cfg.bind_network = true;
+            } else if (bind_type == "cpu") {
+                cfg.bind_cpu = true;
+            } else if (bind_type == "memory") {
+                cfg.bind_memory = true;
+            } else if (bind_type == "network") {
+                cfg.bind_network = true;
+            } else {
+                throw std::runtime_error(
+                    "Invalid --bind-to option: " + bind_type
+                    + ". Valid options: cpu, memory, network, all, none"
+                );
+            }
         } else if (arg == "-d") {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing argument for -d");
@@ -524,7 +557,7 @@ pid_t launch_rank_local(
                 if (it != cfg.gpu_topology_map.end()) {
                     auto const& gpu_info = *it->second;
 
-                    if (!gpu_info.cpu_affinity_list.empty()) {
+                    if (cfg.bind_cpu && !gpu_info.cpu_affinity_list.empty()) {
                         if (!set_cpu_affinity(gpu_info.cpu_affinity_list)) {
                             std::cerr << "Warning: Failed to set CPU affinity for rank "
                                       << captured_rank << " (GPU " << gpu_id << ")"
@@ -532,7 +565,7 @@ pid_t launch_rank_local(
                         }
                     }
 
-                    if (!gpu_info.memory_binding.empty()) {
+                    if (cfg.bind_memory && !gpu_info.memory_binding.empty()) {
                         if (!set_numa_memory_binding(gpu_info.memory_binding)) {
 #if RAPIDSMPF_HAVE_NUMA
                             std::cerr
@@ -543,7 +576,7 @@ pid_t launch_rank_local(
                         }
                     }
 
-                    if (!gpu_info.network_devices.empty()) {
+                    if (cfg.bind_network && !gpu_info.network_devices.empty()) {
                         std::string ucx_net_devices;
                         for (size_t i = 0; i < gpu_info.network_devices.size(); ++i) {
                             if (i > 0) {
@@ -641,6 +674,24 @@ int main(int argc, char* argv[]) {
                       << "  Application:   " << cfg.app_binary << "\n"
                       << "  Coord Dir:     " << cfg.coord_dir << "\n"
                       << "  Cleanup:       " << (cfg.cleanup ? "yes" : "no") << "\n";
+            std::vector<std::string> bind_types;
+            if (cfg.bind_cpu)
+                bind_types.push_back("cpu");
+            if (cfg.bind_memory)
+                bind_types.push_back("memory");
+            if (cfg.bind_network)
+                bind_types.push_back("network");
+            if (bind_types.empty()) {
+                std::cout << "  Bind To:       none\n";
+            } else {
+                std::cout << "  Bind To:       ";
+                for (size_t i = 0; i < bind_types.size(); ++i) {
+                    if (i > 0)
+                        std::cout << ", ";
+                    std::cout << bind_types[i];
+                }
+                std::cout << "\n";
+            }
             if (!cfg.env_vars.empty()) {
                 std::cout << "  Env Vars:      ";
                 bool first = true;
