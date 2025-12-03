@@ -79,6 +79,13 @@ class Context {
     [[nodiscard]] std::shared_ptr<Communicator> comm() const noexcept;
 
     /**
+     * @brief Returns the logger.
+     *
+     * @return Reference to the logger.
+     */
+    [[nodiscard]] Communicator::Logger& logger() const noexcept;
+
+    /**
      * @brief Returns the progress thread.
      *
      * @return Shared pointer to the progress thread.
@@ -118,9 +125,7 @@ class Context {
      *
      * @return A shared pointer to the collection.
      */
-    [[nodiscard]] std::shared_ptr<SpillableMessages> spillable_messages() const {
-        return spillable_messages_;
-    }
+    [[nodiscard]] std::shared_ptr<SpillableMessages> spillable_messages() const noexcept;
 
     /**
      * @brief Create a new bounded queue associated with this context.

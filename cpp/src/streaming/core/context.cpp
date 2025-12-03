@@ -126,6 +126,10 @@ std::shared_ptr<Communicator> Context::comm() const noexcept {
     return comm_;
 }
 
+Communicator::Logger& Context::logger() const noexcept {
+    return comm_->logger();
+}
+
 std::shared_ptr<ProgressThread> Context::progress_thread() const noexcept {
     return progress_thread_;
 }
@@ -152,4 +156,7 @@ std::shared_ptr<BoundedQueue> Context::create_bounded_queue(
     return std::shared_ptr<BoundedQueue>(new BoundedQueue(buffer_size));
 }
 
+std::shared_ptr<SpillableMessages> Context::spillable_messages() const noexcept {
+    return spillable_messages_;
+}
 }  // namespace rapidsmpf::streaming

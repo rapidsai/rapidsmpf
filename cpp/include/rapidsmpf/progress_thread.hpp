@@ -190,7 +190,6 @@ class ProgressThread {
      */
     void event_loop();
 
-    detail::PausableThreadLoop thread_;
     Communicator::Logger& logger_;
     std::shared_ptr<Statistics> statistics_;
     bool is_thread_initialized_{false};
@@ -199,6 +198,10 @@ class ProgressThread {
     std::condition_variable cv_;
     FunctionIndex next_function_id_{0};
     std::unordered_map<FunctionIndex, FunctionState> functions_;
+
+    // Keep `thread_` as the last member so the progress thread cannot run
+    // before all other members have been fully initialized.
+    detail::PausableThreadLoop thread_;
 };
 
 }  // namespace rapidsmpf

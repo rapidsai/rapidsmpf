@@ -5,12 +5,12 @@
 # cmake-format: on
 # =================================================================================
 
-set(cython_modules channel.pyx context.pyx fanout.pyx leaf_node.pyx message.pyx
-                   spillable_messages.pyx node.pyx utilities.pyx
-)
+set(modules_need_ucxx bootstrap.pyx)
 
-rapids_cython_create_modules(
-  CXX
-  SOURCE_FILES "${cython_modules}"
-  LINKED_LIBRARIES rapidsmpf::rapidsmpf maybe_asan MODULE_PREFIX streaming_core_
-)
+if(RAPIDSMPF_HAVE_UCXX)
+  rapids_cython_create_modules(
+    CXX
+    SOURCE_FILES "${modules_need_ucxx}"
+    LINKED_LIBRARIES rapidsmpf::rapidsmpf maybe_asan
+  )
+endif()
