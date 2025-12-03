@@ -5,7 +5,9 @@
 # cmake-format: on
 # =================================================================================
 
-add_executable(rrun "rrun.cpp")
+add_executable(
+  rrun "rrun.cpp" "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/topology_discovery.cpp>"
+)
 set_target_properties(
   rrun
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/tools"
@@ -14,7 +16,11 @@ set_target_properties(
 )
 target_include_directories(rrun PRIVATE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>")
 target_compile_options(rrun PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>")
-target_link_libraries(rrun PRIVATE Threads::Threads $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan)
+target_compile_definitions(rrun PRIVATE $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:RAPIDSMPF_HAVE_NUMA>)
+target_link_libraries(
+  rrun PRIVATE Threads::Threads $<TARGET_NAME_IF_EXISTS:conda_env> maybe_asan
+               $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa> ${CMAKE_DL_LIBS}
+)
 install(
   TARGETS rrun
   COMPONENT tools
