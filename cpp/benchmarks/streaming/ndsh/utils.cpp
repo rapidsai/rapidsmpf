@@ -54,8 +54,8 @@ streaming::TableChunk to_device(
     streaming::TableChunk&& chunk,
     bool allow_overbooking
 ) {
-    auto reservation = ctx->br()->reserve_and_spill(
-        MemoryType::DEVICE, chunk.make_available_cost(), allow_overbooking
+    auto reservation = ctx->br()->reserve_device_memory_and_spill(
+        chunk.make_available_cost(), allow_overbooking
     );
     return chunk.make_available(reservation);
 }
