@@ -4,6 +4,6 @@
 
 from __future__ import annotations
 
-from rapidsmpf.allgather.allgather import AllGather
+from rapidsmpf.coll.allgather import AllGather
 
 __all__ = ["AllGather"]
