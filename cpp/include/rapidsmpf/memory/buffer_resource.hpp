@@ -142,29 +142,33 @@ class BufferResource {
     );
 
     /**
-     * @brief Reserve memory and spill if necessary.
+     * @brief Reserve device memory and spill if necessary.
      *
-     * @param mem_type The memory type to reserve.
+     * Attempts to reserve the requested amount of device memory. If insufficient memory
+     * is available, spilling is triggered to free up space. When overbooking is allowed,
+     * the reservation may succeed even if spilling was not sufficient to fully satisfy
+     * the request.
+     *
      * @param size The size of the memory to reserve.
      * @param allow_overbooking Whether to allow overbooking. If false, ensures enough
      * memory is freed to satisfy the reservation; otherwise, allows overbooking even
      * if spilling was insufficient.
      * @return The memory reservation.
+     *
      * @throws std::overflow_error if allow_overbooking is false and the buffer resource
-     * cannot reserve and spill enough memory.
+     * cannot reserve and spill enough device memory.
      */
-    MemoryReservation reserve_and_spill(
-        MemoryType mem_type, size_t size, bool allow_overbooking
+    MemoryReservation reserve_device_memory_and_spill(
+        size_t size, bool allow_overbooking
     );
 
     /**
      * @brief Make a memory reservation or fail based on the given order of memory types.
      *
      * @param size The size of the buffer to allocate.
-     * @param mem_types Range of memory types to try to reserve memory from. If not
-     * provided, all memory types will be tried in the order they appear in
-     * `MEMORY_TYPES`.
+     * @param mem_types Range of memory types to try to reserve memory from.
      * @return A memory reservation.
+     *
      * @throws std::runtime_error if no memory reservation was made.
      */
     template <std::ranges::input_range Range>
@@ -186,6 +190,7 @@ class BufferResource {
      * @param size The size of the buffer to allocate.
      * @param mem_type The memory type to try to reserve memory from.
      * @return A memory reservation.
+     *
      * @throws std::runtime_error if no memory reservation was made.
      */
     [[nodiscard]] MemoryReservation reserve_or_fail(size_t size, MemoryType mem_type) {

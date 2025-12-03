@@ -64,21 +64,14 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     return {MemoryReservation(mem_type, this, size), overbooking};
 }
 
-MemoryReservation BufferResource::reserve_and_spill(
-    MemoryType mem_type, size_t size, bool allow_overbooking
+MemoryReservation BufferResource::reserve_device_memory_and_spill(
+    size_t size, bool allow_overbooking
 ) {
     // reserve device memory with overbooking
-    auto [reservation, ob] = reserve(mem_type, size, true);
+    auto [reservation, ob] = reserve(MemoryType::DEVICE, size, true);
 
     // ask the spill manager to make room for overbooking
     if (ob > 0) {
-        RAPIDSMPF_EXPECTS(
-            mem_type < LowestSpillType,
-            "Allocating on the lowest spillable memory type resulted in overbooking",
-            std::overflow_error
-        );
-
-        // TODO: spill functions should be aware of the memory type it should spill to
         auto spilled = spill_manager_.spill(ob);
         RAPIDSMPF_EXPECTS(
             allow_overbooking || spilled >= ob,
