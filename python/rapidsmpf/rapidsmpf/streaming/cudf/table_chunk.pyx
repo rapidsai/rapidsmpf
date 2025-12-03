@@ -387,8 +387,7 @@ cdef class TableChunk:
         >>> chunk.table_view()
         """
 
-        cdef MemoryReservation res = br.reserve_and_spill(
-            MemoryType.DEVICE,
+        cdef MemoryReservation res = br.reserve_device_memory_and_spill(
             self.make_available_cost(),
             allow_overbooking=allow_overbooking
         )

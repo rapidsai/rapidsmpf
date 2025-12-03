@@ -134,8 +134,8 @@ cdef class Message:
 
         Examples
         --------
-        >>> res = br.reserve_and_spill(
-        ...    MemoryType.DEVICE, msg.copy_cost(), allow_overbooking=False
+        >>> res = br.reserve_device_memory_and_spill(
+        ...    msg.copy_cost(), allow_overbooking=False
         ... )
         >>> msg_copy = msg.copy(res)
         >>> assert msg_copy.sequence_number == msg.sequence_number

@@ -27,65 +27,6 @@ using namespace detail;
 namespace {
 
 /**
- * @brief Help function to reserve and allocate a new buffer.
- *
- * First reserve the memory type and then use the reservation to allocate a new
- * buffer. Returns null if reservation failed.
- *
- * @param mem_type The target memory type.
- * @param size The size of the buffer in bytes.
- * @param stream CUDA stream to use for device allocations.
- * @param br Buffer resource used for the reservation and allocation.
- * @returns A new buffer or nullptr.
- */
-std::unique_ptr<Buffer> allocate_buffer(
-    MemoryType mem_type,
-    std::size_t size,
-    rmm::cuda_stream_view stream,
-    BufferResource* br
-) {
-    auto [reservation, _] = br->reserve(mem_type, size, false);
-    if (reservation.size() != size) {
-        return nullptr;
-    }
-    auto ret = br->allocate(size, stream, reservation);
-    RAPIDSMPF_EXPECTS(reservation.size() == 0, "didn't use all of the reservation");
-    return ret;
-}
-
-/**
- * @brief Help function to reserve and allocate a new buffer.
- *
- * First reserve device memory and then use the reservation to allocate a new
- * buffer. If not enough device memory is available, host memory is reserved and
- * allocated instead.
- *
- * @param size The size of the buffer in bytes.
- * @param stream CUDA stream to use for device allocations.
- * @param br Buffer resource used for the reservation and allocation.
- * @returns A new buffer.
- *
- * @throws std::overflow_error if both the reservation of device and host memory
- * failed.
- */
-std::unique_ptr<Buffer> allocate_buffer(
-    std::size_t size, rmm::cuda_stream_view stream, BufferResource* br
-) {
-    std::unique_ptr<Buffer> ret = allocate_buffer(MemoryType::DEVICE, size, stream, br);
-    if (ret) {
-        return ret;
-    }
-    // If not enough device memory is available, we try host memory.
-    ret = allocate_buffer(MemoryType::HOST, size, stream, br);
-    RAPIDSMPF_EXPECTS(
-        ret,
-        "Cannot reserve " + format_nbytes(size) + " of device or host memory",
-        std::overflow_error
-    );
-    return ret;
-}
-
-/**
  * @brief Spills memory buffers within a postbox, e.g., from device to host memory.
  *
  * This function moves a specified amount of memory from device to host storage
@@ -270,10 +211,11 @@ class Shuffler::Progress {
                     if (!chunk.is_data_buffer_set()) {
                         // Create a new buffer and let the buffer resource decide the
                         // memory type.
-                        chunk.set_data_buffer(allocate_buffer(
-                            chunk.concat_data_size(),
+                        chunk.set_data_buffer(shuffler_.br_->allocate(
                             shuffler_.br_->stream_pool().get_stream(),
-                            shuffler_.br_
+                            shuffler_.br_->reserve_or_fail(
+                                chunk.concat_data_size(), MEMORY_TYPES
+                            )
                         ));
                         if (chunk.data_memory_type() == MemoryType::HOST) {
                             stats.add_bytes_stat(
