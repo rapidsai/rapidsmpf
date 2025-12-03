@@ -151,9 +151,7 @@ class BufferResource {
      * @brief Make a memory reservation or fail based on the given order of memory types.
      *
      * @param size The size of the buffer to allocate.
-     * @param mem_types Range of memory types to try to reserve memory from. If not
-     * provided, all memory types will be tried in the order they appear in
-     * `MEMORY_TYPES`.
+     * @param mem_types Range of memory types to try to reserve memory from.
      * @return A memory reservation.
      *
      * @throws std::runtime_error if no memory reservation was made.

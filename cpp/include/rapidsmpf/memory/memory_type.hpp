@@ -17,15 +17,4 @@ enum class MemoryType : int {
 /// @brief All memory types sorted in decreasing order of preference.
 constexpr std::array<MemoryType, 2> MEMORY_TYPES{{MemoryType::DEVICE, MemoryType::HOST}};
 
-/**
- * @brief Memory types that reside in RAM, sorted in decreasing order of preference.
- *
- * Resident memory types include host and device memory, but exclude remote memory
- * and memory stored on disk. These are the memory kinds typically supported by
- * CUDA-aware libraries such as MPI and UCXX.
- */
-constexpr std::array<MemoryType, 2> MEMORY_RESIDENT_TYPES{
-    {MemoryType::DEVICE, MemoryType::HOST}
-};
-
 }  // namespace rapidsmpf

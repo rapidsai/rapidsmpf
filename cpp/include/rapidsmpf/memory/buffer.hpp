@@ -19,6 +19,7 @@
 #include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/utils.hpp>
 
 namespace rapidsmpf {
 
