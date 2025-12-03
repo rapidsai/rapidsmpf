@@ -194,6 +194,7 @@ if(RAPIDSMPF_HAVE_STREAMING)
             src/streaming/coll/shuffler.cpp
             src/streaming/core/channel.cpp
             src/streaming/core/context.cpp
+            src/streaming/core/fanout.cpp
             src/streaming/core/leaf_node.cpp
             src/streaming/core/node.cpp
             src/streaming/core/spillable_messages.cpp
