@@ -712,12 +712,17 @@ int main(int argc, char* argv[]) {
             pids.push_back(pid);
 
             if (cfg.verbose) {
-                std::cout << "Launched rank " << rank << " (PID " << pid << ")";
+                std::ostringstream msg;
+                msg << "Launched rank " << rank << " (PID " << pid << ")";
                 if (!cfg.gpus.empty()) {
-                    std::cout << " on GPU "
-                              << cfg.gpus[static_cast<size_t>(rank) % cfg.gpus.size()];
+                    msg << " on GPU "
+                        << cfg.gpus[static_cast<size_t>(rank) % cfg.gpus.size()];
                 }
-                std::cout << std::endl;
+                msg << std::endl;
+                std::string msg_str = msg.str();
+
+                std::cout << msg_str;
+                std::cout.flush();
             }
             // Parent-side forwarders for local stdout and stderr
             start_forwarder(fd_out, rank, false);
