@@ -70,7 +70,7 @@ PackedData AllReduce::reduce_all(std::vector<PackedData>&& gathered) {
     auto const total = gathered.size();
 
     RAPIDSMPF_EXPECTS(
-        total == static_cast<std::size_t>(nranks_),
+        std::cmp_equal(total, nranks_),
         "AllReduce expects exactly one contribution from each rank",
         std::runtime_error
     );
@@ -103,7 +103,7 @@ PackedData AllReduce::reduce_all(std::vector<PackedData>&& gathered) {
     auto accum = std::move(gathered[0]);
 
     // Reduce contributions from all other ranks into the accumulator
-    for (std::size_t r = 1; r < static_cast<std::size_t>(nranks_); ++r) {
+    for (std::size_t r = 1; std::cmp_less(r, nranks_); ++r) {
         reduce_operator_(accum, std::move(gathered[r]));
     }
 
