@@ -33,7 +33,13 @@ constexpr char const* to_string(MemoryType mem_type) {
     return MEMORY_TYPE_NAMES[static_cast<std::size_t>(mem_type)];
 }
 
-/// @brief Overload to write type name to the output stream.
+/**
+ * @brief Overload to write type name to the output stream.
+ *
+ * @param os The output stream.
+ * @param mem_type The memory type to write name of to the output stream.
+ * @return The output stream.
+ */
 inline std::ostream& operator<<(std::ostream& os, MemoryType mem_type) {
     return os << to_string(mem_type);
 }
