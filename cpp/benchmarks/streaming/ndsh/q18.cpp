@@ -29,7 +29,6 @@
 #include <cudf/types.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
 #include <rmm/mr/per_device_resource.hpp>
-#include <rmm/mr/pool_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -262,13 +261,13 @@ rapidsmpf::streaming::Node final_groupby_agg(
     co_await ctx->executor()->schedule();
     auto msg = co_await ch_in->receive();
     auto next = co_await ch_in->receive();
-    ctx->comm()->logger().print("Final groupby");
+    ctx->comm()->logger().debug("Final groupby");
     RAPIDSMPF_EXPECTS(next.empty(), "Expecting concatenated input at this point");
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
     auto chunk_stream = chunk.stream();
     auto table = chunk.table_view();
-    ctx->comm()->logger().print(
+    ctx->comm()->logger().debug(
         "Final groupby input: ", table.num_rows(), " rows, ", table.num_columns(), " cols"
     );
     std::unique_ptr<cudf::table> local_result{nullptr};
@@ -290,7 +289,7 @@ rapidsmpf::streaming::Node final_groupby_agg(
             std::ranges::move(r.results, std::back_inserter(result));
         }
         local_result = std::make_unique<cudf::table>(std::move(result));
-        ctx->comm()->logger().print(
+        ctx->comm()->logger().debug(
             "Final groupby output: ", local_result->num_rows(), " rows"
         );
     }
@@ -383,7 +382,7 @@ rapidsmpf::streaming::Node sort_and_limit(
     if (msg.empty()) {
         co_return;
     }
-    ctx->comm()->logger().print("Sort and limit");
+    ctx->comm()->logger().debug("Sort and limit");
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
     auto table = chunk.table_view();
@@ -415,6 +414,45 @@ rapidsmpf::streaming::Node sort_and_limit(
     co_await ch_out->drain(ctx->executor());
 }
 
+/**
+ * @brief Reorder columns from join output to match expected query output.
+ *
+ * Input:  c_custkey(0), c_name(1), o_orderkey(2), o_orderdate(3), o_totalprice(4),
+ * l_quantity(5) Output: c_name(0), c_custkey(1), o_orderkey(2), o_orderdate(3),
+ * o_totalprice(4), l_quantity(5)
+ */
+rapidsmpf::streaming::Node reorder_columns(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+    std::uint64_t seq = 0;
+    while (true) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            break;
+        }
+        co_await ctx->executor()->schedule();
+        auto chunk = rapidsmpf::ndsh::to_device(
+            ctx, msg.release<rapidsmpf::streaming::TableChunk>()
+        );
+        auto table = chunk.table_view();
+        auto reordered_table = std::make_unique<cudf::table>(
+            table.select({1, 0, 2, 3, 4, 5}), chunk.stream(), ctx->br()->device_mr()
+        );
+        co_await ch_out->send(
+            rapidsmpf::streaming::to_message(
+                seq++,
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::move(reordered_table), chunk.stream()
+                )
+            )
+        );
+    }
+    co_await ch_out->drain(ctx->executor());
+}
+
 rapidsmpf::streaming::Node write_parquet(
     std::shared_ptr<rapidsmpf::streaming::Context> ctx,
     std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
@@ -426,7 +464,7 @@ rapidsmpf::streaming::Node write_parquet(
     if (msg.empty()) {
         co_return;
     }
-    ctx->comm()->logger().print("write parquet");
+    ctx->comm()->logger().debug("write parquet");
     auto chunk =
         rapidsmpf::ndsh::to_device(ctx, msg.release<rapidsmpf::streaming::TableChunk>());
     auto sink = cudf::io::sink_info(output_path);
@@ -441,13 +479,8 @@ rapidsmpf::streaming::Node write_parquet(
     builder = builder.metadata(metadata);
     auto options = builder.build();
     cudf::io::write_parquet(options, chunk.stream());
-    ctx->comm()->logger().print(
-        "Wrote chunk with ",
-        chunk.table_view().num_rows(),
-        " rows and ",
-        chunk.table_view().num_columns(),
-        " columns to ",
-        output_path
+    ctx->comm()->logger().debug(
+        "Wrote ", chunk.table_view().num_rows(), " rows to ", output_path
     );
 }
 
@@ -839,50 +872,9 @@ int main(int argc, char** argv) {
                 );  // c_custkey, c_name, o_orderkey, o_orderdate, o_totalprice,
                     // l_quantity
 
-                // Reorder columns to match expected output:
-                // c_name, c_custkey, o_orderkey, o_orderdate, o_totalprice, l_quantity
-                // The join output is: c_custkey(0), c_name(1), o_orderkey(2),
-                // o_orderdate(3), o_totalprice(4), l_quantity(5) We need: c_name(1),
-                // c_custkey(0), o_orderkey(2), o_orderdate(3), o_totalprice(4),
-                // l_quantity(5)
+                // Reorder columns to match expected output
                 auto reordered = ctx->create_channel();
-                nodes.push_back(
-                    [](
-                        std::shared_ptr<rapidsmpf::streaming::Context> ctx_,
-                        std::shared_ptr<rapidsmpf::streaming::Channel> ch_in_,
-                        std::shared_ptr<rapidsmpf::streaming::Channel> ch_out_
-                    ) -> rapidsmpf::streaming::Node {
-                        rapidsmpf::streaming::ShutdownAtExit c{ch_in_, ch_out_};
-                        std::uint64_t seq = 0;
-                        while (true) {
-                            auto msg = co_await ch_in_->receive();
-                            if (msg.empty()) {
-                                break;
-                            }
-                            co_await ctx_->executor()->schedule();
-                            auto chunk = rapidsmpf::ndsh::to_device(
-                                ctx_, msg.release<rapidsmpf::streaming::TableChunk>()
-                            );
-                            auto table = chunk.table_view();
-                            // Reorder: c_name(1), c_custkey(0), o_orderkey(2),
-                            // o_orderdate(3), o_totalprice(4), l_quantity(5)
-                            auto reordered_table = std::make_unique<cudf::table>(
-                                table.select({1, 0, 2, 3, 4, 5}),
-                                chunk.stream(),
-                                ctx_->br()->device_mr()
-                            );
-                            co_await ch_out_->send(
-                                rapidsmpf::streaming::to_message(
-                                    seq++,
-                                    std::make_unique<rapidsmpf::streaming::TableChunk>(
-                                        std::move(reordered_table), chunk.stream()
-                                    )
-                                )
-                            );
-                        }
-                        co_await ch_out_->drain(ctx_->executor());
-                    }(ctx, all_joined, reordered)
-                );
+                nodes.push_back(reorder_columns(ctx, all_joined, reordered));
 
                 // Chunkwise groupby aggregation
                 auto chunkwise_groupby_output = ctx->create_channel();
