@@ -416,6 +416,62 @@ rapidsmpf::streaming::Node sort_and_limit(
 }
 
 /**
+ * @brief Buffer that holds messages in a spillable container.
+ *
+ * This node collects all incoming messages and stores them in the context's
+ * SpillableMessages container. The spill manager can then spill these messages
+ * to host memory if device memory pressure occurs. Messages are forwarded
+ * to the output channel only after all input is received.
+ *
+ * This is a workaround for rapidsai/rapidsmpf#675: the unbounded fanout's
+ * internal cache is not yet spillable. Once that issue is resolved, this
+ * node can be removed.
+ *
+ * @param ctx Streaming context.
+ * @param ch_in Input channel.
+ * @param ch_out Output channel.
+ * @return Coroutine node.
+ */
+rapidsmpf::streaming::Node spillable_buffer(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_in,
+    std::shared_ptr<rapidsmpf::streaming::Channel> ch_out
+) {
+    rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
+    ctx->comm()->logger().debug("spillable_buffer: starting");
+
+    // Store message IDs - messages are held in the context's SpillableMessages
+    // container where the spill manager can spill them if needed
+    auto spillable = ctx->spillable_messages();
+    std::vector<rapidsmpf::streaming::SpillableMessages::MessageId> message_ids;
+
+    while (true) {
+        auto msg = co_await ch_in->receive();
+        if (msg.empty()) {
+            break;
+        }
+        co_await ctx->executor()->schedule();
+
+        // Insert into spillable container - spill manager can now spill if needed
+        auto id = spillable->insert(std::move(msg));
+        message_ids.push_back(id);
+        ctx->comm()->logger().debug("spillable_buffer: stored message id ", id);
+    }
+
+    ctx->comm()->logger().debug(
+        "spillable_buffer: forwarding ", message_ids.size(), " messages"
+    );
+
+    // Extract and forward all messages
+    for (auto id : message_ids) {
+        auto msg = spillable->extract(id);
+        co_await ch_out->send(std::move(msg));
+    }
+
+    co_await ch_out->drain(ctx->executor());
+}
+
+/**
  * @brief Reorder columns from join output to match expected query output.
  *
  * Input:  c_custkey(0), c_name(1), o_orderkey(2), o_orderdate(3), o_totalprice(4),
@@ -492,6 +548,7 @@ struct ProgramOptions {
     cudf::size_type num_rows_per_chunk{100'000'000};
     std::optional<double> spill_device_limit{std::nullopt};
     bool use_shuffle_join = false;
+    bool spillable_fanout = false;
     std::string output_file;
     std::string input_directory;
 };
@@ -509,6 +566,9 @@ ProgramOptions parse_options(int argc, char** argv) {
             << "  --spill-device-limit <n>     Fractional spill device limit (default: "
                "None)\n"
             << "  --use-shuffle-join           Use shuffle join (default: false)\n"
+            << "  --spillable-fanout           Buffer fanout data in spillable "
+               "container. "
+               "Workaround for rapidsai/rapidsmpf#675 (default: false)\n"
             << "  --output-file <path>         Output file path (required)\n"
             << "  --input-directory <path>     Input directory path (required)\n"
             << "  --help                       Show this help message\n";
@@ -522,6 +582,7 @@ ProgramOptions parse_options(int argc, char** argv) {
         {"input-directory", required_argument, nullptr, 5},
         {"help", no_argument, nullptr, 6},
         {"spill-device-limit", required_argument, nullptr, 7},
+        {"spillable-fanout", no_argument, nullptr, 8},
         {nullptr, 0, nullptr, 0}
     };
 
@@ -555,6 +616,9 @@ ProgramOptions parse_options(int argc, char** argv) {
             std::exit(0);
         case 7:
             options.spill_device_limit = std::stod(optarg);
+            break;
+        case 8:
+            options.spillable_fanout = true;
             break;
         case '?':
             if (optopt == 0 && optind > 1) {
@@ -728,16 +792,46 @@ int main(int argc, char** argv) {
                     );
 
                     // 3. Fanout shuffled lineitem to both consumers (agg and join)
+                    // Must use UNBOUNDED: the groupby path can block (waiting on
+                    // semi-join), and BOUNDED would then block spill_buffer too.
                     auto lineitem_for_groupby = ctx->create_channel();
-                    auto lineitem_for_join = ctx->create_channel();
+                    auto lineitem_for_join_raw = ctx->create_channel();
                     nodes.push_back(
                         rapidsmpf::streaming::node::fanout(
                             ctx,
                             lineitem_shuffled,
-                            {lineitem_for_groupby, lineitem_for_join},
+                            {lineitem_for_groupby, lineitem_for_join_raw},
                             rapidsmpf::streaming::node::FanoutPolicy::UNBOUNDED
                         )
                     );
+
+                    // 3b. Optionally buffer in spillable container
+                    // This allows the spill manager to spill if memory pressure occurs
+                    auto lineitem_for_join = ctx->create_channel();
+                    if (cmd_options.spillable_fanout) {
+                        nodes.push_back(spillable_buffer(
+                            ctx, lineitem_for_join_raw, lineitem_for_join
+                        ));
+                    } else {
+                        // Pass through: just forward messages unchanged
+                        nodes.push_back(
+                            [](
+                                std::shared_ptr<rapidsmpf::streaming::Context> ctx_,
+                                std::shared_ptr<rapidsmpf::streaming::Channel> ch_in_,
+                                std::shared_ptr<rapidsmpf::streaming::Channel> ch_out_
+                            ) -> rapidsmpf::streaming::Node {
+                                rapidsmpf::streaming::ShutdownAtExit c{ch_in_, ch_out_};
+                                while (true) {
+                                    auto msg = co_await ch_in_->receive();
+                                    if (msg.empty()) {
+                                        break;
+                                    }
+                                    co_await ch_out_->send(std::move(msg));
+                                }
+                                co_await ch_out_->drain(ctx_->executor());
+                            }(ctx, lineitem_for_join_raw, lineitem_for_join)
+                        );
+                    }
 
                     // 4. Groupby+filter per partition (output stays partitioned)
                     auto lineitem_agg_filtered = ctx->create_channel();
@@ -803,15 +897,42 @@ int main(int argc, char** argv) {
                     ));
 
                     auto lineitem_for_agg = ctx->create_channel();
-                    auto lineitem_for_join = ctx->create_channel();
+                    auto lineitem_for_join_raw = ctx->create_channel();
                     nodes.push_back(
                         rapidsmpf::streaming::node::fanout(
                             ctx,
                             lineitem,
-                            {lineitem_for_agg, lineitem_for_join},
+                            {lineitem_for_agg, lineitem_for_join_raw},
                             rapidsmpf::streaming::node::FanoutPolicy::UNBOUNDED
                         )
                     );
+
+                    // Optionally buffer in spillable container
+                    auto lineitem_for_join = ctx->create_channel();
+                    if (cmd_options.spillable_fanout) {
+                        nodes.push_back(spillable_buffer(
+                            ctx, lineitem_for_join_raw, lineitem_for_join
+                        ));
+                    } else {
+                        // Pass through: just forward messages unchanged
+                        nodes.push_back(
+                            [](
+                                std::shared_ptr<rapidsmpf::streaming::Context> ctx_,
+                                std::shared_ptr<rapidsmpf::streaming::Channel> ch_in_,
+                                std::shared_ptr<rapidsmpf::streaming::Channel> ch_out_
+                            ) -> rapidsmpf::streaming::Node {
+                                rapidsmpf::streaming::ShutdownAtExit c{ch_in_, ch_out_};
+                                while (true) {
+                                    auto msg = co_await ch_in_->receive();
+                                    if (msg.empty()) {
+                                        break;
+                                    }
+                                    co_await ch_out_->send(std::move(msg));
+                                }
+                                co_await ch_out_->drain(ctx_->executor());
+                            }(ctx, lineitem_for_join_raw, lineitem_for_join)
+                        );
+                    }
 
                     // Groupby l_orderkey, sum(l_quantity), filter > 300
                     auto lineitem_agg_filtered = ctx->create_channel();
