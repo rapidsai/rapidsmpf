@@ -140,9 +140,7 @@ class HostMemoryResource {
         std::size_t size,
         [[maybe_unused]] rmm::cuda_stream_view stream,
         std::size_t alignment
-    ) {
-        return ::operator new(size, std::align_val_t{alignment});
-    }
+    );
 
     /**
      * @brief Deallocates memory using the given alignment.
@@ -161,10 +159,7 @@ class HostMemoryResource {
         [[maybe_unused]] std::size_t size,
         rmm::cuda_stream_view stream,
         std::size_t alignment
-    ) noexcept {
-        stream.synchronize();
-        ::operator delete(ptr, std::align_val_t{alignment});
-    }
+    ) noexcept;
 
     /**
      * @brief Compares this resource to another.
