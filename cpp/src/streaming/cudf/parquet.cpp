@@ -205,13 +205,18 @@ Node read_parquet(
         }
     }
     if (std::ranges::all_of(chunks_per_producer, [](auto&& v) { return v.empty(); })) {
-        auto empty_opts = options;
-        empty_opts.set_source(cudf::io::source_info(local_files[0]));
-        empty_opts.set_skip_rows(0);
-        empty_opts.set_num_rows(0);
-        co_await ctx->executor()->schedule(ch_out->send(read_parquet_chunk(
-            ctx, ctx->br()->stream_pool().get_stream(), std::move(empty_opts), 0
-        )));
+        if (local_files.size() > 0) {
+            // If we're on the hook to read some files, but the skip_rows/num_rows setup
+            // meant our slice was empty, send an empty table of correct shape.
+            // Anyone with no files will just immediately close their output channel.
+            auto empty_opts = options;
+            empty_opts.set_source(cudf::io::source_info(local_files[0]));
+            empty_opts.set_skip_rows(0);
+            empty_opts.set_num_rows(0);
+            co_await ctx->executor()->schedule(ch_out->send(read_parquet_chunk(
+                ctx, ctx->br()->stream_pool().get_stream(), std::move(empty_opts), 0
+            )));
+        }
     } else {
         std::vector<Node> read_tasks;
         read_tasks.reserve(1 + num_producers);
