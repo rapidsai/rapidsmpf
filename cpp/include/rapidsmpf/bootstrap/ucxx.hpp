@@ -41,7 +41,7 @@ bool is_running_with_rrun();
  * @throws std::runtime_error if not running with `rrun` or if `RAPIDSMPF_NRANKS` is not
  * set or cannot be parsed.
  */
-std::int32_t get_nranks();
+Rank get_nranks();
 
 /**
  * @brief Create a UCXX communicator using the bootstrap backend.

@@ -25,7 +25,7 @@ bool is_running_with_rrun() {
     return std::getenv("RAPIDSMPF_RANK") != nullptr;
 }
 
-std::int32_t get_nranks() {
+Rank get_nranks() {
     RAPIDSMPF_EXPECTS(
         is_running_with_rrun(),
         "get_nranks() can only be called when running with `rrun`. "
