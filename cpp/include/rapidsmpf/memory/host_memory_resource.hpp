@@ -19,9 +19,15 @@ namespace rapidsmpf {
 /**
  * @brief Host memory resource using standard CPU allocation.
  *
- * This resource allocates host memory using the ``new`` and ``delete`` operator. It is
- * intended for use with `cuda::mr::resource` and related facilities, and advertises the
- * `cuda::mr::host_accessible` property.
+ * This resource allocates pageable host memory using the ``new`` and ``delete``
+ * operators. It is intended for use with `cuda::mr::resource` and related
+ * facilities, and advertises the `cuda::mr::host_accessible` property.
+ *
+ * For sufficiently large allocations (>4 MiB), this resource also issues a
+ * best-effort request to enable Transparent Huge Pages (THP) on the allocated
+ * region. THP can improve device-host memory transfer performance for large
+ * buffers. The hint is applied via `madvise(MADV_HUGEPAGE)` and may be ignored
+ * by the kernel depending on system configuration or resource availability.
  */
 class HostMemoryResource {
   public:
