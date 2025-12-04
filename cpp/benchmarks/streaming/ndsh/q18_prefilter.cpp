@@ -155,6 +155,9 @@ rapidsmpf::streaming::Node chunkwise_groupby_lineitem(
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     auto mr = ctx->br()->device_mr();
     std::uint64_t sequence = 0;
+    std::size_t total_input_rows = 0;
+    std::size_t total_output_rows = 0;
+    std::size_t chunk_count = 0;
 
     while (true) {
         auto msg = co_await ch_in->receive();
@@ -167,6 +170,8 @@ rapidsmpf::streaming::Node chunkwise_groupby_lineitem(
         );
         auto chunk_stream = chunk.stream();
         auto table = chunk.table_view();
+        total_input_rows += static_cast<std::size_t>(table.num_rows());
+        chunk_count++;
 
         // Groupby l_orderkey, sum(l_quantity) - NO FILTER
         auto grouper = cudf::groupby::groupby(
@@ -185,6 +190,7 @@ rapidsmpf::streaming::Node chunkwise_groupby_lineitem(
             std::ranges::move(r.results, std::back_inserter(result_columns));
         }
         auto grouped_table = std::make_unique<cudf::table>(std::move(result_columns));
+        total_output_rows += static_cast<std::size_t>(grouped_table->num_rows());
 
         if (grouped_table->num_rows() > 0) {
             co_await ch_out->send(
@@ -197,6 +203,16 @@ rapidsmpf::streaming::Node chunkwise_groupby_lineitem(
             );
         }
     }
+
+    ctx->comm()->logger().print(
+        "chunkwise_groupby: rank processed ",
+        chunk_count,
+        " chunks, ",
+        total_input_rows,
+        " -> ",
+        total_output_rows,
+        " rows"
+    );
     co_await ch_out->drain(ctx->executor());
 }
 
@@ -218,6 +234,7 @@ rapidsmpf::streaming::Node final_groupby_filter_lineitem(
 
     auto msg = co_await ch_in->receive();
     if (msg.empty()) {
+        ctx->comm()->logger().print("final_groupby_filter: rank received EMPTY input!");
         co_await ch_out->drain(ctx->executor());
         co_return;
     }
@@ -227,8 +244,8 @@ rapidsmpf::streaming::Node final_groupby_filter_lineitem(
     auto chunk_stream = chunk.stream();
     auto table = chunk.table_view();
 
-    ctx->comm()->logger().debug(
-        "final_groupby_filter: input has ", table.num_rows(), " partial aggregates"
+    ctx->comm()->logger().print(
+        "final_groupby_filter: rank processing ", table.num_rows(), " partial aggregates"
     );
 
     // Final groupby to merge partial sums for same orderkey
@@ -249,8 +266,10 @@ rapidsmpf::streaming::Node final_groupby_filter_lineitem(
     }
     auto merged_table = std::make_unique<cudf::table>(std::move(result_columns));
 
-    ctx->comm()->logger().debug(
-        "final_groupby_filter: merged to ", merged_table->num_rows(), " unique orderkeys"
+    ctx->comm()->logger().print(
+        "final_groupby_filter: rank merged to ",
+        merged_table->num_rows(),
+        " unique orderkeys"
     );
 
     // NOW filter for sum > threshold
@@ -460,6 +479,114 @@ std::unique_ptr<cudf::table> compute_qualifying_orderkeys(
     return result;
 }
 
+/**
+ * @brief Phase 1 (Shuffle-based): Compute qualifying orderkeys.
+ *
+ * Shuffle-based pipeline for better multi-GPU scaling:
+ * 1. Read lineitem → chunkwise_groupby (partial aggregates)
+ * 2. SHUFFLE by orderkey (distributes work across ranks!)
+ * 3. Per-partition: concatenate → groupby → filter
+ * 4. All-gather ONLY the tiny result (~19K orderkeys)
+ *
+ * @return Table with single column (l_orderkey) of qualifying orders.
+ */
+std::unique_ptr<cudf::table> compute_qualifying_orderkeys_shuffle(
+    std::shared_ptr<rapidsmpf::streaming::Context> ctx,
+    cudf::size_type num_rows_per_chunk,
+    std::string const& input_directory,
+    double quantity_threshold,
+    std::uint32_t num_partitions,
+    rapidsmpf::OpID base_tag
+) {
+    ctx->comm()->logger().print(
+        "Phase 1 (shuffle): Computing qualifying orderkeys with ",
+        num_partitions,
+        " partitions"
+    );
+
+    std::vector<rapidsmpf::streaming::Node> nodes;
+
+    // Stage 1: Read lineitem → chunk-wise groupby (partial aggregates)
+    auto lineitem = ctx->create_channel();
+    nodes.push_back(read_lineitem(ctx, lineitem, 4, num_rows_per_chunk, input_directory));
+
+    auto partial_aggs = ctx->create_channel();
+    nodes.push_back(chunkwise_groupby_lineitem(ctx, lineitem, partial_aggs));
+
+    // Stage 2: SHUFFLE partial aggregates by orderkey (column 0)
+    // This distributes work across ranks instead of duplicating!
+    auto partial_aggs_shuffled = ctx->create_channel();
+    nodes.push_back(
+        rapidsmpf::ndsh::shuffle(
+            ctx,
+            partial_aggs,
+            partial_aggs_shuffled,
+            {0},  // l_orderkey
+            num_partitions,
+            rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(base_tag)}
+        )
+    );
+
+    // Stage 3: Per-partition concatenate → groupby → filter
+    auto concatenated = ctx->create_channel();
+    nodes.push_back(
+        rapidsmpf::ndsh::concatenate(
+            ctx,
+            partial_aggs_shuffled,
+            concatenated,
+            rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+        )
+    );
+
+    auto filtered_local = ctx->create_channel();
+    nodes.push_back(final_groupby_filter_lineitem(
+        ctx, concatenated, filtered_local, quantity_threshold
+    ));
+
+    // Stage 4: All-gather the TINY filtered result (~19K orderkeys)
+    auto gathered = ctx->create_channel();
+    nodes.push_back(allgather_partial_aggregates(
+        ctx,
+        filtered_local,
+        gathered,
+        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(base_tag + 1)}
+    ));
+
+    // Collect result
+    std::vector<rapidsmpf::streaming::Message> result_messages;
+    nodes.push_back(
+        rapidsmpf::streaming::node::pull_from_channel(ctx, gathered, result_messages)
+    );
+
+    // Run pipeline
+    rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+
+    // Extract result
+    std::unique_ptr<cudf::table> result;
+    if (!result_messages.empty()) {
+        auto chunk = rapidsmpf::ndsh::to_device(
+            ctx, result_messages[0].release<rapidsmpf::streaming::TableChunk>()
+        );
+        auto stream = chunk.stream();
+        auto table_view = chunk.table_view();
+
+        std::vector<std::unique_ptr<cudf::column>> cols;
+        cols.push_back(
+            std::make_unique<cudf::column>(
+                table_view.column(0), stream, ctx->br()->device_mr()
+            )
+        );
+        stream.synchronize();
+        result = std::make_unique<cudf::table>(std::move(cols));
+    }
+
+    ctx->comm()->logger().print(
+        "Phase 1 complete: ", result ? result->num_rows() : 0, " qualifying orderkeys"
+    );
+
+    return result;
+}
+
 // ============================================================================
 // Phase 2: Pre-filter Pipeline
 // ============================================================================
@@ -535,8 +662,8 @@ rapidsmpf::streaming::Node prefilter_by_orderkeys(
         }
     }
 
-    ctx->comm()->logger().debug(
-        "prefilter: ",
+    ctx->comm()->logger().print(
+        "prefilter: rank processed ",
         total_input_rows,
         " -> ",
         total_output_rows,
@@ -942,6 +1069,8 @@ rapidsmpf::streaming::Node write_parquet(
 struct ProgramOptions {
     int num_streaming_threads{1};
     cudf::size_type num_rows_per_chunk{100'000'000};
+    std::uint32_t num_partitions{64};
+    bool use_shuffle{false};  // Use shuffle-based operations for multi-GPU scaling
     std::optional<double> spill_device_limit{std::nullopt};
     std::string output_file;
     std::string input_directory;
@@ -957,6 +1086,10 @@ ProgramOptions parse_options(int argc, char** argv) {
             << "  --num-streaming-threads <n>  Number of streaming threads (default: 1)\n"
             << "  --num-rows-per-chunk <n>     Number of rows per chunk (default: "
                "100000000)\n"
+            << "  --num-partitions <n>         Number of shuffle partitions (default: "
+               "64)\n"
+            << "  --use-shuffle                Use shuffle-based ops for multi-GPU "
+               "scaling\n"
             << "  --spill-device-limit <n>     Fractional spill device limit (default: "
                "None)\n"
             << "  --output-file <path>         Output file path (required)\n"
@@ -967,6 +1100,8 @@ ProgramOptions parse_options(int argc, char** argv) {
     static struct option long_options[] = {
         {"num-streaming-threads", required_argument, nullptr, 1},
         {"num-rows-per-chunk", required_argument, nullptr, 2},
+        {"num-partitions", required_argument, nullptr, 7},
+        {"use-shuffle", no_argument, nullptr, 8},
         {"output-file", required_argument, nullptr, 3},
         {"input-directory", required_argument, nullptr, 4},
         {"help", no_argument, nullptr, 5},
@@ -1000,6 +1135,12 @@ ProgramOptions parse_options(int argc, char** argv) {
             std::exit(0);
         case 6:
             options.spill_device_limit = std::stod(optarg);
+            break;
+        case 7:
+            options.num_partitions = static_cast<std::uint32_t>(std::atoi(optarg));
+            break;
+        case 8:
+            options.use_shuffle = true;
             break;
         default:
             print_usage();
@@ -1068,6 +1209,12 @@ int main(int argc, char** argv) {
             "Executor has ", ctx->executor()->thread_count(), " threads"
         );
         comm->logger().print("Executor has ", ctx->comm()->nranks(), " ranks");
+        comm->logger().print(
+            "Mode: ",
+            cmd_options.use_shuffle ? "shuffle" : "allgather",
+            ", partitions: ",
+            cmd_options.num_partitions
+        );
 
         std::string output_path = cmd_options.output_file;
 
@@ -1077,13 +1224,25 @@ int main(int argc, char** argv) {
             // ================================================================
             // Phase 1: Compute qualifying orderkeys (blocking)
             // ================================================================
-            auto qualifying_orderkeys = compute_qualifying_orderkeys(
-                ctx,
-                cmd_options.num_rows_per_chunk,
-                cmd_options.input_directory,
-                300.0,  // quantity_threshold
-                rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(100 + iteration)}
-            );
+            std::unique_ptr<cudf::table> qualifying_orderkeys;
+            if (cmd_options.use_shuffle) {
+                qualifying_orderkeys = compute_qualifying_orderkeys_shuffle(
+                    ctx,
+                    cmd_options.num_rows_per_chunk,
+                    cmd_options.input_directory,
+                    300.0,  // quantity_threshold
+                    cmd_options.num_partitions,
+                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(100 + iteration * 10)}
+                );
+            } else {
+                qualifying_orderkeys = compute_qualifying_orderkeys(
+                    ctx,
+                    cmd_options.num_rows_per_chunk,
+                    cmd_options.input_directory,
+                    300.0,  // quantity_threshold
+                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(100 + iteration)}
+                );
+            }
             auto phase1_end = std::chrono::steady_clock::now();
 
             if (!qualifying_orderkeys || qualifying_orderkeys->num_rows() == 0) {
@@ -1099,6 +1258,8 @@ int main(int argc, char** argv) {
             // Phase 2: Build pre-filtered pipeline
             // ================================================================
             std::vector<rapidsmpf::streaming::Node> nodes;
+            std::uint32_t num_partitions = cmd_options.num_partitions;
+            int op_id = 0;
 
             // Read and pre-filter lineitem
             auto lineitem_raw = ctx->create_channel();
@@ -1113,24 +1274,6 @@ int main(int argc, char** argv) {
             auto lineitem_filtered = ctx->create_channel();
             nodes.push_back(prefilter_by_orderkeys(
                 ctx, lineitem_raw, lineitem_filtered, shared_orderkeys, 0
-            ));
-
-            auto lineitem_concat = ctx->create_channel();
-            nodes.push_back(
-                rapidsmpf::ndsh::concatenate(
-                    ctx,
-                    lineitem_filtered,
-                    lineitem_concat,
-                    rapidsmpf::ndsh::ConcatOrder::DONT_CARE
-                )
-            );
-
-            auto lineitem_gathered = ctx->create_channel();
-            nodes.push_back(allgather_table(
-                ctx,
-                lineitem_concat,
-                lineitem_gathered,
-                rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(200 + iteration)}
             ));
 
             // Read and pre-filter orders
@@ -1148,36 +1291,7 @@ int main(int argc, char** argv) {
                 ctx, orders_raw, orders_filtered, shared_orderkeys, 0
             ));
 
-            auto orders_concat = ctx->create_channel();
-            nodes.push_back(
-                rapidsmpf::ndsh::concatenate(
-                    ctx,
-                    orders_filtered,
-                    orders_concat,
-                    rapidsmpf::ndsh::ConcatOrder::DONT_CARE
-                )
-            );
-
-            auto orders_gathered = ctx->create_channel();
-            nodes.push_back(allgather_table(
-                ctx,
-                orders_concat,
-                orders_gathered,
-                rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(201 + iteration)}
-            ));
-
-            // Local join: orders x lineitem (both small after pre-filtering)
-            auto orders_x_lineitem = ctx->create_channel();
-            nodes.push_back(local_inner_join(
-                ctx,
-                orders_gathered,
-                lineitem_gathered,
-                orders_x_lineitem,
-                {0},  // o_orderkey
-                {0}  // l_orderkey
-            ));
-
-            // Join with customer (broadcast - orders_x_lineitem is small)
+            // Read customer
             auto customer = ctx->create_channel();
             nodes.push_back(read_customer(
                 ctx,
@@ -1188,18 +1302,166 @@ int main(int argc, char** argv) {
             ));
 
             auto all_joined = ctx->create_channel();
-            nodes.push_back(
-                rapidsmpf::ndsh::inner_join_broadcast(
+
+            if (cmd_options.use_shuffle) {
+                // ============================================================
+                // SHUFFLE MODE: Proper parallel scaling
+                // ============================================================
+
+                // Shuffle filtered lineitem by orderkey
+                auto lineitem_shuffled = ctx->create_channel();
+                nodes.push_back(
+                    rapidsmpf::ndsh::shuffle(
+                        ctx,
+                        lineitem_filtered,
+                        lineitem_shuffled,
+                        {0},  // l_orderkey
+                        num_partitions,
+                        rapidsmpf::OpID{
+                            static_cast<rapidsmpf::OpID>(200 + iteration * 10 + op_id++)
+                        }
+                    )
+                );
+
+                // Shuffle filtered orders by orderkey
+                auto orders_shuffled = ctx->create_channel();
+                nodes.push_back(
+                    rapidsmpf::ndsh::shuffle(
+                        ctx,
+                        orders_filtered,
+                        orders_shuffled,
+                        {0},  // o_orderkey
+                        num_partitions,
+                        rapidsmpf::OpID{
+                            static_cast<rapidsmpf::OpID>(200 + iteration * 10 + op_id++)
+                        }
+                    )
+                );
+
+                // Shuffle-based join: orders x lineitem
+                auto orders_x_lineitem = ctx->create_channel();
+                nodes.push_back(
+                    rapidsmpf::ndsh::inner_join_shuffle(
+                        ctx,
+                        orders_shuffled,
+                        lineitem_shuffled,
+                        orders_x_lineitem,
+                        {0},  // o_orderkey
+                        {0},  // l_orderkey
+                        rapidsmpf::ndsh::KeepKeys::YES
+                    )
+                );  // output: o_orderkey, o_custkey, o_orderdate, o_totalprice,
+                    // l_quantity
+
+                // Shuffle orders_x_lineitem by custkey for customer join
+                auto orders_x_lineitem_shuffled = ctx->create_channel();
+                nodes.push_back(
+                    rapidsmpf::ndsh::shuffle(
+                        ctx,
+                        orders_x_lineitem,
+                        orders_x_lineitem_shuffled,
+                        {1},  // o_custkey
+                        num_partitions,
+                        rapidsmpf::OpID{
+                            static_cast<rapidsmpf::OpID>(200 + iteration * 10 + op_id++)
+                        }
+                    )
+                );
+
+                // Shuffle customer by custkey
+                auto customer_shuffled = ctx->create_channel();
+                nodes.push_back(
+                    rapidsmpf::ndsh::shuffle(
+                        ctx,
+                        customer,
+                        customer_shuffled,
+                        {0},  // c_custkey
+                        num_partitions,
+                        rapidsmpf::OpID{
+                            static_cast<rapidsmpf::OpID>(200 + iteration * 10 + op_id++)
+                        }
+                    )
+                );
+
+                // Shuffle-based join: customer x orders_x_lineitem
+                nodes.push_back(
+                    rapidsmpf::ndsh::inner_join_shuffle(
+                        ctx,
+                        customer_shuffled,
+                        orders_x_lineitem_shuffled,
+                        all_joined,
+                        {0},  // c_custkey
+                        {1},  // o_custkey
+                        rapidsmpf::ndsh::KeepKeys::YES
+                    )
+                );
+
+            } else {
+                // ============================================================
+                // ALL-GATHER MODE: Simple but doesn't scale
+                // ============================================================
+
+                auto lineitem_concat = ctx->create_channel();
+                nodes.push_back(
+                    rapidsmpf::ndsh::concatenate(
+                        ctx,
+                        lineitem_filtered,
+                        lineitem_concat,
+                        rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+                    )
+                );
+
+                auto lineitem_gathered = ctx->create_channel();
+                nodes.push_back(allgather_table(
                     ctx,
-                    customer,
+                    lineitem_concat,
+                    lineitem_gathered,
+                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(200 + iteration)}
+                ));
+
+                auto orders_concat = ctx->create_channel();
+                nodes.push_back(
+                    rapidsmpf::ndsh::concatenate(
+                        ctx,
+                        orders_filtered,
+                        orders_concat,
+                        rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+                    )
+                );
+
+                auto orders_gathered = ctx->create_channel();
+                nodes.push_back(allgather_table(
+                    ctx,
+                    orders_concat,
+                    orders_gathered,
+                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(201 + iteration)}
+                ));
+
+                // Local join: orders x lineitem (both small after pre-filtering)
+                auto orders_x_lineitem = ctx->create_channel();
+                nodes.push_back(local_inner_join(
+                    ctx,
+                    orders_gathered,
+                    lineitem_gathered,
                     orders_x_lineitem,
-                    all_joined,
-                    {0},  // c_custkey
-                    {1},  // o_custkey
-                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(202 + iteration)},
-                    rapidsmpf::ndsh::KeepKeys::YES
-                )
-            );
+                    {0},  // o_orderkey
+                    {0}  // l_orderkey
+                ));
+
+                // Join with customer (broadcast - orders_x_lineitem is small)
+                nodes.push_back(
+                    rapidsmpf::ndsh::inner_join_broadcast(
+                        ctx,
+                        customer,
+                        orders_x_lineitem,
+                        all_joined,
+                        {0},  // c_custkey
+                        {1},  // o_custkey
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(202 + iteration)},
+                        rapidsmpf::ndsh::KeepKeys::YES
+                    )
+                );
+            }
 
             // Reorder columns
             auto reordered = ctx->create_channel();
@@ -1225,7 +1487,9 @@ int main(int argc, char** argv) {
                 ctx,
                 concat_groupby,
                 final_output,
-                rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(203 + iteration)}
+                rapidsmpf::OpID{
+                    static_cast<rapidsmpf::OpID>(200 + iteration * 10 + op_id++)
+                }
             ));
 
             // Write output
