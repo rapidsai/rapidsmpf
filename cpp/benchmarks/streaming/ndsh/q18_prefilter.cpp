@@ -498,10 +498,12 @@ std::unique_ptr<cudf::table> compute_qualifying_orderkeys_shuffle(
     std::uint32_t num_partitions,
     rapidsmpf::OpID base_tag
 ) {
+    bool const single_rank = ctx->comm()->nranks() == 1;
     ctx->comm()->logger().print(
         "Phase 1 (shuffle): Computing qualifying orderkeys with ",
         num_partitions,
-        " partitions"
+        " partitions",
+        single_rank ? " (single-rank: skipping shuffle)" : ""
     );
 
     std::vector<rapidsmpf::streaming::Node> nodes;
@@ -513,28 +515,33 @@ std::unique_ptr<cudf::table> compute_qualifying_orderkeys_shuffle(
     auto partial_aggs = ctx->create_channel();
     nodes.push_back(chunkwise_groupby_lineitem(ctx, lineitem, partial_aggs));
 
-    // Stage 2: SHUFFLE partial aggregates by orderkey (column 0)
-    // This distributes work across ranks instead of duplicating!
-    auto partial_aggs_shuffled = ctx->create_channel();
-    nodes.push_back(
-        rapidsmpf::ndsh::shuffle(
-            ctx,
-            partial_aggs,
-            partial_aggs_shuffled,
-            {0},  // l_orderkey
-            num_partitions,
-            rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(base_tag)}
-        )
-    );
+    std::shared_ptr<rapidsmpf::streaming::Channel> to_concat;
+
+    if (single_rank) {
+        // Single rank: skip shuffle (no point shuffling locally)
+        to_concat = partial_aggs;
+    } else {
+        // Multi-rank: SHUFFLE partial aggregates by orderkey (column 0)
+        // This distributes work across ranks instead of duplicating!
+        auto partial_aggs_shuffled = ctx->create_channel();
+        nodes.push_back(
+            rapidsmpf::ndsh::shuffle(
+                ctx,
+                partial_aggs,
+                partial_aggs_shuffled,
+                {0},  // l_orderkey
+                num_partitions,
+                rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(base_tag)}
+            )
+        );
+        to_concat = partial_aggs_shuffled;
+    }
 
     // Stage 3: Per-partition concatenate → groupby → filter
     auto concatenated = ctx->create_channel();
     nodes.push_back(
         rapidsmpf::ndsh::concatenate(
-            ctx,
-            partial_aggs_shuffled,
-            concatenated,
-            rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+            ctx, to_concat, concatenated, rapidsmpf::ndsh::ConcatOrder::DONT_CARE
         )
     );
 
@@ -543,19 +550,27 @@ std::unique_ptr<cudf::table> compute_qualifying_orderkeys_shuffle(
         ctx, concatenated, filtered_local, quantity_threshold
     ));
 
-    // Stage 4: All-gather the TINY filtered result (~19K orderkeys)
-    auto gathered = ctx->create_channel();
-    nodes.push_back(allgather_partial_aggregates(
-        ctx,
-        filtered_local,
-        gathered,
-        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(base_tag + 1)}
-    ));
+    std::shared_ptr<rapidsmpf::streaming::Channel> to_collect;
+
+    if (single_rank) {
+        // Single rank: skip all-gather (nothing to gather)
+        to_collect = filtered_local;
+    } else {
+        // Multi-rank: All-gather the TINY filtered result (~19K orderkeys)
+        auto gathered = ctx->create_channel();
+        nodes.push_back(allgather_partial_aggregates(
+            ctx,
+            filtered_local,
+            gathered,
+            rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(base_tag + 1)}
+        ));
+        to_collect = gathered;
+    }
 
     // Collect result
     std::vector<rapidsmpf::streaming::Message> result_messages;
     nodes.push_back(
-        rapidsmpf::streaming::node::pull_from_channel(ctx, gathered, result_messages)
+        rapidsmpf::streaming::node::pull_from_channel(ctx, to_collect, result_messages)
     );
 
     // Run pipeline
@@ -1067,7 +1082,7 @@ rapidsmpf::streaming::Node write_parquet(
 // ============================================================================
 
 struct ProgramOptions {
-    int num_streaming_threads{1};
+    int num_streaming_threads{4};  // 4 threads provides good pipeline parallelism
     cudf::size_type num_rows_per_chunk{100'000'000};
     std::uint32_t num_partitions{64};
     bool use_shuffle{false};  // Use shuffle-based operations for multi-GPU scaling
@@ -1083,7 +1098,7 @@ ProgramOptions parse_options(int argc, char** argv) {
         std::cerr
             << "Usage: " << argv[0] << " [options]\n"
             << "Options:\n"
-            << "  --num-streaming-threads <n>  Number of streaming threads (default: 1)\n"
+            << "  --num-streaming-threads <n>  Number of streaming threads (default: 4)\n"
             << "  --num-rows-per-chunk <n>     Number of rows per chunk (default: "
                "100000000)\n"
             << "  --num-partitions <n>         Number of shuffle partitions (default: "
@@ -1303,9 +1318,11 @@ int main(int argc, char** argv) {
 
             auto all_joined = ctx->create_channel();
 
-            if (cmd_options.use_shuffle) {
+            bool const single_rank = ctx->comm()->nranks() == 1;
+
+            if (cmd_options.use_shuffle && !single_rank) {
                 // ============================================================
-                // SHUFFLE MODE: Proper parallel scaling
+                // SHUFFLE MODE: Proper parallel scaling (multi-rank only)
                 // ============================================================
 
                 // Shuffle filtered lineitem by orderkey
@@ -1392,6 +1409,63 @@ int main(int argc, char** argv) {
                         all_joined,
                         {0},  // c_custkey
                         {1},  // o_custkey
+                        rapidsmpf::ndsh::KeepKeys::YES
+                    )
+                );
+
+            } else if (cmd_options.use_shuffle && single_rank) {
+                // ============================================================
+                // SINGLE-RANK SHUFFLE MODE: Use local joins (skip shuffle overhead)
+                // ============================================================
+                ctx->comm()->logger().print(
+                    "Phase 2: Single-rank mode - using local joins (skipping shuffle)"
+                );
+
+                // Concatenate filtered lineitem
+                auto lineitem_concat = ctx->create_channel();
+                nodes.push_back(
+                    rapidsmpf::ndsh::concatenate(
+                        ctx,
+                        lineitem_filtered,
+                        lineitem_concat,
+                        rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+                    )
+                );
+
+                // Concatenate filtered orders
+                auto orders_concat = ctx->create_channel();
+                nodes.push_back(
+                    rapidsmpf::ndsh::concatenate(
+                        ctx,
+                        orders_filtered,
+                        orders_concat,
+                        rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+                    )
+                );
+
+                // Local join: orders x lineitem (both small after pre-filtering)
+                auto orders_x_lineitem = ctx->create_channel();
+                nodes.push_back(local_inner_join(
+                    ctx,
+                    orders_concat,
+                    lineitem_concat,
+                    orders_x_lineitem,
+                    {0},  // o_orderkey
+                    {0}  // l_orderkey
+                ));
+
+                // Join with customer (broadcast - orders_x_lineitem is small)
+                nodes.push_back(
+                    rapidsmpf::ndsh::inner_join_broadcast(
+                        ctx,
+                        customer,
+                        orders_x_lineitem,
+                        all_joined,
+                        {0},  // c_custkey
+                        {1},  // o_custkey
+                        rapidsmpf::OpID{
+                            static_cast<rapidsmpf::OpID>(200 + iteration * 10 + op_id++)
+                        },
                         rapidsmpf::ndsh::KeepKeys::YES
                     )
                 );
