@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
 namespace rapidsmpf::streaming {
@@ -24,6 +23,26 @@ Message SpillableMessages::extract(MessageId mid) {
     // If the item is being spilled, we block here until the spilling is done.
     std::unique_lock item_lock(item->mutex);
     return std::exchange(item->message, std::nullopt).value();
+}
+
+Message SpillableMessages::copy(MessageId mid, BufferResource* br) const {
+    std::unique_lock global_lock(global_mutex_);
+    auto it = items_.find(mid);
+    RAPIDSMPF_EXPECTS(
+        it != items_.end(), "message not found " + std::to_string(mid), std::out_of_range
+    );
+    std::shared_ptr<Item> item = it->second;
+    global_lock.unlock();
+
+    std::unique_lock item_lock(item->mutex);
+    RAPIDSMPF_EXPECTS(
+        item->message.has_value(),
+        "empty message " + std::to_string(mid),
+        std::out_of_range
+    );
+    auto const& msg = *item->message;
+    auto res = br->reserve_or_fail(msg.copy_cost(), msg.spillable_memory_types());
+    return msg.copy(res);
 }
 
 std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {

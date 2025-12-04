@@ -12,29 +12,12 @@
 #include <rapidsmpf/streaming/core/fanout.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 #include <rapidsmpf/streaming/core/node.hpp>
+#include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
 #include <coro/coro.hpp>
 
 namespace rapidsmpf::streaming::node {
 namespace {
-
-/**
- * @brief Try to allocate memory from the memory types that the message content uses.
- *
- * @param msg The message to allocate memory for.
- * @return The memory types to try to allocate from.
- */
-constexpr std::span<const MemoryType> try_memory_types(Message const& msg) {
-    auto const& cd = msg.content_description();
-    // if the message content uses device memory, try to allocate from device memory
-    // first, else allocate from host memory
-    return cd.content_size(MemoryType::DEVICE) > 0
-               ? MEMORY_TYPES
-               : std::span<const MemoryType>{
-                     MEMORY_TYPES.begin() + static_cast<std::size_t>(MemoryType::HOST),
-                     MEMORY_TYPES.end()
-                 };
-}
 
 /**
  * @brief Asynchronously send a message to multiple output channels.
@@ -53,7 +36,7 @@ Node send_to_channels(
                                   size_t msg_sz_,
                                   Channel& ch_) -> coro::task<bool> {
         co_await ctx_.executor()->schedule();
-        auto res = ctx_.br()->reserve_or_fail(msg_sz_, try_memory_types(msg_));
+        auto res = ctx_.br()->reserve_or_fail(msg_sz_, msg_.spillable_memory_types());
         co_return co_await ch_.send(msg_.copy(res));
     };
 
@@ -204,8 +187,11 @@ struct UnboundedFanout {
         };
         co_await ctx.executor()->schedule();
 
+        auto spillable_messages = ctx.spillable_messages();
+
         size_t n_available_messages = 0;
-        std::vector<std::reference_wrapper<Message>> messages_to_send;
+        std::vector<std::reference_wrapper<SpillableMessages::MessageId>>
+            messages_to_send;
         while (true) {
             {
                 auto lock = co_await mtx.scoped_lock();
@@ -227,12 +213,7 @@ struct UnboundedFanout {
             }
 
             for (auto const& msg : messages_to_send) {
-                RAPIDSMPF_EXPECTS(!msg.get().empty(), "message cannot be empty");
-
-                auto res = ctx.br()->reserve_or_fail(
-                    msg.get().copy_cost(), try_memory_types(msg.get())
-                );
-                if (!co_await ch_out->send(msg.get().copy(res))) {
+                if (!co_await ch_out->send(spillable_messages->copy(msg, ctx.br()))) {
                     // Failed to send message. Could be that the channel is shut down.
                     // So we need to abort the send task, and notify the process input
                     // task
@@ -331,6 +312,8 @@ struct UnboundedFanout {
         // index of the first message to purge
         size_t purge_idx = 0;
 
+        auto spillable_messages = ctx.spillable_messages();
+
         // no_more_input is only set by this task, so reading without lock is safe here
         while (!no_more_input) {
             auto [per_ch_processed_min, per_ch_processed_max] =
@@ -348,7 +331,9 @@ struct UnboundedFanout {
                 if (msg.empty()) {
                     no_more_input = true;
                 } else {
-                    recv_messages.emplace_back(std::move(msg));
+                    recv_messages.emplace_back(
+                        spillable_messages->insert(std::move(msg))
+                    );
                 }
             }
 
@@ -359,7 +344,7 @@ struct UnboundedFanout {
             // However the deque is not resized. This guarantees that the indices are not
             // invalidated.
             while (purge_idx < per_ch_processed_min) {
-                recv_messages[purge_idx].reset();
+                std::ignore = spillable_messages->extract(recv_messages[purge_idx]);
                 purge_idx++;
             }
         }
@@ -380,7 +365,7 @@ struct UnboundedFanout {
 
     /// @brief messages received from the input channel. Using a deque to avoid
     /// invalidating references by reallocations.
-    std::deque<Message> recv_messages;
+    std::deque<SpillableMessages::MessageId> recv_messages;
 
     /// @brief number of messages processed for each channel (ie. next index to send for
     /// each channel)

@@ -11,6 +11,7 @@
 #include <optional>
 #include <unordered_map>
 
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/content_description.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
 
@@ -66,6 +67,20 @@ class SpillableMessages {
      * @throws std::out_of_range If the message ID is invalid or was already extracted.
      */
     [[nodiscard]] Message extract(MessageId mid);
+
+    /**
+     * @brief Extract and remove a message by ID.
+     *
+     * If the message is currently being spilled, this method blocks until spilling
+     * completes.
+     *
+     * @param mid Message identifier.
+     * @param br Buffer resource used for allocations during the copy operation.
+     * @return A deep copy of the message.
+     *
+     * @throws std::out_of_range If the message ID is invalid or was already extracted.
+     */
+    [[nodiscard]] Message copy(MessageId mid, BufferResource* br) const;
 
     /**
      * @brief Spill a message's device memory to host memory.

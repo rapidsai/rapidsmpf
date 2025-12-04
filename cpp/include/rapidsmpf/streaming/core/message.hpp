@@ -235,6 +235,22 @@ class Message {
         return copy_cb()(*this, reservation);
     }
 
+    /**
+     * @brief Returns the memory types that this message can be spilled to.
+     *
+     * @return Span of memory types that this message can be spilled to.
+     */
+    [[nodiscard]] constexpr std::span<const MemoryType>
+    spillable_memory_types() const noexcept {
+        size_t offset = content_description().content_size(MemoryType::DEVICE) > 0
+                            ? static_cast<std::size_t>(MemoryType::DEVICE)
+                            : static_cast<std::size_t>(MemoryType::HOST);
+        return std::span<const MemoryType>{
+            MEMORY_TYPES.begin() + offset, MEMORY_TYPES.end()
+        };
+    }
+
+
   private:
     /**
      * @brief Returns a shared pointer to the payload.
