@@ -8,6 +8,7 @@
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/host_buffer.hpp>
 
 namespace rapidsmpf {
 
@@ -105,15 +106,13 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     std::unique_ptr<Buffer> ret;
     switch (reservation.mem_type_) {
     case MemoryType::HOST:
-        // TODO: use pinned memory, maybe use rmm::mr::pinned_memory_resource and
-        // std::pmr::vector?
         ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<std::vector<uint8_t>>(size), stream)
+            new Buffer(std::make_unique<HostBuffer>(size, stream, host_mr()), stream)
         );
         break;
     case MemoryType::DEVICE:
         ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<rmm::device_buffer>(size, stream, device_mr_))
+            new Buffer(std::make_unique<rmm::device_buffer>(size, stream, device_mr()))
         );
         break;
     default:
@@ -169,7 +168,7 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     return ret;
 }
 
-std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
+std::unique_ptr<HostBuffer> BufferResource::move_to_host_buffer(
     std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
 ) {
     RAPIDSMPF_EXPECTS(

@@ -17,6 +17,7 @@
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
@@ -83,6 +84,15 @@ class BufferResource {
      */
     [[nodiscard]] rmm::device_async_resource_ref device_mr() const noexcept {
         return device_mr_;
+    }
+
+    /**
+     * @brief Get the RMM host memory resource.
+     *
+     * @return Reference to the RMM resource used for host allocations.
+     */
+    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept {
+        return host_mr_;
     }
 
     /**
@@ -283,19 +293,19 @@ class BufferResource {
     );
 
     /**
-     * @brief Move a Buffer into a host vector.
+     * @brief Move a Buffer into a host buffer.
      *
      * If the Buffer already resides in host memory, a cheap move is performed.
      * Otherwise, the Buffer is copied to host memory using its own CUDA stream.
      *
      * @param buffer Buffer to move.
      * @param reservation Memory reservation used if a copy is required.
-     * @return Unique pointer to the resulting host vector.
+     * @return Unique pointer to the resulting host buffer.
      *
      * @throws std::invalid_argument If the reservation's memory type isn't host memory.
      * @throws std::overflow_error If the allocation size exceeds the reservation.
      */
-    std::unique_ptr<std::vector<uint8_t>> move_to_host_vector(
+    std::unique_ptr<HostBuffer> move_to_host_buffer(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
     );
 
@@ -326,6 +336,7 @@ class BufferResource {
   private:
     std::mutex mutex_;
     rmm::device_async_resource_ref device_mr_;
+    HostMemoryResource host_mr_;
     std::unordered_map<MemoryType, MemoryAvailable> memory_available_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
