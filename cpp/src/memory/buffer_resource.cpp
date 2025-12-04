@@ -8,6 +8,7 @@
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/host_buffer.hpp>
 
 namespace rapidsmpf {
 
@@ -63,21 +64,14 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     return {MemoryReservation(mem_type, this, size), overbooking};
 }
 
-MemoryReservation BufferResource::reserve_and_spill(
-    MemoryType mem_type, size_t size, bool allow_overbooking
+MemoryReservation BufferResource::reserve_device_memory_and_spill(
+    size_t size, bool allow_overbooking
 ) {
     // reserve device memory with overbooking
-    auto [reservation, ob] = reserve(mem_type, size, true);
+    auto [reservation, ob] = reserve(MemoryType::DEVICE, size, true);
 
     // ask the spill manager to make room for overbooking
     if (ob > 0) {
-        RAPIDSMPF_EXPECTS(
-            mem_type < LowestSpillType,
-            "Allocating on the lowest spillable memory type resulted in overbooking",
-            std::overflow_error
-        );
-
-        // TODO: spill functions should be aware of the memory type it should spill to
         auto spilled = spill_manager_.spill(ob);
         RAPIDSMPF_EXPECTS(
             allow_overbooking || spilled >= ob,
@@ -112,15 +106,13 @@ std::unique_ptr<Buffer> BufferResource::allocate(
     std::unique_ptr<Buffer> ret;
     switch (reservation.mem_type_) {
     case MemoryType::HOST:
-        // TODO: use pinned memory, maybe use rmm::mr::pinned_memory_resource and
-        // std::pmr::vector?
         ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<std::vector<uint8_t>>(size), stream)
+            new Buffer(std::make_unique<HostBuffer>(size, stream, host_mr()), stream)
         );
         break;
     case MemoryType::DEVICE:
         ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<rmm::device_buffer>(size, stream, device_mr_))
+            new Buffer(std::make_unique<rmm::device_buffer>(size, stream, device_mr()))
         );
         break;
     default:
@@ -176,7 +168,7 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     return ret;
 }
 
-std::unique_ptr<std::vector<uint8_t>> BufferResource::move_to_host_vector(
+std::unique_ptr<HostBuffer> BufferResource::move_to_host_buffer(
     std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
 ) {
     RAPIDSMPF_EXPECTS(
