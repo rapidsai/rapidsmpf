@@ -7,12 +7,10 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
-#include <iostream>
 #include <memory>
 #include <optional>
 
 #include <cuda_runtime_api.h>
-#include <getopt.h>
 #include <mpi.h>
 
 #include <cudf/aggregation.hpp>
@@ -31,22 +29,12 @@
 #include <cudf/transform.hpp>
 #include <cudf/types.hpp>
 #include <rmm/mr/cuda_async_memory_resource.hpp>
-#include <rmm/mr/per_device_resource.hpp>
-#include <rmm/mr/pool_memory_resource.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/mpi.hpp>
-#include <rapidsmpf/communicator/single.hpp>
-#include <rapidsmpf/communicator/ucxx.hpp>
-#include <rapidsmpf/communicator/ucxx_utils.hpp>
-#include <rapidsmpf/config.hpp>
-#include <rapidsmpf/cuda_event.hpp>
 #include <rapidsmpf/integrations/cudf/partition.hpp>
-#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/nvtx.hpp>
-#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/coll/allgather.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
@@ -527,103 +515,6 @@ rapidsmpf::streaming::Node write_parquet(
 
 }  // namespace
 
-struct ProgramOptions {
-    int num_streaming_threads{1};
-    cudf::size_type num_rows_per_chunk{100'000'000};
-    std::optional<double> spill_device_limit{std::nullopt};
-    bool use_shuffle_join = false;
-    std::string output_file;
-    std::string input_directory;
-};
-
-ProgramOptions parse_options(int argc, char** argv) {
-    ProgramOptions options;
-
-    auto print_usage = [&argv]() {
-        std::cerr
-            << "Usage: " << argv[0] << " [options]\n"
-            << "Options:\n"
-            << "  --num-streaming-threads <n>  Number of streaming threads (default: 1)\n"
-            << "  --num-rows-per-chunk <n>     Number of rows per chunk (default: "
-               "100000000)\n"
-            << "  --spill-device-limit <n>     Fractional spill device limit (default: "
-               "None)\n"
-            << "  --use-shuffle-join           Use shuffle join (default: false)\n"
-            << "  --output-file <path>         Output file path (required)\n"
-            << "  --input-directory <path>     Input directory path (required)\n"
-            << "  --help                       Show this help message\n";
-    };
-
-    static struct option long_options[] = {
-        {"num-streaming-threads", required_argument, nullptr, 1},
-        {"num-rows-per-chunk", required_argument, nullptr, 2},
-        {"use-shuffle-join", no_argument, nullptr, 3},
-        {"output-file", required_argument, nullptr, 4},
-        {"input-directory", required_argument, nullptr, 5},
-        {"help", no_argument, nullptr, 6},
-        {"spill-device-limit", required_argument, nullptr, 7},
-        {nullptr, 0, nullptr, 0}
-    };
-
-    int opt;
-    int option_index = 0;
-
-    bool saw_output_file = false;
-    bool saw_input_directory = false;
-
-    while ((opt = getopt_long(argc, argv, "", long_options, &option_index)) != -1) {
-        switch (opt) {
-        case 1:
-            options.num_streaming_threads = std::atoi(optarg);
-            break;
-        case 2:
-            options.num_rows_per_chunk = std::atoi(optarg);
-            break;
-        case 3:
-            options.use_shuffle_join = true;
-            break;
-        case 4:
-            options.output_file = optarg;
-            saw_output_file = true;
-            break;
-        case 5:
-            options.input_directory = optarg;
-            saw_input_directory = true;
-            break;
-        case 6:
-            print_usage();
-            std::exit(0);
-        case 7:
-            options.spill_device_limit = std::stod(optarg);
-            break;
-        case '?':
-            if (optopt == 0 && optind > 1) {
-                std::cerr << "Error: Unknown option '" << argv[optind - 1] << "'\n\n";
-            }
-            print_usage();
-            std::exit(1);
-        default:
-            print_usage();
-            std::exit(1);
-        }
-    }
-
-    // Check if required options were provided
-    if (!saw_output_file || !saw_input_directory) {
-        if (!saw_output_file) {
-            std::cerr << "Error: --output-file is required\n";
-        }
-        if (!saw_input_directory) {
-            std::cerr << "Error: --input-directory is required\n";
-        }
-        std::cerr << std::endl;
-        print_usage();
-        std::exit(1);
-    }
-
-    return options;
-}
-
 /**
  * @brief Run a derived version of TPC-H query 9.
  *
@@ -730,224 +621,202 @@ int main(int argc, char** argv) {
                 nodes.push_back(filter_part(ctx, part, filtered_part));  // p_partkey
                 nodes.push_back(read_partsupp(
                     ctx,
+                    filtered_part,
                     partsupp,
-                    /* num_tickets */ 4,
-                    cmd_options.num_rows_per_chunk,
-                    cmd_options.input_directory
-                ));  // ps_partkey, ps_suppkey, ps_supplycost
-                nodes.push_back(
-                    // p_partkey x ps_partkey
-                    rapidsmpf::ndsh::inner_join_broadcast(
-                        ctx,
-                        filtered_part,
-                        partsupp,
-                        part_x_partsupp,
-                        {0},
-                        {0},
-                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
-                    )  // p_partkey/ps_partkey, ps_suppkey, ps_supplycost
-                );
-                nodes.push_back(read_supplier(
+                    part_x_partsupp,
+                    {0},
+                    {0},
+                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+                )  // p_partkey/ps_partkey, ps_suppkey, ps_supplycost
+            );
+            nodes.push_back(read_supplier(
+                ctx,
+                supplier,
+                /* num_tickets */ 4,
+                arguments.num_rows_per_chunk,
+                arguments.input_directory
+            ));  // s_nationkey, s_suppkey
+            nodes.push_back(
+                // s_suppkey x ps_suppkey
+                rapidsmpf::ndsh::inner_join_broadcast(
                     ctx,
                     supplier,
-                    /* num_tickets */ 4,
-                    cmd_options.num_rows_per_chunk,
-                    cmd_options.input_directory
-                ));  // s_nationkey, s_suppkey
-                nodes.push_back(
-                    // s_suppkey x ps_suppkey
-                    rapidsmpf::ndsh::inner_join_broadcast(
-                        ctx,
-                        supplier,
-                        part_x_partsupp,
-                        supplier_x_part_x_partsupp,
-                        {1},
-                        {1},
-                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+                    part_x_partsupp,
+                    supplier_x_part_x_partsupp,
+                    {1},
+                    {1},
+                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
 
-                    )  // s_nationkey, s_suppkey/ps_suppkey, p_partkey/ps_partkey,
-                       // ps_supplycost
-                );
-                nodes.push_back(read_lineitem(
+                )  // s_nationkey, s_suppkey/ps_suppkey, p_partkey/ps_partkey,
+                   // ps_supplycost
+            );
+            nodes.push_back(read_lineitem(
+                ctx,
+                lineitem,
+                /* num_tickets */ 4,
+                arguments.num_rows_per_chunk,
+                arguments.input_directory
+            ));  // l_discount, l_extendedprice, l_orderkey, l_partkey, l_quantity,
+            // l_suppkey
+            nodes.push_back(
+                // [p_partkey, ps_suppkey] x [l_partkey, l_suppkey]
+                rapidsmpf::ndsh::inner_join_broadcast(
                     ctx,
+                    supplier_x_part_x_partsupp,
                     lineitem,
+                    supplier_x_part_x_partsupp_x_lineitem,
+                    {2, 1},
+                    {3, 5},
+                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
+                    rapidsmpf::ndsh::KeepKeys::NO
+                )  // s_nationkey, ps_supplycost,
+                   // l_discount, l_extendedprice, l_orderkey, l_quantity
+            );
+            auto nation = ctx->create_channel();
+            auto orders = ctx->create_channel();
+            nodes.push_back(
+                read_nation(
+                    ctx,
+                    nation,
                     /* num_tickets */ 4,
-                    cmd_options.num_rows_per_chunk,
-                    cmd_options.input_directory
-                ));  // l_discount, l_extendedprice, l_orderkey, l_partkey, l_quantity,
-                // l_suppkey
-                nodes.push_back(
-                    // [p_partkey, ps_suppkey] x [l_partkey, l_suppkey]
-                    rapidsmpf::ndsh::inner_join_broadcast(
-                        ctx,
-                        supplier_x_part_x_partsupp,
-                        lineitem,
-                        supplier_x_part_x_partsupp_x_lineitem,
-                        {2, 1},
-                        {3, 5},
-                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
-                        rapidsmpf::ndsh::KeepKeys::NO
-                    )  // s_nationkey, ps_supplycost,
-                       // l_discount, l_extendedprice, l_orderkey, l_quantity
-                );
-                auto nation = ctx->create_channel();
-                auto orders = ctx->create_channel();
-                nodes.push_back(
-                    read_nation(
-                        ctx,
-                        nation,
-                        /* num_tickets */ 4,
-                        cmd_options.num_rows_per_chunk,
-                        cmd_options.input_directory
-                    )  // n_name, n_nationkey
-                );
-                nodes.push_back(
-                    read_orders(
-                        ctx,
-                        orders,
-                        /* num_tickets */ 4,
-                        cmd_options.num_rows_per_chunk,
-                        cmd_options.input_directory
-                    )  // o_orderdate, o_orderkey
-                );
-                auto all_joined = ctx->create_channel();
-                auto supplier_x_part_x_partsupp_x_lineitem_x_orders =
+                    arguments.num_rows_per_chunk,
+                    arguments.input_directory
+                )  // n_name, n_nationkey
+            );
+            nodes.push_back(
+                read_orders(
+                    ctx,
+                    orders,
+                    /* num_tickets */ 4,
+                    arguments.num_rows_per_chunk,
+                    arguments.input_directory
+                )  // o_orderdate, o_orderkey
+            );
+            auto all_joined = ctx->create_channel();
+            auto supplier_x_part_x_partsupp_x_lineitem_x_orders = ctx->create_channel();
+            if (arguments.use_shuffle_join) {
+                auto supplier_x_part_x_partsupp_x_lineitem_shuffled =
                     ctx->create_channel();
-                if (cmd_options.use_shuffle_join) {
-                    auto supplier_x_part_x_partsupp_x_lineitem_shuffled =
-                        ctx->create_channel();
-                    auto orders_shuffled = ctx->create_channel();
-                    // TODO: customisable
-                    std::uint32_t num_partitions = 16;
-                    nodes.push_back(
-                        rapidsmpf::ndsh::shuffle(
-                            ctx,
-                            supplier_x_part_x_partsupp_x_lineitem,
-                            supplier_x_part_x_partsupp_x_lineitem_shuffled,
-                            {4},
-                            num_partitions,
-                            rapidsmpf::OpID{
-                                static_cast<rapidsmpf::OpID>(10 * i + op_id++)
-                            }
-                        )
-                    );
-                    nodes.push_back(
-                        rapidsmpf::ndsh::shuffle(
-                            ctx,
-                            orders,
-                            orders_shuffled,
-                            {1},
-                            num_partitions,
-                            rapidsmpf::OpID{
-                                static_cast<rapidsmpf::OpID>(10 * i + op_id++)
-                            }
-                        )
-                    );
-                    nodes.push_back(
-                        // l_orderkey x o_orderkey
-                        rapidsmpf::ndsh::inner_join_shuffle(
-                            ctx,
-                            supplier_x_part_x_partsupp_x_lineitem_shuffled,
-                            orders_shuffled,
-                            supplier_x_part_x_partsupp_x_lineitem_x_orders,
-                            {4},
-                            {1},
-                            rapidsmpf::ndsh::KeepKeys::NO
-                        )  // s_nationkey, ps_supplycost, l_discount, l_extendedprice,
-                           // l_quantity, o_orderdate
-                    );
-                } else {
-                    nodes.push_back(
-                        // l_orderkey x o_orderkey
-                        rapidsmpf::ndsh::inner_join_broadcast(
-                            ctx,
-                            supplier_x_part_x_partsupp_x_lineitem,
-                            orders,
-                            supplier_x_part_x_partsupp_x_lineitem_x_orders,
-                            {4},
-                            {1},
-                            rapidsmpf::OpID{
-                                static_cast<rapidsmpf::OpID>(10 * i + op_id++)
-                            },
-                            rapidsmpf::ndsh::KeepKeys::NO
-                        )  // s_nationkey, ps_supplycost, l_discount, l_extendedprice,
-                           // l_quantity, o_orderdate
-                    );
-                }
+                auto orders_shuffled = ctx->create_channel();
+                // TODO: customisable
+                std::uint32_t num_partitions = 16;
                 nodes.push_back(
-                    // n_nationkey x s_nationkey
-                    rapidsmpf::ndsh::inner_join_broadcast(
+                    rapidsmpf::ndsh::shuffle(
                         ctx,
-                        nation,
-                        supplier_x_part_x_partsupp_x_lineitem_x_orders,
-                        all_joined,
-                        {1},
-                        {0},
-                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
-                        rapidsmpf::ndsh::KeepKeys::NO
-                    )  // n_name, ps_supplycost, l_discount, l_extendedprice,
-                    // l_quantity, o_orderdate
-                );
-                auto groupby_input = ctx->create_channel();
-                nodes.push_back(select_columns(ctx, all_joined, groupby_input));
-                auto chunkwise_groupby_output = ctx->create_channel();
-                nodes.push_back(
-                    chunkwise_groupby_agg(ctx, groupby_input, chunkwise_groupby_output)
-                );
-                auto concatenated_groupby_output = ctx->create_channel();
-                nodes.push_back(
-                    rapidsmpf::ndsh::concatenate(
-                        ctx,
-                        chunkwise_groupby_output,
-                        concatenated_groupby_output,
-                        rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+                        supplier_x_part_x_partsupp_x_lineitem,
+                        supplier_x_part_x_partsupp_x_lineitem_shuffled,
+                        {4},
+                        num_partitions,
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
                     )
                 );
-                auto groupby_output = ctx->create_channel();
-                nodes.push_back(final_groupby_agg(
+                nodes.push_back(
+                    rapidsmpf::ndsh::shuffle(
+                        ctx,
+                        orders,
+                        orders_shuffled,
+                        {1},
+                        num_partitions,
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+                    )
+                );
+                nodes.push_back(
+                    // l_orderkey x o_orderkey
+                    rapidsmpf::ndsh::inner_join_shuffle(
+                        ctx,
+                        supplier_x_part_x_partsupp_x_lineitem_shuffled,
+                        orders_shuffled,
+                        supplier_x_part_x_partsupp_x_lineitem_x_orders,
+                        {4},
+                        {1},
+                        rapidsmpf::ndsh::KeepKeys::NO
+                    )  // s_nationkey, ps_supplycost, l_discount, l_extendedprice,
+                       // l_quantity, o_orderdate
+                );
+            } else {
+                nodes.push_back(
+                    // l_orderkey x o_orderkey
+                    rapidsmpf::ndsh::inner_join_broadcast(
+                        ctx,
+                        supplier_x_part_x_partsupp_x_lineitem,
+                        orders,
+                        supplier_x_part_x_partsupp_x_lineitem_x_orders,
+                        {4},
+                        {1},
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
+                        rapidsmpf::ndsh::KeepKeys::NO
+                    )  // s_nationkey, ps_supplycost, l_discount, l_extendedprice,
+                       // l_quantity, o_orderdate
+                );
+            }
+            nodes.push_back(
+                // n_nationkey x s_nationkey
+                rapidsmpf::ndsh::inner_join_broadcast(
                     ctx,
-                    concatenated_groupby_output,
-                    groupby_output,
-                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
-                ));
-                auto sorted_output = ctx->create_channel();
-                nodes.push_back(sort_by(ctx, groupby_output, sorted_output));
-                nodes.push_back(write_parquet(ctx, sorted_output, output_path));
-            }
-            auto end = std::chrono::steady_clock::now();
-            std::chrono::duration<double> pipeline = end - start;
-            start = std::chrono::steady_clock::now();
-            {
-                RAPIDSMPF_NVTX_SCOPED_RANGE("Q9 Iteration");
-                rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
-            }
-            end = std::chrono::steady_clock::now();
-            std::chrono::duration<double> compute = end - start;
-            comm->logger().print(
-                "Iteration ", i, " pipeline construction time [s]: ", pipeline.count()
+                    nation,
+                    supplier_x_part_x_partsupp_x_lineitem_x_orders,
+                    all_joined,
+                    {1},
+                    {0},
+                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)},
+                    rapidsmpf::ndsh::KeepKeys::NO
+                )  // n_name, ps_supplycost, l_discount, l_extendedprice,
+                // l_quantity, o_orderdate
             );
-            comm->logger().print("Iteration ", i, " compute time [s]: ", compute.count());
-            timings.push_back(pipeline.count());
-            timings.push_back(compute.count());
-            ctx->comm()->logger().print(stats->report());
-            RAPIDSMPF_MPI(MPI_Barrier(mpi_comm));
+            auto groupby_input = ctx->create_channel();
+            nodes.push_back(select_columns(ctx, all_joined, groupby_input));
+            auto chunkwise_groupby_output = ctx->create_channel();
+            nodes.push_back(
+                chunkwise_groupby_agg(ctx, groupby_input, chunkwise_groupby_output)
+            );
+            auto concatenated_groupby_output = ctx->create_channel();
+            nodes.push_back(
+                rapidsmpf::ndsh::concatenate(
+                    ctx,
+                    chunkwise_groupby_output,
+                    concatenated_groupby_output,
+                    rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+                )
+            );
+            auto groupby_output = ctx->create_channel();
+            nodes.push_back(final_groupby_agg(
+                ctx,
+                concatenated_groupby_output,
+                groupby_output,
+                rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+            ));
+            auto sorted_output = ctx->create_channel();
+            nodes.push_back(sort_by(ctx, groupby_output, sorted_output));
+            nodes.push_back(write_parquet(ctx, sorted_output, output_path));
         }
-        if (comm->rank() == 0) {
-            for (int i = 0; i < 2; i++) {
-                comm->logger().print(
-                    "Iteration ",
-                    i,
-                    " pipeline construction time [s]: ",
-                    timings[size_t(2 * i)]
-                );
-                comm->logger().print(
-                    "Iteration ", i, " compute time [s]: ", timings[size_t(2 * i + 1)]
-                );
-            }
+        auto end = std::chrono::steady_clock::now();
+        std::chrono::duration<double> pipeline = end - start;
+        start = std::chrono::steady_clock::now();
+        {
+            RAPIDSMPF_NVTX_SCOPED_RANGE("Q9 Iteration");
+            rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
+        }
+        end = std::chrono::steady_clock::now();
+        std::chrono::duration<double> compute = end - start;
+        timings.push_back(pipeline.count());
+        timings.push_back(compute.count());
+        ctx->comm()->logger().print(ctx->statistics()->report());
+    }
+    if (ctx->comm()->rank() == 0) {
+        for (int i = 0; i < arguments.num_iterations; i++) {
+            ctx->comm()->logger().print(
+                "Iteration ",
+                i,
+                " pipeline construction time [s]: ",
+                timings[size_t(2 * i)]
+            );
+            ctx->comm()->logger().print(
+                "Iteration ", i, " compute time [s]: ", timings[size_t(2 * i + 1)]
+            );
         }
     }
-
-    RAPIDSMPF_MPI(MPI_Comm_free(&mpi_comm));
-    RAPIDSMPF_MPI(MPI_Finalize());
+    if (rapidsmpf::mpi::is_initialized()) {
+        RAPIDSMPF_MPI(MPI_Finalize());
+    }
     return 0;
 }
