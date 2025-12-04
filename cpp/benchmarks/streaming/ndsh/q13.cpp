@@ -143,12 +143,14 @@ rapidsmpf::streaming::Node filter_orders(
             table.select({1, 2}), mask->view(), chunk_stream, mr
         );
 
-        co_await ch_out->send(rapidsmpf::streaming::to_message(
-            msg.sequence_number(),
-            std::make_unique<rapidsmpf::streaming::TableChunk>(
-                std::move(filtered), chunk_stream
+        co_await ch_out->send(
+            rapidsmpf::streaming::to_message(
+                msg.sequence_number(),
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::move(filtered), chunk_stream
+                )
             )
-        ));
+        );
     }
     co_await ch_out->drain(ctx->executor());
 }
@@ -182,9 +184,11 @@ rapidsmpf::streaming::Node chunkwise_groupby_agg(
         aggs.emplace_back(agg_factory());
 
         auto requests = std::vector<cudf::groupby::aggregation_request>();
-        requests.push_back(cudf::groupby::aggregation_request(
-            table.column(value_col_idx), std::move(aggs)
-        ));
+        requests.push_back(
+            cudf::groupby::aggregation_request(
+                table.column(value_col_idx), std::move(aggs)
+            )
+        );
 
         auto [keys, results] =
             grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
@@ -194,12 +198,14 @@ rapidsmpf::streaming::Node chunkwise_groupby_agg(
         for (auto&& r : results) {
             std::ranges::move(r.results, std::back_inserter(result));
         }
-        co_await ch_out->send(rapidsmpf::streaming::to_message(
-            sequence++,
-            std::make_unique<rapidsmpf::streaming::TableChunk>(
-                std::make_unique<cudf::table>(std::move(result)), chunk_stream
+        co_await ch_out->send(
+            rapidsmpf::streaming::to_message(
+                sequence++,
+                std::make_unique<rapidsmpf::streaming::TableChunk>(
+                    std::make_unique<cudf::table>(std::move(result)), chunk_stream
+                )
             )
-        ));
+        );
     }
     co_await ch_out->drain(ctx->executor());
 }
@@ -260,9 +266,11 @@ rapidsmpf::streaming::Node all_gather_groupby_sort(
             aggs.emplace_back(cudf::make_sum_aggregation<cudf::groupby_aggregation>());
 
             auto requests = std::vector<cudf::groupby::aggregation_request>();
-            requests.push_back(cudf::groupby::aggregation_request(
-                global_result->view().column(1), std::move(aggs)
-            ));
+            requests.push_back(
+                cudf::groupby::aggregation_request(
+                    global_result->view().column(1), std::move(aggs)
+                )
+            );
 
             auto [keys, results] =
                 grouper.aggregate(requests, chunk_stream, ctx->br()->device_mr());
@@ -285,21 +293,25 @@ rapidsmpf::streaming::Node all_gather_groupby_sort(
             );
             grouped.reset();
 
-            co_await ch_out->send(rapidsmpf::streaming::to_message(
-                0,
-                std::make_unique<rapidsmpf::streaming::TableChunk>(
-                    std::move(sorted), chunk_stream
+            co_await ch_out->send(
+                rapidsmpf::streaming::to_message(
+                    0,
+                    std::make_unique<rapidsmpf::streaming::TableChunk>(
+                        std::move(sorted), chunk_stream
+                    )
                 )
-            ));
+            );
 
         } else {
             // Drop chunk, we don't need it.
             std::ignore = std::move(packed_data);
         }
     } else {
-        co_await ch_out->send(rapidsmpf::streaming::to_message(
-            0, std::make_unique<rapidsmpf::streaming::TableChunk>(std::move(chunk))
-        ));
+        co_await ch_out->send(
+            rapidsmpf::streaming::to_message(
+                0, std::make_unique<rapidsmpf::streaming::TableChunk>(std::move(chunk))
+            )
+        );
     }
 }
 
@@ -347,7 +359,6 @@ struct ProgramOptions {
     int num_streaming_threads{1};
     cudf::size_type num_rows_per_chunk{100'000'000};
     std::optional<double> spill_device_limit{std::nullopt};
-    bool use_shuffle_join = false;
     std::string output_file;
     std::string input_directory;
 };
@@ -364,7 +375,6 @@ ProgramOptions parse_options(int argc, char** argv) {
                "100000000)\n"
             << "  --spill-device-limit <n>     Fractional spill device limit (default: "
                "None)\n"
-            << "  --use-shuffle-join           Use shuffle join (default: false)\n"
             << "  --output-file <path>         Output file path (required)\n"
             << "  --input-directory <path>     Input directory path (required)\n"
             << "  --help                       Show this help message\n";
@@ -373,11 +383,10 @@ ProgramOptions parse_options(int argc, char** argv) {
     static struct option long_options[] = {
         {"num-streaming-threads", required_argument, nullptr, 1},
         {"num-rows-per-chunk", required_argument, nullptr, 2},
-        {"use-shuffle-join", no_argument, nullptr, 3},
-        {"output-file", required_argument, nullptr, 4},
-        {"input-directory", required_argument, nullptr, 5},
-        {"help", no_argument, nullptr, 6},
-        {"spill-device-limit", required_argument, nullptr, 7},
+        {"output-file", required_argument, nullptr, 3},
+        {"input-directory", required_argument, nullptr, 4},
+        {"help", no_argument, nullptr, 5},
+        {"spill-device-limit", required_argument, nullptr, 6},
         {nullptr, 0, nullptr, 0}
     };
 
@@ -396,20 +405,17 @@ ProgramOptions parse_options(int argc, char** argv) {
             options.num_rows_per_chunk = std::atoi(optarg);
             break;
         case 3:
-            options.use_shuffle_join = true;
-            break;
-        case 4:
             options.output_file = optarg;
             saw_output_file = true;
             break;
-        case 5:
+        case 4:
             options.input_directory = optarg;
             saw_input_directory = true;
             break;
-        case 6:
+        case 5:
             print_usage();
             std::exit(0);
-        case 7:
+        case 6:
             options.spill_device_limit = std::stod(optarg);
             break;
         case '?':
@@ -543,69 +549,69 @@ int main(int argc, char** argv) {
                 std::uint32_t num_partitions = 128;
 
                 auto orders_shuffled = ctx->create_channel();
-                nodes.push_back(rapidsmpf::ndsh::shuffle(
-                    ctx,
-                    filtered_orders,
-                    orders_shuffled,
-                    {0},
-                    num_partitions,
-                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
-                ));  // o_custkey, o_orderkey
+                nodes.push_back(
+                    rapidsmpf::ndsh::shuffle(
+                        ctx,
+                        filtered_orders,
+                        orders_shuffled,
+                        {0},
+                        num_partitions,
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+                    )
+                );  // o_custkey, o_orderkey
 
                 auto customer_shuffled = ctx->create_channel();
-                nodes.push_back(rapidsmpf::ndsh::shuffle(
-                    ctx,
-                    customer,
-                    customer_shuffled,
-                    {0},
-                    num_partitions,
-                    rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
-                ));  // c_custkey
+                nodes.push_back(
+                    rapidsmpf::ndsh::shuffle(
+                        ctx,
+                        customer,
+                        customer_shuffled,
+                        {0},
+                        num_partitions,
+                        rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(10 * i + op_id++)}
+                    )
+                );  // c_custkey
 
                 // left join customer_shuffled and orders_shuffled
                 auto customer_x_orders = ctx->create_channel();
-                nodes.push_back(rapidsmpf::ndsh::left_join_shuffle(
-                    ctx, customer_shuffled, orders_shuffled, customer_x_orders, {0}, {0}
-                ));  // c_custkey, o_orderkey
+                nodes.push_back(
+                    rapidsmpf::ndsh::left_join_shuffle(
+                        ctx,
+                        customer_shuffled,
+                        orders_shuffled,
+                        customer_x_orders,
+                        {0},
+                        {0}
+                    )
+                );  // c_custkey, o_orderkey
 
                 auto chunkwise_groupby_output = ctx->create_channel();
                 nodes.push_back(chunkwise_groupby_agg(
-                    ctx,
-                    customer_x_orders,
-                    chunkwise_groupby_output,
-                    0,
-                    1,
-                    [] {
+                    ctx, customer_x_orders, chunkwise_groupby_output, 0, 1, [] {
                         return cudf::make_count_aggregation<cudf::groupby_aggregation>();
                     }
                 ));  // c_custkey, count
 
                 auto concatenated_groupby_output = ctx->create_channel();
-                nodes.push_back(rapidsmpf::ndsh::concatenate(
-                    ctx,
-                    chunkwise_groupby_output,
-                    concatenated_groupby_output,
-                    rapidsmpf::ndsh::ConcatOrder::DONT_CARE
-                ));  // c_custkey, count
+                nodes.push_back(
+                    rapidsmpf::ndsh::concatenate(
+                        ctx,
+                        chunkwise_groupby_output,
+                        concatenated_groupby_output,
+                        rapidsmpf::ndsh::ConcatOrder::DONT_CARE
+                    )
+                );  // c_custkey, count
 
                 auto groupby_output = ctx->create_channel();
                 nodes.push_back(chunkwise_groupby_agg(
-                    ctx,
-                    concatenated_groupby_output,
-                    groupby_output,
-                    0,
-                    1,
-                    [] { return cudf::make_sum_aggregation<cudf::groupby_aggregation>(); }
+                    ctx, concatenated_groupby_output, groupby_output, 0, 1, [] {
+                        return cudf::make_sum_aggregation<cudf::groupby_aggregation>();
+                    }
                 ));  // c_custkey, count
 
                 auto groupby_count_output = ctx->create_channel();
                 nodes.push_back(chunkwise_groupby_agg(
-                    ctx,
-                    groupby_output,
-                    groupby_count_output,
-                    1,
-                    0,
-                    [] {
+                    ctx, groupby_output, groupby_count_output, 1, 0, [] {
                         return cudf::make_count_aggregation<cudf::groupby_aggregation>();
                     }
                 ));  // count, len
@@ -647,8 +653,6 @@ int main(int argc, char** argv) {
                 RAPIDSMPF_MPI(MPI_Barrier(mpi_comm));
             }
 
-            std::cout << "Rank " << comm->rank() << " has " << timings.size()
-                      << " timings" << std::endl;
             if (comm->rank() == 0) {
                 for (int i = 0; i < 2; i++) {
                     comm->logger().print(

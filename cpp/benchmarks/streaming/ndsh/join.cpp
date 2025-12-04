@@ -518,20 +518,22 @@ streaming::Node shuffle(
         auto packed_data = co_await shuffler.extract_async(pid);
         RAPIDSMPF_EXPECTS(packed_data.has_value(), "Partition already extracted");
         auto stream = ctx->br()->stream_pool().get_stream();
-        co_await ch_out->send(streaming::to_message(
-            pid,
-            std::make_unique<streaming::TableChunk>(
-                unpack_and_concat(
-                    unspill_partitions(
-                        std::move(*packed_data), ctx->br(), true, ctx->statistics()
+        co_await ch_out->send(
+            streaming::to_message(
+                pid,
+                std::make_unique<streaming::TableChunk>(
+                    unpack_and_concat(
+                        unspill_partitions(
+                            std::move(*packed_data), ctx->br(), true, ctx->statistics()
+                        ),
+                        stream,
+                        ctx->br(),
+                        ctx->statistics()
                     ),
-                    stream,
-                    ctx->br(),
-                    ctx->statistics()
-                ),
-                stream
+                    stream
+                )
             )
-        ));
+        );
     }
     co_await ch_out->drain(ctx->executor());
 }

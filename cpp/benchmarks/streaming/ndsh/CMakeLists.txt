@@ -66,7 +66,6 @@ install(
   EXCLUDE_FROM_ALL
 )
 
-
 add_executable(q13 "q13.cpp")
 set_target_properties(
   q13
