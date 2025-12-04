@@ -32,7 +32,7 @@ void enable_hugepage_for_region(void* ptr, std::size_t size) {
     }
 
 #ifdef MADV_HUGEPAGE
-    auto const pagesize = static_cast<std::size_t>(::sysconf(_SC_PAGESIZE));
+    static auto const pagesize = static_cast<std::size_t>(::sysconf(_SC_PAGESIZE));
     void* addr = ptr;
     auto length = size;
 
