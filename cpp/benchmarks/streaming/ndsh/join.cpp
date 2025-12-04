@@ -522,13 +522,9 @@ streaming::Node shuffle(
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
-            ctx->comm()->logger().print("Shuffle: no more input");
             break;
         }
         auto chunk = to_device(ctx, msg.release<streaming::TableChunk>());
-        ctx->comm()->logger().print(
-            "Shuffle: received chunk. nrows=", chunk.table_view().num_rows()
-        );
         auto packed = partition_and_pack(
             chunk.table_view(),
             keys,
@@ -541,7 +537,6 @@ streaming::Node shuffle(
         );
         shuffler.insert(std::move(packed));
     }
-    ctx->comm()->logger().print("Shuffle: inserted all chunks");
     co_await shuffler.insert_finished();
     for (auto pid : shuffler.local_partitions()) {
         auto packed_data = co_await shuffler.extract_async(pid);

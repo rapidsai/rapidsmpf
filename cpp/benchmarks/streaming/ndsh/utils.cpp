@@ -85,7 +85,6 @@ void debug_print_table(
     }
 }
 
-
 }  // namespace detail
 
 streaming::TableChunk to_device(
