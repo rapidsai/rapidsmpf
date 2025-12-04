@@ -607,6 +607,45 @@ static __device__ void calculate_revenue(double *revenue, double extprice, doubl
 }
 }  // namespace
 
+/**
+ * @brief Run a derived version of TPC-H query 1.
+ *
+ * The SQL form of the query is:
+ * @code{.sql}
+ * select
+ *     nation,
+ *     o_year,
+ *     round(sum(amount), 2) as sum_profit
+ * from
+ *     (
+ *         select
+ *             n_name as nation,
+ *             year(o_orderdate) as o_year,
+ *             l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount
+ *         from
+ *             part,
+ *             supplier,
+ *             lineitem,
+ *             partsupp,
+ *             orders,
+ *             nation
+ *         where
+ *             s_suppkey = l_suppkey
+ *             and ps_suppkey = l_suppkey
+ *             and ps_partkey = l_partkey
+ *             and p_partkey = l_partkey
+ *             and o_orderkey = l_orderkey
+ *             and s_nationkey = n_nationkey
+ *             and p_name like '%green%'
+ *     ) as profit
+ * group by
+ *     nation,
+ *     o_year
+ * order by
+ *     nation,
+ *     o_year desc
+ * @endcode{}
+ */
 int main(int argc, char** argv) {
     cudaFree(nullptr);
     auto mr = rmm::mr::cuda_async_memory_resource{};
