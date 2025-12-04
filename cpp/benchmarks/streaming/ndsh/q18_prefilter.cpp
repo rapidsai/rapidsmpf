@@ -1084,6 +1084,7 @@ int main(int argc, char** argv) {
                 300.0,  // quantity_threshold
                 rapidsmpf::OpID{static_cast<rapidsmpf::OpID>(100 + iteration)}
             );
+            auto phase1_end = std::chrono::steady_clock::now();
 
             if (!qualifying_orderkeys || qualifying_orderkeys->num_rows() == 0) {
                 comm->logger().print("No qualifying orderkeys found - empty result");
@@ -1231,21 +1232,31 @@ int main(int argc, char** argv) {
             nodes.push_back(write_parquet(ctx, final_output, output_path));
 
             // Run pipeline
-            auto pipeline_end = std::chrono::steady_clock::now();
+            auto phase2_build_end = std::chrono::steady_clock::now();
             rapidsmpf::streaming::run_streaming_pipeline(std::move(nodes));
-            auto compute_end = std::chrono::steady_clock::now();
+            auto phase2_run_end = std::chrono::steady_clock::now();
 
-            std::chrono::duration<double> pipeline_time = pipeline_end - start;
-            std::chrono::duration<double> compute_time = compute_end - pipeline_end;
+            std::chrono::duration<double> phase1_time = phase1_end - start;
+            std::chrono::duration<double> phase2_build_time =
+                phase2_build_end - phase1_end;
+            std::chrono::duration<double> phase2_run_time =
+                phase2_run_end - phase2_build_end;
+            std::chrono::duration<double> total_time = phase2_run_end - start;
 
             comm->logger().print(
                 "Iteration ",
                 iteration,
-                " pipeline construction [s]: ",
-                pipeline_time.count()
+                " Phase 1 (groupby+filter) [s]: ",
+                phase1_time.count()
             );
             comm->logger().print(
-                "Iteration ", iteration, " compute time [s]: ", compute_time.count()
+                "Iteration ", iteration, " Phase 2 build [s]: ", phase2_build_time.count()
+            );
+            comm->logger().print(
+                "Iteration ", iteration, " Phase 2 run [s]: ", phase2_run_time.count()
+            );
+            comm->logger().print(
+                "Iteration ", iteration, " TOTAL [s]: ", total_time.count()
             );
             comm->logger().print(stats->report());
 
