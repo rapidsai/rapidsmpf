@@ -431,7 +431,7 @@ streaming::Node left_join_shuffle(
     std::vector<cudf::size_type> right_on
 ) {
     streaming::ShutdownAtExit c{left, right, ch_out};
-    ctx->comm()->logger().print("left shuffle join");
+    ctx->comm()->logger().print("Left shuffle join");
     co_await ctx->executor()->schedule();
     CudaEvent build_event;
     while (true) {
