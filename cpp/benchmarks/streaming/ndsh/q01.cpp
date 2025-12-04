@@ -43,30 +43,6 @@
 #include "concatenate.hpp"
 #include "utils.hpp"
 
-// select
-//     l_orderkey,
-//     sum(l_extendedprice * (1 - l_discount)) as revenue,
-//     o_orderdate,
-//     o_shippriority
-// from
-//     customer,
-//     orders,
-//     lineitem
-// where
-//     c_mktsegment = 'BUILDING'
-//     and c_custkey = o_custkey
-//     and l_orderkey = o_orderkey
-//     and o_orderdate < '1995-03-15'
-//     and l_shipdate > '1995-03-15'
-// group by
-//     l_orderkey,
-//     o_orderdate,
-//     o_shippriority
-// order by
-//     revenue desc,
-//     o_orderdate
-// limit 10
-
 namespace {
 
 std::string get_table_path(
@@ -645,6 +621,36 @@ static __device__ void calculate_charge(double *charge, double discprice, double
 }
 }  // namespace
 
+/**
+ * @brief Run a derived version of TPC-H query 1.
+ *
+ * The SQL form of the query is:
+ * @code{.sql}
+ * select
+ *     l_orderkey,
+ *     sum(l_extendedprice * (1 - l_discount)) as revenue,
+ *     o_orderdate,
+ *     o_shippriority
+ * from
+ *     customer,
+ *     orders,
+ *     lineitem
+ * where
+ *     c_mktsegment = 'BUILDING'
+ *     and c_custkey = o_custkey
+ *     and l_orderkey = o_orderkey
+ *     and o_orderdate < '1995-03-15'
+ *     and l_shipdate > '1995-03-15'
+ * group by
+ *     l_orderkey,
+ *     o_orderdate,
+ *     o_shippriority
+ * order by
+ *     revenue desc,
+ *     o_orderdate
+ * limit 10
+ * @endcode{}
+ */
 int main(int argc, char** argv) {
     cudaFree(nullptr);
     auto mr = rmm::mr::cuda_async_memory_resource{};
