@@ -12,7 +12,6 @@
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 
 namespace rapidsmpf {
-
 namespace {
 
 /**
@@ -30,15 +29,11 @@ void enable_hugepage_for_region(void* ptr, std::size_t size) {
     if (size < (1u << 22u)) {  // smaller than 4 MiB, skip
         return;
     }
-
 #ifdef MADV_HUGEPAGE
     static auto const pagesize = static_cast<std::size_t>(::sysconf(_SC_PAGESIZE));
-    void* addr = ptr;
-    auto length = size;
-
-    if (std::align(pagesize, pagesize, addr, length)) {
+    if (std::align(pagesize, pagesize, ptr, size)) {
         // Best effort, we ignore errors. On older kernels this may fail or be a no-op.
-        ::madvise(addr, length, MADV_HUGEPAGE);
+        ::madvise(ptr, size, MADV_HUGEPAGE);
     }
 #endif
 }
