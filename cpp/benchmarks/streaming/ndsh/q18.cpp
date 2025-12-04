@@ -127,13 +127,14 @@ rapidsmpf::streaming::Node groupby_filter_lineitem(
 ) {
     rapidsmpf::streaming::ShutdownAtExit c{ch_in, ch_out};
     auto mr = ctx->br()->device_mr();
-    std::uint64_t sequence = 0;
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {
             break;
         }
         co_await ctx->executor()->schedule();
+        // Preserve the input sequence number (partition ID for shuffle joins)
+        auto sequence = msg.sequence_number();
         auto chunk = rapidsmpf::ndsh::to_device(
             ctx, msg.release<rapidsmpf::streaming::TableChunk>()
         );
@@ -182,7 +183,7 @@ rapidsmpf::streaming::Node groupby_filter_lineitem(
 
         co_await ch_out->send(
             rapidsmpf::streaming::to_message(
-                sequence++,
+                sequence,
                 std::make_unique<rapidsmpf::streaming::TableChunk>(
                     std::move(filtered_table), chunk_stream
                 )
