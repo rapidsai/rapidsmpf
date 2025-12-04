@@ -547,6 +547,7 @@ rapidsmpf::streaming::Node write_parquet(
 struct ProgramOptions {
     int num_streaming_threads{1};
     cudf::size_type num_rows_per_chunk{100'000'000};
+    std::uint32_t num_partitions{16};
     std::optional<double> spill_device_limit{std::nullopt};
     bool use_shuffle_join = false;
     bool shuffle_customer = false;
@@ -565,6 +566,9 @@ ProgramOptions parse_options(int argc, char** argv) {
             << "  --num-streaming-threads <n>  Number of streaming threads (default: 1)\n"
             << "  --num-rows-per-chunk <n>     Number of rows per chunk (default: "
                "100000000)\n"
+            << "  --num-partitions <n>         Number of shuffle partitions (default: "
+               "16, "
+               "use 64+ for SF1000+)\n"
             << "  --spill-device-limit <n>     Fractional spill device limit (default: "
                "None)\n"
             << "  --use-shuffle-join           Use shuffle join for lineitem/orders "
@@ -589,6 +593,7 @@ ProgramOptions parse_options(int argc, char** argv) {
         {"spill-device-limit", required_argument, nullptr, 7},
         {"spillable-fanout", no_argument, nullptr, 8},
         {"shuffle-customer", no_argument, nullptr, 9},
+        {"num-partitions", required_argument, nullptr, 10},
         {nullptr, 0, nullptr, 0}
     };
 
@@ -628,6 +633,9 @@ ProgramOptions parse_options(int argc, char** argv) {
             break;
         case 9:
             options.shuffle_customer = true;
+            break;
+        case 10:
+            options.num_partitions = static_cast<std::uint32_t>(std::atoi(optarg));
             break;
         case '?':
             if (optopt == 0 && optind > 1) {
@@ -746,7 +754,7 @@ int main(int argc, char** argv) {
                 RAPIDSMPF_NVTX_SCOPED_RANGE("Constructing Q18 pipeline");
 
                 // Number of partitions for shuffle operations
-                std::uint32_t num_partitions = 16;
+                std::uint32_t num_partitions = cmd_options.num_partitions;
 
                 // Read orders
                 auto orders = ctx->create_channel();
