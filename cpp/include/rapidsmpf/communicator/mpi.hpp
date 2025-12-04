@@ -121,7 +121,7 @@ class MPI final : public Communicator {
      */
     MPI(MPI_Comm comm, config::Options options);
 
-    ~MPI() noexcept override = default;
+    ~MPI() noexcept override;
 
     /**
      * @copydoc Communicator::rank
