@@ -32,6 +32,18 @@ namespace bootstrap {
 bool is_running_with_rrun();
 
 /**
+ * @brief Get the number of `rrun` ranks.
+ *
+ * This helper retrieves the number of ranks when running with `rrun`.
+ * The number of ranks is fetched from the `RAPIDSMPF_NRANKS` environment variable.
+ *
+ * @return Number of ranks.
+ * @throws std::runtime_error if not running with `rrun` or if `RAPIDSMPF_NRANKS` is not set
+ *         or cannot be parsed.
+ */
+std::int32_t get_nranks();
+
+/**
  * @brief Create a UCXX communicator using the bootstrap backend.
  *
  * This function creates a fully initialized UCXX communicator by:

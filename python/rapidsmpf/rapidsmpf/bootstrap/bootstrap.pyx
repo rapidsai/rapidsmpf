@@ -24,6 +24,9 @@ cdef extern from "<rapidsmpf/bootstrap/ucxx.hpp>" nogil:
     bint cpp_is_running_with_rrun \
         "rapidsmpf::bootstrap::is_running_with_rrun"() except +
 
+    int cpp_get_nranks \
+        "rapidsmpf::bootstrap::get_nranks"() except +
+
     shared_ptr[cpp_UCXX_Communicator] cpp_create_ucxx_comm \
         "rapidsmpf::bootstrap::create_ucxx_comm"(
             Backend backend,
@@ -93,3 +96,27 @@ def is_running_with_rrun():
     with nogil:
         ret = cpp_is_running_with_rrun()
     return bool(ret)
+
+
+def get_nranks():
+    """
+    Get the number of ``rrun`` ranks.
+
+    This helper retrieves the number of ranks when running with ``rrun``.
+    The number of ranks is fetched from the ``RAPIDSMPF_NRANKS`` environment variable.
+
+    Returns
+    -------
+    int
+        Number of ranks.
+
+    Raises
+    ------
+    RuntimeError
+        If not running with ``rrun`` or if ``RAPIDSMPF_NRANKS`` is not set
+        or cannot be parsed.
+    """
+    cdef int ret
+    with nogil:
+        ret = cpp_get_nranks()
+    return ret

@@ -10,17 +10,46 @@
 #include <chrono>
 #include <cstdlib>
 #include <memory>
+#include <string>
 
 #include <cuda_device_runtime_api.h>
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/ucxx.hpp>
 #include <rapidsmpf/communicator/ucxx.hpp>
+#include <rapidsmpf/error.hpp>
 
 namespace rapidsmpf::bootstrap {
 
 bool is_running_with_rrun() {
     return std::getenv("RAPIDSMPF_RANK") != nullptr;
+}
+
+std::int32_t get_nranks() {
+    RAPIDSMPF_EXPECTS(
+        is_running_with_rrun(),
+        "get_nranks() can only be called when running with `rrun`. "
+        "Set RAPIDSMPF_RANK environment variable or use a launcher like 'rrun'.",
+        std::runtime_error
+    );
+
+    char const* nranks_str = std::getenv("RAPIDSMPF_NRANKS");
+    RAPIDSMPF_EXPECTS(
+        nranks_str != nullptr,
+        "RAPIDSMPF_NRANKS environment variable not set. "
+        "Make sure to use a rrun launcher to call this function.",
+        std::runtime_error
+    );
+
+    try {
+        return std::stoi(nranks_str);
+    } catch (...) {
+        RAPIDSMPF_FAIL(
+            "Failed to parse integer from RAPIDSMPF_NRANKS environment variable: "
+            + std::string(nranks_str),
+            std::runtime_error
+        );
+    }
 }
 
 std::shared_ptr<ucxx::UCXX> create_ucxx_comm(Backend backend, config::Options options) {
